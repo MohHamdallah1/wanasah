@@ -301,7 +301,14 @@ async def activate_costing_for_first_receipt(
     await _policy_guard(db, int(company_id))
     policy = await get_cost_policy(db, company_id=int(company_id), lock=True)
     if policy is not None and policy.is_active:
+        # Never reinterpret or rewrite pre-migration locked financial history.
         return policy
+    if policy is None or policy.selected_at is None or policy.selected_by is None:
+        raise CostingError(
+            "INVENTORY_COST_POLICY_SELECTION_REQUIRED",
+            "Choose and save a costing method before the first costed receipt.",
+            status_code=409,
+        )
     existing_quantity = await db.scalar(
         select(func.coalesce(func.sum(InventoryBalance.on_hand_quantity), Decimal("0"))).where(
             InventoryBalance.company_id == int(company_id),
@@ -315,23 +322,11 @@ async def activate_costing_for_first_receipt(
             context={"existing_quantity": format(Decimal(existing_quantity or 0), "f")},
         )
     now = datetime.now(timezone.utc).replace(tzinfo=None)
-    if policy is None:
-        policy = InventoryCostPolicy(
-            company_id=int(company_id),
-            method="MOVING_AVERAGE",
-            is_active=True,
-            locked_at=now,
-            version=1,
-            created_by=int(actor_id),
-            updated_by=int(actor_id),
-        )
-        db.add(policy)
-    else:
-        policy.is_active = True
-        policy.locked_at = now
-        policy.version += 1
-        policy.updated_by = int(actor_id)
-        policy.updated_at = now
+    policy.is_active = True
+    policy.locked_at = now
+    policy.version += 1
+    policy.updated_by = int(actor_id)
+    policy.updated_at = now
     await db.flush()
     return policy
 
