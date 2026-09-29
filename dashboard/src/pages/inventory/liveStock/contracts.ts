@@ -359,7 +359,7 @@ export function parseLiveStockPage(
       name: str(row.name, code),
       sku: nullableStr(row.sku, code, 100),
       product_id: int(row.product_id, code, 1),
-      family_name: str(row.family_name, code, 150),
+      family_name: str(row.family_name, code, 200),
       base_uom_id: int(row.base_uom_id, code, 1),
       base_uom_code: str(row.base_uom_code, code, 20),
       base_uom_name: str(row.base_uom_name, code, 50),
@@ -482,7 +482,7 @@ export function parseLiveStockFamilies(
     const row = record(value, code);
     return {
       id: int(row.id, code, 1),
-      name: str(row.name, code, 150),
+      name: str(row.name, code, 200),
       code: str(row.code, code, 100),
     };
   });
@@ -534,7 +534,7 @@ export function parseBatchProductPage(
       id,
       name: str(row.name, code),
       sku: nullableStr(row.sku, code, 100),
-      family_name: str(row.family_name, code, 150),
+      family_name: str(row.family_name, code, 200),
       base_uom_code: str(row.base_uom_code, code, 20),
       display_uom_code: str(row.display_uom_code, code, 20),
       display_factor_to_base: parseQuantity(
