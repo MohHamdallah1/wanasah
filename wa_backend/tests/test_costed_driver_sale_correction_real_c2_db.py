@@ -217,7 +217,6 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             select(DispatchRoute).where(
                 DispatchRoute.company_id == self.tenant,
                 DispatchRoute.driver_id == self.actor.id,
-                DispatchRoute.status == "active",
             )
         )
         self.assertIsNotNone(route)
@@ -228,21 +227,16 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(locked.price_publication_revision, 1)
         self.assertEqual(locked.tax_ruleset_version, 1)
-        session = await self.db.scalar(
-            select(WorkSession).where(
-                WorkSession.company_id == self.tenant,
-                WorkSession.id == route.work_session_id,
-            )
-        )
-        self.assertIsNotNone(session)
-        session.commercial_context_id = locked.id
-        await self.db.commit()
+        # The fixture creates the active WorkSession with the immutable
+        # context ID at INSERT time, after this route lock has been created.
+        await self.db.flush()
         return int(locked.id)
 
     async def _assert_sale_and_correction(self, method: str):
         visit_id, vehicle_id, batch_id = (
             await customer_fixture.RealCustomerReturnC2DatabaseTests._create_business_fixture(
-                self, method
+                self, method,
+                commercial_context_factory=self._create_real_commercial_context,
             )
         )
         context_id = await self._create_real_commercial_context(visit_id)
