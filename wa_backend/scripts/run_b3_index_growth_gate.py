@@ -187,6 +187,7 @@ def main() -> None:
                 child_env["WANASAH_B38_REAL_IMPORT_GATE"]="1"
                 child_env["WANASAH_B38_MAX_ROWS"]=str(row_count)
                 child_env["WANASAH_B38_VALIDATION_ONLY"]=os.environ.get("WANASAH_B38_VALIDATION_ONLY","0")
+                child_env["WANASAH_B38_CONFLICT_FIXTURE"]=os.environ.get("WANASAH_B38_CONFLICT_FIXTURE","0")
                 print("B38_REAL_XLSX_PROFILE_START",{"rows":row_count,"database":_BENCH},flush=True)
                 b38=subprocess.run([
                     sys.executable,
@@ -199,6 +200,8 @@ def main() -> None:
                                         "B38_STAGE_TIMINGS","B38_SQL_BY_STAGE",
                                         "B38_SLOW_SQL_BY_STAGE",
                                         "B38_VALIDATION_ONLY_REAL_XLSX",
+                                        "B38_CONFLICT_FIXTURE_CREATED",
+                                        "B38_CONFLICT_ASSERTION",
                                         "B38_REAL_XLSX_STAGING_VALIDATION_EXECUTION")):
                         print(line,flush=True)
                 expected = (
