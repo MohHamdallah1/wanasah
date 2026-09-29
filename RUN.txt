@@ -8,19 +8,62 @@ flutter run
 cd dashboard
 npm run dev
 
-worker
-python -m procrastinate --app=product_import_queue.app worker -q product-import
+worker - product import
+.\ops\development\run_product_import_worker.ps1
 
 cd C:\Users\admin\AppData\Local\Android\Sdk\platform-tools
 .\adb connect 192.168.1.192:
 .\adb pair 192.168.0.192:
+
+الـProduct Import Worker: من جذر المشروع:
+.\ops\development\run_product_import_worker.ps1
+
 
 git add .
 git commit -m "stage 8.1.1"
 git push
 
 USERNAME = "platformadmin"
-PASSWORD = "PlatformAdmin#2026!"
+PASSWORD = "<set via secure local configuration; do not commit credentials>"
+
+لتشغيل اداة remote with chat gpt 
+افتح باور شيل وحط هالامر:
+npx @wonderwhy-er/desktop-commander@latest remote
+
+بدنا الان نفتح محادثة جديدة ، المطلوب منك ملف تسليم للمحادثة الجديدة  ، شو بنعمل ووين وصلنا الان ، الملفات اللي شغالين عليها وملفات الخطط اللي الان شغالين عليها حاليا ، وضروري تذكر الملفات المهمة دستور مشروعنا .rule , AGENTS.md , ARCHITECTURE.md ، اذكر ايضا طريقة عملنا كيف انت بتعدل على جت هب وبتنفذ عن طريق اداة remote وطرق اقتصادك لاستخدام الاداة ، ولما ننتهي من فرع بندمجه مع ال main وبنحذفه وبعدها بنبدأ فرع جديد على نظافة بعد وصولنا لنقطة استقرار ، اذكر قواعدنا الصارمة واذكر طريقة تقسيمنا النظيفة للملفات ، واذكر ايضا انه كل بند بنخلصه بنحط عليه علامة x ، يعني حط فيه كل اشي بلزمك تفهمه عشان المحادثة الجديدة نبدأ مكان ما توقفنا 
+
+Business Logic ولا Backend authority ولا Permissions ولا isolation ولا idempotency ولا semantics الخاصة بالطلبات..الخط الأحمر: لا نغيّر 
+
+أنا بشوف الأنسب لمشروعنا يصير كالتالي:
+1. أقرأ GitHub والحالة الحالية.
+2. أعمل التعديل على الفرع في GitHub مثل نظامنا الحالي.
+3. أعمل read-back وsource-test sweep.
+4. من جهازك أنا أعمل git pull.
+5. أشغّل TypeScript + ESLint + الاختبارات المركزة + build.
+6. أي FAIL = أوقف فورًا، أشخصه، أصلحه على GitHub، أسحب التعديل وأعيد الاختبار.
+7. فقط لما checkpoint يصير أخضر بالكامل، أنتقل تلقائيًا للبند التالي.
+8. عند نهاية المرحلة نشغل الـfull gates والمراجعة ثم الدمج والتنظيف حسب نظامنا.
+يعني أنت عمليًا ممكن تقول لي فقط: "كمل"، وأنا أنفذ الدورة كاملة وأرجعلك هنا بالنتيجة النهائية، مع تحديثات قصيرة أثناء الشغل. كل هذا يتم خلال نفس طلبي/ردي الحالي؛ ما بشتغل بعد ما أنهي الرد بالخلفية.
+النظام الافتراضي يصير:
+1. أراجع PRODUCTS_PRODUCTION_PLAN.md + ARCHITECTURE.md + .rules + AGENTS.md وأي قواعد مرتبطة قبل القرارات المهمة.
+2. أعدل GitHub بcommits صغيرة ومفهومة، وأعمل read-back/source-test sweep.
+3. عند كل checkpoint حقيقي أسحب على جهازك وأشغل مجموعة واحدة من TypeScript + ESLint + tests + build بأقل Remote calls ممكنة.
+4. أي FAIL = STOP؛ ما أراكم تعديلات فوقه.
+5. إذا PASS أكمل تلقائيًا للcheckpoint التالي بدون ما أطلب منك "نكمل؟" كل مرة.
+6. عند نهاية جزء كبير مثل Header/List/Modals/Page entry أوقف وأعطيك موجز، أو أكمل للـmilestone إذا كنت قلت لي مسبقًا "كمل للنهاية".
+مشروع SaaS لازم يبقى عندنا فيه:
+tenant/company isolation fail-closed، حدود modules واضحة، backend authority، عدم تغيير workflow بدون إذنك، durable operations سليمة، ولا refactor يخفي التعقيد في god hook أو god component.
+اشتغل بشكل مستقل عبر عدة checkpoints آمنة، لا تتوقف إلا عند FAIL/قرار حقيقي/نهاية milestone، واستخدم Remote Desktop اقتصاديًا بدون أي تخفيض للجودة.
+
+الاقتصاد بالاداة :
+GitHub للقراءة والتعديل والمقارنات؛ ما نستهلك Remote Desktop عليه.
+Desktop Commander فقط للتحقق المحلي.
+أجمع git pull + TypeScript + ESLint + tests + build + git status في استدعاء PowerShell واحد قدر الإمكان.
+أخلي الأمر نفسه يوقف على أول FAIL ويطبع السبب.
+أعطي start_process وقت كافي بدل polling كل شوي.
+ما أعمل read_process_output إلا إذا العملية أطول من المهلة أو في FAIL يحتاج التفاصيل.
+ما أستدعي list_processes/get_config/get_usage_stats إلا عند الحاجة الحقيقية.
+
 
 المتبقي كاملًا:
 إصلاح واجهة العروض بالكامل: المستخدم يختار المنتج المؤهل، المنتج/المنتجات المكافأة، ووحدة كل واحد بوضوح: حبة/كرتونة/أي UOM صالح، وكمية المكافأة لكل منتج. وتدعم بسهولة: اشترِ A وخذ A، اشترِ A وخذ B، وعدة مكافآت عند الحاجة. الـBackend يدعم uom_id + quantity_per_application حاليًا، لكن الواجهة لا ترسلهم بشكل صحيح.
@@ -50,3 +93,50 @@ PASSWORD = "PlatformAdmin#2026!"
 
 
 الإعدادات → إعدادات الشركة → الإعدادات المحلية والمالية، ويكون فيها لاحقًا مثلًا: البلد التشغيلي، العملة الوظيفية، المنطقة الزمنية، وربما اللغة الافتراضية.
+
+تشغيل العمال - التطوير الكامل:
+# العامل التشغيلي العام: مطلوب مع Backend + Dashboard لتعمل مهام الصيانة الدورية
+.\ops\development\run_operational_worker.ps1
+ملاحظة: لا تشغل أوامر Procrastinate المباشرة يدويًا.
+استخدم الـ launcher الرسمي لأنه ينفذ recovery أولًا ثم يشغل العامل.
+# اختياري عند اختبار التقارير:
+.\ops\development\run_reports_worker.ps1
+# اختياري عند اختبار استيراد المنتجات:
+.\ops\development\run_product_import_worker.ps1
+
+وللتأكد إذا فيه Product Import Worker عايش أصلًا:
+Get-CimInstance Win32_Process |
+Where-Object {
+    $_.Name -eq "python.exe" -and
+    $_.CommandLine -match "procrastinate" -and
+    $_.CommandLine -match "product-import"
+} |
+Select-Object ProcessId, CreationDate, CommandLine
+
+ولو بدك بالقوة تقتل أي Product Import worker عالق:
+Get-CimInstance Win32_Process |
+Where-Object {
+    $_.Name -eq "python.exe" -and
+    $_.CommandLine -match "procrastinate" -and
+    $_.CommandLine -match "product-import"
+} |
+ForEach-Object {
+    Stop-Process -Id $_.ProcessId -Force
+}
+
+ولو بدك تعرف أي Worker من أي نوع في Wanasah شغال:
+Get-CimInstance Win32_Process |
+Where-Object {
+    $_.Name -eq "python.exe" -and
+    $_.CommandLine -match "procrastinate"
+} |
+Select-Object ProcessId, CreationDate, CommandLine
+
+ما عندك حاليًا Launcher واحد رسمي يشغل الثلاثة معًا. إذا بدك تفتح الثلاثة دفعة واحدة، من جذر المشروع تقدر تستخدم:
+$root = (Get-Location).Path
+
+Start-Process powershell.exe -WorkingDirectory $root -ArgumentList "-NoExit","-ExecutionPolicy","Bypass","-File","$root\ops\development\run_operational_worker.ps1"
+
+Start-Process powershell.exe -WorkingDirectory $root -ArgumentList "-NoExit","-ExecutionPolicy","Bypass","-File","$root\ops\development\run_reports_worker.ps1"
+
+Start-Process powershell.exe -WorkingDirectory $root -ArgumentList "-NoExit","-ExecutionPolicy","Bypass","-File","$root\ops\development\run_product_import_worker.ps1"

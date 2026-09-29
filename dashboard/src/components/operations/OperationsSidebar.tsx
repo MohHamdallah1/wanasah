@@ -241,7 +241,7 @@ export function OperationsSidebar({
 
       <aside
         className={`
-          operations-sidebar fixed inset-y-0 end-0 z-50 w-[280px] glass-sidebar p-5 flex flex-col transition-transform duration-300
+          operations-sidebar fixed inset-y-0 end-0 z-50 w-[250px] glass-sidebar p-5 flex flex-col transition-transform duration-300
           lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:translate-x-0 lg:rounded-2xl lg:border lg:z-auto
           ${
             open
