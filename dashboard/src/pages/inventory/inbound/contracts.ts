@@ -42,8 +42,14 @@ export interface InboundOptionsResponse {
   items: InboundVariantOptions[];
 }
 
+export type CostMethod = "MOVING_AVERAGE" | "FIFO";
+
 export interface CostPolicy {
-  method: "MOVING_AVERAGE" | "FIFO";
+  // A provisioned inactive default is not an actual choice.
+  method: CostMethod | null;
+  is_selected: boolean;
+  selection_status: "UNSELECTED" | "SELECTED" | "LEGACY_ACTIVE";
+  selected_at: string | null;
   is_active: boolean;
   is_locked: boolean;
   locked_at: string | null;
@@ -349,8 +355,26 @@ export const parseCostPolicy = (raw: unknown): CostPolicy => {
     throw codedError("INVENTORY_COST_POLICY_INVALID");
   }
   const value = raw as Record<string, unknown>;
+  const methodValid =
+    value.method === null ||
+    value.method === "MOVING_AVERAGE" ||
+    value.method === "FIFO";
+  const statusValid = [
+    "UNSELECTED",
+    "SELECTED",
+    "LEGACY_ACTIVE",
+  ].includes(String(value.selection_status));
   if (
-    !["MOVING_AVERAGE", "FIFO"].includes(String(value.method)) ||
+    !methodValid ||
+    !statusValid ||
+    typeof value.is_selected !== "boolean" ||
+    (value.is_selected !== (value.method !== null)) ||
+    (value.selection_status === "UNSELECTED") !== (value.method === null) ||
+    (value.selection_status === "LEGACY_ACTIVE" &&
+      (!value.is_active || !value.is_locked || value.selected_at !== null)) ||
+    (value.selection_status === "SELECTED" &&
+      (typeof value.selected_at !== "string" || !value.selected_at.trim())) ||
+    (value.selected_at !== null && typeof value.selected_at !== "string") ||
     typeof value.is_active !== "boolean" ||
     typeof value.is_locked !== "boolean" ||
     typeof value.can_change !== "boolean" ||
@@ -363,6 +387,9 @@ export const parseCostPolicy = (raw: unknown): CostPolicy => {
   }
   return {
     method: value.method as CostPolicy["method"],
+    is_selected: value.is_selected as boolean,
+    selection_status: value.selection_status as CostPolicy["selection_status"],
+    selected_at: value.selected_at as string | null,
     is_active: value.is_active,
     is_locked: value.is_locked,
     locked_at: value.locked_at === null ? null : String(value.locked_at),
