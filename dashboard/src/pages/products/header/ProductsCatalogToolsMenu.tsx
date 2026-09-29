@@ -110,7 +110,6 @@ export function ProductsCatalogToolsMenu({
       </DropdownMenuTrigger>
 
       <DropdownMenuContent
-        dir={direction}
         align="end"
         loop
         onCloseAutoFocus={
