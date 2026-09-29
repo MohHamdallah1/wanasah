@@ -208,8 +208,8 @@ def main() -> None:
                     if line.startswith((
                         "B4_CHURN_CAUSAL_SUMMARY",
                         "B4_MANUAL_VACUUM_",
-                        "B4_TEST_ONLY_SYNTHETIC_DELETE",
-                        "B4_POST_VACUUM_REFILL",
+                        "B4_SHADOW_ONLY_DELETE",
+                        "B4_SHADOW_REFILL_",
                         "B4_SYNTHETIC_CHURN_AND_CLEANUP",
                     )):
                         print(line,flush=True)
