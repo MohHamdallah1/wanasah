@@ -370,6 +370,14 @@ export const parseCostPolicy = (raw: unknown): CostPolicy => {
     typeof value.is_selected !== "boolean" ||
     (value.is_selected !== (value.method !== null)) ||
     (value.selection_status === "UNSELECTED") !== (value.method === null) ||
+    (value.selection_status === "UNSELECTED" && value.selected_at !== null) ||
+    (typeof value.is_active === "boolean" &&
+      typeof value.is_locked === "boolean" &&
+      value.is_active !== value.is_locked) ||
+    (typeof value.is_locked === "boolean" &&
+      (value.locked_at === null) === value.is_locked) ||
+    (value.is_active === true &&
+      (value.is_selected !== true || value.can_change !== false)) ||
     (value.selection_status === "LEGACY_ACTIVE" &&
       (!value.is_active || !value.is_locked || value.selected_at !== null)) ||
     (value.selection_status === "SELECTED" &&
