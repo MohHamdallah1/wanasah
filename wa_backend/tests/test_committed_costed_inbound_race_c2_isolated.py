@@ -59,7 +59,7 @@ class CommittedReceiptRaceC2IsolatedTests(unittest.IsolatedAsyncioTestCase):
             + self.database_name,
             # Several independent reader/writer sessions remain open until
             # final verification; connection identity must stay independent.
-            pool_size=16,
+            pool_size=24,
             max_overflow=0,
             echo=False,
         )
@@ -300,11 +300,95 @@ class CommittedReceiptRaceC2IsolatedTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             (await self._snapshot())["inventory_cost_events"], 3,
         )
+        async def _race(first_invoice, competing_invoice, *, duplicate_ref=False):
+            # BOTH requests finish their own real database transaction.
+            # An identical request sees its committed replay, while a distinct
+            # request reusing an invoice reference fails without an extra write.
+            _, race_a = await self._session()
+            _, race_b = await self._session()
+            entered = asyncio.Event()
+            release = asyncio.Event()
+
+            async def pause_one(db, **kwargs):
+                result = await real_apply(db, **kwargs)
+                if db is race_a:
+                    entered.set()
+                    await release.wait()
+                return result
+
+            first_task = second_task = None
+            with patch(
+                "api.warehouse.inbound.apply_inventory_movements_batch",
+                side_effect=pause_one,
+            ):
+                try:
+                    first_task = asyncio.create_task(warehouse_inbound(
+                        payload=first_invoice, db=race_a,
+                        current_admin=self.actor,
+                    ))
+                    await asyncio.wait_for(entered.wait(), 20)
+                    second_task = asyncio.create_task(warehouse_inbound(
+                        payload=competing_invoice, db=race_b,
+                        current_admin=self.actor,
+                    ))
+                    await asyncio.sleep(0.15)
+                    self.assertFalse(
+                        second_task.done(),
+                        "Overlapping committed invoice must serialize first.",
+                    )
+                finally:
+                    release.set()
+                first_result = await asyncio.wait_for(first_task, 25)
+                self.assertEqual(first_result, {"message": "INBOUND_POSTED"})
+                if duplicate_ref:
+                    with self.assertRaises(HTTPException) as failed:
+                        await asyncio.wait_for(second_task, 25)
+                    self.assertEqual(failed.exception.status_code, 409)
+                    self.assertEqual(
+                        failed.exception.detail["code"],
+                        "INBOUND_REFERENCE_DUPLICATE",
+                    )
+                else:
+                    second_result = await asyncio.wait_for(second_task, 25)
+                    self.assertEqual(second_result, first_result)
+
+        same_id = self._receipt(quantity="2", cost="6")
+        await _race(same_id, same_id)
+        after_same_id = await self._snapshot()
+        self.assertEqual(after_same_id["inventory_cost_events"], 4)
+        self.assertEqual(after_same_id["inventory_movements"], 4)
+
+        same_ref = self._receipt(quantity="3", cost="7")
+        different_id_same_ref = self._receipt(
+            request_id=uuid4(), reference=same_ref.reference_id,
+        )
+        await _race(same_ref, different_id_same_ref, duplicate_ref=True)
+        after_same_ref = await self._snapshot()
+        self.assertEqual(after_same_ref["inventory_cost_events"], 5)
+        self.assertEqual(after_same_ref["inventory_movements"], 5)
+
+        _, final_connection = await self._session()
+        final_state = (
+            await final_connection.execute(text(
+                "SELECT quantity,inventory_value FROM inventory_cost_states "
+                "WHERE company_id=2 AND product_variant_id=:variant"
+            ), {"variant": self.variant_id})
+        ).one()
+        self.assertEqual(
+            (Decimal(final_state.quantity), Decimal(final_state.inventory_value)),
+            (Decimal("24"), Decimal("76")),
+        )
+        self.assertEqual(
+            (await final_connection.scalar(text(
+                "SELECT count(*) FROM operation_idempotency WHERE company_id=2 "
+                "AND operation='WAREHOUSE_INBOUND' AND completed_at IS NOT NULL"
+            ))), 5,
+        )
         print(
             "C2_ISOLATED_DURABLE_COMMIT_OK",
             self.method,
-            "3 distinct completed invoices; 3 movements; 3 cost events;",
-            "2 parallel independently committed invoices; replay safe",
+            "5 distinct completed invoices; 5 movements; 5 cost events;",
+            "parallel distinct success, same-ID replay and same-reference rejection",
         )
 
 
