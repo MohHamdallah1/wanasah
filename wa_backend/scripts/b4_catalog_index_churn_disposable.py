@@ -259,6 +259,83 @@ async def main():
             "comparison_reindex_seconds":round(perf_counter()-reindex_t,3),
             "scope":"isolated exact-index definitions and identical synthetic rows, NOT full application delete",
         })
+        if os.environ.get("WANASAH_B4_AUTOVACUUM_COMPARE")=="1":
+            # Controlled only in this throwaway PG instance. Compare 10%
+            # dead tuples in otherwise equally populated shadow tables:
+            # variants: proposed lower threshold, products: default trigger.
+            # The test is of threshold behavior, NOT a live tune-up.
+            await adm.execute(
+                "ALTER SYSTEM SET autovacuum_naptime='1s'"
+            )
+            await adm.execute("SELECT pg_reload_conf()")
+            await asyncio.sleep(0.5)
+            for table,scale in (
+                ("b4_products_shadow","0.20"),
+                ("b4_variants_shadow","0.02"),
+            ):
+                await adm.execute(
+                    f"ALTER TABLE public.{table} SET ("
+                    "autovacuum_enabled=true, "
+                    "autovacuum_vacuum_threshold=50, "
+                    f"autovacuum_vacuum_scale_factor={scale})"
+                )
+            before_stats=await adm.fetch(
+                "SELECT relname,autovacuum_count,n_dead_tup "
+                "FROM pg_stat_all_tables WHERE relname IN "
+                "('b4_products_shadow','b4_variants_shadow') "
+                "ORDER BY relname"
+            )
+            before_by_name={r["relname"]:dict(r) for r in before_stats}
+            for table in ("b4_variants_shadow","b4_products_shadow"):
+                result=await adm.execute(
+                    f"DELETE FROM public.{table} WHERE id IN "
+                    f"(SELECT id FROM public.{table} "
+                    "ORDER BY id LIMIT 100)"
+                )
+                if result!="DELETE 100":
+                    raise RuntimeError(f"Autovac test deletion unexpected: {result}")
+            newer={}
+            start_wait=perf_counter()
+            for _ in range(60):
+                await asyncio.sleep(.5)
+                rows=await adm.fetch(
+                    "SELECT relname,autovacuum_count,n_dead_tup "
+                    "FROM pg_stat_all_tables WHERE relname IN "
+                    "('b4_products_shadow','b4_variants_shadow')"
+                )
+                newer={r["relname"]:dict(r) for r in rows}
+                if (
+                    newer["b4_variants_shadow"]["autovacuum_count"]
+                    > before_by_name["b4_variants_shadow"]["autovacuum_count"]
+                ):
+                    break
+            tuned_seen=(
+                newer["b4_variants_shadow"]["autovacuum_count"]
+                > before_by_name["b4_variants_shadow"]["autovacuum_count"]
+            )
+            default_seen=(
+                newer["b4_products_shadow"]["autovacuum_count"]
+                > before_by_name["b4_products_shadow"]["autovacuum_count"]
+            )
+            write("B4_AUTOVACUUM_THRESHOLD_PROBE",{
+                "clone_only":True,
+                "table_size_before_delete":1000,
+                "deleted_tuples_per_shadow":100,
+                "default_threshold_at_1000_live":250,
+                "tuned_threshold_at_1000_live":70,
+                "tuned_autovacuum_observed":tuned_seen,
+                "default_autovacuum_observed":default_seen,
+                "tuned_post_dead_estimate":newer["b4_variants_shadow"]["n_dead_tup"],
+                "default_post_dead_estimate":newer["b4_products_shadow"]["n_dead_tup"],
+                "wait_seconds":round(perf_counter()-start_wait,2),
+                "caveat":"physical source catalogs and default naptime not tested",
+            })
+            # Both options must be honestly recorded; if background vacuum
+            # did not happen within the bounded window, the gate is PARTIAL.
+            if not tuned_seen:
+                print("B4_AUTO_POLICY_THRESHOLD=INCONCLUSIVE",flush=True)
+            else:
+                print("B4_AUTO_POLICY_THRESHOLD=PASS",flush=True)
         print("B4_SYNTHETIC_CHURN_AND_CLEANUP=PASS",flush=True)
     finally:
         tenant_context.reset(token)
