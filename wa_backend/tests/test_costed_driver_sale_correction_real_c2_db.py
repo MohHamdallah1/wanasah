@@ -26,6 +26,7 @@ from context import tenant_context
 from database import engine
 from domains.pricing.context import lock_route_commercial_context
 from domains.sales_calculation.policy import publish_commercial_rounding_policy
+from domains.taxation.publishing import publish_version as publish_tax_version
 from domains.taxation.models import (
     TaxJurisdiction, TaxRuleComponent, TaxRuleScope,
     TaxRuleSet, TaxRuleSetVersion,
@@ -162,10 +163,9 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         tax_revision = TaxRuleSetVersion(
             company_id=self.tenant, tax_rule_set_id=rule.id,
             revision=1, definition_version=1,
-            status="PUBLISHED", price_mode="EXCLUSIVE",
+            status="DRAFT", price_mode="EXCLUSIVE",
             priority=0, effective_from=earlier, effective_to=None,
-            approved_at=earlier, published_at=earlier,
-            approved_by=self.actor.id, created_by=self.actor.id,
+            created_by=self.actor.id,
             request_id=uuid4(),
         )
         self.db.add(tax_revision)
@@ -186,6 +186,15 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             ),
         ])
         await self.db.flush()
+        # The deployed trigger forbids adding components to published rules.
+        # Publish through the real business service after staging draft children.
+        tax_revision = await publish_tax_version(
+            self.db, company_id=self.tenant,
+            actor_id=self.actor.id,
+            version_id=tax_revision.id,
+            expected_version=tax_revision.version,
+        )
+        self.assertEqual(tax_revision.status, "PUBLISHED")
 
         policy = await publish_commercial_rounding_policy(
             self.db, company_id=self.tenant, actor_id=self.actor.id,
