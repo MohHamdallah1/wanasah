@@ -274,6 +274,11 @@ class BulkPricingB3DatabaseTests(unittest.IsolatedAsyncioTestCase):
         ).order_by(PriceBookEntry.publication_id))).scalars().all()
         self.assertEqual(len(published),2)
         old,new=published
+        # The predecessor is closed through an authoritative raw PostgreSQL
+        # UPDATE, which intentionally bypasses SQLAlchemy's session identity
+        # map. Refresh the ORM instance before inspecting its persisted range.
+        await self.db.refresh(old)
+        await self.db.refresh(new)
         self.assertEqual(old.effectivity.upper,next_start)
         self.assertIsNone(new.effectivity.upper)
         self.assertEqual(new.effectivity.lower,next_start)
