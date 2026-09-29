@@ -279,11 +279,14 @@ async def set_cost_policy(
             "INVENTORY_COST_POLICY_LOCKED",
             "Inventory costing method is locked after the first costed receipt.",
         )
-    if str(policy.method) != normalized:
+    # The same-method save still confirms a previously auto-provisioned default.
+    if policy.selected_at is None or str(policy.method) != normalized:
         policy.method = normalized
+        policy.selected_at = now
+        policy.selected_by = int(actor_id)
         policy.version += 1
         policy.updated_by = int(actor_id)
-        policy.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        policy.updated_at = now
         await db.flush()
     return policy
 
