@@ -123,13 +123,14 @@ class FamilyIntentA2Tests(unittest.IsolatedAsyncioTestCase):
 
 class FamilyIntentDtoA2Tests(unittest.TestCase):
     def payload(self, **options):
-        return SimpleProductCreate(
-            request_id=uuid4(),
-            name="Chips",
-            package_uom_code=None,
-            unit_price="1",
-            **options,
-        )
+        values = {
+            "request_id": uuid4(),
+            "name": "Chips",
+            "package_uom_code": None,
+            "unit_price": "1",
+        }
+        values.update(options)
+        return SimpleProductCreate(**values)
 
     def test_new_none_existing_are_explicit_and_guarded(self):
         for mode, family_id, family_name in (
