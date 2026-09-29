@@ -242,7 +242,7 @@ class Driver(Base):
 # ④ المنتجات (Product → ProductVariant)
 # =================================================================================
 class Product(Base):
-    """عائلة Master Data مستقلة عن المواقع والمخزون والتسعير."""
+    """Shared Product master; a variant is the concrete sellable SKU."""
     __tablename__ = 'products'
     __table_args__ = (
         UniqueConstraint('company_id', 'code', name='uq_company_product_code'),
@@ -252,7 +252,7 @@ class Product(Base):
     id          = Column(Integer, primary_key=True)
     company_id  = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     code        = Column(String(100), nullable=False)
-    name        = Column(String(150), nullable=False)
+    name        = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
     brand       = Column(String(100), nullable=True)
     category    = Column(String(100), nullable=True)
