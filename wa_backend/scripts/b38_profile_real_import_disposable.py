@@ -359,6 +359,43 @@ async def main():
                 "SELECT COUNT(*) FROM price_book_entries WHERE company_id=2 "
                 "AND is_published=TRUE"
             ))
+            posted_audits=await db.scalar(text(
+                "SELECT COUNT(*) FROM domain_audit_events "
+                "WHERE company_id=2 AND entity_type='ProductVariant' "
+                "AND event_type='ProductPublished'"
+            ))
+            posted_outbox=await db.scalar(text(
+                "SELECT COUNT(*) FROM transactional_outbox "
+                "WHERE company_id=2 AND aggregate_type='ProductVariant' "
+                "AND event_type='ProductPublished'"
+            ))
+            broken_linked_evidence=await db.scalar(text(
+                """
+                SELECT COUNT(*)
+                FROM product_import_rows AS source
+                JOIN product_variants AS variant
+                  ON variant.company_id=source.company_id
+                 AND variant.id=source.product_variant_id
+                LEFT JOIN domain_audit_events AS audit
+                  ON audit.company_id=variant.company_id
+                 AND audit.entity_type='ProductVariant'
+                 AND audit.entity_id=variant.id::text
+                 AND audit.event_type='ProductPublished'
+                LEFT JOIN transactional_outbox AS outbox
+                  ON outbox.company_id=variant.company_id
+                 AND outbox.aggregate_type='ProductVariant'
+                 AND outbox.aggregate_id=variant.id::text
+                 AND outbox.event_type='ProductPublished'
+                WHERE source.company_id=2
+                  AND source.job_id=:job
+                  AND source.status='IMPORTED'
+                  AND (
+                    variant.lifecycle_status <> 'ACTIVE'
+                    OR audit.id IS NULL
+                    OR outbox.id IS NULL
+                  )
+                """
+            ),{"job":job_id})
             await db.rollback()
         stage_times["evidence_s"]=perf_counter()-t
         expected_invalid=n//100
@@ -380,6 +417,9 @@ async def main():
             "linked":linked,"variants_added":final_variants-initial_variants,
             "published_prices":published,
             "expected_published_prices":expected_published,
+            "published_audits":posted_audits,
+            "published_outbox":posted_outbox,
+            "broken_variant_audit_outbox_links":broken_linked_evidence,
         }
         show("B38_FINAL",actual)
         if (
@@ -391,6 +431,9 @@ async def main():
             or final_variants-initial_variants!=expected_valid
             or linked!=expected_valid
             or published!=expected_published
+            or posted_audits!=expected_valid
+            or posted_outbox!=expected_valid
+            or broken_linked_evidence!=0
         ):
             raise RuntimeError("Product Import result/lineage did not reconcile")
         if os.environ.get("WANASAH_B38_EXPLAIN_PAIR_PROBE")=="1":
