@@ -7,7 +7,7 @@ import hmac
 import json
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import (
@@ -91,7 +91,8 @@ class SimpleProductCreate(StrictRequest):
     request_id: UUID
     name: str = Field(min_length=1, max_length=200)
     family_id: int | None = Field(None, gt=0)
-    family_name: str | None = Field(None, max_length=150)
+    family_name: str | None = Field(None, max_length=200)
+    family_mode: Literal["none", "existing", "new"] | None = None
     package_uom_code: str | None = Field(
         "CARTON",
         max_length=30,
@@ -140,7 +141,7 @@ class SimpleProductCreate(StrictRequest):
         return clean_text(
             value,
             "family_name",
-            150,
+            200,
             optional=True,
         )
 
@@ -198,6 +199,18 @@ class SimpleProductCreate(StrictRequest):
             raise ValueError(
                 "Choose an existing family or a new family name, not both."
             )
+        if self.family_mode == "none" and (
+            self.family_id is not None or self.family_name is not None
+        ):
+            raise ValueError("Without family cannot select a family.")
+        if self.family_mode == "existing" and (
+            self.family_id is None or self.family_name is not None
+        ):
+            raise ValueError("Choose an existing family by id.")
+        if self.family_mode == "new" and (
+            self.family_id is not None or not self.family_name
+        ):
+            raise ValueError("Provide a new family name.")
         if self.package_uom_code is None:
             self.units_per_package = 1
 
@@ -247,7 +260,7 @@ class FamilyCreate(StrictRequest):
     request_id: UUID
     name: str = Field(
         min_length=1,
-        max_length=150,
+        max_length=200,
     )
 
     @field_validator("name", mode="before")
@@ -256,7 +269,7 @@ class FamilyCreate(StrictRequest):
         result = clean_text(
             value,
             "family_name",
-            150,
+            200,
         )
         assert result is not None
         return result
@@ -267,7 +280,7 @@ class FamilyUpdate(StrictRequest):
     expected_version: int = Field(gt=0)
     name: str = Field(
         min_length=1,
-        max_length=150,
+        max_length=200,
     )
 
     @field_validator("name", mode="before")
@@ -276,7 +289,7 @@ class FamilyUpdate(StrictRequest):
         result = clean_text(
             value,
             "family_name",
-            150,
+            200,
         )
         assert result is not None
         return result
@@ -313,9 +326,14 @@ def _request_hash(
     payload: BaseModel,
     **scope: Any,
 ) -> str:
+    excluded = {"request_id"}
+    # Old in-flight V3 requests lacked this optional field. Preserve their
+    # original idempotency hash for replay after deployment.
+    if isinstance(payload, SimpleProductCreate) and payload.family_mode is None:
+        excluded.add("family_mode")
     body = payload.model_dump(
         mode="json",
-        exclude={"request_id"},
+        exclude=excluded,
     )
     body.update(scope)
     encoded = json.dumps(
@@ -1967,6 +1985,7 @@ async def create_simple_product(
                     name=payload.name,
                     family_id=payload.family_id,
                     family_name=payload.family_name,
+                    family_mode=payload.family_mode,
                     package_uom_code=payload.package_uom_code,
                     units_per_package=payload.units_per_package,
                     package_price=payload.package_price,
