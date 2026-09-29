@@ -167,7 +167,10 @@ async def cost_policy_payload(
     policy = await get_cost_policy(db, company_id=int(company_id))
     if policy is None:
         return {
-            "method": "MOVING_AVERAGE",
+            "method": None,
+            "is_selected": False,
+            "selection_status": "UNSELECTED",
+            "selected_at": None,
             "is_active": False,
             "is_locked": False,
             "locked_at": None,
@@ -175,8 +178,16 @@ async def cost_policy_payload(
             "currency_code": str(company.currency_code).upper(),
             "can_change": bool(can_change),
         }
+    confirmed = policy.selected_at is not None
+    selected = bool(confirmed or policy.is_active)
     return {
-        "method": str(policy.method),
+        "method": str(policy.method) if selected else None,
+        "is_selected": selected,
+        "selection_status": (
+            "LEGACY_ACTIVE" if policy.is_active and not confirmed
+            else "SELECTED" if confirmed else "UNSELECTED"
+        ),
+        "selected_at": policy.selected_at.isoformat() if confirmed else None,
         "is_active": bool(policy.is_active),
         "is_locked": bool(policy.locked_at is not None),
         "locked_at": policy.locked_at.isoformat() if policy.locked_at is not None else None,
