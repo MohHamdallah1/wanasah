@@ -106,7 +106,10 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             tenant_context.reset(self.token)
             await engine.dispose()
 
-    async def _create_business_fixture(self, method: str, *, commercial_context_factory=None):
+    async def _create_business_fixture(
+        self, method: str, *, commercial_context_factory=None,
+        second_purchase_price: str | None = None,
+    ):
         await set_cost_policy(
             self.db,
             company_id=self.tenant,
@@ -134,6 +137,28 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             payload=inbound, db=self.db, current_admin=self.actor,
         )
         self.assertEqual(response["message"], "INBOUND_POSTED")
+        if second_purchase_price is not None:
+            # A distinct, newer acquisition cost layer changes moving average
+            # across the SKU, while the vehicle below physically receives
+            # stock only from the original purchased batch.
+            more = uuid4()
+            additional = UpgradedInboundRequest(
+                request_id=more, location_id=self.warehouse_id,
+                reference_id="C2-CUST-EXTRA-" + more.hex[:12],
+                items=[{
+                    "product_variant_id": self.variant["id"],
+                    "quantity": "100",
+                    "uom_id": self.variant["base_uom_id"],
+                    "unit_cost": second_purchase_price,
+                    "batch_number": "C2-CUST-EXTRA-LOT-" + more.hex[:12],
+                    "production_date": date.today() - timedelta(days=20),
+                    "expiry_date": date.today() + timedelta(days=950),
+                }],
+            )
+            extra_response = await warehouse_inbound(
+                payload=additional, db=self.db, current_admin=self.actor,
+            )
+            self.assertEqual(extra_response["message"], "INBOUND_POSTED")
         batch_id = await self.db.scalar(
             select(ProductBatch.id).where(
                 ProductBatch.company_id == self.tenant,
