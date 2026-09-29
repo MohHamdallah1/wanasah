@@ -325,6 +325,13 @@ async def main():
         stage_times["evidence_s"]=perf_counter()-t
         expected_invalid=n//100
         expected_valid=n-expected_invalid
+        # The fixture has one EACH price per valid SKU and an additional
+        # outer-package price unless source row i has i % 6 == 0. Every
+        # hundredth row is deliberately invalid and has no published price.
+        expected_published=sum(
+            1+int(i % 6 != 0)
+            for i in range(1,n+1) if i % 100 != 0
+        )
         actual={
             "status":after["status"],
             "rows":after["total_rows"],
@@ -334,6 +341,7 @@ async def main():
             "db_imported":imported_count,"db_invalid":invalid_count,
             "linked":linked,"variants_added":final_variants-initial_variants,
             "published_prices":published,
+            "expected_published_prices":expected_published,
         }
         show("B38_FINAL",actual)
         if (
@@ -344,6 +352,7 @@ async def main():
             or imported_count!=expected_valid
             or final_variants-initial_variants!=expected_valid
             or linked!=expected_valid
+            or published!=expected_published
         ):
             raise RuntimeError("Product Import result/lineage did not reconcile")
         show("B38_SLOW_SQL_BY_STAGE",sorted(
