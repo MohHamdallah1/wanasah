@@ -28,6 +28,8 @@ class FamilyIntentA2Tests(unittest.IsolatedAsyncioTestCase):
             flush=AsyncMock(),
             add=MagicMock(),
         )
+        # SQLAlchemy AsyncSession.scalars() is async, but ScalarResult.all() is sync.
+        self.session.scalars.return_value.all = MagicMock(return_value=[])
 
     def spec(self, name="Chips", **options):
         return SimpleProductSpec(
