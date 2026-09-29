@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import select, text
+from sqlalchemy import event, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from context import tenant_context
@@ -189,6 +189,43 @@ class BulkPricingB3DatabaseTests(unittest.IsolatedAsyncioTestCase):
             {"p": pub.id},
         ), 0)
 
+    async def test_new_sku_price_skips_only_proven_empty_history(self):
+        """No predecessor => no history rewrite, but price remains published."""
+        pub = await self._publication()
+        await create_draft_entries_bulk(
+            self.db, company_id=2, publication_id=pub.id,
+            expected_publication_version=pub.version,
+            entries=[self._entry(amount="4.25")],
+        )
+        sql_text = []
+        def capture(_conn, _cursor, statement, _params, _context, _many):
+            if "fresh_pairs AS MATERIALIZED" in statement or "new_starts AS" in statement:
+                sql_text.append(statement)
+        event.listen(engine.sync_engine, "before_cursor_execute", capture)
+        try:
+            await publish_publication(
+                self.db, company_id=2, actor_id=self.actor_id,
+                publication_id=pub.id, expected_version=pub.version,
+            )
+        finally:
+            event.remove(engine.sync_engine, "before_cursor_execute", capture)
+        self.assertEqual(pub.status, "PUBLISHED")
+        self.assertEqual(
+            sum("fresh_pairs AS MATERIALIZED" in item for item in sql_text), 1,
+        )
+        self.assertEqual(
+            sum("new_starts AS" in item for item in sql_text), 0,
+        )
+        recorded = (await self.db.execute(
+            select(PriceBookEntry).where(
+                PriceBookEntry.company_id == 2,
+                PriceBookEntry.publication_id == pub.id,
+            )
+        )).scalars().all()
+        self.assertEqual(len(recorded), 1)
+        self.assertTrue(recorded[0].is_published)
+        self.assertEqual(recorded[0].amount, Decimal("4.25"))
+
     async def test_later_publication_closes_previous_window_without_overlap(self):
         """Materialized current-price check cannot skip effective-date closure."""
         first=await self._publication()
@@ -216,10 +253,19 @@ class BulkPricingB3DatabaseTests(unittest.IsolatedAsyncioTestCase):
             expected_publication_version=second.version,
             entries=[replacement],
         )
-        await publish_publication(
-            self.db,company_id=2,actor_id=self.actor_id,
-            publication_id=second.id,expected_version=second.version,
-        )
+        seen_history = []
+        def capture_revision(_conn, _cursor, statement, _params, _context, _many):
+            if "new_starts AS" in statement:
+                seen_history.append(statement)
+        event.listen(engine.sync_engine, "before_cursor_execute", capture_revision)
+        try:
+            await publish_publication(
+                self.db,company_id=2,actor_id=self.actor_id,
+                publication_id=second.id,expected_version=second.version,
+            )
+        finally:
+            event.remove(engine.sync_engine, "before_cursor_execute", capture_revision)
+        self.assertGreaterEqual(len(seen_history), 2)
         published=(await self.db.execute(select(PriceBookEntry).where(
             PriceBookEntry.company_id==2,
             PriceBookEntry.price_book_id==first.price_book_id,
