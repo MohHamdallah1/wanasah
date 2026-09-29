@@ -194,6 +194,30 @@ def main() -> None:
                 )
             if "B3_CATALOG_CORE_BENCHMARK=PASS" not in child.stdout:
                 raise RuntimeError("B3 child success marker missing.")
+            if os.environ.get("WANASAH_B4_DISPOSABLE_CHURN_GATE")=="1":
+                if paired or without_cache or row_count!=1000 or (
+                    os.environ.get("WANASAH_B3_DROP_GIN_ONLY_DISPOSABLE")=="1"
+                ):
+                    raise RuntimeError("B4 needs the one full-index/one-tenant 1000-row clone only.")
+                b4=subprocess.run([
+                    sys.executable,
+                    str(_PROJECT_ROOT/"scripts"/"b4_catalog_index_churn_disposable.py"),
+                ],env=child_env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                  text=True,encoding="utf-8",errors="replace",timeout=280,check=False)
+                for line in (b4.stdout or "").splitlines():
+                    if line.startswith((
+                        "B4_CHURN_CAUSAL_SUMMARY",
+                        "B4_MANUAL_VACUUM_",
+                        "B4_TEST_ONLY_SYNTHETIC_DELETE",
+                        "B4_POST_VACUUM_REFILL",
+                        "B4_SYNTHETIC_CHURN_AND_CLEANUP",
+                    )):
+                        print(line,flush=True)
+                if b4.returncode or "B4_SYNTHETIC_CHURN_AND_CLEANUP=PASS" not in b4.stdout:
+                    raise RuntimeError(
+                        "B4 synthetic churn in disposable DB failed (exit "
+                        +str(b4.returncode)+"): "+(b4.stderr or "")[-2500:]
+                    )
             if paired:
                 # The child always closes its engine and superuser connection.
                 # Drop ONLY this temporary bench DB before recreating a
