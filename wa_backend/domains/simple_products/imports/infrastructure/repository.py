@@ -532,21 +532,22 @@ async def invalidate_external_barcode_conflicts(
     result = await db.execute(
         text(
             """
+            -- A correlated EXISTS is a logical semi-join. Unlike LATERAL
+            -- with LIMIT 1 OFFSET 0, it lets PostgreSQL use the tenant/
+            -- active-barcode unique index and choose a set-based join.
+            -- No cross-tenant read, no materialized row-level result leakage.
             WITH bad_rows AS (
                 SELECT DISTINCT staged.row_number
                 FROM product_import_row_barcodes AS staged
-                JOIN LATERAL (
-                    SELECT existing.id
-                    FROM product_barcodes AS existing
-                    WHERE existing.company_id = staged.company_id
-                      AND existing.barcode = staged.barcode
-                      AND existing.is_active IS TRUE
-                    LIMIT 1
-                    OFFSET 0
-                ) AS conflict
-                  ON TRUE
                 WHERE staged.company_id = :company_id
                   AND staged.job_id = :job_id
+                  AND EXISTS (
+                      SELECT 1
+                      FROM product_barcodes AS existing
+                      WHERE existing.company_id = staged.company_id
+                        AND existing.barcode = staged.barcode
+                        AND existing.is_active IS TRUE
+                  )
             )
             UPDATE product_import_rows AS rows
             SET status = 'INVALID',
