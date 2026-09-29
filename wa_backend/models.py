@@ -440,6 +440,17 @@ class InventoryCostPolicy(Base):
             ondelete='RESTRICT',
             name='fk_inventory_cost_policy_tenant_updater',
         ),
+        ForeignKeyConstraint(
+            ['company_id', 'selected_by'],
+            ['drivers.company_id', 'drivers.id'],
+            ondelete='RESTRICT',
+            name='fk_inventory_cost_policy_tenant_selector',
+        ),
+        CheckConstraint(
+            '(selected_at IS NULL AND selected_by IS NULL) OR '
+            '(selected_at IS NOT NULL AND selected_by IS NOT NULL)',
+            name='chk_inventory_cost_policy_selection_pair',
+        ),
         CheckConstraint(
             "method IN ('MOVING_AVERAGE','FIFO')",
             name='chk_inventory_cost_policy_method',
@@ -457,6 +468,10 @@ class InventoryCostPolicy(Base):
     method     = Column(String(30), nullable=False, default='MOVING_AVERAGE', server_default='MOVING_AVERAGE')
     is_active  = Column(Boolean, nullable=False, default=False, server_default='false')
     locked_at  = Column(DateTime, nullable=True)
+    # A provisioned default is not an explicit company choice.
+    # NULL is expected for inactive historic rows and previously active legacy rows.
+    selected_at = Column(DateTime, nullable=True)
+    selected_by = Column(Integer, nullable=True)
     version    = Column(Integer, nullable=False, default=1, server_default='1')
     created_by = Column(Integer, nullable=False, index=True)
     updated_by = Column(Integer, nullable=False, index=True)
