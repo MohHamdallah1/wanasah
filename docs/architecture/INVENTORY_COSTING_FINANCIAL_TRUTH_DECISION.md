@@ -1,7 +1,7 @@
 # ADR — One financial inventory truth, receipt-cost evidence, and optional batch analytics
 
 **Recorded:** 2026-09-29  
-**Decision status:** **V1 direction accepted; specific implementation tasks remain gated and OPEN**.  
+**Decision status:** **V1 direction accepted; explicit costing choice C1 IMPLEMENTED and developer-tested; further C2-C5/reconciliation gates OPEN**.  
 **Scope:** Wanasah inventory costing, supplier receipts, physical inventory, sales/returns, valuation, future reporting and Flutter contracts.  
 **Owner:** Inventory Costing / Financial Valuation domain. Catalog and warehouse own their existing data; Reporting may read approved projections but may not independently determine accounting COGS.
 
@@ -48,7 +48,7 @@ Any such presentation must:
 - `wa_backend/models.py`: `InventoryCostEvent` retains receipt and outbound cost events, `InventoryCostLayer` carries provenance batch and per-receipt cost layers for FIFO, `InventoryCostAllocation` records layer consumption. A batch provenance field does NOT mean financial FIFO follows that physical batch.
 - `wa_backend/api/warehouse/inbound.py`: existing `ProductBatch` found/created by (`company_id`, `product_variant_id`, `batch_number`), with `on_conflict_do_nothing`. Receipt lines independently supply their purchase costs. **Different receipts may share one manufacturer batch identity**, so a batch is not one purchase-price record.
 - `wa_backend/api/driver.py`: driver sale physically allocates by FEFO segments; `domains.sales_evidence` persists financial sale items and price-component evidence. A robust receipt-cost per-batch sales-profit bridge has **NOT** been proven, especially for rewards/returns/samples and repeated receipt batches.
-- `wa_backend/domains/inventory_costing/service.py:activate_costing_for_first_receipt`: **proven implementation gap** — when policy is missing, it creates and locks `MOVING_AVERAGE`; even if a policy was default-provisioned, it can be activated without proof the company explicitly chose it. `cost_policy_payload` also displays MOVING_AVERAGE as an unselected default. This violates `.rules` and `AGENTS.md` explicit-company-choice contract.
+- **Historical issue fixed by V1-C1**: `activate_costing_for_first_receipt` previously created/locked implicit MOVING_AVERAGE on missing/unselected policy. It now requires `selected_at/selected_by` and returns `INVENTORY_COST_POLICY_SELECTION_REQUIRED` before evaluating stock; `cost_policy_payload` exposes `method=null` when unselected. Legacy already-active methods remain locked and unmodified. This line describes historical evidence, NOT current behavior.
 - **Important scope:** the earlier A3.2 database gate had only 2 company-38 cost events and 0 frozen price components. That is NOT evidence that all possible financial/reporting/reconciliation cases are already correct.
 
 ## 5A. Correcting a supplier price AFTER some units have been sold
@@ -68,4 +68,4 @@ See [SUPPLIER_INVOICE_RETROACTIVE_COST_CORRECTION.md](SUPPLIER_INVOICE_RETROACTI
 
 The official IFRS Foundation [IAS 2 Inventories](https://www.ifrs.org/issued-standards/list-of-standards/ias-2-inventories/) explains specific identification for non-interchangeable goods and FIFO/weighted average for ordinarily interchangeable goods. IAS 2 paragraphs 23–27 explicitly distinguish those methods and permit calculating average periodically or after each receipt: https://www.ifrs.org/content/dam/ifrs/publications/pdf-standards/english/2021/issued/part-a/ias-2-inventories.pdf . This is the accounting framework reference, not a blanket legal/tax compliance determination for every tenant or country; jurisdiction-specific statutory/tax reporting still needs the company's accountant to confirm.
 
-**No runtime or schema changes are authorized by merely writing this document.** In particular the known silent-policy-selection code is not fixed by this ADR; the separate implementation gate above stays open.
+**Implementation checkpoint:** C1 is now implemented in source, typed API, Dashboard and Alembic migration; unit, developer DB, UI, frontend and import gates are recorded in the urgent plan. The document alone does not authorize or implement supplier invoice retrospective corrections, historical COGS restatements, new period-close logic or a second profit ledger. These remain OPEN and separate.
