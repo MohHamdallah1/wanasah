@@ -220,5 +220,54 @@ class CatalogIdentityA3DatabaseTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
+    async def test_cost_events_use_the_same_sku_and_batch_as_their_movement(self):
+        total = await self.db.scalar(
+            text(
+                "SELECT count(*) FROM inventory_cost_events "
+                "WHERE company_id = :company_id"
+            ),
+            {"company_id": self.tenant_id},
+        )
+        if not total:
+            self.skipTest("No costed movement evidence in this tenant.")
+        mismatches = await self.db.scalar(
+            text(
+                "SELECT count(*) FROM inventory_cost_events e "
+                "JOIN inventory_movements m "
+                " ON e.company_id=m.company_id AND e.inventory_movement_id=m.id "
+                "WHERE e.company_id=:company_id "
+                "AND (e.product_variant_id<>m.product_variant_id "
+                "OR e.batch_id<>m.batch_id)"
+            ),
+            {"company_id": self.tenant_id},
+        )
+        self.assertEqual(mismatches, 0)
+
+    async def test_sales_price_evidence_matches_item_sku_and_uom_when_present(self):
+        total = await self.db.scalar(
+            text(
+                "SELECT count(*) FROM sales_line_price_components "
+                "WHERE company_id = :company_id"
+            ),
+            {"company_id": self.tenant_id},
+        )
+        if not total:
+            self.skipTest("No frozen sales price components in this tenant.")
+        mismatches = await self.db.scalar(
+            text(
+                "SELECT count(*) FROM sales_line_price_components p "
+                "JOIN visit_items i "
+                " ON p.company_id=i.company_id AND p.visit_item_id=i.id "
+                "JOIN price_book_entries e "
+                " ON p.company_id=e.company_id AND p.price_entry_id=e.id "
+                "WHERE p.company_id=:company_id "
+                "AND (i.product_variant_id<>e.product_variant_id "
+                "OR p.uom_id<>e.uom_id)"
+            ),
+            {"company_id": self.tenant_id},
+        )
+        self.assertEqual(mismatches, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
