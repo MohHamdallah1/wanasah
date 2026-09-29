@@ -115,7 +115,6 @@ export function ProductRowActions({
       </DropdownMenuTrigger>
 
       <DropdownMenuContent
-        dir={direction}
         align="end"
         loop
         onCloseAutoFocus={
