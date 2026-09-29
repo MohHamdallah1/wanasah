@@ -810,6 +810,101 @@ async def delete_family(
     return row
 
 
+
+@dataclass
+class _BatchFamilyLookup:
+    """Only for one same-company transaction; not a global family identity cache."""
+
+    locked_names: frozenset[str]
+    matches: dict[str, list[Product]]
+
+    def remember(self, row: Product) -> None:
+        normalized = str(row.name).lower()
+        if normalized not in self.locked_names:
+            return
+        current = self.matches.setdefault(normalized, [])
+        current.append(row)
+        # The previous resolver used ORDER BY id ASC LIMIT 2. This retains
+        # its ambiguity semantics when this transaction itself creates rows.
+        current.sort(key=lambda item: int(item.id))
+        del current[2:]
+
+
+async def _prefetch_batch_families(
+    db: AsyncSession,
+    *,
+    actor: Driver,
+    specs: list[SimpleProductSpec],
+) -> _BatchFamilyLookup:
+    """Acquire distinct existing family-name locks BEFORE one tenant SELECT.
+
+    No UNIQUE(company,name) exists, so ON CONFLICT(name) is NOT a legal
+    replacement for the historical per-name advisory concurrency authority.
+    Sorted lock acquisition prevents our bulk workers from taking these name
+    locks in opposite orders. Other entrypoints keep their own lock contracts.
+    """
+    names: set[str] = set()
+    for spec in specs:
+        if spec.family_mode not in (None, "new") or spec.family_id is not None:
+            continue
+        if spec.family_mode == "new" and (
+            spec.family_name is None or not spec.family_name.strip()
+        ):
+            continue
+        try:
+            family_name = (
+                clean_text(spec.family_name, "family_name", 200, optional=True)
+                if spec.family_name is not None else None
+            )
+            family_name = family_name or clean_text(
+                spec.name, "product_name", 200,
+            )
+        except SimpleProductError:
+            # Keep the original in-order per-row error contract: this row
+            # will be rejected by the real resolver at its original location.
+            continue
+        assert family_name is not None
+        names.add(family_name.lower())
+
+    locked_names = frozenset(names)
+    if not names:
+        return _BatchFamilyLookup(locked_names, {})
+
+    for name in sorted(names):
+        await _family_name_lock(
+            db, company_id=int(actor.company_id), family_name=name,
+        )
+    normalized_db_name = func.lower(Product.name)
+    ordered = (
+        select(
+            Product.id.label("id"),
+            normalized_db_name.label("normalized"),
+            func.row_number().over(
+                partition_by=normalized_db_name,
+                order_by=Product.id.asc(),
+            ).label("row_rank"),
+        )
+        .where(
+            Product.company_id == int(actor.company_id),
+            normalized_db_name.in_(sorted(names)),
+        )
+        .subquery()
+    )
+    rows = (await db.execute(
+        select(Product, ordered.c.normalized)
+        .join(ordered, Product.id == ordered.c.id)
+        .where(
+            Product.company_id == int(actor.company_id),
+            ordered.c.row_rank <= 2,
+        )
+        .order_by(Product.id.asc())
+    )).all()
+    matches: dict[str, list[Product]] = {}
+    for row, normalized in rows:
+        matches.setdefault(str(normalized), []).append(row)
+    return _BatchFamilyLookup(locked_names, matches)
+
+
 async def _resolve_family(
     db: AsyncSession,
     *,
@@ -817,6 +912,7 @@ async def _resolve_family(
     spec: SimpleProductSpec,
     request_id: UUID,
     index: int,
+    batch_lookup: _BatchFamilyLookup | None = None,
 ) -> Product:
     mode = spec.family_mode
     if mode not in (None, "none", "existing", "new"):
@@ -842,6 +938,8 @@ async def _resolve_family(
         )
         db.add(row)
         await db.flush()
+        if batch_lookup is not None:
+            batch_lookup.remember(row)
         return row
     if mode == "existing" and (
         spec.family_id is None or spec.family_name is not None
@@ -900,24 +998,30 @@ async def _resolve_family(
     )
     assert family_name is not None
 
-    await _family_name_lock(
-        db,
-        company_id=int(actor.company_id),
-        family_name=family_name,
-    )
-    matches = list(
-        (
-            await db.scalars(
-                select(Product)
-                .where(
-                    Product.company_id == int(actor.company_id),
-                    func.lower(Product.name) == family_name.lower(),
+    normalized = family_name.lower()
+    if batch_lookup is not None and normalized in batch_lookup.locked_names:
+        # This transaction already acquired the name's existing advisory
+        # lock and read the at-most-two matched masters under tenant RLS.
+        matches = list(batch_lookup.matches.get(normalized, ()))
+    else:
+        await _family_name_lock(
+            db,
+            company_id=int(actor.company_id),
+            family_name=family_name,
+        )
+        matches = list(
+            (
+                await db.scalars(
+                    select(Product)
+                    .where(
+                        Product.company_id == int(actor.company_id),
+                        func.lower(Product.name) == normalized,
+                    )
+                    .order_by(Product.id.asc())
+                    .limit(2)
                 )
-                .order_by(Product.id.asc())
-                .limit(2)
-            )
-        ).all()
-    )
+            ).all()
+        )
     if mode == "new" and matches:
         raise SimpleProductError(
             "SIMPLE_PRODUCT_FAMILY_NAME_CONFLICT",
@@ -939,6 +1043,8 @@ async def _resolve_family(
     )
     db.add(row)
     await db.flush()
+    if batch_lookup is not None:
+        batch_lookup.remember(row)
     return row
 
 
@@ -1046,6 +1152,11 @@ async def create_product_structures(
     # transaction. Values are immutable and the per-SKU overrides are still
     # validated by the Product Tracking domain's own resolver. No global cache.
     batch_tracking_defaults: ProductTrackingDefaults | None = None
+    # This is a per-transaction, scoped family lookup; duplicates in the
+    # same file still obey original new/none/implicit and ambiguity contracts.
+    batch_family_lookup = await _prefetch_batch_families(
+        db, actor=actor, specs=specs,
+    )
     for index, spec in enumerate(specs, start=1):
         name = clean_text(spec.name, "product_name", 200)
         assert name is not None
@@ -1069,6 +1180,7 @@ async def create_product_structures(
             spec=spec,
             request_id=request_id,
             index=index,
+            batch_lookup=batch_family_lookup,
         )
 
         try:
