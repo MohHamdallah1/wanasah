@@ -29,6 +29,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 import asyncpg
@@ -314,7 +315,7 @@ def main() -> None:
     finally:
         # Explicitly NEVER clean/remove a cluster until PostgreSQL confirms
         # it stopped. Its only data was created in our guarded unique tempdir.
-        if cluster_started:
+        if cluster_started or (test_root / "postmaster.pid").exists():
             try:
                 _run([
                     _pg(bin_dir, "pg_ctl"), "-D", str(test_root),
@@ -323,13 +324,20 @@ def main() -> None:
                 cluster_started = False
             except Exception:
                 print(
-                    "TEMP_DB_CLEANUP_BLOCKED: PostgreSQL still running at "
-                    + str(test_root),
+                    "TEMP_DB_CLEANUP_BLOCKED: PostgreSQL might still be "
+                    "running at " + str(test_root),
                     file=sys.stderr,
                 )
                 raise
         if not cluster_started:
-            shutil.rmtree(test_root)
+            for attempt in range(4):
+                try:
+                    shutil.rmtree(test_root)
+                    break
+                except PermissionError:
+                    if attempt == 3:
+                        raise
+                    time.sleep(0.25)
             print("DISPOSABLE_PG16_CLUSTER_REMOVED=PASS")
 
 
