@@ -43,6 +43,30 @@ In the latest 5k run the stage timing makes the remaining bottleneck clear: **~7
 
 SQL tracing (SQL structure preview and hash only; **no bind parameters or customer contents logged**) identified multiple `WITH new_starts AS ...` statements in `domains/pricing/publishing.py::_close_predecessor_ranges` taking **0.36–0.57 seconds EACH** in the 5k run. This domain routine checks historical published-effective range overlap and locked commercial contexts; current publication inserts are bounded but the price book accumulates many previous published rows. The B3.8 change at HEAD `09959d5` already materializes the new current price set before its final historical overlap probe, and its correctness gate protects GiST effective-range exclusion. **Do not bypass publication/route-history constraints or delete a covering index** just to make this faster. The other two `new_starts` queries (locked commercial route-context detection and real predecessor range closure) should be EXPLAINed on a representative scoped 5k/50k test book before further optimization. Variants are newly created in this fixture, so the expected predecessor match set is empty; the correctness-sensitive general pricing API must still handle legitimate price revisions with shared SKU/UOM identities.
 
+## B3.8.3 — verified prior-price absence fast path; safe published-history preservation
+
+The 5k SQL traces identified three related `_close_predecessor_ranges` operations per price publication: historical commercial-context proof, period closure UPDATE and final overlapping-history probe. Each scans historical price-book entries even when all SKUs in a **new-product import** have never had a published price.
+
+The Pricing domain now checks **its own persisted database** for ANY earlier **published** price for the specific tenant/book/SKU/UOM pairs in the bounded current publication using `WITH fresh_pairs AS MATERIALIZED (...)` plus an `EXISTS` semi-join. If the answer is **false**, the historical context/close/overlap routines cannot have candidates (all their candidate predicates require exactly such an earlier published same-pair row), so the domain safely returns without running these THREE extra scans. If the answer is **true**, ALL original history/context/range-closing logic remains unchanged; no caller may claim “new SKU” without a DB proof. Normal Pricing company locks remain held and the existing GiST published-range exclusion continues to reject unauthorized concurrent overlaps. No constraints/indexes or price values removed.
+
+**Actual dedicated PostgreSQL tests:** the separate fresh-price test counts exactly one new pair-proof query and zero old `new_starts` queries, verifies durable published price identity and amount. The independently posted subsequent revision test proves the original history path still runs and correctly sets the old published range's exclusive upper bound, while keeping the replacement price open-ended. The test refreshes ORM state after the raw SQL update to inspect actual persisted data rather than SQLAlchemy's earlier identity-map snapshot. Pricing domain DB suite **7/7 PASS**, zero skips.
+
+**Repeat of the same realistic synthetic 5,000-row real XLSX application pipeline on a fresh disposable PG16 instance:**
+
+| Metric | Before scoped Pricing fast path | After scoped Pricing fast path |
+|---|---:|---:|
+| Excel stage | 3.821 s | **2.578 s** |
+| Validation including barcodes | 3.141 s | **1.815 s** |
+| Commit 4,950 SKU/9,083 published prices | **77.600 s** | **52.402 s** |
+| Execution SQL commands | **31,729** | **31,629** |
+| Execution `WITH` commands | 150 | **100** |
+| Execution SQL cursor time | 55.646 s | **39.340 s** |
+| Final status, imported, invalid, price count | COMPLETED_WITH_ERRORS, 4,950 / 50 / 9,083 | **same, exact published price count now asserted** |
+
+The **25.198-second execution wall-clock difference** is observed in two **independent, non-randomized** experiments on small clean databases; it is not a guaranteed 50k-row speedup or a clean A/B cause estimate because CPU/storage caches and background tasks can differ. The exact absence of the two historical checks per publication **is directly explained by the code path and 50 fewer `WITH` statements** (the other suppressed history SQL includes DML/SELECT). Slow SQL from the replacement new-pair proof still cost up to **0.353s per call** at 5k, making it a possible next plan-level optimization after EXPLAIN under a representative RLS-sized price book.
+
+**No production/customer/pricing history modified by this benchmark.** The old history-dependent API remains semantically intact, with a real DB regression proving versioned price revisions still update the prior effective-date range.
+
 For a credible enterprise SLA and safe merge:
 
 - [x] Real XLSX parser, staging, validation, and committed execution baseline on one synthetic tenant: 1k and 5k, with integrity and price count gates.
