@@ -119,11 +119,11 @@ async def main():
         if "pg_advisory_xact_lock" in normalized:
             return "SELECT:family_name_advisory_lock"
         if op=="SELECT":
-            match=re.search(r'\\bfrom\\s+([a-z0-9_."]+)',normalized)
+            match=re.search(r'\bfrom\s+([a-z0-9_."]+)',normalized)
             return "SELECT:"+(match.group(1).replace('"','') if match else "other")
         if op=="WITH":
             return "WITH:other"
-        match=re.search(r'\\b(?:insert\\s+into|update|delete\\s+from)\\s+([a-z0-9_."]+)',normalized)
+        match=re.search(r'\b(?:insert\s+into|update|delete\s+from)\s+([a-z0-9_."]+)',normalized)
         return op+":"+(match.group(1).replace('"','') if match else "other")
     def before(_conn,_cursor,statement,_parameters,context,_executemany):
         context._b3_t0=perf_counter()
