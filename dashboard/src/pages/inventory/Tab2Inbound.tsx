@@ -679,7 +679,11 @@ export function Tab2Inbound({
             <select
               value={costPolicy?.method ?? ""}
               aria-label={t("inventoryInbound.costMethod")}
-              aria-describedby="inbound-cost-policy-hint"
+              aria-describedby={
+                costPolicy && !costPolicy.is_selected
+                  ? "inbound-cost-policy-hint"
+                  : undefined
+              }
               disabled={!costPolicy?.can_change || savingPolicy}
               onChange={(event) => {
                 const selected = event.target.value;
