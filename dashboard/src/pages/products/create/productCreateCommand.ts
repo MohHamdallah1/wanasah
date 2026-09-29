@@ -114,10 +114,10 @@ export const isProductCreateCommandPayload = (
       "new",
     ].includes(String(familyMode)) ||
     typeof familyLabel !== "string" ||
-    familyLabel.length > 150 ||
+    familyLabel.length > 200 ||
     !optionalTrimmed(
       familyName,
-      150,
+      200,
     ) ||
     (
       familyId !== null &&
@@ -216,6 +216,7 @@ export const productCreateRequestBody = (
   payload: ProductCreateCommandPayload,
 ) => ({
   name: payload.name,
+  family_mode: payload.family_mode,
   family_id: payload.family_id,
   family_name: payload.family_name,
   package_uom_code:
