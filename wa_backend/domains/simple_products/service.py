@@ -1265,13 +1265,16 @@ async def publish_prices(
                     "units_per_package": int(shape.units_per_package),
                 },
             })
-    await create_draft_entries_bulk(
-        db,
-        company_id=int(actor.company_id),
-        publication_id=int(publication.id),
-        expected_publication_version=int(publication.version),
-        entries=entries,
-    )
+    # PriceBookEntry validation is bounded. Bulk dashboard calls may contain
+    # more than 100 SKUs; preserve one publication and its cumulative version.
+    for start in range(0, len(entries), 200):
+        await create_draft_entries_bulk(
+            db,
+            company_id=int(actor.company_id),
+            publication_id=int(publication.id),
+            expected_publication_version=int(publication.version),
+            entries=entries[start:start + 200],
+        )
 
     await publish_publication(
         db,
