@@ -48,7 +48,10 @@
 - [x] Preserve ALL original dirty and untracked local files in the original repository; no reset, stash, clean or overwrite.
 - [x] Create and verify clean additional Git worktree at `C:\\Users\\admin\\Desktop\\wanasah-hardening` checking out the new work branch. This directory is the canonical clean **repair/testing** worktree; the old directory retains user work-in-progress.
 - [x] Delete only safely merged older local branches using `git branch -d`; the remaining local and remote branch names are `main` and `hardening/catalog-index-worker-fairness`.
-- [ ] Before implementation, ensure original main checkout, WIP files and clean new worktree still match these constraints; git branch consolidation is **not** proof of the unfinished Phase 19 production release gates.
+- [x] Reconfirm checkout state: original `main` preserved 11 pre-existing dirty/untracked paths, clean worktree had zero dirty paths, and local/remote retained only `main` plus the new hardening branch; merge is **not** proof that unfinished Phase 19 production release gates passed.
+- [x] Run initial baseline against clean new worktree: Product Import unit suite **145 tests / OK**; architecture gate **12/12 PASS**; Phase 17 final gate **15/15 PASS**; Phase 18 cleanup gate **13/13 PASS**. These are scoped tests, not closure of Phase 19 end-to-end performance, multi-tenant fairness, UI, or full release.
+- [x] Verify missing new-worktree `.env` causes expected fail-closed startup; tests rerun using pre-existing developer environment settings loaded into test process only. No secrets, env files or configuration values were copied or committed.
+- [ ] The Dashboard production build, Flutter contract testing where affected, new Phase A-G implementation tests and outstanding Product Import Phase 19 E2E gates remain OPEN.
 
 ### Canonical checkbox and evidence discipline
 
