@@ -50,6 +50,7 @@ const product: SimpleProduct = {
   units_per_package: 12,
   legacy_packs_per_carton: 12,
   base_uom_id: 1,
+  base_uom_code: "EACH",
   package_uom_id: 2,
   package_uom_code: "CARTON",
   currency_code: "JOD",
@@ -91,6 +92,7 @@ const baseProps = {
   pricingVisible: true,
   canEditPrice: false,
   canEditTracking: false,
+  canReassignFamily: false,
   columns:
     DEFAULT_PRODUCT_DISPLAY_PREFERENCES.columns,
   density:
@@ -102,6 +104,7 @@ const baseProps = {
   onOpenDetails: vi.fn(),
   onEditPrice: vi.fn(),
   onEditTracking: vi.fn(),
+  onReassignFamily: vi.fn(),
   onLoadMore: vi.fn(),
 };
 
