@@ -975,7 +975,7 @@ def _family_next_cursor(
     if (
         not sort_name
         or not sort_name.strip()
-        or len(sort_name) > 150
+        or len(sort_name) > 200
         or family_id <= 0
     ):
         raise ValueError("Invalid family cursor source.")
