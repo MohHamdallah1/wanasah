@@ -1,10 +1,12 @@
-"""B4 disposable ONLY: repeated catalog inserts -> deleted synthetic SKUs -> VACUUM -> refill.
+"""B4 disposable ONLY: physical index churn in LIKE INCLUDING INDEXES shadow tables.
 
-This intentionally runs SQL deletion/reindex on an isolated throwaway PostgreSQL
-16 clone with one synthetic tenant. It is a *physical storage experiment*,
-NOT an authorized product delete API and NOT a production maintenance script.
-Never run on velotrack_db, user/customer data, any remote server, or normal
-application credentials. An outer runner destroys this DB and server afterward.
+The real catalog source has immutable PUBLISHED price entries. We MUST NOT
+delete them or disable their triggers to get an artificial performance result.
+Instead, create two temporary-CLUSTER-only SHADOW tables using the exact 18
+real catalog index definitions, copy 1000 synthetic SKU/master rows, and
+insert/delete/refill them there. No real product/customer/accounting data is
+deleted or modified, even inside the temporary fixture. This is an index
+storage experiment, NOT a real product-deletion business workflow.
 """
 from __future__ import annotations
 
@@ -67,7 +69,7 @@ async def index_snapshot(adm, label):
         FROM pg_class t JOIN pg_namespace n ON n.oid=t.relnamespace
         JOIN pg_index ix ON ix.indrelid=t.oid
         JOIN pg_class i ON i.oid=ix.indexrelid JOIN pg_am am ON am.oid=i.relam
-        WHERE n.nspname='public' AND t.relname IN ('products','product_variants')
+        WHERE n.nspname='public' AND t.relname IN ('b4_products_shadow','b4_variants_shadow')
         ORDER BY t.relname,i.relname
         """
     )
@@ -109,12 +111,14 @@ async def manual_vacuum(adm, phase):
     now=perf_counter()
     # AUTOVACUUM disabled only on this throwaway clone so the phase's manual
     # vacuum is deterministic. Both table statistics and all 18 indexes stay.
-    for table in ("products","product_variants"):
+    for table in ("b4_products_shadow","b4_variants_shadow"):
         await adm.execute(f"VACUUM (ANALYZE) public.{table}")
     write("B4_MANUAL_VACUUM_"+phase,{"seconds":round(perf_counter()-now,3)})
 
 
 async def main():
+    # This database exists only inside the PG16 test runner and is destroyed
+    # on exit. Use the superuser ONLY against b3_index_growth on localhost.
     token=tenant_context.set(2)
     adm=None
     try:
@@ -123,134 +127,139 @@ async def main():
             database="b3_index_growth",
         )
         if await adm.fetchval("SELECT current_database()")!="b3_index_growth":
-            raise RuntimeError("Unexpected clone name")
+            raise RuntimeError("Unexpected clone; no mutations")
         await adm.execute("SET statement_timeout='35000ms'")
-        # Disable only the clone's automatic vacuum; we measure a known vacuum
-        # transition and then REINDEX only in the disposable DB.
-        for table in ("products","product_variants"):
+        synthetic=await adm.fetchval(
+            "SELECT count(*) FROM product_variants "
+            "WHERE company_id=2 AND name LIKE 'B3 Synthetic Product %'"
+        )
+        total=await adm.fetchval(
+            "SELECT count(*) FROM product_variants WHERE company_id=2"
+        )
+        original_prices=await adm.fetchval(
+            "SELECT count(*) FROM price_book_entries WHERE company_id=2"
+        )
+        original_parents=await adm.fetchval(
+            "SELECT count(*) FROM products "
+            "WHERE company_id=2 AND name LIKE 'B3 Synthetic Product %'"
+        )
+        if (synthetic,total,original_prices,original_parents)!=(
+            COUNT, COUNT+1, 2*COUNT, COUNT,
+        ):
+            raise RuntimeError("Unexpected source test-only fixture; refusing churn")
+
+        # Crucial: the production tables preserve immutable price entries.
+        # Copy only synthetic row values into new shadow tables; all constraints
+        # and ALL 18 catalog index definitions are copied, but no live FKs or
+        # immutable price triggers are bypassed, disabled, or altered.
+        await adm.execute(
+            "CREATE TABLE public.b4_products_shadow "
+            "(LIKE public.products INCLUDING ALL)"
+        )
+        await adm.execute(
+            "CREATE TABLE public.b4_variants_shadow "
+            "(LIKE public.product_variants INCLUDING ALL)"
+        )
+        for table in ("b4_products_shadow","b4_variants_shadow"):
             await adm.execute(
                 f"ALTER TABLE public.{table} SET (autovacuum_enabled=false)"
             )
-        async for db in scoped_session():
-            count=await db.scalar(text(
-                "SELECT count(*) FROM product_variants WHERE company_id=2 "
-                "AND name LIKE 'B3 Synthetic Product %'"
-            ))
-            if count!=COUNT:
-                raise RuntimeError(f"Only {COUNT} generated test variants permitted: {count}")
-            if await db.scalar(text(
-                "SELECT count(*) FROM product_variants WHERE company_id=2"
-            )) != COUNT+1:
-                raise RuntimeError("Unexpected real data: abort B4")
-            if await db.scalar(text(
-                "SELECT count(*) FROM price_book_entries WHERE company_id=2"
-            ))!=2*COUNT:
-                raise RuntimeError("Missing original published price evidence")
-            await db.rollback()
-            initial=await index_snapshot(adm,"ORIGINAL_1000")
-            await manual_vacuum(adm,"AFTER_INITIAL_INSERT")
-            post_first_vacuum=await index_snapshot(adm,"AFTER_INSERT_VACUUM")
+        def source_name(table):
+            return "products" if table=="b4_products_shadow" else "product_variants"
 
-            # The original public product-delete workflow forbids deleting a
-            # populated family; do NOT claim this as a real product deletion.
-            # Restrict artificial physical churn to synthetic row names and
-            # synthetic tenant 2 after precise fixture cardinality checks.
+        async def refill(phase):
             started=perf_counter()
-            sql_base="product_variant_id IN (SELECT id FROM product_variants WHERE company_id=2 AND name LIKE 'B3 Synthetic Product %')"
-            await db.execute(text("SET LOCAL statement_timeout='35000ms'"))
-            price=(await db.execute(text(
-                "DELETE FROM price_book_entries WHERE company_id=2 AND "+sql_base
-            ))).rowcount
-            conv=(await db.execute(text(
-                "DELETE FROM product_uom_conversions WHERE company_id=2 AND "+sql_base
-            ))).rowcount
-            products=(await db.execute(text(
-                "DELETE FROM product_variants WHERE company_id=2 "
-                "AND name LIKE 'B3 Synthetic Product %'"
-            ))).rowcount
-            masters=(await db.execute(text(
-                "DELETE FROM products WHERE company_id=2 "
-                "AND name LIKE 'B3 Synthetic Product %'"
-            ))).rowcount
-            if (price,conv,products,masters)!=(2*COUNT,COUNT,COUNT,COUNT):
-                raise RuntimeError("Unexpected synthetic delete counts; rollback")
-            await db.commit()
-            assert await db.scalar(text(
-                "SELECT count(*) FROM product_variants WHERE company_id=2"
-            ))==1
-            await db.rollback()
-            write("B4_TEST_ONLY_SYNTHETIC_DELETE",{
-                "price_entries":price,"uom_conversions":conv,
-                "variants":products,"masters":masters,
-                "seconds":round(perf_counter()-started,3),
-                "note":"NOT A REAL PRODUCT DELETION WORKFLOW",
-            })
-            after_delete=await index_snapshot(adm,"AFTER_DELETE_BEFORE_VACUUM")
-            await manual_vacuum(adm,"AFTER_SYNTHETIC_DELETE")
-            post_delete_vacuum=await index_snapshot(adm,"AFTER_DELETE_VACUUM")
-
-            actor=await db.scalar(select(Driver).where(
-                Driver.company_id==2,Driver.is_admin.is_(True)
-            ))
-            if actor is None:
-                raise RuntimeError("Synthetic actor missing")
-            t=perf_counter()
-            for batch in range(COUNT//100):
-                n=batch*100
-                specs=[
-                    SimpleProductSpec(
-                        name=f"B4 Refill Product {n+i+1:07d}",
-                        units_per_package=24,package_uom_code="CARTON",
-                        unit_price=Decimal("1"),package_price=Decimal("24"),
-                        lot_control_mode="NONE",expiry_control_mode="NONE",
-                    ) for i in range(100)
-                ]
-                rows=await create_products_and_prices(
-                    db,actor=actor,request_id=uuid4(),specs=specs,
+            for table in ("b4_products_shadow","b4_variants_shadow"):
+                src=source_name(table)
+                outcome=await adm.execute(
+                    f"INSERT INTO public.{table} OVERRIDING SYSTEM VALUE "
+                    f"SELECT * FROM public.{src} "
+                    f"WHERE company_id=2 AND name LIKE 'B3 Synthetic Product %'"
                 )
-                if len(rows)!=100:
-                    raise RuntimeError("B4 refill incomplete")
-                await db.commit()
-            assert await db.scalar(text(
-                "SELECT count(*) FROM product_variants WHERE company_id=2"
-            ))==COUNT+1
-            assert await db.scalar(text(
-                "SELECT count(*) FROM price_book_entries WHERE company_id=2"
-            ))==2*COUNT
-            await db.rollback()
-            write("B4_POST_VACUUM_REFILL",{
-                "recreated_variants":COUNT,
-                "seconds":round(perf_counter()-t,3),
+                if outcome!=f"INSERT 0 {COUNT}":
+                    raise RuntimeError(f"Unexpected {table} {phase}: {outcome}")
+            for table in ("b4_products_shadow","b4_variants_shadow"):
+                exact=await adm.fetchval(
+                    f"SELECT count(*) FROM public.{table} WHERE company_id=2"
+                )
+                if exact!=COUNT:
+                    raise RuntimeError(f"Unexpected {phase} shadow count {table}")
+            write("B4_SHADOW_REFILL_"+phase,{
+                "copies_of_synthetic_rows":COUNT,
+                "seconds":round(perf_counter()-started,3),
             })
-            after_reinsert=await index_snapshot(adm,"AFTER_REFILL")
-            await manual_vacuum(adm,"AFTER_REFILL")
-            after_reinsert_vacuum=await index_snapshot(adm,"AFTER_REFILL_VACUUM")
 
-            # Comparison-only REINDEX on the isolated clone, never source.
-            t=perf_counter()
-            for table in ("products","product_variants"):
-                await adm.execute(f"REINDEX TABLE public.{table}")
-            after_reindex=await index_snapshot(adm,"AFTER_CLONE_REINDEX")
-            write("B4_CHURN_CAUSAL_SUMMARY",{
-                "generated_variants_per_wave":COUNT,
-                "first_wave_index_bytes":initial["total_catalog_index_bytes"],
-                "first_post_vacuum_bytes":post_first_vacuum["total_catalog_index_bytes"],
-                "after_physical_delete_bytes":after_delete["total_catalog_index_bytes"],
-                "after_delete_vacuum_bytes":post_delete_vacuum["total_catalog_index_bytes"],
-                "after_refill_bytes":after_reinsert["total_catalog_index_bytes"],
-                "after_refill_vacuum_bytes":after_reinsert_vacuum["total_catalog_index_bytes"],
-                "after_throwaway_reindex_bytes":after_reindex["total_catalog_index_bytes"],
-                "reindex_bytes_recovered_inside_disposable_only":(
-                    after_reinsert_vacuum["total_catalog_index_bytes"]
-                    -after_reindex["total_catalog_index_bytes"]
-                ),
-                "gin_pending_before_first_vacuum":initial["gin_pending_pages"],
-                "gin_pending_after_first_vacuum":post_first_vacuum["gin_pending_pages"],
-                "gin_pending_after_delete_vacuum":post_delete_vacuum["gin_pending_pages"],
-                "reindex_seconds":round(perf_counter()-t,3),
-                "scope":"small disposable 1000/live SKU churn, not active 217k-row catalog",
-            })
-            print("B4_SYNTHETIC_CHURN_AND_CLEANUP=PASS",flush=True)
+        await refill("FIRST")
+        first=await index_snapshot(adm,"FIRST_INSERT")
+        await manual_vacuum(adm,"FIRST_INSERT")
+        after_first_vacuum=await index_snapshot(adm,"FIRST_VACUUM")
+
+        before=perf_counter()
+        for table in ("b4_variants_shadow","b4_products_shadow"):
+            result=await adm.execute(
+                f"DELETE FROM public.{table} "
+                "WHERE company_id=2 AND name LIKE 'B3 Synthetic Product %'"
+            )
+            if result!=f"DELETE {COUNT}":
+                raise RuntimeError(f"Unexpected shadow-only delete count: {result}")
+        write("B4_SHADOW_ONLY_DELETE",{
+            "deleted_synthetic_masters":COUNT,
+            "deleted_synthetic_variants":COUNT,
+            "seconds":round(perf_counter()-before,3),
+            "real_products_and_prices_untouched":True,
+        })
+        before_vacuum=await index_snapshot(adm,"DELETE_BEFORE_VACUUM")
+        await manual_vacuum(adm,"AFTER_DELETE")
+        after_delete_vacuum=await index_snapshot(adm,"DELETE_AFTER_VACUUM")
+        await refill("SECOND")
+        after_refill=await index_snapshot(adm,"REFILL_BEFORE_VACUUM")
+        await manual_vacuum(adm,"AFTER_REFILL")
+        after_refill_vacuum=await index_snapshot(adm,"REFILL_AFTER_VACUUM")
+
+        # REINDEX is a disposable physical reference ONLY, never an index
+        # migration or prescription to REINDEX on an active company.
+        reindex_t=perf_counter()
+        for table in ("b4_products_shadow","b4_variants_shadow"):
+            await adm.execute(f"REINDEX TABLE public.{table}")
+        post_reindex=await index_snapshot(adm,"AFTER_SHADOW_REINDEX")
+
+        # Exact original immutable production fixtures must still be present
+        # in the disposable source tables, not just in velotrack_db.
+        final=(
+            await adm.fetchval(
+                "SELECT count(*) FROM product_variants "
+                "WHERE company_id=2 AND name LIKE 'B3 Synthetic Product %'"
+            ),
+            await adm.fetchval(
+                "SELECT count(*) FROM price_book_entries WHERE company_id=2"
+            ),
+        )
+        if final!=(COUNT,2*COUNT):
+            raise RuntimeError("Accidentally altered real catalog inside clone")
+        write("B4_CHURN_CAUSAL_SUMMARY",{
+            "source_priced_skus_preserved":final[0],
+            "source_immutable_price_entries_preserved":final[1],
+            "shadow_skus_per_wave":COUNT,
+            "first_shadow_insert_bytes":first["total_catalog_index_bytes"],
+            "after_first_vacuum_bytes":after_first_vacuum["total_catalog_index_bytes"],
+            "after_shadow_delete_bytes":before_vacuum["total_catalog_index_bytes"],
+            "after_delete_vacuum_bytes":after_delete_vacuum["total_catalog_index_bytes"],
+            "after_refill_bytes":after_refill["total_catalog_index_bytes"],
+            "after_refill_vacuum_bytes":after_refill_vacuum["total_catalog_index_bytes"],
+            "after_reindex_bytes":post_reindex["total_catalog_index_bytes"],
+            "reindex_reclaimed_bytes_IN_SHADOW_ONLY":(
+                after_refill_vacuum["total_catalog_index_bytes"]
+                -post_reindex["total_catalog_index_bytes"]
+            ),
+            "gin_pending_after_first_insert":first["gin_pending_pages"],
+            "gin_pending_after_first_vacuum":after_first_vacuum["gin_pending_pages"],
+            "gin_pending_after_delete_vacuum":after_delete_vacuum["gin_pending_pages"],
+            "btree_deleted_pages_after_delete_vacuum":after_delete_vacuum["btree_deleted_pages"],
+            "btree_deleted_pages_after_refill_vacuum":after_refill_vacuum["btree_deleted_pages"],
+            "comparison_reindex_seconds":round(perf_counter()-reindex_t,3),
+            "scope":"isolated exact-index definitions and identical synthetic rows, NOT full application delete",
+        })
+        print("B4_SYNTHETIC_CHURN_AND_CLEANUP=PASS",flush=True)
     finally:
         tenant_context.reset(token)
         if adm is not None:
