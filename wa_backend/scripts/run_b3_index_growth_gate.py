@@ -211,6 +211,8 @@ def main() -> None:
                         "B4_SHADOW_ONLY_DELETE",
                         "B4_SHADOW_REFILL_",
                         "B4_SYNTHETIC_CHURN_AND_CLEANUP",
+                        "B4_AUTOVACUUM_THRESHOLD_PROBE",
+                        "B4_AUTO_POLICY_THRESHOLD",
                     )):
                         print(line,flush=True)
                 if b4.returncode or "B4_SYNTHETIC_CHURN_AND_CLEANUP=PASS" not in b4.stdout:
