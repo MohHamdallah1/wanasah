@@ -13,6 +13,7 @@ import os
 import unittest
 from datetime import date, timedelta
 from decimal import Decimal
+from unittest.mock import patch
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -473,6 +474,88 @@ class CostedInboundC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_moving_average_reversal_restores_original_accounting_cost_once(self):
         await self._outbound_cost_gate("MOVING_AVERAGE", reverse=True)
+
+    async def _assert_atomic_failure_before_commit(self, method: str) -> None:
+        """A thrown exception AFTER stock/cost writes must roll it ALL back."""
+        await self._select_method(method)
+        rid = uuid4()
+        reference = "C2-FAIL-" + rid.hex[:16]
+        lot = "C2-FAIL-" + rid.hex[:16]
+        payload = self._inbound(rid, reference, lot, quantity="7", price="3")
+
+        def simulate_failure_after_idempotency_completion(record, result):
+            from services import complete_idempotent_operation as real_complete
+
+            real_complete(record, result)
+            raise RuntimeError("C2 simulated failure AFTER stock and cost; BEFORE commit")
+
+        with patch(
+            "api.warehouse.inbound.complete_idempotent_operation",
+            side_effect=simulate_failure_after_idempotency_completion,
+        ) as injected:
+            with self.assertRaises(HTTPException) as caught:
+                await warehouse_inbound(
+                    payload=payload, db=self.db, current_admin=self.actor,
+                )
+        self.assertEqual(caught.exception.status_code, 500)
+        self.assertEqual(caught.exception.detail["code"], "INBOUND_INTERNAL_ERROR")
+        injected.assert_called_once()
+        for table in (
+            "inventory_movements",
+            "inventory_cost_events",
+            "inventory_cost_states",
+            "inventory_cost_layers",
+            "inventory_balances",
+            "product_batches",
+            "operation_idempotency",
+        ):
+            self.assertEqual(await self._count(table), 0, table)
+
+        # Choice was saved by the earlier authorized policy PUT. Failed first
+        # supplier receipt must leave it selected but not active/locked.
+        policy = (
+            await self.db.execute(
+                text(
+                    "SELECT method,is_active,locked_at,selected_at,version "
+                    "FROM inventory_cost_policies WHERE company_id=:company_id"
+                ),
+                {"company_id": self.company_id},
+            )
+        ).mappings().one()
+        self.assertEqual(policy["method"], method)
+        self.assertFalse(policy["is_active"])
+        self.assertIsNone(policy["locked_at"])
+        self.assertIsNotNone(policy["selected_at"])
+        self.assertEqual(policy["version"], 1)
+
+        # Retry same request_id with ORIGINAL payload when transient injected
+        # error has gone away; there is no poisoned/pending idempotency row.
+        response = await warehouse_inbound(
+            payload=payload, db=self.db, current_admin=self.actor,
+        )
+        self.assertEqual(response, {"message": "INBOUND_POSTED"})
+        self.assertEqual(await self._count("inventory_movements"), 1)
+        self.assertEqual(await self._count("inventory_cost_events"), 1)
+        self.assertEqual(await self._count("operation_idempotency"), 1)
+        self.assertEqual(
+            await self._count("inventory_cost_layers"),
+            1 if method == "FIFO" else 0,
+        )
+        self.assertEqual(
+            Decimal((await self._source_costs())[0]["total_cost"]),
+            Decimal("21"),
+        )
+        replay = await warehouse_inbound(
+            payload=payload, db=self.db, current_admin=self.actor,
+        )
+        self.assertEqual(replay, response)
+        self.assertEqual(await self._count("inventory_cost_events"), 1)
+
+    async def test_fifo_rollback_after_cost_events_and_before_commit_then_retry(self):
+        await self._assert_atomic_failure_before_commit("FIFO")
+
+    async def test_average_rollback_after_cost_events_and_before_commit_then_retry(self):
+        await self._assert_atomic_failure_before_commit("MOVING_AVERAGE")
 
 
 if __name__ == "__main__":
