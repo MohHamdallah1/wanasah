@@ -1,7 +1,7 @@
 # Supplier invoice price correction after stock has moved
 
-**Status:** REVIEWED DESIGN / **NOT IMPLEMENTED** — separate release gate.  
-**Related authority:** `INVENTORY_COSTING_FINANCIAL_TRUTH_DECISION.md` (single authoritative cost method).  
+**Status:** REVIEWED DESIGN / **NOT IMPLEMENTED** — separate release gate.
+**Related authority:** `INVENTORY_COSTING_FINANCIAL_TRUTH_DECISION.md` (single authoritative cost method).
 **Business example:** 10 units purchased at JOD 2, 6 units sold, supplier confirms actual purchase price was JOD 2.50. Gross acquisition delta = **JOD 5**. With one isolated acquisition and no other purchases/reversals, JOD 2 belongs to the 4 remaining units and JOD 3 to the 6 units sold. **Never apply that physical 4:6 split mechanically once mixed purchases, FIFO allocations, moving average changes, adjustments, returns or period boundaries exist.**
 
 ## 1. Critical invariants
