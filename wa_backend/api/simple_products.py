@@ -937,7 +937,7 @@ def _family_cursor(
                 str,
             )
             or not data["after_name"].strip()
-            or len(data["after_name"]) > 150
+            or len(data["after_name"]) > 200
             or not isinstance(
                 data.get("after_id"),
                 int,
