@@ -186,6 +186,7 @@ def main() -> None:
                     raise RuntimeError("B3.8 full XLSX pipeline must use its own pristine clone.")
                 child_env["WANASAH_B38_REAL_IMPORT_GATE"]="1"
                 child_env["WANASAH_B38_MAX_ROWS"]=str(row_count)
+                child_env["WANASAH_B38_VALIDATION_ONLY"]=os.environ.get("WANASAH_B38_VALIDATION_ONLY","0")
                 print("B38_REAL_XLSX_PROFILE_START",{"rows":row_count,"database":_BENCH},flush=True)
                 b38=subprocess.run([
                     sys.executable,
@@ -196,9 +197,16 @@ def main() -> None:
                     if line.startswith(("B38_FILE","B38_STAGE_COMPLETE",
                                         "B38_VALIDATION_COMPLETE","B38_FINAL",
                                         "B38_STAGE_TIMINGS","B38_SQL_BY_STAGE",
+                                        "B38_SLOW_SQL_BY_STAGE",
+                                        "B38_VALIDATION_ONLY_REAL_XLSX",
                                         "B38_REAL_XLSX_STAGING_VALIDATION_EXECUTION")):
                         print(line,flush=True)
-                if b38.returncode or "B38_REAL_XLSX_STAGING_VALIDATION_EXECUTION=PASS" not in (b38.stdout or ""):
+                expected = (
+                    "B38_VALIDATION_ONLY_REAL_XLSX=PASS"
+                    if child_env["WANASAH_B38_VALIDATION_ONLY"]=="1"
+                    else "B38_REAL_XLSX_STAGING_VALIDATION_EXECUTION=PASS"
+                )
+                if b38.returncode or expected not in (b38.stdout or ""):
                     raise RuntimeError(
                         "B3.8 disposable Excel pipeline failed (exit "
                         +str(b38.returncode)+"): "+(b38.stderr or "")[-2600:]
