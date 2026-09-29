@@ -701,6 +701,50 @@ async def _close_predecessor_ranges(
     company_id: int,
     publication: PricePublication,
 ) -> None:
+    # The first-ever published price for an SKU/UOM has NO predecessor to
+    # close and NO previous route/commercial price to invalidate. This is an
+    # authoritative, tenant/book-scoped database proof, not an assertion from
+    # the caller that the SKU is new. Normal company-level Pricing locks
+    # serialize standard publishers and the GiST exclusion still guards races.
+    # Work from this publication's bounded pairs instead of rescanning all
+    # older published price rows on every fresh product import batch.
+    has_predecessor = await db.scalar(
+        text(
+            """
+            WITH fresh_pairs AS MATERIALIZED (
+                SELECT DISTINCT product_variant_id, uom_id
+                FROM price_book_entries
+                WHERE company_id = :company_id
+                  AND price_book_id = :price_book_id
+                  AND publication_id = :publication_id
+            )
+            SELECT EXISTS (
+                SELECT 1 FROM fresh_pairs AS fresh
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM price_book_entries AS old
+                    WHERE old.company_id = :company_id
+                      AND old.price_book_id = :price_book_id
+                      AND old.product_variant_id = fresh.product_variant_id
+                      AND old.uom_id = fresh.uom_id
+                      AND old.publication_id <> :publication_id
+                      AND old.is_published IS TRUE
+                )
+            )
+            """
+        ),
+        {
+            "company_id": int(company_id),
+            "price_book_id": int(publication.price_book_id),
+            "publication_id": int(publication.id),
+        },
+    )
+    if not has_predecessor:
+        return
+
+    # Existing SKU/UOM revisions still take the UNCHANGED commercial-context
+    # protection, predecessor window-closing UPDATE and GiST-aware overlap
+    # verification below. Never fast-path over a real earlier published price.
     locked_context_conflict = await db.scalar(
         text(
             """
