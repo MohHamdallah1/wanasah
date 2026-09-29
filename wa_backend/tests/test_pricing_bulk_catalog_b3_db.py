@@ -189,6 +189,52 @@ class BulkPricingB3DatabaseTests(unittest.IsolatedAsyncioTestCase):
             {"p": pub.id},
         ), 0)
 
+    async def test_later_publication_closes_previous_window_without_overlap(self):
+        """Materialized current-price check cannot skip effective-date closure."""
+        first=await self._publication()
+        prices=await create_draft_entries_bulk(
+            self.db,company_id=2,publication_id=first.id,
+            expected_publication_version=first.version,
+            entries=[self._entry(amount="3.0")],
+        )
+        self.assertEqual(len(prices),1)
+        await publish_publication(
+            self.db,company_id=2,actor_id=self.actor_id,
+            publication_id=first.id,expected_version=first.version,
+        )
+        next_start=self.at+timedelta(hours=3)
+        second=await create_publication(
+            self.db,company_id=2,actor_id=self.actor_id,
+            book_id=first.price_book_id,
+            expected_book_version=1,effective_at=next_start,
+            request_id=uuid4(),
+        )
+        replacement=self._entry(amount="5.0")
+        replacement["effective_from"]=next_start
+        await create_draft_entries_bulk(
+            self.db,company_id=2,publication_id=second.id,
+            expected_publication_version=second.version,
+            entries=[replacement],
+        )
+        await publish_publication(
+            self.db,company_id=2,actor_id=self.actor_id,
+            publication_id=second.id,expected_version=second.version,
+        )
+        published=(await self.db.execute(select(PriceBookEntry).where(
+            PriceBookEntry.company_id==2,
+            PriceBookEntry.price_book_id==first.price_book_id,
+            PriceBookEntry.product_variant_id==1,
+            PriceBookEntry.is_published.is_(True),
+        ).order_by(PriceBookEntry.publication_id))).scalars().all()
+        self.assertEqual(len(published),2)
+        old,new=published
+        self.assertEqual(old.effectivity.upper,next_start)
+        self.assertIsNone(new.effectivity.upper)
+        self.assertEqual(new.effectivity.lower,next_start)
+        self.assertEqual((old.amount,new.amount),
+                         (Decimal("3"),Decimal("5")))
+        self.assertFalse(old.effectivity.overlaps(new.effectivity))
+
     async def test_version_conflict_and_boundedness(self):
         pub = await self._publication()
         with self.assertRaises(PricingError) as err:
