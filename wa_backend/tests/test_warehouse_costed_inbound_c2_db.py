@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
@@ -154,8 +154,8 @@ class CostedInboundC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
                 "uom_id": self.variant["base_uom_id"],
                 "unit_cost": price,
                 "batch_number": batch,
-                "production_date": date(2026, 1, 1),
-                "expiry_date": date(2027, 12, 31),
+                "production_date": date.today() - timedelta(days=30),
+                "expiry_date": date.today() + timedelta(days=730),
             }],
         )
 
@@ -315,7 +315,7 @@ class CostedInboundC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             older_receipt, "C2-FIN-" + older_receipt.hex[:12],
             physical_older_lot, price="2",
         )
-        first.items[0].expiry_date = date(2028, 12, 31)
+        first.items[0].expiry_date = date.today() + timedelta(days=1100)
         second = self._inbound(
             newer_receipt, "C2-FIN-" + newer_receipt.hex[:12],
             physical_earlier_expiry_lot, price="4",
