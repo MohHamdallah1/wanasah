@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from domains.pricing.core import PricingError, maker_checker_enabled, money_20_6
 from domains.pricing.publishing import (
     create_assignment,
-    create_draft_entry,
+    create_draft_entries_bulk,
     create_price_book,
     create_publication,
     publish_publication,
@@ -1222,24 +1222,22 @@ async def publish_prices(
         request_id=request_id,
     )
 
+    # This request already has a bounded set of freshly published SKUs.
+    # Build the exact same base/package entries and let the Pricing domain
+    # check tenant/SKU/UOM/effectivity in sets under ONE draft lock.
+    entries: list[dict[str, Any]] = []
     for variant, _spec, prices, shape in rows:
-        await create_draft_entry(
-            db,
-            company_id=int(actor.company_id),
-            publication_id=int(publication.id),
-            expected_publication_version=int(publication.version),
-            product_variant_id=int(variant.id),
-            uom_id=int(shape.base_uom.id),
-            amount=prices.unit_price,
-            effective_from=effective_at,
-            effective_to=None,
-            priority=0,
-            metadata={
+        entries.append({
+            "product_variant_id": int(variant.id),
+            "uom_id": int(shape.base_uom.id),
+            "amount": prices.unit_price,
+            "effective_from": effective_at,
+            "effective_to": None,
+            "priority": 0,
+            "metadata": {
                 "managed_by": "simple_products",
                 "price_input": (
-                    "derived"
-                    if prices.unit_derived
-                    else "explicit"
+                    "derived" if prices.unit_derived else "explicit"
                 ),
                 "package_uom_code": (
                     str(shape.package_uom.code)
@@ -1248,36 +1246,32 @@ async def publish_prices(
                 ),
                 "units_per_package": int(shape.units_per_package),
             },
-        )
-
+        })
         if shape.package_uom is not None:
             assert prices.package_price is not None
-            await create_draft_entry(
-                db,
-                company_id=int(actor.company_id),
-                publication_id=int(publication.id),
-                expected_publication_version=int(publication.version),
-                product_variant_id=int(variant.id),
-                uom_id=int(shape.package_uom.id),
-                amount=prices.package_price,
-                effective_from=effective_at,
-                effective_to=None,
-                priority=0,
-                metadata={
+            entries.append({
+                "product_variant_id": int(variant.id),
+                "uom_id": int(shape.package_uom.id),
+                "amount": prices.package_price,
+                "effective_from": effective_at,
+                "effective_to": None,
+                "priority": 0,
+                "metadata": {
                     "managed_by": "simple_products",
                     "price_input": (
-                        "derived"
-                        if prices.package_derived
-                        else "explicit"
+                        "derived" if prices.package_derived else "explicit"
                     ),
-                    "package_uom_code": str(
-                        shape.package_uom.code
-                    ),
-                    "units_per_package": int(
-                        shape.units_per_package
-                    ),
+                    "package_uom_code": str(shape.package_uom.code),
+                    "units_per_package": int(shape.units_per_package),
                 },
-            )
+            })
+    await create_draft_entries_bulk(
+        db,
+        company_id=int(actor.company_id),
+        publication_id=int(publication.id),
+        expected_publication_version=int(publication.version),
+        entries=entries,
+    )
 
     await publish_publication(
         db,
