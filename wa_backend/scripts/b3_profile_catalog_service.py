@@ -188,6 +188,30 @@ async def main():
                             break
                 final_count=await db.scalar(select(func.count(ProductVariant.id)).where(ProductVariant.company_id==2))
                 assert final_count==1+complete,("Variant conservation failed",final_count,complete)
+                price_count = await db.scalar(text(
+                    "SELECT COUNT(*) FROM price_book_entries "
+                    "WHERE company_id=2 AND is_published IS TRUE"
+                ))
+                publication_rows = (await db.execute(text(
+                    "SELECT status, version FROM price_publications "
+                    "WHERE company_id=2 ORDER BY id"
+                ))).all()
+                assert price_count == 2*complete, (
+                    "Published EACH+CARTON entries missing or duplicated",
+                    price_count, complete,
+                )
+                assert len(publication_rows) == complete//100, publication_rows
+                assert all(
+                    status in ("PUBLISHED", "SUPERSEDED") and version==202
+                    for status,version in publication_rows
+                ), publication_rows
+                report("B3_FINANCIAL_PUBLISHED_INVARIANTS", {
+                    "variants": complete,
+                    "published_price_entries": price_count,
+                    "publications": len(publication_rows),
+                    "publication_version_expected": 202,
+                    "validated": True,
+                })
             finally:
                 simple_service.create_product_structures=orig_struct
                 simple_service.publish_prices=orig_prices
