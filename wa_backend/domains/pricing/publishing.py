@@ -291,6 +291,139 @@ async def create_draft_entry(
     return row
 
 
+
+async def create_draft_entries_bulk(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    publication_id: int,
+    expected_publication_version: int,
+    entries: list[dict[str, Any]],
+) -> list[PriceBookEntry]:
+    """Create a bounded set of prices with the SAME draft/UOM/value checks.
+
+    The Pricing domain retains authority. ONE FOR UPDATE verifies the draft
+    and expected version; tenant-scoped set queries validate each SKU/UOM.
+    The publication version advances by one per entry, exactly as repeated
+    create_draft_entry calls, but a single ORM flush replaces per-entry
+    publication updates/locks. Caller must commit or roll back atomically.
+    Do not use for cross-tenant writes or unbounded sets.
+    """
+    if len(entries) > 200:
+        raise ValueError("Pricing batch exceeds 200 draft entries.")
+    publication = await _draft_publication(
+        db,
+        company_id=company_id,
+        publication_id=publication_id,
+        expected_version=expected_publication_version,
+    )
+    if publication.effective_at is None:
+        raise PricingError(
+            "PRICE_PUBLICATION_EFFECTIVE_AT_REQUIRED",
+            "نسخة النشر لا تحمل effective_at صالحاً.",
+        )
+    if not entries:
+        return []
+
+    # Validation is performed before adding ANY entry to the ORM session.
+    # Preserve original error codes, money rounding and chronological order.
+    prepared: list[tuple[int, int, Any, Range[datetime], int, dict[str, Any]]] = []
+    for item in entries:
+        variant_id = int(item["product_variant_id"])
+        uom_id = int(item["uom_id"])
+        effectivity = _range(item["effective_from"], item.get("effective_to"))
+        if effectivity.lower < publication.effective_at:
+            raise PricingError(
+                "PRICE_EFFECTIVITY_BEFORE_PUBLICATION",
+                "بداية سعر الإدخال لا يجوز أن تسبق effective_at لنسخة النشر.",
+            )
+        prepared.append((
+            variant_id,
+            uom_id,
+            money_20_6(item["amount"]),
+            effectivity,
+            int(item["priority"]),
+            dict(item.get("metadata") or {}),
+        ))
+
+    ids = sorted({entry[0] for entry in prepared})
+    variant_rows = (
+        await db.execute(
+            select(
+                ProductVariant.id,
+                ProductVariant.base_uom_id,
+                ProductVariant.lifecycle_status,
+            ).where(
+                ProductVariant.company_id == int(company_id),
+                ProductVariant.id.in_(ids),
+            )
+        )
+    ).all()
+    variants = {
+        int(v.id): (int(v.base_uom_id), str(v.lifecycle_status))
+        for v in variant_rows
+    }
+    conversion_rows = (
+        await db.execute(
+            select(
+                ProductUomConversion.product_variant_id,
+                ProductUomConversion.from_uom_id,
+                ProductUomConversion.to_uom_id,
+            ).where(
+                ProductUomConversion.company_id == int(company_id),
+                ProductUomConversion.product_variant_id.in_(ids),
+            )
+        )
+    ).all()
+    mapped = {
+        variant_id: {base_uom}
+        for variant_id, (base_uom, _) in variants.items()
+    }
+    for conversion in conversion_rows:
+        mapped.setdefault(int(conversion.product_variant_id), set()).update((
+            int(conversion.from_uom_id),
+            int(conversion.to_uom_id),
+        ))
+
+    for variant_id, uom_id, *_ in prepared:
+        variant = variants.get(variant_id)
+        if (
+            variant is None
+            or variant[1] not in {"ACTIVE", "RETIRING"}
+            or uom_id not in mapped.get(variant_id, set())
+        ):
+            raise PricingError(
+                "PRICE_UOM_MAPPING_UNRESOLVED",
+                "وحدة السعر لا ترتبط بهذا الـSKU أو أن الصنف غير صالح للنشر التجاري.",
+                context={
+                    "product_variant_id": variant_id,
+                    "uom_id": uom_id,
+                },
+            )
+
+    rows = [
+        PriceBookEntry(
+            company_id=int(company_id),
+            price_book_id=int(publication.price_book_id),
+            publication_id=int(publication.id),
+            product_variant_id=variant_id,
+            uom_id=uom_id,
+            amount=amount,
+            effectivity=effective,
+            priority=priority,
+            is_published=False,
+            entry_metadata=metadata,
+            version=1,
+        )
+        for variant_id, uom_id, amount, effective, priority, metadata in prepared
+    ]
+    db.add_all(rows)
+    publication.version += len(rows)
+    publication.updated_at = utc_now()
+    await db.flush()
+    return rows
+
+
 async def update_draft_entry(
     db: AsyncSession,
     *,
