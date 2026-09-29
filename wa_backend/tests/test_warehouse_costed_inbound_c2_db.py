@@ -507,9 +507,21 @@ class CostedInboundC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             "inventory_cost_layers",
             "inventory_balances",
             "product_batches",
-            "operation_idempotency",
         ):
             self.assertEqual(await self._count(table), 0, table)
+        # The policy PUT has its own, already committed idempotency evidence.
+        # The failed WAREHOUSE_INBOUND must leave no request-specific record.
+        self.assertEqual(
+            await self.db.scalar(
+                text(
+                    "SELECT count(*) FROM operation_idempotency "
+                    "WHERE company_id=:company_id AND operation='WAREHOUSE_INBOUND' "
+                    "AND request_id=:request_id"
+                ),
+                {"company_id": self.company_id, "request_id": str(rid)},
+            ),
+            0,
+        )
 
         # Choice was saved by the earlier authorized policy PUT. Failed first
         # supplier receipt must leave it selected but not active/locked.
@@ -536,7 +548,16 @@ class CostedInboundC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response, {"message": "INBOUND_POSTED"})
         self.assertEqual(await self._count("inventory_movements"), 1)
         self.assertEqual(await self._count("inventory_cost_events"), 1)
-        self.assertEqual(await self._count("operation_idempotency"), 1)
+        self.assertEqual(
+            await self.db.scalar(
+                text(
+                    "SELECT count(*) FROM operation_idempotency "
+                    "WHERE company_id=:company_id AND operation='WAREHOUSE_INBOUND'"
+                ),
+                {"company_id": self.company_id},
+            ),
+            1,
+        )
         self.assertEqual(
             await self._count("inventory_cost_layers"),
             1 if method == "FIFO" else 0,
