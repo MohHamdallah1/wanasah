@@ -51,7 +51,8 @@ from domains.simple_products.imports.infrastructure.parsers import open_source
 from domains.simple_products.imports.infrastructure.repository import (
     open_tenant_session,close_tenant_session,
 )
-from models import Driver,ProductImportJob,ProductVariant
+from models import Driver,ProductBarcode,ProductImportJob,ProductVariant
+from domains.simple_products.service import barcode_type
 from scripts.run_product_import_phase19_live_load import build_source
 
 ACTOR_COMPANY=2
@@ -115,6 +116,9 @@ async def current_job(uuid):
 async def main():
     global phase
     n=int(os.environ.get("WANASAH_B38_MAX_ROWS","1000"))
+    inject_conflicts=os.environ.get("WANASAH_B38_CONFLICT_FIXTURE")=="1"
+    if inject_conflicts and os.environ.get("WANASAH_B38_VALIDATION_ONLY")!="1":
+        raise RuntimeError("Barcode conflict fixture must stop after validation.")
     if n not in _ALLOWED_COUNTS:
         raise RuntimeError("Only a bounded 100/1000/5000 sample is permitted.")
     token=tenant_context.set(ACTOR_COMPANY)
@@ -156,6 +160,32 @@ async def main():
             # Application service create_import routes through a persistent
             # source store/queue, so this fixture starts directly in PARSING.
             # SourceStore/HTTP/queue latencies remain excluded and visible.
+            if inject_conflicts:
+                baseline_variant=await db.scalar(select(ProductVariant).where(
+                    ProductVariant.company_id==ACTOR_COMPANY,
+                ).limit(1))
+                if baseline_variant is None:
+                    raise RuntimeError("Synthetic conflict SKU fixture missing")
+                header=rows[0]
+                barcode_col=header.index(mapping["unit_barcode"])
+                active=rows[1][barcode_col]
+                inactive=rows[2][barcode_col]
+                for value,is_active in ((active,True),(inactive,False)):
+                    db.add(ProductBarcode(
+                        company_id=ACTOR_COMPANY,
+                        product_variant_id=baseline_variant.id,
+                        uom_id=baseline_variant.base_uom_id,
+                        barcode=value,
+                        barcode_type=barcode_type(value),
+                        is_active=is_active,
+                        is_primary=False,
+                    ))
+                await db.flush()
+                show("B38_CONFLICT_FIXTURE_CREATED",{
+                    "active_preexisting_barcodes":1,
+                    "inactive_preexisting_barcodes":1,
+                    "test_only":True,
+                })
             job=ProductImportJob(
                 id=job_id,request_id=uuid4(),company_id=ACTOR_COMPANY,
                 created_by=actor.id,
@@ -210,6 +240,41 @@ async def main():
         })
         if not advance or after_valid["status"]!="IMPORTING":
             raise RuntimeError("Real validation did not reach IMPORTING")
+        if inject_conflicts:
+            token2,s2=await open_tenant_session(ACTOR_COMPANY)
+            try:
+                states=(await s2.execute(text(
+                    "SELECT row_number,status,error_code "
+                    "FROM product_import_rows "
+                    "WHERE company_id=2 AND job_id=:j AND row_number IN (2,3) "
+                    "ORDER BY row_number"
+                ),{"j":job_id})).all()
+                count=await s2.scalar(text(
+                    "SELECT COUNT(*) FROM product_import_rows "
+                    "WHERE company_id=2 AND job_id=:j AND status='INVALID'"
+                ),{"j":job_id})
+            finally:
+                await s2.rollback()
+                await close_tenant_session(token2,s2)
+            expected_invalid=n//100+1
+            show("B38_CONFLICT_ASSERTION",{
+                "rows":[list(v) for v in states],
+                "invalid":count,
+                "expected_invalid":expected_invalid,
+                "success":(
+                    len(states)==2
+                    and states[0][1:] == ("INVALID","IMPORT_BARCODE_CONFLICT")
+                    and states[1][1:] == ("VALID",None)
+                    and count==expected_invalid
+                ),
+            })
+            if not (
+                len(states)==2
+                and states[0][1:] == ("INVALID","IMPORT_BARCODE_CONFLICT")
+                and states[1][1:] == ("VALID",None)
+                and count==expected_invalid
+            ):
+                raise RuntimeError("Active/inactive barcode conflict semantics changed")
 
         # Optional diagnosis: stop safely after REAL 5k XLSX parse, staging
         # and barcode validation, without costlier product/price execution.
