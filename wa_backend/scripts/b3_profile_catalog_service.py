@@ -153,6 +153,13 @@ async def main():
             orig_struct=simple_service.create_product_structures
             orig_prices=simple_service.publish_prices
             orig_shape=simple_service._load_shape_for_spec
+            orig_prepare_families=simple_service._prefetch_batch_families
+            # Same real resolver + same rows, but restore its former per-SKU
+            # lock/SELECT behavior in this disposable benchmark only.
+            if os.environ.get("WANASAH_B3_TEST_DISABLE_FAMILY_BATCH") == "1":
+                async def legacy_family_lookup(db, *, actor, specs):
+                    return simple_service._BatchFamilyLookup(frozenset(), {})
+                simple_service._prefetch_batch_families=legacy_family_lookup
             # Paired A/B uses identical running source code and identical
             # synthetic clone fixture. Only this test wrapper bypasses the
             # per-batch UOM memo (does not mutate the production code).
@@ -171,6 +178,9 @@ async def main():
             simple_service.create_product_structures=time_struct
             simple_service.publish_prices=time_prices
             complete=0
+            family_scenario=os.environ.get("WANASAH_B3_FAMILY_SCENARIO","UNIQUE")
+            if family_scenario not in ("UNIQUE","SHARED50"):
+                raise RuntimeError("Only UNIQUE or SHARED50 synthetic family scenarios allowed")
             t_all=perf_counter()
             try:
                 while complete<maximum:
@@ -178,6 +188,10 @@ async def main():
                     specs=[
                         simple_service.SimpleProductSpec(
                             name=f"B3 Synthetic Product {complete+i+1:07d}",
+                            family_name=(
+                                "B37 Shared Family "+str((complete+i)%50+1).zfill(3)
+                                if family_scenario=="SHARED50" else None
+                            ),
                             units_per_package=24,
                             package_uom_code="CARTON",
                             package_price=Decimal("24"),
@@ -207,6 +221,15 @@ async def main():
                             break
                 final_count=await db.scalar(select(func.count(ProductVariant.id)).where(ProductVariant.company_id==2))
                 assert final_count==1+complete,("Variant conservation failed",final_count,complete)
+                if family_scenario=="SHARED50":
+                    family_total=await db.scalar(text(
+                        "SELECT count(*) FROM products WHERE company_id=2 "
+                        "AND name LIKE 'B37 Shared Family %'"
+                    ))
+                    assert family_total==50, ("Expected 50 shared masters",family_total)
+                    report("B37_50_SHARED_FAMILY_CONSERVATION",{
+                        "unique_families":family_total,"sellable_skus":complete,
+                    })
                 price_count = await db.scalar(text(
                     "SELECT COUNT(*) FROM price_book_entries "
                     "WHERE company_id=2 AND is_published IS TRUE"
@@ -236,6 +259,7 @@ async def main():
                 simple_service.create_product_structures=orig_struct
                 simple_service.publish_prices=orig_prices
                 simple_service._load_shape_for_spec=orig_shape
+                simple_service._prefetch_batch_families=orig_prepare_families
             await asyncio.sleep(0.15)
             ending=await physical_snapshot("END",admin)
             growth=[]
@@ -265,6 +289,8 @@ async def main():
             report("B3_GATE",{"source":"disposable_postgresql16_only","scope":"core_catalog_product_create_and_price_publish_not_full_file_import",
                  "real_created_variants":complete,"total_seconds":round(perf_counter()-t_all,3),
                  "cached_uom":os.environ.get("WANASAH_B3_TEST_DISABLE_UOM_CACHE") != "1",
+                 "family_scenario":family_scenario,
+                 "batched_families":os.environ.get("WANASAH_B3_TEST_DISABLE_FAMILY_BATCH") != "1",
                  "sql_statements":sum(counts.values()),"sql_by_type":dict(counts),
                  "sql_elapsed_seconds":{k:round(v,3) for k,v in sql_durations.items()},
                  "stage_seconds":{k:round(v,3) for k,v in stage.items()},
