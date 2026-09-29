@@ -13,6 +13,7 @@ from collections import Counter, defaultdict
 from decimal import Decimal
 import json
 import os
+import pathlib
 import re
 import selectors
 import sys
@@ -26,6 +27,9 @@ from sqlalchemy import event, func, select, text
 
 if os.environ.get("WANASAH_B3_DISPOSABLE_CHILD") != "1":
     raise RuntimeError("Opt-in required: never execute benchmark against source DB.")
+_PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 load_dotenv(os.environ["WANASAH_B3_SOURCE_ENV_FILE"], override=False)
 os.environ["DATABASE_URL"] = os.environ["WANASAH_B3_TEMP_DB_URL"]
