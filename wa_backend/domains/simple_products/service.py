@@ -94,6 +94,7 @@ class SimpleProductSpec:
     unit_price: Decimal | None = None
     family_id: int | None = None
     family_name: str | None = None
+    family_mode: str | None = None  # None preserves existing import/legacy semantics.
     unit_barcode: str | None = None
     package_barcode: str | None = None
     lot_control_mode: str | None = None
@@ -654,7 +655,7 @@ async def create_family(
     request_id: UUID,
     name: str,
 ) -> Product:
-    clean_name = clean_text(name, "family_name", 150)
+    clean_name = clean_text(name, "family_name", 200)
     assert clean_name is not None
     await _family_name_lock(
         db,
@@ -692,7 +693,7 @@ async def rename_family(
     expected_version: int,
     name: str,
 ) -> Product:
-    clean_name = clean_text(name, "family_name", 150)
+    clean_name = clean_text(name, "family_name", 200)
     assert clean_name is not None
     await _family_name_lock(
         db,
@@ -803,6 +804,49 @@ async def _resolve_family(
     request_id: UUID,
     index: int,
 ) -> Product:
+    mode = spec.family_mode
+    if mode not in (None, "none", "existing", "new"):
+        raise SimpleProductError(
+            "SIMPLE_PRODUCT_FAMILY_MODE_INVALID",
+            "Invalid family selection.",
+            status_code=422,
+        )
+    if mode == "none":
+        if spec.family_id is not None or spec.family_name is not None:
+            raise SimpleProductError(
+                "SIMPLE_PRODUCT_FAMILY_AMBIGUOUS",
+                "Without family must not select an existing or new family.",
+                status_code=422,
+            )
+        name = clean_text(spec.name, "product_name", 200)
+        assert name is not None
+        # Independent master. Never reuse a same-name parent implicitly.
+        row = Product(
+            company_id=int(actor.company_id),
+            code=_auto_code("FAM", request_id, index),
+            name=name,
+        )
+        db.add(row)
+        await db.flush()
+        return row
+    if mode == "existing" and (
+        spec.family_id is None or spec.family_name is not None
+    ):
+        raise SimpleProductError(
+            "SIMPLE_PRODUCT_FAMILY_SELECTION_REQUIRED",
+            "Select an existing family by id.",
+            status_code=422,
+        )
+    if mode == "new" and (
+        spec.family_id is not None
+        or spec.family_name is None
+        or not spec.family_name.strip()
+    ):
+        raise SimpleProductError(
+            "SIMPLE_PRODUCT_FAMILY_NAME_REQUIRED",
+            "Provide a new family name.",
+            status_code=422,
+        )
     if spec.family_id is not None and spec.family_name is not None:
         raise SimpleProductError(
             "SIMPLE_PRODUCT_FAMILY_AMBIGUOUS",
@@ -829,7 +873,7 @@ async def _resolve_family(
         clean_text(
             spec.family_name,
             "family_name",
-            150,
+            200,
             optional=True,
         )
         if spec.family_name is not None
@@ -838,7 +882,7 @@ async def _resolve_family(
     family_name = family_name or clean_text(
         spec.name,
         "product_name",
-        150,
+        200,
     )
     assert family_name is not None
 
@@ -860,6 +904,12 @@ async def _resolve_family(
             )
         ).all()
     )
+    if mode == "new" and matches:
+        raise SimpleProductError(
+            "SIMPLE_PRODUCT_FAMILY_NAME_CONFLICT",
+            "A family with this name already exists.",
+            status_code=409,
+        )
     if len(matches) > 1:
         raise SimpleProductError(
             "SIMPLE_PRODUCT_FAMILY_NAME_AMBIGUOUS",
