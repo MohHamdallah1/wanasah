@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -125,8 +125,8 @@ class CostedInboundASGIC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
                 "quantity": "10", "uom_id": variant["base_uom_id"],
                 "unit_cost": "2.500000",
                 "batch_number": "C2-HTTP-LOT-" + request_id.split("-")[0],
-                "production_date": str(date(2026, 1, 1)),
-                "expiry_date": str(date(2027, 12, 31)),
+                "production_date": str(date.today() - timedelta(days=30)),
+                "expiry_date": str(date.today() + timedelta(days=730)),
             }],
         }
         denied = await self.http.post("/warehouse/inbound", json=body)
