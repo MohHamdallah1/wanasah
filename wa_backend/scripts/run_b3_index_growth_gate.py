@@ -136,9 +136,18 @@ def main() -> None:
           END LOOP;
         END $b3$;
         """))
-        paired = os.environ.get("WANASAH_B3_PAIRED_UOM") == "1"
-        modes = (("uncached", True), ("cached", False)) if paired else (("single", False),)
-        for label, without_cache in modes:
+        paired_uom = os.environ.get("WANASAH_B3_PAIRED_UOM") == "1"
+        paired_families = os.environ.get("WANASAH_B37_PAIRED_FAMILIES") == "1"
+        if paired_uom and paired_families:
+            raise RuntimeError("Run UOM and family A/B experiments separately.")
+        paired = paired_uom or paired_families
+        if paired_families:
+            modes = (("per_sku_family_lookup",False,True),("prefetched_families",False,False))
+        elif paired_uom:
+            modes = (("uncached_uom",True,False),("cached_uom",False,False))
+        else:
+            modes = (("single",False,False),)
+        for label, without_cache, without_family_batch in modes:
             base._run([
                 _bin(pg_bin,"createdb"),"-h","127.0.0.1",
                 "-p",str(_PORT),"-U",_ADMIN,"-T",_TEMPLATE,_BENCH,
@@ -167,6 +176,8 @@ def main() -> None:
             child_env["WANASAH_B3_TEMP_DB_URL"]=isolated.render_as_string(hide_password=False)
             child_env["WANASAH_B3_MAX_ROWS"]=str(row_count)
             child_env["WANASAH_B3_TEST_DISABLE_UOM_CACHE"]="1" if without_cache else "0"
+            child_env["WANASAH_B3_TEST_DISABLE_FAMILY_BATCH"]="1" if without_family_batch else "0"
+            child_env["WANASAH_B3_FAMILY_SCENARIO"]=("SHARED50" if paired_families else "UNIQUE")
             child_env["DATABASE_URL"]=isolated.render_as_string(hide_password=False)
             print("B3_CORE_PROFILE_START",{"row_limit":row_count,"database":_BENCH,
                 "mode":label},flush=True)
@@ -181,11 +192,12 @@ def main() -> None:
                         result = json.loads(line.removeprefix("B3_GATE ").replace("NaN","null"))
                         brief = {key: result[key] for key in (
                             "real_created_variants","total_seconds","cached_uom",
+                            "family_scenario","batched_families",
                             "sql_statements","sql_by_type","sql_elapsed_seconds",
                             "stage_seconds","index_delta_bytes"
                         )}
                         print("B3_PAIRED_RUN_RESULT "+label+" "+json.dumps(brief,separators=(",",":")),flush=True)
-                    elif line.startswith(("B3_EARLY_STOP","B3_CATALOG_CORE_BENCHMARK","B3_SQL_HOTSPOTS")):
+                    elif line.startswith(("B3_EARLY_STOP","B3_CATALOG_CORE_BENCHMARK","B3_SQL_HOTSPOTS","B37_50_SHARED_FAMILY_CONSERVATION")):
                         print(line,flush=True)
             if child.returncode:
                 raise RuntimeError(
