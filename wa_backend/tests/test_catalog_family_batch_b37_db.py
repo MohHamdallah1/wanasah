@@ -81,19 +81,32 @@ class FamilyBatchDatabaseB37(unittest.IsolatedAsyncioTestCase):
             request_id=self.request_id,index=index,batch_lookup=batch,
         )
 
-    async def test_repeated_50_names_use_50_locks_and_one_bounded_select(self):
+    async def test_repeated_50_names_use_one_ordered_lock_statement_and_one_bounded_select(self):
         specs=[spec("sku-"+str(i),family_name="B37 group "+str(i%50)) for i in range(100)]
-        orig=simple._family_name_lock
-        with patch.object(simple,"_family_name_lock",new=AsyncMock(wraps=orig)) as lock:
+        orig=simple._lock_distinct_family_names
+        with (
+            patch.object(
+                simple,"_lock_distinct_family_names",new=AsyncMock(wraps=orig),
+            ) as batch_lock,
+            patch.object(
+                simple,"_family_name_lock",new_callable=AsyncMock,
+            ) as legacy_per_name_lock,
+        ):
             cache=await _prefetch_batch_families(
                 self.db,actor=self.actor,specs=specs,
             )
-            keys=[item.args[0] for item in ()] # one batch; no hidden cache state
             self.assertEqual(len(cache.locked_names),50)
-            self.assertEqual(lock.await_count,50)
+            batch_lock.assert_awaited_once()
+            legacy_per_name_lock.assert_not_awaited()
+            locked=await self.db.scalar(text(
+                "SELECT count(*) FROM pg_locks "
+                "WHERE locktype='advisory' AND pid=pg_backend_pid() AND granted"
+            ))
+            self.assertGreaterEqual(locked,50)
             result=[await self.one(x,index=i+1,batch=cache)
                     for i,x in enumerate(specs)]
-            self.assertEqual(lock.await_count,50)
+            batch_lock.assert_awaited_once()
+            legacy_per_name_lock.assert_not_awaited()
             self.assertEqual(len({x.id for x in result}),50)
             self.assertEqual(len(cache.matches),50)
             for i in range(50):
@@ -104,6 +117,31 @@ class FamilyBatchDatabaseB37(unittest.IsolatedAsyncioTestCase):
             )
         )
         self.assertIsNotNone(live)
+
+    async def test_100_names_acquire_in_sorted_order_independent_of_file_order(self):
+        names=["B37 sorted "+str(i).zfill(3) for i in range(99,-1,-1)]
+        specs=[spec("SKU-"+str(i),family_name=name)
+               for i,name in enumerate(names)]
+        with patch.object(
+            simple,"_lock_distinct_family_names",
+            new=AsyncMock(wraps=simple._lock_distinct_family_names),
+        ) as batch_lock:
+            cache=await _prefetch_batch_families(
+                self.db,actor=self.actor,specs=specs,
+            )
+            batch_lock.assert_awaited_once()
+            self.assertEqual(
+                batch_lock.await_args.kwargs["normalized_names"],
+                sorted(name.lower() for name in names),
+            )
+            self.assertEqual(len(cache.locked_names),100)
+
+    async def test_batch_lock_refuses_unsorted_duplicate_keys_before_sql(self):
+        for names in (["z","a"],["a","a"]):
+            with self.subTest(keys=names), self.assertRaises(ValueError):
+                await simple._lock_distinct_family_names(
+                    self.db,company_id=2,normalized_names=names,
+                )
 
     async def test_new_conflicts_on_same_name_inserted_earlier_in_batch(self):
         specs=[spec("new-1",mode="new",family_name="B37 Fresh Name"),
