@@ -5,6 +5,7 @@ import type {
 import {
   parseProductImportErrorPage,
 } from "@/pages/products/contracts";
+import { resolveI18nLocale } from "@/lib/locale";
 
 type AuthFetch = (
   path: string,
@@ -139,11 +140,7 @@ export function createImportDownloads({
 
   const downloadTemplate =
     async () => {
-      const locale = (
-        i18n.resolvedLanguage ||
-        i18n.language ||
-        "en"
-      ).trim() || "en";
+      const locale = resolveI18nLocale(i18n);
       const raw =
         await authFetch(
           `/simple-products/import-template?locale=${encodeURIComponent(locale)}`
