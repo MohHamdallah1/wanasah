@@ -286,6 +286,9 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
                 db=self.db, current_driver=self.actor,
             )), first,
         )
+        # A successful idempotency replay deliberately calls session.rollback.
+        # Reload our test actor via explicit async IO before its next use.
+        await self.db.refresh(self.actor)
 
         correction = VisitUpdateRequest(
             request_id=uuid4(), outcome="NoSale",
