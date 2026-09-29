@@ -536,7 +536,11 @@ async def invalidate_external_barcode_conflicts(
             -- with LIMIT 1 OFFSET 0, it lets PostgreSQL use the tenant/
             -- active-barcode unique index and choose a set-based join.
             -- No cross-tenant read, no materialized row-level result leakage.
-            WITH bad_rows AS (
+            -- MATERIALIZED prevents the UPDATE planner from rescanning
+            -- barcode candidates per outer import row (O(N^2) nested loop
+            -- under misleading pre-ANALYZE row estimates). Compute the
+            -- tenant/job-scoped conflict set once, then update by row_number.
+            WITH bad_rows AS MATERIALIZED (
                 SELECT DISTINCT staged.row_number
                 FROM product_import_row_barcodes AS staged
                 WHERE staged.company_id = :company_id
