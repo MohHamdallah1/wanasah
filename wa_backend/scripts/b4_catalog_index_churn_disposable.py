@@ -330,12 +330,17 @@ async def main():
                 "wait_seconds":round(perf_counter()-start_wait,2),
                 "caveat":"physical source catalogs and default naptime not tested",
             })
-            # Both options must be honestly recorded; if background vacuum
-            # did not happen within the bounded window, the gate is PARTIAL.
-            if not tuned_seen:
-                print("B4_AUTO_POLICY_THRESHOLD=INCONCLUSIVE",flush=True)
+            # A selective threshold effect is proven only if the default
+            # table stays untouched while the lower-threshold table vacuums.
+            # If BOTH run, concurrent auto maintenance / insert thresholds
+            # may be involved: classify honestly, never recommend tuning.
+            if tuned_seen and not default_seen:
+                verdict = "SELECTIVE_TRIGGER_OBSERVED"
+            elif tuned_seen and default_seen:
+                verdict = "BOTH_TRIGGERED_NON_DISCRIMINATIVE"
             else:
-                print("B4_AUTO_POLICY_THRESHOLD=PASS",flush=True)
+                verdict = "INCONCLUSIVE_IN_BOUNDED_WINDOW"
+            print("B4_AUTO_POLICY_THRESHOLD="+verdict,flush=True)
         print("B4_SYNTHETIC_CHURN_AND_CLEANUP=PASS",flush=True)
     finally:
         tenant_context.reset(token)
