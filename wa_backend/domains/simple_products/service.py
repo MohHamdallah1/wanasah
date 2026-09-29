@@ -830,6 +830,62 @@ class _BatchFamilyLookup:
         del current[2:]
 
 
+async def _lock_distinct_family_names(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    normalized_names: list[str],
+) -> None:
+    """Acquire the existing tenant/name advisory locks in one SQL round trip.
+
+    PostgreSQL's recursive CTE evaluates one dependent step at a time. Each
+    step acquires the *same* (company_id, hashtext(lower(name))) transaction
+    lock used by single-family commands. The caller supplies names sorted in
+    a deterministic order; a reverse-order bulk worker cannot acquire its
+    second lock before its first lock has been acquired. A simple SELECT of
+    pg_advisory_xact_lock(...) with ORDER BY is not used: target-list function
+    evaluation order can differ from the intended locking order.
+    """
+    if not normalized_names:
+        return
+    if normalized_names != sorted(set(normalized_names)):
+        raise ValueError("Family lock keys must be distinct and sorted.")
+    count = await db.scalar(
+        text(
+            """
+            WITH RECURSIVE acquired(position, lock_token) AS (
+                SELECT 1::bigint,
+                       pg_advisory_xact_lock(
+                           :company_id,
+                           hashtext((CAST(:family_names AS text[]))[1])
+                       )
+                UNION ALL
+                SELECT acquired.position + 1,
+                       pg_advisory_xact_lock(
+                           :company_id,
+                           hashtext(
+                               (CAST(:family_names AS text[]))[
+                                   acquired.position + 1
+                               ]
+                           )
+                       )
+                FROM acquired
+                WHERE acquired.position < cardinality(
+                    CAST(:family_names AS text[])
+                )
+            )
+            SELECT count(lock_token) FROM acquired
+            """
+        ),
+        {
+            "company_id": int(company_id),
+            "family_names": normalized_names,
+        },
+    )
+    if int(count or 0) != len(normalized_names):
+        raise RuntimeError("Incomplete tenant-scoped family advisory lock acquisition.")
+
+
 async def _prefetch_batch_families(
     db: AsyncSession,
     *,
@@ -870,10 +926,14 @@ async def _prefetch_batch_families(
     if not names:
         return _BatchFamilyLookup(locked_names, {})
 
-    for name in sorted(names):
-        await _family_name_lock(
-            db, company_id=int(actor.company_id), family_name=name,
-        )
+    # One statement/round-trip for this transaction's sorted, unique names.
+    # Never replace these locks with ON CONFLICT(name): our Product schema
+    # permits same-name independent masters (family_mode='none').
+    await _lock_distinct_family_names(
+        db,
+        company_id=int(actor.company_id),
+        normalized_names=sorted(names),
+    )
     normalized_db_name = func.lower(Product.name)
     ordered = (
         select(
