@@ -345,11 +345,13 @@ describe(
               pricingVisible
               canEditPrice={false}
               canEditTracking={false}
+              canReassignFamily={false}
               columns={columns}
               density="compact"
               onOpenDetails={vi.fn()}
               onEditPrice={vi.fn()}
               onEditTracking={vi.fn()}
+              onReassignFamily={vi.fn()}
             />
           </tbody>
         </table>,
