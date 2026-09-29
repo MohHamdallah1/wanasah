@@ -117,6 +117,25 @@ def main() -> None:
         ])
         base._run(cmd(_TEMPLATE,"-f",str(directory/"schema.sql")))
         asyncio.run(base._copy_safe_synthetic_fixture(source))
+        # Explicitly seeded fixture PKs do not advance SERIAL/IDENTITY sequences.
+        # Advance sequences on the TEMPORARY template only, before creating
+        # real product masters, SKUs and active price publications.
+        base._run(cmd(_TEMPLATE,"-c", """
+        DO $b3$ DECLARE t text; seq_name text; max_id bigint;
+        BEGIN
+          FOREACH t IN ARRAY ARRAY[
+            'uom','companies','drivers','products',
+            'product_variants','inventory_locations','product_uom_conversions'
+          ] LOOP
+            SELECT pg_get_serial_sequence('public.'||t,'id') INTO seq_name;
+            IF seq_name IS NOT NULL THEN
+              EXECUTE format('SELECT COALESCE(MAX(id),0) FROM public.%I',t)
+                INTO max_id;
+              PERFORM setval(seq_name::regclass,GREATEST(max_id,1),true);
+            END IF;
+          END LOOP;
+        END $b3$;
+        """))
         base._run([
             _bin(pg_bin,"createdb"),"-h","127.0.0.1",
             "-p",str(_PORT),"-U",_ADMIN,"-T",_TEMPLATE,_BENCH,
