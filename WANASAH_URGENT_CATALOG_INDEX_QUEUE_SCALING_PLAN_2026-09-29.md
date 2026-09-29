@@ -8,7 +8,7 @@
 
 1. **تثبيت أسماء الجداول حاليًا:** جدول products يمثل المنتج الأب/الهوية المشتركة (ويسميه مسار المنتجات البسيطة «عائلة»)، وفيه الاسم والوصف والعلامة والتصنيف والكود. جدول product_variants يمثل الصنف/SKU القابل للبيع والتتبع. لا ننفذ إعادة تسمية مادية الآن؛ أي ترحيل محتمل لاحقًا يحتاج خريطة اعتماد لكل Backend وDashboard وFlutter وSQL وRLS والمهاجرات.
 2. **المنتج بلا عائلة:** المسار الحالي ينشئ أو يعيد استخدام أب باسم الصنف نفسه داخل الشركة. هذا سلوك فعلي مثبت؛ لا نغيّره دون فحص أثره التجاري والمحاسبي وموافقة صاحب المشروع. الكرتونة وحدة قياس/تعبئة للصنف، وليست Variant مستقلًا.
-3. **الأعداد الدقيقة:** في سياق الشركة 38، آخر COUNT(*) أظهر 8,035 أبًا و96,778 صنفًا، بينها 8 آباء بلا أصناف. أرقام 19,296 و217,055 السابقة كانت إحصاءات PostgreSQL تقديرية/عامة ولا تصلح عدًّا دقيقًا لهذه الشركة.
+3. **العدّ ونطاق الرؤية:** أفاد المالك بأن الأعداد الإجمالية التي يرسلها ناتجة عن `SELECT COUNT(*) FROM products;` ونظيره للأصناف بدون شرط شركة، وليس من إحصاءات `n_live_tup`. إذا كان اتصال المستخدم يتجاوز RLS فهذه أعداد إجمالية مباشرة وقت الاستعلام؛ أما وجود RLS فقد يحصر النتيجة رغم غياب WHERE. فحصنا المستقل داخل شركة 38 أعطى 8,035 أبًا و96,778 صنفًا (8 آباء بلا أصناف): نطاق مختلف، ولا يجوز تعارض الرقمين أو وصف أرقام المالك بأنها تقديرية دون دليل.
 4. **الفهارس:** بعد REINDEX الذي نفذه المستخدم هبط حجم فهارس products من نحو 93.18 MB إلى 4,956,160 بايت، وproduct_variants من نحو 213.98 MB إلى 72,179,712 بايت. هذا يثبت وجود حجم كبير قابل للاستعادة، ولا يثبت بعد سبب تراكمه أو تحسن سرعة الاستيراد. الفهرس الفريد لا يجوز حذفه لمجرد أن idx_scan يساوي صفرًا.
 5. **العمال:** يوجد تصميم منفصل لمسارات maintenance وnotifications وreports، ومسار product-import في Queue/تطبيق Procrastinate مستقل. الخلل المؤكد في التصميم الحالي هو مشاركة مراقبة الاستيراد لصف تنفيذ مهام الاستيراد، والجدولة كل خمس دقائق على مستوى شركات كثيرة. العزل الأمني شيء، وضمان العدالة في CPU/DB/queue wait شيء آخر.
 6. **الإلغاء:** خدمة Backend الرسمية موجودة، لكن واجهة لوحة التحكم لا تربط زر إلغاء أثناء التنفيذ. إغلاق النافذة أو قتل Worker لا يلغي المهمة الدائمة؛ المطلوب إلغاء مصادق عليه، واستعادة آمنة بعد الإيقاف أو الانقطاع.
@@ -63,6 +63,27 @@ This plan adopts the stronger execution format used in `PRODUCT_IMPORT_PRODUCTIO
 - [ ] Keep any business-workflow change as a separate decision with explicit owner sign-off. A technical architecture plan does not authorize changes to company accounting, pricing, inventory valuation, family grouping, or variant identity.
 - [ ] Treat any tests and checks conducted on Windows as developer evidence only; production-like Linux worker concurrency and database load need a later separate gate.
 
+### Owner clarification and work division — 2026-09-29
+
+- [x] Owner confirms he reports unfiltered direct SQL COUNT(*) from his database connection. RLS can still affect session visibility; count scope must be identified before comparing with tenant-context totals.
+- [x] Owner confirms the current database content is development-only synthetic test data, not meaningful customer records. This is permission to use controlled fixtures and developer benchmarks, NOT blanket permission to destroy the database, reset schemas or delete forensic evidence; explicitly scope and checkpoint every destructive experiment.
+- [x] Workflow: ChatGPT handles small reviewed GitHub edits and independently reviews complex changes; Astra directly operates the PC for read-only cross-domain forensics and later narrowly approved fixes, with commit SHA plus test evidence. Never edit the same file simultaneously.
+- [x] Clean branch worktree: `C:\Users\admin\Desktop\wanasah-hardening`. Original local `C:\Users\admin\Desktop\wanasah` remains checked out at `main` with uncommitted user edits. Only the clean worktree is guaranteed to match its branch; do not claim the original is fully identical.
+- [ ] When owner supplies edited original root files (e.g. RUN.txt), review only selected diffs for credentials or transient content and selectively promote them to the work branch; do not run blind git add -A or overwrite the clean worktree with dirty originals.
+- [ ] Each Astra batch: baseline + file/line evidence -> proposed bounded fix -> owner approval for any business-semantic change -> targeted tests + rollback -> commit/push to hardening branch -> ChatGPT independent review -> checkbox [x] plus evidence, tests and SHA -> next item. Never merge to main automatically.
+
+### Commercial and accounting semantic target — reviewed proposal, not a migration
+
+Use FOUR DISTINCT business notions. Category/marketing grouping (snacks); Product Master/Template (Lolo chips: shared identity/brand); Sellable Variant/SKU (Lolo chips 20g or 50g: separate stock and item identity); UOM/Packaging (a carton with 24 units of the 20g SKU). A carton with 24 units is NOT a new SKU merely because its barcode differs, unless it represents an independently stocked/tracked sellable item under an explicit business requirement.
+
+**Correct accounting/inventory authority to audit:** concrete SKU + UOM should uniquely identify receipts, issues, inventory quantities, stock costing/valuation, sale lines and pricing resolution at their appropriate domain boundaries; a master/group is not itself the inventory identity. Preserve transaction price/cost evidence and idempotency. No claim is made that all current Wanasah modules satisfy this until Phase A evidence and negative tests prove it.
+
+**Current auto-parent behavior:** no explicit family -> code creates OR REUSES a company-scoped Product parent by normalized name. One master with a single SKU can be perfectly valid. However, blindly reusing an existing parent on a same-name match may accidentally group different brands/identities. Phase A must test that actual case and decide whether grouping needs explicit intention, stable brand/identity or a unique default parent. No behavior change without concrete owner sign-off.
+
+**Stable naming:** products = Product Master/Parent in the current schema, product_variants = SKU/actual item; UI presently uses Family for the parent. Category (business classification) is conceptually different from Product Master. Do not rename physical DB tables or invent a category migration for appearances; first map all FK/RLS/ORM/raw SQL/Flutter dependencies and agree on canonical domain glossary. Prefer making the terminology unambiguous before considering an expand/contract migration.
+
+---
+
 ### Semantic model — PROPOSED target for Phase A audit, not an implemented schema change
 
 The preferable ERP conceptual vocabulary is: **Catalog category / optional grouping** (e.g. savory snacks) vs **Product master/template** (e.g. Lolo chips) vs **Sellable variant/SKU** (e.g. Lolo chips 20 g vs 50 g) vs **UOM/packaging** (e.g. 24 units per carton for the 20 g SKU). Master and category are not synonyms. One master with one default variant is legitimate when no variants have been defined; a sellable product still needs a stable SKU/Variant identity. Finance and inventory authority must be audited to ensure valuation and movements use the correct sellable identity and unit conversions; merely renaming DB tables cannot fix semantic mis-modeling.
@@ -74,7 +95,7 @@ Currently the UI calls `products` a “family,” while the schema contains broa
 ## 0. Mandatory execution discipline
 
 - Keep current product creation, pricing, inventory, audit, idempotency, tenant/company isolation and RLS unchanged unless a concrete defect and approved change require otherwise.
-- Work on the existing verification branch. No merge, cleanup of test data, destructive reset, implicit migration, production REINDEX, or killing unrelated processes.
+- Implement on `hardening/catalog-index-worker-fairness` in the clean `C:\Users\admin\Desktop\wanasah-hardening` worktree. Never implement on `main`. No merge, unapproved test-data cleanup, destructive reset, implicit migration, production REINDEX, or killing unrelated processes.
 - Read actual files and verify current commit/file content before each surgical code edit. Respect any local dirty/untracked files; do not overwrite them. GitHub connector owns edits; Remote Desktop Commander is used for local read-only diagnostics and explicit gates.
 - Begin with non-mutating evidence and controlled developer fixtures, then change one bounded technical concern at a time. Every item is checked only after direct measurements and a reproducible verification gate.
 - Preserve one active Product Import job per company where company-default pricing serialization still requires it; never “fix” throughput by removing safety locks.
@@ -92,7 +113,7 @@ Currently the UI calls `products` a “family,” while the schema contains broa
 - [x] A carton/pack multiplier and package barcode are UOM/packaging of a variant, NOT automatically a separate variant.
 - [x] After 2026-09-28 original XLSX import, 34,999 imported rows each linked to a distinct ProductVariant; 7,510 distinct Product parents for that job. 15,000 INVALID rows. No loss indicated for that job by linked identity evidence.
 - [x] Exact read-only COUNT(*) in company/RLS context 38: 8,035 visible Product masters; 96,778 visible ProductVariants; 8,027 parents with at least one variant; 8 parents with no variant. Counts can change later.
-- [x] The previously cited 19,296 Product and ~217,055 Variant rows were PostgreSQL estimated/global table statistics (n_live_tup), NOT exact company-38 counts. Do not mix those populations or treat estimates as transactional counts.
+- [x] **Correction from owner (2026-09-29):** his reported total-table figures (~19,296 products / ~217,055 variants, at the time supplied) come from direct unfiltered COUNT(*) statements, not from n_live_tup estimates. Unfiltered SQL still respects PostgreSQL RLS unless run by an exempt role; confirm session role, policies and timestamp before calling these truly cross-company totals. Separately, company-38 tenant-scoped COUNT(*) returned 8,035 / 96,778; these observations concern different visible populations and must not be conflated.
 - [ ] Inventory and pricing authority contract for every variant-vs-master reference must be mapped end-to-end (catalog, pricing, costing, warehouse, reports, APIs, Dashboard, Flutter/offline, raw SQL, events and migrations). Do not claim all modules use the same identity until this is verified.
 
 ### 1.2 Index evidence — source and DB checked
@@ -138,6 +159,8 @@ Currently the UI calls `products` a “family,” while the schema contains broa
 
 ## 3. Phase A — Complete dependency/identity audit (NO code/schema change)
 
+- [ ] **A1 / ASTRA — read-only audit:** produce a file:line evidence matrix of Product Master vs Variant/SKU vs category vs packaging/UOM across backend ORM/migrations/SQL/FKs, pricing, inventory and costing, reports/API/events, Dashboard and Flutter/offline. Include observed same-name auto-parent behavior, transaction authority, discrepancies, tests and evidence gaps. Do not edit, reset, migrate or clean anything in A1.
+- [ ] **A1 / ChatGPT review:** independently verify Astra's line-level evidence and implications, document agreed changes, then close the A1 checkbox only after evidence is sufficient.
 - [ ] Produce a dependency inventory for products, product_variants, products FK references and raw SQL, migrations, views, triggers, audit/event payloads, API DTOs, Dashboard and Flutter/offline. Classify whether each reference points to Product master, Variant SKU, or just a user-facing label.
 - [ ] Validate that all inventory movements, value/cost layers, sale lines and price entries choose the correct sellable SKU identity, with explicit negative tests against mismatched product_id and cross-company links.
 - [ ] Document exact create behavior for explicit family ID, explicit new family name, blank family, duplicate same-name inputs and multi-size product. Confirm if auto-created parent brand/category/description are meaningful or left empty.
