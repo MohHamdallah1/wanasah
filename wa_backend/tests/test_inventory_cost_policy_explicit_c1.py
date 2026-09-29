@@ -169,6 +169,70 @@ class ExplicitCostPolicyC1Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(policy.method, "FIFO")
         self.db.flush.assert_not_awaited()
 
+    async def test_stale_concurrent_cost_method_choice_cannot_overwrite(self):
+        policy = fake_policy(version=1)
+        with (
+            patch("domains.inventory_costing.service._policy_guard", new_callable=AsyncMock),
+            patch("domains.inventory_costing.service.get_cost_policy", new_callable=AsyncMock, return_value=policy),
+        ):
+            await set_cost_policy(
+                self.db, company_id=38, actor_id=26,
+                method="FIFO", expected_version=1,
+            )
+            self.assertEqual(policy.method, "FIFO")
+            self.assertEqual(policy.version, 2)
+            with self.assertRaises(CostingError) as caught:
+                await set_cost_policy(
+                    self.db, company_id=38, actor_id=27,
+                    method="MOVING_AVERAGE", expected_version=1,
+                )
+        self.assertEqual(caught.exception.code, "INVENTORY_COST_POLICY_VERSION_CONFLICT")
+        self.assertEqual(policy.method, "FIFO")
+        self.assertEqual(self.db.flush.await_count, 1)
+
+    async def test_opening_balance_rejects_first_activation_even_after_choice(self):
+        policy = fake_policy(method="FIFO", selected=True, version=3)
+        self.db.scalar.return_value = Decimal("3")
+        with (
+            patch("domains.inventory_costing.service._policy_guard", new_callable=AsyncMock),
+            patch("domains.inventory_costing.service.get_cost_policy", new_callable=AsyncMock, return_value=policy),
+        ):
+            with self.assertRaises(CostingError) as caught:
+                await activate_costing_for_first_receipt(
+                    self.db, company_id=38, actor_id=26,
+                )
+        self.assertEqual(caught.exception.code, "COST_OPENING_BALANCE_REQUIRED")
+        self.assertFalse(policy.is_active)
+        self.assertEqual(policy.version, 3)
+        self.db.flush.assert_not_awaited()
+
+    async def test_reselect_before_first_receipt_updates_audited_choice(self):
+        policy = fake_policy(method="FIFO", selected=True, version=3)
+        with (
+            patch("domains.inventory_costing.service._policy_guard", new_callable=AsyncMock),
+            patch("domains.inventory_costing.service.get_cost_policy", new_callable=AsyncMock, return_value=policy),
+        ):
+            updated = await set_cost_policy(
+                self.db, company_id=38, actor_id=27,
+                method="MOVING_AVERAGE", expected_version=3,
+            )
+        self.assertIs(updated, policy)
+        self.assertEqual(updated.method, "MOVING_AVERAGE")
+        self.assertEqual(updated.selected_by, 27)
+        self.assertEqual(updated.version, 4)
+        self.assertFalse(updated.is_active)
+
+    async def test_invalid_method_fails_without_database_mutation(self):
+        with self.assertRaises(CostingError) as caught:
+            await set_cost_policy(
+                self.db, company_id=38, actor_id=27,
+                method="LIFO", expected_version=0,
+            )
+        self.assertEqual(caught.exception.code, "INVENTORY_COST_METHOD_INVALID")
+        self.db.scalar.assert_not_awaited()
+        self.db.add.assert_not_called()
+        self.db.flush.assert_not_awaited()
+
     async def test_unselected_cost_policy_read_hides_implicit_default(self):
         for policy in (None, fake_policy()):
             with self.subTest(policy=policy):
