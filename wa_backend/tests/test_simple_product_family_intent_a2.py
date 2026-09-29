@@ -9,7 +9,12 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
-from api.simple_products import SimpleProductCreate, _request_hash
+from api.simple_products import (
+    SimpleProductCreate,
+    _family_cursor,
+    _family_next_cursor,
+    _request_hash,
+)
 from domains.simple_products.service import (
     SimpleProductError,
     SimpleProductSpec,
@@ -179,6 +184,35 @@ class FamilyIntentDtoA2Tests(unittest.TestCase):
         )
         self.assertEqual(len(payload.name), 200)
         self.assertEqual(len(payload.family_name), 200)
+
+
+class FamilyCursorA2Tests(unittest.TestCase):
+    def test_200_character_family_cursor_round_trip(self):
+        for count in (150, 151, 200):
+            with self.subTest(count=count):
+                name = "ع" * count
+                cursor = _family_next_cursor(
+                    sort_name=name,
+                    family_id=78,
+                    company_id=38,
+                    search=None,
+                    limit=30,
+                )
+                after_name, after_id = _family_cursor(
+                    cursor,
+                    company_id=38,
+                    search=None,
+                    limit=30,
+                )
+                self.assertEqual((after_name, after_id), (name, 78))
+        with self.assertRaises(ValueError):
+            _family_next_cursor(
+                sort_name="A" * 201,
+                family_id=78,
+                company_id=38,
+                search=None,
+                limit=30,
+            )
 
 
 if __name__ == "__main__":
