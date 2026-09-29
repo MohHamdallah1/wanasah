@@ -239,7 +239,8 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
                 commercial_context_factory=self._create_real_commercial_context,
             )
         )
-        context_id = await self._create_real_commercial_context(visit_id)
+        # Route and work session already received one immutable context during
+        # fixture construction. Do not publish the same commercial revision twice.
         sale_uuid = uuid4()
         sale = VisitUpdateRequest(
             request_id=sale_uuid, outcome="Sale",
