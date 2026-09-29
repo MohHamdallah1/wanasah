@@ -1,6 +1,8 @@
 # Product / Variant Identity Audit — Phase A1
 
-Date: 2026-09-29. Status: **bounded static audit; pending ChatGPT review; A1 remains open**.
+Date: 2026-09-29. Status: **historical A1 static snapshot, independently reviewed; NOT current implementation behavior after A2**.
+
+> **Read the current contracts first:** [CATALOG_IDENTITY_GLOSSARY.md](CATALOG_IDENTITY_GLOSSARY.md) and `WANASAH_URGENT_CATALOG_INDEX_QUEUE_SCALING_PLAN_2026-09-29.md`. A2 has since made Quick Create family intent explicit and extended master name length to 200; all source-line claims below describe the original audit baseline, not the current branch. Remaining full Gate A coverage is still open.
 Workspace verified: `C:\Users\admin\Desktop\wanasah-hardening`.
 Branch verified: `hardening/catalog-index-worker-fairness`; source baseline: `c66af5b192e12d4a422036b68fbd9d0dc953fc04`; initial working tree clean.
 Read AGENTS.md, .rules, ARCHITECTURE.md, the workflow-protection rule, and the urgent plan's Phase A requirements and identity evidence. No application changes, database access, tests, builds, benchmarks, migrations, cleanup, or master-plan edits were performed. Phases B–G were not investigated.
