@@ -197,6 +197,7 @@ Currently the UI calls `products` a “family,” while the schema contains broa
 - [x] Four explicit developer-DB negative tests passed for Product parent tenant ownership, composite master FK, wrong-variant batch FK, and deployed RLS/FK topology.
 - [x] Read-only tenant-38 census found 8 masters with no variant; no rows removed or reclassified by name alone.
 - [x] Published and cross-linked the stable bilingual master/SKU/category/UOM terminology to architecture, import, and Dashboard guidance.
+- [x] Labeled the original `docs/architecture/PRODUCT_VARIANT_IDENTITY_AUDIT.md` as an **historical baseline** so its pre-A2 line numbers and former family behavior cannot be mistaken for current implementation; the current glossary and implementation plan are authoritative.
 - [ ] Still required for Gate A: multi-module runtime pricing/cost/sales negative tests, deployed cross-resource trigger consistency, semantic costing-policy decision, Flutter offline contract gate, true origin of empty masters, and TS compile release blocker. Scoped A3.1 results must not be described as full Catalog identity approval.
 
 ### A2 implementation evidence — 2026-09-29
