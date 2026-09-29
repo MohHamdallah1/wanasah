@@ -108,7 +108,23 @@ async def main():
     timings=defaultdict(float)
     counts=Counter()
     sql_durations=defaultdict(float)
+    sql_buckets=Counter()
+    bucket_durations=defaultdict(float)
     sql_times=[]
+
+    def sql_bucket(statement):
+        # Query family only, never show bind values or tenant-sensitive params.
+        normalized = statement.lower()
+        op=normalized.lstrip().split(" ",1)[0].upper()
+        if "pg_advisory_xact_lock" in normalized:
+            return "SELECT:family_name_advisory_lock"
+        if op=="SELECT":
+            match=re.search(r'\\bfrom\\s+([a-z0-9_."]+)',normalized)
+            return "SELECT:"+(match.group(1).replace('"','') if match else "other")
+        if op=="WITH":
+            return "WITH:other"
+        match=re.search(r'\\b(?:insert\\s+into|update|delete\\s+from)\\s+([a-z0-9_."]+)',normalized)
+        return op+":"+(match.group(1).replace('"','') if match else "other")
     def before(_conn,_cursor,statement,_parameters,context,_executemany):
         context._b3_t0=perf_counter()
     def after(_conn,_cursor,statement,_parameters,context,_executemany):
@@ -116,6 +132,9 @@ async def main():
         op=statement.lstrip().split(" ",1)[0].upper()
         counts[op]+=1
         sql_durations[op]+=elapsed
+        bucket=sql_bucket(statement)
+        sql_buckets[bucket]+=1
+        bucket_durations[bucket]+=elapsed
         if len(sql_times)<200:
             sql_times.append(elapsed)
     event.listen(engine.sync_engine,"before_cursor_execute",before)
@@ -229,6 +248,20 @@ async def main():
                                "pending_initial":first.get("pending_tuples"),
                                "pending_after":item.get("pending_tuples")})
             growth.sort(key=lambda x:x["delta_bytes"],reverse=True)
+            report("B3_SQL_HOTSPOTS",{
+                "by_frequency":[{
+                    "bucket":name,
+                    "calls":count,
+                    "db_seconds":round(bucket_durations[name],3),
+                } for name,count in sql_buckets.most_common(24)],
+                "by_database_time":[{
+                    "bucket":name,
+                    "calls":sql_buckets[name],
+                    "db_seconds":round(total,3),
+                } for name,total in sorted(
+                    bucket_durations.items(),key=lambda x:x[1],reverse=True,
+                )[:14]],
+            })
             report("B3_GATE",{"source":"disposable_postgresql16_only","scope":"core_catalog_product_create_and_price_publish_not_full_file_import",
                  "real_created_variants":complete,"total_seconds":round(perf_counter()-t_all,3),
                  "cached_uom":os.environ.get("WANASAH_B3_TEST_DISABLE_UOM_CACHE") != "1",
