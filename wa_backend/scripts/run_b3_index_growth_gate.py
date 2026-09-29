@@ -142,6 +142,15 @@ def main() -> None:
         ])
         base._run(cmd(_BENCH,"-c","CREATE EXTENSION pgstattuple"))
         print("B3_PGSTAT_TUPLE_INSTALLED=DISPOSABLE_CLONE_ONLY",flush=True)
+        # Optional experimental A/B: remove ONLY the two non-unique trigram
+        # indexes inside a fresh disposable clone. Never run this DDL on the
+        # live source. This is NOT a recommendation to delete search indexes.
+        if os.environ.get("WANASAH_B3_DROP_GIN_ONLY_DISPOSABLE") == "1":
+            base._run(cmd(_BENCH, "-c", """
+            DROP INDEX public.ix_product_variants_company_search_trgm;
+            DROP INDEX public.ix_products_company_name_trgm;
+            """))
+            print("B3_DISPOSABLE_COMPARISON=GIN_SEARCH_INDEXES_ABSENT_ONLY_IN_CLONE",flush=True)
         isolated=URL.create(
             "postgresql+asyncpg",
             username=source.username,
