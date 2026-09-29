@@ -24,10 +24,11 @@ vi.mock("sonner", () => ({
   toast: { error: mock.toastError, success: mock.toastSuccess },
 }));
 
-vi.mock("react-i18next", () => {
+vi.mock("react-i18next", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-i18next")>();
   const t = (key: string) => key;
   const i18n = { language: "en", resolvedLanguage: "en", dir: () => "ltr" };
-  return { useTranslation: () => ({ t, i18n }) };
+  return { ...actual, useTranslation: () => ({ t, i18n }) };
 });
 
 import { Tab2Inbound } from "@/pages/inventory/Tab2Inbound";
