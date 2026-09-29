@@ -275,6 +275,7 @@ describe(
         ),
       ).toEqual({
         name: "Test Product",
+        family_mode: "existing",
         family_id: 7,
         family_name: null,
         package_uom_code:
