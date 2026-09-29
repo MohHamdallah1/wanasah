@@ -201,6 +201,7 @@ def main() -> None:
                                         "B38_SLOW_SQL_BY_STAGE",
                                         "B38_VALIDATION_ONLY_REAL_XLSX",
                                         "B38_PRICE_PAIR_PLAN_COMPARISON",
+                                        "B38_SQL_STATEMENT_HOTSPOTS",
                                         "B38_CONFLICT_FIXTURE_CREATED",
                                         "B38_CONFLICT_ASSERTION",
                                         "B38_REAL_XLSX_STAGING_VALIDATION_EXECUTION")):
