@@ -355,6 +355,106 @@ async def main():
             or published!=expected_published
         ):
             raise RuntimeError("Product Import result/lineage did not reconcile")
+        if os.environ.get("WANASAH_B38_EXPLAIN_PAIR_PROBE")=="1":
+            # In the temporary 5k price book ONLY: EXPLAIN the exact current
+            # historical-predecessor proof and a semantically equivalent
+            # per-SKU/UOM index-probe alternative. No writes, no hints, no
+            # production SQL changes until the optimizer evidence is reviewed.
+            if n!=5000:
+                raise RuntimeError("Price plan comparison requires full disposable 5k fixture")
+            current_proof = """
+                WITH fresh_pairs AS MATERIALIZED (
+                    SELECT DISTINCT product_variant_id, uom_id
+                    FROM price_book_entries
+                    WHERE company_id = :company_id
+                      AND price_book_id = :price_book_id
+                      AND publication_id = :publication_id
+                )
+                SELECT EXISTS (
+                    SELECT 1 FROM fresh_pairs AS fresh
+                    WHERE EXISTS (
+                        SELECT 1 FROM price_book_entries AS old
+                        WHERE old.company_id = :company_id
+                          AND old.price_book_id = :price_book_id
+                          AND old.product_variant_id = fresh.product_variant_id
+                          AND old.uom_id = fresh.uom_id
+                          AND old.publication_id <> :publication_id
+                          AND old.is_published IS TRUE
+                    )
+                )
+            """
+            indexed_proof = """
+                WITH fresh_pairs AS MATERIALIZED (
+                    SELECT DISTINCT product_variant_id, uom_id
+                    FROM price_book_entries
+                    WHERE company_id = :company_id
+                      AND price_book_id = :price_book_id
+                      AND publication_id = :publication_id
+                )
+                SELECT EXISTS (
+                    SELECT 1 FROM fresh_pairs AS fresh
+                    CROSS JOIN LATERAL (
+                        SELECT old.id
+                        FROM price_book_entries AS old
+                        WHERE old.company_id = :company_id
+                          AND old.price_book_id = :price_book_id
+                          AND old.product_variant_id = fresh.product_variant_id
+                          AND old.uom_id = fresh.uom_id
+                          AND old.publication_id <> :publication_id
+                          AND old.is_published IS TRUE
+                        LIMIT 1 OFFSET 0
+                    ) AS old_found
+                )
+            """
+            plan_rows=[]
+            async with AsyncSessionLocal() as probe_db:
+                await probe_db.execute(text(
+                    "SELECT set_config('app.current_tenant','2',false)"
+                ))
+                row=(await probe_db.execute(text(
+                    "SELECT id,price_book_id FROM price_publications "
+                    "WHERE company_id=2 ORDER BY id DESC LIMIT 1"
+                ))).one()
+                params={
+                    "company_id":2,"price_book_id":int(row.price_book_id),
+                    "publication_id":int(row.id),
+                }
+                async def describe_plan(label,statement):
+                    started=perf_counter()
+                    plan=(await probe_db.execute(
+                        text("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "+statement),
+                        params,
+                    )).scalar_one()[0]
+                    record={
+                        "variant":label,
+                        "real_execution_s":round(perf_counter()-started,4),
+                        "postgres_execution_ms":round(float(plan["Execution Time"]),3),
+                        "total_shared_hits":0,
+                        "total_shared_reads":0,
+                        "nodes":[],
+                    }
+                    def walk(node):
+                        record["total_shared_hits"]+=int(node.get("Shared Hit Blocks",0))
+                        record["total_shared_reads"]+=int(node.get("Shared Read Blocks",0))
+                        record["nodes"].append({
+                            "node":node["Node Type"],
+                            "relation":node.get("Relation Name"),
+                            "index":node.get("Index Name"),
+                            "actual_rows":node.get("Actual Rows"),
+                            "loops":node.get("Actual Loops"),
+                        })
+                        for child in node.get("Plans",[]):
+                            walk(child)
+                    walk(plan["Plan"])
+                    plan_rows.append(record)
+                for tag,query in (
+                    ("current_1",current_proof),("indexed_1",indexed_proof),
+                    ("indexed_2",indexed_proof),("current_2",current_proof),
+                ):
+                    await describe_plan(tag,query)
+                await probe_db.rollback()
+            show("B38_PRICE_PAIR_PLAN_COMPARISON",plan_rows)
+
         show("B38_SLOW_SQL_BY_STAGE",sorted(
             slow_statements,key=lambda q:q["elapsed_s"],reverse=True
         )[:16])
