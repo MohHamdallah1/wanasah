@@ -53,8 +53,8 @@ def _check_environment():
     load_dotenv(source_env, override=False)
     url = base._assert_source_url()
     count = int(os.environ.get("WANASAH_B3_MAX_ROWS","1000"))
-    if count not in (100,1000):
-        raise RuntimeError("Controlled B3 allows only 100 or 1000 variants.")
+    if count not in ((100,1000,5000) if os.environ.get("WANASAH_B38_REAL_IMPORT_GATE")=="1" else (100,1000)):
+        raise RuntimeError("B3/B38 row cap invalid; 5000 is permitted only for an isolated real-import B38 gate.")
     if os.name != "nt":
         raise RuntimeError("This isolated runner has only been checked on Windows.")
     return url, source_env, count
@@ -179,6 +179,32 @@ def main() -> None:
             child_env["WANASAH_B3_TEST_DISABLE_FAMILY_BATCH"]="1" if without_family_batch else "0"
             child_env["WANASAH_B3_FAMILY_SCENARIO"]=("SHARED50" if paired_families else "UNIQUE")
             child_env["DATABASE_URL"]=isolated.render_as_string(hide_password=False)
+            if os.environ.get("WANASAH_B38_REAL_IMPORT_GATE")=="1":
+                if paired or os.environ.get("WANASAH_B4_DISPOSABLE_CHURN_GATE")=="1" or (
+                    os.environ.get("WANASAH_B3_DROP_GIN_ONLY_DISPOSABLE")=="1"
+                ):
+                    raise RuntimeError("B3.8 full XLSX pipeline must use its own pristine clone.")
+                child_env["WANASAH_B38_REAL_IMPORT_GATE"]="1"
+                child_env["WANASAH_B38_MAX_ROWS"]=str(row_count)
+                print("B38_REAL_XLSX_PROFILE_START",{"rows":row_count,"database":_BENCH},flush=True)
+                b38=subprocess.run([
+                    sys.executable,
+                    str(_PROJECT_ROOT/"scripts"/"b38_profile_real_import_disposable.py"),
+                ],env=child_env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                  text=True,encoding="utf-8",errors="replace",timeout=780,check=False)
+                for line in (b38.stdout or "").splitlines():
+                    if line.startswith(("B38_FILE","B38_STAGE_COMPLETE",
+                                        "B38_VALIDATION_COMPLETE","B38_FINAL",
+                                        "B38_STAGE_TIMINGS","B38_SQL_BY_STAGE",
+                                        "B38_REAL_XLSX_STAGING_VALIDATION_EXECUTION")):
+                        print(line,flush=True)
+                if b38.returncode or "B38_REAL_XLSX_STAGING_VALIDATION_EXECUTION=PASS" not in (b38.stdout or ""):
+                    raise RuntimeError(
+                        "B3.8 disposable Excel pipeline failed (exit "
+                        +str(b38.returncode)+"): "+(b38.stderr or "")[-2600:]
+                    )
+                continue
+
             print("B3_CORE_PROFILE_START",{"row_limit":row_count,"database":_BENCH,
                 "mode":label},flush=True)
             child=subprocess.run([
