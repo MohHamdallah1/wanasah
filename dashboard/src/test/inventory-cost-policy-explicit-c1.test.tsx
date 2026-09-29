@@ -102,6 +102,7 @@ describe("cost method selection C1 / no phantom moving-average", () => {
         is_active: true,
         is_locked: true,
         locked_at: "2026-09-29T07:01:00",
+        can_change: false,
         selected_at: null,
         selection_status: "LEGACY_ACTIVE",
       }).method,
