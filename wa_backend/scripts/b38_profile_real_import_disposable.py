@@ -59,6 +59,7 @@ _ALLOWED_COUNTS=(100,1000,5000)
 phase="setup"
 sql_counts=defaultdict(Counter)
 sql_elapsed=defaultdict(float)
+slow_statements=[]
 stage_times={}
 parser_active_seconds=0.0
 scanned_rows=0
@@ -70,8 +71,20 @@ def before_cursor(_conn,_cursor,statement,_params,context,_many):
     context._b38_start=perf_counter()
     context._b38_type=statement.lstrip().split(" ",1)[0].upper()
 def after_cursor(_conn,_cursor,statement,_params,context,_many):
+    elapsed=perf_counter()-context._b38_start
     sql_counts[phase][context._b38_type]+=1
-    sql_elapsed[phase]+=perf_counter()-context._b38_start
+    sql_elapsed[phase]+=elapsed
+    if elapsed>=0.2:
+        # SQL structure only, never actual bind parameters or account data.
+        preview=" ".join(statement.split())[:190]
+        slow_statements.append({
+            "phase":phase,"elapsed_s":round(elapsed,3),
+            "sql_type":context._b38_type,
+            "sql_fingerprint":hashlib.sha256(
+                statement.encode("utf-8")
+            ).hexdigest()[:12],
+            "statement_preview":preview,
+        })
 
 def actual_parser_rows(rows):
     global scanned_rows,parser_active_seconds
@@ -198,6 +211,24 @@ async def main():
         if not advance or after_valid["status"]!="IMPORTING":
             raise RuntimeError("Real validation did not reach IMPORTING")
 
+        # Optional diagnosis: stop safely after REAL 5k XLSX parse, staging
+        # and barcode validation, without costlier product/price execution.
+        # Only permitted inside the disposable launcher.
+        if os.environ.get("WANASAH_B38_VALIDATION_ONLY")=="1":
+            show("B38_SLOW_SQL_BY_STAGE",sorted(
+                slow_statements,key=lambda q:q["elapsed_s"],reverse=True
+            )[:16])
+            show("B38_STAGE_TIMINGS",{
+                k:round(v,3) for k,v in stage_times.items()
+            })
+            show("B38_SQL_BY_STAGE",{
+                name:{"sql":dict(counts),"total":sum(counts.values()),
+                      "db_elapsed_s":round(sql_elapsed[name],3)}
+                for name,counts in sql_counts.items()
+            })
+            print("B38_VALIDATION_ONLY_REAL_XLSX=PASS",flush=True)
+            return
+
         phase="execution"
         t=perf_counter()
         await execute_import(company_id=ACTOR_COMPANY,job_id=job_id)
@@ -250,6 +281,9 @@ async def main():
             or linked!=expected_valid
         ):
             raise RuntimeError("Product Import result/lineage did not reconcile")
+        show("B38_SLOW_SQL_BY_STAGE",sorted(
+            slow_statements,key=lambda q:q["elapsed_s"],reverse=True
+        )[:16])
         show("B38_STAGE_TIMINGS",{
             k:round(v,3) for k,v in stage_times.items()
         })
