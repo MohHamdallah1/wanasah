@@ -340,16 +340,28 @@ async def _family_name_lock(
     )
 
 
-async def _load_uom_code(db: AsyncSession, code: str) -> UOM:
+async def _load_uom_code(
+    db: AsyncSession,
+    code: str,
+    *,
+    batch_cache: dict[str, UOM] | None = None,
+) -> UOM:
+    normalized = str(code).strip().upper()
+    # UOM is immutable global reference data. Reuse reference rows only within
+    # this one product-creation batch; never cache across tenants/requests.
+    if batch_cache is not None and normalized in batch_cache:
+        return batch_cache[normalized]
     row = await db.scalar(
-        select(UOM).where(UOM.code == str(code).strip().upper())
+        select(UOM).where(UOM.code == normalized)
     )
     if row is None:
         raise SimpleProductError(
             "SIMPLE_PRODUCT_UOM_MISSING",
             "Required UOM reference data is missing.",
-            context={"uom_code": str(code).strip().upper()},
+            context={"uom_code": normalized},
         )
+    if batch_cache is not None:
+        batch_cache[normalized] = row
     return row
 
 
@@ -957,8 +969,9 @@ async def _load_shape_for_spec(
     db: AsyncSession,
     *,
     spec: SimpleProductSpec,
+    batch_cache: dict[str, UOM] | None = None,
 ) -> SaleShape:
-    base = await _load_uom_code(db, BASE_UOM_CODE)
+    base = await _load_uom_code(db, BASE_UOM_CODE, batch_cache=batch_cache)
     package_code = normalize_package_code(spec.package_uom_code)
     if package_code is None:
         return SaleShape(
@@ -966,7 +979,7 @@ async def _load_shape_for_spec(
             package_uom=None,
             units_per_package=1,
         )
-    package = await _load_uom_code(db, package_code)
+    package = await _load_uom_code(db, package_code, batch_cache=batch_cache)
     return SaleShape(
         base_uom=base,
         package_uom=package,
@@ -1023,10 +1036,16 @@ async def create_product_structures(
     )
 
     result = []
+    # One UOM-code lookup per distinct code in a batch, not two SELECTs
+    # for every product. The cache is short-lived and lives only in the
+    # current transaction + company boundary.
+    batch_uom_cache: dict[str, UOM] = {}
     for index, spec in enumerate(specs, start=1):
         name = clean_text(spec.name, "product_name", 200)
         assert name is not None
-        shape = await _load_shape_for_spec(db, spec=spec)
+        shape = await _load_shape_for_spec(
+            db, spec=spec, batch_cache=batch_uom_cache,
+        )
         prices = resolve_price_pair(
             units_per_package=int(shape.units_per_package),
             package_uom_code=(
