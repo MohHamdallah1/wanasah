@@ -237,6 +237,7 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             await customer_fixture.RealCustomerReturnC2DatabaseTests._create_business_fixture(
                 self, method,
                 commercial_context_factory=self._create_real_commercial_context,
+                second_purchase_price="4",
             )
         )
         # Route and work session already received one immutable context during
@@ -268,7 +269,15 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         ).mappings().all()
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["method"], method)
-        self.assertEqual(Decimal(rows[0]["total_cost"]), Decimal("8"))
+        expected_sale_cogs = (
+            Decimal("8.000000") if method == "FIFO"
+            else Decimal("10.666668")
+        )
+        self.assertEqual(Decimal(rows[0]["total_cost"]), expected_sale_cogs)
+        self.assertEqual(
+            rows[0]["cost_basis"],
+            "FIFO_LAYER" if method == "FIFO" else "MOVING_AVERAGE",
+        )
 
         original = (
             await self.db.execute(text(
@@ -328,6 +337,23 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kinds["VISIT_REVERSAL"],1)
         self.assertEqual(kinds["VISIT_EXCHANGE_OUT"],1)
         self.assertEqual(kinds["VISIT_RETURN_IN"],1)
+        reversed_costs = (
+            await self.db.execute(text(
+                "SELECT e.event_type,e.total_cost,e.reversal_of_cost_event_id "
+                "FROM inventory_cost_events e JOIN inventory_movements m "
+                "ON m.company_id=e.company_id AND m.id=e.inventory_movement_id "
+                "WHERE e.company_id=:t AND m.reference_id=:v "
+                "AND m.reference_type='VISIT_REVERSAL'"
+            ), {"t":self.tenant,"v":str(visit_id)})
+        ).mappings().all()
+        self.assertEqual(len(reversed_costs), 1)
+        self.assertEqual(reversed_costs[0]["event_type"], "REVERSAL_IN")
+        self.assertEqual(
+            Decimal(reversed_costs[0]["total_cost"]), expected_sale_cogs
+        )
+        self.assertIsNotNone(
+            reversed_costs[0]["reversal_of_cost_event_id"]
+        )
         self.assertEqual(
             await self.db.scalar(text(
                 "SELECT COUNT(*) FROM visit_returns "
