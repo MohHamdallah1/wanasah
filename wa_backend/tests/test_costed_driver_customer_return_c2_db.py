@@ -180,7 +180,11 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             source_location_id=self.warehouse_id,
             status="active", dispatch_date=date.today(),
         )
+        # The legacy Visit PK in the developer schema does not generate a
+        # value for a direct ORM fixture insert. Use an isolated synthetic id;
+        # the external test transaction rolls it back.
         visit = Visit(
+            id=1_700_000_000 + int(tag[:7], 16) % 300_000_000,
             company_id=self.tenant, shop_id=shop.id,
             driver_id=self.actor.id,
             operational_date=date.today(),
