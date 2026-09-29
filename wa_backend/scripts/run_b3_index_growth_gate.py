@@ -67,7 +67,7 @@ def _bin(path,name):
 def main() -> None:
     source,source_env,row_count=_check_environment()
     pg_bin=pathlib.Path(r"C:\Program Files\PostgreSQL\16\bin")
-    for item in ("initdb","pg_ctl","psql","createdb","pg_dump"):
+    for item in ("initdb","pg_ctl","psql","createdb","dropdb","pg_dump"):
         _bin(pg_bin,item)
     base._PORT = _PORT
     base._TEMPLATE = _TEMPLATE
@@ -136,48 +136,74 @@ def main() -> None:
           END LOOP;
         END $b3$;
         """))
-        base._run([
-            _bin(pg_bin,"createdb"),"-h","127.0.0.1",
-            "-p",str(_PORT),"-U",_ADMIN,"-T",_TEMPLATE,_BENCH,
-        ])
-        base._run(cmd(_BENCH,"-c","CREATE EXTENSION pgstattuple"))
-        print("B3_PGSTAT_TUPLE_INSTALLED=DISPOSABLE_CLONE_ONLY",flush=True)
-        # Optional experimental A/B: remove ONLY the two non-unique trigram
-        # indexes inside a fresh disposable clone. Never run this DDL on the
-        # live source. This is NOT a recommendation to delete search indexes.
-        if os.environ.get("WANASAH_B3_DROP_GIN_ONLY_DISPOSABLE") == "1":
-            base._run(cmd(_BENCH, "-c", """
-            DROP INDEX public.ix_product_variants_company_search_trgm;
-            DROP INDEX public.ix_products_company_name_trgm;
-            """))
-            print("B3_DISPOSABLE_COMPARISON=GIN_SEARCH_INDEXES_ABSENT_ONLY_IN_CLONE",flush=True)
-        isolated=URL.create(
-            "postgresql+asyncpg",
-            username=source.username,
-            host="127.0.0.1",port=_PORT,database=_BENCH,
-        )
-        child_env=os.environ.copy()
-        child_env["WANASAH_B3_DISPOSABLE_CHILD"]="1"
-        child_env["WANASAH_B3_SOURCE_ENV_FILE"]=source_env
-        child_env["WANASAH_B3_TEMP_DB_URL"]=isolated.render_as_string(hide_password=False)
-        child_env["WANASAH_B3_MAX_ROWS"]=str(row_count)
-        child_env["DATABASE_URL"]=isolated.render_as_string(hide_password=False)
-        print("B3_CORE_PROFILE_START",{"row_limit":row_count,"database":_BENCH},flush=True)
-        child=subprocess.run([
-            sys.executable,str(_PROJECT_ROOT/"scripts"/"b3_profile_catalog_service.py"),
-        ],env=child_env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
-          text=True,encoding="utf-8",errors="replace",timeout=420,check=False)
-        if child.stdout:
-            for line in child.stdout.splitlines():
-                if line.startswith(("B3_BATCH","B3_PHYSICAL_","B3_GATE","B3_EARLY_STOP","B3_CATALOG_CORE_BENCHMARK")):
-                    print(line,flush=True)
-        if child.returncode:
-            raise RuntimeError(
-                "Disposable catalog profile failed (exit "
-                +str(child.returncode)+"): "+child.stderr[-2100:]
+        paired = os.environ.get("WANASAH_B3_PAIRED_UOM") == "1"
+        modes = (("uncached", True), ("cached", False)) if paired else (("single", False),)
+        for label, without_cache in modes:
+            base._run([
+                _bin(pg_bin,"createdb"),"-h","127.0.0.1",
+                "-p",str(_PORT),"-U",_ADMIN,"-T",_TEMPLATE,_BENCH,
+            ])
+            base._run(cmd(_BENCH,"-c","CREATE EXTENSION pgstattuple"))
+            print("B3_PGSTAT_TUPLE_INSTALLED=DISPOSABLE_CLONE_ONLY",flush=True)
+            # A/B control: strip ONLY non-unique GIN search indexes in the
+            # disposable clone. It cannot affect source and is not production
+            # guidance to drop any index.
+            if os.environ.get("WANASAH_B3_DROP_GIN_ONLY_DISPOSABLE") == "1":
+                if paired:
+                    raise RuntimeError("GIN-off and paired UOM modes cannot mix.")
+                base._run(cmd(_BENCH, "-c", """
+                DROP INDEX public.ix_product_variants_company_search_trgm;
+                DROP INDEX public.ix_products_company_name_trgm;
+                """))
+                print("B3_DISPOSABLE_COMPARISON=GIN_SEARCH_INDEXES_ABSENT_ONLY_IN_CLONE",flush=True)
+            isolated=URL.create(
+                "postgresql+asyncpg",
+                username=source.username,
+                host="127.0.0.1",port=_PORT,database=_BENCH,
             )
-        if "B3_CATALOG_CORE_BENCHMARK=PASS" not in child.stdout:
-            raise RuntimeError("B3 child success marker missing.")
+            child_env=os.environ.copy()
+            child_env["WANASAH_B3_DISPOSABLE_CHILD"]="1"
+            child_env["WANASAH_B3_SOURCE_ENV_FILE"]=source_env
+            child_env["WANASAH_B3_TEMP_DB_URL"]=isolated.render_as_string(hide_password=False)
+            child_env["WANASAH_B3_MAX_ROWS"]=str(row_count)
+            child_env["WANASAH_B3_TEST_DISABLE_UOM_CACHE"]="1" if without_cache else "0"
+            child_env["DATABASE_URL"]=isolated.render_as_string(hide_password=False)
+            print("B3_CORE_PROFILE_START",{"row_limit":row_count,"database":_BENCH,
+                "mode":label},flush=True)
+            child=subprocess.run([
+                sys.executable,str(_PROJECT_ROOT/"scripts"/"b3_profile_catalog_service.py"),
+            ],env=child_env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+              text=True,encoding="utf-8",errors="replace",timeout=420,check=False)
+            if child.stdout:
+                for line in child.stdout.splitlines():
+                    if line.startswith("B3_GATE "):
+                        import json
+                        result = json.loads(line.removeprefix("B3_GATE ").replace("NaN","null"))
+                        brief = {key: result[key] for key in (
+                            "real_created_variants","total_seconds","cached_uom",
+                            "sql_statements","sql_by_type","sql_elapsed_seconds",
+                            "stage_seconds","index_delta_bytes"
+                        )}
+                        print("B3_PAIRED_RUN_RESULT "+label+" "+json.dumps(brief,separators=(",",":")),flush=True)
+                    elif line.startswith(("B3_EARLY_STOP","B3_CATALOG_CORE_BENCHMARK")):
+                        print(line,flush=True)
+            if child.returncode:
+                raise RuntimeError(
+                    "Disposable catalog profile failed (exit "
+                    +str(child.returncode)+"): "+child.stderr[-2100:]
+                )
+            if "B3_CATALOG_CORE_BENCHMARK=PASS" not in child.stdout:
+                raise RuntimeError("B3 child success marker missing.")
+            if paired:
+                # The child always closes its engine and superuser connection.
+                # Drop ONLY this temporary bench DB before recreating a
+                # byte-for-byte identical template for the second run.
+                base._run([
+                    _bin(pg_bin,"dropdb"),"-h","127.0.0.1",
+                    "-p",str(_PORT),"-U",_ADMIN,_BENCH,
+                ])
+        if paired:
+            print("B3_PAIRED_SAME_CLUSTER_RUNS=PASS",flush=True)
         asyncio.run(base._verify_source_still_empty(source))
         print("B3_DISPOSABLE_CATALOG_AND_SOURCE_ISOLATION=PASS",flush=True)
     finally:
