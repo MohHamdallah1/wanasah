@@ -20,6 +20,10 @@ That is more precise than “Monolith speed + Microservices cleanliness”: we w
 
 The canonical bilingual Product Master / Sellable Variant / Category / UOM vocabulary for code and API reviews is [CATALOG_IDENTITY_GLOSSARY.md](docs/architecture/CATALOG_IDENTITY_GLOSSARY.md). Use it to avoid confusing `products.id` (master) with `product_variants.id` (sellable SKU); this link does not authorize schema/API renames.
 
+## Inventory accounting: one official profit/valuation authority
+
+The V1 accounting decision is [INVENTORY_COSTING_FINANCIAL_TRUTH_DECISION.md](docs/architecture/INVENTORY_COSTING_FINANCIAL_TRUTH_DECISION.md): a company chooses one authorized cost formula (FIFO or MOVING_AVERAGE) before its first costed receipt; Inventory Costing is the sole authority for financial inventory value, COGS and accounting profit. Supplier receipt costs and physical FEFO batch evidence are retained independently **without building a second financial profit ledger or official "batch-profit" metric**. Future operational batch contribution analysis is optional and requires independent allocation/variance proof. The known silent-default-activation gap remains an OPEN implementation gate; this section does not claim it is repaired.
+
 ## 1. PRIME DIRECTIVE — FAIL-CLOSED ISOLATION
 
 This rule is permanently first and overrides convenience, speed of implementation, UI assumptions, and developer shortcuts.
