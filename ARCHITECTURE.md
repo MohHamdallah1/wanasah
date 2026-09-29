@@ -16,6 +16,10 @@ That is more precise than “Monolith speed + Microservices cleanliness”: we w
 
 ---
 
+## Catalog naming companion (non-normative)
+
+The canonical bilingual Product Master / Sellable Variant / Category / UOM vocabulary for code and API reviews is [CATALOG_IDENTITY_GLOSSARY.md](docs/architecture/CATALOG_IDENTITY_GLOSSARY.md). Use it to avoid confusing `products.id` (master) with `product_variants.id` (sellable SKU); this link does not authorize schema/API renames.
+
 ## 1. PRIME DIRECTIVE — FAIL-CLOSED ISOLATION
 
 This rule is permanently first and overrides convenience, speed of implementation, UI assumptions, and developer shortcuts.
