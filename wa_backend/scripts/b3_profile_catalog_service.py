@@ -133,6 +133,14 @@ async def main():
             stage={"structure":0.0,"pricing":0.0,"price_policy":0.0}
             orig_struct=simple_service.create_product_structures
             orig_prices=simple_service.publish_prices
+            orig_shape=simple_service._load_shape_for_spec
+            # Paired A/B uses identical running source code and identical
+            # synthetic clone fixture. Only this test wrapper bypasses the
+            # per-batch UOM memo (does not mutate the production code).
+            if os.environ.get("WANASAH_B3_TEST_DISABLE_UOM_CACHE") == "1":
+                async def uncached_shape(db, *, spec, batch_cache=None):
+                    return await orig_shape(db, spec=spec, batch_cache=None)
+                simple_service._load_shape_for_spec=uncached_shape
             async def time_struct(*args,**kwargs):
                 t0=perf_counter()
                 try:return await orig_struct(*args,**kwargs)
@@ -183,6 +191,7 @@ async def main():
             finally:
                 simple_service.create_product_structures=orig_struct
                 simple_service.publish_prices=orig_prices
+                simple_service._load_shape_for_spec=orig_shape
             await asyncio.sleep(0.15)
             ending=await physical_snapshot("END",admin)
             growth=[]
@@ -197,6 +206,7 @@ async def main():
             growth.sort(key=lambda x:x["delta_bytes"],reverse=True)
             report("B3_GATE",{"source":"disposable_postgresql16_only","scope":"core_catalog_product_create_and_price_publish_not_full_file_import",
                  "real_created_variants":complete,"total_seconds":round(perf_counter()-t_all,3),
+                 "cached_uom":os.environ.get("WANASAH_B3_TEST_DISABLE_UOM_CACHE") != "1",
                  "sql_statements":sum(counts.values()),"sql_by_type":dict(counts),
                  "sql_elapsed_seconds":{k:round(v,3) for k,v in sql_durations.items()},
                  "stage_seconds":{k:round(v,3) for k,v in stage.items()},
