@@ -194,6 +194,22 @@ def main() -> None:
                 )
             if "B3_CATALOG_CORE_BENCHMARK=PASS" not in child.stdout:
                 raise RuntimeError("B3 child success marker missing.")
+            if os.environ.get("WANASAH_B37_RACE_GATE")=="1":
+                if paired or without_cache or row_count!=1000:
+                    raise RuntimeError("B3.7 race gate requires one 1000-row full-index disposable clone.")
+                race=subprocess.run([
+                    sys.executable,
+                    str(_PROJECT_ROOT/"scripts"/"b37_family_race_disposable.py"),
+                ],env=child_env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                  text=True,encoding="utf-8",errors="replace",timeout=95,check=False)
+                for line in (race.stdout or "").splitlines():
+                    if line.startswith("B37_"):
+                        print(line,flush=True)
+                if race.returncode or "B37_DURABLE_FAMILY_RACE_GATE=PASS" not in (race.stdout or ""):
+                    raise RuntimeError(
+                        "Isolated PostgreSQL family races failed (exit "
+                        +str(race.returncode)+"): "+(race.stderr or "")[-2200:]
+                    )
             if os.environ.get("WANASAH_B4_DISPOSABLE_CHURN_GATE")=="1":
                 if paired or without_cache or row_count!=1000 or (
                     os.environ.get("WANASAH_B3_DROP_GIN_ONLY_DISPOSABLE")=="1"
