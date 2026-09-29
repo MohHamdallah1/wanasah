@@ -32,6 +32,7 @@ import {
   parseInboundDrafts,
   parseInboundOptions,
   parseInboundResponse,
+  type CostMethod,
   type CostPolicy,
   type InboundBatchDraft,
   type InboundDocumentDefaults,
@@ -201,6 +202,7 @@ export function Tab2Inbound({
 
   useEffect(() => {
     let active = true;
+    setCostPolicy(null);
     authenticatedFetch("/warehouse/costing-policy")
       .then(parseCostPolicy)
       .then((policy) => {
@@ -208,6 +210,7 @@ export function Tab2Inbound({
       })
       .catch((error) => {
         if (active) {
+          setCostPolicy(null);
           toast.error(
             apiErrorMessage(error, t("inventoryInbound.errors.policyLoad"))
           );
@@ -261,7 +264,7 @@ export function Tab2Inbound({
     setClearOpen(false);
   };
 
-  const saveCostPolicy = async (method: CostPolicy["method"]) => {
+  const saveCostPolicy = async (method: CostMethod) => {
     if (!costPolicy || !costPolicy.can_change || savingPolicy) return;
     const scope = durableScope(
       companyId,
@@ -294,6 +297,9 @@ export function Tab2Inbound({
   };
 
   const submit = async () => {
+    if (!costPolicy?.is_selected || savingPolicy) {
+      return toast.error(t("inventoryInbound.errors.policyRequired"));
+    }
     if (isAuditLocked) {
       return toast.error(t("inventoryInbound.errors.auditLocked"));
     }
@@ -671,13 +677,21 @@ export function Tab2Inbound({
               {t("inventoryInbound.costMethod")}
             </span>
             <select
-              value={costPolicy?.method ?? "MOVING_AVERAGE"}
+              value={costPolicy?.method ?? ""}
+              aria-label={t("inventoryInbound.costMethod")}
+              aria-describedby="inbound-cost-policy-hint"
               disabled={!costPolicy?.can_change || savingPolicy}
-              onChange={(event) =>
-                void saveCostPolicy(event.target.value as CostPolicy["method"])
-              }
+              onChange={(event) => {
+                const selected = event.target.value;
+                if (selected === "MOVING_AVERAGE" || selected === "FIFO") {
+                  void saveCostPolicy(selected);
+                }
+              }}
               className="rounded-xl border bg-white p-2 text-sm"
             >
+              <option value="" disabled>
+                {t("inventoryInbound.chooseCostMethod")}
+              </option>
               <option value="MOVING_AVERAGE">
                 {t("inventoryInbound.methods.MOVING_AVERAGE")}
               </option>
@@ -688,6 +702,19 @@ export function Tab2Inbound({
                 {t("inventoryInbound.costMethodLocked")}
               </span>
             )}
+            {costPolicy && !costPolicy.is_selected && (
+              <span
+                id="inbound-cost-policy-hint"
+                role="alert"
+                className="max-w-72 whitespace-normal text-xs font-semibold text-amber-800"
+              >
+                {t(
+                  costPolicy.can_change
+                    ? "inventoryInbound.costMethodRequired"
+                    : "inventoryInbound.costMethodNoPermission"
+                )}
+              </span>
+            )}
           </div>
           <button
             type="button"
@@ -696,7 +723,8 @@ export function Tab2Inbound({
               submitting ||
               isAuditLocked ||
               optionsLoading ||
-              !costPolicy
+              !costPolicy?.is_selected ||
+              savingPolicy
             }
             className="rounded-xl bg-emerald-600 text-white px-6 py-2 font-black disabled:opacity-50"
           >
