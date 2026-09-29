@@ -263,6 +263,46 @@ describe(
       );
     });
 
+    it("preserves all three family intents over the authenticated create wire", () => {
+      for (const [mode, id, name] of [
+        ["none", null, null],
+        ["existing", 7, null],
+        ["new", null, "Fresh Family"],
+      ] as const) {
+        const body = productCreateRequestBody({
+          ...command,
+          family_mode: mode,
+          family_id: id,
+          family_name: name,
+        });
+        expect(body.family_mode).toBe(mode);
+        expect(body.family_id).toBe(id);
+        expect(body.family_name).toBe(name);
+      }
+      expect(productCreateRequestBody(command).family_mode).toBe("existing");
+    });
+
+    it("accepts 200-character family labels without losing durable command intent", () => {
+      expect(
+        isProductCreateCommandPayload({
+          ...command,
+          family_mode: "new",
+          family_id: null,
+          family_name: "F".repeat(200),
+          family_label: "F".repeat(200),
+        }),
+      ).toBe(true);
+      expect(
+        isProductCreateCommandPayload({
+          ...command,
+          family_mode: "new",
+          family_id: null,
+          family_name: "F".repeat(201),
+          family_label: "F".repeat(201),
+        }),
+      ).toBe(false);
+    });
+
     it("restores the exact unresolved create command and blocks changed payloads", async () => {
       expect(
         isProductCreateCommandPayload(
