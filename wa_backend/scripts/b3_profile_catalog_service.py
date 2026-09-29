@@ -202,14 +202,15 @@ async def main():
                 )
                 assert len(publication_rows) == complete//100, publication_rows
                 assert all(
-                    status in ("PUBLISHED", "SUPERSEDED") and version==202
+                    (status=="PUBLISHED" and version==202)
+                    or (status=="SUPERSEDED" and version==203)
                     for status,version in publication_rows
                 ), publication_rows
                 report("B3_FINANCIAL_PUBLISHED_INVARIANTS", {
                     "variants": complete,
                     "published_price_entries": price_count,
                     "publications": len(publication_rows),
-                    "publication_version_expected": 202,
+                    "published_version": 202, "superseded_version": 203,
                     "validated": True,
                 })
             finally:
