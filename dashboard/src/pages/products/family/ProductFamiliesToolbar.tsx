@@ -61,7 +61,7 @@ export function ProductFamiliesToolbar({
               <input
                 ref={newFamilyRef}
                 value={newFamilyName}
-                maxLength={150}
+                maxLength={200}
                 disabled={inputLocked}
                 onChange={(event) =>
                   onNewFamilyNameChange(

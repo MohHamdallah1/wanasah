@@ -216,17 +216,18 @@ async def load_company_product_tracking_defaults(
     )
 
 
-async def resolve_product_tracking_modes(
-    db: AsyncSession,
+def resolve_product_tracking_modes_from_defaults(
+    defaults: ProductTrackingDefaults,
     *,
-    company_id: int,
     lot_control_mode: str | None,
     expiry_control_mode: str | None,
 ) -> ProductTrackingDefaults:
-    defaults = await load_company_product_tracking_defaults(
-        db,
-        company_id=company_id,
-    )
+    """Resolve one row against already validated tenant defaults.
+
+    The caller owns a single creation transaction. No persistent/global cache:
+    every fresh request must reload tenant settings to catch invalid config.
+    This is the SAME row override/normalization authority as the public API.
+    """
     return ProductTrackingDefaults(
         lot_control_mode=(
             normalize_tracking_mode(
@@ -244,6 +245,24 @@ async def resolve_product_tracking_modes(
             if expiry_control_mode is not None
             else defaults.expiry_control_mode
         ),
+    )
+
+
+async def resolve_product_tracking_modes(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    lot_control_mode: str | None,
+    expiry_control_mode: str | None,
+) -> ProductTrackingDefaults:
+    defaults = await load_company_product_tracking_defaults(
+        db,
+        company_id=company_id,
+    )
+    return resolve_product_tracking_modes_from_defaults(
+        defaults,
+        lot_control_mode=lot_control_mode,
+        expiry_control_mode=expiry_control_mode,
     )
 
 

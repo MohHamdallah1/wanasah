@@ -156,7 +156,7 @@ export function useCreateProductMutation({
               draft,
               familyOptions,
             );
-          if (!familyIntent.ok) {
+          if (familyIntent.ok === false) {
             throw new Error(
               t(
                 familyIntent.error ===
@@ -429,7 +429,7 @@ export function useCreateProductMutation({
         draft,
         familyOptions,
       );
-    if (!familyIntent.ok) {
+    if (familyIntent.ok === false) {
       setCreateFieldError({
         field: "family",
         message: t(

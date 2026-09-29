@@ -93,6 +93,7 @@ export function CreateProductIdentitySection({
           <input
             ref={createNameRef}
             value={draft.name}
+            maxLength={200}
             onChange={(event) =>
               onNameChange(event.target.value)
             }
@@ -269,7 +270,7 @@ export function CreateProductIdentitySection({
               <input
                 ref={createFamilyRef}
                 value={draft.family}
-                maxLength={150}
+                maxLength={200}
                 onChange={(event) =>
                   onFamilyChange(
                     event.target.value,

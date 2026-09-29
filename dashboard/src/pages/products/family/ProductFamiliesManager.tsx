@@ -91,7 +91,7 @@ const validFamilyCreatePayload = (
     Object.keys(row).length === 1 &&
     typeof row.name === "string" &&
     row.name.trim().length > 0 &&
-    row.name.trim().length <= 150
+    row.name.trim().length <= 200
   );
 };
 
@@ -113,7 +113,7 @@ const validFamilyRenamePayload = (
     Object.keys(row).length === 2 &&
     typeof row.name === "string" &&
     row.name.trim().length > 0 &&
-    row.name.trim().length <= 150 &&
+    row.name.trim().length <= 200 &&
     typeof row.expected_version ===
       "number" &&
     Number.isSafeInteger(
@@ -153,7 +153,7 @@ const validFamilyDeletePayload = (
     row.expected_version > 0 &&
     typeof row.name === "string" &&
     row.name.trim().length > 0 &&
-    row.name.trim().length <= 150
+    row.name.trim().length <= 200
   );
 };
 

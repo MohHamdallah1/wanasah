@@ -167,7 +167,10 @@ async def cost_policy_payload(
     policy = await get_cost_policy(db, company_id=int(company_id))
     if policy is None:
         return {
-            "method": "MOVING_AVERAGE",
+            "method": None,
+            "is_selected": False,
+            "selection_status": "UNSELECTED",
+            "selected_at": None,
             "is_active": False,
             "is_locked": False,
             "locked_at": None,
@@ -175,8 +178,16 @@ async def cost_policy_payload(
             "currency_code": str(company.currency_code).upper(),
             "can_change": bool(can_change),
         }
+    confirmed = policy.selected_at is not None
+    selected = bool(confirmed or policy.is_active)
     return {
-        "method": str(policy.method),
+        "method": str(policy.method) if selected else None,
+        "is_selected": selected,
+        "selection_status": (
+            "LEGACY_ACTIVE" if policy.is_active and not confirmed
+            else "SELECTED" if confirmed else "UNSELECTED"
+        ),
+        "selected_at": policy.selected_at.isoformat() if confirmed else None,
         "is_active": bool(policy.is_active),
         "is_locked": bool(policy.locked_at is not None),
         "locked_at": policy.locked_at.isoformat() if policy.locked_at is not None else None,
@@ -198,7 +209,9 @@ async def provision_default_cost_policy(
         return policy
     policy = InventoryCostPolicy(
         company_id=int(company_id),
-        method="MOVING_AVERAGE",
+        method="MOVING_AVERAGE",  # Provisioned placeholder, not a selection.
+        selected_at=None,
+        selected_by=None,
         is_active=False,
         locked_at=None,
         version=1,
@@ -233,6 +246,7 @@ async def set_cost_policy(
         )
     await _policy_guard(db, int(company_id))
     policy = await get_cost_policy(db, company_id=int(company_id), lock=True)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     if policy is None:
         if expected_version != 0:
             raise CostingError(
@@ -245,6 +259,8 @@ async def set_cost_policy(
             method=normalized,
             is_active=False,
             locked_at=None,
+            selected_at=now,
+            selected_by=int(actor_id),
             version=1,
             created_by=int(actor_id),
             updated_by=int(actor_id),
@@ -263,11 +279,14 @@ async def set_cost_policy(
             "INVENTORY_COST_POLICY_LOCKED",
             "Inventory costing method is locked after the first costed receipt.",
         )
-    if str(policy.method) != normalized:
+    # The same-method save still confirms a previously auto-provisioned default.
+    if policy.selected_at is None or str(policy.method) != normalized:
         policy.method = normalized
+        policy.selected_at = now
+        policy.selected_by = int(actor_id)
         policy.version += 1
         policy.updated_by = int(actor_id)
-        policy.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        policy.updated_at = now
         await db.flush()
     return policy
 
@@ -282,7 +301,14 @@ async def activate_costing_for_first_receipt(
     await _policy_guard(db, int(company_id))
     policy = await get_cost_policy(db, company_id=int(company_id), lock=True)
     if policy is not None and policy.is_active:
+        # Never reinterpret or rewrite pre-migration locked financial history.
         return policy
+    if policy is None or policy.selected_at is None or policy.selected_by is None:
+        raise CostingError(
+            "INVENTORY_COST_POLICY_SELECTION_REQUIRED",
+            "Choose and save a costing method before the first costed receipt.",
+            status_code=409,
+        )
     existing_quantity = await db.scalar(
         select(func.coalesce(func.sum(InventoryBalance.on_hand_quantity), Decimal("0"))).where(
             InventoryBalance.company_id == int(company_id),
@@ -296,23 +322,11 @@ async def activate_costing_for_first_receipt(
             context={"existing_quantity": format(Decimal(existing_quantity or 0), "f")},
         )
     now = datetime.now(timezone.utc).replace(tzinfo=None)
-    if policy is None:
-        policy = InventoryCostPolicy(
-            company_id=int(company_id),
-            method="MOVING_AVERAGE",
-            is_active=True,
-            locked_at=now,
-            version=1,
-            created_by=int(actor_id),
-            updated_by=int(actor_id),
-        )
-        db.add(policy)
-    else:
-        policy.is_active = True
-        policy.locked_at = now
-        policy.version += 1
-        policy.updated_by = int(actor_id)
-        policy.updated_at = now
+    policy.is_active = True
+    policy.locked_at = now
+    policy.version += 1
+    policy.updated_by = int(actor_id)
+    policy.updated_at = now
     await db.flush()
     return policy
 

@@ -186,7 +186,7 @@ describe(
         "/simple-products/import-template?locale=",
       );
       expect(downloads).toContain(
-        "i18n.resolvedLanguage",
+        "resolveI18nLocale(i18n)",
       );
       expect(downloads).toContain(
         "encodeURIComponent(locale)",

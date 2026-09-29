@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from domains.pricing.core import PricingError, maker_checker_enabled, money_20_6
 from domains.pricing.publishing import (
     create_assignment,
-    create_draft_entry,
+    create_draft_entries_bulk,
     create_price_book,
     create_publication,
     publish_publication,
@@ -29,8 +29,10 @@ from domains.live_stock_projection.service import (
     apply_live_stock_active_variant_delta,
 )
 from domains.product_tracking import (
+    ProductTrackingDefaults,
     ProductTrackingError,
-    resolve_product_tracking_modes,
+    load_company_product_tracking_defaults,
+    resolve_product_tracking_modes_from_defaults,
 )
 from models import (
     Company,
@@ -94,6 +96,7 @@ class SimpleProductSpec:
     unit_price: Decimal | None = None
     family_id: int | None = None
     family_name: str | None = None
+    family_mode: str | None = None  # None preserves existing import/legacy semantics.
     unit_barcode: str | None = None
     package_barcode: str | None = None
     lot_control_mode: str | None = None
@@ -339,16 +342,28 @@ async def _family_name_lock(
     )
 
 
-async def _load_uom_code(db: AsyncSession, code: str) -> UOM:
+async def _load_uom_code(
+    db: AsyncSession,
+    code: str,
+    *,
+    batch_cache: dict[str, UOM] | None = None,
+) -> UOM:
+    normalized = str(code).strip().upper()
+    # UOM is immutable global reference data. Reuse reference rows only within
+    # this one product-creation batch; never cache across tenants/requests.
+    if batch_cache is not None and normalized in batch_cache:
+        return batch_cache[normalized]
     row = await db.scalar(
-        select(UOM).where(UOM.code == str(code).strip().upper())
+        select(UOM).where(UOM.code == normalized)
     )
     if row is None:
         raise SimpleProductError(
             "SIMPLE_PRODUCT_UOM_MISSING",
             "Required UOM reference data is missing.",
-            context={"uom_code": str(code).strip().upper()},
+            context={"uom_code": normalized},
         )
+    if batch_cache is not None:
+        batch_cache[normalized] = row
     return row
 
 
@@ -654,7 +669,7 @@ async def create_family(
     request_id: UUID,
     name: str,
 ) -> Product:
-    clean_name = clean_text(name, "family_name", 150)
+    clean_name = clean_text(name, "family_name", 200)
     assert clean_name is not None
     await _family_name_lock(
         db,
@@ -692,7 +707,7 @@ async def rename_family(
     expected_version: int,
     name: str,
 ) -> Product:
-    clean_name = clean_text(name, "family_name", 150)
+    clean_name = clean_text(name, "family_name", 200)
     assert clean_name is not None
     await _family_name_lock(
         db,
@@ -795,6 +810,161 @@ async def delete_family(
     return row
 
 
+
+@dataclass
+class _BatchFamilyLookup:
+    """Only for one same-company transaction; not a global family identity cache."""
+
+    locked_names: frozenset[str]
+    matches: dict[str, list[Product]]
+
+    def remember(self, row: Product) -> None:
+        normalized = str(row.name).lower()
+        if normalized not in self.locked_names:
+            return
+        current = self.matches.setdefault(normalized, [])
+        current.append(row)
+        # The previous resolver used ORDER BY id ASC LIMIT 2. This retains
+        # its ambiguity semantics when this transaction itself creates rows.
+        current.sort(key=lambda item: int(item.id))
+        del current[2:]
+
+
+async def _lock_distinct_family_names(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    normalized_names: list[str],
+) -> None:
+    """Acquire the existing tenant/name advisory locks in one SQL round trip.
+
+    PostgreSQL's recursive CTE evaluates one dependent step at a time. Each
+    step acquires the *same* (company_id, hashtext(lower(name))) transaction
+    lock used by single-family commands. The caller supplies names sorted in
+    a deterministic order; a reverse-order bulk worker cannot acquire its
+    second lock before its first lock has been acquired. A simple SELECT of
+    pg_advisory_xact_lock(...) with ORDER BY is not used: target-list function
+    evaluation order can differ from the intended locking order.
+    """
+    if not normalized_names:
+        return
+    if normalized_names != sorted(set(normalized_names)):
+        raise ValueError("Family lock keys must be distinct and sorted.")
+    count = await db.scalar(
+        text(
+            """
+            WITH RECURSIVE acquired(position, lock_token) AS (
+                SELECT 1::bigint,
+                       pg_advisory_xact_lock(
+                           :company_id,
+                           hashtext((CAST(:family_names AS text[]))[1])
+                       )
+                UNION ALL
+                SELECT acquired.position + 1,
+                       pg_advisory_xact_lock(
+                           :company_id,
+                           hashtext(
+                               (CAST(:family_names AS text[]))[
+                                   acquired.position + 1
+                               ]
+                           )
+                       )
+                FROM acquired
+                WHERE acquired.position < cardinality(
+                    CAST(:family_names AS text[])
+                )
+            )
+            SELECT count(lock_token) FROM acquired
+            """
+        ),
+        {
+            "company_id": int(company_id),
+            "family_names": normalized_names,
+        },
+    )
+    if int(count or 0) != len(normalized_names):
+        raise RuntimeError("Incomplete tenant-scoped family advisory lock acquisition.")
+
+
+async def _prefetch_batch_families(
+    db: AsyncSession,
+    *,
+    actor: Driver,
+    specs: list[SimpleProductSpec],
+) -> _BatchFamilyLookup:
+    """Acquire distinct existing family-name locks BEFORE one tenant SELECT.
+
+    No UNIQUE(company,name) exists, so ON CONFLICT(name) is NOT a legal
+    replacement for the historical per-name advisory concurrency authority.
+    Sorted lock acquisition prevents our bulk workers from taking these name
+    locks in opposite orders. Other entrypoints keep their own lock contracts.
+    """
+    names: set[str] = set()
+    for spec in specs:
+        if spec.family_mode not in (None, "new") or spec.family_id is not None:
+            continue
+        if spec.family_mode == "new" and (
+            spec.family_name is None or not spec.family_name.strip()
+        ):
+            continue
+        try:
+            family_name = (
+                clean_text(spec.family_name, "family_name", 200, optional=True)
+                if spec.family_name is not None else None
+            )
+            family_name = family_name or clean_text(
+                spec.name, "product_name", 200,
+            )
+        except SimpleProductError:
+            # Keep the original in-order per-row error contract: this row
+            # will be rejected by the real resolver at its original location.
+            continue
+        assert family_name is not None
+        names.add(family_name.lower())
+
+    locked_names = frozenset(names)
+    if not names:
+        return _BatchFamilyLookup(locked_names, {})
+
+    # One statement/round-trip for this transaction's sorted, unique names.
+    # Never replace these locks with ON CONFLICT(name): our Product schema
+    # permits same-name independent masters (family_mode='none').
+    await _lock_distinct_family_names(
+        db,
+        company_id=int(actor.company_id),
+        normalized_names=sorted(names),
+    )
+    normalized_db_name = func.lower(Product.name)
+    ordered = (
+        select(
+            Product.id.label("id"),
+            normalized_db_name.label("normalized"),
+            func.row_number().over(
+                partition_by=normalized_db_name,
+                order_by=Product.id.asc(),
+            ).label("row_rank"),
+        )
+        .where(
+            Product.company_id == int(actor.company_id),
+            normalized_db_name.in_(sorted(names)),
+        )
+        .subquery()
+    )
+    rows = (await db.execute(
+        select(Product, ordered.c.normalized)
+        .join(ordered, Product.id == ordered.c.id)
+        .where(
+            Product.company_id == int(actor.company_id),
+            ordered.c.row_rank <= 2,
+        )
+        .order_by(Product.id.asc())
+    )).all()
+    matches: dict[str, list[Product]] = {}
+    for row, normalized in rows:
+        matches.setdefault(str(normalized), []).append(row)
+    return _BatchFamilyLookup(locked_names, matches)
+
+
 async def _resolve_family(
     db: AsyncSession,
     *,
@@ -802,7 +972,53 @@ async def _resolve_family(
     spec: SimpleProductSpec,
     request_id: UUID,
     index: int,
+    batch_lookup: _BatchFamilyLookup | None = None,
 ) -> Product:
+    mode = spec.family_mode
+    if mode not in (None, "none", "existing", "new"):
+        raise SimpleProductError(
+            "SIMPLE_PRODUCT_FAMILY_MODE_INVALID",
+            "Invalid family selection.",
+            status_code=422,
+        )
+    if mode == "none":
+        if spec.family_id is not None or spec.family_name is not None:
+            raise SimpleProductError(
+                "SIMPLE_PRODUCT_FAMILY_AMBIGUOUS",
+                "Without family must not select an existing or new family.",
+                status_code=422,
+            )
+        name = clean_text(spec.name, "product_name", 200)
+        assert name is not None
+        # Independent master. Never reuse a same-name parent implicitly.
+        row = Product(
+            company_id=int(actor.company_id),
+            code=_auto_code("FAM", request_id, index),
+            name=name,
+        )
+        db.add(row)
+        await db.flush()
+        if batch_lookup is not None:
+            batch_lookup.remember(row)
+        return row
+    if mode == "existing" and (
+        spec.family_id is None or spec.family_name is not None
+    ):
+        raise SimpleProductError(
+            "SIMPLE_PRODUCT_FAMILY_SELECTION_REQUIRED",
+            "Select an existing family by id.",
+            status_code=422,
+        )
+    if mode == "new" and (
+        spec.family_id is not None
+        or spec.family_name is None
+        or not spec.family_name.strip()
+    ):
+        raise SimpleProductError(
+            "SIMPLE_PRODUCT_FAMILY_NAME_REQUIRED",
+            "Provide a new family name.",
+            status_code=422,
+        )
     if spec.family_id is not None and spec.family_name is not None:
         raise SimpleProductError(
             "SIMPLE_PRODUCT_FAMILY_AMBIGUOUS",
@@ -829,7 +1045,7 @@ async def _resolve_family(
         clean_text(
             spec.family_name,
             "family_name",
-            150,
+            200,
             optional=True,
         )
         if spec.family_name is not None
@@ -838,28 +1054,40 @@ async def _resolve_family(
     family_name = family_name or clean_text(
         spec.name,
         "product_name",
-        150,
+        200,
     )
     assert family_name is not None
 
-    await _family_name_lock(
-        db,
-        company_id=int(actor.company_id),
-        family_name=family_name,
-    )
-    matches = list(
-        (
-            await db.scalars(
-                select(Product)
-                .where(
-                    Product.company_id == int(actor.company_id),
-                    func.lower(Product.name) == family_name.lower(),
+    normalized = family_name.lower()
+    if batch_lookup is not None and normalized in batch_lookup.locked_names:
+        # This transaction already acquired the name's existing advisory
+        # lock and read the at-most-two matched masters under tenant RLS.
+        matches = list(batch_lookup.matches.get(normalized, ()))
+    else:
+        await _family_name_lock(
+            db,
+            company_id=int(actor.company_id),
+            family_name=family_name,
+        )
+        matches = list(
+            (
+                await db.scalars(
+                    select(Product)
+                    .where(
+                        Product.company_id == int(actor.company_id),
+                        func.lower(Product.name) == normalized,
+                    )
+                    .order_by(Product.id.asc())
+                    .limit(2)
                 )
-                .order_by(Product.id.asc())
-                .limit(2)
-            )
-        ).all()
-    )
+            ).all()
+        )
+    if mode == "new" and matches:
+        raise SimpleProductError(
+            "SIMPLE_PRODUCT_FAMILY_NAME_CONFLICT",
+            "A family with this name already exists.",
+            status_code=409,
+        )
     if len(matches) > 1:
         raise SimpleProductError(
             "SIMPLE_PRODUCT_FAMILY_NAME_AMBIGUOUS",
@@ -875,6 +1103,8 @@ async def _resolve_family(
     )
     db.add(row)
     await db.flush()
+    if batch_lookup is not None:
+        batch_lookup.remember(row)
     return row
 
 
@@ -907,8 +1137,9 @@ async def _load_shape_for_spec(
     db: AsyncSession,
     *,
     spec: SimpleProductSpec,
+    batch_cache: dict[str, UOM] | None = None,
 ) -> SaleShape:
-    base = await _load_uom_code(db, BASE_UOM_CODE)
+    base = await _load_uom_code(db, BASE_UOM_CODE, batch_cache=batch_cache)
     package_code = normalize_package_code(spec.package_uom_code)
     if package_code is None:
         return SaleShape(
@@ -916,7 +1147,7 @@ async def _load_shape_for_spec(
             package_uom=None,
             units_per_package=1,
         )
-    package = await _load_uom_code(db, package_code)
+    package = await _load_uom_code(db, package_code, batch_cache=batch_cache)
     return SaleShape(
         base_uom=base,
         package_uom=package,
@@ -973,10 +1204,29 @@ async def create_product_structures(
     )
 
     result = []
+    staged_variants: list[tuple[
+        ProductVariant, SimpleProductSpec, Any, SaleShape,
+        str | None, str | None, bool,
+    ]] = []
+    # One UOM-code lookup per distinct code in a batch, not two SELECTs
+    # for every product. The cache is short-lived and lives only in the
+    # current transaction + company boundary.
+    batch_uom_cache: dict[str, UOM] = {}
+    # Read and validate company tracking defaults once per bounded creation
+    # transaction. Values are immutable and the per-SKU overrides are still
+    # validated by the Product Tracking domain's own resolver. No global cache.
+    batch_tracking_defaults: ProductTrackingDefaults | None = None
+    # This is a per-transaction, scoped family lookup; duplicates in the
+    # same file still obey original new/none/implicit and ambiguity contracts.
+    batch_family_lookup = await _prefetch_batch_families(
+        db, actor=actor, specs=specs,
+    )
     for index, spec in enumerate(specs, start=1):
         name = clean_text(spec.name, "product_name", 200)
         assert name is not None
-        shape = await _load_shape_for_spec(db, spec=spec)
+        shape = await _load_shape_for_spec(
+            db, spec=spec, batch_cache=batch_uom_cache,
+        )
         prices = resolve_price_pair(
             units_per_package=int(shape.units_per_package),
             package_uom_code=(
@@ -994,12 +1244,17 @@ async def create_product_structures(
             spec=spec,
             request_id=request_id,
             index=index,
+            batch_lookup=batch_family_lookup,
         )
 
         try:
-            tracking = await resolve_product_tracking_modes(
-                db,
-                company_id=int(actor.company_id),
+            if batch_tracking_defaults is None:
+                batch_tracking_defaults = await load_company_product_tracking_defaults(
+                    db,
+                    company_id=int(actor.company_id),
+                )
+            tracking = resolve_product_tracking_modes_from_defaults(
+                batch_tracking_defaults,
                 lot_control_mode=spec.lot_control_mode,
                 expiry_control_mode=spec.expiry_control_mode,
             )
@@ -1036,9 +1291,24 @@ async def create_product_structures(
             packs_per_carton=int(shape.units_per_package),
             package_uses_base_barcode=bool(shared_barcode),
         )
-        db.add(variant)
-        await db.flush()
+        staged_variants.append((
+            variant, spec, prices, shape,
+            unit_barcode, package_barcode, shared_barcode,
+        ))
 
+    # The authoritative family/UOM/tracking/barcode validation above remains
+    # per row, but SQLAlchemy can now flush all DRAFT SKUs together instead
+    # of one ORM round-trip per SKU. No ID is guessed or matched by RETURNING
+    # order: actual generated IDs are read off their own ORM identity objects.
+    # Keep official DRAFT->ACTIVE transition, audit, outbox and price posting
+    # AFTER the database has issued these IDs, in the same transaction.
+    db.add_all([row[0] for row in staged_variants])
+    await db.flush()
+
+    for (
+        variant, spec, prices, shape,
+        unit_barcode, package_barcode, shared_barcode,
+    ) in staged_variants:
         if shape.package_uom is not None:
             db.add(
                 ProductUomConversion(
@@ -1153,24 +1423,22 @@ async def publish_prices(
         request_id=request_id,
     )
 
+    # This request already has a bounded set of freshly published SKUs.
+    # Build the exact same base/package entries and let the Pricing domain
+    # check tenant/SKU/UOM/effectivity in sets under ONE draft lock.
+    entries: list[dict[str, Any]] = []
     for variant, _spec, prices, shape in rows:
-        await create_draft_entry(
-            db,
-            company_id=int(actor.company_id),
-            publication_id=int(publication.id),
-            expected_publication_version=int(publication.version),
-            product_variant_id=int(variant.id),
-            uom_id=int(shape.base_uom.id),
-            amount=prices.unit_price,
-            effective_from=effective_at,
-            effective_to=None,
-            priority=0,
-            metadata={
+        entries.append({
+            "product_variant_id": int(variant.id),
+            "uom_id": int(shape.base_uom.id),
+            "amount": prices.unit_price,
+            "effective_from": effective_at,
+            "effective_to": None,
+            "priority": 0,
+            "metadata": {
                 "managed_by": "simple_products",
                 "price_input": (
-                    "derived"
-                    if prices.unit_derived
-                    else "explicit"
+                    "derived" if prices.unit_derived else "explicit"
                 ),
                 "package_uom_code": (
                     str(shape.package_uom.code)
@@ -1179,36 +1447,35 @@ async def publish_prices(
                 ),
                 "units_per_package": int(shape.units_per_package),
             },
-        )
-
+        })
         if shape.package_uom is not None:
             assert prices.package_price is not None
-            await create_draft_entry(
-                db,
-                company_id=int(actor.company_id),
-                publication_id=int(publication.id),
-                expected_publication_version=int(publication.version),
-                product_variant_id=int(variant.id),
-                uom_id=int(shape.package_uom.id),
-                amount=prices.package_price,
-                effective_from=effective_at,
-                effective_to=None,
-                priority=0,
-                metadata={
+            entries.append({
+                "product_variant_id": int(variant.id),
+                "uom_id": int(shape.package_uom.id),
+                "amount": prices.package_price,
+                "effective_from": effective_at,
+                "effective_to": None,
+                "priority": 0,
+                "metadata": {
                     "managed_by": "simple_products",
                     "price_input": (
-                        "derived"
-                        if prices.package_derived
-                        else "explicit"
+                        "derived" if prices.package_derived else "explicit"
                     ),
-                    "package_uom_code": str(
-                        shape.package_uom.code
-                    ),
-                    "units_per_package": int(
-                        shape.units_per_package
-                    ),
+                    "package_uom_code": str(shape.package_uom.code),
+                    "units_per_package": int(shape.units_per_package),
                 },
-            )
+            })
+    # PriceBookEntry validation is bounded. Bulk dashboard calls may contain
+    # more than 100 SKUs; preserve one publication and its cumulative version.
+    for start in range(0, len(entries), 200):
+        await create_draft_entries_bulk(
+            db,
+            company_id=int(actor.company_id),
+            publication_id=int(publication.id),
+            expected_publication_version=int(publication.version),
+            entries=entries[start:start + 200],
+        )
 
     await publish_publication(
         db,

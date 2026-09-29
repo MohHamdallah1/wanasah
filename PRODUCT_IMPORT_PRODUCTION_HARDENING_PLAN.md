@@ -3,6 +3,7 @@
 **Status:** BACKEND HARDENING PHASES 1–18 CLOSED; V1 RELEASE ACCEPTANCE / CORRECTION UX OPEN
 **Scope:** Product/Catalog bulk import backend (CSV/XLSX)  
 **Architecture authority:** `ARCHITECTURE.md`  
+**Catalog identity dictionary:** `docs/architecture/CATALOG_IDENTITY_GLOSSARY.md` (Product Master, sellable SKU, category, packaging, legacy import behavior)  
 **Owning domain today:** `domains/simple_products`  
 **Goal:** Enterprise-grade bulk Product ingestion that is modular, maintainable, bounded in memory, resumable, tenant-safe, observable, idempotent, and simple for the UI to consume.
 

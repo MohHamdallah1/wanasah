@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import and_, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from api.dependencies import get_current_driver
 from database import get_db
@@ -904,6 +904,36 @@ async def warehouse_inbound(
             detail=inventory_business_error(
                 "INBOUND_CONCURRENT_CONFLICT",
                 "A concurrent inbound conflict occurred. Nothing was committed.",
+            ),
+        ) from exc
+    except DBAPIError as exc:
+        await db.rollback()
+        # PostgreSQL lock timeout, deadlock and serialization conflicts are
+        # retryable, but they must never be reported as successful receipts.
+        # Keep the original request_id: durable idempotency will return the
+        # committed result if another transaction completed the request.
+        sqlstate = getattr(exc.orig, "sqlstate", None)
+        if sqlstate in {"55P03", "40P01", "40001"}:
+            logger.warning(
+                "Retryable supplier inbound concurrency conflict (%s).",
+                sqlstate,
+            )
+            raise HTTPException(
+                status_code=409,
+                detail=inventory_business_error(
+                    "INBOUND_CONCURRENT_CONFLICT",
+                    "A concurrent inbound operation is in progress. Retry the same request_id.",
+                ),
+            ) from exc
+        logger.error(
+            "Unexpected supplier inbound database failure.",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=inventory_business_error(
+                "INBOUND_INTERNAL_ERROR",
+                "Supplier inbound could not be completed.",
             ),
         ) from exc
     except Exception as exc:

@@ -100,7 +100,6 @@ export function ProductsAddMenu({
         </DropdownMenuTrigger>
 
         <DropdownMenuContent
-          dir={direction}
           align="end"
           className="w-64 rounded-xl border-slate-200 p-1.5 text-start shadow-xl"
         >

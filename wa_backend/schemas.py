@@ -1404,7 +1404,7 @@ class WarehouseInventoryItem(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     sku: Optional[str] = Field(None, max_length=100)
     product_id: PositiveDbInt
-    family_name: str = Field(..., min_length=1, max_length=150)
+    family_name: str = Field(..., min_length=1, max_length=200)
     base_uom_id: PositiveDbInt
     base_uom_code: str
     base_uom_name: str
@@ -1459,7 +1459,7 @@ class WarehouseInventoryBatchProductOption(BaseModel):
     id: PositiveDbInt
     name: str = Field(..., min_length=1, max_length=200)
     sku: Optional[str] = Field(None, max_length=100)
-    family_name: str = Field(..., min_length=1, max_length=150)
+    family_name: str = Field(..., min_length=1, max_length=200)
     base_uom_code: str = Field(..., min_length=1, max_length=20)
     display_uom_code: str = Field(..., min_length=1, max_length=20)
     display_factor_to_base: PositiveQuantity

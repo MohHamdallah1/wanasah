@@ -509,7 +509,7 @@ export function parseSimpleProductPage(
       id,
       product_id: int(row.product_id, code, 1),
       name: str(row.name, code, 200),
-      family_name: str(row.family_name, code, 150),
+      family_name: str(row.family_name, code, 200),
       sku: str(row.sku, code, 100),
       units_per_package: unitsPerPackage,
       legacy_packs_per_carton:
@@ -799,7 +799,7 @@ export function parseProductFamilies(
     ids.add(id);
     return {
       id,
-      name: str(row.name, code, 150),
+      name: str(row.name, code, 200),
       version: int(row.version, code, 1),
       variant_count: int(
         row.variant_count,
@@ -836,7 +836,7 @@ export function parseProductFamilyMutation(
   const row = record(raw, code);
   return {
     id: int(row.id, code, 1),
-    name: str(row.name, code, 150),
+    name: str(row.name, code, 200),
     version: int(
       row.version,
       code,
@@ -860,7 +860,7 @@ export function parseProductFamilyDelete(
   }
   return {
     id: int(row.id, code, 1),
-    name: str(row.name, code, 150),
+    name: str(row.name, code, 200),
     version: int(
       row.version,
       code,

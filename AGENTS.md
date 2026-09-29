@@ -33,6 +33,7 @@ Read the full requirements in `.rules` before editing.
 - Without per-carton serial/scan or enforced physical segregation, never claim the exact physical carton identity. Batch allocation is deterministic book allocation.
 - Supplier receipts require actual purchase unit cost and purchase UOM. Preserve every receipt cost as immutable history; never overwrite an older cost.
 - The company selects MOVING_AVERAGE or FIFO before its first costed supplier receipt; the method locks on that first receipt.
+- Inventory valuation and official profit have ONE accounting COGS authority; preserve separate real receipt-cost and physical FEFO evidence, but do not create a second official per-batch profit ledger. See `docs/architecture/INVENTORY_COSTING_FINANCIAL_TRUTH_DECISION.md` (implementation gates remain open).
 - Financial FIFO consumes acquisition cost layers by product/company acquisition order and must never be coupled to the physical FEFO batch selected for a sale.
 - Internal warehouse/vehicle transfers move physical stock only and never create COGS or change company inventory value.
 - Sale, sample, reward, exchange, and other external stock exits remain invisible to the driver at batch level but must create financial cost evidence when costing is active. Samples use VISIT_SAMPLE_OUT, not VISIT_ITEM_OUT.
