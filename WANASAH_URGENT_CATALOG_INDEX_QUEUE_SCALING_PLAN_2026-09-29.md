@@ -30,10 +30,43 @@
 
 **Created:** 2026-09-29  
 **Status:** EVIDENCE-BASED DIAGNOSTIC ROADMAP — implementation checkpoints OPEN  
-**Work branch at creation:** verify/products-p9-5-final, HEAD initially 5ee2a5c  
+**Current work branch:** hardening/catalog-index-worker-fairness (created from merged main at 062ef273; previous verified branch retired)  
 **Companion plan:** PRODUCT_IMPORT_PRODUCTION_HARDENING_PLAN.md, especially Phase 19.2.  
 **Architecture authority:** ARCHITECTURE.md, .rules, AGENTS.md, .cursor/rules/business-workflow-protection.mdc.  
 **Scope:** backend, Dashboard, Flutter/offline contracts, PostgreSQL, Procrastinate, observability, scale tests. This file is an urgent track, not authorization to rewrite business workflows or bypass the existing Phase 19 gates.
+
+## -1. Worktree reset & execution method (2026-09-29)
+
+### Git consolidation — COMPLETED
+
+- [x] Confirm GitHub had only `main` and `verify/products-p9-5-final` as remote branches; `verify` was 817 commits ahead and 0 behind `main`.
+- [x] Verify old locally named feature branches were ancestors of the consolidated branch before removing them.
+- [x] Fast-forward GitHub `main` to commit `062ef273b3b9735d5b2145425b39c26c65111274`, without rewriting or squashing history.
+- [x] Create the sole new remote work branch `hardening/catalog-index-worker-fairness` from that same exact commit.
+- [x] Delete former remote `verify/products-p9-5-final` only after its entire history was preserved on `main` and the new work branch.
+- [x] Fetch the plan onto the original local `C:\\Users\\admin\\Desktop\\wanasah` repository and fast-forward that checkout to merged `main`.
+- [x] Preserve ALL original dirty and untracked local files in the original repository; no reset, stash, clean or overwrite.
+- [x] Create and verify clean additional Git worktree at `C:\\Users\\admin\\Desktop\\wanasah-hardening` checking out the new work branch. This directory is the canonical clean **repair/testing** worktree; the old directory retains user work-in-progress.
+- [x] Delete only safely merged older local branches using `git branch -d`; the remaining local and remote branch names are `main` and `hardening/catalog-index-worker-fairness`.
+- [ ] Before implementation, ensure original main checkout, WIP files and clean new worktree still match these constraints; git branch consolidation is **not** proof of the unfinished Phase 19 production release gates.
+
+### Canonical checkbox and evidence discipline
+
+This plan adopts the stronger execution format used in `PRODUCT_IMPORT_PRODUCTION_HARDENING_PLAN.md`: **problem -> measurable target -> granular tasks -> real test evidence -> explicit exit gate**. Architectural decisions and cross-domain boundaries remain in this file; detailed behavior and release blockers for Product Import remain in the companion plan.
+
+- [ ] For every implemented subtask, write `[x]` only after actual code readback, focused tests and measured evidence. Do not mark a whole phase `[x]` while any required subtask or its exit gate is unverified.
+- [ ] Append a short **Evidence / Test / Commit / Remaining risk** line to every affected phase at each checkpoint, including the local command and real result. Never fabricate a pass.
+- [ ] After each GitHub edit, fetch/verify the resulting source and fast-forward the clean worktree only; do not pull a work branch into the dirty original `main` checkout.
+- [ ] Keep any business-workflow change as a separate decision with explicit owner sign-off. A technical architecture plan does not authorize changes to company accounting, pricing, inventory valuation, family grouping, or variant identity.
+- [ ] Treat any tests and checks conducted on Windows as developer evidence only; production-like Linux worker concurrency and database load need a later separate gate.
+
+### Semantic model — PROPOSED target for Phase A audit, not an implemented schema change
+
+The preferable ERP conceptual vocabulary is: **Catalog category / optional grouping** (e.g. savory snacks) vs **Product master/template** (e.g. Lolo chips) vs **Sellable variant/SKU** (e.g. Lolo chips 20 g vs 50 g) vs **UOM/packaging** (e.g. 24 units per carton for the 20 g SKU). Master and category are not synonyms. One master with one default variant is legitimate when no variants have been defined; a sellable product still needs a stable SKU/Variant identity. Finance and inventory authority must be audited to ensure valuation and movements use the correct sellable identity and unit conversions; merely renaming DB tables cannot fix semantic mis-modeling.
+
+Currently the UI calls `products` a “family,” while the schema contains broader shared Product master fields. Decide whether a genuine optional category/group dimension exists or is needed *after* Phase A evidence; do not silently conflate the two. Existing fallback behavior creating a same-name master for an ungrouped SKU should be described as a **default master**, not a synthetic marketing category. See Odoo 19 official product variant and UOM references at the bottom, without treating another ERP’s exact implementation as our business requirements.
+
+---
 
 ## 0. Mandatory execution discipline
 
