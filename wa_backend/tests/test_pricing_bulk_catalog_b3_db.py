@@ -233,7 +233,7 @@ class BulkPricingB3DatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(new.effectivity.lower,next_start)
         self.assertEqual((old.amount,new.amount),
                          (Decimal("3"),Decimal("5")))
-        self.assertFalse(old.effectivity.overlaps(new.effectivity))
+        self.assertFalse(old.effectivity.upper_inc)
 
     async def test_version_conflict_and_boundedness(self):
         pub = await self._publication()
