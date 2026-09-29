@@ -56,3 +56,30 @@ The original 18 catalog indexes were measured with `pgstatindex` for B-tree and 
 5. **50k elapsed-time explanation (OPEN):** add bounded per-stage timing of source acquisition/Excel parsing, validation/staging, job queue wait, SQL statements by family/variant/pricing and each 100-row transaction; compare identical 1k/5k/10k/50k real import distributions. The measured small-database service microbenchmark cannot explain all 45.76 minutes. Also isolate monitor saturation/worker queues (Phase C) from file import work. Do not enlarge worker concurrency until it is measured.
 
 **No production schema changes or live `CREATE EXTENSION`, `REINDEX`, `VACUUM`, `DROP INDEX`, worker restart, main-branch merge or user-file cleanup were made by B3.** All disposable benchmark fixtures were destroyed after their PG16 instance stopped, and the source synthetic company 2 was verified unchanged.
+
+## 6. B3.5 — pricing-domain batch correction (measured, not a shortcut around authority)
+
+The source inspection exposed a second, larger **per-price-entry N+1** path in `wa_backend/domains/simple_products/service.py` → `domains/pricing/publishing.py`: for each EACH/CARTON price, the old public `create_draft_entry` locked the same draft `PricePublication` row `FOR UPDATE`, queried the SKU and optional UOM conversion, incremented its version and `flush()`-ed again. For a 100-SKU batch, that was up to **200 separate price-entry authorizations/flushes** plus final publication verification, even though this importer itself owns a bounded, freshly published, single-tenant set.
+
+**Implemented:** new `create_draft_entries_bulk` in the owning Pricing domain with an explicit **200-entry maximum**, one draft row lock and expected-version check per bounded group, one tenant-scoped query of SKU identities/status, one query of allowed UOM conversions, the **same** `money_20_6`, aware-date and effective-time guards, and fail-closed `PRICE_UOM_MAPPING_UNRESOLVED` when any SKU/UOM is invalid. All `PriceBookEntry` ORM rows remain regular ORM instances so declarative constraints and SQLAlchemy event/flush behavior remain in force. The publication version advances by **one for every individual new entry**, exactly as before, and the caller keeps one publication per product batch and the existing `publish_publication` domain authority. A request larger than 200 price entries is chunked inside `publish_prices` while retaining the same publication and evolving expected version. The existing public single-entry pricing API is untouched; no business authority or historical published prices were rewritten. No raw `bulk_save_objects` bypass, schema changes or extra workers.
+
+**Real SQL/RLS evidence (synthetic tenant-2, external rollback):** five new independent tests in `wa_backend/tests/test_pricing_bulk_catalog_b3_db.py`, **5/5 PASS**, cover TWO distinct UOM entries + published status/versions/rounding, wrong SKU with no partial price inserts, unmapped CARTON, negative price, version conflict, upper bound 200 and effective-before-publication. Existing Product Import/real sales/COGS/return tests and Stage74 costing gate subsequently **209/209 Backend PASS / 48/48 costing checks PASS**, zero skips/errors. No existing tenant data was committed by the DB regressions.
+
+**1,000 synthetic SKU / 2,000 actual posted prices / 10 price publications** in the independent disposable PostgreSQL 16 benchmark:
+
+| Profile | Previous B3 UOM-cached | After new bounded pricing batch |
+|---|---:|---:|
+| SQL statements | **18,293** | **9,345** |
+| SELECT statements | 8,221 | **3,253** |
+| INSERT statements | 7,013 | **5,023** |
+| UPDATE statements | 3,039 | **1,049** |
+| Core wall time | **31.895 s** | **23.673 s** |
+| Pricing stage wall | **16.061 s** | **7.934 s** |
+| Catalog-index growth | 2,916,352 bytes | 3,219,456 bytes |
+
+SQL statement reduction **8,948 statements for 1,000 real core products**, approximately 49% vs the previous *specific* profile (20,273 → 9,345 vs B3 originally before UOM cache, ~54% fewer). The timing points are independent real runs, not an interleaved/randomized paired load test; CPU/disk/cache variance and the growth-byte variation are **not causal performance guarantees**. The benchmark additionally asserts exact company-scoped variant count **1 + N**, **2 × N published EACH/CARTON prices**, publication count **N / 100**, and version 202 for the latest publication or 203 for superseded ones. The full code uses genuine PostgreSQL, unique/tenant constraints, publication locks and real pricing assertions; this is NOT a measurement of a 50k-row XLSX/queue import.
+
+**Safe PostgreSQL extension policy:** the OS installation already includes the extension binaries for `pgstattuple` 1.5 and `pageinspect` 1.12. The local application role `wanasah_app` has **neither database CREATE nor schema CREATE privilege** on `velotrack_db`. Given the approved temporary-clone measurements suffice for this change, we enabled `pgstattuple` **only in the temporary benchmark database**, not in the active developer database. Enabling on active requires an authorized privileged DBA/owner session, an explicit operational review, and a separate need for active 217k-row physical-density measurements; the app role must NOT be granted elevated privileges just to profile. No extension installs, REINDEX, DROP INDEX or VACUUM were executed in the active source.
+
+**Remaining engineering work:** the unoptimized **catalog structure** step still took ~14.981 s / 1k and repeatedly resolves family locks, reference/tracking policy and variant DRAFT→ACTIVE publication. The latter preserves important lifecycle events but creates an indexed non-HOT update, confirmed in clone. Test controlled family/tracking set-resolution and SQL behavior without changing business semantics; compare actual source-sized table index leaf density and GIN pending cleanup during insert/retire/delete/regular vacuum, then full import stage timing with identical Excel row validation and worker load. **No 50k SLA, whole-catalog bloat root-cause closure or Gate B completion is claimed.**
+
