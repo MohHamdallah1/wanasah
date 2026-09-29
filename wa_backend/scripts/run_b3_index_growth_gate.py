@@ -185,7 +185,7 @@ def main() -> None:
                             "stage_seconds","index_delta_bytes"
                         )}
                         print("B3_PAIRED_RUN_RESULT "+label+" "+json.dumps(brief,separators=(",",":")),flush=True)
-                    elif line.startswith(("B3_EARLY_STOP","B3_CATALOG_CORE_BENCHMARK")):
+                    elif line.startswith(("B3_EARLY_STOP","B3_CATALOG_CORE_BENCHMARK","B3_SQL_HOTSPOTS")):
                         print(line,flush=True)
             if child.returncode:
                 raise RuntimeError(
