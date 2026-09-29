@@ -1204,6 +1204,10 @@ async def create_product_structures(
     )
 
     result = []
+    staged_variants: list[tuple[
+        ProductVariant, SimpleProductSpec, Any, SaleShape,
+        str | None, str | None, bool,
+    ]] = []
     # One UOM-code lookup per distinct code in a batch, not two SELECTs
     # for every product. The cache is short-lived and lives only in the
     # current transaction + company boundary.
@@ -1287,9 +1291,24 @@ async def create_product_structures(
             packs_per_carton=int(shape.units_per_package),
             package_uses_base_barcode=bool(shared_barcode),
         )
-        db.add(variant)
-        await db.flush()
+        staged_variants.append((
+            variant, spec, prices, shape,
+            unit_barcode, package_barcode, shared_barcode,
+        ))
 
+    # The authoritative family/UOM/tracking/barcode validation above remains
+    # per row, but SQLAlchemy can now flush all DRAFT SKUs together instead
+    # of one ORM round-trip per SKU. No ID is guessed or matched by RETURNING
+    # order: actual generated IDs are read off their own ORM identity objects.
+    # Keep official DRAFT->ACTIVE transition, audit, outbox and price posting
+    # AFTER the database has issued these IDs, in the same transaction.
+    db.add_all([row[0] for row in staged_variants])
+    await db.flush()
+
+    for (
+        variant, spec, prices, shape,
+        unit_barcode, package_barcode, shared_barcode,
+    ) in staged_variants:
         if shape.package_uom is not None:
             db.add(
                 ProductUomConversion(
