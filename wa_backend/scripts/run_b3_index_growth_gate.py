@@ -214,6 +214,30 @@ def main() -> None:
                         "B3.8 disposable Excel pipeline failed (exit "
                         +str(b38.returncode)+"): "+(b38.stderr or "")[-2600:]
                     )
+                if os.environ.get("WANASAH_B38_P6_PLAN_GATE")=="1":
+                    # The original Phase6 50k query-plan script uses a
+                    # privileged migration connection for catalog introspection
+                    # and a TEMP benchmark relation. Force that privilege to
+                    # the disposable cluster only; never source velotrack_db.
+                    plan_env=child_env.copy()
+                    plan_env["DATABASE_URL_MIGRATION"]=(
+                        f"postgresql://{_ADMIN}@127.0.0.1:{_PORT}/{_BENCH}"
+                    )
+                    phase6=subprocess.run([
+                        sys.executable,
+                        str(_PROJECT_ROOT/"scripts"/"gate_product_import_phase6_query_plans.py"),
+                    ],env=plan_env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                      text=True,encoding="utf-8",errors="replace",timeout=280,check=False)
+                    for line in (phase6.stdout or "").splitlines():
+                        if line.startswith(("CHECKS=","FAILURES=","FAIL:",
+                                            "PRODUCT_IMPORT_PHASE6_QUERY_PLAN_GATE=",
+                                            "EXTERNAL_PLAN_INDEXES=")):
+                            print("B38_PHASE6_"+line,flush=True)
+                    if phase6.returncode or "PRODUCT_IMPORT_PHASE6_QUERY_PLAN_GATE=PASS" not in (phase6.stdout or ""):
+                        raise RuntimeError(
+                            "Phase6 50k planner regression on disposable PG failed (exit "
+                            +str(phase6.returncode)+"): "+(phase6.stderr or "")[-2400:]
+                        )
                 continue
 
             print("B3_CORE_PROFILE_START",{"row_limit":row_count,"database":_BENCH,
