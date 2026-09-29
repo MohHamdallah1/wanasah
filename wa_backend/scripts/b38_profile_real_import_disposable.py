@@ -60,6 +60,7 @@ _ALLOWED_COUNTS=(100,1000,5000)
 phase="setup"
 sql_counts=defaultdict(Counter)
 sql_elapsed=defaultdict(float)
+sql_fingerprints=defaultdict(dict)
 slow_statements=[]
 stage_times={}
 parser_active_seconds=0.0
@@ -75,6 +76,18 @@ def after_cursor(_conn,_cursor,statement,_params,context,_many):
     elapsed=perf_counter()-context._b38_start
     sql_counts[phase][context._b38_type]+=1
     sql_elapsed[phase]+=elapsed
+    fingerprint=hashlib.sha256(statement.encode("utf-8")).hexdigest()[:12]
+    record=sql_fingerprints[phase].setdefault(fingerprint,{
+        "fingerprint":fingerprint,
+        "kind":context._b38_type,
+        "calls":0,
+        "db_seconds":0.0,
+        "slowest_seconds":0.0,
+        "statement_preview":" ".join(statement.split())[:150],
+    })
+    record["calls"]+=1
+    record["db_seconds"]+=elapsed
+    record["slowest_seconds"]=max(record["slowest_seconds"],elapsed)
     if elapsed>=0.2:
         # SQL structure only, never actual bind parameters or account data.
         preview=" ".join(statement.split())[:190]
@@ -86,6 +99,30 @@ def after_cursor(_conn,_cursor,statement,_params,context,_many):
             ).hexdigest()[:12],
             "statement_preview":preview,
         })
+
+def report_sql_hotspots():
+    def brief(row):
+        return {
+            **row,
+            "db_seconds":round(row["db_seconds"],3),
+            "slowest_seconds":round(row["slowest_seconds"],3),
+        }
+    show("B38_SQL_STATEMENT_HOTSPOTS",{
+        name:{
+            "by_db_time":[
+                brief(row)
+                for row in sorted(group.values(),
+                    key=lambda x:x["db_seconds"],reverse=True)[:18]
+            ],
+            "by_calls":[
+                brief(row)
+                for row in sorted(group.values(),
+                    key=lambda x:x["calls"],reverse=True)[:12]
+            ],
+        }
+        for name,group in sql_fingerprints.items()
+    })
+
 
 def actual_parser_rows(rows):
     global scanned_rows,parser_active_seconds
@@ -291,6 +328,7 @@ async def main():
                       "db_elapsed_s":round(sql_elapsed[name],3)}
                 for name,counts in sql_counts.items()
             })
+            report_sql_hotspots()
             print("B38_VALIDATION_ONLY_REAL_XLSX=PASS",flush=True)
             return
 
@@ -466,6 +504,7 @@ async def main():
                   "db_elapsed_s":round(sql_elapsed[name],3)}
             for name,counts in sql_counts.items()
         })
+        report_sql_hotspots()
         print("B38_REAL_XLSX_STAGING_VALIDATION_EXECUTION=PASS",flush=True)
     finally:
         event.remove(engine.sync_engine,"before_cursor_execute",before_cursor)
