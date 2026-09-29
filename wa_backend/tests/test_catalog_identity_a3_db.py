@@ -16,6 +16,7 @@ from uuid import uuid4
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 
+from database import engine
 from domains.simple_products.imports.infrastructure.repository import (
     close_tenant_session,
     open_tenant_session,
@@ -51,6 +52,9 @@ class CatalogIdentityA3DatabaseTests(unittest.IsolatedAsyncioTestCase):
         # Never leave transaction data behind, even after an assertion fails.
         await self.db.rollback()
         await close_tenant_session(self.token, self.db)
+        # IsolatedAsyncioTestCase creates a fresh loop per test. Close pooled
+        # asyncpg connections on their owning loop before the next test.
+        await engine.dispose()
 
     async def _assert_fk_rejected(self, query: str, params: dict, constraint: str):
         try:
