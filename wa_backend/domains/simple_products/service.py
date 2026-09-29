@@ -29,8 +29,10 @@ from domains.live_stock_projection.service import (
     apply_live_stock_active_variant_delta,
 )
 from domains.product_tracking import (
+    ProductTrackingDefaults,
     ProductTrackingError,
-    resolve_product_tracking_modes,
+    load_company_product_tracking_defaults,
+    resolve_product_tracking_modes_from_defaults,
 )
 from models import (
     Company,
@@ -1040,6 +1042,10 @@ async def create_product_structures(
     # for every product. The cache is short-lived and lives only in the
     # current transaction + company boundary.
     batch_uom_cache: dict[str, UOM] = {}
+    # Read and validate company tracking defaults once per bounded creation
+    # transaction. Values are immutable and the per-SKU overrides are still
+    # validated by the Product Tracking domain's own resolver. No global cache.
+    batch_tracking_defaults: ProductTrackingDefaults | None = None
     for index, spec in enumerate(specs, start=1):
         name = clean_text(spec.name, "product_name", 200)
         assert name is not None
@@ -1066,9 +1072,13 @@ async def create_product_structures(
         )
 
         try:
-            tracking = await resolve_product_tracking_modes(
-                db,
-                company_id=int(actor.company_id),
+            if batch_tracking_defaults is None:
+                batch_tracking_defaults = await load_company_product_tracking_defaults(
+                    db,
+                    company_id=int(actor.company_id),
+                )
+            tracking = resolve_product_tracking_modes_from_defaults(
+                batch_tracking_defaults,
                 lot_control_mode=spec.lot_control_mode,
                 expiry_control_mode=spec.expiry_control_mode,
             )
