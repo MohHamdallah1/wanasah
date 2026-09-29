@@ -78,14 +78,26 @@ _EMPTY_TENANT_TABLES = (
 def _run(arguments: list[str], *, env: dict[str, str] | None = None) -> None:
     # Do not log raw arguments: the SOURCE password is carried only via
     # PGPASSWORD. It must never appear in command output.
+    # pg_ctl starts a detached persistent postmaster. On Windows, that child
+    # may keep inherited stdout/stderr pipe handles open after pg_ctl exits.
+    # Capturing pg_ctl output can then hang communicate() indefinitely even
+    # though the server is ready. Discard ONLY pg_ctl command output; use
+    # the private postmaster log file for errors. Other tools stay captured.
+    is_pg_ctl = pathlib.Path(arguments[0]).stem.lower() == "pg_ctl"
     result = subprocess.run(
-        arguments, env=env, capture_output=True, text=True, timeout=110,
+        arguments,
+        env=env,
+        stdout=subprocess.DEVNULL if is_pg_ctl else subprocess.PIPE,
+        stderr=subprocess.DEVNULL if is_pg_ctl else subprocess.PIPE,
+        text=True,
+        timeout=110,
         check=False,
     )
     if result.returncode:
+        detail = (result.stderr or "")[-700:]
         raise RuntimeError(
             f"Test-only PostgreSQL command failed: {pathlib.Path(arguments[0]).name} "
-            f"(exit {result.returncode}); {result.stderr[-700:]}"
+            f"(exit {result.returncode}); {detail}"
         )
 
 
