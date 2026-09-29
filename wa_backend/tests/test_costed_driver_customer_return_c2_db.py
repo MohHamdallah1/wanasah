@@ -28,7 +28,7 @@ from database import engine
 from domains.inventory_costing.service import set_cost_policy
 from models import (
     DispatchRoute, Driver, InventoryLocation, ProductBatch,
-    ProductLocation, Shop, Vehicle, Visit, WorkSession, Zone,
+    ProductLocation, ProductUomConversion, Shop, Vehicle, Visit, WorkSession, Zone,
 )
 from product_lifecycle import DEFAULT_PRODUCT_LOCATION_FLAGS
 from schemas import UpgradedInboundRequest, VisitUpdateRequest
@@ -190,6 +190,22 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             operational_date=date.today(),
             status="Pending", outcome="Pending",
         )
+        # Real driver mobile quantity authority requires exact carton->EACH
+        # conversion. The synthetic active test SKU in tenant 2 has no such
+        # published conversion; create it only in this outer-rollback fixture.
+        carton_uom_id = await self.db.scalar(
+            text("SELECT id FROM uom WHERE code='CARTON' LIMIT 1")
+        )
+        self.assertIsNotNone(carton_uom_id)
+        self.db.add(ProductUomConversion(
+            company_id=self.tenant,
+            product_variant_id=self.variant["id"],
+            from_uom_id=carton_uom_id,
+            to_uom_id=self.variant["base_uom_id"],
+            numerator=Decimal(self.variant["packs_per_carton"]),
+            denominator=Decimal("1"),
+            quantity_scale=0,
+        ))
         flags = ProductLocation(
             company_id=self.tenant,
             product_variant_id=self.variant["id"],
