@@ -104,7 +104,7 @@ export function ProductFamilyRow({
             value={
               editingFamilyName
             }
-            maxLength={150}
+            maxLength={200}
             disabled={
               renameCommandPending ||
               renameCommandBlocked
