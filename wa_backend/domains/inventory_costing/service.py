@@ -209,7 +209,9 @@ async def provision_default_cost_policy(
         return policy
     policy = InventoryCostPolicy(
         company_id=int(company_id),
-        method="MOVING_AVERAGE",
+        method="MOVING_AVERAGE",  # Provisioned placeholder, not a selection.
+        selected_at=None,
+        selected_by=None,
         is_active=False,
         locked_at=None,
         version=1,
@@ -244,6 +246,7 @@ async def set_cost_policy(
         )
     await _policy_guard(db, int(company_id))
     policy = await get_cost_policy(db, company_id=int(company_id), lock=True)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     if policy is None:
         if expected_version != 0:
             raise CostingError(
@@ -256,6 +259,8 @@ async def set_cost_policy(
             method=normalized,
             is_active=False,
             locked_at=None,
+            selected_at=now,
+            selected_by=int(actor_id),
             version=1,
             created_by=int(actor_id),
             updated_by=int(actor_id),
