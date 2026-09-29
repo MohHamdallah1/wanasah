@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -88,8 +88,8 @@ class WarehouseInboundCostSelectionC2DatabaseTests(unittest.IsolatedAsyncioTestC
                 "uom_id": self.variant["base_uom_id"],
                 "unit_cost": "2",
                 "batch_number": batch,
-                "production_date": date(2026, 1, 1),
-                "expiry_date": date(2027, 12, 31),
+                "production_date": date.today() - timedelta(days=30),
+                "expiry_date": date.today() + timedelta(days=730),
             }],
         )
         with patch(
