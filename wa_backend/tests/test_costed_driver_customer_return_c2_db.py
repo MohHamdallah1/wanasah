@@ -106,7 +106,7 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             tenant_context.reset(self.token)
             await engine.dispose()
 
-    async def _create_business_fixture(self, method: str):
+    async def _create_business_fixture(self, method: str, *, commercial_context_factory=None):
         await set_cost_policy(
             self.db,
             company_id=self.tenant,
@@ -164,21 +164,29 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             zone_id=zone.id, current_balance=Decimal("0"),
             max_debt_limit=Decimal("0"), is_active=True,
         )
-        session = WorkSession(
-            company_id=self.tenant, driver_id=self.actor.id,
-            session_date=date.today(),
-            is_authorized_to_sell=True,
-            is_settled=False,
-        )
-        self.db.add_all((vehicle_location, shop, session))
+        self.db.add_all((vehicle_location, shop))
         await self.db.flush()
+        # Route is not active until the commercial pricing lock exists.
+        # Session context is DB-immutable after INSERT: it must be supplied
+        # AT CREATION, not patched into an existing session.
+        session = None
+        if commercial_context_factory is None:
+            session = WorkSession(
+                company_id=self.tenant, driver_id=self.actor.id,
+                session_date=date.today(),
+                is_authorized_to_sell=True,
+                is_settled=False,
+            )
+            self.db.add(session)
+            await self.db.flush()
         route = DispatchRoute(
             company_id=self.tenant, zone_id=zone.id,
             driver_id=self.actor.id,
             vehicle_id=vehicle.id,
-            work_session_id=session.id,
+            work_session_id=(session.id if session is not None else None),
             source_location_id=self.warehouse_id,
-            status="active", dispatch_date=date.today(),
+            status=("active" if session is not None else "waiting"),
+            dispatch_date=date.today(),
         )
         # The legacy Visit PK in the developer schema does not generate a
         # value for a direct ORM fixture insert. Use an isolated synthetic id;
@@ -215,6 +223,20 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         )
         self.db.add_all((route, visit, flags))
         await self.db.flush()
+        if commercial_context_factory is not None:
+            commercial_id = await commercial_context_factory(visit.id)
+            session = WorkSession(
+                company_id=self.tenant, driver_id=self.actor.id,
+                commercial_context_id=commercial_id,
+                session_date=date.today(),
+                is_authorized_to_sell=True,
+                is_settled=False,
+            )
+            self.db.add(session)
+            await self.db.flush()
+            route.work_session_id = session.id
+            route.status = "active"
+            await self.db.flush()
 
         movement = {
             "product_variant_id": self.variant["id"],
