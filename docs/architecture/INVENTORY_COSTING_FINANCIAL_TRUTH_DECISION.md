@@ -1,7 +1,7 @@
 # ADR — One financial inventory truth, receipt-cost evidence, and optional batch analytics
 
 **Recorded:** 2026-09-29  
-**Decision status:** **V1 direction accepted; explicit costing choice C1 IMPLEMENTED and developer-tested; further C2-C5/reconciliation gates OPEN**.  
+**Decision status:** **V1 direction accepted; explicit costing choice C1 IMPLEMENTED and developer-tested; further C2-C5/reconciliation gates OPEN**.
 **Scope:** Wanasah inventory costing, supplier receipts, physical inventory, sales/returns, valuation, future reporting and Flutter contracts.  
 **Owner:** Inventory Costing / Financial Valuation domain. Catalog and warehouse own their existing data; Reporting may read approved projections but may not independently determine accounting COGS.
 
