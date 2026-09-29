@@ -57,7 +57,9 @@ class CommittedReceiptRaceC2IsolatedTests(unittest.IsolatedAsyncioTestCase):
         self.engine = create_async_engine(
             "postgresql+asyncpg://wanasah_app@127.0.0.1:55439/"
             + self.database_name,
-            pool_size=4,
+            # Several independent reader/writer sessions remain open until
+            # final verification; connection identity must stay independent.
+            pool_size=16,
             max_overflow=0,
             echo=False,
         )
