@@ -27,6 +27,7 @@ from api.warehouse.inbound import (
 from context import tenant_context
 from database import engine
 from schemas import InventoryCostPolicyUpdateRequest, UpgradedInboundRequest
+from services import apply_inventory_movements_batch, reverse_inventory_movements_batch
 
 
 @unittest.skipUnless(
@@ -301,6 +302,177 @@ class CostedInboundC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_moving_average_two_receipts_same_manufacturer_lot_different_prices(self):
         await self._assert_same_lot_multiple_receipt_costs("MOVING_AVERAGE")
+
+    async def _outbound_cost_gate(self, method: str, *, reverse: bool = False):
+        # The sale-like inventory movement is intentionally tested at the
+        # inventory costing boundary. It is NOT a full VisitItem/sales-API gate.
+        await self._select_method(method)
+        older_receipt = uuid4()
+        newer_receipt = uuid4()
+        physical_older_lot = "C2-LATE-EXP-" + older_receipt.hex[:12]
+        physical_earlier_expiry_lot = "C2-EARLY-EXP-" + newer_receipt.hex[:12]
+        first = self._inbound(
+            older_receipt, "C2-FIN-" + older_receipt.hex[:12],
+            physical_older_lot, price="2",
+        )
+        first.items[0].expiry_date = date(2028, 12, 31)
+        second = self._inbound(
+            newer_receipt, "C2-FIN-" + newer_receipt.hex[:12],
+            physical_earlier_expiry_lot, price="4",
+        )
+        # First purchased lot expires LATER; physical expiry-based withdrawal
+        # deliberately chooses the second lot. Accounting FIFO must still
+        # consume the first acquisition cost layer.
+        await warehouse_inbound(payload=first, db=self.db, current_admin=self.actor)
+        await warehouse_inbound(payload=second, db=self.db, current_admin=self.actor)
+        physical_lots = (
+            await self.db.execute(
+                text(
+                    "SELECT batch_number,id FROM product_batches "
+                    "WHERE company_id=:company_id AND batch_number IN (:b1,:b2)"
+                ),
+                {
+                    "company_id": self.company_id,
+                    "b1": physical_older_lot,
+                    "b2": physical_earlier_expiry_lot,
+                },
+            )
+        ).all()
+        ids_by_batch = {str(row.batch_number): int(row.id) for row in physical_lots}
+        self.assertEqual(len(ids_by_batch), 2)
+
+        unique = uuid4()
+        spec = {
+            "product_variant_id": self.variant["id"],
+            "batch_id": ids_by_batch[physical_earlier_expiry_lot],
+            "quantity": Decimal("3"),
+            "movement_kind": "PHYSICAL",
+            "reference_type": "VISIT_ITEM_OUT",
+            "reference_id": "C2-TEST-VISIT-" + unique.hex[:12],
+            "idempotency_key": "C2-TEST-OUT-" + unique.hex,
+            "source_location_id": self.location_id,
+            "destination_location_id": None,
+            "source_stock_status": "AVAILABLE",
+            "destination_stock_status": None,
+        }
+        [withdrawal] = await apply_inventory_movements_batch(
+            self.db,
+            company_id=self.company_id,
+            performed_by=self.actor.id,
+            movements=[spec],
+        )
+        await self.db.commit()
+        rows = (
+            await self.db.execute(
+                text(
+                    "SELECT e.method,e.event_type,e.cost_basis,e.total_cost,"
+                    "e.batch_id,e.quantity_after,e.value_after "
+                    "FROM inventory_cost_events e "
+                    "WHERE e.company_id=:company_id AND e.event_type='OUTBOUND'"
+                ),
+                {"company_id": self.company_id},
+            )
+        ).mappings().all()
+        self.assertEqual(len(rows), 1)
+        cost = rows[0]
+        expected_cogs = Decimal("6") if method == "FIFO" else Decimal("9")
+        expected_value = Decimal("54") if method == "FIFO" else Decimal("51")
+        self.assertEqual(Decimal(cost["total_cost"]), expected_cogs)
+        self.assertEqual(Decimal(cost["value_after"]), expected_value)
+        self.assertEqual(Decimal(cost["quantity_after"]), Decimal("17"))
+        self.assertEqual(cost["batch_id"], ids_by_batch[physical_earlier_expiry_lot])
+        self.assertEqual(cost["cost_basis"], "FIFO_LAYER" if method == "FIFO" else "MOVING_AVERAGE")
+        balances = (
+            await self.db.execute(
+                text(
+                    "SELECT p.batch_number,b.on_hand_quantity FROM inventory_balances b "
+                    "JOIN product_batches p ON p.company_id=b.company_id AND p.id=b.batch_id "
+                    "WHERE b.company_id=:company_id"
+                ),
+                {"company_id": self.company_id},
+            )
+        ).all()
+        self.assertEqual(
+            {name: Decimal(q) for name, q in balances},
+            {physical_older_lot: Decimal("10"),
+             physical_earlier_expiry_lot: Decimal("7")},
+        )
+
+        if method == "FIFO":
+            consumed = (
+                await self.db.execute(
+                    text(
+                        "SELECT l.batch_id,a.quantity,a.amount "
+                        "FROM inventory_cost_allocations a "
+                        "JOIN inventory_cost_layers l "
+                        " ON a.company_id=l.company_id AND a.cost_layer_id=l.id "
+                        "WHERE a.company_id=:company_id AND a.allocation_type='CONSUME'"
+                    ),
+                    {"company_id": self.company_id},
+                )
+            ).all()
+            self.assertEqual(len(consumed), 1)
+            self.assertEqual(consumed[0].batch_id, ids_by_batch[physical_older_lot])
+            self.assertEqual(Decimal(consumed[0].quantity), Decimal("3"))
+            self.assertEqual(Decimal(consumed[0].amount), Decimal("6"))
+
+        # Retry the same physical movement: same movement and cost event.
+        [replayed] = await apply_inventory_movements_batch(
+            self.db,
+            company_id=self.company_id,
+            performed_by=self.actor.id,
+            movements=[spec],
+        )
+        self.assertEqual(replayed.id, withdrawal.id)
+        self.assertEqual(await self._count("inventory_cost_events"), 3)
+
+        if reverse:
+            [returned] = await reverse_inventory_movements_batch(
+                self.db,
+                originals=[withdrawal],
+                performed_by=self.actor.id,
+                reference_type="VISIT_REVERSAL",
+                reference_id="C2-REV-" + unique.hex[:12],
+            )
+            self.assertEqual(returned.product_variant_id, withdrawal.product_variant_id)
+            self.assertEqual(returned.batch_id, withdrawal.batch_id)
+            await self.db.commit()
+            [again] = await reverse_inventory_movements_batch(
+                self.db,
+                originals=[withdrawal],
+                performed_by=self.actor.id,
+                reference_type="VISIT_REVERSAL",
+                reference_id="C2-REV-" + unique.hex[:12],
+            )
+            self.assertEqual(again.id, returned.id)
+            self.assertEqual(await self._count("inventory_cost_events"), 4)
+            restored = (
+                await self.db.execute(
+                    text(
+                        "SELECT event_type,cost_basis,reversal_of_cost_event_id,"
+                        "total_cost,quantity_after,value_after "
+                        "FROM inventory_cost_events "
+                        "WHERE company_id=:company_id AND event_type='REVERSAL_IN'"
+                    ),
+                    {"company_id": self.company_id},
+                )
+            ).mappings().one()
+            self.assertEqual(restored["cost_basis"], "ORIGINAL_REVERSAL")
+            self.assertEqual(Decimal(restored["total_cost"]), expected_cogs)
+            self.assertEqual(Decimal(restored["quantity_after"]), Decimal("20"))
+            self.assertEqual(Decimal(restored["value_after"]), Decimal("60"))
+
+    async def test_fifo_outbound_uses_first_acquisition_even_if_other_lot_expires_first(self):
+        await self._outbound_cost_gate("FIFO")
+
+    async def test_moving_average_outbound_uses_inventory_average_not_selected_lot_cost(self):
+        await self._outbound_cost_gate("MOVING_AVERAGE")
+
+    async def test_fifo_reversal_restores_original_accounting_cost_once(self):
+        await self._outbound_cost_gate("FIFO", reverse=True)
+
+    async def test_moving_average_reversal_restores_original_accounting_cost_once(self):
+        await self._outbound_cost_gate("MOVING_AVERAGE", reverse=True)
 
 
 if __name__ == "__main__":
