@@ -16,6 +16,10 @@ Product Import is the V1 bulk-ingestion capability owned by
 - Product Import does not own Product, Pricing, UOM, barcode, Tracking or
   Inventory business truth. It calls the existing authorities.
 
+## Catalog identity
+
+See the [canonical catalog identity dictionary](../../../../docs/architecture/CATALOG_IDENTITY_GLOSSARY.md). Each successfully imported row records the sellable `ProductVariant.id` for source-row lineage; master `Product.id` is distinct. The legacy import workflow omits the Quick Create-only `family_mode` field and keeps name-based parent resolution.
+
 ## Final execution contract
 
 The job identity is durable and tenant-scoped. Source data is immutable and
