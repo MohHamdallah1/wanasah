@@ -1,5 +1,5 @@
 # V1 multi-tenant concurrency, import performance and production-safety gate
-**Date:** 2026-09-30. **Owner intent:** every Astra 6 finding must be tracked before V1, not lost or silently postponed. **Base:** main `0909b32226e56e025f60348a21081316b89eeaae`. **Status:** diagnostics only; no application changes.
+**Date:** 2026-09-30. **Owner intent:** every Astra 6 finding must be tracked before V1, not lost or silently postponed. **Base:** main `0909b32226e56e025f60348a21081316b89eeaae`. **Status (2026-09-30):** D0-D6 and D7-L completed with retained evidence; D7-S staging and overall D8 release remain OPEN. The historical hypotheses below describe the state BEFORE their respective remediations.
 
 ## Non-negotiable architecture goal
 - Different tenants must make sales, create invoices, update inventory and submit independent imports without globally serializing all work behind one bulk job.
@@ -25,15 +25,15 @@
 ## Complete Astra-6 audit tracking, including identified hypotheses
 1. [ ] **A. Staging/recovery:** `staging_service.py`, `repository.py`; staging holds one long transaction with bounded 500-row multi-VALUES writes and row-count reconciliation. Historical short-write/hang, stalled `ClientRead`, cancellation and interrupted-worker recovery require bounded acceptance. Inspect validation's final barcode reconciliation as another long transaction. Never claim a current stall without reproducing it.
 2. [ ] **B. ORM/flush:** `simple_products/service.py` creates DRAFT variant ORM objects, group-flushes, adds barcode/UOM conversions, activates products, writes audit/outbox, flushes again; idempotency and pricing code also flush. Approx. 350 successful batches is NOT 350 total flushes or evidence ORM alone caused 11 minutes. Autoflush and savepoint/commit may flush too. Preserve real ID provenance, lifecycle and replay semantics when evaluating bulk alternatives.
-3. [ ] **C. Pricing work and company row lock:** `pricing/publishing.py`, `pricing/core.py`, pricing context; company `FOR UPDATE` shared with Route Launch, book/publication locks and GiST/history. Prior isolated profile: 50 predecessor-proof calls 11.011s, price entries INSERT/UPDATE 12.322s, variant INSERT 0.835s. These figures do not causally explain full 50k job. Test narrower serialization/retry while preserving version/history.
+3. [x] **C. Pricing mutex and predecessor cost (historical audit):** D2/D2.1 proved Key-Share compatible FOR NO KEY UPDATE and Route Launch serialization; D6 changed only the proven expensive predecessor EXISTS plan to bounded LATERAL LIMIT 1 with real price-history parity, benchmark and replay regressions. Large staging load remains D7-S.
 4. [ ] **D. Live Stock locking:** company-summary advisory lock plus summary row `FOR UPDATE` during catalog activation; trace against rebuilding projections, sales, stock movements, lock order and actual contention/deadlock.
 5. [ ] **E. Pool/lifetime:** bounded execution transactions commit/close every ~100 SKUs; staging and validation can span longer transactions. SQLAlchemy configuration default pool 5, overflow 0, checkout timeout 3s, web concurrency 4, nominal web budget 20; worker connector pools, real deployment process count and global PostgreSQL capacity need independent audit. Audit 2 observed idle-in-transaction sessions and all long-held locks. Cross-tenant latency acceptance needed.
-6. [ ] **F. Queue isolation and fairness:** Product Import runs in separate public-schema Procrastinate app, nominal one slot; company-scoped queue lock avoids concurrent imports within a company. Under only one import slot, separate companies' imports wait sequentially. Import recovery, retention and capacity monitoring share the import queue; capacity child scheduling has read-before-defer race. Maintenance/notifications/reports use separate worker_queue app (default 4 slots) but share DB I/O. Audit actual deployment and implement safe workload-class separation, per-tenant fairness, explicit admission/backpressure, finite concurrency and priority for critical business operations.
+6. [x] **F. Queue topology/fairness (historical audit):** D3.1 separated import execution, control and maintenance roles, replaced all-company periodic fanout with a durable indexed event registry, and retained recovery/tenant locks. D3.2 independently proved 2-slot cross-company overlap, short-job fairness and bounded connection budgets; deployed process/DB settings remain D8.
 7. [ ] **G. Index correctness and growth:** B-tree SKU uniqueness, GIN/TRGM search, GiST published-price exclusion, barcode indexes and DRAFT->ACTIVE churn. Reported growth 14->32 MiB TRGM and 10->16 MiB SKU unique does NOT prove bloat, and no actual index-induced 11-minute slowdown is established. Measure page utilization/pending lists/autovacuum/WAL under representative dataset, tenant-safe EXPLAIN; NEVER drop UNIQUE/exclusion or production search indexes blindly.
 8. [x] **H. WebSocket security (application and Uvicorn closure):** original bearer-in-query handshake was eliminated in both realtime transports; first-frame JWT, shared Origin allowlist, bounded initial auth/session lifetime and exact tenant permissions retained. Real Uvicorn access-log canaries show legacy token URLs rejected without leaking tokens. Deployment-edge proxy/CDN log redaction and historical-token incident response remain explicit D8 operational sign-off requirements; see `docs/operations/WEBSOCKET_SECURITY_D5.md`.
 9. [ ] **I. Diagnostic gaps:** cursor_elapsed != pure server time; wall minus cursor != pure Python CPU. Need distinguish Python CPU, ORM bookkeeping, SQL execution, network/driver, commit, row lock waits, WAL, GIN/GiST, queue wait, parsing/validation and endpoint ingress on comparable data.
 10. [ ] **J. End-to-end durability:** request admission, source retention, staging replay, partial-batch commit, cancellation, network loss, retry, worker crash, idempotency, errors, browser progress and eventual consistency. A reported UI “saved” count before execution should be interpreted correctly.
-11. [ ] **K. Actual business concurrency:** real same-company sale/invoice/pricing read/write and stock inbound/outbound, Route Launch, and different-company concurrent uploads, with p50/p95/p99, wait edges, error codes, correctness and true isolation. Lock probe only proves one narrower failure mechanism.
+11. [x] **K. Local real-business concurrency (historical audit):** D1 verified committed Sale/COGS, Supplier Inbound and Route Launch during a real 3k import; D2 verified the deliberately contested Pricing/Route/Live Stock locks; D7-L covered a 1000-attempt mixed multi-tenant ASGI burst with actual integrity and idempotency proof. D7-S real ingress/TLS/production-like capacity remains OPEN.
 12. [ ] **L. 1,000 simultaneous mixed operations capacity:** classify immediate HTTP requests vs queued jobs; protect interactive operations from bulky imports; bounded global worker/connection budgets, per-tenant limits and rate-admission, horizontal scaling, fair scheduler, telemetry, autoscaling limits, and meaningful SLO/failure recovery. Final V1 hardware and load profile remain to be specified and tested, not guaranteed from a single dev workstation.
 
 ### Astra's proposed diagnostic priorities, carried forward in full
@@ -120,3 +120,59 @@ Use one bounded change at a time on a separate GitHub feature branch. Astra can 
 - Private PostgreSQL 16 D2 lock matrix (synthetic tenants 2 and 3, teardown verified): Company FK `FOR KEY SHARE NOWAIT` while same-company pricing mutex held PASS; competing same-company `FOR NO KEY UPDATE NOWAIT` fails expected `55P03`; another company acquires independent writer lock; real Route Launch was observed in PostgreSQL as a blocked transaction until the Company holder rolled back, then safely committed its commercial context and did not mutate prior revision 1.
 - The real Live Stock summary service acquired per-company advisory mutex. A simultaneous contender for company 2 could not acquire that advisory key; independent company 3 could; a company 2 pricing mutex remained available while summary lock was held; the advisory lock was reacquirable after rollback. No coarsening of these locks or silent weakening of RLS was introduced.
 - Existing D1 3,000-row real Import/ASGI Sale/Inbound/Route Launch test complements these deliberately held-lock probes: no unexpected 55P03/deadlock, 24 immutable route contexts and exact matching financial/inventory/audit evidence. Real D2.1 pricing Company lock test and Pricing rollback tests are retained. This gate proves the documented lock semantics and the tested overlapping workflows, **not** absence of every possible lock on production hardware. D7/D8 remain load/deployment acceptance.
+
+## D8 incremental execution checkpoint (2026-09-30)
+
+The original audit A-L was reconciled against the completed D0-D7-L evidence.
+**C, F and K are now marked [x] only for their proven local/architectural
+scope.** The still-open findings are not necessarily new coding bugs:
+A (long staging/validation transactions and network interruption), B (ORM
+flush profiling at production-sized scale; no bulk rewrite approved), D
+(projection rebuild vs live stock writes), E (deployed worker/process pools,
+idle-in-transaction and live headroom), G (long-term index growth/autovacuum),
+I (end-to-end parser/validation/ingress attribution at staging scale), J
+(browser network-loss/cancellation/progress plus full delivery handoff), and
+L (1,000 truly open HTTP connections at staging). Their open status is
+preserved rather than inferred from narrower successful gates.
+
+- [x] **D8-local backup and restore tooling:** replaced double-compressed
+  legacy backup with one PostgreSQL custom-format archive, partial-file
+  cleanup, pre-publication archive inspection, hash and retention only after
+  successful publication. Added scripts/verify_restore_backup.sh for a
+  brand-new, loopback-only disposable restore with fail-closed cleanup.
+  The private PostgreSQL 16 test restored all 3 synthetic rows, left no
+  restore DB, rejected invalid retention and corrupted archive, and removed
+  the temporary cluster. Existing legacy .sql.gz archives are preserved;
+  **production offsite/encrypted backup and production-sized restore are NOT
+  established**.
+- [x] **D8-local schema/readiness inventory:** read-only
+  scripts/audit_product_import_d8_readonly.py matched developer Alembic HEAD,
+  confirmed FORCE RLS on the import tenant tables and verified configured
+  PostgreSQL budget 46/60 against max_connections 100. It also reported
+  zero active developer Product Import worker roles and six historical
+  synthetic nonterminal jobs. No queue recovery, data deletion, service
+  start, schema migration or real tenant mutation was performed.
+- [x] **D8 release runbook written:**
+  docs/operations/PRODUCT_IMPORT_V1_RELEASE_RUNBOOK_2026-09-30.md
+  documents backup/restore, developer/orphan safety, staged migration,
+  source SHA parity, worker drain/restart, TLS/ingress JWT canary, deployment
+  pool/fairness monitoring, and operator cutover/rollback requirements.
+- [ ] **D7-S actual staging capacity:** no configured independent staging
+  host, actual external load-generator, 4-worker TLS ingress, or
+  anonymized production-sized database is available through this connected
+  development device. The previous D7-L was NOT rerun. Do not claim
+  1,000 concurrently active HTTP clients from ASGITransport's 10/20-slot
+  local client semaphore; verify on a true staging deployment.
+- [ ] **D8 real staging and production deployment acceptance:** perform full
+  anonymized backup/restore, actual migrations and running worker SHA check,
+  WebSocket upstream proxy/CDN redaction, retention/vacuum policy, browser
+  cancellation/progress/network loss, operational alarms and financial/
+  stock/tenant reconciliation on the targeted deployment. Production
+  rollout requires separate explicit operator sign-off. Overall Gate D8
+  stays OPEN until this evidence exists.
+
+**Execution discipline:** ARCHITECTURE.md now mandates batched diagnosis,
+one scoped implementation, one risk-appropriate acceptance pass, a verified
+commit/push, and no reflexive D7-L repetition. The open D7-S/D8 evidence
+is a deployment-environment dependency, not a reason to run another
+synthetic 1,000-request local benchmark.
