@@ -45,7 +45,7 @@ the worker id, and readiness joins that registry back to Procrastinate's live
 worker heartbeat. This avoids treating an unrelated healthy worker as Product
 Import-ready.
 
-D3.1 keeps execution concurrency unchanged and requires separate supervised
+D3.1 requires separate supervised
 `execution`, `control`, and `maintenance` processes in the same public-schema
 Procrastinate app. Control recovery/health cannot wait behind import execution
 or retention. The control heartbeat never registers itself as execution capacity.
@@ -55,10 +55,20 @@ See `RUNBOOK.md` for role commands, legacy-queue drain, version verification,
 graceful shutdown and rollback. Queue isolation requires all three consumers;
 execution READY alone does not certify control/maintenance availability.
 
+D3.2 authorizes one execution process with two bounded slots by default.
+The company-scoped queue lock still serializes two imports for the same tenant,
+while Procrastinate can use the second slot for an independent tenant. In the
+disposable mixed-load gate, a short company-B import finished in 3.034 seconds
+instead of 23.036 seconds behind two long company-A imports, with no same-company
+overlap. Full execution/control/maintenance topology peaked at 14 application
+connections under the Product Import budget of 16; interactive catalog-read p95
+was 0.618 ms in the two-slot run. Queue connectors are bounded to 1..2
+connections per role.
+
 Metrics include healthy Product Import worker processes, configured worker
 slots, running/queued Product Import jobs, available slots, and oldest queue
 age. `PRODUCT_IMPORT_WORKER_SLOTS_PER_PROCESS` must match the deployed worker
-concurrency (default 1). These global values are for server observability only
+concurrency (default 2). These global values are for server observability only
 and are not exposed as tenant data.
 
 Tenant capacity telemetry also records oldest active-stage and oldest queued-job

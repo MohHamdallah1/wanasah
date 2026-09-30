@@ -21,16 +21,26 @@ All roles use the SAME Procrastinate App and public schema:
 
 | Role | Queue | Work | Slots per process |
 |---|---|---|---|
-| execution | `product-import` | Imports and execution-presence proof | Existing `PRODUCT_IMPORT_WORKER_SLOTS_PER_PROCESS`, default 1, unchanged |
+| execution | `product-import` | Imports and execution-presence proof | `PRODUCT_IMPORT_WORKER_SLOTS_PER_PROCESS`, default **2** |
 | control | `product-import-control` | Stalled recovery and runtime health heartbeat | `PRODUCT_IMPORT_CONTROL_WORKER_SLOTS`, default 1 |
 | maintenance | `product-import-maintenance` | Capacity/table monitoring, retention and their schedulers | `PRODUCT_IMPORT_MAINTENANCE_WORKER_SLOTS`, default 1 |
 
-One slot is the minimum consumer for each isolated role, not a throughput sizing
-claim. Keep the execution slot setting identical in API and worker environments;
-the existing readiness calculation uses that setting. Additional execution
-capacity/fairness belongs to D3.2, not this change. All roles need independent
-process supervision/restart policies. PostgreSQL/host resources remain shared;
-approve the aggregate connection budget before production rollout.
+D3.2 authorizes **one execution process with two slots**, not unlimited worker
+processes. Same-company jobs remain serialized by
+`product-import:{company_id}`; an independent company may use the other slot.
+Keep the execution slot setting identical in API and worker environments because
+readiness capacity uses that setting. All roles need independent process
+supervision/restart policies.
+
+Product Import queue connectors are explicitly bounded to 1..2 connections per
+role instead of Psycopg's former implicit 4..4 default. The Product Import
+subsystem has a fail-closed 16-connection envelope. The deployment-wide Config
+also reserves web + operational workers + Product Import together: current
+defaults are 20 + 10 + 16 = **46 reserved connections** inside a
+`DB_DEPLOYMENT_CONNECTION_BUDGET` of 60. Production must set that deployment
+budget below its actual PostgreSQL `max_connections` with separate
+admin/failover headroom. Do not raise slots, queue pool sizes, or worker process
+counts independently; rerun D3.2 on production-like capacity first.
 
 On Linux, each service runs the backend virtual environment's Python, working
 directory `wa_backend`, with the corresponding role:
@@ -193,7 +203,8 @@ The 49 TODO / 1 DOING snapshot did not capture task identities.
    release. Mixed-version rollout is unsupported: old producers route new tasks
    to the old queue and old heartbeat code could corrupt readiness classification.
    Start control and maintenance as independent services, then execution with
-   its ORIGINAL slot setting. Verify startup recovery and all code fingerprints.
+   the reviewed D3.2 slot setting (default 2). Verify startup recovery, the
+   connection-budget log fields and all code fingerprints.
 6. Persisted jobs keep their stored queue and exact task identity; decorator
    changes affect only future deferrals. The execution consumer retains all task
    registrations and therefore drains legacy maintenance/control jobs on
@@ -234,6 +245,7 @@ Before deployment run at minimum:
 ```powershell
 python scripts/gate_product_import_architecture.py
 python scripts/gate_product_import_d31_event_scheduler.py
+python scripts/gate_product_import_d32_resources.py
 python scripts/gate_product_import_phase17_final.py
 python scripts/gate_product_import_phase18_cleanup.py
 python -m unittest discover -s tests -p "test_product_import*.py"
@@ -246,6 +258,19 @@ concurrency/RLS contract:
 $env:WANASAH_D31_SCHEDULER_DB_GATE="1"
 python -m unittest tests.test_product_import_d31_schedule_candidates_db
 ```
+
+Run the D3.2 mixed short/long concurrency gate only on the guarded disposable
+PostgreSQL runner:
+
+```powershell
+$env:WANASAH_D32_LOCAL_GATE="1"
+$env:WANASAH_D32_SOURCE_ENV_FILE=(Resolve-Path ".\.env").Path
+python -m scripts.run_product_import_d32_isolated_gate
+```
+
+It must prove independent-company overlap, same-company serialization,
+short-job fairness, bounded interactive-read p95/WAL, the full three-role
+connection envelope, and that the original developer tenant remains unchanged.
 
 Also run the Dashboard production build because Product Import contracts and
 polling/realtime behavior are consumed by the Dashboard.

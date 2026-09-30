@@ -39,10 +39,11 @@ WORKER_HEALTH_TIMEOUT_SECONDS = _positive_env_int(
     "PRODUCT_IMPORT_WORKER_HEALTH_TIMEOUT_SECONDS",
     30,
 )
-WORKER_SLOTS_PER_PROCESS = _positive_env_int(
-    "PRODUCT_IMPORT_WORKER_SLOTS_PER_PROCESS",
-    1,
+from domains.simple_products.imports.infrastructure.resource_budget import (
+    RESOURCE_BUDGET,
 )
+
+WORKER_SLOTS_PER_PROCESS = RESOURCE_BUDGET.execution_slots
 QUEUE_AGE_ALERT_SECONDS = _positive_env_int(
     "PRODUCT_IMPORT_QUEUE_AGE_ALERT_SECONDS",
     120,

@@ -42,6 +42,13 @@ dev_runbook = read(ROOT / "docs" / "operations" / "DEVELOPMENT_WORKERS.md")
 operational_launcher = read(OPS / "run_operational_worker.ps1")
 reports_launcher = read(OPS / "run_reports_worker.ps1")
 product_launcher = read(OPS / "run_product_import_worker.ps1")
+canonical_product_launcher = read(
+    BACKEND / "scripts" / "run_product_import_worker.ps1"
+)
+product_worker_cli = read(
+    BACKEND
+    / "domains/simple_products/imports/infrastructure/worker_cli.py"
+)
 
 check(
     not (BACKEND / "scripts" / "run_dev_operational_worker.ps1").exists()
@@ -169,9 +176,14 @@ check(
 )
 
 check(
-    "-m workers.recover_cli product-import" in product_launcher
-    and "--app=domains.simple_products.imports.infrastructure.queue.app worker -q product-import" in product_launcher,
-    "product-import launcher recovers before starting its separate worker app",
+    "wa_backend\\scripts\\run_product_import_worker.ps1" in product_launcher
+    and "-Role $Role" in product_launcher
+    and "domains.simple_products.imports.infrastructure.worker_cli"
+    in canonical_product_launcher
+    and "--role $Role" in canonical_product_launcher
+    and "recover_stalled_product_imports()" in product_worker_cli
+    and "WORKER_STARTUP_RECOVERY" in product_worker_cli,
+    "product-import wrapper delegates to role-scoped launcher with startup recovery",
 )
 
 check(

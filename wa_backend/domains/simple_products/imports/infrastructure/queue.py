@@ -24,6 +24,9 @@ from domains.simple_products.imports.infrastructure.admission_repository import 
 from domains.simple_products.imports.infrastructure.postgres_source_store import (
     POSTGRES_PRODUCT_IMPORT_SOURCE_STORE,
 )
+from domains.simple_products.imports.infrastructure.resource_budget import (
+    RESOURCE_BUDGET,
+)
 from domains.simple_products.imports.infrastructure.runtime_monitor import (
     register_product_import_worker,
     read_product_import_runtime_metrics,
@@ -66,6 +69,10 @@ app = App(
         # Product-import queue rows intentionally share the public-schema
         # transaction that creates/updates product_import_jobs.
         kwargs={"options": "-c search_path=public"},
+        # Do not pre-open four connections in every isolated worker role.
+        # The explicit bounded pool is part of D3.2's connection budget.
+        min_size=RESOURCE_BUDGET.queue_pool_min,
+        max_size=RESOURCE_BUDGET.queue_pool_max,
     ),
     worker_defaults={
         "delete_jobs": "never",

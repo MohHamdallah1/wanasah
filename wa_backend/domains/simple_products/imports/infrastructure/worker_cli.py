@@ -10,14 +10,9 @@ from pathlib import Path
 import subprocess
 import sys
 
-from domains.simple_products.imports.infrastructure.queue import (
-    app,
-    recover_stalled_product_imports,
-)
 from domains.simple_products.imports.infrastructure.queue_topology import ROLE_QUEUES
-from domains.simple_products.imports.infrastructure.runtime_monitor import (
-    WORKER_SLOTS_PER_PROCESS,
-    _positive_env_int,
+from domains.simple_products.imports.infrastructure.resource_budget import (
+    RESOURCE_BUDGET,
 )
 
 
@@ -49,15 +44,23 @@ def code_identity() -> tuple[str, str]:
 
 
 async def run(role: str) -> None:
-    slots = (
-        WORKER_SLOTS_PER_PROCESS if role == "execution" else
-        _positive_env_int(f"PRODUCT_IMPORT_{role.upper()}_WORKER_SLOTS", 1)
+    # Tag libpq/psycopg connections per role for pg_stat_activity diagnosis.
+    os.environ["PGAPPNAME"] = f"wanasah-product-import-{role}"
+    from domains.simple_products.imports.infrastructure.queue import (
+        app,
+        recover_stalled_product_imports,
     )
+
+    slots = RESOURCE_BUDGET.slots_for(role)
     revision, digest = code_identity()
     logging.getLogger(__name__).info(
         "PRODUCT_IMPORT_WORKER_CODE pid=%s role=%s queue=%s slots=%s "
-        "commit=%s source_sha256=%s",
-        os.getpid(), role, ROLE_QUEUES[role], slots, revision, digest,
+        "queue_pool=%s..%s db_envelope=%s/%s commit=%s source_sha256=%s",
+        os.getpid(), role, ROLE_QUEUES[role], slots,
+        RESOURCE_BUDGET.queue_pool_min, RESOURCE_BUDGET.queue_pool_max,
+        RESOURCE_BUDGET.estimated_peak_connections,
+        RESOURCE_BUDGET.connection_budget,
+        revision, digest,
     )
     async with app.open_async():
         result = await recover_stalled_product_imports()
