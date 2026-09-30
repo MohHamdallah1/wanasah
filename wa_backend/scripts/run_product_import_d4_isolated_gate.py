@@ -110,14 +110,63 @@ def reset_owned_sequences(bin_dir: pathlib.Path) -> None:
     """)
 
 
-def seed_control_rows(bin_dir: pathlib.Path) -> None:
+def read_source_revision(source_url) -> str:
+    """Copy schema AND its exact revision, never mis-stamp a later schema.
+
+    The real developer database is read-only, and the migration DSN must
+    identify the same local database as the preapproved synthetic fixture.
+    """
+    import re
+
+    import psycopg
+    from alembic.config import Config as AlembicConfig
+    from alembic.script import ScriptDirectory
+    from sqlalchemy.engine import make_url
+
+    source_migration = make_url(os.environ["DATABASE_URL_MIGRATION"])
+    if (
+        source_migration.database != source_url.database
+        or source_migration.host not in ("localhost", "127.0.0.1", "::1")
+        or source_url.host not in ("localhost", "127.0.0.1", "::1")
+        or (source_migration.port or 5432) != (source_url.port or 5432)
+    ):
+        raise RuntimeError("Schema revision source DSN differs from developer fixture.")
+    dsn = source_migration.set(
+        drivername="postgresql",
+    ).render_as_string(hide_password=False)
+    with psycopg.connect(dsn) as connection:
+        connection.execute("SET TRANSACTION READ ONLY")
+        current = [
+            row[0] for row in connection.execute(
+                "SELECT version_num FROM public.alembic_version"
+            )
+        ]
+    heads = ScriptDirectory.from_config(
+        AlembicConfig(str(ROOT / "alembic.ini"))
+    ).get_heads()
+    if len(heads) != 1 or current != heads:
+        raise RuntimeError(
+            "Developer schema revision must exactly match local Alembic head; "
+            f"source={current} code={heads}"
+        )
+    version = current[0]
+    if not re.fullmatch(r"[A-Za-z0-9_]+", version):
+        raise RuntimeError("Unsafe schema revision")
+    return version
+
+
+def seed_control_rows(bin_dir: pathlib.Path, *, source_revision: str) -> None:
+    import re
+
+    if not re.fullmatch(r"[A-Za-z0-9_]+", source_revision):
+        raise RuntimeError("Unsafe schema revision")
     psql(bin_dir, TEMPLATE, """
         INSERT INTO product_import_global_source_capacity(
             id, live_bytes, high_water_bytes, updated_at
         ) VALUES (1,0,0,CURRENT_TIMESTAMP)
         ON CONFLICT (id) DO NOTHING;
         INSERT INTO alembic_version(version_num)
-        VALUES ('d31c7a940e62')
+        VALUES ('""" + source_revision + """')
         ON CONFLICT (version_num) DO NOTHING;
     """)
 
@@ -212,7 +261,9 @@ def main() -> None:
         base._TEMPLATE = TEMPLATE
         asyncio.run(base._copy_safe_synthetic_fixture(source))
         reset_owned_sequences(bin_dir)
-        seed_control_rows(bin_dir)
+        seed_control_rows(
+            bin_dir, source_revision=read_source_revision(source),
+        )
 
         migration_env = child_env(TEMPLATE, root)
         run([sys.executable, "-m", "alembic", "upgrade", "head"], env=migration_env)
