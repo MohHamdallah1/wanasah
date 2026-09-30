@@ -175,6 +175,8 @@ describe("same-job Product Import correction frontend", () => {
       default_lot_control_mode: "NONE", default_expiry_control_mode: "NONE",
     } as ProductImportState;
     const actions = {
+      jobId: JOB,
+      authFetch: vi.fn(),
       status: current,
       pollError: null,
       progress: 0,
