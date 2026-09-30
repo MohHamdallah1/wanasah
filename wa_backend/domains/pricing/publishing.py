@@ -718,9 +718,17 @@ async def _close_predecessor_ranges(
                   AND price_book_id = :price_book_id
                   AND publication_id = :publication_id
             )
+            -- Keep the first-ever SKU/UOM database proof exact, but force
+            -- a bounded indexed old-price lookup FOR EACH fresh pair.
+            -- An unbounded correlated EXISTS was flattened by PostgreSQL
+            -- into 129 repetitions of a whole-book history scan in the
+            -- disposable 3k-import profile (37k+ shared buffer hits).
+            -- LATERAL LIMIT 1 preserves the exact EXISTS semantics and
+            -- lets PostgreSQL stop at the first published predecessor.
             SELECT EXISTS (
-                SELECT 1 FROM fresh_pairs AS fresh
-                WHERE EXISTS (
+                SELECT 1
+                FROM fresh_pairs AS fresh
+                CROSS JOIN LATERAL (
                     SELECT 1
                     FROM price_book_entries AS old
                     WHERE old.company_id = :company_id
@@ -729,7 +737,8 @@ async def _close_predecessor_ranges(
                       AND old.uom_id = fresh.uom_id
                       AND old.publication_id <> :publication_id
                       AND old.is_published IS TRUE
-                )
+                    LIMIT 1
+                ) AS predecessor
             )
             """
         ),

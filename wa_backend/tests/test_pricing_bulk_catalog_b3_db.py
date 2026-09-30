@@ -213,6 +213,14 @@ class BulkPricingB3DatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             sum("fresh_pairs AS MATERIALIZED" in item for item in sql_text), 1,
         )
+        # Preserve D6's bounded index-probe plan. Unbounded correlated EXISTS
+        # can be de-correlated into one full old-book scan per fresh pair.
+        self.assertEqual(
+            sum(
+                "CROSS JOIN LATERAL" in item and "LIMIT 1" in item
+                for item in sql_text
+            ), 1,
+        )
         self.assertEqual(
             sum("new_starts AS" in item for item in sql_text), 0,
         )

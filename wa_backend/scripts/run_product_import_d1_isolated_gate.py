@@ -60,10 +60,19 @@ def main()->None:
             base._pg(bins,"initdb"),"-D",str(tmp),"-U",d4.ADMIN,
             "-A","trust","-E","UTF8","--no-instructions",
         ])
+        d6_profile = os.getenv("WANASAH_D6_PROFILE") == "1"
+        startup_options = f"-p {PORT} -h 127.0.0.1"
+        if d6_profile:
+            startup_options += (
+                " -c shared_preload_libraries=pg_stat_statements"
+                " -c pg_stat_statements.track=all"
+                " -c track_io_timing=on"
+                " -c track_wal_io_timing=on"
+            )
         base._run([
             base._pg(bins,"pg_ctl"),"-D",str(tmp),
             "-l",str(tmp/"postgres.log"),"-o",
-            f"-p {PORT} -h 127.0.0.1", "-w","start",
+            startup_options, "-w","start",
         ])
         started=True
         srcenv=os.environ.copy()
@@ -93,17 +102,25 @@ def main()->None:
         )
         d4.run([sys.executable,"-m","alembic","upgrade","head"],
                env=env_for(TEMPLATE,tmp))
+        if d6_profile:
+            d4.psql(
+                bins,TEMPLATE,
+                "CREATE EXTENSION IF NOT EXISTS pg_stat_statements",
+            )
         base._run([base._pg(bins,"createdb"),"-h","127.0.0.1",
                    "-p",str(PORT),"-U",d4.ADMIN,"-T",TEMPLATE,DATABASE])
         matrix = os.getenv("WANASAH_D1_MATRIX") == "1"
         d2_lock = os.getenv("WANASAH_D2_LOCK_MATRIX") == "1"
-        if matrix and d2_lock:
-            raise RuntimeError("D1 matrix and D2 lock matrix must not overlap")
+        if sum((bool(matrix),bool(d2_lock),bool(d6_profile)))>1:
+            raise RuntimeError("D1, D2 and D6 private tests are mutually exclusive")
         child_module = (
-            "scripts.gate_product_import_d2_lock_matrix_child"
-            if d2_lock else (
-                "scripts.product_import_d1_business_matrix"
-                if matrix else "scripts.product_import_d1_real_business_child"
+            "scripts.product_import_d6_disposable_profile"
+            if d6_profile else (
+                "scripts.gate_product_import_d2_lock_matrix_child"
+                if d2_lock else (
+                    "scripts.product_import_d1_business_matrix"
+                    if matrix else "scripts.product_import_d1_real_business_child"
+                )
             )
         )
         child=d4.run([
@@ -114,6 +131,9 @@ def main()->None:
             if "D1_IMPORT_DIAGNOSTIC=" not in child.stdout:
                 raise RuntimeError("D1 diagnostic signature missing")
             print("D1_IMPORT_DIAGNOSTIC_CAPTURED=PASS",flush=True)
+        elif d6_profile:
+            if "PRODUCT_IMPORT_D6_PROFILE=PASS" not in child.stdout:
+                raise RuntimeError("D6 measured runtime profile acceptance missing")
         elif d2_lock:
             if "PRODUCT_IMPORT_D2_LOCK_MATRIX=PASS" not in child.stdout:
                 raise RuntimeError("D2 guarded lock matrix acceptance missing")
