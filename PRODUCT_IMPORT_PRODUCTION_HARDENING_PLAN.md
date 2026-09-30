@@ -946,6 +946,24 @@ time and device constraints to choose direct editing vs paging/export.
   manual browser, inline cell editing, multi-company auth or 50k end-to-end
   acceptance is asserted by this checkbox.
 
+- [x] **Read-only rejected-error review checkpoint (not inline cell editing):**
+  Dashboard now shows a user-opened, job-scoped **Review rejected rows**
+  section in both `VALIDATION_FAILED` and `COMPLETED_WITH_ERRORS`;
+  fetches a bounded 25-row page from the existing authorized
+  `GET /simple-products/imports/{job_id}/errors?after_row=...&limit=25`,
+  displays the original physical Excel row numbers and safe localized
+  reasons, allows previous/next cursor navigation and explicit retry,
+  rejects non-advancing/unordered cursors, aborts abandoned requests
+  and never loads the entire rejection set for the panel. The former
+  fixed first-50-only list was replaced in the failed state; the partially
+  successful state now has the same review. The diagnostic endpoint
+  contains **no editable cell values**: this review is deliberately
+  read-only until the separate Codex Backend inline correction DTO is
+  integrated. Evidence: `ImportRejectedRowsReview.tsx`, status/modal/
+  workflow wiring; **12/12** focused import/correction/cancel frontend
+  tests, TypeScript, targeted ESLint and direct Vite production build
+  PASS on 2026-09-30. No actual-browser or new authenticated HTTP/DB
+  acceptance is claimed.
 - [ ] Provide a bounded job-specific **Review rejected rows** view, with
   original Excel physical row numbers, canonical field identity,
   user-safe localized error text, and current row values; never expose

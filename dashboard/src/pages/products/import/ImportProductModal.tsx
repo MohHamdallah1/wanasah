@@ -62,6 +62,7 @@ type Props = {
   ) => void;
   onSubmitMapping: () => void;
   onDownloadErrorReport: () => void;
+  authFetch: (path: string, options?: RequestInit) => Promise<unknown>;
   correctionFile: File | null;
   correctionFileRef: RefObject<HTMLInputElement | null>;
   downloadingCorrection: boolean;
@@ -110,6 +111,7 @@ export function ImportProductModal({
   onMappingChange,
   onSubmitMapping,
   onDownloadErrorReport,
+  authFetch,
   correctionFile,
   correctionFileRef,
   downloadingCorrection,
@@ -222,6 +224,8 @@ export function ImportProductModal({
           </div>
         ) : (
           <ImportProductStatusPanel
+            jobId={jobId}
+            authFetch={authFetch}
             status={status}
             pollError={pollError}
             progress={progress}

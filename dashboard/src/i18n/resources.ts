@@ -679,6 +679,20 @@ export const resources = {
         validationFailed:
           "لم يتم استيراد أي منتج. يوجد {{count}} صف بحاجة تصحيح.",
         downloadErrors: "تحميل تقرير الأخطاء",
+        rejectedRows: {
+          title: "الصفوف المرفوضة",
+          show: "عرض التفاصيل",
+          hide: "إخفاء",
+          hint: "اعرض أسباب رفض الصفوف مع أرقامها الأصلية في Excel. هذه قائمة مراجعة فقط؛ لتعديل البيانات استخدم ملف التصحيح الرسمي.",
+          loading: "جاري تحميل الصفوف المرفوضة...",
+          empty: "لا توجد صفوف مرفوضة في هذه الصفحة.",
+          loadFailed: "تعذر جلب الصفوف المرفوضة. أعد المحاولة.",
+          genericError: "راجع بيانات هذا الصف في ملف التصحيح.",
+          pagination: "صفحات الصفوف المرفوضة",
+          previous: "السابق",
+          next: "التالي",
+          page: "الصفحة {{page}}",
+        },
         correction: {
           title: "تصحيح الصفوف المرفوضة",
           hint: "نزّل ملف التصحيح الخاص بهذه العملية، عدّل الصفوف المرفوضة فقط، ثم ارفعه هنا. لا ترفع الملف الأصلي كعملية جديدة.",
@@ -2336,6 +2350,20 @@ export const resources = {
         validationFailed:
           "Nothing was imported. {{count}} rows need correction.",
         downloadErrors: "Download error report",
+        rejectedRows: {
+          title: "Rejected rows",
+          show: "Review details",
+          hide: "Hide",
+          hint: "Review rejection reasons and original Excel row numbers. This list is read-only; use the official correction file to edit values.",
+          loading: "Loading rejected rows...",
+          empty: "No rejected rows on this page.",
+          loadFailed: "Could not load rejected rows. Please try again.",
+          genericError: "Review this row in the correction file.",
+          pagination: "Rejected row pages",
+          previous: "Previous",
+          next: "Next",
+          page: "Page {{page}}",
+        },
         correction: {
           title: "Correct rejected rows",
           hint: "Download this job's correction file, edit only rejected rows, and upload it here. Do not reimport the original file as a new job.",
