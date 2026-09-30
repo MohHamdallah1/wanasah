@@ -8,6 +8,7 @@ from domains.simple_products.imports.application.source_store import (
     SourceStore,
 )
 from domains.simple_products.imports.application.staging_service import (
+    STAGE_BATCH,
     stage_source,
 )
 from domains.simple_products.imports.application.state_machine import (
@@ -22,13 +23,23 @@ from domains.simple_products.imports.domain.mapping import (
     suggest_mapping,
 )
 from domains.simple_products.imports.infrastructure.parsers import (
+    MAX_IMPORT_ROWS,
     open_source,
+)
+from domains.simple_products.imports.infrastructure.phase_timing import (
+    observe_import_phase,
 )
 from domains.simple_products.imports.infrastructure.repository import (
     close_tenant_session,
     load_job,
     mark_job_source_cleared,
     open_tenant_session,
+)
+from domains.simple_products.imports.infrastructure.resource_budget import (
+    RESOURCE_BUDGET,
+)
+from domains.simple_products.imports.infrastructure.staging_buffer import (
+    spool_stage_rows,
 )
 
 
@@ -246,6 +257,18 @@ async def prepare_import_source(
         return JobStatus.CANCELLED.value
 
     if context.status in _SOURCE_FREE_EARLY_EXIT:
+        if context.status == JobStatus.NEEDS_MAPPING.value:
+            # A crash/lost response after atomic staging may leave the source
+            # retained, or its cleanup marker unwritten. NEEDS_MAPPING proves
+            # staging committed; retry only the idempotent cleanup, never parse
+            # again or replace durable row identities.
+            await _cleanup_source(
+                source_store=source_store,
+                company_id=company_id,
+                job_id=job_id,
+                source_id=context.source_id,
+                already_cleared=context.source_cleared,
+            )
         return context.status
 
     source_cleared = (
@@ -285,20 +308,39 @@ async def prepare_import_source(
             )
             return JobStatus.CANCELLED.value
 
-        with open_source(
-            context.file_name,
-            payload,
-        ) as source:
-            suggestions = suggest_mapping(
-                source.headers
-            )
+        # Exhaust and close the CSV/XLSX parser before staging opens a database
+        # transaction. The private spool is disposable; SourceStore stays
+        # retained until the entire durable row set passes reconciliation.
+        buffered_rows = None
+        try:
+            with observe_import_phase(
+                company_id=company_id,
+                job_id=job_id,
+                phase="SOURCE_ROW_BUFFER",
+            ):
+                with open_source(
+                    context.file_name,
+                    payload,
+                ) as source:
+                    headers = list(source.headers)
+                    suggestions = suggest_mapping(headers)
+                    buffered_rows = await spool_stage_rows(
+                        source.rows,
+                        max_rows=MAX_IMPORT_ROWS,
+                        yield_every=STAGE_BATCH,
+                        concurrent_spools=RESOURCE_BUDGET.execution_slots,
+                    )
             await stage_source(
                 company_id=company_id,
                 job_id=job_id,
-                headers=source.headers,
-                rows=source.rows,
+                headers=headers,
+                rows=buffered_rows,
                 suggestions=suggestions,
+                expected_rows=buffered_rows.total_rows,
             )
+        finally:
+            if buffered_rows is not None:
+                buffered_rows.close()
 
         source_cleared = await _cleanup_source(
             source_store=
