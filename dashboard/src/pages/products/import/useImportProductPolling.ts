@@ -367,11 +367,11 @@ export function useImportProductPolling({
 
     const scheduleFallback =
       () => {
-        clearTimer(
-          fallbackTimer,
-        );
-        fallbackTimer =
-          undefined;
+        // Retain a pending HTTP fallback while repeated WebSocket failures
+        // schedule reconnects. Otherwise each failure postpones the fallback.
+        if (fallbackTimer !== undefined) {
+          return;
+        }
 
         if (
           disposed ||
@@ -392,6 +392,8 @@ export function useImportProductPolling({
         fallbackTimer =
           window.setTimeout(
             () => {
+              fallbackTimer =
+                undefined;
               void refreshStatus()
                 .finally(
                   () => {
@@ -505,12 +507,23 @@ export function useImportProductPolling({
             /^http/,
             "ws",
           );
-        const nextSocket =
-          new WebSocket(
-            `${wsBase}/simple-products/imports/${encodeURIComponent(
-              importJobId,
-            )}/ws`,
-          );
+        let nextSocket: WebSocket;
+        try {
+          nextSocket =
+            new WebSocket(
+              `${wsBase}/simple-products/imports/${encodeURIComponent(
+                importJobId,
+              )}/ws`,
+            );
+        } catch {
+          // Invalid endpoint configuration or browser security policy can
+          // reject construction synchronously; preserve HTTP polling.
+          websocket = undefined;
+          realtimeOpen = false;
+          scheduleFallback();
+          scheduleReconnect();
+          return;
+        }
         websocket =
           nextSocket;
 

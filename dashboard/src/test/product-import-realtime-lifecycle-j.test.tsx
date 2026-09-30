@@ -248,6 +248,31 @@ describe("Product Import live-progress transport lifecycle", () => {
     hook.unmount();
   });
 
+  it("keeps HTTP polling when WebSocket construction throws synchronously", async () => {
+    // Browser security policy or malformed endpoint configuration can throw
+    // in the constructor before any socket event or onclose can be installed.
+    const blockedSocket = vi.fn(() => {
+      throw new DOMException("WebSocket blocked", "SecurityError");
+    });
+    vi.stubGlobal("WebSocket", blockedSocket);
+    const fetch = vi.fn().mockResolvedValue(statuses.importing);
+    const hook = mount(fetch);
+
+    expect(blockedSocket).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2700);
+    });
+    // Reconnect attempts must never postpone the existing fallback timer.
+    expect(blockedSocket.mock.calls.length).toBeGreaterThan(1);
+    expect(fetch.mock.calls.length).toBeGreaterThan(1);
+    expect(setError).not.toHaveBeenCalledWith(
+      expect.stringContaining("WebSocket blocked"),
+    );
+    hook.unmount();
+  });
+
   it("ignores an obsolete HTTP error that arrives after confirmed completion", async () => {
     let rejectEarlier!: (reason: Error) => void;
     const olderRequest = new Promise<unknown>((_resolve, reject) => {
