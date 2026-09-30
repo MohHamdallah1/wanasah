@@ -142,6 +142,8 @@ describe("Product Import cancellation connects the existing tenant-scoped backen
       default_expiry_control_mode: "NONE",
     } as ProductImportState;
     const props = {
+      jobId: JOB,
+      authFetch: vi.fn(),
       status: active,
       pollError: null,
       progress: 20,
