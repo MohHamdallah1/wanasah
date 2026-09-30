@@ -34,6 +34,9 @@ npx @wonderwhy-er/desktop-commander@latest remote
 
 Business Logic ولا Backend authority ولا Permissions ولا isolation ولا idempotency ولا semantics الخاصة بالطلبات..الخط الأحمر: لا نغيّر 
 
+وملاحظتك صحيحة: المفروض تحليل الكود يسبق الاختبارات ويحدد سبب المشكلة، والاختبار يثبت الإصلاح بدل ما نستخدم عشرات الاختبارات للبحث العشوائي. رح أطبّق هذا عمليًا على البند التالي، مع ترك ملفات B وI لكوديكس.
+
+
 أنا بشوف الأنسب لمشروعنا يصير كالتالي:
 1. أقرأ GitHub والحالة الحالية.
 2. أعمل التعديل على الفرع في GitHub مثل نظامنا الحالي.
@@ -45,7 +48,7 @@ Business Logic ولا Backend authority ولا Permissions ولا isolation ول
 8. عند نهاية المرحلة نشغل الـfull gates والمراجعة ثم الدمج والتنظيف حسب نظامنا.
 يعني أنت عمليًا ممكن تقول لي فقط: "كمل"، وأنا أنفذ الدورة كاملة وأرجعلك هنا بالنتيجة النهائية، مع تحديثات قصيرة أثناء الشغل. كل هذا يتم خلال نفس طلبي/ردي الحالي؛ ما بشتغل بعد ما أنهي الرد بالخلفية.
 النظام الافتراضي يصير:
-1. أراجع PRODUCTS_PRODUCTION_PLAN.md + ARCHITECTURE.md + .rules + AGENTS.md وأي قواعد مرتبطة قبل القرارات المهمة.
+1. أراجع ARCHITECTURE.md + .rules + AGENTS.md وأي قواعد مرتبطة قبل القرارات المهمة. سجل صفحة المنتجات المنجزة محفوظ في docs/archive/PRODUCTS_PRODUCTION_PLAN.md، وخطة الاستيراد النشطة PRODUCT_IMPORT_PRODUCTION_HARDENING_PLAN.md.
 2. أعدل GitHub بcommits صغيرة ومفهومة، وأعمل read-back/source-test sweep.
 3. عند كل checkpoint حقيقي أسحب على جهازك وأشغل مجموعة واحدة من TypeScript + ESLint + tests + build بأقل Remote calls ممكنة.
 4. أي FAIL = STOP؛ ما أراكم تعديلات فوقه.
