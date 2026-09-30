@@ -11,7 +11,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 from sqlalchemy.engine import make_url
 import psycopg
 
@@ -25,6 +25,35 @@ REQUIRED_RLS_TABLES = (
     "price_book_entries",
 )
 
+
+def _bind_env_file_db_target(env_file: Path, *, scope: str) -> None:
+    """Refuse staging target ambiguity before opening a database connection.
+
+    dotenv normally prefers inherited variables over --env-file values.
+    An operator-supplied staging file must explicitly bind both DB URLs;
+    silently following a different inherited URL could inspect the wrong DB.
+    Never include a URL or credential in a diagnostic exception.
+    """
+    declared = dotenv_values(env_file, interpolate=False)
+    for name in ("DATABASE_URL_MIGRATION", "DATABASE_URL"):
+        value = declared.get(name)
+        if scope == "staging" and not value:
+            raise RuntimeError(
+                f"Staging env file must explicitly declare {name}"
+            )
+        if not value:
+            continue
+        if "${" in value:
+            raise RuntimeError(
+                f"{name} in staging env file must be a literal URL"
+            )
+        inherited = os.environ.get(name)
+        if inherited is not None and inherited != value:
+            raise RuntimeError(
+                f"Inherited {name} conflicts with explicit env file target"
+            )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--env-file", type=Path, required=True)
@@ -32,6 +61,7 @@ def main() -> None:
     args = parser.parse_args()
     if not args.env_file.is_file():
         raise RuntimeError("Explicit environment file missing")
+    _bind_env_file_db_target(args.env_file, scope=args.scope)
     load_dotenv(args.env_file, override=False)
     if args.scope == "staging" and os.environ.get(
         "WANASAH_STAGING_READONLY_ACK"
