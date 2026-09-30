@@ -666,9 +666,9 @@ Before declaring Product Import production-grade:
 
 The former urgent Catalog/Index/Worker roadmap is archived at `docs/archive/WANASAH_URGENT_CATALOG_INDEX_QUEUE_SCALING_PLAN_2026-09-29.md`; it is **not** another mandatory V1 execution queue. Its remaining *actual import work* is accounted for by the original detailed Phase 19 items below. Earlier 50k queue stalls are historical failure evidence, not proof of a current regression or current success. The owner reports an earlier observed 50k execution of approximately 45 minutes and a later approximately 14-minute execution after changes; neither figure by itself proves the **latest** code's real HTTP-to-commit runtime. No shortcut may bypass tenant isolation, money/stock authority or safe cancellation.
 
-1. **19.1 — genuine authenticated HTTP correction proof:** existing same-job database correction successfully reached 54/54 imported. Verify server-generated artifact download, forbidden/cross-company row identities, authorization, stable operation replay/lost response, old Product/Price/Audit lineage on a *new isolated synthetic job* as necessary; do not mutate the already completed original just to repeat history.
-2. **19.2 — one source-first fresh 50k acceptance:** inspect current queue worker, source spooling, bounded staging, commit and pricing paths first; run one measured 5k sanity then one new unique 50k *actual HTTP + SourceStore + Procrastinate worker + persisted Product/Variant/Price/Audit/Outbox* exercise on a specifically isolated developer/rehearsal DB. Record file hash, source-to-staged-to-imported/invalid counts, per-stage and total elapsed times, query/worker/DB/resource health; stop at any confirmed stage stall and diagnose before rerunning. An isolated 50k parsing/SQL fixture and ASGI arrival-only test do **not** substitute for this.
-3. **19.3 — Dashboard correction UX:** accessible in-job review and bounded inline edit of rejected rows, protected immutable source row identities, official correction endpoint and server validation, retry/unknown-response reconciliation and large-error export/paging. Backend status/correction/cancel and current modal UX must be read first so no second business authority is introduced.
+1. **19.3 — implement real correction UX FIRST (owner order):** Backend supplies bounded, authorized failed-row value pages to the UI by delegating validation and same-job mutation to existing correction authority; Dashboard supplies an accessible, keyboard-operable job-specific correction view and safe lost-response reconciliation. Work can proceed in parallel on non-overlapping Backend/Frontend files. The official correction XLSX GET and same-job POST file flow have already been added to Dashboard; in-modal cell editing still remains OPEN.
+2. **19.1 — authenticated HTTP acceptance AFTER implementation:** existing same-job database correction previously reached 54/54 imported. Verify server-generated artifact download, forbidden/cross-company row identities, authorization, stable replay/lost response, old Product/Price/Audit lineage on a *new isolated synthetic job* as necessary; do not mutate the already completed original just to repeat history.
+3. **19.2 — final fresh 50k acceptance AFTER ALL corrections (owner explicitly postponed):** inspect current queue worker, source spooling, bounded staging, commit and pricing paths first; run one measured 5k sanity then one new unique 50k *actual HTTP + SourceStore + Procrastinate worker + persisted Product/Variant/Price/Audit/Outbox* exercise on a specifically isolated developer/rehearsal DB. Record file hash, source-to-staged-to-imported/invalid counts, per-stage and total elapsed times, query/worker/DB/resource health; stop at any confirmed stage stall and diagnose before rerunning. An isolated 50k parsing/SQL fixture and ASGI arrival-only test do **not** substitute for this. No load/50k tests are authorized during implementation of 19.3.
 4. **19.4–19.5 — closure:** one consolidated focused backend/frontend integration and real-browser Arabic/English/mobile/keyboard/permission check; owner visual approval can follow completion of the import work. Record final pass evidence and archive **this** plan only after these implementation gates, keeping separate real customer deployment D7-P/D8-P OPEN in `docs/operations/PRODUCT_IMPORT_V1_RELEASE_RUNBOOK_2026-09-30.md` until the actual installation exists.
 
 **Already implemented; do not blindly reimplement:** the current Product Import capacity scheduler uses event-driven due candidates with atomic per-company queue insertion and separate execution/control/maintenance roles; the Dashboard already has a localized confirmed POST import-cancel command and focused source tests. Historical urgent C/F checkboxes predate these changes. Those implementation observations do **not** replace first-company runtime monitoring, durable cancellation/recovery and browser acceptance. Large-tenant fairness and hardware-scale index churn belong to V2 unless they cause a demonstrated V1 correctness/performance failure. Independent catalog/finance/Flutter coverage is tracked by the commercial foundation, not silently marked passed by this plan.
@@ -910,10 +910,34 @@ structural gates, parser benchmarks, or mocked failure injection alone.
 
 ## 19.3 V1 inline correction UX — approved direction, NOT yet implemented
 
-**Decision:** This belongs in V1 after sections 19.1–19.2 pass.
-The user's illustrative "20 errors" is **not** a business rule, API limit,
+**Decision (owner sequencing updated 2026-09-30):** Implement the V1
+correction UX and Backend DTO before the final one-time 50k import benchmark.
+Authenticated HTTP acceptance is still required for actual release. The
+user's illustrative "20 errors" is **not** a business rule, API limit,
 or fixed release threshold. Use observed row count, payload size, response
 time and device constraints to choose direct editing vs paging/export.
+
+- [x] **File correction flow / frontend checkpoint (not inline editing):**
+  On a terminal job with rejected rows, Products now offers official
+  `GET /simple-products/imports/{job_id}/correction?format=xlsx` download
+  and `POST /simple-products/imports/{job_id}/correction` of the edited
+  **same-job** artifact with the exact multipart `request_id` / `file`
+  contract. The browser retains one durable, tenant/user/job-scoped request
+  identity bound to the selected file hash; ambiguous response keeps that
+  identity for safe replay. An authoritative `VALIDATING` ACK resumes the
+  existing progress watcher, and the old diagnostic error CSV stays
+  explicitly separate from the correction XLSX. Arabic/English labels and
+  accessible file controls are present; previously successful rows are
+  never included as client-side editable correction targets. Evidence:
+  `dashboard/src/pages/products/import/useImportCorrection.ts`,
+  `ImportCorrectionPanel.tsx`, `createImportDownloads.ts` and
+  `productImportFileDownload.ts`. Focused frontend correction/cancel
+  regression **9/9 PASS**, targeted ESLint zero warnings and TypeScript
+  PASS, plus direct Vite production build PASS on 2026-09-30.
+  An earlier npm-wrapper build command exited nonzero without a diagnostic
+  before the identical Vite build completed successfully. No real HTTP/DB,
+  manual browser, inline cell editing, multi-company auth or 50k end-to-end
+  acceptance is asserted by this checkbox.
 
 - [ ] Provide a bounded job-specific **Review rejected rows** view, with
   original Excel physical row numbers, canonical field identity,
