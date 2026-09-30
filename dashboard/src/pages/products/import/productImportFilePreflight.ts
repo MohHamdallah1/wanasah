@@ -127,10 +127,32 @@ async function xlsxHasDataRows(
           type: "array",
         }
       );
-    const sheetName =
-      workbook.SheetNames[0];
-    if (!sheetName) {
-      return false;
+    // Mirror backend worksheet authority: official templates identify their
+    // product sheet through _wanasah_meta!A2; external workbooks need exactly
+    // one visible sheet. Ambiguity belongs to backend validation, not a
+    // false browser-side `no data rows` rejection of the first sheet.
+    const meta = workbook.Sheets["_wanasah_meta"];
+    let sheetName: string;
+    if (meta) {
+      const marker = String(meta.A1?.v ?? "").trim();
+      const declared = String(meta.A2?.v ?? "").trim();
+      const index = workbook.SheetNames.indexOf(declared);
+      if (
+        marker !== "WANASAH_PRODUCT_IMPORT_V1" ||
+        index < 0 ||
+        workbook.Workbook?.Sheets?.[index]?.Hidden
+      ) {
+        return null;
+      }
+      sheetName = declared;
+    } else {
+      const visibleNames = workbook.SheetNames.filter(
+        (_name, index) => !workbook.Workbook?.Sheets?.[index]?.Hidden,
+      );
+      if (visibleNames.length !== 1) {
+        return null;
+      }
+      sheetName = visibleNames[0];
     }
     const sheet =
       workbook.Sheets[
