@@ -90,15 +90,18 @@ def money_20_6(value: Any, field_name: str = "amount") -> Decimal:
 
 
 async def acquire_pricing_company_lock(db: AsyncSession, company_id: int) -> None:
-    """Single tenant lock root used by pricing writes and later Route Launch.
+    """Serialize pricing writes and Route Launch on the tenant's Company row.
 
-    Lock order for Stage 5 is: Company row -> pricing rows. Route Launch will
-    acquire the same Company row first before reading revision ceilings.
+    FOR NO KEY UPDATE conflicts with itself and FOR UPDATE, preserving the
+    mutex while allowing FOR KEY SHARE locks used by foreign-key checks.
+    Lock order remains Company row -> pricing rows; Route Launch acquires
+    this lock before reading commercial revision ceilings. The caller's
+    transaction retains the lock until commit or rollback.
     """
     row = await db.scalar(
         select(Company.id)
         .where(Company.id == int(company_id))
-        .with_for_update()
+        .with_for_update(key_share=True, read=False)
     )
     if row is None:
         raise PricingError(
