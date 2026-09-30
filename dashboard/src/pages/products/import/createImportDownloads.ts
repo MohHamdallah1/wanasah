@@ -6,6 +6,7 @@ import {
   parseProductImportErrorPage,
 } from "@/pages/products/contracts";
 import { resolveI18nLocale } from "@/lib/locale";
+import { saveImportFileArtifact } from "@/pages/products/import/productImportFileDownload";
 
 type AuthFetch = (
   path: string,
@@ -146,91 +147,29 @@ export function createImportDownloads({
           `/simple-products/import-template?locale=${encodeURIComponent(locale)}`
         );
 
-      if (
-        !raw ||
-        typeof raw !== "object"
-      ) {
-        throw new Error(
-          "INVALID_IMPORT_TEMPLATE_RESPONSE"
-        );
-      }
-
-      const record =
-        raw as Record<
-          string,
-          unknown
-        >;
-      const fileName =
-        typeof record.file_name ===
-        "string"
-          ? record.file_name
-          : "";
-      const contentType =
-        typeof record.content_type ===
-        "string"
-          ? record.content_type
-          : "";
-      const contentBase64 =
-        typeof record.content_base64 ===
-        "string"
-          ? record.content_base64
-          : "";
-
-      if (
-        !fileName ||
-        !contentType ||
-        !contentBase64
-      ) {
-        throw new Error(
-          "INVALID_IMPORT_TEMPLATE_RESPONSE"
-        );
-      }
-
-      const binary =
-        window.atob(
-          contentBase64
-        );
-      const bytes =
-        new Uint8Array(
-          binary.length
-        );
-      for (
-        let index = 0;
-        index < binary.length;
-        index += 1
-      ) {
-        bytes[index] =
-          binary.charCodeAt(
-            index
-          );
-      }
-
-      const href =
-        URL.createObjectURL(
-          new Blob(
-            [bytes],
-            {
-              type:
-                contentType,
-            }
-          )
-        );
-      const link =
-        document.createElement(
-          "a"
-        );
-      link.href = href;
-      link.download =
-        fileName;
-      link.click();
-      URL.revokeObjectURL(
-        href
+      saveImportFileArtifact(
+        raw,
+        "INVALID_IMPORT_TEMPLATE_RESPONSE",
       );
     };
 
 
+  const downloadCorrection =
+    async () => {
+      if (!importJobId) return;
+      const raw = await authFetch(
+        `/simple-products/imports/${importJobId}/correction?format=xlsx`,
+      );
+      saveImportFileArtifact(
+        raw,
+        "INVALID_IMPORT_CORRECTION_DOWNLOAD_RESPONSE",
+        true,
+      );
+    };
+
   return {
     downloadErrorReport,
     downloadTemplate,
+    downloadCorrection,
   };
 }
