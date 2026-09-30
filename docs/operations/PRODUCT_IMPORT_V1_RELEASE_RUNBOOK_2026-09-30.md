@@ -64,7 +64,9 @@ inspects **actual target-database** PostgreSQL connection pressure and session
 lifetime. **Before any DB connection**, the staging preflight requires the
 explicit `--env-file` to declare literal `DATABASE_URL` and
 `DATABASE_URL_MIGRATION`. If inherited environment URLs conflict with that
-file, it refuses to proceed without logging the URLs or credentials. This
+file, it refuses to proceed without logging the URLs or credentials. It also
+requires migration/runtime URLs to resolve to the **same host, port and DB**
+(different database roles and PostgreSQL drivers are allowed). This
 prevents an inherited developer/production URL silently overriding the
 operator-specified staging target (`python -m unittest
 tests.test_product_import_d8_target_binding` checks this contract without

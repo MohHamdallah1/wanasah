@@ -13,6 +13,7 @@ import sys
 
 from dotenv import dotenv_values, load_dotenv
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 import psycopg
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +25,23 @@ REQUIRED_RLS_TABLES = (
     "product_variants",
     "price_book_entries",
 )
+
+
+def _database_endpoint(raw: str, *, name: str) -> tuple[str, int, str]:
+    """Compare staging DB identity without comparing or printing passwords."""
+    try:
+        url = make_url(raw)
+        if (
+            not url.drivername.startswith("postgresql")
+            or not url.host
+            or not url.database
+        ):
+            raise ValueError("incomplete PostgreSQL target")
+        return (url.host.lower().rstrip("."), int(url.port or 5432), url.database)
+    except (ValueError, ArgumentError):
+        raise RuntimeError(
+            f"{name} must identify a PostgreSQL host, port and database"
+        ) from None
 
 
 def _bind_env_file_db_target(env_file: Path, *, scope: str) -> None:
@@ -51,6 +69,17 @@ def _bind_env_file_db_target(env_file: Path, *, scope: str) -> None:
         if inherited is not None and inherited != value:
             raise RuntimeError(
                 f"Inherited {name} conflicts with explicit env file target"
+            )
+    if scope == "staging":
+        migration = _database_endpoint(
+            declared["DATABASE_URL_MIGRATION"], name="DATABASE_URL_MIGRATION"
+        )
+        runtime = _database_endpoint(
+            declared["DATABASE_URL"], name="DATABASE_URL"
+        )
+        if migration != runtime:
+            raise RuntimeError(
+                "Staging migration/runtime targets disagree on host, port or database"
             )
 
 
