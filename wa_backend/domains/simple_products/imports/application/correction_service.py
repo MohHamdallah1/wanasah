@@ -3,12 +3,17 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import json
 from dataclasses import dataclass
 from io import BytesIO, StringIO
 from typing import Any
 from uuid import UUID
 
 from openpyxl import Workbook
+
+from domains.simple_products.imports.domain.inline_correction import (
+    MAX_INLINE_CORRECTION_BYTES, MAX_INLINE_CORRECTION_ROWS, InlineCorrectionError,
+)
 
 from domains.simple_products.imports.application.state_machine import (
     JobStatus,
@@ -597,4 +602,35 @@ async def apply_correction_upload(
     )
     return dict(
         result
+    )
+
+
+async def apply_correction_cells(
+    *,
+    company_id: int,
+    actor_id: int,
+    job_id: UUID,
+    request_id: UUID,
+    expected_job_version: int,
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    # Hash caller intent, not mutable stored row data. Replay remains valid after
+    # revalidation, execution or retention has changed the job/rows.
+    canonical = json.dumps(
+        {
+            "expected_job_version": expected_job_version,
+            "rows": sorted(rows, key=lambda row: str(row["row_identity"])),
+        },
+        sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False,
+        default=str,
+    ).encode("utf-8")
+    if not rows or len(rows) > MAX_INLINE_CORRECTION_ROWS or len(canonical) > MAX_INLINE_CORRECTION_BYTES:
+        raise InlineCorrectionError("PRODUCT_IMPORT_CORRECTION_ROWS_INVALID")
+    return await apply_correction_and_requeue(
+        company_id=company_id, actor_id=actor_id, job_id=job_id,
+        request_id=request_id,
+        request_hash=correction_request_hash(
+            job_id=job_id, payload=b"inline-correction-v1\0" + canonical,
+        ),
+        corrections=None, inline_rows=rows, expected_job_version=expected_job_version,
     )

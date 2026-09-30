@@ -48,6 +48,26 @@ USER_SAFE_ERROR_MESSAGES: dict[str, str] = {
         "Import processing is temporarily unavailable.",
     "IMPORT_ROW_INVALID":
         "This row contains invalid import data.",
+    "PRODUCT_IMPORT_CORRECTION_ROWS_INVALID":
+        "The row correction request is invalid.",
+    "PRODUCT_IMPORT_CORRECTION_FIELD_INVALID":
+        "Only mapped import fields can be corrected.",
+    "PRODUCT_IMPORT_CORRECTION_STALE_JOB":
+        "The import changed. Refresh rejected rows before saving.",
+    "PRODUCT_IMPORT_CORRECTION_STALE_ROW":
+        "A row changed. Refresh rejected rows before saving.",
+    "PRODUCT_IMPORT_CORRECTION_ROW_NOT_EDITABLE":
+        "Only rejected rows belonging to this import can be corrected.",
+    "PRODUCT_IMPORT_CORRECTION_DETAILS_EXPIRED":
+        "The original row details have expired and cannot be edited.",
+    "PRODUCT_IMPORT_CORRECTION_REQUEST_REUSED":
+        "This correction request id was already used by another actor or for different input.",
+    "PRODUCT_IMPORT_CORRECTION_CONFLICT":
+        "The correction request conflicts with the current import state.",
+    "PRODUCT_IMPORT_CORRECTION_CONTENT_TYPE_INVALID":
+        "Row corrections require application/json.",
+    "PRODUCT_IMPORT_CORRECTION_PAYLOAD_TOO_LARGE":
+        "The correction exceeds the page payload budget. Save fewer rows.",
 }
 
 

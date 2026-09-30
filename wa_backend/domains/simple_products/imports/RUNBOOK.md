@@ -323,3 +323,173 @@ in the first frame, and retain HTTP polling until `WS_AUTHENTICATED` arrives.
 See `docs/operations/WEBSOCKET_SECURITY_D5.md` for shared dispatch/import auth,
 Origin, incident response, proxy logging and release verification. Never log
 token-bearing query strings at reverse proxies, CDNs or gateways.
+
+
+## Phase 19.3: inline rejected-row correction contract
+
+This is an additive transport adapter for the existing same-job correction
+authority. The file `GET/POST /simple-products/imports/{job_id}/correction`
+and diagnostic `/errors` contracts are unchanged. Both new endpoints require
+the same **catalog.manage + catalog.publish + pricing.manage** permissions as
+file correction; company/job lookup precedes reading mutation input.
+
+### Read a page
+
+`GET /simple-products/imports/{job_id}/correction/rows?after_row=0&limit=50`
+
+- `after_row`: exclusive **original physical Excel/source row number**, >= 0.
+- `limit`: default 50, 1..100. This is a transport budget, not a maximum
+  rejected-row count or a business rule. No total-count scan is performed.
+- Optional `expected_job_version` pins subsequent pages/drafts to the first
+  page's `job_version`; a changed job returns 409
+  `PRODUCT_IMPORT_CORRECTION_STALE_JOB`.
+- Rows are ordered by physical row number, only `INVALID`/`IMPORT_FAILED`.
+  `IMPORTED` and other successful/pending rows are not listed.
+- Response:
+
+```json
+{
+  "job_id": "00000000-0000-4000-8000-000000000001",
+  "job_version": 7,
+  "status": "COMPLETED_WITH_ERRORS",
+  "fields": ["name", "unit_price", "unit_barcode"],
+  "items": [{
+    "row_identity": "00000000-0000-4000-8000-000000000002",
+    "row_number": 23,
+    "version": 3,
+    "status": "INVALID",
+    "values": {"name": "", "unit_price": "1.50", "unit_barcode": "000123"},
+    "errors": [{
+      "row_number": 23,
+      "code": "IMPORT_NAME_REQUIRED",
+      "field": "name",
+      "message": "Product name is required."
+    }],
+    "editable": true,
+    "unavailable_reason": null
+  }],
+  "next_after_row": null
+}
+```
+
+`fields` and `values` use canonical language-neutral names for **mapped**
+source cells only. Values retain stored scalar types (string/number/boolean/null).
+Unmapped source columns, source-cell metadata, normalized data and persisted
+technical error messages are never exposed. Error code/field and regenerated
+safe fallback text use existing import error authority; the list currently has
+one recorded error and is **not exhaustive**. Revalidation can reveal another
+error. Frontend localization uses code/field, not message matching.
+
+`editable=false` and `unavailable_reason` explicitly distinguish:
+`ROW_DETAILS_EXPIRED`, `JOB_NOT_CORRECTABLE`, `MAPPING_UNAVAILABLE`,
+`ROW_VALUES_TOO_LARGE`. Expired/oversized values are `{}`; never interpret
+these as original empty cells. Expiry uses the existing full-row-detail policy
+(currently 30 days from terminal `finished_at`) even before cleanup runs, as
+well as the stored `compacted_at` marker. A deleted lineage row is no longer listed;
+retention does not reconstruct source values.
+
+The projected values for one row are limited to **64 KiB in PostgreSQL before
+transfer**. Oversized values are withheld, never truncated. The entire page is
+bounded to **256 KiB UTF-8 JSON**, possibly returning fewer than `limit` items.
+Use `next_after_row` until null; never infer end from a short page. At most 101
+small row projections enter Python. Existing correction-file flow remains the
+alternative for large rows and large error sets where retained details exist.
+
+### Save literal edited cells
+
+`POST /simple-products/imports/{job_id}/correction/rows`,
+`Content-Type: application/json`:
+
+```json
+{
+  "request_id": "00000000-0000-4000-8000-000000000003",
+  "expected_job_version": 7,
+  "rows": [{
+    "row_identity": "00000000-0000-4000-8000-000000000002",
+    "expected_version": 3,
+    "values": {"name": "Corrected name", "unit_barcode": "000123"}
+  }]
+}
+```
+
+- 1..100 distinct row identities, total request body <= 256 KiB.
+- `values` is a nonempty subset of mapped canonical fields. Edited values are
+  **literal text or null**, never numbers/objects/formula metadata. Send barcode
+  text to preserve leading zeros; blank/null retains existing normalization
+  behavior. Omitted cells are unchanged. No row number, company id, product id,
+  normalized data, mapping or metadata fields may be supplied.
+- `expected_version` and `expected_job_version` are positive integers.
+  Every target must belong to the authorized job/company, be a rejected row,
+  retain original details, and match its version. The entire save fails if any
+  target fails; there is no partial batch acceptance.
+- Generate one `request_id` per logical save and persist it together with the
+  exact body under company/user/job scope. On timeout/disconnect/503, replay
+  **the same body/id**, including old expected versions. Do not invent a new id.
+  The existing `PRODUCT_IMPORT_CORRECTION` operation table/advisory lock owns
+  replay; canonical intent hash includes job, versions and edited cells.
+  Completed replay is checked before mutable job state, row state or retention.
+  Actor or changed-content reuse fails closed.
+- 202 ACK:
+
+```json
+{
+  "job_id": "00000000-0000-4000-8000-000000000001",
+  "status": "VALIDATING",
+  "corrected_rows": 1,
+  "replayed": false,
+  "message": "Correction accepted for revalidation."
+}
+```
+
+202 is **queue acceptance**, not successful Product creation. Resume the existing
+job watcher. Wait for the next correctable terminal state before another save,
+then refresh pages/versions. The same job id and physical row identities remain.
+Only edited rejected rows become STAGED; existing validation/execution and
+Product/Pricing/UOM/Tracking authority process them. Already imported Products
+remain immutable and are not reimported.
+
+### Error contract and concurrency
+
+In the deployed application, errors use the existing canonical envelope:
+`{message, request_id, error: {code, message, context, request_id}}`.
+Read `error.code`, `error.context.correlation_id` and `error.request_id`.
+The router supplies safe structured HTTPException detail; the existing central
+handler converts it to this envelope. Framework query/path errors have code
+`VALIDATION_ERROR`, with safe `error.context.field/type` and request id.
+Authentication/permission failures continue through that same handler.
+
+| HTTP | Code | Frontend action |
+| --- | --- | --- |
+| 404 | PRODUCT_IMPORT_NOT_FOUND | Job unavailable in current company |
+| 409 | PRODUCT_IMPORT_CORRECTION_STALE_JOB / PRODUCT_IMPORT_CORRECTION_STALE_ROW | Keep draft; refresh and reconcile versions |
+| 409 | PRODUCT_IMPORT_CORRECTION_ROW_NOT_EDITABLE | Do not edit successful/unknown/pending targets |
+| 409 | PRODUCT_IMPORT_CORRECTION_REQUEST_REUSED | Preserve original request identity/body; reject changed retry |
+| 409 | PRODUCT_IMPORT_CORRECTION_CONFLICT | Refresh current job state |
+| 410 | PRODUCT_IMPORT_CORRECTION_DETAILS_EXPIRED | Disable editing; details cannot be recovered by this API |
+| 422 | PRODUCT_IMPORT_CORRECTION_FIELD_INVALID | Only mapped canonical fields may be sent |
+| 422 | PRODUCT_IMPORT_CORRECTION_ROWS_INVALID | Fix request shape/duplicates/literal values |
+| 413 | PRODUCT_IMPORT_CORRECTION_PAYLOAD_TOO_LARGE | Save fewer edited rows |
+| 415 | PRODUCT_IMPORT_CORRECTION_CONTENT_TYPE_INVALID | Send JSON |
+| 503 | PRODUCT_IMPORT_QUEUE_UNAVAILABLE | Outcome may be unknown; replay the same body/id |
+
+Lock order is unchanged: tenant context -> durable correction idempotency ->
+job FOR UPDATE -> target rows in physical order -> row/job update -> queue
+defer -> idempotency completion, all within one PostgreSQL transaction. The
+short page read holds a job FOR SHARE lock to keep mapping/status/version stable.
+Target row locks and a version/retention predicate protect against concurrent
+compaction. SQL merges edited source cells and removes source metadata **only
+for explicitly edited cells** (they are now literal input); untouched cells,
+unmapped columns and metadata are preserved. SourceStore bytes are unchanged.
+
+No new validation engine, Product/Pricing write path, source upload, idempotency
+store, migration, worker launcher or business transition was introduced.
+The existing correction operation record captures actor/input hash and replay
+response; downstream Product/Pricing audit/outbox remain existing authorities.
+Existing application admission/rate limiting is not replaced by this adapter.
+
+Focused acceptance: run only `tests.test_product_import_inline_correction`.
+Its in-process HTTP/persistence doubles verify contracts, safe failures, bounds,
+version/retention rejection and authority/replay ordering, without a live DB or
+worker. Real PostgreSQL FORCE RLS, transaction rollback/lock races, queue-to-worker
+completion and authenticated deployed HTTP remain release acceptance work; do
+not label them PASS from these focused tests.
