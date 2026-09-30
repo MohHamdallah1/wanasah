@@ -1,4 +1,7 @@
 # Wanasah — Products Production-Readiness Plan
+
+> **ARCHIVED — P9 TECHNICAL IMPLEMENTATION CLOSED, 2026-09-30.** The P9.0–P9.4 implementation and the P9.5 technical verification are recorded complete below. The Product page's source is already incorporated into `main`, and the original developer checkout matched `origin/main` at `9c73765` before this archive move. This archive move does **not** assert a new feature implementation, a separate P9-specific PR review that has not been evidenced, the owner's still-open final manual visual approval, or full V1 customer-deployment sign-off. Preserve the original evidence; resume owner visual review from P9.5 only if needed. New Product Import work is owned separately by `PRODUCT_IMPORT_PRODUCTION_HARDENING_PLAN.md` Phase 19 and the V1 deployment runbook.
+
 الخطة الرئيسية لصفحة المنتجات Products
 
 > **Purpose**
@@ -1643,10 +1646,10 @@ P9.4 implementation is complete. Owner visual acceptance is tracked once, as the
 - [x] Review final folder/file ownership against `ARCHITECTURE.md`.
 - [x] Verify no new large multi-responsibility file/function replaced `ProductsDashboard.tsx`.
 - [ ] Final manual owner walkthrough and visual approval.
-- [ ] PR review complete.
-- [ ] PR merged to `main`.
-- [ ] Local `main == origin/main`.
-- [ ] Only then declare the **Products page itself** fully complete and archive this plan again.
+- [ ] Dedicated P9-specific PR review complete (no distinct PR/review record established by this archive action; the P9.5 **technical diff review** is separately marked [x] above).
+- [x] Product-page implementation commits are already included in GitHub `main` at the reviewed checkout; this is inclusion of the code, **not** a claim that an independently reviewed P9-specific PR was found.
+- [x] Verified on 2026-09-30 before this archive action: local `main` HEAD = `origin/main` HEAD = `9c7376550b26c71fdaffc1eb650fb7208675c02a`. Other owner-modified/untracked files are not included in this comparison.
+- [ ] Only declare **full owner-accepted Products-page completion** after the owner's actual manual visual walkthrough; this engineering plan is archived now at the owner's direction because all documented P9 implementation and technical verification gates have closed. This box is intentionally NOT checked, and it does not block unrelated Dashboard development.
 
 ---
 
