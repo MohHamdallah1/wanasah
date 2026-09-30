@@ -3,7 +3,7 @@
 **Scope:** Wanasah V1 / Product Import. This report contains **measured
 disposable-local PostgreSQL 16 evidence**, not extrapolated production
 throughput. Read it together with
-`V1_MULTITENANT_ASYNC_AND_IMPORT_RELEASE_PLAN_2026-09-30.md`,
+`docs/archive/V1_MULTITENANT_ASYNC_AND_IMPORT_RELEASE_PLAN_2026-09-30.md`,
 `ARCHITECTURE.md` and the original Astra audit archived under
 `docs/architecture/ASTRA6_V1_IMPORT_SCALABILITY_AUDIT_2026-09-30.md`.
 
