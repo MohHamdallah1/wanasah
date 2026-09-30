@@ -1,0 +1,135 @@
+# Product Import execution profiling (Issue #36)
+
+Owner: Simple Products. Scope: the existing execution transaction of at most
+100 VALID rows. Instrumentation is opt-in and does not close audits B/I or prove
+a production performance target. No runtime benchmarks were executed for this
+change.
+
+## Enable in an isolated worker process
+
+Set `PRODUCT_IMPORT_PROFILE_EVERY_N_BATCHES=10` in that process before invoking
+the existing canonical worker launcher. This selects batches 1, 11, 21, ...
+within each `execute_import` invocation, including a selected terminal batch.
+Use 1 only for a short controlled acceptance run. Unset, 0, nondecimal,
+non-ASCII, negative or values above 1,000,000 disable profiling. The setting is
+read once per invocation; retries start their own ordinal sequence. Existing
+worker concurrency/admission settings remain authoritative.
+
+One `PRODUCT_IMPORT_BATCH_PROFILE` record contains a JSON object (schema 1),
+tenant/job correlation, invocation-local batch ordinal, row counts, timings and
+fixed-size counters. No source fields, product IDs, names, barcodes, prices,
+SQL text, SQL parameters, exceptions, tokens or connection details are emitted.
+The existing `observe_import_phase` helper logs every context separately;
+reusing it for recursive attempts/per-product flushes would generate many logs.
+This observer aggregates those contexts into one record instead.
+
+## Timing boundaries
+
+All values are **client-visible wall time**, never PostgreSQL CPU or pure Python
+CPU. Nested intervals overlap; do not add parent phase wall times to their
+children, or subtract cursor wall from batch wall and label the result CPU.
+
+| Phase | Boundary |
+| --- | --- |
+| `session_open_rls` | Await the existing tenant session opener; includes connection acquisition, checkout RLS hook and explicit RLS SQL. Hooks attach afterwards to the already-borrowed connection. |
+| `input_python` | Build specs, stable batch request UUID and canonical JSON/hash before idempotency admission, for each attempt. |
+| `idempotency` | Await the unchanged idempotency lock/read/create operation, including its internal flush. |
+| `pricing_policy` | Existing mode checks, company load and default-book resolution/creation. |
+| `product_structures` | Await all catalog creation work, including family locks/queries, UOM/tracking lookups and live-stock summary. |
+| `barcode_python` | Normalize input barcodes and enforce in-batch uniqueness, before querying persisted barcodes. |
+| `variant_objects` | Construct DRAFT variant objects and append them to the bounded staging list. |
+| `activation_objects` | Construct conversion/barcode objects, perform the original ACTIVE transition, and add audit/outbox objects. No awaited SQL is inside this loop. |
+| `family_flush` | Each explicit awaited master flush needed for its actual generated ID; aggregated over attempts. |
+| `draft_flush` | Explicit awaited group flush of DRAFT variants for actual IDs. |
+| `activation_flush` | Explicit awaited group flush of lifecycle/conversion/barcode/audit/outbox work. |
+| `price_publication_create` | Await Pricing's unchanged publication creation, including lock and ID flush. |
+| `price_entries_python` | Construct the exact existing base/package entry payloads. |
+| `price_draft_entries` | Await the existing <=200-entry chunks, validation and internal flushes. |
+| `price_publish` | Await original publication validation, D6 predecessor SQL, publish updates and final flush. |
+| `savepoint_attempt` | Enter/save/leave each existing nested transaction, including preflush and exit flush; failed attempts remain in timing totals. Excludes recursive children after the failed attempt. |
+| `row_outcome_python` | Construct durable response lineage and set row/idempotency outcomes for newly created products. Replay row transitions remain in the savepoint interval. |
+| `commit` | Whole existing await of commit, including possible ORM flush, driver commit and connection return. |
+| `rollback` | Existing exception-handler rollback await. Cancellation/early-return cleanup remains in its original session-close/rollback path. |
+| `session_close` | Existing tenant session close/context reset, after hooks are removed. |
+| `batch_other` | SQL/flush events outside named contexts, e.g. job/actor/permission/row reads and finalization. No inferred phase wall is assigned. |
+
+`batch_wall_ms` includes the selected transaction's setup through close, excluding
+the final record serialization/log write. `service_elapsed_wall_ms` is elapsed
+since this execution invocation began, including unsampled batches, not total
+queue/job lifetime. `queue_wait_ms` and `pool_checkout_ms` are null: this path
+has no dispatch timestamp or isolated pool-wait boundary. The setup interval
+must not be relabeled as pure pool wait. Other Python normalization, SQLAlchemy
+bookkeeping, lock wait, driver/network, server/WAL/index costs are not separately
+invented measurements.
+
+## Count provenance and failure semantics
+
+Instance-local public SQLAlchemy connection events count cursor calls started
+and completed, plus calls marked executemany. One driver call may carry many
+rows; these are not affected-row counts or server statements. Cursor wall is
+measured between before/after callbacks only for completed calls, includes
+driver/network/server/lock wait and excludes commit's direct DBAPI operation.
+Started minus completed exposes missing completion on failure/cancellation;
+no synthetic duration is assigned to such calls.
+
+Instance-local Session before_flush/after_flush_postexec events count actual
+ORM flush passes, including implicit query flushes, savepoint pre/exit flushes
+and commit flushes. No-op flush calls do not fire these events. Explicit await
+phase calls and observed passes are therefore separate counts. A pricing phase
+may contain both internal explicit and implicit flushes; the observer does not
+claim it can distinguish those triggers using public events. Completed flush
+wall is the event-to-event interval, contains cursor wall and ORM bookkeeping,
+and excludes a failed pass without after_flush_postexec. New/dirty/deleted
+candidate totals at before_flush can include repeat candidates, unchanged dirty
+objects and rolled-back work; they are not net SQL updates.
+
+The public pending_to_persistent transition counts ORM object creations by a
+fixed class allowlist. `attempted_new_objects` includes rolled-back creations.
+A small dictionary checkpoint around each original savepoint removes creations
+from failed attempts from retained totals. No business identity sets are held.
+This execution path has no pending new objects before entering a new attempt;
+row changes from prior attempts may preflush, but are not creation events.
+`committed_new_objects` reports retained creations only after the outer commit
+await returns. Core SQL updates (including price publication updates) are not
+ORM creation events. Replay contributes imported rows without new products.
+These counts are batch-local, not job-wide or exactly-once log delivery counts.
+
+Commit state is `not_attempted`, `unknown` once the await begins, or `returned`
+after it returns. Commit interruption/lost response never becomes a fabricated
+known failure or zero net objects. Nonreturned commit records have null committed
+object totals. A logger/observer setup failure cannot reject a business operation;
+`instrumentation_complete=false` means its counters must not be trusted.
+Hooks are removed in finally before session close; cancellation retains the
+original cleanup and retry path. SQLAlchemy hooks are scoped to this session and
+its already-established connection, with no global patch, new SQL or pool hooks.
+The hook contracts are SQLAlchemy's public
+[Session events](https://docs.sqlalchemy.org/en/20/orm/events.html) and
+[connection events](https://docs.sqlalchemy.org/en/20/core/events.html).
+
+## Source analysis and expected effect
+
+- A successful 100-SKU batch has more than two flushes: idempotency, each newly
+  resolved master, grouped DRAFT IDs, grouped ACTIVE evidence, live-stock summary,
+  publication ID, draft prices and published state can flush. Query autoflush,
+  nested transaction exit, commit and failed split attempts add others.
+- The master/variant/publication flushes provide actual generated IDs. DRAFT to
+  ACTIVE and audit/outbox ordering remains required. Price validation, version
+  changes, effectivity, history and unique/GiST race guards remain untouched.
+- Existing per-batch UOM/tracking/family lookups and grouped variant/price writes
+  already reduce repeat work. D6's measured predecessor correction is retained.
+  Static analysis does not prove another dispensable flush/SQL operation.
+  Consequently this patch adds evidence only, with no throughput claim or
+  speculative business/SQL optimization.
+
+Default-off work adds one setting read and lightweight phase/no-op contexts,
+with no listeners, timing calls or profile records. Selected transactions add
+constant-size dictionaries, clock reads and O(1) callback work per SQL/creation
+event, plus a fixed-width creation-count checkpoint per savepoint. Flush candidate
+snapshots use public Session collections and can cost O(pending/dirty objects),
+bounded by this transaction, rather than O(source rows).
+Worst-case deterministic splitting of 100 rows has at most 199 attempts and
+still one profile record. Memory does not grow with the source file or retain
+ORM objects. Logging cost and callback overhead require independent acceptance
+measurement. Large imports keep their existing 100-row transaction boundaries,
+permissions, lock order, row identities, SourceStore, RLS, replay and cancellation;
+sampling bounds additional log volume but is not a speed improvement.

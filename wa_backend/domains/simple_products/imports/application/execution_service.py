@@ -10,6 +10,7 @@ from __future__ import annotations
 from decimal import Decimal
 import hashlib
 import json
+from time import perf_counter
 from typing import Any
 from uuid import UUID, uuid5
 
@@ -42,6 +43,14 @@ from domains.simple_products.service import (
     SimpleProductError,
     SimpleProductSpec,
     create_products_and_prices,
+)
+from domains.simple_products.observability import (
+    ImportBatchProfile,
+    product_phase,
+    profile_every_n_batches,
+    profile_phase,
+    profile_savepoint,
+    profiled_commit,
 )
 from services import (
     begin_idempotent_operation,
@@ -353,44 +362,46 @@ async def _execute_rows_once(
     job_id: UUID,
     rows: list[Any],
 ) -> None:
-    specs = [
-        build_product_spec(
-            dict(
-                row.normalized_data
-                or {}
+    with product_phase(db, "input_python"):
+        specs = [
+            build_product_spec(
+                dict(
+                    row.normalized_data
+                    or {}
+                )
+            )
+            for row in rows
+        ]
+        request_id = _batch_request_id(
+            job_id,
+            rows,
+        )
+        request_hash = (
+            _batch_request_hash(
+                rows
             )
         )
-        for row in rows
-    ]
-    request_id = _batch_request_id(
-        job_id,
-        rows,
-    )
-    request_hash = (
-        _batch_request_hash(
-            rows
-        )
-    )
 
-    (
-        idempotency,
-        replay,
-    ) = await begin_idempotent_operation(
-        db,
-        company_id=int(
-            actor.company_id
-        ),
-        actor_id=int(
-            actor.id
-        ),
-        operation=
-            _ROW_CREATE_OPERATION,
-        request_id=str(
-            request_id
-        ),
-        request_hash=
-            request_hash,
-    )
+    with product_phase(db, "idempotency"):
+        (
+            idempotency,
+            replay,
+        ) = await begin_idempotent_operation(
+            db,
+            company_id=int(
+                actor.company_id
+            ),
+            actor_id=int(
+                actor.id
+            ),
+            operation=
+                _ROW_CREATE_OPERATION,
+            request_id=str(
+                request_id
+            ),
+            request_hash=
+                request_hash,
+        )
 
     if replay is not None:
         variant_ids = (
@@ -428,46 +439,47 @@ async def _execute_rows_once(
         )
     )
 
-    response_rows: list[
-        dict[str, object]
-    ] = []
-    for (
-        row,
-        (variant, _prices),
-    ) in zip(
-        rows,
-        created,
-        strict=True,
-    ):
-        variant_id = int(
-            variant.id
-        )
-        response_rows.append(
-            {
-                "row_identity":
-                    _row_identity(
-                        row
-                    ),
-                "product_variant_id":
-                    variant_id,
-            }
-        )
-        transition_row(
+    with product_phase(db, "row_outcome_python"):
+        response_rows: list[
+            dict[str, object]
+        ] = []
+        for (
             row,
-            RowStatus.IMPORTED,
-            product_variant_id=
-                variant_id,
-            error_code=None,
-            error_message=None,
-        )
+            (variant, _prices),
+        ) in zip(
+            rows,
+            created,
+            strict=True,
+        ):
+            variant_id = int(
+                variant.id
+            )
+            response_rows.append(
+                {
+                    "row_identity":
+                        _row_identity(
+                            row
+                        ),
+                    "product_variant_id":
+                        variant_id,
+                }
+            )
+            transition_row(
+                row,
+                RowStatus.IMPORTED,
+                product_variant_id=
+                    variant_id,
+                error_code=None,
+                error_message=None,
+            )
 
-    complete_idempotent_operation(
-        idempotency,
-        {
-            "rows":
-                response_rows,
-        },
-    )
+        complete_idempotent_operation(
+            idempotency,
+            {
+                "rows":
+                    response_rows,
+            },
+        )
 
 
 async def _execute_rows_best_effort(
@@ -478,13 +490,14 @@ async def _execute_rows_best_effort(
     rows: list[Any],
 ) -> tuple[int, int]:
     try:
-        async with db.begin_nested():
-            await _execute_rows_once(
-                db,
-                actor=actor,
-                job_id=job_id,
-                rows=rows,
-            )
+        with profile_savepoint(db):
+            async with db.begin_nested():
+                await _execute_rows_once(
+                    db,
+                    actor=actor,
+                    job_id=job_id,
+                    rows=rows,
+                )
         return (
             len(rows),
             0,
@@ -578,11 +591,28 @@ async def execute_import(
     company_id: int,
     job_id: UUID,
 ) -> None:
+    interval = profile_every_n_batches()
+    service_started = perf_counter() if interval else 0.0
+    batch_number = 0
     while True:
-        token, db = await open_tenant_session(
-            company_id
+        batch_number += 1
+        profile = (
+            ImportBatchProfile(
+                company_id=company_id, job_id=job_id,
+                batch_number=batch_number, service_started=service_started,
+            )
+            if interval and (batch_number - 1) % interval == 0 else None
         )
         try:
+            with profile_phase(profile, "session_open_rls"):
+                token, db = await open_tenant_session(company_id)
+        except BaseException:
+            if profile is not None:
+                profile.emit()
+            raise
+        try:
+            if profile is not None:
+                await profile.attach(db)
             job = await load_job(
                 db,
                 company_id=company_id,
@@ -646,6 +676,9 @@ async def execute_import(
                 limit=IMPORT_BATCH,
                 for_update_skip_locked=True,
             )
+
+            if profile is not None:
+                profile.rows_selected = len(rows)
 
             if not rows:
                 valid_rows_remain = (
@@ -728,7 +761,7 @@ async def execute_import(
                         ),
                 )
 
-                await db.commit()
+                await profiled_commit(db, profile)
                 return
 
             (
@@ -740,6 +773,10 @@ async def execute_import(
                 job_id=job_id,
                 rows=rows,
             )
+
+            if profile is not None:
+                profile.rows_imported = imported_delta
+                profile.rows_failed = _failed_delta
 
             # Do not rescan the whole staged job after every bounded batch.
             # The job row is locked by this transaction, so the durable
@@ -757,12 +794,18 @@ async def execute_import(
                     )
                 ),
             )
-            await db.commit()
+            await profiled_commit(db, profile)
         except Exception:
-            await db.rollback()
+            with product_phase(db, "rollback"):
+                await db.rollback()
             raise
         finally:
-            await close_tenant_session(
-                token,
-                db,
-            )
+            # Remove instance-local hooks before closing the tenant session.
+            if profile is not None:
+                profile.detach()
+            try:
+                with profile_phase(profile, "session_close"):
+                    await close_tenant_session(token, db)
+            finally:
+                if profile is not None:
+                    profile.emit()

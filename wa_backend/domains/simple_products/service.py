@@ -24,6 +24,7 @@ from domains.pricing.publishing import (
     publish_publication,
 )
 from domains.pricing.resolver import resolve_prices_bulk
+from domains.simple_products.observability import product_phase
 from domains.live_stock_projection.service import (
     LiveStockProjectionError,
     apply_live_stock_active_variant_delta,
@@ -997,7 +998,8 @@ async def _resolve_family(
             name=name,
         )
         db.add(row)
-        await db.flush()
+        with product_phase(db, "family_flush"):
+            await db.flush()
         if batch_lookup is not None:
             batch_lookup.remember(row)
         return row
@@ -1102,7 +1104,8 @@ async def _resolve_family(
         name=family_name,
     )
     db.add(row)
-    await db.flush()
+    with product_phase(db, "family_flush"):
+        await db.flush()
     if batch_lookup is not None:
         batch_lookup.remember(row)
     return row
@@ -1162,40 +1165,41 @@ async def create_product_structures(
     request_id: UUID,
     specs: list[SimpleProductSpec],
 ):
-    normalized_barcodes: list[str] = []
-    per_spec_barcodes: list[
-        tuple[str | None, str | None, bool]
-    ] = []
+    with product_phase(db, "barcode_python"):
+        normalized_barcodes: list[str] = []
+        per_spec_barcodes: list[
+            tuple[str | None, str | None, bool]
+        ] = []
 
-    for spec in specs:
-        unit_barcode = normalize_barcode(
-            spec.unit_barcode,
-            "unit_barcode",
-        )
-        package_barcode = normalize_barcode(
-            spec.package_barcode,
-            "package_barcode",
-        )
-        shared = (
-            unit_barcode is not None
-            and package_barcode is not None
-            and unit_barcode == package_barcode
-        )
+        for spec in specs:
+            unit_barcode = normalize_barcode(
+                spec.unit_barcode,
+                "unit_barcode",
+            )
+            package_barcode = normalize_barcode(
+                spec.package_barcode,
+                "package_barcode",
+            )
+            shared = (
+                unit_barcode is not None
+                and package_barcode is not None
+                and unit_barcode == package_barcode
+            )
 
-        if unit_barcode:
-            normalized_barcodes.append(unit_barcode)
-        if package_barcode and not shared:
-            normalized_barcodes.append(package_barcode)
-        per_spec_barcodes.append(
-            (unit_barcode, package_barcode, shared)
-        )
+            if unit_barcode:
+                normalized_barcodes.append(unit_barcode)
+            if package_barcode and not shared:
+                normalized_barcodes.append(package_barcode)
+            per_spec_barcodes.append(
+                (unit_barcode, package_barcode, shared)
+            )
 
-    if len(normalized_barcodes) != len(set(normalized_barcodes)):
-        raise SimpleProductError(
-            "SIMPLE_PRODUCT_BARCODE_DUPLICATE",
-            "The same active barcode cannot identify two different products.",
-            status_code=422,
-        )
+        if len(normalized_barcodes) != len(set(normalized_barcodes)):
+            raise SimpleProductError(
+                "SIMPLE_PRODUCT_BARCODE_DUPLICATE",
+                "The same active barcode cannot identify two different products.",
+                status_code=422,
+            )
 
     await _assert_barcodes_available(
         db,
@@ -1276,25 +1280,26 @@ async def create_product_structures(
                 status_code=422,
             )
 
-        variant = ProductVariant(
-            company_id=int(actor.company_id),
-            product_id=int(family.id),
-            base_uom_id=int(shape.base_uom.id),
-            name=name,
-            sku=_auto_code("SKU", request_id, index),
-            quantity_scale=0,
-            quantity_step=Decimal("1"),
-            lot_control_mode=tracking.lot_control_mode,
-            expiry_control_mode=tracking.expiry_control_mode,
-            lifecycle_status="DRAFT",
-            operational_hold="NONE",
-            packs_per_carton=int(shape.units_per_package),
-            package_uses_base_barcode=bool(shared_barcode),
-        )
-        staged_variants.append((
-            variant, spec, prices, shape,
-            unit_barcode, package_barcode, shared_barcode,
-        ))
+        with product_phase(db, "variant_objects"):
+            variant = ProductVariant(
+                company_id=int(actor.company_id),
+                product_id=int(family.id),
+                base_uom_id=int(shape.base_uom.id),
+                name=name,
+                sku=_auto_code("SKU", request_id, index),
+                quantity_scale=0,
+                quantity_step=Decimal("1"),
+                lot_control_mode=tracking.lot_control_mode,
+                expiry_control_mode=tracking.expiry_control_mode,
+                lifecycle_status="DRAFT",
+                operational_hold="NONE",
+                packs_per_carton=int(shape.units_per_package),
+                package_uses_base_barcode=bool(shared_barcode),
+            )
+            staged_variants.append((
+                variant, spec, prices, shape,
+                unit_barcode, package_barcode, shared_barcode,
+            ))
 
     # The authoritative family/UOM/tracking/barcode validation above remains
     # per row, but SQLAlchemy can now flush all DRAFT SKUs together instead
@@ -1303,91 +1308,94 @@ async def create_product_structures(
     # Keep official DRAFT->ACTIVE transition, audit, outbox and price posting
     # AFTER the database has issued these IDs, in the same transaction.
     db.add_all([row[0] for row in staged_variants])
-    await db.flush()
+    with product_phase(db, "draft_flush"):
+        await db.flush()
 
-    for (
-        variant, spec, prices, shape,
-        unit_barcode, package_barcode, shared_barcode,
-    ) in staged_variants:
-        if shape.package_uom is not None:
-            db.add(
-                ProductUomConversion(
-                    company_id=int(actor.company_id),
-                    product_variant_id=int(variant.id),
-                    from_uom_id=int(shape.package_uom.id),
-                    to_uom_id=int(shape.base_uom.id),
-                    numerator=Decimal(int(shape.units_per_package)),
-                    denominator=Decimal("1"),
-                    quantity_scale=0,
+    with product_phase(db, "activation_objects"):
+        for (
+            variant, spec, prices, shape,
+            unit_barcode, package_barcode, shared_barcode,
+        ) in staged_variants:
+            if shape.package_uom is not None:
+                db.add(
+                    ProductUomConversion(
+                        company_id=int(actor.company_id),
+                        product_variant_id=int(variant.id),
+                        from_uom_id=int(shape.package_uom.id),
+                        to_uom_id=int(shape.base_uom.id),
+                        numerator=Decimal(int(shape.units_per_package)),
+                        denominator=Decimal("1"),
+                        quantity_scale=0,
+                    )
                 )
-            )
 
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
-        if unit_barcode:
-            db.add(
-                ProductBarcode(
-                    company_id=int(actor.company_id),
-                    product_variant_id=int(variant.id),
-                    uom_id=int(shape.base_uom.id),
-                    barcode=unit_barcode,
-                    barcode_type=barcode_type(unit_barcode),
-                    is_primary=True,
-                    valid_from=now,
-                    valid_to=None,
-                    is_active=True,
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            if unit_barcode:
+                db.add(
+                    ProductBarcode(
+                        company_id=int(actor.company_id),
+                        product_variant_id=int(variant.id),
+                        uom_id=int(shape.base_uom.id),
+                        barcode=unit_barcode,
+                        barcode_type=barcode_type(unit_barcode),
+                        is_primary=True,
+                        valid_from=now,
+                        valid_to=None,
+                        is_active=True,
+                    )
                 )
-            )
 
-        if (
-            package_barcode
-            and not shared_barcode
-            and shape.package_uom is not None
-        ):
-            db.add(
-                ProductBarcode(
-                    company_id=int(actor.company_id),
-                    product_variant_id=int(variant.id),
-                    uom_id=int(shape.package_uom.id),
-                    barcode=package_barcode,
-                    barcode_type=barcode_type(package_barcode),
-                    is_primary=True,
-                    valid_from=now,
-                    valid_to=None,
-                    is_active=True,
+            if (
+                package_barcode
+                and not shared_barcode
+                and shape.package_uom is not None
+            ):
+                db.add(
+                    ProductBarcode(
+                        company_id=int(actor.company_id),
+                        product_variant_id=int(variant.id),
+                        uom_id=int(shape.package_uom.id),
+                        barcode=package_barcode,
+                        barcode_type=barcode_type(package_barcode),
+                        is_primary=True,
+                        valid_from=now,
+                        valid_to=None,
+                        is_active=True,
+                    )
                 )
+
+            before = variant_snapshot(variant)
+            try:
+                event_type, message = apply_variant_publish_transition(
+                    variant,
+                    now,
+                )
+            except ProductLifecycleTransitionError as exc:
+                raise SimpleProductError(
+                    exc.code,
+                    exc.message,
+                    status_code=exc.status_code,
+                ) from exc
+
+            variant.lifecycle_revision += 1
+            variant.version += 1
+            variant.updated_at = now
+            record_domain_event(
+                db,
+                company_id=int(actor.company_id),
+                actor_id=int(actor.id),
+                request_id=request_id,
+                event_type=event_type,
+                entity_type="ProductVariant",
+                entity_id=int(variant.id),
+                reason=message,
+                before=before,
+                after=variant_snapshot(variant),
             )
+            result.append((variant, spec, prices, shape))
 
-        before = variant_snapshot(variant)
-        try:
-            event_type, message = apply_variant_publish_transition(
-                variant,
-                now,
-            )
-        except ProductLifecycleTransitionError as exc:
-            raise SimpleProductError(
-                exc.code,
-                exc.message,
-                status_code=exc.status_code,
-            ) from exc
-
-        variant.lifecycle_revision += 1
-        variant.version += 1
-        variant.updated_at = now
-        record_domain_event(
-            db,
-            company_id=int(actor.company_id),
-            actor_id=int(actor.id),
-            request_id=request_id,
-            event_type=event_type,
-            entity_type="ProductVariant",
-            entity_id=int(variant.id),
-            reason=message,
-            before=before,
-            after=variant_snapshot(variant),
-        )
-        result.append((variant, spec, prices, shape))
-
-    await db.flush()
+    with product_phase(db, "activation_flush"):
+        await db.flush()
     if result:
         try:
             await apply_live_stock_active_variant_delta(
@@ -1413,77 +1421,81 @@ async def publish_prices(
     effective_at: datetime,
     request_id: UUID,
 ) -> None:
-    publication = await create_publication(
-        db,
-        company_id=int(actor.company_id),
-        actor_id=int(actor.id),
-        book_id=int(book.id),
-        expected_book_version=int(book.version),
-        effective_at=effective_at,
-        request_id=request_id,
-    )
+    with product_phase(db, "price_publication_create"):
+        publication = await create_publication(
+            db,
+            company_id=int(actor.company_id),
+            actor_id=int(actor.id),
+            book_id=int(book.id),
+            expected_book_version=int(book.version),
+            effective_at=effective_at,
+            request_id=request_id,
+        )
 
     # This request already has a bounded set of freshly published SKUs.
     # Build the exact same base/package entries and let the Pricing domain
     # check tenant/SKU/UOM/effectivity in sets under ONE draft lock.
-    entries: list[dict[str, Any]] = []
-    for variant, _spec, prices, shape in rows:
-        entries.append({
-            "product_variant_id": int(variant.id),
-            "uom_id": int(shape.base_uom.id),
-            "amount": prices.unit_price,
-            "effective_from": effective_at,
-            "effective_to": None,
-            "priority": 0,
-            "metadata": {
-                "managed_by": "simple_products",
-                "price_input": (
-                    "derived" if prices.unit_derived else "explicit"
-                ),
-                "package_uom_code": (
-                    str(shape.package_uom.code)
-                    if shape.package_uom is not None
-                    else None
-                ),
-                "units_per_package": int(shape.units_per_package),
-            },
-        })
-        if shape.package_uom is not None:
-            assert prices.package_price is not None
+    with product_phase(db, "price_entries_python"):
+        entries: list[dict[str, Any]] = []
+        for variant, _spec, prices, shape in rows:
             entries.append({
                 "product_variant_id": int(variant.id),
-                "uom_id": int(shape.package_uom.id),
-                "amount": prices.package_price,
+                "uom_id": int(shape.base_uom.id),
+                "amount": prices.unit_price,
                 "effective_from": effective_at,
                 "effective_to": None,
                 "priority": 0,
                 "metadata": {
                     "managed_by": "simple_products",
                     "price_input": (
-                        "derived" if prices.package_derived else "explicit"
+                        "derived" if prices.unit_derived else "explicit"
                     ),
-                    "package_uom_code": str(shape.package_uom.code),
+                    "package_uom_code": (
+                        str(shape.package_uom.code)
+                        if shape.package_uom is not None
+                        else None
+                    ),
                     "units_per_package": int(shape.units_per_package),
                 },
             })
+            if shape.package_uom is not None:
+                assert prices.package_price is not None
+                entries.append({
+                    "product_variant_id": int(variant.id),
+                    "uom_id": int(shape.package_uom.id),
+                    "amount": prices.package_price,
+                    "effective_from": effective_at,
+                    "effective_to": None,
+                    "priority": 0,
+                    "metadata": {
+                        "managed_by": "simple_products",
+                        "price_input": (
+                            "derived" if prices.package_derived else "explicit"
+                        ),
+                        "package_uom_code": str(shape.package_uom.code),
+                        "units_per_package": int(shape.units_per_package),
+                    },
+                })
     # PriceBookEntry validation is bounded. Bulk dashboard calls may contain
     # more than 100 SKUs; preserve one publication and its cumulative version.
-    for start in range(0, len(entries), 200):
-        await create_draft_entries_bulk(
+    with product_phase(db, "price_draft_entries"):
+        for start in range(0, len(entries), 200):
+            await create_draft_entries_bulk(
+                db,
+                company_id=int(actor.company_id),
+                publication_id=int(publication.id),
+                expected_publication_version=int(publication.version),
+                entries=entries[start:start + 200],
+            )
+
+    with product_phase(db, "price_publish"):
+        await publish_publication(
             db,
             company_id=int(actor.company_id),
+            actor_id=int(actor.id),
             publication_id=int(publication.id),
-            expected_publication_version=int(publication.version),
-            entries=entries[start:start + 200],
+            expected_version=int(publication.version),
         )
-
-    await publish_publication(
-        db,
-        company_id=int(actor.company_id),
-        actor_id=int(actor.id),
-        publication_id=int(publication.id),
-        expected_version=int(publication.version),
-    )
 
 
 async def create_products_and_prices(
@@ -1501,29 +1513,31 @@ async def create_products_and_prices(
         )
 
     now = datetime.now(timezone.utc)
-    assignment = await assert_simple_pricing_mode(
-        db,
-        company_id=int(actor.company_id),
-        as_of=now,
-    )
-    company = await load_company(
-        db,
-        int(actor.company_id),
-    )
-    book = await ensure_default_book(
-        db,
-        company=company,
-        actor_id=int(actor.id),
-        as_of=now,
-        assignment=assignment,
-    )
+    with product_phase(db, "pricing_policy"):
+        assignment = await assert_simple_pricing_mode(
+            db,
+            company_id=int(actor.company_id),
+            as_of=now,
+        )
+        company = await load_company(
+            db,
+            int(actor.company_id),
+        )
+        book = await ensure_default_book(
+            db,
+            company=company,
+            actor_id=int(actor.id),
+            as_of=now,
+            assignment=assignment,
+        )
 
-    structures = await create_product_structures(
-        db,
-        actor=actor,
-        request_id=request_id,
-        specs=specs,
-    )
+    with product_phase(db, "product_structures"):
+        structures = await create_product_structures(
+            db,
+            actor=actor,
+            request_id=request_id,
+            specs=specs,
+        )
     await publish_prices(
         db,
         actor=actor,
