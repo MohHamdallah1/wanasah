@@ -100,6 +100,7 @@ export function ImportProductStartPanel({
         type="file"
         accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         className="hidden"
+        disabled={importing}
         onChange={(event) =>
           onChooseFile(
             event.target.files?.[0] ??
@@ -110,16 +111,17 @@ export function ImportProductStartPanel({
 
       <button
         type="button"
-        onClick={() =>
-          fileRef.current?.click()
-        }
+        disabled={importing}
+        onClick={() => {
+          if (!importing) fileRef.current?.click();
+        }}
         onDragEnter={(event) => {
           event.preventDefault();
-          onDraggingChange(true);
+          if (!importing) onDraggingChange(true);
         }}
         onDragOver={(event) => {
           event.preventDefault();
-          onDraggingChange(true);
+          if (!importing) onDraggingChange(true);
         }}
         onDragLeave={() =>
           onDraggingChange(false)
@@ -127,13 +129,12 @@ export function ImportProductStartPanel({
         onDrop={(event) => {
           event.preventDefault();
           onDraggingChange(false);
-          onChooseFile(
-            event.dataTransfer
-              .files?.[0] ?? null,
-          );
+          if (!importing) {
+            onChooseFile(event.dataTransfer.files?.[0] ?? null);
+          }
         }}
         className={
-          "flex min-h-28 w-full items-center gap-3 rounded-xl border border-dashed px-4 py-4 text-start transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 " +
+          "flex min-h-28 w-full items-center gap-3 rounded-xl border border-dashed px-4 py-4 text-start transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50 " +
           (
             dragging
               ? "border-slate-950 bg-slate-100"

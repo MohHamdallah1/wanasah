@@ -61,8 +61,35 @@ a production host.
 
 The read-only `wa_backend/scripts/audit_product_import_d8_readonly.py` now
 inspects **actual target-database** PostgreSQL connection pressure and session
-lifetime. It verifies observer privileges, compares the configured web +
-operational + import pool envelope to reserved/max slots, prints only
+lifetime. **Before any DB connection**, the staging preflight requires the
+explicit `--env-file` to declare literal `DATABASE_URL` and
+`DATABASE_URL_MIGRATION`. If inherited environment URLs conflict with that
+file, it refuses to proceed without logging the URLs or credentials. It also
+requires migration/runtime URLs to resolve to the **same host, port and DB**
+(different database roles and PostgreSQL drivers are allowed). This
+prevents an inherited developer/production URL silently overriding the
+operator-specified staging target (`python -m unittest
+tests.test_product_import_d8_target_binding` checks this contract without
+DB/network). Do not commit the protected staging env file to Git.
+
+The FORCE RLS inventory checks `public` tables explicitly, and worker
+connections are matched by the exact entrypoint PGAPPNAME, not substrings.
+Observing `wanasah-product-import-{role}` in `pg_stat_activity` proves
+only a role-labeled DB connection. **It does not prove which commit is
+loaded by that worker.** Procrastinate 3.9's `procrastinate_workers` table
+stores worker id/heartbeat, not worker names or source hashes. Independently
+compare freshly captured `PRODUCT_IMPORT_WORKER_CODE` startup records for
+all three roles (commit+source_sha256+PID+start time) with the immutable
+release checkout and the currently supervised OS processes. Preserve
+startup logs and operator evidence; D8 stays OPEN without this live proof.
+
+The known developer-only historical synthetic company-ID probe is not
+executed on staging, so a staging tenant with the same numeric ID cannot be
+misreported as an old developer job. This does not resolve the six old
+nonterminal jobs on the actual developer database.
+
+The read-only inventory script verifies observer privileges, compares the
+configured web + operational + import pool envelope to reserved/max slots, prints only
 **aggregate** client, idle-in-transaction, aged-transaction, lock-wait and
 blocked-edge counts, and groups import execution/control/maintenance
 `todo`/`doing` queue ages. It never prints query text, connection strings,

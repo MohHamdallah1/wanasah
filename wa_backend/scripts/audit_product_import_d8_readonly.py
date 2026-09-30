@@ -11,8 +11,9 @@ from pathlib import Path
 import subprocess
 import sys
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 import psycopg
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +26,72 @@ REQUIRED_RLS_TABLES = (
     "price_book_entries",
 )
 
+
+def _database_endpoint(raw: str, *, name: str) -> tuple[str, int, str]:
+    """Compare staging DB identity without comparing or printing passwords."""
+    try:
+        url = make_url(raw)
+        if (
+            not url.drivername.startswith("postgresql")
+            or not url.host
+            or not url.database
+        ):
+            raise ValueError("incomplete PostgreSQL target")
+        return (url.host.lower().rstrip("."), int(url.port or 5432), url.database)
+    except (ValueError, ArgumentError):
+        raise RuntimeError(
+            f"{name} must identify a PostgreSQL host, port and database"
+        ) from None
+
+
+def _bind_env_file_db_target(env_file: Path, *, scope: str) -> None:
+    """Refuse staging target ambiguity before opening a database connection.
+
+    dotenv normally prefers inherited variables over --env-file values.
+    An operator-supplied staging file must explicitly bind both DB URLs;
+    silently following a different inherited URL could inspect the wrong DB.
+    Never include a URL or credential in a diagnostic exception.
+    """
+    declared = dotenv_values(env_file, interpolate=False)
+    for name in ("DATABASE_URL_MIGRATION", "DATABASE_URL"):
+        value = declared.get(name)
+        if scope == "staging" and not value:
+            raise RuntimeError(
+                f"Staging env file must explicitly declare {name}"
+            )
+        if not value:
+            continue
+        if "${" in value:
+            raise RuntimeError(
+                f"{name} in staging env file must be a literal URL"
+            )
+        inherited = os.environ.get(name)
+        if inherited is not None and inherited != value:
+            raise RuntimeError(
+                f"Inherited {name} conflicts with explicit env file target"
+            )
+    if scope == "staging":
+        migration = _database_endpoint(
+            declared["DATABASE_URL_MIGRATION"], name="DATABASE_URL_MIGRATION"
+        )
+        runtime = _database_endpoint(
+            declared["DATABASE_URL"], name="DATABASE_URL"
+        )
+        if migration != runtime:
+            raise RuntimeError(
+                "Staging migration/runtime targets disagree on host, port or database"
+            )
+
+
+def _observed_import_roles(role_counts: dict[str, int]) -> list[str]:
+    # The worker entrypoint sets PGAPPNAME to this exact value. Prefix or
+    # substring matches can misreport an unrelated observer as a worker.
+    return [
+        role for role in ("execution", "control", "maintenance")
+        if role_counts.get(f"wanasah-product-import-{role}", 0) > 0
+    ]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--env-file", type=Path, required=True)
@@ -32,6 +99,7 @@ def main() -> None:
     args = parser.parse_args()
     if not args.env_file.is_file():
         raise RuntimeError("Explicit environment file missing")
+    _bind_env_file_db_target(args.env_file, scope=args.scope)
     load_dotenv(args.env_file, override=False)
     if args.scope == "staging" and os.environ.get(
         "WANASAH_STAGING_READONLY_ACK"
@@ -72,10 +140,12 @@ def main() -> None:
 
         rows = connection.execute(
             """
-            SELECT relname, relrowsecurity, relforcerowsecurity
-            FROM pg_class
-            WHERE relkind IN ('r','p') AND relname = ANY(%s)
-            ORDER BY relname
+            SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
+            FROM pg_class AS c
+            JOIN pg_namespace AS n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public'
+              AND c.relkind IN ('r','p') AND c.relname = ANY(%s)
+            ORDER BY c.relname
             """,
             (list(REQUIRED_RLS_TABLES),),
         ).fetchall()
@@ -128,11 +198,7 @@ def main() -> None:
             )
         }
         # Worker names are connection identities; no tokens or SQL literals.
-        role_names = tuple(("execution", "control", "maintenance"))
-        running_roles = [
-            role for role in role_names
-            if any(role in name for name in roles)
-        ]
+        running_roles = _observed_import_roles(roles)
         if args.scope == "staging" and len(running_roles) < 3:
             failures.append("Staging missing active worker role connections")
         elif len(running_roles) < 3:
@@ -252,19 +318,22 @@ def main() -> None:
         # Queue timestamps include purposeful scheduling delays and cannot be
         # interpreted as time-in-ready-state without a deeper delivery trace.
 
-        old_tests = connection.execute(
-            """
-            SELECT count(*) FROM product_import_jobs
-            WHERE company_id BETWEEN 2393 AND 2398
-              AND status IN ('QUEUED','PARSING','VALIDATING','IMPORTING','RETRYING')
-            """
-        ).fetchone()[0]
-        if int(old_tests):
-            warnings.append(
-                "Historical synthetic test jobs remain nonterminal; "
-                "DO NOT start recovery blindly on developer source"
-            )
-        print("HISTORICAL_SYNTHETIC_ACTIVE=" + str(old_tests))
+        if args.scope == "developer":
+            # The hardcoded IDs are known ONLY in the developer database.
+            # Never probe arbitrary tenant IDs or call them synthetic on staging.
+            old_tests = connection.execute(
+                """
+                SELECT count(*) FROM product_import_jobs
+                WHERE company_id BETWEEN 2393 AND 2398
+                  AND status IN ('QUEUED','PARSING','VALIDATING','IMPORTING','RETRYING')
+                """
+            ).fetchone()[0]
+            if int(old_tests):
+                warnings.append(
+                    "Historical synthetic test jobs remain nonterminal; "
+                    "DO NOT start recovery blindly on developer source"
+                )
+            print("HISTORICAL_SYNTHETIC_ACTIVE=" + str(old_tests))
 
         print("READ_ONLY_SCHEMA_INVENTORY=PASS")
     print("WARNINGS=" + str(len(warnings)))
