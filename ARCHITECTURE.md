@@ -6,6 +6,8 @@
 
 **Binding across the project:** Diagnose related files and evidence in one consolidated pass; implement only the demonstrated change; run one complete, risk-appropriate acceptance gate and essential affected regressions; fix the proven cause of any failure rather than cycling through unrelated tests; then inspect the diff, update the plan accurately, and commit/push. Prefer GitHub reads and batched remote commands to conserve the monthly MCP quota. Reuse already-passing D7-L evidence unless relevant code or assumptions change. Never compromise tenant isolation, security, data integrity, business semantics, or required release gates to save time. An unavailable staging test remains OPEN rather than being misrepresented as PASS.
 
+**Source-first root-cause requirement:** Before commissioning load tests, repeatedly running suites, or changing code, inspect the complete relevant implementation path and identify the likely concrete mechanism at the exact call site. Check obvious defaults, codecs, query shapes, transaction boundaries, resource costs, lock order, and existing contracts directly in source. Form a falsifiable, narrowly scoped hypothesis; use the smallest **single consolidated acceptance** to confirm the intended correction and preserve business invariants. Do not substitute repeated tests, trial-and-error rewrites, or superficial configuration changes for source analysis. If the source does not prove a cause, state the uncertainty and instrument precisely one needed gap.
+
 ---
 
 **Status:** CANONICAL ARCHITECTURE DIRECTION  
