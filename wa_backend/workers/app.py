@@ -33,8 +33,8 @@ connector = PsycopgConnector(
     conninfo=_to_psycopg_conninfo(Config.SQLALCHEMY_DATABASE_URI),
     # Queue SQL is intentionally isolated from public tenant tables.
     kwargs={"options": f"-c search_path={QUEUE_SCHEMA}"},
-    min_size=1,
-    max_size=5,
+    min_size=Config.OPERATIONAL_WORKER_DB_POOL_MIN,
+    max_size=Config.OPERATIONAL_WORKER_DB_POOL_MAX,
 )
 
 app = App(

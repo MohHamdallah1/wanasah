@@ -45,6 +45,25 @@ class Config:
     DB_POOL_TIMEOUT = float(os.environ.get("DB_POOL_TIMEOUT", "3"))
     DB_POOL_RECYCLE = int(os.environ.get("DB_POOL_RECYCLE", "1800"))
 
+    # Deployment-wide PostgreSQL reservation. The older
+    # DB_APP_CONNECTION_BUDGET protects only web SQLAlchemy pools; background
+    # workers own independent pools and must be reserved here as well.
+    DB_DEPLOYMENT_CONNECTION_BUDGET = int(
+        os.environ.get("DB_DEPLOYMENT_CONNECTION_BUDGET", "60")
+    )
+    OPERATIONAL_WORKER_PROCESS_COUNT = int(
+        os.environ.get("OPERATIONAL_WORKER_PROCESS_COUNT", "2")
+    )
+    OPERATIONAL_WORKER_DB_POOL_MIN = int(
+        os.environ.get("OPERATIONAL_WORKER_DB_POOL_MIN", "1")
+    )
+    OPERATIONAL_WORKER_DB_POOL_MAX = int(
+        os.environ.get("OPERATIONAL_WORKER_DB_POOL_MAX", "5")
+    )
+    PRODUCT_IMPORT_DB_CONNECTION_BUDGET = int(
+        os.environ.get("PRODUCT_IMPORT_DB_CONNECTION_BUDGET", "16")
+    )
+
     if WEB_CONCURRENCY <= 0:
         raise ValueError("WEB_CONCURRENCY يجب أن يكون أكبر من صفر.")
     if DB_APP_CONNECTION_BUDGET <= 0:
@@ -61,6 +80,34 @@ class Config:
             "إعدادات قاعدة البيانات تتجاوز ميزانية الاتصالات الآمنة: "
             f"{DB_CONNECTIONS_TOTAL} > {DB_APP_CONNECTION_BUDGET}. "
             "خفّض DB_POOL_SIZE/DB_MAX_OVERFLOW أو أعد قياس نقطة التشبع."
+        )
+
+    if DB_DEPLOYMENT_CONNECTION_BUDGET <= 0:
+        raise ValueError("DB_DEPLOYMENT_CONNECTION_BUDGET must be positive.")
+    if OPERATIONAL_WORKER_PROCESS_COUNT <= 0:
+        raise ValueError("OPERATIONAL_WORKER_PROCESS_COUNT must be positive.")
+    if (
+        OPERATIONAL_WORKER_DB_POOL_MIN <= 0
+        or OPERATIONAL_WORKER_DB_POOL_MAX < OPERATIONAL_WORKER_DB_POOL_MIN
+    ):
+        raise ValueError("Operational worker DB pool bounds are invalid.")
+    if PRODUCT_IMPORT_DB_CONNECTION_BUDGET <= 0:
+        raise ValueError("PRODUCT_IMPORT_DB_CONNECTION_BUDGET must be positive.")
+
+    DB_OPERATIONAL_RESERVED_CONNECTIONS = (
+        OPERATIONAL_WORKER_PROCESS_COUNT * OPERATIONAL_WORKER_DB_POOL_MAX
+    )
+    DB_DEPLOYMENT_RESERVED_CONNECTIONS = (
+        DB_CONNECTIONS_TOTAL
+        + DB_OPERATIONAL_RESERVED_CONNECTIONS
+        + PRODUCT_IMPORT_DB_CONNECTION_BUDGET
+    )
+    if DB_DEPLOYMENT_RESERVED_CONNECTIONS > DB_DEPLOYMENT_CONNECTION_BUDGET:
+        raise ValueError(
+            "Deployment PostgreSQL connection reservation exceeds budget: "
+            f"{DB_DEPLOYMENT_RESERVED_CONNECTIONS} > "
+            f"{DB_DEPLOYMENT_CONNECTION_BUDGET}. "
+            "Budget web, operational-worker and Product Import pools together."
         )
 
     SQLALCHEMY_ENGINE_OPTIONS = {

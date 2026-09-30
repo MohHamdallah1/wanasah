@@ -2258,6 +2258,17 @@ async def apply_live_stock_active_variant_delta(
     if not isinstance(delta, int) or isinstance(delta, bool):
         raise LiveStockProjectionError("active variant delta must be an integer.")
 
+    # Match rebuild_live_stock_company's company -> summary lock order.
+    # Without this shared guard, lifecycle/import activation may hold the
+    # summary guard then wait on the company guard in refresh_live_stock_variants,
+    # while a rebuild holds company EXCLUSIVE and waits on this summary: ABBA.
+    # Keep the company guard for this entire caller transaction; it is a
+    # shared lock, so independent ordinary per-key stock updates still run.
+    await _acquire_company_projection_guard(
+        db,
+        company_id=company_id,
+        exclusive=False,
+    )
     await _acquire_text_guards(
         db,
         [f"live-stock-company-summary:{company_id}"],

@@ -1,8 +1,18 @@
 # Wanasah Architecture Constitution
 
+## Mandatory delivery workflow — Owner directive (2026-09-30)
+
+> من الآن راح أغيّر أسلوب الشغل: فحص مجمّع، تنفيذ محدد، اختبار قبول شامل، ثم Commit. وإذا فشل الاختبار نعالج السبب المثبت فقط، بدل دوامة اختبارات وإعادة تشغيل غير ضرورية. وما رح أعيد فحوصات D7-L الناجحة لمجرد التكرار.
+
+**Binding across the project:** Diagnose related files and evidence in one consolidated pass; implement only the demonstrated change; run one complete, risk-appropriate acceptance gate and essential affected regressions; fix the proven cause of any failure rather than cycling through unrelated tests; then inspect the diff, update the plan accurately, and commit/push. Prefer GitHub reads and batched remote commands to conserve the monthly MCP quota. Reuse already-passing D7-L evidence unless relevant code or assumptions change. Never compromise tenant isolation, security, data integrity, business semantics, or required release gates to save time. An unavailable staging test remains OPEN rather than being misrepresented as PASS.
+
+**Source-first root-cause requirement:** Before commissioning load tests, repeatedly running suites, or changing code, inspect the complete relevant implementation path and identify the likely concrete mechanism at the exact call site. Check obvious defaults, codecs, query shapes, transaction boundaries, resource costs, lock order, and existing contracts directly in source. Form a falsifiable, narrowly scoped hypothesis; use the smallest **single consolidated acceptance** to confirm the intended correction and preserve business invariants. Do not substitute repeated tests, trial-and-error rewrites, or superficial configuration changes for source analysis. If the source does not prove a cause, state the uncertainty and instrument precisely one needed gap.
+
+---
+
 **Status:** CANONICAL ARCHITECTURE DIRECTION  
 **Scope:** Entire repository and all future modules  
-**Last updated:** 2026-09-27
+**Last updated:** 2026-09-30
 
 This document is the architectural constitution of the Wanasah platform. It records the intended long-term direction so future work does not accidentally optimize one feature at the expense of the platform.
 
@@ -226,6 +236,38 @@ For asynchronous side effects that must survive crashes:
 - authorization/invariants must be revalidated when required.
 
 Do not turn the whole platform into an event-driven system without a concrete reason.
+
+### Reusable durable async/import foundation
+
+Product Import V1 is the first production reference implementation for durable,
+tenant-scoped bulk work. When a **second real domain** needs comparable import or
+long-running asynchronous ingestion (for example Areas, Stores, Vehicles, or
+Sales Representatives), do not copy Product Import's queue/recovery machinery
+into that domain and do not create a platform-wide event bus by default.
+
+At that point, extract only the already-proven **technical primitives** into a
+small cross-domain durable-work/import foundation:
+
+- immutable source persistence/integrity where file-backed ingestion needs it;
+- transactional task registration / outbox-equivalent durable dispatch;
+- tenant-scoped concurrency, admission/backpressure, and bounded worker budgets;
+- job-delivery recovery and business-job/queue reconciliation;
+- idempotent execution/replay envelopes;
+- progress/readiness/observability and bounded retry contracts;
+- retention hooks and operational lifecycle primitives.
+
+The shared foundation owns **technical delivery semantics only**. Each consuming
+domain keeps its own source mapping, validation, permissions, invariants,
+business commands, persistence authority, and final execution policy behind a
+small domain adapter/public application contract. Areas, Stores, Vehicles,
+Representatives, Products, Pricing, Inventory, and other domains must never
+share business truth merely because they share durable-work infrastructure.
+
+Extraction is triggered by an actual second consumer and requires parity gates
+against the proven Product Import behavior. Until then, Product Import remains
+the concrete implementation rather than being prematurely generalized into a
+framework. Future import channels should therefore reuse one durable engine
+through explicit contracts, not duplicate one queue/recovery stack per screen.
 
 ---
 

@@ -36,6 +36,9 @@ from domains.simple_products.imports.domain.mapping import (
 from domains.simple_products.imports.domain.normalization import (
     normalize_raw_row,
 )
+from domains.simple_products.imports.infrastructure.phase_timing import (
+    observe_import_phase,
+)
 from domains.simple_products.imports.infrastructure.repository import (
     close_tenant_session,
     count_job_statuses,
@@ -53,6 +56,43 @@ from domains.simple_products.service import (
 
 
 VALIDATION_BATCH_SIZE = 500
+
+
+async def _reconcile_job_barcodes(
+    db,
+    *,
+    company_id: int,
+    job_id: UUID,
+) -> int:
+    # These job-wide statements MUST share the caller's locked transaction
+    # with counts and the state transition. Intermediate commits would lose
+    # the original duplicate set on replay (INVALID rows are not rebuilt).
+    # Record a fixed three observations per finalization, never one per row.
+    with observe_import_phase(
+        company_id=company_id,
+        job_id=job_id,
+        phase="VALIDATION_BARCODE_REBUILD",
+    ):
+        await rebuild_job_barcode_staging(
+            db, company_id=company_id, job_id=job_id,
+        )
+    with observe_import_phase(
+        company_id=company_id,
+        job_id=job_id,
+        phase="VALIDATION_INTERNAL_BARCODES",
+    ):
+        internal_failures = await invalidate_internal_duplicate_barcodes(
+            db, company_id=company_id, job_id=job_id,
+        )
+    with observe_import_phase(
+        company_id=company_id,
+        job_id=job_id,
+        phase="VALIDATION_EXTERNAL_BARCODES",
+    ):
+        external_failures = await invalidate_external_barcode_conflicts(
+            db, company_id=company_id, job_id=job_id,
+        )
+    return int(internal_failures) + int(external_failures)
 
 
 def classify_row_error(
@@ -372,7 +412,7 @@ async def _validation_contract(
             imported_count,
             import_failed_count,
         )
-    except Exception:
+    except BaseException:
         await db.rollback()
         raise
     finally:
@@ -486,32 +526,10 @@ async def validate_rows(
                             "Validation durable counters are inconsistent."
                         )
 
-                    await rebuild_job_barcode_staging(
+                    barcode_failures = await _reconcile_job_barcodes(
                         db,
                         company_id=company_id,
                         job_id=job_id,
-                    )
-                    internal_barcode_failures = (
-                        await invalidate_internal_duplicate_barcodes(
-                            db,
-                            company_id=company_id,
-                            job_id=job_id,
-                        )
-                    )
-                    external_barcode_failures = (
-                        await invalidate_external_barcode_conflicts(
-                            db,
-                            company_id=company_id,
-                            job_id=job_id,
-                        )
-                    )
-                    barcode_failures = (
-                        int(
-                            internal_barcode_failures
-                        )
-                        + int(
-                            external_barcode_failures
-                        )
                     )
                     valid_count -= (
                         barcode_failures
@@ -587,7 +605,12 @@ async def validate_rows(
                             else None
                         ),
                     )
-                    await db.commit()
+                    with observe_import_phase(
+                        company_id=company_id,
+                        job_id=job_id,
+                        phase="VALIDATION_FINAL_COMMIT",
+                    ):
+                        await db.commit()
                     return can_execute
             else:
                 (
@@ -623,7 +646,7 @@ async def validate_rows(
                 after_row_number = (
                     last_row_number
                 )
-        except Exception:
+        except BaseException:
             await db.rollback()
             raise
         finally:

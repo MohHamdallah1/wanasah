@@ -10,7 +10,9 @@
 - `maintenance`: operational monitors, Live Stock maintenance, recovery, and integrity jobs.
 - `notifications`: reserved operational queue; no notification-delivery tasks are registered yet.
 - `reports`: heavy read-only reporting.
-- `product-import`: separate Procrastinate app for durable product imports.
+- Product Import uses one separate public-schema app with `product-import`
+  execution, `product-import-control` recovery/health, and
+  `product-import-maintenance` monitoring/retention queues and independent consumers.
 
 ## Production safety contracts
 
@@ -61,6 +63,12 @@ Optional product import:
 
 Each launcher performs the appropriate startup recovery before entering the long-running worker process.
 
+The Product Import command defaults to execution only. Also supervise separate
+invocations with `-Role control` and `-Role maintenance`; the development wrapper
+delegates to the canonical backend launcher. Required cutover/legacy-job drain,
+code-fingerprint verification and rollback steps are in
+`wa_backend/domains/simple_products/imports/RUNBOOK.md`.
+
 ## Queue bootstrap / health
 
 From `wa_backend` with the backend virtual environment:
@@ -75,7 +83,10 @@ python -m procrastinate --app=workers.app.app healthchecks
 
 Run API, operational worker, and report worker as separate supervised processes when those roles are required. Run product-import separately when asynchronous imports are enabled.
 
-Production workers should run on a Unix-like host/container. Windows remains a development environment. Keep completed job retention bounded through the scheduled cleanup task.
+Production workers should run on a Unix-like host/container. Windows remains a development environment. The operational scheduled cleanup covers its own schema;
+Product Import public-schema terminal queue history still requires a separately
+approved retention/archival policy. Its business-source retention is not queue
+history cleanup.
 
 ## Final Alembic baseline
 

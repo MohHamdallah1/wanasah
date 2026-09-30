@@ -40,15 +40,35 @@ HTTP status remains the fallback and reconciliation authority.
 ## Worker observability
 
 Global runtime telemetry records only Procrastinate workers that have proven
-they consume the `product-import` queue. A queue-local heartbeat task registers
+they consume ONLY the `product-import` queue. A queue-local presence task registers
 the worker id, and readiness joins that registry back to Procrastinate's live
 worker heartbeat. This avoids treating an unrelated healthy worker as Product
 Import-ready.
 
+D3.1 requires separate supervised
+`execution`, `control`, and `maintenance` processes in the same public-schema
+Procrastinate app. Control recovery/health cannot wait behind import execution
+or retention. The control heartbeat never registers itself as execution capacity.
+The periodic execution-presence proof uses the existing heartbeat task name with
+a distinct periodic identity; an active import also registers its consumer.
+See `RUNBOOK.md` for role commands, legacy-queue drain, version verification,
+graceful shutdown and rollback. Queue isolation requires all three consumers;
+execution READY alone does not certify control/maintenance availability.
+
+D3.2 authorizes one execution process with two bounded slots by default.
+The company-scoped queue lock still serializes two imports for the same tenant,
+while Procrastinate can use the second slot for an independent tenant. In the
+disposable mixed-load gate, a short company-B import finished in 3.034 seconds
+instead of 23.036 seconds behind two long company-A imports, with no same-company
+overlap. Full execution/control/maintenance topology peaked at 14 application
+connections under the Product Import budget of 16; interactive catalog-read p95
+was 0.618 ms in the two-slot run. Queue connectors are bounded to 1..2
+connections per role.
+
 Metrics include healthy Product Import worker processes, configured worker
 slots, running/queued Product Import jobs, available slots, and oldest queue
 age. `PRODUCT_IMPORT_WORKER_SLOTS_PER_PROCESS` must match the deployed worker
-concurrency (default 1). These global values are for server observability only
+concurrency (default 2). These global values are for server observability only
 and are not exposed as tenant data.
 
 Tenant capacity telemetry also records oldest active-stage and oldest queued-job
@@ -58,6 +78,28 @@ age. Stuck-stage warnings use `PRODUCT_IMPORT_STUCK_STAGE_SECONDS` (default
 
 The authenticated readiness endpoint exposes only a safe READY/UNAVAILABLE
 signal; it does not leak cross-tenant queue counts.
+
+## D4 durable recovery semantics
+
+Product Import has two distinct recovery layers. Procrastinate repairs a stalled
+queue delivery after a dead worker heartbeat; the Product Import control plane
+then reconciles stale active business jobs that have lost their delivery entirely.
+The reconciliation query is bounded/indexed and privileged only to cross the RLS
+boundary for `(company_id, job_id)` control metadata. It never scans Company and
+never reads another tenant's business payload.
+
+Each business job owns `product-import-job:{job_id}` as its active-delivery
+queueing lock. Same-company execution remains separately protected by
+`product-import:{company_id}`. Recovery runs under one global advisory mutex and
+uses `FOR UPDATE SKIP LOCKED`, so multiple control processes cannot duplicate
+claims. Staleness is calculated inside PostgreSQL using the same database/session
+clock semantics as `product_import_jobs.updated_at`; worker-host timezone is not
+part of the contract.
+
+Execution replay remains safe at committed batch boundaries through the existing
+row identity + idempotent operation envelope. A hard crash after committed
+batches therefore resumes remaining VALID rows without duplicating Product,
+Pricing publication, audit or outbox evidence.
 
 ## Cancellation semantics
 

@@ -49,9 +49,13 @@ async def open_tenant_session(
             },
         )
         return token, db
-    except Exception:
-        await db.close()
-        tenant_context.reset(token)
+    except BaseException:
+        # Cancellation during the initial RLS query must release the borrowed
+        # connection and context just like a database/setup failure.
+        try:
+            await db.close()
+        finally:
+            tenant_context.reset(token)
         raise
 
 

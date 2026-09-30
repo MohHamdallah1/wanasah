@@ -17,6 +17,8 @@ type Props = {
   progress: number;
   online: boolean;
   retryPending: boolean;
+  cancelPending: boolean;
+  onCancelImport: () => void;
   onRetryPoll: () => void;
   onDownloadErrorReport: () => void;
   onResetImport: () => void;
@@ -30,6 +32,8 @@ export function ImportProductStatusPanel({
   progress,
   online,
   retryPending,
+  cancelPending,
+  onCancelImport,
   onRetryPoll,
   onDownloadErrorReport,
   onResetImport,
@@ -38,6 +42,16 @@ export function ImportProductStatusPanel({
 }: Props) {
   const { t, i18n } =
     useTranslation();
+
+  // A durable job exists as soon as upload is accepted, even before the
+  // first status response. Cancellation must be available at that point.
+  const canCancel =
+    !status ||
+    status.status === "QUEUED" ||
+    status.status === "PARSING" ||
+    status.status === "VALIDATING" ||
+    status.status === "IMPORTING" ||
+    status.status === "RETRYING";
 
   if (pollError) {
     return (
@@ -51,16 +65,26 @@ export function ImportProductStatusPanel({
             {pollError}
           </span>
         </div>
-        <button
-          type="button"
-          onClick={onRetryPoll}
-          className="inline-flex min-h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-white px-2.5 text-[10px] font-black text-rose-800 ring-1 ring-rose-200"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-          {t(
-            "common.retry",
-          )}
-        </button>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onRetryPoll}
+            className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-lg bg-white px-2.5 text-[10px] font-black text-rose-800 ring-1 ring-rose-200"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            {t("common.retry")}
+          </button>
+          {canCancel ? (
+            <button
+              type="button"
+              disabled={!online || cancelPending}
+              onClick={onCancelImport}
+              className="min-h-8 rounded-lg border border-rose-300 bg-white px-2.5 text-[10px] font-bold text-rose-800 disabled:opacity-40"
+            >
+              {t("products.cancelImport")}
+            </button>
+          ) : null}
+        </div>
       </div>
     );
   }
@@ -69,14 +93,22 @@ export function ImportProductStatusPanel({
     return (
       <div
         aria-live="polite"
-        className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3"
+        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3"
       >
-        <LoaderCircle className="h-4 w-4 shrink-0 animate-spin text-slate-500" />
-        <span className="text-xs font-black text-slate-600">
-          {t(
-            "products.queued",
-          )}
+        <span className="flex items-center gap-3">
+          <LoaderCircle className="h-4 w-4 shrink-0 animate-spin text-slate-500" />
+          <span className="text-xs font-black text-slate-600">
+            {t("products.queued")}
+          </span>
         </span>
+        <button
+          type="button"
+          disabled={!online || cancelPending}
+          onClick={onCancelImport}
+          className="min-h-9 rounded-lg border border-rose-200 bg-white px-3 text-xs font-bold text-rose-800 disabled:opacity-40"
+        >
+          {t("products.cancelImport")}
+        </button>
       </div>
     );
   }
@@ -400,6 +432,16 @@ export function ImportProductStatusPanel({
           "products.backgroundHint",
         )}
       </p>
+      {canCancel ? (
+        <button
+          type="button"
+          disabled={!online || cancelPending}
+          onClick={onCancelImport}
+          className="mt-3 min-h-9 rounded-lg border border-rose-200 bg-white px-3 text-xs font-bold text-rose-800 disabled:opacity-40"
+        >
+          {t("products.cancelImport")}
+        </button>
+      ) : null}
     </div>
   );
 }

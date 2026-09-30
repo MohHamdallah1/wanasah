@@ -1,6 +1,8 @@
-import type {
-  Dispatch,
-  SetStateAction,
+import {
+  useEffect,
+  useRef,
+  type Dispatch,
+  type SetStateAction,
 } from "react";
 import {
   useMutation,
@@ -52,6 +54,13 @@ export function useImportProductCommands({
   setImportPollKey,
   t,
 }: Params) {
+  // Async command replies belong to the job that initiated them, not a
+  // replacement job selected while the network request was in flight.
+  const currentJobRef = useRef(importJobId);
+  useEffect(() => {
+    currentJobRef.current = importJobId;
+  }, [importJobId]);
+
   const mappingMutation =
     useMutation({
       mutationFn: async () => {
@@ -81,6 +90,12 @@ export function useImportProductCommands({
         return result;
       },
       onSuccess: (result) => {
+        if (
+          !result ||
+          result.job_id !== currentJobRef.current
+        ) {
+          return;
+        }
         setImportPollError(null);
         setImportStatus(
           (current) =>
@@ -114,6 +129,52 @@ export function useImportProductCommands({
         ),
     });
 
+  const cancelImportMutation =
+    useMutation({
+      mutationFn: async () => {
+        if (!importJobId) {
+          throw new Error("PRODUCT_IMPORT_COMMAND_JOB_MISSING");
+        }
+        const result =
+          parseProductImportCommandResponse(
+            await authFetch(
+              `/simple-products/imports/${importJobId}/cancel`,
+              { method: "POST" },
+            ),
+          );
+        if (result.job_id !== importJobId) {
+          throw new Error("PRODUCT_IMPORT_COMMAND_SCOPE_MISMATCH");
+        }
+        return result;
+      },
+      onSuccess: (result) => {
+        if (
+          !result ||
+          result.job_id !== currentJobRef.current
+        ) {
+          return;
+        }
+        setImportPollError(null);
+        setImportStatus(
+          (current) =>
+            current
+              ? { ...current, status: result.status }
+              : current,
+        );
+        // Restart the canonical HTTP/WS watch on the original job; never
+        // infer cancellation completion from the client-side button click.
+        setImportPollKey((current) => current + 1);
+        toast.message(t("products.importCancelRequested"));
+      },
+      onError: (error) =>
+        toast.error(
+          apiErrorMessage(
+            error,
+            t("products.errors.cancelImportFailed"),
+          ),
+        ),
+    });
+
   const retryImportMutation =
     useMutation({
       mutationFn: async () => {
@@ -140,6 +201,12 @@ export function useImportProductCommands({
         return result;
       },
       onSuccess: (result) => {
+        if (
+          !result ||
+          result.job_id !== currentJobRef.current
+        ) {
+          return;
+        }
         setImportPollError(null);
         setImportStatus(
           (current) =>
@@ -192,11 +259,24 @@ export function useImportProductCommands({
     () =>
       retryImportMutation.mutate();
 
+  const cancelImport = () => {
+    if (
+      !importJobId ||
+      cancelImportMutation.isPending ||
+      !window.confirm(t("products.importCancelConfirm"))
+    ) {
+      return;
+    }
+    cancelImportMutation.mutate();
+  };
+
   return {
     mappingMutation,
     retryImportMutation,
+    cancelImportMutation,
     updateMapping,
     submitMapping,
     retryImport,
+    cancelImport,
   };
 }

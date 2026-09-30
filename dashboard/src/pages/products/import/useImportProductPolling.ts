@@ -224,7 +224,8 @@ export function useImportProductPolling({
       status:
         ProductImportState,
     ) => {
-      if (disposed) {
+      // Late HTTP responses must never replace an already-terminal snapshot.
+      if (disposed || settled) {
         return true;
       }
 
@@ -251,6 +252,16 @@ export function useImportProductPolling({
             ? status.column_mapping
             : status.suggested_mapping,
         );
+      }
+
+      const isSettled =
+        settledImportStatuses.has(
+          status.status,
+        );
+      // Commit transport closure synchronously before awaited React Query
+      // invalidations; any earlier HTTP response is now ignored.
+      if (isSettled) {
+        finishTransport();
       }
 
       if (
@@ -309,13 +320,6 @@ export function useImportProductPolling({
         ]);
       }
 
-      const isSettled =
-        settledImportStatuses.has(
-          status.status,
-        );
-      if (isSettled) {
-        finishTransport();
-      }
       return isSettled;
     };
 
@@ -345,7 +349,9 @@ export function useImportProductPolling({
             status,
           );
         } catch (error) {
-          if (!disposed) {
+          // An obsolete request may fail after another request has already
+          // completed the import. Do not resurrect the error banner.
+          if (!disposed && !settled) {
             setImportPollError(
               apiErrorMessage(
                 error,
@@ -355,17 +361,17 @@ export function useImportProductPolling({
               ),
             );
           }
-          return false;
+          return settled;
         }
       };
 
     const scheduleFallback =
       () => {
-        clearTimer(
-          fallbackTimer,
-        );
-        fallbackTimer =
-          undefined;
+        // Retain a pending HTTP fallback while repeated WebSocket failures
+        // schedule reconnects. Otherwise each failure postpones the fallback.
+        if (fallbackTimer !== undefined) {
+          return;
+        }
 
         if (
           disposed ||
@@ -386,6 +392,8 @@ export function useImportProductPolling({
         fallbackTimer =
           window.setTimeout(
             () => {
+              fallbackTimer =
+                undefined;
               void refreshStatus()
                 .finally(
                   () => {
@@ -463,6 +471,20 @@ export function useImportProductPolling({
         ) {
           return;
         }
+        // At most one live or connecting socket may own the job feed.
+        if (
+          websocket &&
+          (
+            websocket.readyState === WebSocket.OPEN ||
+            websocket.readyState === WebSocket.CONNECTING
+          )
+        ) {
+          return;
+        }
+        if (!isOnline || !navigator.onLine) {
+          scheduleFallback();
+          return;
+        }
 
         const token =
           localStorage.getItem(
@@ -485,14 +507,23 @@ export function useImportProductPolling({
             /^http/,
             "ws",
           );
-        const nextSocket =
-          new WebSocket(
-            `${wsBase}/simple-products/imports/${encodeURIComponent(
-              importJobId,
-            )}/ws?token=${encodeURIComponent(
-              token,
-            )}`,
-          );
+        let nextSocket: WebSocket;
+        try {
+          nextSocket =
+            new WebSocket(
+              `${wsBase}/simple-products/imports/${encodeURIComponent(
+                importJobId,
+              )}/ws`,
+            );
+        } catch {
+          // Invalid endpoint configuration or browser security policy can
+          // reject construction synchronously; preserve HTTP polling.
+          websocket = undefined;
+          realtimeOpen = false;
+          scheduleFallback();
+          scheduleReconnect();
+          return;
+        }
         websocket =
           nextSocket;
 
@@ -507,17 +538,22 @@ export function useImportProductPolling({
               nextSocket.close();
               return;
             }
-            realtimeOpen =
-              true;
-            reconnectAttempt =
-              0;
-            fallbackAttempt =
-              0;
-            clearTimer(
-              fallbackTimer,
+            const liveToken =
+              localStorage.getItem(
+                "admin_token",
+              );
+            if (!liveToken) {
+              nextSocket.close();
+              return;
+            }
+            nextSocket.send(
+              JSON.stringify({
+                type: "auth",
+                token: liveToken,
+              }),
             );
-            fallbackTimer =
-              undefined;
+            // onopen is transport-only: keep HTTP fallback until the
+            // server proves that authentication and tenant scope succeeded.
             void refreshStatus();
           };
 
@@ -525,7 +561,9 @@ export function useImportProductPolling({
           (message) => {
             if (
               disposed ||
-              settled
+              settled ||
+              websocket !==
+                nextSocket
             ) {
               return;
             }
@@ -535,6 +573,27 @@ export function useImportProductPolling({
                 JSON.parse(
                   message.data,
                 );
+              if (
+                typeof payload === "object" &&
+                payload !== null &&
+                "event" in payload &&
+                payload.event ===
+                  "WS_AUTHENTICATED"
+              ) {
+                realtimeOpen =
+                  true;
+                reconnectAttempt =
+                  0;
+                fallbackAttempt =
+                  0;
+                clearTimer(
+                  fallbackTimer,
+                );
+                fallbackTimer =
+                  undefined;
+                void refreshStatus();
+                return;
+              }
               if (
                 isProductImportProgressEvent(
                   payload,
@@ -550,15 +609,13 @@ export function useImportProductPolling({
 
         nextSocket.onclose =
           () => {
-            if (
-              websocket ===
-              nextSocket
-            ) {
-              websocket =
-                undefined;
-              realtimeOpen =
-                false;
+            // A previous connection can close after a newer one opens.
+            // Never let a stale close event replace or reconnect the new feed.
+            if (websocket !== nextSocket) {
+              return;
             }
+            websocket = undefined;
+            realtimeOpen = false;
             if (
               disposed ||
               settled

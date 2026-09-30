@@ -35,6 +35,7 @@ type Props = {
   trackingExpanded: boolean;
   mappingPending: boolean;
   retryPending: boolean;
+  cancelPending: boolean;
   fileRef: RefObject<HTMLInputElement | null>;
   onClose: () => void;
   onDownloadTemplate: () => void;
@@ -63,6 +64,7 @@ type Props = {
   onDownloadErrorReport: () => void;
   onResetImport: () => void;
   onRetryImport: () => void;
+  onCancelImport: () => void;
   onCompletedClose: () => void;
 };
 
@@ -85,6 +87,7 @@ export function ImportProductModal({
   trackingExpanded,
   mappingPending,
   retryPending,
+  cancelPending,
   fileRef,
   onClose,
   onDownloadTemplate,
@@ -102,6 +105,7 @@ export function ImportProductModal({
   onDownloadErrorReport,
   onResetImport,
   onRetryImport,
+  onCancelImport,
   onCompletedClose,
 }: Props) {
   const { t } = useTranslation();
@@ -176,22 +180,32 @@ export function ImportProductModal({
           />
         ) : status?.status ===
           "NEEDS_MAPPING" ? (
-          <ImportProductMappingPanel
-            detectedHeaders={
-              status.detected_headers
-            }
-            mapping={mapping}
-            mappingPending={
-              mappingPending
-            }
-            online={online}
-            onMappingChange={
-              onMappingChange
-            }
-            onSubmitMapping={
-              onSubmitMapping
-            }
-          />
+          <div className="space-y-3">
+            <ImportProductMappingPanel
+              detectedHeaders={
+                status.detected_headers
+              }
+              mapping={mapping}
+              mappingPending={
+                mappingPending
+              }
+              online={online}
+              onMappingChange={
+                onMappingChange
+              }
+              onSubmitMapping={
+                onSubmitMapping
+              }
+            />
+            <button
+              type="button"
+              disabled={!online || cancelPending || mappingPending}
+              onClick={onCancelImport}
+              className="min-h-9 rounded-lg border border-rose-200 bg-white px-3 text-xs font-bold text-rose-800 disabled:opacity-40"
+            >
+              {t("products.cancelImport")}
+            </button>
+          </div>
         ) : (
           <ImportProductStatusPanel
             status={status}
@@ -200,6 +214,12 @@ export function ImportProductModal({
             online={online}
             retryPending={
               retryPending
+            }
+            cancelPending={
+              cancelPending
+            }
+            onCancelImport={
+              onCancelImport
             }
             onRetryPoll={
               onRetryPoll

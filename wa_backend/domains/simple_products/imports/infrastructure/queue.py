@@ -24,11 +24,23 @@ from domains.simple_products.imports.infrastructure.admission_repository import 
 from domains.simple_products.imports.infrastructure.postgres_source_store import (
     POSTGRES_PRODUCT_IMPORT_SOURCE_STORE,
 )
+from domains.simple_products.imports.infrastructure.resource_budget import (
+    RESOURCE_BUDGET,
+)
 from domains.simple_products.imports.infrastructure.runtime_monitor import (
     register_product_import_worker,
+    read_product_import_runtime_metrics,
+)
+from domains.simple_products.imports.infrastructure.queue_topology import (
+    CONTROL_QUEUE,
+    EXECUTION_QUEUE,
+    is_execution_consumer,
 )
 from domains.product_tracking import normalize_tracking_mode
 from workers.recovery import recover_safe_stalled_jobs
+from domains.simple_products.imports.infrastructure.recovery_reconciler import (
+    reconcile_orphaned_import_jobs,
+)
 
 
 from domains.simple_products.imports.infrastructure.queue_dsn import (
@@ -42,6 +54,21 @@ logger = logging.getLogger(
 )
 PRODUCT_IMPORT_HEARTBEAT_SECONDS = 10.0
 PRODUCT_IMPORT_STALLED_TIMEOUT_SECONDS = 30.0
+PRODUCT_IMPORT_ORPHAN_STALE_SECONDS = 60.0
+def _is_final_retry_attempt(context, exc: Exception) -> bool:
+    """Mirror Procrastinate's configured retry decision without private fields."""
+    strategy = getattr(context.task, "retry_strategy", None)
+    if strategy is None:
+        return True
+    return (
+        strategy.get_retry_decision(
+            exception=exc,
+            job=context.job,
+        )
+        is None
+    )
+
+
 PRODUCT_IMPORT_STALLED_ALLOWLIST = frozenset(
     {
         "wanasah.process_product_import",
@@ -60,6 +87,10 @@ app = App(
         # Product-import queue rows intentionally share the public-schema
         # transaction that creates/updates product_import_jobs.
         kwargs={"options": "-c search_path=public"},
+        # Do not pre-open four connections in every isolated worker role.
+        # The explicit bounded pool is part of D3.2's connection budget.
+        min_size=RESOURCE_BUDGET.queue_pool_min,
+        max_size=RESOURCE_BUDGET.queue_pool_max,
     ),
     worker_defaults={
         "delete_jobs": "never",
@@ -73,26 +104,50 @@ app = App(
 @app.periodic(cron="*/5 * * * *")
 @app.task(
     name="wanasah.recover_stalled_product_imports",
-    queue="product-import",
+    queue=CONTROL_QUEUE,
     queueing_lock="product-import-stalled-recovery",
     lock="product-import-stalled-recovery",
 )
 async def recover_stalled_product_imports(
     timestamp: int | None = None,
 ) -> dict[str, int]:
-    return await recover_safe_stalled_jobs(
-        app,
-        allowlist=PRODUCT_IMPORT_STALLED_ALLOWLIST,
-        seconds_since_heartbeat=PRODUCT_IMPORT_STALLED_TIMEOUT_SECONDS,
-    )
+    # Startup recovery and scheduled recovery use the same mutex, including
+    # independently supervised roles. Do not race two recovery sweeps.
+    async with await psycopg.AsyncConnection.connect(DSN) as connection:
+        async with connection.transaction():
+            cursor = await connection.execute(
+                "SELECT pg_try_advisory_xact_lock("
+                "hashtextextended('product-import-recovery', 0))"
+            )
+            if not (await cursor.fetchone())[0]:
+                return {"recovery_in_progress": 1}
+            queue_recovery = await recover_safe_stalled_jobs(
+                app,
+                allowlist=PRODUCT_IMPORT_STALLED_ALLOWLIST,
+                seconds_since_heartbeat=PRODUCT_IMPORT_STALLED_TIMEOUT_SECONDS,
+            )
+            business_recovery = await reconcile_orphaned_import_jobs(
+                process_product_import,
+                connection=connection,
+                stale_seconds=PRODUCT_IMPORT_ORPHAN_STALE_SECONDS,
+                limit=100,
+            )
+            return {
+                **queue_recovery,
+                **business_recovery,
+            }
 
 
-@app.periodic(
-    cron="* * * * *"
-)
+@app.periodic(cron="* * * * *", periodic_id="execution-presence",
+              queue=EXECUTION_QUEUE,
+              queueing_lock="product-import-execution-presence",
+              lock="product-import-execution-presence")
+@app.periodic(cron="* * * * *")
 @app.task(
     name="wanasah.product_import_worker_heartbeat",
-    queue="product-import",
+    queue=CONTROL_QUEUE,
+    queueing_lock="product-import-control-heartbeat",
+    lock="product-import-control-heartbeat",
     pass_context=True,
 )
 async def product_import_worker_heartbeat(
@@ -104,6 +159,16 @@ async def product_import_worker_heartbeat(
         "worker_id",
         None,
     )
+    if not is_execution_consumer(context):
+        # Independent control health, even while execution/retention is busy.
+        metrics = await read_product_import_runtime_metrics()
+        logger.log(
+            logging.INFO if metrics.ready else logging.ERROR,
+            "PRODUCT_IMPORT_CONTROL_HEALTH ready=%s execution_workers=%s slots=%s",
+            metrics.ready, metrics.healthy_worker_processes,
+            metrics.configured_worker_slots,
+        )
+        return {"registered": 0, **metrics.as_dict()}
     if worker_id is None:
         return {
             "registered": 0,
@@ -125,7 +190,7 @@ async def product_import_worker_heartbeat(
 
 @app.task(
     name="wanasah.process_product_import",
-    queue="product-import",
+    queue=EXECUTION_QUEUE,
     retry=RetryStrategy(
         max_attempts=4,
         wait=3,
@@ -152,6 +217,8 @@ async def process_product_import(
         "worker_id",
         None,
     )
+    if not is_execution_consumer(context):
+        raise RuntimeError("Product Import requires an execution-only worker.")
     if worker_id is not None:
         await register_product_import_worker(
             int(
@@ -205,12 +272,9 @@ async def process_product_import(
             )
             return
 
-        final_attempt = (
-            context.task.retry.get_retry_decision(
-                exception=exc,
-                job=context.job,
-            )
-            is None
+        final_attempt = _is_final_retry_attempt(
+            context,
+            exc,
         )
         await record_runtime_failure(
             company_id=int(company_id),
@@ -242,6 +306,7 @@ async def defer_import_on_connection(
     await process_product_import.configure(
         connection=conn,
         lock=f"product-import:{int(company_id)}",
+        queueing_lock=f"product-import-job:{job_id}",
     ).defer_async(
         company_id=int(company_id),
         job_id=str(job_id),

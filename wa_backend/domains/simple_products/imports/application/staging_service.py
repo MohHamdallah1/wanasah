@@ -18,6 +18,9 @@ from domains.simple_products.imports.infrastructure.parsers import (
     MAX_IMPORT_ROWS,
     ParsedRow,
 )
+from domains.simple_products.imports.infrastructure.phase_timing import (
+    observe_import_phase,
+)
 from domains.simple_products.imports.infrastructure.repository import (
     close_tenant_session,
     delete_job_rows,
@@ -42,6 +45,34 @@ async def stage_source(
     headers: list[str],
     rows: Iterable[ParsedRow],
     suggestions: dict[str, str],
+    expected_rows: int | None = None,
+) -> None:
+    # This interval includes pool checkout, SQL/driver work, spool decoding,
+    # commit/rollback and close. It is not a pure database-server measurement.
+    # Keep the 50k-row write atomic; batching statements is not batching commits.
+    with observe_import_phase(
+        company_id=company_id,
+        job_id=job_id,
+        phase="STAGING_SESSION",
+    ):
+        await _stage_source_transaction(
+            company_id=company_id,
+            job_id=job_id,
+            headers=headers,
+            rows=rows,
+            suggestions=suggestions,
+            expected_rows=expected_rows,
+        )
+
+
+async def _stage_source_transaction(
+    *,
+    company_id: int,
+    job_id: UUID,
+    headers: list[str],
+    rows: Iterable[ParsedRow],
+    suggestions: dict[str, str],
+    expected_rows: int | None,
 ) -> None:
     token, db = await open_tenant_session(
         company_id
@@ -70,11 +101,15 @@ async def stage_source(
             job_id=job_id,
             status="STAGED",
         )
-        if persisted_rows != total_rows:
+        if (
+            persisted_rows != total_rows
+            or (expected_rows is not None and total_rows != expected_rows)
+        ):
             raise ProductImportTerminalError(
                 "Staging row-count mismatch: parsed "
                 f"{total_rows} rows but persisted "
-                f"{persisted_rows}; source was not released."
+                f"{persisted_rows} (source count {expected_rows}); "
+                "source was not released."
             )
 
         job = await load_job(
@@ -91,7 +126,7 @@ async def stage_source(
             str(job.status)
             == JobStatus.CANCELLED.value
         ):
-            # Cancellation may commit while source rows are being parsed.
+            # Cancellation may commit while source rows are being buffered.
             # Roll back this whole staging transaction rather than preserving
             # a partially staged source.
             await db.rollback()
@@ -120,7 +155,7 @@ async def stage_source(
             failed_rows=0,
         )
         await db.commit()
-    except Exception:
+    except BaseException:
         await db.rollback()
         raise
     finally:

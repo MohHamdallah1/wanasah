@@ -71,6 +71,7 @@ class ProductImportConnectionManager:
         *,
         company_id: int,
         job_id: UUID,
+        already_accepted: bool = False,
     ) -> bool:
         key = (
             int(
@@ -124,7 +125,8 @@ class ProductImportConnectionManager:
                 )
                 return False
 
-            await websocket.accept()
+            if not already_accepted:
+                await websocket.accept()
             self._connections.setdefault(
                 key,
                 [],

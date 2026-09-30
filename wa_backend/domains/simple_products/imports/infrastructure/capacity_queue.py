@@ -3,9 +3,6 @@ from __future__ import annotations
 
 import logging
 
-from domains.simple_products.imports.application.retention_service import (
-    iter_retention_company_id_pages,
-)
 from domains.simple_products.imports.domain.admission import (
     DEFAULT_PRODUCT_IMPORT_ADMISSION_POLICY,
 )
@@ -16,6 +13,8 @@ from domains.simple_products.imports.infrastructure.capacity_monitor import (
 from domains.simple_products.imports.infrastructure.queue import (
     app,
 )
+from domains.simple_products.imports.infrastructure.queue_topology import MAINTENANCE_QUEUE
+from domains.simple_products.imports.infrastructure.scheduled_work import defer_due_candidates, reconcile_candidate
 from domains.simple_products.imports.infrastructure.runtime_monitor import (
     QUEUE_AGE_ALERT_SECONDS,
     STUCK_STAGE_ALERT_SECONDS,
@@ -39,7 +38,7 @@ _CAPACITY_LOCK_PREFIX = (
 
 @app.task(
     name="wanasah.monitor_product_import_capacity",
-    queue="product-import",
+    queue=MAINTENANCE_QUEUE,
 )
 async def monitor_product_import_capacity(
     company_id: int,
@@ -122,86 +121,8 @@ async def monitor_product_import_capacity(
             metrics.oldest_active_job_age_seconds,
         )
 
+    await reconcile_candidate(int(company_id), kind="capacity")
     return payload
-
-
-async def _defer_capacity_page(
-    company_ids: list[int],
-) -> tuple[int, int]:
-    if not company_ids:
-        return (
-            0,
-            0,
-        )
-
-    locks = [
-        (
-            int(
-                company_id
-            ),
-            (
-                _CAPACITY_LOCK_PREFIX
-                + str(
-                    int(
-                        company_id
-                    )
-                )
-            ),
-        )
-        for company_id in company_ids
-    ]
-    active_rows = (
-        await app.connector.execute_query_all_async(
-            query=(
-                "SELECT lock "
-                "FROM procrastinate_jobs "
-                "WHERE lock = ANY(%(locks)s::text[]) "
-                "AND status = ANY("
-                "%(statuses)s::procrastinate_job_status[]"
-                ")"
-            ),
-            locks=[
-                lock
-                for _company_id, lock
-                in locks
-            ],
-            statuses=[
-                "todo",
-                "doing",
-            ],
-        )
-    )
-    active_locks = {
-        str(
-            row[
-                "lock"
-            ]
-        )
-        for row in active_rows
-    }
-
-    deferred = 0
-    skipped = 0
-    for (
-        company_id,
-        lock,
-    ) in locks:
-        if lock in active_locks:
-            skipped += 1
-            continue
-
-        await monitor_product_import_capacity.configure(
-            lock=lock
-        ).defer_async(
-            company_id=
-                company_id
-        )
-        deferred += 1
-
-    return (
-        deferred,
-        skipped,
-    )
 
 
 @app.periodic(
@@ -209,7 +130,7 @@ async def _defer_capacity_page(
 )
 @app.task(
     name="wanasah.schedule_product_import_capacity_monitor",
-    queue="product-import",
+    queue=MAINTENANCE_QUEUE,
     queueing_lock=
         "product-import-capacity-scheduler",
     lock=
@@ -379,35 +300,12 @@ async def schedule_product_import_capacity_monitor(
             policy.global_live_source_bytes,
         )
 
-    deferred = 0
-    skipped = 0
-    companies_seen = 0
-    async for company_ids in (
-        iter_retention_company_id_pages()
-    ):
-        companies_seen += len(
-            company_ids
-        )
-        (
-            page_deferred,
-            page_skipped,
-        ) = await _defer_capacity_page(
-            company_ids
-        )
-        deferred += (
-            page_deferred
-        )
-        skipped += (
-            page_skipped
-        )
+    scheduling = await defer_due_candidates(
+        monitor_product_import_capacity, kind="capacity", lock_prefix=_CAPACITY_LOCK_PREFIX,
+    )
 
     return {
-        "companies_seen":
-            companies_seen,
-        "deferred":
-            deferred,
-        "skipped_active":
-            skipped,
+        **scheduling,
         "global_live_source_bytes":
             int(
                 global_metrics[

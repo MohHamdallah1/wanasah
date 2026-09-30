@@ -20,7 +20,6 @@ from fastapi import (
     Request,
     UploadFile,
     WebSocket,
-    WebSocketDisconnect,
 )
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -83,6 +82,10 @@ from models import Driver, ProductImportJob
 from realtime.auth import (
     WebSocketAuthError,
     authenticate_websocket_user,
+)
+from realtime.ws_security import (
+    receive_websocket_bearer,
+    drain_authenticated_websocket,
 )
 from workers.tenant import tenant_session
 
@@ -544,13 +547,8 @@ async def product_import_progress_websocket(
     websocket: WebSocket,
     job_id: UUID,
 ):
-    token = websocket.query_params.get(
-        "token"
-    )
-    if not token:
-        await websocket.close(
-            code=1008
-        )
+    token = await receive_websocket_bearer(websocket)
+    if token is None:
         return
 
     try:
@@ -621,18 +619,18 @@ async def product_import_progress_websocket(
                 identity.company_id
             ),
             job_id=job_id,
+            already_accepted=True,
         )
     )
     if not connected:
         return
 
     try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        pass
-    except Exception:
-        pass
+        await websocket.send_json({"event": "WS_AUTHENTICATED"})
+        await drain_authenticated_websocket(
+            websocket,
+            token_expires_at=identity.token_expires_at,
+        )
     finally:
         await product_import_connection_manager.disconnect(
             websocket,

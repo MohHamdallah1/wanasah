@@ -17,6 +17,9 @@ USER_SAFE_ERROR_MESSAGES: dict[str, str] = {
         "The import could not be completed.",
     "PRODUCT_IMPORT_SYSTEM_FAILURE":
         "Import processing failed because of a temporary system problem.",
+    "PRODUCT_IMPORT_STAGING_STORAGE_UNAVAILABLE":
+        "Temporary import storage is unavailable or insufficient. "
+        "The source file is retained; retry this import after storage is available.",
     "PRODUCT_IMPORT_RETRYING":
         "Import processing was interrupted and will retry safely.",
     "PRODUCT_IMPORT_SOURCE_INVALID":
@@ -222,6 +225,21 @@ class ProductImportTerminalError(RuntimeError):
         self.context = dict(context or {})
 
 
+class ProductImportStagingStorageError(RuntimeError):
+    """Worker storage pressure, never an invalid source or fabricated row error."""
+
+    code = "PRODUCT_IMPORT_STAGING_STORAGE_UNAVAILABLE"
+
+    def __init__(
+        self,
+        technical_message: str,
+        *,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(technical_message)
+        self.context = dict(context or {})
+
+
 class ProductImportRowValidationError(RuntimeError):
     """Deterministic validation failure attributable to one source row."""
 
@@ -266,6 +284,14 @@ class ImportErrorClassification:
 
 
 def classify_import_error(exc: BaseException) -> ImportErrorClassification:
+    if isinstance(exc, ProductImportStagingStorageError):
+        return ImportErrorClassification(
+            kind=ImportErrorKind.TRANSIENT_SYSTEM,
+            scope=ImportFailureScope.JOB,
+            retryable=True,
+            code=exc.code,
+            message=user_safe_error_message(exc.code),
+        )
     if isinstance(exc, ProductImportRowValidationError):
         return ImportErrorClassification(
             kind=ImportErrorKind.DETERMINISTIC_VALIDATION,

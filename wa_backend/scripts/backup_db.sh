@@ -1,65 +1,53 @@
 #!/usr/bin/env bash
-# ═══════════════════════════════════════════════════════════════════════════════
-# Wanasah — Production Database Backup & Retention Script
-# ═══════════════════════════════════════════════════════════════════════════════
-# Usage:  ./backup_db.sh
-# Cron:   0 2 * * * /opt/wanasah/wa_backend/scripts/backup_db.sh
-# ═══════════════════════════════════════════════════════════════════════════════
-set -euo pipefail
+# Wanasah: atomic, verifiable PostgreSQL custom-format backup.
+# Never write a plaintext SQL dump or remove a verified backup on failure.
+set -Eeuo pipefail
+umask 077
 
-# ═══ 1. Configuration (environment with safe defaults) ═══
-: "${POSTGRES_DB:=wanasah}"
-: "${POSTGRES_USER:=wanasah_admin}"
-: "${POSTGRES_PASSWORD:=}"
-: "${POSTGRES_HOST:=localhost}"
-: "${POSTGRES_PORT:=5432}"
-: "${BACKUP_DIR:=/var/backups/wanasah}"
-: "${RETENTION_DAYS:=30}"
+POSTGRES_DB="${POSTGRES_DB:-wanasah}"
+POSTGRES_USER="${POSTGRES_USER:-wanasah_admin}"
+POSTGRES_HOST="${POSTGRES_HOST:-localhost}"
+POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+BACKUP_DIR="${BACKUP_DIR:-/var/backups/wanasah}"
+RETENTION_DAYS="${RETENTION_DAYS:-30}"
 
-# ═══ 2. Ensure backup directory exists ═══
-mkdir -p "$BACKUP_DIR"
-
-# ═══ 3. Generate ISO timestamped filename ═══
-TIMESTAMP=$(date +'%Y%m%d_%H%M%S')
-BACKUP_FILE="${BACKUP_DIR}/wanasah_backup_${TIMESTAMP}.sql.gz"
-LOG_TAG="[WanasahBackup]"
-
-echo "${LOG_TAG} $(date '+%Y-%m-%d %H:%M:%S') | Starting database backup for '${POSTGRES_DB}'..."
-
-# ═══ 4. Execute pg_dump with compression ═══
-START_EPOCH=$(date +%s)
-
-export PGPASSWORD="${POSTGRES_PASSWORD}"
-
-if pg_dump \
-    --host="${POSTGRES_HOST}" \
-    --port="${POSTGRES_PORT}" \
-    --username="${POSTGRES_USER}" \
-    --dbname="${POSTGRES_DB}" \
-    --format=custom \
-    --compress=9 \
-    --verbose \
-    2>&1 | gzip > "${BACKUP_FILE}"; then
-
-    END_EPOCH=$(date +%s)
-    DURATION=$((END_EPOCH - START_EPOCH))
-    FILE_SIZE=$(du -h "${BACKUP_FILE}" | cut -f1)
-
-    echo "${LOG_TAG} $(date '+%Y-%m-%d %H:%M:%S') | ✓ Backup completed successfully."
-    echo "${LOG_TAG} File: ${BACKUP_FILE}"
-    echo "${LOG_TAG} Size: ${FILE_SIZE}"
-    echo "${LOG_TAG} Duration: ${DURATION} seconds"
-else
-    echo "${LOG_TAG} $(date '+%Y-%m-%d %H:%M:%S') | ✗ Backup FAILED for database '${POSTGRES_DB}'." >&2
-    exit 1
+if [[ ! "$RETENTION_DAYS" =~ ^[0-9]+$ ]] || (( RETENTION_DAYS < 1 )); then
+  echo "[WanasahBackup] RETENTION_DAYS must be at least 1" >&2
+  exit 2
 fi
+for bin in pg_dump pg_restore; do
+  command -v "$bin" >/dev/null || { echo "[WanasahBackup] Missing $bin" >&2; exit 2; }
+done
 
-# ═══ 5. Retention cleanup — delete backups older than RETENTION_DAYS ═══
-echo "${LOG_TAG} $(date '+%Y-%m-%d %H:%M:%S') | Running retention cleanup (>${RETENTION_DAYS} days)..."
+mkdir -p -- "$BACKUP_DIR"
+stamp="$(date -u +%Y%m%dT%H%M%SZ)_$$"
+final="$BACKUP_DIR/wanasah_backup_$stamp.dump"
+temp="$(mktemp "$BACKUP_DIR/.wanasah_backup_$stamp.XXXXXXXX")"
+cleanup() { rm -f -- "$temp"; }
+trap cleanup EXIT
 
-DELETED_COUNT=$(find "$BACKUP_DIR" -name "wanasah_backup_*.sql.gz" -type f -mtime +"${RETENTION_DAYS}" -print -delete | wc -l)
+if [[ -n "${POSTGRES_PASSWORD:-}" ]]; then
+  export PGPASSWORD="$POSTGRES_PASSWORD"
+fi
+export PGAPPNAME=wanasah-backup
+echo "[WanasahBackup] Starting verified custom-format backup ($POSTGRES_DB)"
 
-echo "${LOG_TAG} $(date '+%Y-%m-%d %H:%M:%S') | Cleanup finished. Deleted ${DELETED_COUNT} old backup file(s)."
-echo "${LOG_TAG} $(date '+%Y-%m-%d %H:%M:%S') | === Backup & retention job completed. ==="
+# pg_dump -Fc already compresses each data stream; DO NOT gzip it again.
+pg_dump --host="$POSTGRES_HOST" --port="$POSTGRES_PORT" \
+  --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" \
+  --format=custom --compress=6 --file="$temp"
+test -s "$temp"
+# This detects a malformed/truncated directory; a FULL restore is separately
+# required by scripts/verify_restore_backup.sh.
+pg_restore --list "$temp" >/dev/null
+test ! -e "$final" || { echo "[WanasahBackup] Backup target collision" >&2; exit 2; }
+mv -- "$temp" "$final"
+trap - EXIT
 
-unset PGPASSWORD
+# Retain a working backup before applying retention; only manage this script's
+# .dump outputs, never legacy .sql.gz or any unrelated backup.
+echo "[WanasahBackup] VERIFIED_BACKUP=$final"
+echo "[WanasahBackup] SHA256=$(sha256sum "$final" | awk '{print $1}')"
+find "$BACKUP_DIR" -maxdepth 1 -type f -name 'wanasah_backup_*.dump' \
+  -mtime +"$RETENTION_DAYS" -print -delete
+echo "[WanasahBackup] BACKUP_ARCHIVE_GATE=PASS; FULL_RESTORE_NOT_YET_VERIFIED"

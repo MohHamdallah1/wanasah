@@ -502,7 +502,7 @@ export default function DispatchBoard() {
 
       const wsUrl =
         apiUrl.replace(/^http/, "ws") +
-        `/ws/dispatch?token=${encodeURIComponent(token)}`;
+        `/ws/dispatch`;
       ws = new WebSocket(wsUrl);
 
       ws.onmessage = (event) => {
@@ -510,7 +510,7 @@ export default function DispatchBoard() {
           const parsed: unknown = JSON.parse(event.data);
           if (typeof parsed !== "object" || parsed === null) return;
           const data = parsed as WorkerRealtimeEvent;
-          if (!data.event) return;
+          if (!data.event || data.event === "WS_AUTHENTICATED") return;
 
           const isWorkerAlert =
             data.event === "STALE_HANDSHAKE_WARNING" ||
@@ -536,6 +536,12 @@ export default function DispatchBoard() {
         reconnectTimer = setTimeout(connectWS, backoff);
       };
       ws.onopen = () => {
+        const liveToken = localStorage.getItem("admin_token");
+        if (!liveToken) {
+          ws?.close();
+          return;
+        }
+        ws?.send(JSON.stringify({ type: "auth", token: liveToken }));
         retryCount = 0;
       };
       ws.onerror = () => {};
