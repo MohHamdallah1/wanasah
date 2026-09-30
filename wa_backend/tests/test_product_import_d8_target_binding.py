@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from scripts.audit_product_import_d8_readonly import (
     _bind_env_file_db_target,
+    _observed_import_roles,
 )
 
 MIGRATION = "postgresql://migration:synthetic@staging.invalid/w_stage"
@@ -92,6 +93,15 @@ class ExplicitTargetBindingTests(unittest.TestCase):
                 "DATABASE_URL": "not-a-url-with-password-secret",
             }, {})
         self.assertNotIn("password-secret", str(ctx.exception))
+
+    def test_worker_role_prefixes_do_not_fake_running_roles(self) -> None:
+        names = {
+            "wanasah-product-import-execution-debug": 4,
+            "wanasah-product-import-maintenance-proxy": 1,
+            "wanasah-product-import-control": 0,
+            "wanasah-product-import-execution": 1,
+        }
+        self.assertEqual(_observed_import_roles(names), ["execution"])
 
     def test_developer_only_checks_targets_present_in_file(self) -> None:
         self.check({}, {}, scope="developer")

@@ -83,6 +83,15 @@ def _bind_env_file_db_target(env_file: Path, *, scope: str) -> None:
             )
 
 
+def _observed_import_roles(role_counts: dict[str, int]) -> list[str]:
+    # The worker entrypoint sets PGAPPNAME to this exact value. Prefix or
+    # substring matches can misreport an unrelated observer as a worker.
+    return [
+        role for role in ("execution", "control", "maintenance")
+        if role_counts.get(f"wanasah-product-import-{role}", 0) > 0
+    ]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--env-file", type=Path, required=True)
@@ -131,10 +140,12 @@ def main() -> None:
 
         rows = connection.execute(
             """
-            SELECT relname, relrowsecurity, relforcerowsecurity
-            FROM pg_class
-            WHERE relkind IN ('r','p') AND relname = ANY(%s)
-            ORDER BY relname
+            SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
+            FROM pg_class AS c
+            JOIN pg_namespace AS n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public'
+              AND c.relkind IN ('r','p') AND c.relname = ANY(%s)
+            ORDER BY c.relname
             """,
             (list(REQUIRED_RLS_TABLES),),
         ).fetchall()
@@ -187,11 +198,7 @@ def main() -> None:
             )
         }
         # Worker names are connection identities; no tokens or SQL literals.
-        role_names = tuple(("execution", "control", "maintenance"))
-        running_roles = [
-            role for role in role_names
-            if any(role in name for name in roles)
-        ]
+        running_roles = _observed_import_roles(roles)
         if args.scope == "staging" and len(running_roles) < 3:
             failures.append("Staging missing active worker role connections")
         elif len(running_roles) < 3:
@@ -311,19 +318,22 @@ def main() -> None:
         # Queue timestamps include purposeful scheduling delays and cannot be
         # interpreted as time-in-ready-state without a deeper delivery trace.
 
-        old_tests = connection.execute(
-            """
-            SELECT count(*) FROM product_import_jobs
-            WHERE company_id BETWEEN 2393 AND 2398
-              AND status IN ('QUEUED','PARSING','VALIDATING','IMPORTING','RETRYING')
-            """
-        ).fetchone()[0]
-        if int(old_tests):
-            warnings.append(
-                "Historical synthetic test jobs remain nonterminal; "
-                "DO NOT start recovery blindly on developer source"
-            )
-        print("HISTORICAL_SYNTHETIC_ACTIVE=" + str(old_tests))
+        if args.scope == "developer":
+            # The hardcoded IDs are known ONLY in the developer database.
+            # Never probe arbitrary tenant IDs or call them synthetic on staging.
+            old_tests = connection.execute(
+                """
+                SELECT count(*) FROM product_import_jobs
+                WHERE company_id BETWEEN 2393 AND 2398
+                  AND status IN ('QUEUED','PARSING','VALIDATING','IMPORTING','RETRYING')
+                """
+            ).fetchone()[0]
+            if int(old_tests):
+                warnings.append(
+                    "Historical synthetic test jobs remain nonterminal; "
+                    "DO NOT start recovery blindly on developer source"
+                )
+            print("HISTORICAL_SYNTHETIC_ACTIVE=" + str(old_tests))
 
         print("READ_ONLY_SCHEMA_INVENTORY=PASS")
     print("WARNINGS=" + str(len(warnings)))

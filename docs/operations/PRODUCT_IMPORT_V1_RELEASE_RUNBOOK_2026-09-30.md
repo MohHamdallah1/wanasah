@@ -72,6 +72,8 @@ operator-specified staging target (`python -m unittest
 tests.test_product_import_d8_target_binding` checks this contract without
 DB/network). Do not commit the protected staging env file to Git.
 
+The FORCE RLS inventory checks `public` tables explicitly, and worker
+connections are matched by the exact entrypoint PGAPPNAME, not substrings.
 Observing `wanasah-product-import-{role}` in `pg_stat_activity` proves
 only a role-labeled DB connection. **It does not prove which commit is
 loaded by that worker.** Procrastinate 3.9's `procrastinate_workers` table
@@ -80,6 +82,11 @@ compare freshly captured `PRODUCT_IMPORT_WORKER_CODE` startup records for
 all three roles (commit+source_sha256+PID+start time) with the immutable
 release checkout and the currently supervised OS processes. Preserve
 startup logs and operator evidence; D8 stays OPEN without this live proof.
+
+The known developer-only historical synthetic company-ID probe is not
+executed on staging, so a staging tenant with the same numeric ID cannot be
+misreported as an old developer job. This does not resolve the six old
+nonterminal jobs on the actual developer database.
 
 The read-only inventory script verifies observer privileges, compares the
 configured web + operational + import pool envelope to reserved/max slots, prints only
