@@ -114,6 +114,46 @@ export function useImportProductCommands({
         ),
     });
 
+  const cancelImportMutation =
+    useMutation({
+      mutationFn: async () => {
+        if (!importJobId) {
+          throw new Error("PRODUCT_IMPORT_COMMAND_JOB_MISSING");
+        }
+        const result =
+          parseProductImportCommandResponse(
+            await authFetch(
+              `/simple-products/imports/${importJobId}/cancel`,
+              { method: "POST" },
+            ),
+          );
+        if (result.job_id !== importJobId) {
+          throw new Error("PRODUCT_IMPORT_COMMAND_SCOPE_MISMATCH");
+        }
+        return result;
+      },
+      onSuccess: (result) => {
+        setImportPollError(null);
+        setImportStatus(
+          (current) =>
+            current
+              ? { ...current, status: result.status }
+              : current,
+        );
+        // Restart the canonical HTTP/WS watch on the original job; never
+        // infer cancellation completion from the client-side button click.
+        setImportPollKey((current) => current + 1);
+        toast.message(t("products.importCancelRequested"));
+      },
+      onError: (error) =>
+        toast.error(
+          apiErrorMessage(
+            error,
+            t("products.errors.cancelImportFailed"),
+          ),
+        ),
+    });
+
   const retryImportMutation =
     useMutation({
       mutationFn: async () => {
@@ -192,11 +232,24 @@ export function useImportProductCommands({
     () =>
       retryImportMutation.mutate();
 
+  const cancelImport = () => {
+    if (
+      !importJobId ||
+      cancelImportMutation.isPending ||
+      !window.confirm(t("products.importCancelConfirm"))
+    ) {
+      return;
+    }
+    cancelImportMutation.mutate();
+  };
+
   return {
     mappingMutation,
     retryImportMutation,
+    cancelImportMutation,
     updateMapping,
     submitMapping,
     retryImport,
+    cancelImport,
   };
 }

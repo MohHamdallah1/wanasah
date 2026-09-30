@@ -138,9 +138,11 @@ export function useImportProductWorkflow({
   const {
     mappingMutation,
     retryImportMutation,
+    cancelImportMutation,
     updateMapping,
     submitMapping,
     retryImport,
+    cancelImport,
   } = useImportProductCommands({
     importJobId,
     mapping,
@@ -247,6 +249,8 @@ export function useImportProductWorkflow({
         mappingMutation.isPending,
       retryPending:
         retryImportMutation.isPending,
+      cancelPending:
+        cancelImportMutation.isPending,
       fileRef,
       onClose:
         closeImport,
@@ -280,6 +284,8 @@ export function useImportProductWorkflow({
         resetImport,
       onRetryImport:
         retryImport,
+      onCancelImport:
+        cancelImport,
       onCompletedClose:
         completeImport,
     },

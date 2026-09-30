@@ -690,6 +690,11 @@ export const resources = {
           "فشلت العملية بعد محاولات الإعادة. لم يترك النظام منتجاً نصف مكتمل.",
         importCancelled:
           "تم إلغاء الاستيراد بأمان. احتُفظ فقط بالصفوف التي اكتملت معاملاتها قبل الإلغاء.",
+        cancelImport: "إلغاء الاستيراد",
+        importCancelConfirm:
+          "هل تريد طلب إيقاف الاستيراد؟ المنتجات التي اكتمل حفظها لن تُحذف، وقد يستغرق إيقاف المعاملة الحالية بعض الوقت.",
+        importCancelRequested:
+          "تم إرسال طلب الإلغاء. ستظهر الحالة المؤكدة عند تحديث الاستيراد.",
         importCompleted:
           "تم استيراد {{count}} منتج بنجاح",
         importCompletedWithErrors:
@@ -743,6 +748,8 @@ export const resources = {
             "تعذر تحميل أنواع العبوات. أعد المحاولة قبل حفظ المنتج.",
           importStatusLoad:
             "تعذر تحديث حالة الاستيراد. سنواصل المحاولة ويمكنك إعادة المحاولة الآن.",
+          cancelImportFailed:
+            "تعذر إرسال طلب إلغاء الاستيراد. تحقق من الحالة قبل إعادة المحاولة.",
           nameRequired: "اسم المنتج مطلوب.",
           existingFamilyRequired:
             "اختر عائلة موجودة من القائمة. لن ننشئ عائلة جديدة تلقائياً.",
@@ -2328,6 +2335,11 @@ export const resources = {
           "The import failed after retries. No half-created product was left behind.",
         importCancelled:
           "The import was cancelled safely. Only rows whose transactions completed before cancellation were kept.",
+        cancelImport: "Cancel import",
+        importCancelConfirm:
+          "Request cancellation of this import? Already committed products will not be removed, and the current transaction may need time to finish.",
+        importCancelRequested:
+          "Cancellation requested. The confirmed job status will update shortly.",
         importCompleted:
           "{{count}} products imported successfully",
         importCompletedWithErrors:
@@ -2378,6 +2390,8 @@ export const resources = {
             "Could not load package types. Retry before saving the product.",
           importStatusLoad:
             "Could not refresh the import status. Automatic retries will continue, or retry now.",
+          cancelImportFailed:
+            "Could not request import cancellation. Check the current job status before retrying.",
           nameRequired:
             "Product name is required.",
           existingFamilyRequired:
