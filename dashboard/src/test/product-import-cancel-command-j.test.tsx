@@ -46,8 +46,8 @@ function commands(authFetch: (path: string, opts?: RequestInit) => Promise<unkno
   function wrapper({ children }: PropsWithChildren) {
     return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
   }
-  const hook = renderHook(() => useImportProductCommands({
-    importJobId: JOB,
+  const hook = renderHook(({jobId}) => useImportProductCommands({
+    importJobId: jobId,
     mapping: {},
     setMapping: vi.fn(),
     authFetch,
@@ -55,7 +55,7 @@ function commands(authFetch: (path: string, opts?: RequestInit) => Promise<unkno
     setImportStatus: setStatus,
     setImportPollKey: setPollKey,
     t: ((key: string) => key) as TFunction,
-  }), { wrapper });
+  }), { wrapper, initialProps: { jobId: JOB } });
   return { ...hook, setStatus, setError, setPollKey };
 }
 
@@ -102,6 +102,34 @@ describe("Product Import cancellation connects the existing tenant-scoped backen
     hook.unmount();
   });
 
+  it("does not apply a late cancel response to a replacement import job", async () => {
+    let resolveOld!: (response: unknown) => void;
+    const pending = new Promise<unknown>((resolve) => {
+      resolveOld = resolve;
+    });
+    const fetch = vi.fn().mockReturnValue(pending);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const hook = commands(fetch);
+
+    act(() => hook.result.current.cancelImport());
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+
+    hook.rerender({ jobId: OTHER });
+    await act(async () => {
+      resolveOld({
+        job_id: JOB,
+        status: "CANCELLED",
+        message: "Old job was cancelled",
+      });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(hook.result.current.cancelImportMutation.isSuccess).toBe(true));
+    expect(hook.setStatus).not.toHaveBeenCalled();
+    expect(hook.setPollKey).not.toHaveBeenCalled();
+    expect(hook.setError).not.toHaveBeenCalled();
+    hook.unmount();
+  });
+
   it("shows cancellation only for an unfinished job and disables it offline", () => {
     const onCancelImport = vi.fn();
     const active = {
@@ -130,6 +158,11 @@ describe("Product Import cancellation connects the existing tenant-scoped backen
     const view = render(<ImportProductStatusPanel {...props} />);
     fireEvent.click(screen.getByRole("button", { name: "products.cancelImport" }));
     expect(onCancelImport).toHaveBeenCalledTimes(1);
+
+    view.rerender(<ImportProductStatusPanel {...props} status={null} />);
+    expect(screen.getByRole("button", { name: "products.cancelImport" })).not.toBeNull();
+    view.rerender(<ImportProductStatusPanel {...props} status={null} online={false} />);
+    expect((screen.getByRole("button", { name: "products.cancelImport" }) as HTMLButtonElement).disabled).toBe(true);
 
     view.rerender(<ImportProductStatusPanel {...props} online={false} />);
     expect((screen.getByRole("button", { name: "products.cancelImport" }) as HTMLButtonElement).disabled).toBe(true);

@@ -43,16 +43,15 @@ export function ImportProductStatusPanel({
   const { t, i18n } =
     useTranslation();
 
-  const canCancel = Boolean(
-    status &&
-    (
-      status.status === "QUEUED" ||
-      status.status === "PARSING" ||
-      status.status === "VALIDATING" ||
-      status.status === "IMPORTING" ||
-      status.status === "RETRYING"
-    ),
-  );
+  // A durable job exists as soon as upload is accepted, even before the
+  // first status response. Cancellation must be available at that point.
+  const canCancel =
+    !status ||
+    status.status === "QUEUED" ||
+    status.status === "PARSING" ||
+    status.status === "VALIDATING" ||
+    status.status === "IMPORTING" ||
+    status.status === "RETRYING";
 
   if (pollError) {
     return (
@@ -94,14 +93,22 @@ export function ImportProductStatusPanel({
     return (
       <div
         aria-live="polite"
-        className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3"
+        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3"
       >
-        <LoaderCircle className="h-4 w-4 shrink-0 animate-spin text-slate-500" />
-        <span className="text-xs font-black text-slate-600">
-          {t(
-            "products.queued",
-          )}
+        <span className="flex items-center gap-3">
+          <LoaderCircle className="h-4 w-4 shrink-0 animate-spin text-slate-500" />
+          <span className="text-xs font-black text-slate-600">
+            {t("products.queued")}
+          </span>
         </span>
+        <button
+          type="button"
+          disabled={!online || cancelPending}
+          onClick={onCancelImport}
+          className="min-h-9 rounded-lg border border-rose-200 bg-white px-3 text-xs font-bold text-rose-800 disabled:opacity-40"
+        >
+          {t("products.cancelImport")}
+        </button>
       </div>
     );
   }

@@ -1,6 +1,8 @@
-import type {
-  Dispatch,
-  SetStateAction,
+import {
+  useEffect,
+  useRef,
+  type Dispatch,
+  type SetStateAction,
 } from "react";
 import {
   useMutation,
@@ -52,6 +54,13 @@ export function useImportProductCommands({
   setImportPollKey,
   t,
 }: Params) {
+  // Async command replies belong to the job that initiated them, not a
+  // replacement job selected while the network request was in flight.
+  const currentJobRef = useRef(importJobId);
+  useEffect(() => {
+    currentJobRef.current = importJobId;
+  }, [importJobId]);
+
   const mappingMutation =
     useMutation({
       mutationFn: async () => {
@@ -81,6 +90,12 @@ export function useImportProductCommands({
         return result;
       },
       onSuccess: (result) => {
+        if (
+          !result ||
+          result.job_id !== currentJobRef.current
+        ) {
+          return;
+        }
         setImportPollError(null);
         setImportStatus(
           (current) =>
@@ -133,6 +148,12 @@ export function useImportProductCommands({
         return result;
       },
       onSuccess: (result) => {
+        if (
+          !result ||
+          result.job_id !== currentJobRef.current
+        ) {
+          return;
+        }
         setImportPollError(null);
         setImportStatus(
           (current) =>
@@ -180,6 +201,12 @@ export function useImportProductCommands({
         return result;
       },
       onSuccess: (result) => {
+        if (
+          !result ||
+          result.job_id !== currentJobRef.current
+        ) {
+          return;
+        }
         setImportPollError(null);
         setImportStatus(
           (current) =>
