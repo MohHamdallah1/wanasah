@@ -1,8 +1,16 @@
 # Wanasah Architecture Constitution
 
+## Mandatory delivery workflow — Owner directive (2026-09-30)
+
+> من الآن راح أغيّر أسلوب الشغل: فحص مجمّع، تنفيذ محدد، اختبار قبول شامل، ثم Commit. وإذا فشل الاختبار نعالج السبب المثبت فقط، بدل دوامة اختبارات وإعادة تشغيل غير ضرورية. وما رح أعيد فحوصات D7-L الناجحة لمجرد التكرار.
+
+**Binding across the project:** Diagnose related files and evidence in one consolidated pass; implement only the demonstrated change; run one complete, risk-appropriate acceptance gate and essential affected regressions; fix the proven cause of any failure rather than cycling through unrelated tests; then inspect the diff, update the plan accurately, and commit/push. Prefer GitHub reads and batched remote commands to conserve the monthly MCP quota. Reuse already-passing D7-L evidence unless relevant code or assumptions change. Never compromise tenant isolation, security, data integrity, business semantics, or required release gates to save time. An unavailable staging test remains OPEN rather than being misrepresented as PASS.
+
+---
+
 **Status:** CANONICAL ARCHITECTURE DIRECTION  
 **Scope:** Entire repository and all future modules  
-**Last updated:** 2026-09-27
+**Last updated:** 2026-09-30
 
 This document is the architectural constitution of the Wanasah platform. It records the intended long-term direction so future work does not accidentally optimize one feature at the expense of the platform.
 
