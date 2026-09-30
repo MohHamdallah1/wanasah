@@ -6,6 +6,8 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import type { RefObject } from "react";
+import { ImportCorrectionPanel } from "@/pages/products/import/ImportCorrectionPanel";
 
 import type {
   ProductImportState,
@@ -21,6 +23,13 @@ type Props = {
   onCancelImport: () => void;
   onRetryPoll: () => void;
   onDownloadErrorReport: () => void;
+  correctionFile: File | null;
+  correctionFileRef: RefObject<HTMLInputElement | null>;
+  downloadingCorrection: boolean;
+  uploadingCorrection: boolean;
+  onChooseCorrectionFile: (file: File | null) => void;
+  onDownloadCorrection: () => void;
+  onUploadCorrection: () => void;
   onResetImport: () => void;
   onRetryImport: () => void;
   onCompletedClose: () => void;
@@ -36,6 +45,13 @@ export function ImportProductStatusPanel({
   onCancelImport,
   onRetryPoll,
   onDownloadErrorReport,
+  correctionFile,
+  correctionFileRef,
+  downloadingCorrection,
+  uploadingCorrection,
+  onChooseCorrectionFile,
+  onDownloadCorrection,
+  onUploadCorrection,
   onResetImport,
   onRetryImport,
   onCompletedClose,
@@ -159,6 +175,17 @@ export function ImportProductStatusPanel({
             )}
           </button>
         </div>
+
+          <ImportCorrectionPanel
+            online={online}
+            correctionFile={correctionFile}
+            correctionFileRef={correctionFileRef}
+            downloadingCorrection={downloadingCorrection}
+            uploadingCorrection={uploadingCorrection}
+            onChooseCorrectionFile={onChooseCorrectionFile}
+            onDownloadCorrection={onDownloadCorrection}
+            onUploadCorrection={onUploadCorrection}
+          />
 
         <div className="max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white">
           {status.errors.map(
@@ -351,6 +378,17 @@ export function ImportProductStatusPanel({
             )}
           </button>
         </div>
+          <ImportCorrectionPanel
+            online={online}
+            correctionFile={correctionFile}
+            correctionFileRef={correctionFileRef}
+            downloadingCorrection={downloadingCorrection}
+            uploadingCorrection={uploadingCorrection}
+            onChooseCorrectionFile={onChooseCorrectionFile}
+            onDownloadCorrection={onDownloadCorrection}
+            onUploadCorrection={onUploadCorrection}
+          />
+
       </div>
     );
   }
