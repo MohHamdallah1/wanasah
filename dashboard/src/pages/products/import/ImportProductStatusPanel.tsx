@@ -8,12 +8,15 @@ import {
 import { useTranslation } from "react-i18next";
 import type { RefObject } from "react";
 import { ImportCorrectionPanel } from "@/pages/products/import/ImportCorrectionPanel";
+import { ImportRejectedRowsReview } from "@/pages/products/import/ImportRejectedRowsReview";
 
 import type {
   ProductImportState,
 } from "@/pages/products/contracts";
 
 type Props = {
+  jobId: string | null;
+  authFetch: (path: string, options?: RequestInit) => Promise<unknown>;
   status: ProductImportState | null;
   pollError: string | null;
   progress: number;
@@ -36,6 +39,8 @@ type Props = {
 };
 
 export function ImportProductStatusPanel({
+  jobId,
+  authFetch,
   status,
   pollError,
   progress,
@@ -56,7 +61,7 @@ export function ImportProductStatusPanel({
   onRetryImport,
   onCompletedClose,
 }: Props) {
-  const { t, i18n } =
+  const { t } =
     useTranslation();
 
   // A durable job exists as soon as upload is accepted, even before the
@@ -187,52 +192,14 @@ export function ImportProductStatusPanel({
             onUploadCorrection={onUploadCorrection}
           />
 
-        <div className="max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white">
-          {status.errors.map(
-            (error) => {
-              const key =
-                error.code
-                  ? "errors.codes." +
-                    error.code
-                  : "";
-              const message =
-                key &&
-                i18n.exists(key)
-                  ? t(key)
-                  : t(
-                      "network.serverError",
-                    );
-
-              return (
-                <div
-                  key={
-                    String(
-                      error.row_number,
-                    ) +
-                    "-" +
-                    String(
-                      error.code,
-                    )
-                  }
-                  className="grid gap-1 border-b border-slate-100 px-3 py-2.5 text-[10px] last:border-b-0 sm:grid-cols-[100px_minmax(0,1fr)]"
-                >
-                  <strong className="font-black text-slate-600">
-                    {t(
-                      "products.rowNumber",
-                      {
-                        row:
-                          error.row_number,
-                      },
-                    )}
-                  </strong>
-                  <span className="font-bold leading-4 text-rose-700">
-                    {message}
-                  </span>
-                </div>
-              );
-            },
-          )}
-        </div>
+        {jobId ? (
+          <ImportRejectedRowsReview
+            key={jobId}
+            jobId={jobId}
+            online={online}
+            authFetch={authFetch}
+          />
+        ) : null}
       </div>
     );
   }
@@ -388,7 +355,14 @@ export function ImportProductStatusPanel({
             onDownloadCorrection={onDownloadCorrection}
             onUploadCorrection={onUploadCorrection}
           />
-
+          {jobId ? (
+            <ImportRejectedRowsReview
+              key={jobId}
+              jobId={jobId}
+              online={online}
+              authFetch={authFetch}
+            />
+          ) : null}
       </div>
     );
   }
