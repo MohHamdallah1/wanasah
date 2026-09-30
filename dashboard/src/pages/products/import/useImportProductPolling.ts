@@ -224,7 +224,8 @@ export function useImportProductPolling({
       status:
         ProductImportState,
     ) => {
-      if (disposed) {
+      // Late HTTP responses must never replace an already-terminal snapshot.
+      if (disposed || settled) {
         return true;
       }
 
@@ -251,6 +252,16 @@ export function useImportProductPolling({
             ? status.column_mapping
             : status.suggested_mapping,
         );
+      }
+
+      const isSettled =
+        settledImportStatuses.has(
+          status.status,
+        );
+      // Commit transport closure synchronously before awaited React Query
+      // invalidations; any earlier HTTP response is now ignored.
+      if (isSettled) {
+        finishTransport();
       }
 
       if (
@@ -309,13 +320,6 @@ export function useImportProductPolling({
         ]);
       }
 
-      const isSettled =
-        settledImportStatuses.has(
-          status.status,
-        );
-      if (isSettled) {
-        finishTransport();
-      }
       return isSettled;
     };
 
@@ -463,6 +467,20 @@ export function useImportProductPolling({
         ) {
           return;
         }
+        // At most one live or connecting socket may own the job feed.
+        if (
+          websocket &&
+          (
+            websocket.readyState === WebSocket.OPEN ||
+            websocket.readyState === WebSocket.CONNECTING
+          )
+        ) {
+          return;
+        }
+        if (!isOnline || !navigator.onLine) {
+          scheduleFallback();
+          return;
+        }
 
         const token =
           localStorage.getItem(
@@ -576,15 +594,13 @@ export function useImportProductPolling({
 
         nextSocket.onclose =
           () => {
-            if (
-              websocket ===
-              nextSocket
-            ) {
-              websocket =
-                undefined;
-              realtimeOpen =
-                false;
+            // A previous connection can close after a newer one opens.
+            // Never let a stale close event replace or reconnect the new feed.
+            if (websocket !== nextSocket) {
+              return;
             }
+            websocket = undefined;
+            realtimeOpen = false;
             if (
               disposed ||
               settled
