@@ -16,6 +16,47 @@ On a Linux deployment host, configure POSTGRES_DB, POSTGRES_USER, POSTGRES_HOST,
 
 To rerun the backup toolchain gate ONLY after changing these scripts: from wa_backend, set WANASAH_D8_DISPOSABLE_GATE=1 and run python -m scripts.gate_product_import_d8_backup_restore_disposable. This gate starts and tears down its own loopback PostgreSQL cluster on port 55447.
 
+## D7-S external load-generator safety baseline (read-only)
+
+The old `wa_backend/locustfile.py` had hardcoded example login credentials
+and issued unconstrained stock-transfer POSTs. It has been replaced by a
+**read-only, fail-closed** staging driver: catalogue GET, optional same-company
+import-status GET, and optional other-company status GET expecting 404.
+It never logs JWTs/response bodies or creates inventory movements.
+
+Install Locust **on the separate approved load-generator host**, not into
+the developer API runtime. Configure these variables with synthetic staging
+secrets: `WANASAH_LOAD_TEST_ACK=I_ACK_ISOLATED_SYNTHETIC_STAGING`,
+`WANASAH_LOAD_STAGING_URL=https://<approved-stage-host>`,
+`WANASAH_LOAD_APPROVED_URL` to the **same exact URL**,
+`WANASAH_LOAD_TOKEN_COMPANY_A`, optional
+`WANASAH_LOAD_TOKEN_COMPANY_B`, and optional
+`WANASAH_LOAD_JOB_COMPANY_A/B` (the latter two must be **synthetic
+existing job UUIDs**, one for each different company). The guard refuses
+host mismatch, missing acknowledgement/tokens, URLs with credentials or
+non-loopback HTTP, and can be verified without Locust/DB using
+`python -m unittest tests.test_staging_load_guard`.
+
+For a read-only *user-emulation* baseline from that separate host:
+
+```bash
+cd wa_backend
+locust -f locustfile.py --headless --host "$WANASAH_LOAD_STAGING_URL" \
+  --users 1000 --spawn-rate 50 --run-time 2m --csv staging-readonly-load
+```
+
+**Important:** 1000 Locust users are not proof of 1000 active TCP/HTTP
+connections at the same instant. Record actual ingress open-connections
+and in-flight queries separately. The API's current default global limit
+is **1000 requests/minute per source IP**; this load may legitimately
+produce 429s. Capture those separately rather than weakening production
+rate protection or misreporting them as unexplained 5xx. The read-only
+driver is NOT the required D7-S *mixed write* test: sales, stock,
+pricing and import writes must be run ONLY on isolated staged fixtures
+with proven request UUIDs, bounded admission, financial reconciliation
+and explicit approved credentials. Do not run destructive transfers on
+a production host.
+
 ## Remaining required deployment steps (not done)
 
 - [ ] Provision independently isolated staging with its own test tenants, DB, TLS ingress, four web processes and SEPARATE load generator. The developer workstation and its synthetic local PostgreSQL are NOT production-like staging. Docker CLI is installed, but its Docker daemon was unavailable in the readiness inspection.

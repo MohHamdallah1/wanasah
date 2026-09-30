@@ -1,41 +1,82 @@
-import os
-from locust import HttpUser, task, between
-from dotenv import load_dotenv
+"""Read-only V1 staging HTTP driver. Requires Locust on external generator.
 
-load_dotenv()
+NO login/password stored here, NO transfers, sales, imports or other writes.
+Run only against an explicitly approved isolated synthetic staging URL.
+"""
+from __future__ import annotations
 
-class PureDatabaseConcurrencyTester(HttpUser):
-    # لا يوجد انتظار إطلاقاً (0 ثانية). ضغط جنوني ومباشر
-    wait_time = between(0.0, 0.0) 
+from itertools import cycle
+
+from locust import HttpUser, between, events, task
+
+from scripts.staging_load_guard import (
+    assert_actual_target,
+    read_staging_load_config,
+)
+
+
+# The configured load must pass BOTH the CLI start gate and each user on_start.
+# Distinct staging-only tokens are injected by an approved secrets mechanism.
+_config = None
+_round_robin = cycle((0, 1))
+
+
+@events.test_start.add_listener
+def verify_staging_target(environment, **_kwargs):
+    global _config
+    config = read_staging_load_config()
+    assert_actual_target(environment.host or "", config)
+    _config = config
+
+
+class WanasahReadOnlyStagingUser(HttpUser):
+    wait_time = between(0.2, 0.8)
 
     def on_start(self):
-        self.headers = {}
-        res = self.client.post("/login", json={"company_code": "WNS-01", "username": "admin_1", "password": "password"}, name="/login")
-        if res.status_code == 200:
-            self.headers = {"Authorization": f"Bearer {res.json()['token']}"}
-            locs = self.client.get("/warehouse/locations", headers=self.headers, name="/warehouse/locations").json()
-            self.wns_main_loc = next((l["id"] for l in locs if "MAIN" in l["code"].upper()), locs[0]["id"])
-            self.wns_sec_loc = next((l["id"] for l in locs if "SEC" in l["code"].upper()), locs[-1]["id"])
-            
-            inv = self.client.get(f"/warehouse/inventory?location_id={self.wns_main_loc}", headers=self.headers, name="/warehouse/inventory").json()
-            self.wns_prod_id = inv[0]["id"]
+        config = read_staging_load_config()
+        assert_actual_target(self.environment.host or self.host, config)
+        # One synthetic token per virtual user; no login or token in URLs.
+        self.tenant = next(_round_robin) if config.token_b else 0
+        self.config = config
+        token = config.token_b if self.tenant == 1 else config.token_a
+        self.auth_header = {"Authorization": "Bearer " + token}
+        self.own_job = config.job_b if self.tenant == 1 else config.job_a
+        self.foreign_job = config.job_a if self.tenant == 1 else config.job_b
 
-    @task
-    def attack_pure_dispatch(self):
-        if not all([self.wns_main_loc, self.wns_sec_loc, self.wns_prod_id]):
-            return
-
-        payload = {
-            "source_location_id": self.wns_main_loc,
-            "destination_location_id": self.wns_sec_loc,
-            "items": [{"product_variant_id": self.wns_prod_id, "quantity": 1}]
-        }
-        
-        with self.client.post("/warehouse/unified/transfer/dispatch", json=payload, headers=self.headers, name="/dispatch_db_test", catch_response=True) as response:
-            if response.status_code == 200:
-                response.success()
-            elif response.status_code == 400 and "الرصيد المتاح لا يغطي" in response.text:
-                # هذا هو الإثبات أن أقفال قاعدة البيانات تعمل وتمنع الرصيد السالب
+    def _read(self, path: str, name: str, expected: int):
+        with self.client.get(
+            path,
+            headers=self.auth_header,
+            name=name,
+            catch_response=True,
+            timeout=15,
+        ) as response:
+            if response.status_code == expected:
                 response.success()
             else:
-                response.failure(f"CRITICAL FAIL {response.status_code}: {response.text}")
+                # Never write response bodies, bearer tokens or private SQL
+                # literals into Locust's results/logs.
+                response.failure(
+                    f"Expected HTTP {expected}; got HTTP {response.status_code}"
+                )
+
+    @task(8)
+    def read_catalog(self):
+        self._read("/simple-products?limit=50",
+                   "product.catalog.read", 200)
+
+    @task(2)
+    def read_own_import_status(self):
+        if self.own_job:
+            self._read("/simple-products/imports/" + self.own_job,
+                       "product.import.owned", 200)
+        else:
+            self.read_catalog()
+
+    @task(1)
+    def deny_other_company_import(self):
+        if self.foreign_job:
+            self._read("/simple-products/imports/" + self.foreign_job,
+                       "product.import.cross_tenant_404", 404)
+        else:
+            self.read_catalog()
