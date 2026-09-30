@@ -491,7 +491,72 @@ exists; require a complete end-to-end workflow and verified gates.
 
 ---
 
-## 8. Preservation rule
+## 8. Multi-company high-scale qualification — deferred from the V1 import audit
+
+**Owner decision (2026-09-30):** V1 launches for **one company**. The goal of
+1,000 *simultaneously active* real HTTP clients, large multi-tenant staging,
+independent external load generators, production-like hardware profiling and
+horizontal autoscaling is not the launch gate for that first company. These
+items are **deferred, not implemented or tested**. The original source-first
+Astra audit, historical failures, all successful D0-D7-L gates and the original
+unclosed criteria are preserved VERBATIM in
+[`docs/archive/V1_MULTITENANT_ASYNC_AND_IMPORT_RELEASE_PLAN_2026-09-30.md`](docs/archive/V1_MULTITENANT_ASYNC_AND_IMPORT_RELEASE_PLAN_2026-09-30.md);
+the local load evidence lives in
+[`docs/architecture/PRODUCT_IMPORT_D7_LOCAL_LOAD_REPORT_2026-09-30.md`](docs/architecture/PRODUCT_IMPORT_D7_LOCAL_LOAD_REPORT_2026-09-30.md).
+Do not reinterpret the historical 1,000 *arrivals* with a 10/20-client
+ASGI semaphore as 1,000 simultaneously open real TCP connections.
+
+- [ ] **V2-SCALE-1 / original D7-S and L:** On an independently approved
+  production-like multi-company environment, measure 1,000 actually
+  simultaneous HTTP/TLS connections and a separate 1,000-arrival burst.
+  Verify *server-observed* active connections, real admission/429/retry-after,
+  p50/p95/p99 including ingress queues, max DB clients, CPU, RAM, WAL,
+  backlog age, per-company fairness, cross-company RLS denial and all
+  Product/Price/Audit/Outbox + Sale/COGS + stock + route invariants.
+  Load must be bounded and synthetically owned, not pointed at customers.
+  The isolated mixed-load-driver task is GitHub issue **#38**; its implementation
+  alone does NOT mean the environment-dependent gate passed.
+- [ ] **V2-SCALE-2 / original B:** Use the already-installed opt-in per-batch
+  SQLAlchemy/ORM/flush profiler under 50k realistic XLSX and DB cardinality.
+  Identify real dominant cost before considering bulk ORM/flush rewrites;
+  preserve draft-to-active lifecycle, generated IDs, barcode/UOM, price,
+  audit, outbox and crash-safe idempotent replay. No mass bulk shortcut
+  based only on estimated flush counts.
+- [ ] **V2-SCALE-3 / original G:** Quantify B-tree/GIN/TRGM/GiST growth,
+  pending lists, page utilization and autovacuum/WAL under sustained
+  realistic churn. Retain SKU uniqueness, effective price exclusion,
+  barcode indexes, tenant-aware planner/search contracts and append-only
+  historical evidence. No unsafe index drops or blind REINDEX.
+- [ ] **V2-SCALE-4 / original I:** Correlate instrumented Python CPU,
+  ORM object changes, cursor/driver latency, server-side SQL,
+  lock-wait duration, WAL, network, validation, transaction commits and
+  queue/ingress wait under comparable production-sized fixture loads.
+  Do not equate client cursor wall time to database CPU, nor subtract
+  wall time to guess Python CPU.
+- [ ] **V2-SCALE-5 / original D/E scale extensions:** Measure Live Stock
+  summary lock/blocker durations, pool lifetimes and lock order under
+  sustained *multi-company* burst/worker scaling, establish host-specific
+  total PostgreSQL connection budget, then consider throughput-only
+  scheduling, batching, partitioning or horizontal scaling. Never remove
+  transaction/tenant/location locks merely for a throughput target.
+- [ ] **V2-SCALE-6 / original large-deployment D8 extension:** Full-size
+  anonymized staging restore times, sustained multi-worker rolling deploy,
+  remote ingress/CDN throughput tuning and tested scale rollback.
+  Do not claim the current local synthetic three-row backup test proves
+  this environment-specific qualification.
+
+**Not deferred:** first-company Product Import correctness, tenant/company
+isolation, pricing/COGS/stock integrity, permissions, durable retry/cancel/
+worker crash behavior, no unbounded transactions or leaks, basic lock-order
+safety, real browser network behavior, valid backup/restore of the actual
+deployment and minimal operational monitoring. These remain V1 deployment
+checks in `docs/operations/PRODUCT_IMPORT_V1_RELEASE_RUNBOOK_2026-09-30.md`.
+A passing unit/smoke test does not replace business evidence or deployment
+sign-off. Deferral is an honest scope decision, not a green test result.
+
+---
+
+## 9. Preservation rule
 
 This file is intentional product/architecture scope, not a temporary handoff note.
 

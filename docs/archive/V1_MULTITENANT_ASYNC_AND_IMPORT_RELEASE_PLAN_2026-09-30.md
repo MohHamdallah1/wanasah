@@ -1,4 +1,6 @@
 # V1 multi-tenant concurrency, import performance and production-safety gate
+
+> **HISTORICAL AUDIT / ARCHIVED 2026-09-30.** This document retains the *original* 12 findings, their exact local test evidence, and the old `[ ]` for tests never executed. It is **not** the first-company V1 release checklist. The owner deferred the **1,000-connection and sustained multi-company throughput** workload to `VERSION_2_FUTURE_FEATURES.md` §8, not its tenant/financial/idempotency correctness requirements. Use `docs/operations/PRODUCT_IMPORT_V1_RELEASE_RUNBOOK_2026-09-30.md` for first-company V1 deployment acceptance. Do not mark historical throughput checks complete or erase their evidence. Codex issue #38 belongs to the V2-scale harness until the owner elects to execute it.
 **Date:** 2026-09-30. **Owner intent:** every Astra 6 finding must be tracked before V1, not lost or silently postponed. **Base:** main `0909b32226e56e025f60348a21081316b89eeaae`. **Status (2026-09-30):** D0-D6 and D7-L completed with retained evidence. Owner-revised first-company release requires D7-P/D8-P; original D7-S 1,000-client hardware benchmark remains OPEN as an explicitly deferred scale qualification, not the first-company gate. The historical hypotheses below describe the state BEFORE their respective remediations.
 
 ## Non-negotiable architecture goal
