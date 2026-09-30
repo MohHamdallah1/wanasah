@@ -85,7 +85,13 @@ describe("same-job Product Import correction frontend", () => {
 
     act(() => view.result.current.chooseCorrectionFile(file));
     act(() => view.result.current.uploadCorrection());
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1), {
+      onTimeout: () => new Error(JSON.stringify({
+        file: view.result.current.correctionFile?.name,
+        requests: vi.mocked(getOrCreateDurableCommand).mock.calls.length,
+        errors: vi.mocked(toast.error).mock.calls,
+      })),
+    });
     await waitFor(() => expect(view.result.current.uploadingCorrection).toBe(false));
     expect(completeDurableOperation).not.toHaveBeenCalled();
     expect(abandonDurableOperation).not.toHaveBeenCalled();
