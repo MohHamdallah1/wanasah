@@ -46,6 +46,7 @@ function assertPage(page: ProductImportErrorPage, afterRow: number) {
 export function ImportRejectedRowsReview({ jobId, online, authFetch }: Props) {
   const { t, i18n } = useTranslation();
   const panelId = useId();
+  const loadFailedMessage = t("products.rejectedRows.loadFailed");
   const [expanded, setExpanded] = useState(false);
   const [cursors, setCursors] = useState([0]);
   const [snapshot, setSnapshot] = useState<{
@@ -75,7 +76,7 @@ export function ImportRejectedRowsReview({ jobId, online, authFetch }: Props) {
     }).catch((cause) => {
       if (!disposed) {
         setError(
-          apiErrorMessage(cause, t("products.rejectedRows.loadFailed")),
+          apiErrorMessage(cause, loadFailedMessage),
         );
       }
     }).finally(() => {
@@ -85,7 +86,7 @@ export function ImportRejectedRowsReview({ jobId, online, authFetch }: Props) {
       disposed = true;
       controller.abort();
     };
-  }, [authFetch, cursor, expanded, jobId, online, revision, t]);
+  }, [authFetch, cursor, expanded, jobId, online, revision, loadFailedMessage]);
 
   const page = snapshot?.cursor === cursor ? snapshot.page : null;
   const nextCursor = page?.next_after_row ?? null;
