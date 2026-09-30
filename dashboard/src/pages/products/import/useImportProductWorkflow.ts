@@ -294,6 +294,7 @@ export function useImportProductWorkflow({
         submitMapping,
       onDownloadErrorReport:
         downloadErrorReport,
+      authFetch,
       ...correction,
       onResetImport:
         resetImport,
