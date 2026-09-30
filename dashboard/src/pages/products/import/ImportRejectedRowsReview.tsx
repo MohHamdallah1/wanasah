@@ -175,7 +175,7 @@ export function ImportRejectedRowsReview({ jobId, online, authFetch }: Props) {
                   disabled={pageNumber === 1}
                   className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-700 disabled:opacity-40"
                 >
-                  <ChevronRight className="h-4 w-4 rtl:rotate-180" />
+                  <ChevronLeft className="h-4 w-4 rtl:rotate-180" />
                   {t("products.rejectedRows.previous")}
                 </button>
                 <span aria-live="polite" className="text-xs font-bold tabular-nums text-slate-600">
@@ -188,7 +188,7 @@ export function ImportRejectedRowsReview({ jobId, online, authFetch }: Props) {
                   className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-700 disabled:opacity-40"
                 >
                   {t("products.rejectedRows.next")}
-                  <ChevronLeft className="h-4 w-4 rtl:rotate-180" />
+                  <ChevronRight className="h-4 w-4 rtl:rotate-180" />
                 </button>
               </nav>
             </>
