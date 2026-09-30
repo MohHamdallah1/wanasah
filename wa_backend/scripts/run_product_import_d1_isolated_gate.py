@@ -26,7 +26,10 @@ TEMPLATE="d1_template"
 def env_for(database:str,root:pathlib.Path)->dict[str,str]:
     env=d4.child_env(database,root)
     env.update({
-        "WANASAH_D1_DISPOSABLE_CHILD":"1",
+        "WANASAH_D1_DISPOSABLE_CHILD": "1",
+        "WANASAH_D7_DISPOSABLE_CHILD": os.getenv("WANASAH_D7_BURST", "0"),
+        "WANASAH_D7_REQUESTS": os.getenv("WANASAH_D7_REQUESTS", "100"),
+        "WANASAH_D1_MATRIX_SAMPLES": os.getenv("WANASAH_D1_MATRIX_SAMPLES", "30"),
         "WANASAH_D1_LOG_DIR":str(root),
         "PRODUCT_IMPORT_WORKER_SLOTS_PER_PROCESS":"2",
         "WANASAH_D1_IMPORT_ROWS":os.getenv("WANASAH_D1_IMPORT_ROWS","3000"),
@@ -97,6 +100,12 @@ def main()->None:
                    "-v","ON_ERROR_STOP=1","-q","-f",str(tmp/"schema.sql")])
         asyncio.run(base._copy_safe_synthetic_fixture(source))
         d4.reset_owned_sequences(bins)
+        if os.getenv("WANASAH_D7_BURST") == "1":
+            # Tenant 3 is created ONLY inside this new disposable schema;
+            # never copy existing tenant-3 customer business data.
+            from scripts import run_product_import_d32_isolated_gate as d32
+            d32.PORT, d32.TEMPLATE = PORT, TEMPLATE
+            d32.clone_second_synthetic_tenant(bins)
         d4.seed_control_rows(
             bins, source_revision=d4.read_source_revision(source),
         )
@@ -111,17 +120,15 @@ def main()->None:
                    "-p",str(PORT),"-U",d4.ADMIN,"-T",TEMPLATE,DATABASE])
         matrix = os.getenv("WANASAH_D1_MATRIX") == "1"
         d2_lock = os.getenv("WANASAH_D2_LOCK_MATRIX") == "1"
-        if sum((bool(matrix),bool(d2_lock),bool(d6_profile)))>1:
-            raise RuntimeError("D1, D2 and D6 private tests are mutually exclusive")
+        d7_burst = os.getenv("WANASAH_D7_BURST") == "1"
+        if sum((bool(matrix),bool(d2_lock),bool(d6_profile),bool(d7_burst))) > 1:
+            raise RuntimeError("D1, D2, D6, D7 private tests are mutually exclusive")
         child_module = (
-            "scripts.product_import_d6_disposable_profile"
-            if d6_profile else (
-                "scripts.gate_product_import_d2_lock_matrix_child"
-                if d2_lock else (
-                    "scripts.product_import_d1_business_matrix"
-                    if matrix else "scripts.product_import_d1_real_business_child"
-                )
-            )
+            "scripts.product_import_d7_burst_child" if d7_burst
+            else "scripts.product_import_d6_disposable_profile" if d6_profile
+            else "scripts.gate_product_import_d2_lock_matrix_child" if d2_lock
+            else "scripts.product_import_d1_business_matrix" if matrix
+            else "scripts.product_import_d1_real_business_child"
         )
         child=d4.run([
             sys.executable,"-m",child_module,
@@ -131,6 +138,9 @@ def main()->None:
             if "D1_IMPORT_DIAGNOSTIC=" not in child.stdout:
                 raise RuntimeError("D1 diagnostic signature missing")
             print("D1_IMPORT_DIAGNOSTIC_CAPTURED=PASS",flush=True)
+        elif d7_burst:
+            if "PRODUCT_IMPORT_D7_LOCAL_BURST=PASS" not in child.stdout:
+                raise RuntimeError("D7 local burst acceptance missing")
         elif d6_profile:
             if "PRODUCT_IMPORT_D6_PROFILE=PASS" not in child.stdout:
                 raise RuntimeError("D6 measured runtime profile acceptance missing")
