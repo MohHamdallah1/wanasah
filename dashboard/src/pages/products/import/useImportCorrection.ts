@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useMutation } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import { toast } from "sonner";
@@ -11,6 +11,7 @@ import {
   getOrCreateDurableCommand,
 } from "@/lib/durableOperations";
 import { productDurableScope } from "@/pages/products/productDurableScope";
+import type { ProductImportState } from "@/pages/products/contracts";
 
 type AuthFetch = (path: string, options?: RequestInit) => Promise<unknown>;
 
@@ -21,7 +22,8 @@ type Params = {
   online: boolean;
   authFetch: AuthFetch;
   downloadCorrection: () => Promise<void>;
-  setImportPollKey: React.Dispatch<React.SetStateAction<number>>;
+  setImportPollKey: Dispatch<SetStateAction<number>>;
+  setImportStatus: Dispatch<SetStateAction<ProductImportState | null>>;
   t: TFunction;
 };
 
@@ -56,6 +58,7 @@ export function useImportCorrection({
   authFetch,
   downloadCorrection,
   setImportPollKey,
+  setImportStatus,
   t,
 }: Params) {
   const [selected, setSelected] = useState<{ jobId: string; file: File } | null>(null);
@@ -139,6 +142,9 @@ export function useImportCorrection({
       if (requestedJob !== currentJobRef.current) return;
       setSelected(null);
       if (fileRef.current) fileRef.current.value = "";
+      setImportStatus((current) => current && current.job_id === requestedJob
+        ? { ...current, status: ack.status }
+        : current);
       setImportPollKey((current) => current + 1);
       toast.success(
         t("products.correction.accepted", { count: ack.corrected_rows }),
