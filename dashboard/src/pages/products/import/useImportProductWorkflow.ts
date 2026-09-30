@@ -13,6 +13,7 @@ import { createImportFileActions } from "@/pages/products/import/createImportFil
 import { deriveImportProductViewState } from "@/pages/products/import/helpers";
 import { productImportSessionKey } from "@/pages/products/import/productImportSessionKey";
 import { useImportProductCommands } from "@/pages/products/import/useImportProductCommands";
+import { useImportCorrection } from "@/pages/products/import/useImportCorrection";
 import { useImportProductPolling } from "@/pages/products/import/useImportProductPolling";
 import { useImportProductState } from "@/pages/products/import/useImportProductState";
 import { useImportProductUpload } from "@/pages/products/import/useImportProductUpload";
@@ -204,11 +205,24 @@ export function useImportProductWorkflow({
   const {
     downloadErrorReport,
     downloadTemplate,
+    downloadCorrection,
   } = createImportDownloads({
     importJobId,
     authFetch,
     t,
     i18n,
+  });
+
+  const correction = useImportCorrection({
+    companyId,
+    driverId,
+    jobId: importJobId,
+    online,
+    authFetch,
+    downloadCorrection,
+    setImportPollKey,
+    setImportStatus,
+    t,
   });
 
   return {
@@ -280,6 +294,7 @@ export function useImportProductWorkflow({
         submitMapping,
       onDownloadErrorReport:
         downloadErrorReport,
+      ...correction,
       onResetImport:
         resetImport,
       onRetryImport:
