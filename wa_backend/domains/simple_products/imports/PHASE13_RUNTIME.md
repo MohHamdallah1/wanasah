@@ -40,10 +40,20 @@ HTTP status remains the fallback and reconciliation authority.
 ## Worker observability
 
 Global runtime telemetry records only Procrastinate workers that have proven
-they consume the `product-import` queue. A queue-local heartbeat task registers
+they consume ONLY the `product-import` queue. A queue-local presence task registers
 the worker id, and readiness joins that registry back to Procrastinate's live
 worker heartbeat. This avoids treating an unrelated healthy worker as Product
 Import-ready.
+
+D3.1 keeps execution concurrency unchanged and requires separate supervised
+`execution`, `control`, and `maintenance` processes in the same public-schema
+Procrastinate app. Control recovery/health cannot wait behind import execution
+or retention. The control heartbeat never registers itself as execution capacity.
+The periodic execution-presence proof uses the existing heartbeat task name with
+a distinct periodic identity; an active import also registers its consumer.
+See `RUNBOOK.md` for role commands, legacy-queue drain, version verification,
+graceful shutdown and rollback. Queue isolation requires all three consumers;
+execution READY alone does not certify control/maintenance availability.
 
 Metrics include healthy Product Import worker processes, configured worker
 slots, running/queued Product Import jobs, available slots, and oldest queue

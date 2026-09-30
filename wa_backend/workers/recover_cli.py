@@ -25,13 +25,12 @@ async def _recover(mode: str) -> dict[str, int]:
         timeout = STALLED_WORKER_TIMEOUT_SECONDS
     elif mode == "product-import":
         from domains.simple_products.imports.infrastructure.queue import (
-            PRODUCT_IMPORT_STALLED_ALLOWLIST,
-            PRODUCT_IMPORT_STALLED_TIMEOUT_SECONDS,
             app,
+            recover_stalled_product_imports,
         )
 
-        allowlist = PRODUCT_IMPORT_STALLED_ALLOWLIST
-        timeout = PRODUCT_IMPORT_STALLED_TIMEOUT_SECONDS
+        async with app.open_async():
+            return await recover_stalled_product_imports()
     else:
         raise ValueError("unsupported recovery mode")
 

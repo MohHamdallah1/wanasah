@@ -149,18 +149,6 @@ async def read_product_import_runtime_metrics(
 
         cursor = await connection.execute(
             """
-            WITH first_defer AS (
-                SELECT
-                    job_id,
-                    min(at) AS enqueued_at
-                FROM procrastinate_events
-                WHERE type IN (
-                    'deferred',
-                    'deferred_for_retry',
-                    'retried'
-                )
-                GROUP BY job_id
-            )
             SELECT
                 count(*) FILTER (
                     WHERE jobs.status = 'todo'
@@ -191,8 +179,12 @@ async def read_product_import_runtime_metrics(
                     0
                 )::bigint
             FROM procrastinate_jobs AS jobs
-            LEFT JOIN first_defer
-              ON first_defer.job_id = jobs.id
+            LEFT JOIN LATERAL (
+                SELECT min(events.at) AS enqueued_at
+                FROM procrastinate_events AS events
+                WHERE events.job_id = jobs.id
+                  AND events.type IN ('deferred', 'deferred_for_retry', 'retried')
+            ) AS first_defer ON TRUE
             WHERE jobs.queue_name = 'product-import'
               AND jobs.task_name = 'wanasah.process_product_import'
               AND jobs.status IN ('todo','doing')

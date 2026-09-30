@@ -194,10 +194,16 @@ check(
     in runbook,
 )
 check(
-    "worker launcher targets the module-local queue app and product-import queue",
-    "domains.simple_products.imports.infrastructure.queue.app"
+    "worker launcher targets the isolated Product Import worker entrypoint",
+    "domains.simple_products.imports.infrastructure.worker_cli"
     in launcher
-    and "-q product-import"
+    and "--role $Role"
+    in launcher
+    and "execution"
+    in launcher
+    and "control"
+    in launcher
+    and "maintenance"
     in launcher
     and "product_import_queue"
     not in launcher,
