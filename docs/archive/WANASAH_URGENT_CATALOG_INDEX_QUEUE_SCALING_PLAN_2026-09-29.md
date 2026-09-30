@@ -1,5 +1,9 @@
 # WANASAH — Urgent Catalog, Index & Worker Fairness Plan
 
+> **ARCHIVED / historical investigation — 2026-09-30.** The 2026-09-29 open checkboxes and runtime snapshots below are retained as original evidence, **not** an active second V1 checklist or proof that every old gate passed. Later code and D1–D7-L local gates supersede some historical observations. The verified modern source uses event-driven due-candidate scheduling with atomic queue insertion, separate import worker roles, and an existing Dashboard import-cancel command; deployment/browser verification is still open. Do not rerun obsolete 867-monitor snapshots as if they were the current queue state.
+>
+> **Current owners of outstanding work:** Product Import's real HTTP correction/50k actual queue/inline rejected-row UX are tracked in `PRODUCT_IMPORT_PRODUCTION_HARDENING_PLAN.md` Phase 19; real single-company worker/backup/HTTP/browser acceptance is in `docs/operations/PRODUCT_IMPORT_V1_RELEASE_RUNBOOK_2026-09-30.md`; the independent broader Catalog identity, costing/stock/Flutter negative checks belong to `INVENTORY_COMMERCIAL_FOUNDATION_PLAN.md` and `ARCHITECTURE.md`. Sustained multi-company index, worker fair-share and 1,000 simultaneous-connection qualification are deferred, **not passed**, under `VERSION_2_FUTURE_FEATURES.md` §8. Reopen a specific old B/C/D/F concern only on new verified V1 evidence (such as a real first-company ingestion stall, stuck live job, wrong accounting, tenant leakage or user-visible cancellation defect). This archive is preserved for design and forensic traceability; no business workflow changes were approved by moving it.
+
 ## الملخص التنفيذي — اقرأ هذا أولًا
 
 هذه خطة هندسية عاجلة للمشروع كله، وليست إصلاحًا سريعًا لملف الاستيراد فقط. **لا نغيّر مخطط قاعدة البيانات، ولا نزيل فهرسًا، ولا نزيد العمال قبل القياس.** كل بند ينتهي باختبارات وإثباتات مستقلة قبل وضع [x].
