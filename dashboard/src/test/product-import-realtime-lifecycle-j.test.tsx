@@ -247,4 +247,36 @@ describe("Product Import live-progress transport lifecycle", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
     hook.unmount();
   });
+
+  it("ignores an obsolete HTTP error that arrives after confirmed completion", async () => {
+    let rejectEarlier!: (reason: Error) => void;
+    const olderRequest = new Promise<unknown>((_resolve, reject) => {
+      rejectEarlier = reject;
+    });
+    const fetch = vi.fn()
+      .mockReturnValueOnce(olderRequest)
+      .mockResolvedValue(statuses.completed);
+    const hook = mount(fetch);
+
+    await act(async () => {
+      FakeSocket.instances[0].fireOpen();
+      await Promise.resolve();
+    });
+    expect(setStatus).toHaveBeenLastCalledWith(statuses.completed);
+    expect(setError).toHaveBeenCalledTimes(1);
+    expect(setError).toHaveBeenLastCalledWith(null);
+
+    await act(async () => {
+      rejectEarlier(new Error("late request failed"));
+      await Promise.resolve();
+    });
+    // The completed view must not redisplay a stale error or restart polling.
+    expect(setError).toHaveBeenCalledTimes(1);
+    expect(setError).toHaveBeenLastCalledWith(null);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(32000);
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    hook.unmount();
+  });
 });

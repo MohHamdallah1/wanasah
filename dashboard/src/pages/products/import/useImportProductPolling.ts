@@ -349,7 +349,9 @@ export function useImportProductPolling({
             status,
           );
         } catch (error) {
-          if (!disposed) {
+          // An obsolete request may fail after another request has already
+          // completed the import. Do not resurrect the error banner.
+          if (!disposed && !settled) {
             setImportPollError(
               apiErrorMessage(
                 error,
@@ -359,7 +361,7 @@ export function useImportProductPolling({
               ),
             );
           }
-          return false;
+          return settled;
         }
       };
 
