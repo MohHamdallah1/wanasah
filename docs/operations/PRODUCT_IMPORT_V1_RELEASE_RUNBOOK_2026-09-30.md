@@ -57,6 +57,36 @@ with proven request UUIDs, bounded admission, financial reconciliation
 and explicit approved credentials. Do not run destructive transfers on
 a production host.
 
+## D8/E deployed PostgreSQL connection and transaction preflight
+
+The read-only `wa_backend/scripts/audit_product_import_d8_readonly.py` now
+inspects **actual target-database** PostgreSQL connection pressure and session
+lifetime. It verifies observer privileges, compares the configured web +
+operational + import pool envelope to reserved/max slots, prints only
+**aggregate** client, idle-in-transaction, aged-transaction, lock-wait and
+blocked-edge counts, and groups import execution/control/maintenance
+`todo`/`doing` queue ages. It never prints query text, connection strings,
+JWTs, user identifiers or customer row data, and never runs VACUUM, migrations,
+recovery or worker starts.
+
+On staging, with a **genuinely isolated** configured target DB, run the
+documented `--scope staging --env-file .env.staging` command while the actual
+4 web/operational/import workers and mixed staged workload are **running**.
+A privileged observer role or `pg_read_all_stats` is required for complete
+DB activity coverage. A missing worker role, over-budget clients, or
+transactions **idle over 30 seconds** fails that staging preflight. The
+script warns about any transactions older than 60 seconds or blocked-lock
+edges, but these are diagnostics requiring SQL/operation attribution, not
+proof of deadlock or a particular ORM regression.
+
+The 2026-09-30 development **one-shot** snapshot showed a single local
+observer connection, **0** idle transactions, **0** 60s-old transactions,
+**0** lock blocking edges and no queued/running import deliveries at that
+instant; **all three** import role connections remained absent and the
+six previously observed historical synthetic nonterminal imports remained.
+This does **not** prove that workload-time locks never occur or that staging
+workers have been deployed. No action was taken against those six jobs.
+
 ## Remaining required deployment steps (not done)
 
 - [ ] Provision independently isolated staging with its own test tenants, DB, TLS ingress, four web processes and SEPARATE load generator. The developer workstation and its synthetic local PostgreSQL are NOT production-like staging. Docker CLI is installed, but its Docker daemon was unavailable in the readiness inspection.

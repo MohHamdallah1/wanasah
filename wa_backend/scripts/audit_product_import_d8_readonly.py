@@ -139,6 +139,119 @@ def main() -> None:
             warnings.append("Developer worker roles are not all connected")
         print("WORKER_ROLES_OBSERVED=" + ",".join(running_roles or ("none",)))
 
+        # E: one bounded, read-only server-side aggregate. Do not retrieve
+        # pg_stat_activity.query, credentials, SQL parameters, tenant IDs, or
+        # per-session PIDs. This snapshot is only the present instant, NOT a
+        # p95 latency estimate or proof about past contention.
+        has_stats_role = bool(connection.execute(
+            """
+            SELECT (SELECT rolsuper FROM pg_roles WHERE rolname=current_user)
+                   OR pg_has_role(current_user, 'pg_read_all_stats', 'USAGE')
+            """
+        ).fetchone()[0])
+        if not has_stats_role:
+            notice = "DB observer lacks pg_read_all_stats; activity may be incomplete"
+            (failures if args.scope == "staging" else warnings).append(notice)
+        print("DB_ACTIVITY_OBSERVER=" + (
+            "FULL" if has_stats_role else "LIMITED"
+        ))
+
+        activity_fields = (
+            "clients", "idle_transactions", "old_idle_transactions",
+            "old_transactions", "max_xact_seconds",
+            "max_idle_xact_seconds", "blocked_edges",
+            "lock_waiting_clients",
+        )
+        current_activity = connection.execute(
+            """
+            SELECT
+              count(*) AS clients,
+              count(*) FILTER (
+                WHERE state='idle in transaction'
+              ) AS idle_transactions,
+              count(*) FILTER (
+                WHERE state='idle in transaction'
+                  AND state_change < clock_timestamp() - interval '30 seconds'
+              ) AS old_idle_transactions,
+              count(*) FILTER (
+                WHERE xact_start IS NOT NULL
+                  AND xact_start < clock_timestamp() - interval '60 seconds'
+              ) AS old_transactions,
+              max(GREATEST(0,EXTRACT(EPOCH FROM
+                  clock_timestamp()-xact_start)))
+                  FILTER (WHERE xact_start IS NOT NULL) AS max_xact_seconds,
+              max(GREATEST(0,EXTRACT(EPOCH FROM
+                  clock_timestamp()-state_change)))
+                  FILTER (WHERE state='idle in transaction')
+                    AS max_idle_xact_seconds,
+              sum(cardinality(pg_blocking_pids(pid)))
+                    AS blocked_edges,
+              count(*) FILTER (
+                WHERE wait_event_type='Lock'
+              ) AS lock_waiting_clients
+            FROM pg_stat_activity
+            WHERE datname=current_database()
+              AND backend_type='client backend'
+            """
+        ).fetchone()
+        if current_activity is None:
+            raise RuntimeError("Database activity aggregate missing")
+        activity = {
+            key: (
+                round(float(value or 0), 2)
+                if key.endswith("_seconds")
+                else int(value or 0)
+            )
+            for key, value in zip(activity_fields, current_activity, strict=True)
+        }
+        # The operator sees aggregate measurements only; never pg_stat_activity
+        # query text, SQL credentials, company IDs or customer data.
+        print("DB_ACTIVITY_SNAPSHOT=" + str(activity))
+        if activity["clients"] >= conn_total - reserved:
+            failures.append("PostgreSQL connections exhausted nonreserved slots")
+        if activity["clients"] > contract:
+            (failures if args.scope == "staging" else warnings).append(
+                "Observed DB client connections exceed deployment budget"
+            )
+        if activity["old_idle_transactions"]:
+            (failures if args.scope == "staging" else warnings).append(
+                "Transactions idle over 30 seconds require owner diagnosis"
+            )
+        if activity["old_transactions"] and args.scope == "staging":
+            warnings.append(
+                "Transactions active over 60 seconds require workload attribution"
+            )
+        if activity["blocked_edges"] and args.scope == "staging":
+            warnings.append(
+                "Blocked DB lock edges observed; correlate with named business operations"
+            )
+
+        queue_rows = connection.execute(
+            """
+            SELECT queue_name,status,count(*) AS jobs,
+              max(GREATEST(0,EXTRACT(EPOCH FROM
+                  clock_timestamp()-scheduled_at))) AS oldest_age_seconds
+            FROM procrastinate_jobs
+            WHERE queue_name IN (
+                'product-import',
+                'product-import-control',
+                'product-import-maintenance'
+            ) AND status IN ('todo','doing')
+            GROUP BY queue_name,status
+            ORDER BY queue_name,status
+            """
+        ).fetchall()
+        print("IMPORT_QUEUE_ACTIVITY=" + str([
+            {
+                "queue":str(queue), "status":str(status),
+                "jobs":int(number),
+                "oldest_scheduled_age_seconds":round(float(oldest or 0), 1),
+            }
+            for queue,status,number,oldest in queue_rows
+        ]))
+        # Queue timestamps include purposeful scheduling delays and cannot be
+        # interpreted as time-in-ready-state without a deeper delivery trace.
+
         old_tests = connection.execute(
             """
             SELECT count(*) FROM product_import_jobs
