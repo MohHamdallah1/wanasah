@@ -70,7 +70,10 @@ export function createImportFileActions({
   const chooseFile = (
     file: File | null
   ) => {
-    if (!file) {
+    // An in-flight upload still owns its original file and durable request
+    // identity. Replacing the file here would allow the old job's response
+    // to overwrite the replacement selection when HTTP eventually returns.
+    if (importing || !file) {
       return;
     }
     const lower =
