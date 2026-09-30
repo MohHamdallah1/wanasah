@@ -4,7 +4,7 @@ import asyncio
 import ipaddress
 from contextlib import asynccontextmanager
 import jwt
-from fastapi import FastAPI, Request, Depends, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, Depends, WebSocket
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -31,6 +31,11 @@ from domains.simple_products.imports.api import router as product_import_router
 from ws_manager import dispatch_manager
 from realtime.worker_event_relay import worker_event_relay
 from realtime.auth import WebSocketAuthError, authenticate_websocket_admin
+from realtime.ws_security import (
+    allowed_browser_origins,
+    receive_websocket_bearer,
+    drain_authenticated_websocket,
+)
 from domains.simple_products.imports.infrastructure.realtime_relay import (
     product_import_event_relay,
 )
@@ -119,18 +124,7 @@ app.include_router(platform_manager.router)
 app.include_router(product_locations.router)
 
 # S-04: Restrictive CORS configuration
-_CORS_RAW = os.getenv("CORS_ALLOWED_ORIGINS", "https://dashboard.wanasah.com,https://www.wanasah.com")
-ALLOWED_ORIGINS = [origin.strip() for origin in _CORS_RAW.split(",") if origin.strip()]
-
-if ENV == "development" or os.getenv("ENABLE_CORS_WILDCARD", "false").lower() in ("true", "1", "yes"):
-    DEV_ORIGINS = [
-        "http://localhost:8080", "http://127.0.0.1:8080",
-        "http://localhost:5173", "http://127.0.0.1:5173",
-        "http://localhost:3000", "http://127.0.0.1:3000"
-    ]
-    for origin in DEV_ORIGINS:
-        if origin not in ALLOWED_ORIGINS:
-            ALLOWED_ORIGINS.append(origin)
+ALLOWED_ORIGINS = allowed_browser_origins()
 
 if ENV == "production" and not ALLOWED_ORIGINS:
     raise ValueError("CORS_ALLOWED_ORIGINS must be set in production environment!")
@@ -255,6 +249,15 @@ class WanasahRawASGIMiddleware:
         if "state" not in scope:
             scope["state"] = {}
         scope["state"]["request_id"] = req_id_str
+
+        if scope["type"] == "websocket" and scope.get("query_string"):
+            # Reject legacy bearer-in-URL handshakes. Uvicorn serializes
+            # scope.query_string to access/error logs on accept/reject, so
+            # remove it before its protocol logger formats the response.
+            # Upstream proxy/CDN logging requires its own query redaction.
+            scope["query_string"] = b""
+            await send({"type": "websocket.close", "code": 1008})
+            return
 
         async def custom_send(message):
             if message["type"] == "http.response.start":
@@ -452,9 +455,8 @@ app.include_router(tenant.router)
 # Step 5.7a: WebSocket endpoint for real-time dispatch dashboard updates
 @app.websocket("/ws/dispatch")
 async def websocket_dispatch_endpoint(websocket: WebSocket):
-    token = websocket.query_params.get("token")
-    if not token:
-        await websocket.close(code=1008)
+    token = await receive_websocket_bearer(websocket)
+    if token is None:
         return
 
     try:
@@ -464,17 +466,18 @@ async def websocket_dispatch_endpoint(websocket: WebSocket):
         return
 
     company_id = identity.company_id
-    is_connected = await dispatch_manager.connect(websocket, company_id)
+    is_connected = await dispatch_manager.connect(
+        websocket, company_id, already_accepted=True
+    )
     if not is_connected:
         return
 
     try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        pass
-    except Exception:
-        pass
+        await websocket.send_json({"event": "WS_AUTHENTICATED"})
+        await drain_authenticated_websocket(
+            websocket,
+            token_expires_at=identity.token_expires_at,
+        )
     finally:
         dispatch_manager.disconnect(websocket, company_id)
 

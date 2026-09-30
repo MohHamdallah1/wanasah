@@ -315,3 +315,11 @@ polling/realtime behavior are consumed by the Dashboard.
 - `domains/simple_products/imports/PHASE13_RUNTIME.md` — runtime/concurrency.
 - `domains/simple_products/imports/PHASE15_DATABASE.md` — database/index health.
 - `PRODUCT_IMPORT_PRODUCTION_HARDENING_PLAN.md` — completed hardening plan.
+
+## WebSocket authentication and logging (D5)
+Product Import's exact-job realtime endpoint no longer accepts access tokens in
+URLs. Browser clients connect with a query-free URL, send a short-lived access JWT
+in the first frame, and retain HTTP polling until `WS_AUTHENTICATED` arrives.
+See `docs/operations/WEBSOCKET_SECURITY_D5.md` for shared dispatch/import auth,
+Origin, incident response, proxy logging and release verification. Never log
+token-bearing query strings at reverse proxies, CDNs or gateways.

@@ -40,7 +40,13 @@ class ConnectionManager:
         self.active_connections: dict[int, list[WebSocket]] = {}
         self._connections_lock = asyncio.Lock()
 
-    async def connect(self, websocket: WebSocket, company_id: int) -> bool:
+    async def connect(
+        self,
+        websocket: WebSocket,
+        company_id: int,
+        *,
+        already_accepted: bool = False,
+    ) -> bool:
         company_id = int(company_id)
         if company_id <= 0:
             await websocket.close(code=1008)
@@ -71,7 +77,8 @@ class ConnectionManager:
                 await websocket.close(code=1008)
                 return False
 
-            await websocket.accept()
+            if not already_accepted:
+                await websocket.accept()
             self.active_connections.setdefault(company_id, []).append(websocket)
 
         logger.info(

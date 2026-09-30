@@ -489,9 +489,7 @@ export function useImportProductPolling({
           new WebSocket(
             `${wsBase}/simple-products/imports/${encodeURIComponent(
               importJobId,
-            )}/ws?token=${encodeURIComponent(
-              token,
-            )}`,
+            )}/ws`,
           );
         websocket =
           nextSocket;
@@ -507,17 +505,22 @@ export function useImportProductPolling({
               nextSocket.close();
               return;
             }
-            realtimeOpen =
-              true;
-            reconnectAttempt =
-              0;
-            fallbackAttempt =
-              0;
-            clearTimer(
-              fallbackTimer,
+            const liveToken =
+              localStorage.getItem(
+                "admin_token",
+              );
+            if (!liveToken) {
+              nextSocket.close();
+              return;
+            }
+            nextSocket.send(
+              JSON.stringify({
+                type: "auth",
+                token: liveToken,
+              }),
             );
-            fallbackTimer =
-              undefined;
+            // onopen is transport-only: keep HTTP fallback until the
+            // server proves that authentication and tenant scope succeeded.
             void refreshStatus();
           };
 
@@ -525,7 +528,9 @@ export function useImportProductPolling({
           (message) => {
             if (
               disposed ||
-              settled
+              settled ||
+              websocket !==
+                nextSocket
             ) {
               return;
             }
@@ -535,6 +540,27 @@ export function useImportProductPolling({
                 JSON.parse(
                   message.data,
                 );
+              if (
+                typeof payload === "object" &&
+                payload !== null &&
+                "event" in payload &&
+                payload.event ===
+                  "WS_AUTHENTICATED"
+              ) {
+                realtimeOpen =
+                  true;
+                reconnectAttempt =
+                  0;
+                fallbackAttempt =
+                  0;
+                clearTimer(
+                  fallbackTimer,
+                );
+                fallbackTimer =
+                  undefined;
+                void refreshStatus();
+                return;
+              }
               if (
                 isProductImportProgressEvent(
                   payload,

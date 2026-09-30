@@ -19,6 +19,7 @@ class WebSocketAuthError(Exception):
 class WebSocketAdminIdentity:
     company_id: int
     driver_id: int
+    token_expires_at: int
 
 
 async def _authenticate_websocket_identity(
@@ -70,6 +71,7 @@ async def _authenticate_websocket_identity(
     return WebSocketAdminIdentity(
         company_id=company_id,
         driver_id=driver_id,
+        token_expires_at=int(payload["exp"]),
     )
 
 
