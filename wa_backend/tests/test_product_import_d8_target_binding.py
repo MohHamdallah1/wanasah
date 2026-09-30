@@ -64,6 +64,35 @@ class ExplicitTargetBindingTests(unittest.TestCase):
                 {},
             )
 
+    def test_migration_and_runtime_cannot_point_to_different_db(self) -> None:
+        for runtime in (
+            "postgresql://runtime:secret@other.invalid/w_stage",
+            "postgresql://runtime:secret@staging.invalid/production",
+            "postgresql://runtime:secret@staging.invalid:5444/w_stage",
+        ):
+            with self.subTest(target=runtime.split("@")[-1]):
+                with self.assertRaisesRegex(RuntimeError, "targets disagree"):
+                    self.check({
+                        "DATABASE_URL_MIGRATION": MIGRATION,
+                        "DATABASE_URL": runtime,
+                    }, {})
+
+    def test_explicit_compatible_driver_and_port_are_accepted(self) -> None:
+        self.check({
+            "DATABASE_URL_MIGRATION":
+                "postgresql+psycopg://migration:one@staging.invalid:5432/w_stage",
+            "DATABASE_URL":
+                "postgresql+asyncpg://runtime:two@staging.invalid/w_stage",
+        }, {})
+
+    def test_malformed_urls_do_not_expose_credentials(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "must identify") as ctx:
+            self.check({
+                "DATABASE_URL_MIGRATION": MIGRATION,
+                "DATABASE_URL": "not-a-url-with-password-secret",
+            }, {})
+        self.assertNotIn("password-secret", str(ctx.exception))
+
     def test_developer_only_checks_targets_present_in_file(self) -> None:
         self.check({}, {}, scope="developer")
         with self.assertRaisesRegex(RuntimeError, "conflicts"):
