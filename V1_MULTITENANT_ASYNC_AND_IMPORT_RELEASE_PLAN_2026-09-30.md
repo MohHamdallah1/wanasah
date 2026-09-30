@@ -73,3 +73,11 @@
 Use one bounded change at a time on a separate GitHub feature branch. Astra can implement only after targeted root-cause evidence; independent ChatGPT review of diff/gates before merge. No direct changes to main, no unauthorized business semantics, no changes to tenant 38 source outside approved local synthetic test. Mark [x] only after test evidence and commit SHA. V1 correctness and availability are non-deferrable; speed-only optimizations may defer only if latency/fairness SLOs pass.
 
 **Primary source:** complete user-provided Astra-6 audit preserved VERBATIM at docs/architecture/ASTRA6_V1_IMPORT_SCALABILITY_AUDIT_2026-09-30.md and verified against the original owner upload. All original narrative, source-line citations, caveats, 100-SKU flush details, runtime limitations, three diagnostic targets and V1/V2 decision remain in that appendix. This plan tracks their actionable concerns in sections A-L and D0-D8; it is not a claim that all concerns were repaired.
+
+## D3.1 REVIEW BLOCKER (2026-09-30)
+- [ ] Astra D3.1 is not accepted yet.
+- Verified root cause: 1,147 companies exist in local dev, but only 1 currently has Product Import jobs/live source. The old scheduler deferred exactly 1,147 capacity-monitor jobs every 5 minutes. The observed 16,875 starts were automatic scheduler traffic, not owner activity.
+- Blocking issue in proposed fix: scheduled_work.has_scheduled_work() runs once per company and opens tenant context plus eligibility SQL. This replaces queue fanout with an N+1 tenant database sweep and violates the repository no-N+1 rule.
+- Required permanent correction: candidate-driven bounded scheduling proportional to relevant Product Import tenants, while preserving RLS, queue dedupe, monitoring semantics, legacy jobs and rollback. If this safely requires a global control-plane candidate registry or migration, stop at that approval boundary instead of adding another polling workaround.
+- Positive parts retained for revision: execution/control/maintenance isolation, execution-only readiness registration, recovery mutex, launcher consolidation, legacy-drain/rollback procedure, and source fingerprinting.
+- Existing Product Import suite after Astra source edits: 136/136 PASS; Python compile PASS. These tests do not prove the new three-role runtime topology.
