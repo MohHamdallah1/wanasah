@@ -79,6 +79,28 @@ age. Stuck-stage warnings use `PRODUCT_IMPORT_STUCK_STAGE_SECONDS` (default
 The authenticated readiness endpoint exposes only a safe READY/UNAVAILABLE
 signal; it does not leak cross-tenant queue counts.
 
+## D4 durable recovery semantics
+
+Product Import has two distinct recovery layers. Procrastinate repairs a stalled
+queue delivery after a dead worker heartbeat; the Product Import control plane
+then reconciles stale active business jobs that have lost their delivery entirely.
+The reconciliation query is bounded/indexed and privileged only to cross the RLS
+boundary for `(company_id, job_id)` control metadata. It never scans Company and
+never reads another tenant's business payload.
+
+Each business job owns `product-import-job:{job_id}` as its active-delivery
+queueing lock. Same-company execution remains separately protected by
+`product-import:{company_id}`. Recovery runs under one global advisory mutex and
+uses `FOR UPDATE SKIP LOCKED`, so multiple control processes cannot duplicate
+claims. Staleness is calculated inside PostgreSQL using the same database/session
+clock semantics as `product_import_jobs.updated_at`; worker-host timezone is not
+part of the contract.
+
+Execution replay remains safe at committed batch boundaries through the existing
+row identity + idempotent operation envelope. A hard crash after committed
+batches therefore resumes remaining VALID rows without duplicating Product,
+Pricing publication, audit or outbox evidence.
+
 ## Cancellation semantics
 
 Cancellation transitions an active job to terminal `CANCELLED` while holding

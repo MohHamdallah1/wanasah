@@ -38,6 +38,9 @@ from domains.simple_products.imports.infrastructure.queue_topology import (
 )
 from domains.product_tracking import normalize_tracking_mode
 from workers.recovery import recover_safe_stalled_jobs
+from domains.simple_products.imports.infrastructure.recovery_reconciler import (
+    reconcile_orphaned_import_jobs,
+)
 
 
 from domains.simple_products.imports.infrastructure.queue_dsn import (
@@ -51,6 +54,21 @@ logger = logging.getLogger(
 )
 PRODUCT_IMPORT_HEARTBEAT_SECONDS = 10.0
 PRODUCT_IMPORT_STALLED_TIMEOUT_SECONDS = 30.0
+PRODUCT_IMPORT_ORPHAN_STALE_SECONDS = 60.0
+def _is_final_retry_attempt(context, exc: Exception) -> bool:
+    """Mirror Procrastinate's configured retry decision without private fields."""
+    strategy = getattr(context.task, "retry_strategy", None)
+    if strategy is None:
+        return True
+    return (
+        strategy.get_retry_decision(
+            exception=exc,
+            job=context.job,
+        )
+        is None
+    )
+
+
 PRODUCT_IMPORT_STALLED_ALLOWLIST = frozenset(
     {
         "wanasah.process_product_import",
@@ -103,11 +121,21 @@ async def recover_stalled_product_imports(
             )
             if not (await cursor.fetchone())[0]:
                 return {"recovery_in_progress": 1}
-            return await recover_safe_stalled_jobs(
+            queue_recovery = await recover_safe_stalled_jobs(
                 app,
                 allowlist=PRODUCT_IMPORT_STALLED_ALLOWLIST,
                 seconds_since_heartbeat=PRODUCT_IMPORT_STALLED_TIMEOUT_SECONDS,
             )
+            business_recovery = await reconcile_orphaned_import_jobs(
+                process_product_import,
+                connection=connection,
+                stale_seconds=PRODUCT_IMPORT_ORPHAN_STALE_SECONDS,
+                limit=100,
+            )
+            return {
+                **queue_recovery,
+                **business_recovery,
+            }
 
 
 @app.periodic(cron="* * * * *", periodic_id="execution-presence",
@@ -244,12 +272,9 @@ async def process_product_import(
             )
             return
 
-        final_attempt = (
-            context.task.retry.get_retry_decision(
-                exception=exc,
-                job=context.job,
-            )
-            is None
+        final_attempt = _is_final_retry_attempt(
+            context,
+            exc,
         )
         await record_runtime_failure(
             company_id=int(company_id),
@@ -281,6 +306,7 @@ async def defer_import_on_connection(
     await process_product_import.configure(
         connection=conn,
         lock=f"product-import:{int(company_id)}",
+        queueing_lock=f"product-import-job:{job_id}",
     ).defer_async(
         company_id=int(company_id),
         job_id=str(job_id),

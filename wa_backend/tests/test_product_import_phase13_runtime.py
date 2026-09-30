@@ -284,6 +284,7 @@ class Phase13QueueSerializationTests(
         configure.assert_called_once_with(
             connection=connection,
             lock="product-import:17",
+            queueing_lock=f"product-import-job:{job_id}",
         )
         deferred.assert_awaited_once_with(
             company_id=17,

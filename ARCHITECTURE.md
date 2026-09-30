@@ -227,6 +227,38 @@ For asynchronous side effects that must survive crashes:
 
 Do not turn the whole platform into an event-driven system without a concrete reason.
 
+### Reusable durable async/import foundation
+
+Product Import V1 is the first production reference implementation for durable,
+tenant-scoped bulk work. When a **second real domain** needs comparable import or
+long-running asynchronous ingestion (for example Areas, Stores, Vehicles, or
+Sales Representatives), do not copy Product Import's queue/recovery machinery
+into that domain and do not create a platform-wide event bus by default.
+
+At that point, extract only the already-proven **technical primitives** into a
+small cross-domain durable-work/import foundation:
+
+- immutable source persistence/integrity where file-backed ingestion needs it;
+- transactional task registration / outbox-equivalent durable dispatch;
+- tenant-scoped concurrency, admission/backpressure, and bounded worker budgets;
+- job-delivery recovery and business-job/queue reconciliation;
+- idempotent execution/replay envelopes;
+- progress/readiness/observability and bounded retry contracts;
+- retention hooks and operational lifecycle primitives.
+
+The shared foundation owns **technical delivery semantics only**. Each consuming
+domain keeps its own source mapping, validation, permissions, invariants,
+business commands, persistence authority, and final execution policy behind a
+small domain adapter/public application contract. Areas, Stores, Vehicles,
+Representatives, Products, Pricing, Inventory, and other domains must never
+share business truth merely because they share durable-work infrastructure.
+
+Extraction is triggered by an actual second consumer and requires parity gates
+against the proven Product Import behavior. Until then, Product Import remains
+the concrete implementation rather than being prematurely generalized into a
+framework. Future import channels should therefore reuse one durable engine
+through explicit contracts, not duplicate one queue/recovery stack per screen.
+
 ---
 
 ## 9. MICROservices EXTRACTION POLICY

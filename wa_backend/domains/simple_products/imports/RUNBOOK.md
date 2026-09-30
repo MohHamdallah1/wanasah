@@ -107,13 +107,33 @@ exposes a narrower proven-safe concurrency contract.
 
 ## Recovery
 
-1. Do not manually mutate Product Import row/job states.
-2. Check readiness and queue-age/stuck-stage telemetry.
-3. Restore database/worker availability.
-4. Let Procrastinate retry transient jobs and stalled safe deliveries.
-5. Replaying the same durable job is safe; imported rows are not replayed.
-6. If the job is terminal, use the supported Retry/Correction flows rather than
+1. Do not manually mutate Product Import row/job states or create queue rows by hand.
+2. Check readiness and queue-age/stuck-stage telemetry, then restore database and
+   worker availability.
+3. Control recovery first lets Procrastinate retry safe stalled deliveries, then
+   reconciles stale active `product_import_jobs` that have **no** TODO/DOING
+   `wanasah.process_product_import` delivery. This closes the durable business-job /
+   queue-delivery gap without enumerating all companies.
+4. Every process delivery has `queueing_lock=product-import-job:{job_id}` for one
+   active delivery per durable import. The separate `product-import:{company_id}`
+   execution lock still serializes same-company Product/Pricing work. Procrastinate's
+   queueing-lock uniqueness is scoped to TODO rows, so supported retries after a
+   finished/failed delivery remain possible.
+5. Orphan discovery is bounded and indexed. Migration `a42c9f17e6b3` exposes only
+   company/job identifiers through a fixed-search-path `SECURITY DEFINER` boundary,
+   uses `FOR UPDATE SKIP LOCKED`, excludes live TODO/DOING delivery, and computes
+   staleness using the database session clock rather than a worker-host timestamp.
+6. Startup and periodic reconciliation share the existing global Product Import
+   recovery advisory mutex. A concurrent legitimate producer is harmlessly
+   deduplicated by the job queueing lock.
+7. Replaying the same durable job is safe: committed execution batches use the
+   existing idempotency envelope, and already-imported rows are not recreated.
+8. If the job is terminal, use the supported Retry/Correction flows rather than
    editing staging rows directly.
+
+**Deployment order:** apply migration `a42c9f17e6b3` before starting D4-capable
+workers. The new worker intentionally fails closed if its recovery database
+contract is absent.
 
 ## Automatic scheduling and historical failures
 
@@ -271,6 +291,19 @@ python -m scripts.run_product_import_d32_isolated_gate
 It must prove independent-company overlap, same-company serialization,
 short-job fairness, bounded interactive-read p95/WAL, the full three-role
 connection envelope, and that the original developer tenant remains unchanged.
+
+Run D4 recovery acceptance only through its guarded disposable PostgreSQL runner:
+
+```powershell
+$env:WANASAH_D4_LOCAL_GATE="1"
+$env:WANASAH_D4_SOURCE_ENV_FILE=(Resolve-Path ".\.env").Path
+python -m scripts.run_product_import_d4_isolated_gate
+```
+
+It must prove orphaned business-job delivery reconciliation, staging cancellation,
+hard worker crash/retry, source cleanup, and exact Product/Price/Audit/Outbox
+non-duplication. Never simulate these failures against a production/customer
+database.
 
 Also run the Dashboard production build because Product Import contracts and
 polling/realtime behavior are consumed by the Dashboard.
