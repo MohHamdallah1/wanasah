@@ -516,6 +516,10 @@ ASGI semaphore as 1,000 simultaneously open real TCP connections.
   Load must be bounded and synthetically owned, not pointed at customers.
   The isolated mixed-load-driver task is GitHub issue **#38**; its implementation
   alone does NOT mean the environment-dependent gate passed.
+  The preserved, named optional operator tool is
+  `wa_backend/tools/staging_load/wanasah_d7s_mixed_load_driver.py`, documented in
+  `docs/operations/WANASAH_D7S_MIXED_LOAD_TOOL.md`. Its mock contract tests pass,
+  but this does **not** close the real ingress/DB/finance acceptance gate.
 - [ ] **V2-SCALE-2 / original B:** Use the already-installed opt-in per-batch
   SQLAlchemy/ORM/flush profiler under 50k realistic XLSX and DB cardinality.
   Identify real dominant cost before considering bulk ORM/flush rewrites;
