@@ -161,7 +161,7 @@ describe("same-job Product Import correction frontend", () => {
     const view = render(<ImportProductStatusPanel {...actions} />);
     fireEvent.click(screen.getByRole("button", { name: "products.correction.download" }));
     expect(actions.onDownloadCorrection).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("button", { name: "products.correction.upload" })).toBeDisabled();
+    expect((screen.getByRole("button", { name: "products.correction.upload" }) as HTMLButtonElement).disabled).toBe(true);
 
     view.rerender(<ImportProductStatusPanel {...actions} status={{
       ...current, status: "COMPLETED_WITH_ERRORS", imported_rows: 5,
