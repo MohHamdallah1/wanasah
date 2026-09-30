@@ -32,6 +32,7 @@ import {
   getOrCreateDurableCommand,
 } from "@/lib/durableOperations";
 import { useImportCorrection } from "@/pages/products/import/useImportCorrection";
+import { createImportDownloads } from "@/pages/products/import/createImportDownloads";
 import { ImportProductStatusPanel } from "@/pages/products/import/ImportProductStatusPanel";
 import type { ProductImportState } from "@/pages/products/contracts";
 
@@ -76,6 +77,41 @@ afterEach(() => {
 });
 
 describe("same-job Product Import correction frontend", () => {
+  it("downloads the server-owned correction artifact for the same job, not the diagnostic report", async () => {
+    const payload = {
+      file_name: `product-import-${JOB}-correction.xlsx`,
+      content_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      content_base64: "YWJj",
+      row_count: 2,
+    };
+    const fetch = vi.fn().mockResolvedValue(payload);
+    const originalCreate = URL.createObjectURL;
+    const originalRevoke = URL.revokeObjectURL;
+    const create = vi.fn(() => "blob:test-correction");
+    const revoke = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    URL.createObjectURL = create;
+    URL.revokeObjectURL = revoke;
+    try {
+      const downloads = createImportDownloads({
+        importJobId: JOB,
+        authFetch: fetch,
+        t: ((key: string) => key) as TFunction,
+        i18n: { exists: () => false, language: "ar" },
+      });
+      await downloads.downloadCorrection();
+      expect(fetch).toHaveBeenCalledWith(
+        "/simple-products/imports/" + JOB + "/correction?format=xlsx",
+      );
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(click).toHaveBeenCalledTimes(1);
+      expect(revoke).toHaveBeenCalledWith("blob:test-correction");
+    } finally {
+      URL.createObjectURL = originalCreate;
+      URL.revokeObjectURL = originalRevoke;
+    }
+  });
+
   it("resends a lost-response POST with identical file and request id without starting a new import", async () => {
     const fetch = vi.fn()
       .mockRejectedValueOnce({ status: 0, code: "NETWORK_UNAVAILABLE" })
