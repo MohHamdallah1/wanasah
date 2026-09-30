@@ -62,6 +62,13 @@ type Props = {
   ) => void;
   onSubmitMapping: () => void;
   onDownloadErrorReport: () => void;
+  correctionFile: File | null;
+  correctionFileRef: RefObject<HTMLInputElement | null>;
+  downloadingCorrection: boolean;
+  uploadingCorrection: boolean;
+  chooseCorrectionFile: (file: File | null) => void;
+  downloadCorrection: () => void;
+  uploadCorrection: () => void;
   onResetImport: () => void;
   onRetryImport: () => void;
   onCancelImport: () => void;
@@ -103,6 +110,13 @@ export function ImportProductModal({
   onMappingChange,
   onSubmitMapping,
   onDownloadErrorReport,
+  correctionFile,
+  correctionFileRef,
+  downloadingCorrection,
+  uploadingCorrection,
+  chooseCorrectionFile,
+  downloadCorrection,
+  uploadCorrection,
   onResetImport,
   onRetryImport,
   onCancelImport,
@@ -227,6 +241,13 @@ export function ImportProductModal({
             onDownloadErrorReport={
               onDownloadErrorReport
             }
+            correctionFile={correctionFile}
+            correctionFileRef={correctionFileRef}
+            downloadingCorrection={downloadingCorrection}
+            uploadingCorrection={uploadingCorrection}
+            onChooseCorrectionFile={chooseCorrectionFile}
+            onDownloadCorrection={downloadCorrection}
+            onUploadCorrection={uploadCorrection}
             onResetImport={
               onResetImport
             }
