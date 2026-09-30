@@ -12,6 +12,7 @@ FILES = {
     "worker_app": ROOT / "workers" / "app.py",
     "worker_maintenance": ROOT / "workers" / "tasks" / "maintenance.py",
     "worker_live_stock": ROOT / "workers" / "tasks" / "live_stock.py",
+    "worker_scheduling": ROOT / "workers" / "scheduling.py",
 }
 
 
@@ -225,10 +226,10 @@ def main() -> None:
     worker_source = sources["worker_live_stock"]
     required_worker_tokens = (
         '@app.periodic(cron="2,17,32,47 * * * *")',
-        "COMPANY_SCAN_PAGE = 1000",
+        "iter_active_company_id_pages(",
+        "defer_unique_company_jobs(",
         "TRANSITION_BATCH = 5000",
         "MAX_BATCHES_PER_RUN = 20",
-        "Company.id > after_company_id",
         "refresh_due_live_stock_transitions(",
         "acquire_tenant_job_lock(",
         "mark_live_stock_projection_degraded(",
@@ -245,6 +246,20 @@ def main() -> None:
         )
     if "except BaseException" in worker_source:
         failures.append("LIVE_STOCK_WORKER_CATCHES_BASE_EXCEPTION")
+
+    # Bounded tenant enumeration moved into the shared scheduling helper;
+    # verify the actual dependency, not obsolete inline worker source text.
+    checks += 1
+    scheduling_source = sources["worker_scheduling"]
+    required_scheduling_tokens = (
+        "COMPANY_SCAN_PAGE = 1000",
+        "Company.id > after_company_id",
+        ".limit(page_size)",
+        "async def iter_active_company_id_pages(",
+        "async def defer_unique_company_jobs(",
+    )
+    if any(token not in scheduling_source for token in required_scheduling_tokens):
+        failures.append("LIVE_STOCK_SHARED_PAGED_SCHEDULER_INCOMPLETE")
 
     checks += 1
     retry_source = sources["worker_maintenance"]

@@ -28,6 +28,7 @@ def env_for(database:str,root:pathlib.Path)->dict[str,str]:
     env.update({
         "WANASAH_D1_DISPOSABLE_CHILD": "1",
         "WANASAH_D7_DISPOSABLE_CHILD": os.getenv("WANASAH_D7_BURST", "0"),
+        "WANASAH_D_PROJECTION_DISPOSABLE_CHILD": os.getenv("WANASAH_D_PROJECTION_LOCK_GATE", "0"),
         "WANASAH_D7_REQUESTS": os.getenv("WANASAH_D7_REQUESTS", "100"),
         "WANASAH_D1_MATRIX_SAMPLES": os.getenv("WANASAH_D1_MATRIX_SAMPLES", "30"),
         "WANASAH_D1_LOG_DIR":str(root),
@@ -100,7 +101,7 @@ def main()->None:
                    "-v","ON_ERROR_STOP=1","-q","-f",str(tmp/"schema.sql")])
         asyncio.run(base._copy_safe_synthetic_fixture(source))
         d4.reset_owned_sequences(bins)
-        if os.getenv("WANASAH_D7_BURST") == "1":
+        if os.getenv("WANASAH_D7_BURST") == "1" or os.getenv("WANASAH_D_PROJECTION_LOCK_GATE") == "1":
             # Tenant 3 is created ONLY inside this new disposable schema;
             # never copy existing tenant-3 customer business data.
             from scripts import run_product_import_d32_isolated_gate as d32
@@ -121,10 +122,12 @@ def main()->None:
         matrix = os.getenv("WANASAH_D1_MATRIX") == "1"
         d2_lock = os.getenv("WANASAH_D2_LOCK_MATRIX") == "1"
         d7_burst = os.getenv("WANASAH_D7_BURST") == "1"
-        if sum((bool(matrix),bool(d2_lock),bool(d6_profile),bool(d7_burst))) > 1:
-            raise RuntimeError("D1, D2, D6, D7 private tests are mutually exclusive")
+        d_projection = os.getenv("WANASAH_D_PROJECTION_LOCK_GATE") == "1"
+        if sum((bool(matrix),bool(d2_lock),bool(d6_profile),bool(d7_burst),bool(d_projection))) > 1:
+            raise RuntimeError("D1, D2, D6, D7 and projection-lock private tests are mutually exclusive")
         child_module = (
-            "scripts.product_import_d7_burst_child" if d7_burst
+            "scripts.product_import_d_projection_lock_child" if d_projection
+            else "scripts.product_import_d7_burst_child" if d7_burst
             else "scripts.product_import_d6_disposable_profile" if d6_profile
             else "scripts.gate_product_import_d2_lock_matrix_child" if d2_lock
             else "scripts.product_import_d1_business_matrix" if matrix
@@ -138,6 +141,9 @@ def main()->None:
             if "D1_IMPORT_DIAGNOSTIC=" not in child.stdout:
                 raise RuntimeError("D1 diagnostic signature missing")
             print("D1_IMPORT_DIAGNOSTIC_CAPTURED=PASS",flush=True)
+        elif d_projection:
+            if "PRODUCT_IMPORT_D_PROJECTION_LOCK_MATRIX=PASS" not in child.stdout:
+                raise RuntimeError("D projection lock-order acceptance missing")
         elif d7_burst:
             if "PRODUCT_IMPORT_D7_LOCAL_BURST=PASS" not in child.stdout:
                 raise RuntimeError("D7 local burst acceptance missing")
