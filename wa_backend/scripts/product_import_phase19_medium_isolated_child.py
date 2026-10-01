@@ -71,14 +71,17 @@ def measure_one(client: httpx.Client, admin: psycopg.Connection, processes) -> N
     phases: list[str] = []
     peak_rss_mb: dict[str, float] = {}
     peak_cpu_pct: dict[str, float] = {}
+    max_role_tree_processes: dict[str, int] = {}
     max_db_clients = 0
     max_db_lock_edges = 0
     last_sample = 0.0
-    monitors = {}
+    monitors: dict[str, psutil.Process] = {}
+    cpu_primed_pids: set[int] = set()
     for proc, _ in processes:
         try:
             monitor = psutil.Process(proc.pid)
             monitor.cpu_percent(interval=None)
+            cpu_primed_pids.add(monitor.pid)
             monitors[proc.p19_label] = monitor
         except psutil.Error:
             pass
@@ -88,18 +91,41 @@ def measure_one(client: httpx.Client, admin: psycopg.Connection, processes) -> N
         now = time.perf_counter()
         if now - last_sample > 5.0:
             last_sample = now
-            for label, proc in monitors.items():
+            for label, launcher in monitors.items():
+                # Windows venv launchers are ~4 MiB shims. The real Python
+                # Uvicorn/worker interpreter lives in a child process.
+                # Monitor the owned DESCENDANT TREE, not just Popen.pid.
                 try:
+                    process_tree = [launcher, *launcher.children(recursive=True)]
+                except psutil.Error:
+                    continue
+                total_rss_bytes = 0
+                total_cpu_pct = 0.0
+                observed = 0
+                for proc in process_tree:
+                    try:
+                        if proc.pid not in cpu_primed_pids:
+                            proc.cpu_percent(interval=None)
+                            cpu_primed_pids.add(proc.pid)
+                        total_rss_bytes += proc.memory_info().rss
+                        total_cpu_pct += proc.cpu_percent(interval=None)
+                        observed += 1
+                    except psutil.Error:
+                        continue
+                if observed:
+                    max_role_tree_processes[label] = max(
+                        max_role_tree_processes.get(label, 0), observed,
+                    )
+                    # Sum of per-process RSS is an upper bound; shared pages
+                    # may be counted in multiple processes.
                     peak_rss_mb[label] = max(
                         peak_rss_mb.get(label, 0.0),
-                        round(proc.memory_info().rss / (1024 ** 2), 2),
+                        round(total_rss_bytes / (1024 ** 2), 2),
                     )
                     peak_cpu_pct[label] = max(
                         peak_cpu_pct.get(label, 0.0),
-                        round(proc.cpu_percent(interval=None), 2),
+                        round(total_cpu_pct, 2),
                     )
-                except psutil.Error:
-                    pass
             current_clients, locked = admin.execute(
                 "SELECT count(*), coalesce(sum(cardinality(pg_blocking_pids(pid))),0) "
                 "FROM pg_stat_activity WHERE datname=current_database() "
@@ -165,8 +191,9 @@ def measure_one(client: httpx.Client, admin: psycopg.Connection, processes) -> N
 
     print("P19_INTERMEDIATE_RESULT=" + json.dumps({
         "case": CASE,
-        "peak_rss_mib_per_role": peak_rss_mb,
-        "peak_cpu_pct_per_role_sample": peak_cpu_pct,
+        "peak_rss_mib_per_role_tree_upper_bound": peak_rss_mb,
+        "peak_cpu_pct_per_role_tree_sample": peak_cpu_pct,
+        "max_processes_per_role_tree": max_role_tree_processes,
         "max_db_client_connections": max_db_clients,
         "max_pg_lock_wait_edges": max_db_lock_edges,
         "rows": ROWS,
