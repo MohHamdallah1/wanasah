@@ -74,14 +74,24 @@ class StagingIOGuard:
         if self.aborted:
             return
         self.aborted = True
-        if self.driver_connection is not None:
-            # asyncpg's public synchronous API; no cancel-channel network wait.
-            self.driver_connection.terminate()
+        owned_connection = self.driver_connection is not None
+        if owned_connection:
+            # Transport can already be disconnecting or invalidated. A failure
+            # here must not skip _stop(task) and orphan the staging coroutine.
+            # Log only scoped identifiers; never expose driver exception text.
+            try:
+                self.driver_connection.terminate()
+            except Exception:
+                logger.warning(
+                    "PRODUCT_IMPORT_STAGING_IO_TERMINATE_FAILED "
+                    "correlation_id=product-import:%s company_id=%s job_id=%s",
+                    self.job_id, self.company_id, self.job_id,
+                )
         logger.warning(
             "PRODUCT_IMPORT_STAGING_IO_ABORT correlation_id=product-import:%s "
             "company_id=%s job_id=%s operation=%s owned_connection=%s",
             self.job_id, self.company_id, self.job_id, operation,
-            int(self.driver_connection is not None),
+            int(owned_connection),
         )
 
     async def _stop(self, task: asyncio.Task) -> None:
