@@ -50,7 +50,7 @@ def main() -> None:
     _ensure_free(PORT)
     _ensure_free(API_PORT)
     variant = os.environ.get("WANASAH_P19_HTTP_CASE", "small")
-    if variant not in {"small", "medium", "final50k", "cancelstall"}:
+    if variant not in {"small", "medium", "final50k", "cancelstall", "edges"}:
         raise RuntimeError("Unknown P19 HTTP rehearsal case.")
     if variant == "medium" and os.environ.get("WANASAH_P19_INTERMEDIATE_ROWS") not in {"5000", "10000"}:
         raise RuntimeError("Medium rehearsal requires an explicit 5000 or 10000 row count.")
@@ -61,6 +61,8 @@ def main() -> None:
         raise RuntimeError("50k requires explicit disposable synthetic-only opt-in.")
     if variant == "cancelstall" and os.environ.get("WANASAH_P19_CANCEL_STALL_CONFIRM") != "ISOLATED_LOCK_ONLY":
         raise RuntimeError("Locked staging cancellation requires explicit disposable-only opt-in.")
+    if variant == "edges" and os.environ.get("WANASAH_P19_EDGES_CONFIRM") != "ISOLATED_SYNTHETIC_ONLY":
+        raise RuntimeError("Edge-size rehearsal requires explicit disposable-only opt-in.")
     root = Path(tempfile.mkdtemp(prefix="wanasah_p19_http_disposable_"))
     started = False
     try:
@@ -131,9 +133,10 @@ def main() -> None:
         child_module = (
             "scripts.product_import_phase19_http_isolated_child" if variant == "small"
             else "scripts.product_import_phase19_http_cancel_stall_child" if variant == "cancelstall"
+            else "scripts.product_import_phase19_edge_isolated_child" if variant == "edges"
             else "scripts.product_import_phase19_medium_isolated_child"
         )
-        if variant in {"small", "cancelstall"}:
+        if variant in {"small", "cancelstall", "edges"}:
             child = d4.run([sys.executable, "-m", child_module], env=env)
         else:
             # The final50k case has a separate explicit opt-in and a bounded
@@ -153,6 +156,7 @@ def main() -> None:
         expected_marker = (
             MARKER if variant == "small" else
             "PRODUCT_IMPORT_P19_REAL_HTTP_LOCK_CANCEL=PASS" if variant == "cancelstall" else
+            "PRODUCT_IMPORT_P19_REAL_HTTP_EDGES=PASS" if variant == "edges" else
             "P19_REAL_QUEUE_" + os.environ["WANASAH_P19_INTERMEDIATE_ROWS"] + "_SYNTHETIC=PASS"
         )
         if expected_marker not in child.stdout:
