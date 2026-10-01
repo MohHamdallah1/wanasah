@@ -71,6 +71,32 @@ separate PostgreSQL CPU, disk IO or individual lock waits. No acceptance,
 throughput or performance improvement is claimed until independently verified
 by authorized observation of a future real import.
 
+## Pricing lookup consolidation (stacked remediation PR)
+
+The Pricing-domain helper `domains/pricing/validation_lookups.py` now loads
+`ProductVariant` state and its `ProductUomConversion` UOM mapping with **one
+tenant-constrained LEFT JOIN** per validation stage, replacing two separate
+cursor calls in each of `create_draft_entries_bulk` and
+`_validate_publication_entries`. The join includes the company predicate on
+**both** tables and preserves base UOMs when no conversion exists. The result
+is still bounded by the same requested variant IDs and the existing 200-entry
+draft limit. No catalog data is cached beyond that validation call.
+
+Static labels are `pricing_draft_variant_uom` and
+`pricing_publish_variant_uom`. The original `PriceBookEntry FOR UPDATE`,
+publish-time UOM/status/effectivity checks, audit/Outbox, SQL conflict guards,
+maker/checker, tenant isolation, and transaction boundaries are unchanged.
+**Both validations still happen:** this is a safe roundtrip-consolidation step,
+not permission to reuse an earlier status/UOM snapshot across transactions or
+between draft and publish. Fresh publish-time reads protect against concurrent
+catalog changes.
+
+Each stage replaces **two** queries with **one** SQL query at the Python call
+site. This is not proof that the joined SQL runs faster on every data shape,
+and no load tests, SQL execution or deployment were performed. The optional
+per-statement observer can distinguish the consolidated query on a future
+authorized real import.
+
 ## Timing boundaries
 
 All values are **client-visible wall time**, never PostgreSQL CPU or pure Python
