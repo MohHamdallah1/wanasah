@@ -101,6 +101,21 @@ class InventoryAccess:
         if not await self.db.scalar(select(self.allows(code, location_id, any_location=any_location))):
             raise HTTPException(403, 'لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.')
 
+    async def require_all(self, codes, *, any_location=False):
+        """Require every code without redundant company-admin SELECT true calls.
+
+        Caller supplies the active actor loaded for this transaction.
+        Validate codes before the existing admin shortcut. Non-admin checks
+        retain require()'s separate fresh reads and denial order; do not turn
+        them into an ANY-code check or memoize grants across batches/retries.
+        Exact-location commands continue to use require(code, location_id).
+        """
+        codes = _permission_codes(codes)
+        if self.actor.is_admin:
+            return
+        for code in codes:
+            await self.require(code, any_location=any_location)
+
     async def codes(self, location_id=None, *, any_location=False):
         if self.actor.is_admin:
             return sorted(PERMISSIONS)
