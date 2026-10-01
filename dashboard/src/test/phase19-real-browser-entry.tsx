@@ -15,7 +15,7 @@ if (import.meta.env.VITE_P19_REAL_BROWSER !== "isolated-only" ||
 }
 
 const query = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-function Acceptance() {
+export default function Acceptance() {
   const [, redraw] = useState(0);
   return <>
     <div className="border-b bg-white p-2 text-xs">
