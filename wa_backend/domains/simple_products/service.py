@@ -19,9 +19,8 @@ from domains.pricing.core import PricingError, maker_checker_enabled, money_20_6
 from domains.pricing.publishing import (
     create_assignment,
     create_draft_entries_bulk,
+    create_direct_publication,
     create_price_book,
-    create_publication,
-    publish_publication,
 )
 from domains.pricing.resolver import resolve_prices_bulk
 from domains.simple_products.observability import product_phase
@@ -1490,7 +1489,7 @@ async def publish_prices(
     request_id: UUID,
 ) -> None:
     with product_phase(db, "price_publication_create"):
-        publication = await create_publication(
+        direct_scope = await create_direct_publication(
             db,
             company_id=int(actor.company_id),
             actor_id=int(actor.id),
@@ -1499,6 +1498,7 @@ async def publish_prices(
             effective_at=effective_at,
             request_id=request_id,
         )
+        publication = direct_scope.publication
 
     # This request already has a bounded set of freshly published SKUs.
     # Build the exact same base/package entries and let the Pricing domain
@@ -1557,11 +1557,8 @@ async def publish_prices(
             )
 
     with product_phase(db, "price_publish"):
-        await publish_publication(
-            db,
-            company_id=int(actor.company_id),
+        await direct_scope.publish(
             actor_id=int(actor.id),
-            publication_id=int(publication.id),
             expected_version=int(publication.version),
         )
 
