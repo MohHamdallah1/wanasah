@@ -952,6 +952,8 @@ async def get_product_import_correction(
                 exc,
                 job_id=job_id,
             )
+        if exc.code == "PRODUCT_IMPORT_CORRECTION_DETAILS_EXPIRED":
+            _raise_terminal_http(request, exc, job_id=job_id, status_code=410)
         _raise_terminal_http(
             request,
             exc,
@@ -1054,6 +1056,8 @@ async def upload_product_import_correction(
                 "PRODUCT_IMPORT_CORRECTION_INVALID",
         )
     except ValueError as exc:
+        if isinstance(exc, InlineCorrectionError) and exc.code == "PRODUCT_IMPORT_CORRECTION_DETAILS_EXPIRED":
+            _raise_inline_correction_http(request, code=exc.code, status_code=410)
         _log_api_exception(
             request,
             exc,
