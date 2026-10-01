@@ -105,7 +105,11 @@ scope holds the exact just-created `PricePublication` and the `PriceBook`
 already locked with `FOR UPDATE` under the Company `FOR NO KEY UPDATE`
 mutex. It retains the originating root ORM transaction **and nested
 savepoint identities** as invalidation boundaries, not a session-scoped
-or cross-batch cache.
+or cross-batch cache. The scope's `add_draft_entries` also reuses the
+just-created publication's existing row lock, but checks DRAFT/version on
+**every** bounded entry chunk and calls the SAME internal Pricing validation,
+money rounding and DRAFT persistence helper used by the public
+`create_draft_entries_bulk` interface.
 
 During the existing draft -> publish flow, `scope.publish` still checks
 Maker/Checker, DRAFT status and version, and executes the **unchanged**
@@ -123,11 +127,14 @@ limit. The same direct scope is valid for the Simple Products
 update-existing-price path: existing-price predecessor, route/commercial
 history, effective date and overlap checks remain enabled.
 
-Estimated SQL round-trip *shape* per normal new-publication
-`price_publish` path falls by three (the redundant Company, book and
-new-publication lock reads); real elapsed time and lock contention remain
-unknown. No new benchmark, SQL execution, tests, worker restart, schema
-modification or deployment was performed.
+Estimated SQL round-trip *shape* per normal fresh-publication cycle
+falls by four: the repeat `PricePublication FOR UPDATE` call in
+`price_draft_entries`, and redundant Company, book and new-publication
+lock reads in `price_publish`. The public generic draft entry and
+publish interfaces still perform their original checks and locks.
+The additional draft saving applies to each 200-entry chunk in the direct
+scope. Real elapsed time and lock contention remain unknown. No benchmark,
+SQL execution, tests, worker restart, schema change or deployment occurred.
 
 ## Timing boundaries
 
