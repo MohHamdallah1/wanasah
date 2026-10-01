@@ -8,7 +8,8 @@ import {
 import { useTranslation } from "react-i18next";
 import type { RefObject } from "react";
 import { ImportCorrectionPanel } from "@/pages/products/import/ImportCorrectionPanel";
-import { ImportRejectedRowsReview } from "@/pages/products/import/ImportRejectedRowsReview";
+import { ImportInlineCorrectionPanel } from "@/pages/products/import/ImportInlineCorrectionPanel";
+import { MAX_INLINE_CORRECTION_REJECTIONS, type InlineCorrectionAck } from "@/pages/products/import/inlineCorrectionContracts";
 
 import type {
   ProductImportState,
@@ -16,6 +17,9 @@ import type {
 
 type Props = {
   jobId: string | null;
+  companyId: number | null;
+  driverId: number | null;
+  onInlineCorrectionAccepted: (ack: InlineCorrectionAck) => void;
   authFetch: (path: string, options?: RequestInit) => Promise<unknown>;
   status: ProductImportState | null;
   pollError: string | null;
@@ -40,6 +44,9 @@ type Props = {
 
 export function ImportProductStatusPanel({
   jobId,
+  companyId,
+  driverId,
+  onInlineCorrectionAccepted,
   authFetch,
   status,
   pollError,
@@ -63,6 +70,8 @@ export function ImportProductStatusPanel({
 }: Props) {
   const { t } =
     useTranslation();
+  const rejectedCount = status ? status.invalid_rows + status.import_failed_rows : 0;
+  const canInlineCorrect = rejectedCount > 0 && rejectedCount <= MAX_INLINE_CORRECTION_REJECTIONS;
 
   // A durable job exists as soon as upload is accepted, even before the
   // first status response. Cancellation must be available at that point.
@@ -192,13 +201,20 @@ export function ImportProductStatusPanel({
             onUploadCorrection={onUploadCorrection}
           />
 
-        {jobId ? (
-          <ImportRejectedRowsReview
+        {jobId && canInlineCorrect ? (
+          <ImportInlineCorrectionPanel
             key={jobId}
             jobId={jobId}
+            companyId={companyId}
+            driverId={driverId}
             online={online}
             authFetch={authFetch}
+            onAccepted={onInlineCorrectionAccepted}
           />
+        ) : rejectedCount > MAX_INLINE_CORRECTION_REJECTIONS ? (
+          <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-950">
+            {t("products.inlineCorrection.bulkOnly", { count: rejectedCount })}
+          </p>
         ) : null}
       </div>
     );
@@ -355,13 +371,20 @@ export function ImportProductStatusPanel({
             onDownloadCorrection={onDownloadCorrection}
             onUploadCorrection={onUploadCorrection}
           />
-          {jobId ? (
-            <ImportRejectedRowsReview
+          {jobId && canInlineCorrect ? (
+            <ImportInlineCorrectionPanel
               key={jobId}
               jobId={jobId}
+              companyId={companyId}
+              driverId={driverId}
               online={online}
               authFetch={authFetch}
+              onAccepted={onInlineCorrectionAccepted}
             />
+          ) : rejectedCount > MAX_INLINE_CORRECTION_REJECTIONS ? (
+            <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-950">
+              {t("products.inlineCorrection.bulkOnly", { count: rejectedCount })}
+            </p>
           ) : null}
       </div>
     );
