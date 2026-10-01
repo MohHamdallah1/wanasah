@@ -698,9 +698,13 @@ returned CANCELLED/0 processed/0 linked variants; worker hard-kill after
 with 2970 price/audit/outbox and no duplicate queue delivery.
 `PRODUCT_IMPORT_D4_ISOLATED_GATE=PASS`,
 `ORIGINAL_DEV_TENANT_UNMODIFIED=PASS`, disposable DB removed.
-This D4 test **does not deliberately induce the 120-second SQL stall or
-prove lock cleanup after failed transport termination**, so historical
-ClientRead root-cause and targeted 120-second real-PG timeout remain OPEN.
+The separate HTTP rehearsal later deliberately induced a REAL
+PostgreSQL `pg_sleep(5)` wait under the actual staging guard's test-only
+0.2-second deadline; native asyncpg disconnect and transaction-advisory
+lock release **PASS**. This is a deliberate genuine PostgreSQL wait,
+NOT recreation of the historic `ClientRead` driver stall or a measured
+120-second production threshold. Coupled official-HTTP cancel during a
+live stalled SQL/queue delivery remains OPEN.
 
 `wa_backend/scripts/run_product_import_phase19_http_isolated_gate.py`
 uses a DIFFERENT ephemeral PG16 instance on port 55446 plus local API 18046,
@@ -717,7 +721,13 @@ rows for each file path and matching Variant/Pricing/Audit/Outbox, with prior
 Product/Variant/Price publication and active Barcode identities immutable. Final marker
 `PRODUCT_IMPORT_PHASE19_REAL_HTTP_ISOLATED=PASS` with
 `P19_HTTP_SOURCE_DEVELOPER_UNMODIFIED=PASS` and
-`P19_HTTP_DISPOSABLE_CLUSTER_REMOVED=PASS`. No user Excel attachment or
+`P19_HTTP_DISPOSABLE_CLUSTER_REMOVED=PASS`. The **third**
+100-row official XLSX correction via a real HTTP download/edited
+`Corrections` workbook/upload produced its own 100/100 lineage
+and exact same-ID `replayed=True`; marker
+`P19_REAL_HTTP_XLSX_CORRECTION_REPLAY=PASS`. The separate real
+PostgreSQL timeout/lock-release marker
+`P19_REAL_PG_STAGING_TIMEOUT_LOCK_RELEASE=PASS` also succeeded. No user Excel attachment or
 existing 54-row job was read or mutated. Both commands are repeatable
 separate from **manual browser testing, native XLSX UI, a genuinely
 reproduced timeout/lock release, medium/50k measurement, and customer D7-P/D8-P**.
@@ -967,14 +977,32 @@ reproduced timeout/lock release, medium/50k measurement, and customer D7-P/D8-P*
   `wa_backend/domains/simple_products/imports/PHASE19_STAGING_RECOVERY.md`.
   No live PostgreSQL rollback/lock release, worker or HTTP acceptance is
   implied by this code-only checkpoint.
-- [ ] **Actual staging cancellation/rollback/retry acceptance:**
-  verify worker error recovery and official HTTP cancel on an **approved
-  isolated synthetic rehearsal tenant**, including source retention,
-  retry/restart, lost COMMIT acknowledgement and no stuck transaction or
-  cross-tenant connection termination. Connection pre-ping and physical
-  PostgreSQL lock release cannot be proved from mocked cancellation.
-  The historical asyncpg/Windows ClientRead root-cause investigation
-  and intermediate-size real queue measurements remain separately OPEN.
+- [x] **Real PostgreSQL staging per-step timeout/transport/lock release,
+  short synthetic deadline (2026-10-01):** independent disposable-PG16
+  role-2 transaction obtained the actual backend PID, acquired a
+  transaction-scoped advisory lock, entered genuine server-side
+  `pg_sleep(5)`, and invoked the **real existing StagingIOGuard** with
+  a test-only **0.2 s** per-step deadline (production 120 s constant NOT
+  changed). Its actual asyncpg transport was aborted, classified as a
+  retryable `PRODUCT_IMPORT_STAGING_TIMEOUT`, released the backend PID
+  and the advisory lock. Marker
+  `P19_REAL_PG_STAGING_TIMEOUT_LOCK_RELEASE=PASS`; the same disposable
+  cluster was removed and original developer source unchanged.
+  This verifies real abort/transaction-lock release, **not** the
+  historical ClientRead driver root cause or elapsed 120-second policy.
+- [ ] **Live official HTTP cancellation + Worker concurrent-stall recovery:**
+  D4 previously proved real PostgreSQL/worker cancellation during PARSING
+  on a new synthetic 5k row job with 0 processed/0 linked products,
+  and hard-kill/recovery after 100 committed of a 3k synthetic job,
+  ending 2970/30 with no duplicate Product/Price/Audit/Outbox.
+  Separately the real-PG short-deadline test above released the
+  transaction lock. Still verify **official HTTP cancel while a real
+  staging SQL await is stalled**, worker's controlled retry/SourceStore
+  retention after an induced abort, connection pre-ping edge, and real
+  ambiguous-COMMIT acknowledgement under the actual queue launcher.
+  Do not infer these coupled scenarios from separate D4/guard tests.
+  The September Windows/asyncpg ClientRead root-cause investigation and
+  intermediate-size measured queue tests remain OPEN.
 - [ ] Rerun 50k real-queue import with unique identities **only
   after** the staging-hang root cause and fresh intermediate-size gates
   pass. Measure actual E2E latency/resources/lineage; do not
