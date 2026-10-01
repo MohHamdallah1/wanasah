@@ -73,12 +73,13 @@ def measure_one(client: httpx.Client, admin: psycopg.Connection, processes) -> N
     phase_first: dict[str, float] = {}
     phases: list[str] = []
     latest = None
-    peak_rss_mib: dict[str, float] = {}
+    peak_process_tree_rss_mib: dict[str, float] = {}
     child_cpu_seconds: dict[str, float] = {}
     max_pg_clients = 0
     max_lock_waiting = 0
-    # This is a bounded synthetic 50k run on its own throwaway database;
-    # worker subprocess RSS/CPU and SQL lock/client counts are observations.
+    # Windows venv launchers may report ~4 MiB while the real Python worker
+    # runs as a descendant. Sample the complete subprocess tree; do not
+    # mistake the launcher PID for the actual backend/worker RSS.
     deadline = time.monotonic() + (660 if ROWS == 5000 else 1020 if ROWS == 10000 else 2700)
     while time.monotonic() < deadline:
         response = shared.require(
@@ -89,14 +90,25 @@ def measure_one(client: httpx.Client, admin: psycopg.Connection, processes) -> N
         latest = str(response["status"])
         for proc, _handle in processes:
             try:
-                process = psutil.Process(proc.pid)
+                root = psutil.Process(proc.pid)
+                members = [root, *root.children(recursive=True)]
                 label = str(proc.p19_label)
-                peak_rss_mib[label] = max(
-                    peak_rss_mib.get(label, 0.0),
-                    round(process.memory_info().rss / (1024 * 1024), 2),
+                rss = 0
+                cpu = 0.0
+                for member in members:
+                    try:
+                        rss += int(member.memory_info().rss)
+                        times = member.cpu_times()
+                        cpu += float(times.user + times.system)
+                    except psutil.Error:
+                        # A terminating Worker may vanish between listing
+                        # the tree and sampling; keep the other members.
+                        continue
+                peak_process_tree_rss_mib[label] = max(
+                    peak_process_tree_rss_mib.get(label, 0.0),
+                    round(rss / (1024 * 1024), 2),
                 )
-                times = process.cpu_times()
-                child_cpu_seconds[label] = round(float(times.user + times.system), 2)
+                child_cpu_seconds[label] = round(cpu, 2)
             except psutil.Error:
                 pass
         pg_sample = admin.execute(
@@ -169,7 +181,7 @@ def measure_one(client: httpx.Client, admin: psycopg.Connection, processes) -> N
         "last_physical_row": int(line[3]),
         "retained_source_cleared": True,
         "queue_active_after": int(active),
-        "peak_process_rss_mib": peak_rss_mib,
+        "peak_process_tree_rss_mib": peak_process_tree_rss_mib,
         "process_cpu_seconds_last_sample": child_cpu_seconds,
         "max_pg_clients_seen": max_pg_clients,
         "max_pg_lock_waiters_seen": max_lock_waiting,
