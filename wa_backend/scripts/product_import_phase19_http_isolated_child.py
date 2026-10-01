@@ -8,6 +8,8 @@ from __future__ import annotations
 import base64
 import csv
 import io
+import json
+import socket
 import os
 from pathlib import Path
 import subprocess
@@ -221,6 +223,22 @@ def test_inline(client: httpx.Client, wrong: httpx.Client, admin) -> None:
     ), 404, "cross-tenant correction POST")
     print("P19_REAL_HTTP_WRONG_TENANT=PASS", flush=True)
 
+    denied_payload = {
+        "request_id": str(uuid4()), "expected_job_version": rows["job_version"],
+        "rows": [{"row_identity": str(uuid4()), "expected_version": item["version"],
+                  "values": {"name": "This row does not exist"}}],
+    }
+    require(client.post(
+        f"/simple-products/imports/{job_id}/correction/rows", json=denied_payload,
+    ), 409, "forged unknown row identity")
+    denied_payload["request_id"] = str(uuid4())
+    denied_payload["rows"][0]["row_identity"] = str(before[0][0][0])
+    denied_payload["rows"][0]["expected_version"] = int(before[0][0][2])
+    require(client.post(
+        f"/simple-products/imports/{job_id}/correction/rows", json=denied_payload,
+    ), 409, "previously imported row cannot be edited")
+    print("P19_REAL_HTTP_FORGED_IMPORTED_NEGATIVES=PASS", flush=True)
+
     original = {
         "request_id": str(uuid4()),
         "expected_job_version": rows["job_version"],
@@ -319,14 +337,36 @@ def test_next_error(client: httpx.Client, admin) -> None:
     if first_code != "IMPORT_NAME_REQUIRED":
         raise RuntimeError(f"Unexpected first validation error code={first_code}")
 
-    require(client.post(target, json={
+    first_correction = {
         "request_id": str(uuid4()),
         "expected_job_version": first["job_version"],
         "rows": [{
             "row_identity": row["row_identity"], "expected_version": row["version"],
             "values": {"name": "Fixed name, bad package remains"},
         }],
-    }), 202, "first correction revealing next validation error")
+    }
+    # Deliberately abandon the real network response after transmitting the
+    # complete JSON request. The client must reconcile the ambiguous outcome
+    # using the same exact request_id + payload, never a fresh mutation id.
+    body = json.dumps(first_correction, separators=(",", ":")).encode("utf-8")
+    wire = (
+        f"POST {target} HTTP/1.1\r\nHost: 127.0.0.1:{API_PORT}\r\n"
+        f"Authorization: {client.headers['Authorization']}\r\n"
+        f"Content-Type: application/json\r\nContent-Length: {len(body)}\r\n"
+        "Connection: close\r\n\r\n"
+    ).encode("ascii") + body
+    with socket.create_connection(("127.0.0.1", API_PORT), timeout=5) as connection:
+        connection.sendall(wire)
+        connection.shutdown(socket.SHUT_WR)
+        # Never read the ACK; abandoning response is the fault under test.
+    time.sleep(.1)
+    require(client.post(target, json=first_correction), 202,
+            "same exact request after abandoned HTTP response")
+    replay = require(client.post(target, json=first_correction), 202,
+                     "stable id replay after network disconnect")
+    if not replay.get("replayed"):
+        raise RuntimeError("HTTP disconnect recovery did not stabilize request identity.")
+    print("P19_REAL_HTTP_DROPPED_RESPONSE_REPLAY=PASS", flush=True)
     wait_job(client, job_id, valid_states={"VALIDATION_FAILED"})
     second = require(client.get(target), 200, "newly exposed rejection")
     row2 = second["items"][0]
@@ -365,6 +405,19 @@ def main() -> None:
         # evaluate signed expiring bearer tokens against persisted test drivers.
         primary_token = create_access_token({"sub": "1", "is_admin": True}, 2, "Admin")
         foreign_token = create_access_token({"sub": "2", "is_admin": True}, 3, "Admin")
+        # This actor exists ONLY in the throwaway DB and has no Role grants.
+        # A forged is_admin claim cannot override the persisted permission gate.
+        admin.execute(
+            "INSERT INTO drivers("
+            "id,company_id,username,password_hash,full_name,phone_number,"
+            "is_active,is_admin,can_allow_debt,max_debt_limit,created_at"
+            ") SELECT 3,2,username||'-p19-unprivileged',password_hash,"
+            "full_name||' unprivileged',NULL,true,false,false,"
+            "max_debt_limit,created_at FROM drivers WHERE company_id=2 AND id=1"
+        )
+        restricted_token = create_access_token(
+            {"sub": "3", "is_admin": True}, 2, "Admin",
+        )
 
         processes.append(start("p19-http-server", "-m",
                                "scripts.product_import_phase19_http_selector_server"))
@@ -377,8 +430,13 @@ def main() -> None:
                          headers={"Authorization": f"Bearer {primary_token}"}) as client,
             httpx.Client(base_url=BASE, timeout=40.0,
                          headers={"Authorization": f"Bearer {foreign_token}"}) as wrong,
+            httpx.Client(base_url=BASE, timeout=40.0,
+                         headers={"Authorization": f"Bearer {restricted_token}"}) as restricted,
         ):
             wait_health(client, processes)
+            require(restricted.get("/simple-products/import-worker/readiness"),
+                    403, "unprivileged synthetic actor must be denied")
+            print("P19_REAL_HTTP_ROLE_PERMISSION_DENIAL=PASS", flush=True)
             require(wrong.get("/simple-products/import-worker/readiness"), 200,
                     "synthetic second tenant authenticated access")
             wait_worker(client)
