@@ -4,8 +4,15 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
+import psycopg
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from domains.simple_products.imports.application.source_store import (
+    ProductImportSourceIntegrityError, TransactionalSourceStore,
+)
+from domains.simple_products.imports.infrastructure.queue_dsn import product_import_psycopg_dsn
 
 
 _TERMINAL_STATUS_SQL = (
@@ -40,100 +47,72 @@ def _bounded_limit(
 
 
 async def fetch_expired_source_ids(
-    db: AsyncSession,
-    *,
-    company_id: int,
-    cutoff: datetime,
-    limit: int,
+    connection: psycopg.AsyncConnection,
+    *, company_id: int, cutoff: datetime, limit: int,
 ) -> list[UUID]:
-    batch_limit = _bounded_limit(
-        limit
+    """Lock eligible jobs before SourceStore; caller must retain this transaction."""
+    cursor = await connection.execute(
+        f"""
+        SELECT jobs.source_id
+        FROM product_import_jobs AS jobs
+        WHERE jobs.company_id = %s
+          AND jobs.status IN ({_TERMINAL_STATUS_SQL})
+          AND jobs.finished_at IS NOT NULL AND jobs.finished_at <= %s
+          AND jobs.source_id IS NOT NULL AND jobs.source_payload_cleared_at IS NULL
+        ORDER BY jobs.finished_at, jobs.id
+        LIMIT %s
+        FOR UPDATE OF jobs SKIP LOCKED
+        """,
+        (int(company_id), cutoff, _bounded_limit(limit)),
     )
-    result = await db.execute(
-        text(
-            f"""
-            SELECT jobs.source_id
-            FROM product_import_jobs AS jobs
-            WHERE jobs.company_id = :company_id
-              AND jobs.status IN ({_TERMINAL_STATUS_SQL})
-              AND jobs.finished_at IS NOT NULL
-              AND jobs.finished_at <= :cutoff
-              AND jobs.source_id IS NOT NULL
-              AND jobs.source_payload_cleared_at IS NULL
-            ORDER BY
-                jobs.finished_at ASC,
-                jobs.id ASC
-            LIMIT :batch_limit
-            """
-        ),
-        {
-            "company_id":
-                int(
-                    company_id
-                ),
-            "cutoff":
-                cutoff,
-            "batch_limit":
-                batch_limit,
-        },
-    )
-    return [
-        UUID(
-            str(
-                source_id
-            )
-        )
-        for (
-            source_id,
-        )
-        in result.fetchall()
-    ]
+    return [UUID(str(row[0])) for row in await cursor.fetchall()]
 
 
 async def mark_source_ids_cleared(
-    db: AsyncSession,
-    *,
-    company_id: int,
-    source_ids: list[UUID],
+    connection: psycopg.AsyncConnection,
+    *, company_id: int, source_ids: list[UUID], cutoff: datetime,
 ) -> int:
     if not source_ids:
         return 0
-    result = await db.execute(
-        text(
-            """
-            UPDATE product_import_jobs
-            SET source_payload_cleared_at =
-                    COALESCE(
-                        source_payload_cleared_at,
-                        CURRENT_TIMESTAMP
-                    ),
-                updated_at =
-                    CURRENT_TIMESTAMP
-            WHERE company_id = :company_id
-              AND source_id = ANY(
-                  CAST(:source_ids AS uuid[])
-              )
-              AND source_payload_cleared_at IS NULL
-            """
-        ),
-        {
-            "company_id":
-                int(
-                    company_id
-                ),
-            "source_ids": [
-                str(
-                    source_id
-                )
-                for source_id
-                in source_ids
-            ],
-        },
+    result = await connection.execute(
+        f"""
+        UPDATE product_import_jobs
+        SET source_payload_cleared_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE company_id = %s AND source_id = ANY(%s::uuid[])
+          AND source_payload_cleared_at IS NULL
+          AND status IN ({_TERMINAL_STATUS_SQL})
+          AND finished_at IS NOT NULL AND finished_at <= %s
+        """,
+        (int(company_id), source_ids, cutoff),
     )
-    return int(
-        result.rowcount
-        or 0
-    )
+    return int(result.rowcount or 0)
+
+
+async def clear_expired_stored_sources(
+    *, company_id: int, cutoff: datetime, limit: int,
+    source_store: TransactionalSourceStore,
+) -> int:
+    # Same lock order as Retry/Correction: job -> source (ordered id) ->
+    # tenant capacity -> global capacity. No connection/commit gap in cleanup.
+    async with await psycopg.AsyncConnection.connect(product_import_psycopg_dsn()) as connection:
+        async with connection.transaction():
+            await connection.execute("SELECT set_config('app.current_tenant', %s, true)",
+                                     (str(int(company_id)),))
+            source_ids = await fetch_expired_source_ids(
+                connection, company_id=company_id, cutoff=cutoff, limit=limit,
+            )
+            if not source_ids:
+                return 0
+            await source_store.delete_source_bytes_batch_on_connection(
+                connection=connection, company_id=company_id, source_ids=source_ids,
+            )
+            marked = await mark_source_ids_cleared(
+                connection, company_id=company_id, source_ids=source_ids, cutoff=cutoff,
+            )
+            if marked != len(source_ids):
+                raise ProductImportSourceIntegrityError("Locked retention source eligibility changed.")
+            return marked
 
 
 async def clear_expired_source_payloads(
@@ -211,20 +190,28 @@ async def compact_expired_row_details(
     result = await db.execute(
         text(
             f"""
-            WITH candidates AS MATERIALIZED (
+            WITH eligible_jobs AS MATERIALIZED (
+                SELECT jobs.id
+                FROM product_import_jobs AS jobs
+                WHERE jobs.company_id = :company_id
+                  AND jobs.status IN ({_TERMINAL_STATUS_SQL})
+                  AND jobs.finished_at IS NOT NULL AND jobs.finished_at <= :cutoff
+                  AND EXISTS (
+                      SELECT 1 FROM product_import_rows AS r
+                      WHERE r.company_id = :company_id AND r.job_id = jobs.id
+                      AND r.compacted_at IS NULL
+                  )
+                ORDER BY jobs.finished_at, jobs.id
+                LIMIT :batch_limit
+                FOR UPDATE OF jobs SKIP LOCKED
+            ), candidates AS MATERIALIZED (
                 SELECT rows.id
                 FROM product_import_rows AS rows
-                JOIN product_import_jobs AS jobs
-                  ON jobs.company_id = rows.company_id
-                 AND jobs.id = rows.job_id
+                JOIN eligible_jobs AS jobs ON jobs.id = rows.job_id
                 WHERE rows.company_id = :company_id
-                  AND jobs.company_id = :company_id
-                  AND jobs.status IN ({_TERMINAL_STATUS_SQL})
-                  AND jobs.finished_at IS NOT NULL
-                  AND jobs.finished_at <= :cutoff
                   AND rows.compacted_at IS NULL
                 ORDER BY
-                    jobs.finished_at ASC,
+                    rows.job_id ASC,
                     rows.id ASC
                 LIMIT :batch_limit
                 FOR UPDATE OF rows SKIP LOCKED
@@ -308,19 +295,26 @@ async def delete_expired_row_lineage(
     result = await db.execute(
         text(
             f"""
-            WITH candidates AS MATERIALIZED (
+            WITH eligible_jobs AS MATERIALIZED (
+                SELECT jobs.id
+                FROM product_import_jobs AS jobs
+                WHERE jobs.company_id = :company_id
+                  AND jobs.status IN ({_TERMINAL_STATUS_SQL})
+                  AND jobs.finished_at IS NOT NULL AND jobs.finished_at <= :cutoff
+                  AND EXISTS (
+                      SELECT 1 FROM product_import_rows AS r
+                      WHERE r.company_id = :company_id AND r.job_id = jobs.id
+                  )
+                ORDER BY jobs.finished_at, jobs.id
+                LIMIT :batch_limit
+                FOR UPDATE OF jobs SKIP LOCKED
+            ), candidates AS MATERIALIZED (
                 SELECT rows.id
                 FROM product_import_rows AS rows
-                JOIN product_import_jobs AS jobs
-                  ON jobs.company_id = rows.company_id
-                 AND jobs.id = rows.job_id
+                JOIN eligible_jobs AS jobs ON jobs.id = rows.job_id
                 WHERE rows.company_id = :company_id
-                  AND jobs.company_id = :company_id
-                  AND jobs.status IN ({_TERMINAL_STATUS_SQL})
-                  AND jobs.finished_at IS NOT NULL
-                  AND jobs.finished_at <= :cutoff
                 ORDER BY
-                    jobs.finished_at ASC,
+                    rows.job_id ASC,
                     rows.id ASC
                 LIMIT :batch_limit
                 FOR UPDATE OF rows SKIP LOCKED

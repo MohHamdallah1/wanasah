@@ -63,6 +63,15 @@ class TransactionalSourceStore(
     SourceStore,
     Protocol,
 ):
+    async def delete_source_bytes_batch_on_connection(
+        self,
+        *,
+        connection,
+        company_id: int,
+        source_ids: list[UUID],
+    ) -> int:
+        """Delete bytes/capacity within the caller's locked job transaction."""
+
     async def persist_stream_on_connection(
         self,
         *,

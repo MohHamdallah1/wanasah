@@ -363,11 +363,13 @@ check(
 )
 
 check(
-    "delete_source_bytes_batch("
+    "clear_expired_stored_sources("
     in retention_source
-    and "fetch_expired_source_ids("
-    in retention_source,
-    "Phase 10 retention hard ceiling delegates source cleanup through SourceStore",
+    and "delete_source_bytes_batch_on_connection("
+    in source("domains", "simple_products", "imports", "infrastructure", "retention_repository.py")
+    and "FOR UPDATE OF jobs SKIP LOCKED"
+    in source("domains", "simple_products", "imports", "infrastructure", "retention_repository.py"),
+    "Retention cleanup delegates SourceStore inside the locked job transaction",
 )
 
 check(

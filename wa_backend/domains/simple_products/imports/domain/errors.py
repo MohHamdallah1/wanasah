@@ -43,6 +43,10 @@ USER_SAFE_ERROR_MESSAGES: dict[str, str] = {
         "Import job was not found.",
     "PRODUCT_IMPORT_NOT_RETRYABLE":
         "This import cannot be retried in its current state.",
+    "PRODUCT_IMPORT_RETRY_SOURCE_UNAVAILABLE":
+        "The original import source is unavailable or has expired. Upload the file as a new import.",
+    "PRODUCT_IMPORT_RETRY_DETAILS_EXPIRED":
+        "The retained import row details have expired. Upload the remaining rows as a new import.",
     "PRODUCT_IMPORT_MAPPING_CONFLICT":
         "The import mapping changed and could not be applied.",
     "PRODUCT_IMPORT_REQUEST_CONFLICT":

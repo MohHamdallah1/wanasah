@@ -399,6 +399,36 @@ class PostgresProductImportSourceStore:
     ) -> int:
         if not source_ids:
             return 0
+        async with await psycopg.AsyncConnection.connect(
+            product_import_psycopg_dsn()
+        ) as connection:
+            async with connection.transaction():
+                await connection.execute(
+                    "SELECT set_config("
+                    "'app.current_tenant', %s, true)",
+                    [
+                        str(
+                            int(
+                                company_id
+                            )
+                        )
+                    ],
+                )
+
+                return await self.delete_source_bytes_batch_on_connection(
+                    connection=connection, company_id=company_id, source_ids=source_ids,
+                )
+
+    async def delete_source_bytes_batch_on_connection(
+        self,
+        *,
+        connection: psycopg.AsyncConnection,
+        company_id: int,
+        source_ids: list[UUID],
+    ) -> int:
+        # Caller owns tenant setup, transaction and any necessary job locks.
+        if not source_ids:
+            return 0
         if len(
             source_ids
         ) > 1_000:
@@ -426,174 +456,158 @@ class PostgresProductImportSourceStore:
                 "Source cleanup batch contains duplicate source ids."
             )
 
-        async with await psycopg.AsyncConnection.connect(
-            product_import_psycopg_dsn()
-        ) as connection:
-            async with connection.transaction():
-                await connection.execute(
-                    "SELECT set_config("
-                    "'app.current_tenant', %s, true)",
-                    [
-                        str(
-                            int(
-                                company_id
-                            )
-                        )
-                    ],
-                )
+        cursor = await connection.execute(
+            """
+            SELECT
+                id,
+                byte_size
+            FROM product_import_sources
+            WHERE company_id = %s
+              AND id = ANY(%s::uuid[])
+              AND deleted_at IS NULL
+            ORDER BY id
+            FOR UPDATE
+            """,
+            [
+                int(
+                    company_id
+                ),
+                [
+                    str(
+                        source_id
+                    )
+                    for source_id
+                    in normalized_ids
+                ],
+            ],
+        )
+        rows = await cursor.fetchall()
+        if not rows:
+            return 0
 
-                cursor = await connection.execute(
-                    """
-                    SELECT
-                        id,
-                        byte_size
-                    FROM product_import_sources
-                    WHERE company_id = %s
-                      AND id = ANY(%s::uuid[])
-                      AND deleted_at IS NULL
-                    ORDER BY id
-                    FOR UPDATE
-                    """,
-                    [
-                        int(
-                            company_id
-                        ),
-                        [
-                            str(
-                                source_id
-                            )
-                            for source_id
-                            in normalized_ids
-                        ],
-                    ],
+        live_ids = [
+            UUID(
+                str(
+                    source_id
                 )
-                rows = await cursor.fetchall()
-                if not rows:
-                    return 0
+            )
+            for (
+                source_id,
+                _byte_size,
+            )
+            in rows
+        ]
+        total_bytes = sum(
+            int(
+                byte_size
+            )
+            for (
+                _source_id,
+                byte_size,
+            )
+            in rows
+        )
 
-                live_ids = [
-                    UUID(
-                        str(
-                            source_id
-                        )
+        await connection.execute(
+            """
+            DELETE FROM product_import_source_chunks
+            WHERE company_id = %s
+              AND source_id = ANY(%s::uuid[])
+            """,
+            [
+                int(
+                    company_id
+                ),
+                [
+                    str(
+                        source_id
                     )
-                    for (
-                        source_id,
-                        _byte_size,
+                    for source_id
+                    in live_ids
+                ],
+            ],
+        )
+        result = await connection.execute(
+            """
+            UPDATE product_import_sources
+            SET deleted_at = CURRENT_TIMESTAMP
+            WHERE company_id = %s
+              AND id = ANY(%s::uuid[])
+              AND deleted_at IS NULL
+            """,
+            [
+                int(
+                    company_id
+                ),
+                [
+                    str(
+                        source_id
                     )
-                    in rows
-                ]
-                total_bytes = sum(
-                    int(
-                        byte_size
-                    )
-                    for (
-                        _source_id,
-                        byte_size,
-                    )
-                    in rows
-                )
+                    for source_id
+                    in live_ids
+                ],
+            ],
+        )
+        cleaned = int(
+            result.rowcount
+            or 0
+        )
+        if cleaned != len(
+            live_ids
+        ):
+            raise ProductImportSourceIntegrityError(
+                "Product Import source cleanup changed concurrently."
+            )
 
-                await connection.execute(
-                    """
-                    DELETE FROM product_import_source_chunks
-                    WHERE company_id = %s
-                      AND source_id = ANY(%s::uuid[])
-                    """,
-                    [
-                        int(
-                            company_id
-                        ),
-                        [
-                            str(
-                                source_id
-                            )
-                            for source_id
-                            in live_ids
-                        ],
-                    ],
-                )
-                result = await connection.execute(
-                    """
-                    UPDATE product_import_sources
-                    SET deleted_at = CURRENT_TIMESTAMP
-                    WHERE company_id = %s
-                      AND id = ANY(%s::uuid[])
-                      AND deleted_at IS NULL
-                    """,
-                    [
-                        int(
-                            company_id
-                        ),
-                        [
-                            str(
-                                source_id
-                            )
-                            for source_id
-                            in live_ids
-                        ],
-                    ],
-                )
-                cleaned = int(
-                    result.rowcount
-                    or 0
-                )
-                if cleaned != len(
-                    live_ids
-                ):
-                    raise ProductImportSourceIntegrityError(
-                        "Product Import source cleanup changed concurrently."
-                    )
-
-                tenant_counter = await connection.execute(
-                    """
-                    UPDATE product_import_tenant_source_capacity
-                    SET live_bytes =
-                            live_bytes - %s,
-                        updated_at =
-                            CURRENT_TIMESTAMP
-                    WHERE company_id = %s
-                      AND live_bytes >= %s
-                    """,
-                    [
-                        total_bytes,
-                        int(
-                            company_id
-                        ),
-                        total_bytes,
-                    ],
-                )
-                global_counter = await connection.execute(
-                    """
-                    UPDATE product_import_global_source_capacity
-                    SET live_bytes =
-                            live_bytes - %s,
-                        updated_at =
-                            CURRENT_TIMESTAMP
-                    WHERE id = 1
-                      AND live_bytes >= %s
-                    """,
-                    [
-                        total_bytes,
-                        total_bytes,
-                    ],
-                )
-                if (
-                    int(
-                        tenant_counter.rowcount
-                        or 0
-                    )
-                    != 1
-                    or int(
-                        global_counter.rowcount
-                        or 0
-                    )
-                    != 1
-                ):
-                    raise ProductImportSourceIntegrityError(
-                        "Product Import source capacity counters are inconsistent."
-                    )
-                return cleaned
+        tenant_counter = await connection.execute(
+            """
+            UPDATE product_import_tenant_source_capacity
+            SET live_bytes =
+                    live_bytes - %s,
+                updated_at =
+                    CURRENT_TIMESTAMP
+            WHERE company_id = %s
+              AND live_bytes >= %s
+            """,
+            [
+                total_bytes,
+                int(
+                    company_id
+                ),
+                total_bytes,
+            ],
+        )
+        global_counter = await connection.execute(
+            """
+            UPDATE product_import_global_source_capacity
+            SET live_bytes =
+                    live_bytes - %s,
+                updated_at =
+                    CURRENT_TIMESTAMP
+            WHERE id = 1
+              AND live_bytes >= %s
+            """,
+            [
+                total_bytes,
+                total_bytes,
+            ],
+        )
+        if (
+            int(
+                tenant_counter.rowcount
+                or 0
+            )
+            != 1
+            or int(
+                global_counter.rowcount
+                or 0
+            )
+            != 1
+        ):
+            raise ProductImportSourceIntegrityError(
+                "Product Import source capacity counters are inconsistent."
+            )
+        return cleaned
 
 
     async def delete_source_bytes(

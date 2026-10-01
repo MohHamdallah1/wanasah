@@ -1,0 +1,33 @@
+SEEDED_SYNTHETIC_UOM=14
+SEEDED_SYNTHETIC_COMPANIES=1
+SEEDED_SYNTHETIC_DRIVERS=1
+SEEDED_SYNTHETIC_PRODUCTS=1
+SEEDED_SYNTHETIC_PRODUCT_VARIANTS=1
+SEEDED_SYNTHETIC_INVENTORY_LOCATIONS=1
+SEEDED_SYNTHETIC_PRODUCT_UOM_CONVERSIONS=0
+P19_HTTP_DISPOSABLE_CLUSTER_REMOVED=PASS
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\admin\Desktop\wanasah-codex-D7S\wa_backend\scripts\run_product_import_phase19_http_isolated_gate.py", line 211, in <module>
+    main()
+  File "C:\Users\admin\Desktop\wanasah-codex-D7S\wa_backend\scripts\run_product_import_phase19_http_isolated_gate.py", line 161, in main
+    child = d4.run([sys.executable, "-m", child_module], env=env)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah-codex-D7S\wa_backend\scripts\run_product_import_d4_isolated_gate.py", line 45, in run
+    raise RuntimeError(
+RuntimeError: D4 command failed: python.exe; 
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\admin\Desktop\wanasah-codex-D7S\wa_backend\scripts\product_import_phase19_retention_retry_child.py", line 399, in <module>
+    main()
+  File "C:\Users\admin\Desktop\wanasah-codex-D7S\wa_backend\scripts\product_import_phase19_retention_retry_child.py", line 244, in main
+    completed_checkpoint_regression(admin, client, processes)
+  File "C:\Users\admin\Desktop\wanasah-codex-D7S\wa_backend\scripts\product_import_phase19_retention_retry_child.py", line 213, in completed_checkpoint_regression
+    first = shared.require(retry(client, checkpoint[0]), 202, "compacted imported checkpoint retry")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah-codex-D7S\wa_backend\scripts\product_import_phase19_http_isolated_child.py", line 84, in require
+    raise RuntimeError(f"{label}: HTTP {response.status_code} expected {status}, code={code}")
+RuntimeError: compacted imported checkpoint retry: HTTP 503 expected 202, code=PRODUCT_IMPORT_QUEUE_UNAVAILABLE
+

@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from database import AsyncSessionLocal
 from domains.simple_products.imports.application.source_store import (
-    SourceStore,
+    TransactionalSourceStore,
 )
 from domains.simple_products.imports.domain.retention import (
     DEFAULT_PRODUCT_IMPORT_RETENTION,
@@ -23,8 +23,7 @@ from domains.simple_products.imports.infrastructure.retention_repository import 
     clear_expired_source_payloads,
     compact_expired_row_details,
     delete_expired_row_lineage,
-    fetch_expired_source_ids,
-    mark_source_ids_cleared,
+    clear_expired_stored_sources,
 )
 from models import Company
 
@@ -138,7 +137,7 @@ async def run_product_import_retention(
     policy: ProductImportRetentionPolicy =
         DEFAULT_PRODUCT_IMPORT_RETENTION,
     now: datetime | None = None,
-    source_store: SourceStore | None = None,
+    source_store: TransactionalSourceStore | None = None,
 ) -> dict[str, int | bool]:
     effective_now = (
         now
@@ -185,68 +184,23 @@ async def run_product_import_retention(
             result.committed_batches += 1
 
         if source_store is not None:
-            for batch_index in range(
-                policy.max_batches_per_run
-            ):
-                source_ids = (
-                    await fetch_expired_source_ids(
-                        db,
-                        company_id=
-                            int(
-                                company_id
-                            ),
-                        cutoff=
-                            source_cutoff,
-                        limit=
-                            policy.batch_size,
-                    )
+            # Tenant setup did not lock business rows. Source cleanup uses one
+            # caller-owned SourceStore transaction, including job markers.
+            if db.in_transaction():
+                await db.rollback()
+            for batch_index in range(policy.max_batches_per_run):
+                marked = await clear_expired_stored_sources(
+                    company_id=int(company_id), cutoff=source_cutoff,
+                    limit=policy.batch_size, source_store=source_store,
                 )
-                if not source_ids:
-                    if db.in_transaction():
-                        await db.rollback()
+                if not marked:
                     break
-
-                # Do not hold the ORM transaction while SourceStore performs its
-                # own tenant-scoped cleanup transaction and capacity accounting.
-                if db.in_transaction():
-                    await db.rollback()
-
-                await source_store.delete_source_bytes_batch(
-                    company_id=
-                        int(
-                            company_id
-                        ),
-                    source_ids=
-                        source_ids,
-                )
-                marked = await mark_source_ids_cleared(
-                    db,
-                    company_id=
-                        int(
-                            company_id
-                        ),
-                    source_ids=
-                        source_ids,
-                )
-                await commit_batch()
-                result.payloads_cleared += (
-                    marked
-                )
-                if (
-                    len(
-                        source_ids
-                    )
-                    < policy.batch_size
-                ):
+                result.committed_batches += 1
+                result.payloads_cleared += marked
+                if marked < policy.batch_size:
                     break
-                if (
-                    batch_index
-                    == policy.max_batches_per_run
-                    - 1
-                ):
-                    result.batch_limit_reached = (
-                        True
-                    )
+                if batch_index == policy.max_batches_per_run - 1:
+                    result.batch_limit_reached = True
 
         for batch_index in range(
             policy.max_batches_per_run
