@@ -18,10 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from domains.pricing.core import PricingError, maker_checker_enabled, money_20_6
 from domains.pricing.publishing import (
     create_assignment,
-    create_draft_entries_bulk,
+    create_direct_publication,
     create_price_book,
-    create_publication,
-    publish_publication,
 )
 from domains.pricing.resolver import resolve_prices_bulk
 from domains.simple_products.observability import product_phase
@@ -1595,7 +1593,7 @@ async def publish_prices(
     request_id: UUID,
 ) -> None:
     with product_phase(db, "price_publication_create"):
-        publication = await create_publication(
+        direct_scope = await create_direct_publication(
             db,
             company_id=int(actor.company_id),
             actor_id=int(actor.id),
@@ -1604,6 +1602,7 @@ async def publish_prices(
             effective_at=effective_at,
             request_id=request_id,
         )
+        publication = direct_scope.publication
 
     # This request already has a bounded set of freshly published SKUs.
     # Build the exact same base/package entries and let the Pricing domain
@@ -1653,20 +1652,14 @@ async def publish_prices(
     # more than 100 SKUs; preserve one publication and its cumulative version.
     with product_phase(db, "price_draft_entries"):
         for start in range(0, len(entries), 200):
-            await create_draft_entries_bulk(
-                db,
-                company_id=int(actor.company_id),
-                publication_id=int(publication.id),
+            await direct_scope.add_draft_entries(
                 expected_publication_version=int(publication.version),
                 entries=entries[start:start + 200],
             )
 
     with product_phase(db, "price_publish"):
-        await publish_publication(
-            db,
-            company_id=int(actor.company_id),
+        await direct_scope.publish(
             actor_id=int(actor.id),
-            publication_id=int(publication.id),
             expected_version=int(publication.version),
         )
 

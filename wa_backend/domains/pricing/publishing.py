@@ -30,6 +30,7 @@ from .core import (
     require_aware_datetime,
     utc_now,
 )
+from .validation_lookups import load_variant_uom_snapshot
 
 
 SUPPORTED_ASSIGNMENT_SCOPES = frozenset(
@@ -72,6 +73,9 @@ async def _active_book(
     )
     if lock:
         stmt = stmt.with_for_update()
+    stmt = stmt.execution_options(
+        wanasah_sql_trace_label="pricing_book_lock" if lock else "pricing_book_read"
+    )
     row = await db.scalar(stmt)
     if row is None:
         raise PricingError(
@@ -115,7 +119,7 @@ async def create_price_book(
     return row
 
 
-async def create_publication(
+async def _create_publication_with_locked_book(
     db: AsyncSession,
     *,
     company_id: int,
@@ -124,7 +128,7 @@ async def create_publication(
     expected_book_version: int,
     effective_at: datetime,
     request_id: UUID,
-) -> PricePublication:
+) -> tuple[PricePublication, PriceBook]:
     effective_at = require_aware_datetime(effective_at, "effective_at")
     await acquire_pricing_company_lock(db, company_id)
     book = await _active_book(
@@ -149,7 +153,182 @@ async def create_publication(
     )
     db.add(row)
     await db.flush()
+    return row, book
+
+
+async def create_publication(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    actor_id: int,
+    book_id: int,
+    expected_book_version: int,
+    effective_at: datetime,
+    request_id: UUID,
+) -> PricePublication:
+    """Keep the public standalone Pricing creation contract unchanged."""
+    row, _book = await _create_publication_with_locked_book(
+        db,
+        company_id=company_id,
+        actor_id=actor_id,
+        book_id=book_id,
+        expected_book_version=expected_book_version,
+        effective_at=effective_at,
+        request_id=request_id,
+    )
     return row
+
+
+class _SameTransactionDirectPublication:
+    """Opaque Pricing-owned proof of locks acquired while creating a fresh DRAFT.
+
+    Only create_direct_publication constructs this object. It is scoped to the
+    originating root ORM transaction, not the reusable AsyncSession, and can
+    publish only once. No caller-supplied trust flag can bypass revalidation.
+    """
+
+    def __init__(
+        self,
+        *,
+        db: AsyncSession,
+        company_id: int,
+        publication: PricePublication,
+        book: PriceBook,
+        root_transaction: Any,
+        nested_transaction: Any,
+    ) -> None:
+        self._db = db
+        self._company_id = int(company_id)
+        self.publication = publication
+        self._book = book
+        self._root_transaction = root_transaction
+        self._nested_transaction = nested_transaction
+        self._consumed = False
+
+    def _require_open_transaction(self) -> None:
+        # A savepoint rollback releases locks acquired after that savepoint.
+        # Keep the proof tied to both its original root and nested identities.
+        if (
+            self._consumed
+            or self._db.sync_session.get_transaction() is not self._root_transaction
+            or self._db.sync_session.get_nested_transaction()
+            is not self._nested_transaction
+            or not self._root_transaction.is_active
+            or (
+                self._nested_transaction is not None
+                and not self._nested_transaction.is_active
+            )
+        ):
+            raise RuntimeError(
+                "Fresh Pricing publication proof is no longer valid in this transaction."
+            )
+        if (
+            int(self.publication.company_id) != self._company_id
+            or int(self._book.company_id) != self._company_id
+            or int(self._book.id) != int(self.publication.price_book_id)
+        ):
+            raise RuntimeError(
+                "Fresh Pricing publication proof has an inconsistent tenant/book."
+            )
+
+    async def add_draft_entries(
+        self, *, expected_publication_version: int, entries: list[dict[str, Any]],
+    ) -> list[PriceBookEntry]:
+        """Append a bounded draft chunk while its original row lock is held."""
+        self._require_open_transaction()
+        publication = self.publication
+        if publication.status != "DRAFT":
+            raise PricingError(
+                "PRICE_PUBLICATION_NOT_EDITABLE",
+                "يمكن تعديل إدخالات السعر داخل DRAFT فقط.",
+                context={"status": publication.status},
+            )
+        if int(publication.version) != int(expected_publication_version):
+            raise PricingError(
+                "PRICE_PUBLICATION_VERSION_CONFLICT",
+                "تغيرت نسخة النشر؛ حدّث البيانات وأعد المحاولة.",
+                context={"current_version": int(publication.version)},
+            )
+        return await _add_draft_entries_to_locked_publication(
+            self._db,
+            company_id=self._company_id,
+            publication=publication,
+            entries=entries,
+        )
+
+    async def publish(
+        self, *, actor_id: int, expected_version: int,
+    ) -> PricePublication:
+        self._require_open_transaction()
+        self._consumed = True
+
+        # The original create_publication acquired and retains Company
+        # FOR NO KEY UPDATE and PriceBook FOR UPDATE until transaction end.
+        # Re-check the mutable approval policy at the exact publication point.
+        if await maker_checker_enabled(self._db, self._company_id):
+            raise PricingError(
+                "PRICING_APPROVAL_REQUIRED",
+                "Maker/Checker مفعّل؛ يجب Submit ثم Approve.",
+            )
+
+        row = self.publication
+        if row.status != "DRAFT":
+            raise PricingError(
+                "PRICE_PUBLICATION_STATE_CONFLICT",
+                "النشر المباشر مسموح من DRAFT فقط.",
+                context={"status": row.status},
+            )
+        if int(row.version) != int(expected_version):
+            raise PricingError(
+                "PRICE_PUBLICATION_VERSION_CONFLICT",
+                "تغيرت نسخة النشر؛ حدّث البيانات وأعد المحاولة.",
+                context={"current_version": int(row.version)},
+            )
+        return await _publish_locked(
+            self._db,
+            company_id=self._company_id,
+            actor_id=actor_id,
+            publication=row,
+            already_locked_book=self._book,
+        )
+
+
+async def create_direct_publication(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    actor_id: int,
+    book_id: int,
+    expected_book_version: int,
+    effective_at: datetime,
+    request_id: UUID,
+) -> _SameTransactionDirectPublication:
+    """Create a new DRAFT and retain the Pricing-owned same-txn lock proof.
+
+    Intended for the existing create-draft-publish sequence, including
+    Simple Products. General publish_publication/approve_publication keep
+    their normal locking, publication lookup and approval contracts.
+    """
+    row, locked_book = await _create_publication_with_locked_book(
+        db,
+        company_id=company_id,
+        actor_id=actor_id,
+        book_id=book_id,
+        expected_book_version=expected_book_version,
+        effective_at=effective_at,
+        request_id=request_id,
+    )
+    transaction = db.sync_session.get_transaction()
+    if transaction is None:
+        raise RuntimeError("Fresh Pricing publication requires an active transaction.")
+    return _SameTransactionDirectPublication(
+        db=db,
+        company_id=company_id,
+        publication=row,
+        book=locked_book,
+        root_transaction=transaction,
+        nested_transaction=db.sync_session.get_nested_transaction(),
+    )
 
 
 async def _draft_publication(
@@ -166,6 +345,7 @@ async def _draft_publication(
             PricePublication.id == int(publication_id),
         )
         .with_for_update()
+        .execution_options(wanasah_sql_trace_label="pricing_draft_publication_lock")
     )
     if row is None:
         raise PricingError(
@@ -317,6 +497,28 @@ async def create_draft_entries_bulk(
         publication_id=publication_id,
         expected_version=expected_publication_version,
     )
+    return await _add_draft_entries_to_locked_publication(
+        db,
+        company_id=company_id,
+        publication=publication,
+        entries=entries,
+    )
+
+
+async def _add_draft_entries_to_locked_publication(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    publication: PricePublication,
+    entries: list[dict[str, Any]],
+) -> list[PriceBookEntry]:
+    """Common Pricing validation and DRAFT mutation after verified row lock.
+
+    Only the existing public API and the Pricing-owned same-transaction
+    scope call this helper. The latter proves it still holds the lock.
+    """
+    if len(entries) > 200:
+        raise ValueError("Pricing batch exceeds 200 draft entries.")
     if publication.effective_at is None:
         raise PricingError(
             "PRICE_PUBLICATION_EFFECTIVE_AT_REQUIRED",
@@ -347,43 +549,12 @@ async def create_draft_entries_bulk(
         ))
 
     ids = sorted({entry[0] for entry in prepared})
-    variant_rows = (
-        await db.execute(
-            select(
-                ProductVariant.id,
-                ProductVariant.base_uom_id,
-                ProductVariant.lifecycle_status,
-            ).where(
-                ProductVariant.company_id == int(company_id),
-                ProductVariant.id.in_(ids),
-            )
-        )
-    ).all()
-    variants = {
-        int(v.id): (int(v.base_uom_id), str(v.lifecycle_status))
-        for v in variant_rows
-    }
-    conversion_rows = (
-        await db.execute(
-            select(
-                ProductUomConversion.product_variant_id,
-                ProductUomConversion.from_uom_id,
-                ProductUomConversion.to_uom_id,
-            ).where(
-                ProductUomConversion.company_id == int(company_id),
-                ProductUomConversion.product_variant_id.in_(ids),
-            )
-        )
-    ).all()
-    mapped = {
-        variant_id: {base_uom}
-        for variant_id, (base_uom, _) in variants.items()
-    }
-    for conversion in conversion_rows:
-        mapped.setdefault(int(conversion.product_variant_id), set()).update((
-            int(conversion.from_uom_id),
-            int(conversion.to_uom_id),
-        ))
+    variants, mapped = await load_variant_uom_snapshot(
+        db,
+        company_id=company_id,
+        variant_ids=ids,
+        stage="draft",
+    )
 
     for variant_id, uom_id, *_ in prepared:
         variant = variants.get(variant_id)
@@ -553,6 +724,7 @@ async def _validate_publication_entries(
                     PriceBookEntry.id,
                 )
                 .with_for_update()
+                .execution_options(wanasah_sql_trace_label="pricing_publish_entries_lock")
             )
         ).all()
     )
@@ -568,42 +740,12 @@ async def _validate_publication_entries(
         )
 
     variant_ids = sorted({int(row.product_variant_id) for row in entries})
-    variant_rows = (
-        await db.execute(
-            select(
-                ProductVariant.id,
-                ProductVariant.base_uom_id,
-                ProductVariant.lifecycle_status,
-            ).where(
-                ProductVariant.company_id == int(company_id),
-                ProductVariant.id.in_(variant_ids),
-            )
-        )
-    ).all()
-    variants = {
-        int(row.id): (int(row.base_uom_id), str(row.lifecycle_status))
-        for row in variant_rows
-    }
-    conversion_rows = (
-        await db.execute(
-            select(
-                ProductUomConversion.product_variant_id,
-                ProductUomConversion.from_uom_id,
-                ProductUomConversion.to_uom_id,
-            ).where(
-                ProductUomConversion.company_id == int(company_id),
-                ProductUomConversion.product_variant_id.in_(variant_ids),
-            )
-        )
-    ).all()
-    mapped: dict[int, set[int]] = {
-        variant_id: {base_uom}
-        for variant_id, (base_uom, _) in variants.items()
-    }
-    for row in conversion_rows:
-        mapped.setdefault(int(row.product_variant_id), set()).update(
-            {int(row.from_uom_id), int(row.to_uom_id)}
-        )
+    variants, mapped = await load_variant_uom_snapshot(
+        db,
+        company_id=company_id,
+        variant_ids=variant_ids,
+        stage="publish",
+    )
 
     grouped: dict[tuple[int, int], list[PriceBookEntry]] = {}
     for entry in entries:
@@ -741,7 +883,7 @@ async def _close_predecessor_ranges(
                 ) AS predecessor
             )
             """
-        ),
+        ).execution_options(wanasah_sql_trace_label="pricing_predecessor_exists"),
         {
             "company_id": int(company_id),
             "price_book_id": int(publication.price_book_id),
@@ -813,7 +955,7 @@ async def _close_predecessor_ranges(
                   )
             )
             """
-        ),
+        ).execution_options(wanasah_sql_trace_label="pricing_locked_context_check"),
         {
             "company_id": int(company_id),
             "publication_id": int(publication.id),
@@ -868,7 +1010,7 @@ async def _close_predecessor_ranges(
             FROM candidates
             WHERE old.id = candidates.id
             """
-        ),
+        ).execution_options(wanasah_sql_trace_label="pricing_close_previous_ranges"),
         {
             "company_id": int(company_id),
             "publication_id": int(publication.id),
@@ -910,7 +1052,7 @@ async def _close_predecessor_ranges(
                 )
             )
             """
-        ),
+        ).execution_options(wanasah_sql_trace_label="pricing_effectivity_overlap_check"),
         {
             "company_id": int(company_id),
             "price_book_id": int(publication.price_book_id),
@@ -931,13 +1073,27 @@ async def _publish_locked(
     company_id: int,
     actor_id: int,
     publication: PricePublication,
+    already_locked_book: PriceBook | None = None,
 ) -> PricePublication:
-    await _active_book(
-        db,
-        company_id=company_id,
-        book_id=int(publication.price_book_id),
-        lock=True,
-    )
+    if already_locked_book is None:
+        await _active_book(
+            db,
+            company_id=company_id,
+            book_id=int(publication.price_book_id),
+            lock=True,
+        )
+    else:
+        # A book locked at DRAFT creation cannot change in another transaction
+        # before this same root transaction commits or rolls back.
+        if already_locked_book.status != "ACTIVE":
+            raise PricingError(
+                "PRICE_BOOK_INACTIVE",
+                "دفتر الأسعار غير فعال ولا يقبل تعديلات تجارية جديدة.",
+                context={
+                    "price_book_id": int(publication.price_book_id),
+                    "status": already_locked_book.status,
+                },
+            )
     await _validate_publication_entries(
         db, company_id=company_id, publication=publication
     )
@@ -958,6 +1114,7 @@ async def _publish_locked(
             version=PriceBookEntry.version + 1,
             updated_at=now,
         )
+        .execution_options(wanasah_sql_trace_label="pricing_publish_entry_update")
     )
 
     await db.execute(
@@ -973,6 +1130,7 @@ async def _publish_locked(
             version=PricePublication.version + 1,
             updated_at=now,
         )
+        .execution_options(wanasah_sql_trace_label="pricing_supersede_publications")
     )
 
     publication.status = "PUBLISHED"
@@ -1006,6 +1164,7 @@ async def publish_publication(
             PricePublication.id == int(publication_id),
         )
         .with_for_update()
+        .execution_options(wanasah_sql_trace_label="pricing_publish_publication_lock")
     )
     if row is None:
         raise PricingError("PRICE_PUBLICATION_NOT_FOUND", "نسخة النشر غير موجودة.", status_code=404)

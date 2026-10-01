@@ -23,6 +23,119 @@ The existing `observe_import_phase` helper logs every context separately;
 reusing it for recursive attempts/per-product flushes would generate many logs.
 This observer aggregates those contexts into one record instead.
 
+## Per-statement timing detail (additive schema-1 fields)
+
+Each **already-selected** batch now includes `sql_statement_timings`, a bounded
+ordered list of **individual completed SQL cursor calls**. The existing opt-in
+`PRODUCT_IMPORT_PROFILE_EVERY_N_BATCHES=10` selects the same batches as before;
+profiling remains entirely off for unset/invalid/zero values. No new workers,
+queries, transaction boundaries, global engine listeners or logging streams
+are created by this change.
+
+Each detail includes `ordinal` (execution-order number within the batch),
+`phase` (the existing deepest phase), `sql_label` (an allowlisted static,
+source-authored label or `unlabeled`), `sql_type` (an allowlisted SQL
+operation label), `sql_sha256_16` (the first 16 hex characters of SHA-256 of
+the DBAPI SQL **template**), `executemany`, and `wall_ms`. For example,
+filter `phase=price_publish` to inspect the eleven calls individually;
+aggregate by `sql_label` and `sql_sha256_16` to obtain count, total elapsed
+and maximum elapsed per statement shape across sampled batches. A matching
+fingerprint identifies the same **exact rendered SQL template**, not a unique
+business entity or bound-parameter combination.
+
+Pricing's existing SELECT/UPDATE/TextClause objects carry inert SQLAlchemy
+`execution_options(wanasah_sql_trace_label="pricing_...")` metadata for
+the company lock, maker/checker policy, publication/book locks, entries,
+variant/UOM validation, predecessor check, effectivity conflict handling and
+publishing updates. It changes **no SQL, WHERE condition, lock, transaction or
+ORM flush semantics**, and only the selected import observer reads the tags.
+SQL emitted implicitly by ORM flush may remain `sql_label=unlabeled`; its
+`ordinal`, SQL type and template hash still distinguish it. User-controlled
+labels are never accepted: unknown values become `unlabeled`.
+
+**Privacy and bounds:** no statement text, query parameters, data values,
+barcodes, product IDs, client details, SQL exceptions or business object
+references are emitted. A selected batch retains at most **256 completed
+calls**; `sql_statement_timings_limit=256` and
+`sql_statement_timings_dropped` reveal when that bound is reached or detail
+collection fails. `instrumentation_complete=false` means the record is
+incomplete. An unsuccessful SQL call has no `after_cursor_execute` event:
+the existing `sql_calls_without_completion` counter exposes the omission,
+and no fictitious latency is assigned. The original phase totals and creation
+counters remain unchanged.
+
+The measured interval is driver-visible elapsed time between SQLAlchemy's
+`before_cursor_execute` and `after_cursor_execute`; it includes driver
+work, possible lock wait, network and PostgreSQL execution. It **cannot**
+separate PostgreSQL CPU, disk IO or individual lock waits. No acceptance,
+throughput or performance improvement is claimed until independently verified
+by authorized observation of a future real import.
+
+## Pricing lookup consolidation (stacked remediation PR)
+
+The Pricing-domain helper `domains/pricing/validation_lookups.py` now loads
+`ProductVariant` state and its `ProductUomConversion` UOM mapping with **one
+tenant-constrained LEFT JOIN** per validation stage, replacing two separate
+cursor calls in each of `create_draft_entries_bulk` and
+`_validate_publication_entries`. The join includes the company predicate on
+**both** tables and preserves base UOMs when no conversion exists. The result
+is still bounded by the same requested variant IDs and the existing 200-entry
+draft limit. No catalog data is cached beyond that validation call.
+
+Static labels are `pricing_draft_variant_uom` and
+`pricing_publish_variant_uom`. The original `PriceBookEntry FOR UPDATE`,
+publish-time UOM/status/effectivity checks, audit/Outbox, SQL conflict guards,
+maker/checker, tenant isolation, and transaction boundaries are unchanged.
+**Both validations still happen:** this is a safe roundtrip-consolidation step,
+not permission to reuse an earlier status/UOM snapshot across transactions or
+between draft and publish. Fresh publish-time reads protect against concurrent
+catalog changes.
+
+Each stage replaces **two** queries with **one** SQL query at the Python call
+site. This is not proof that the joined SQL runs faster on every data shape,
+and no load tests, SQL execution or deployment were performed. The optional
+per-statement observer can distinguish the consolidated query on a future
+authorized real import.
+
+## Same-transaction direct publication scope (stacked remediation PR)
+
+The ordinary Simple Products create/price flow now requests
+`create_direct_publication` from Pricing. Its opaque, single-use Pricing-owned
+scope holds the exact just-created `PricePublication` and the `PriceBook`
+already locked with `FOR UPDATE` under the Company `FOR NO KEY UPDATE`
+mutex. It retains the originating root ORM transaction **and nested
+savepoint identities** as invalidation boundaries, not a session-scoped
+or cross-batch cache. The scope's `add_draft_entries` also reuses the
+just-created publication's existing row lock, but checks DRAFT/version on
+**every** bounded entry chunk and calls the SAME internal Pricing validation,
+money rounding and DRAFT persistence helper used by the public
+`create_draft_entries_bulk` interface.
+
+During the existing draft -> publish flow, `scope.publish` still checks
+Maker/Checker, DRAFT status and version, and executes the **unchanged**
+publish-time entry/variant/UOM validation, authoritative predecessor lookup,
+protected range-closing, overlap checking, publication updates and final
+flush. It reuses the **already-held** Company, book and new-publication row
+locks rather than re-requesting those same three SELECT locks; the public
+`publish_publication` and `approve_publication` API paths retain every
+original SELECT, lock and check. It cannot be used after commit, reuse,
+rollback to another savepoint or a different root transaction.
+
+The import still commits **every 100 active products**, maintains the
+same publication and version per batch and the same 200-price-entry draft
+limit. The same direct scope is valid for the Simple Products
+update-existing-price path: existing-price predecessor, route/commercial
+history, effective date and overlap checks remain enabled.
+
+Estimated SQL round-trip *shape* per normal fresh-publication cycle
+falls by four: the repeat `PricePublication FOR UPDATE` call in
+`price_draft_entries`, and redundant Company, book and new-publication
+lock reads in `price_publish`. The public generic draft entry and
+publish interfaces still perform their original checks and locks.
+The additional draft saving applies to each 200-entry chunk in the direct
+scope. Real elapsed time and lock contention remain unknown. No benchmark,
+SQL execution, tests, worker restart, schema change or deployment occurred.
+
 ## Timing boundaries
 
 All values are **client-visible wall time**, never PostgreSQL CPU or pure Python
