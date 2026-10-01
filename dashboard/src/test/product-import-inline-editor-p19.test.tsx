@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ImportInlineCorrectionPanel } from "@/pages/products/import/ImportInlineCorrectionPanel";
 import { ImportProductStatusPanel } from "@/pages/products/import/ImportProductStatusPanel";
@@ -71,6 +71,7 @@ const props = {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
   ids.pending = null;
   sessionStorage.clear();
   localStorage.clear();
@@ -155,6 +156,77 @@ describe("inline correction UI uses the server-owned failed-row contract", () =>
     await waitFor(() => expect(props.onAccepted).toHaveBeenCalledTimes(1));
     expect(bodies).toHaveLength(2);
     expect(bodies[0]).toBe(bodies[1]);
+  });
+
+  it("does not discard a stale typed draft unless the user confirms", async () => {
+    const scope = productDurableScope(38, 17, "product-import-inline-correction", JOB);
+    const draftKey = scope + ":draft";
+    sessionStorage.setItem(draftKey, JSON.stringify({
+      jobVersion: 6,
+      rowVersions: { [ROW]: 3 },
+      edits: { [ROW]: { name: "Unsaved corrected name" } },
+    }));
+    const accept = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const authFetch = vi.fn().mockResolvedValue(page);
+    render(<ImportInlineCorrectionPanel {...props} authFetch={authFetch} />);
+    expect(await screen.findByText("products.inlineCorrection.staleDraft")).not.toBeNull();
+    expect(screen.getByDisplayValue("Unsaved corrected name")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", {
+      name: "products.inlineCorrection.discardDraft",
+    }));
+    expect(accept).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem(draftKey)).not.toBeNull();
+    accept.mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", {
+      name: "products.inlineCorrection.discardDraft",
+    }));
+    await waitFor(() => expect(sessionStorage.getItem(draftKey)).toBeNull());
+  });
+
+  it("releases an exact pending id after a known zero-write 409 conflict", async () => {
+    const authFetch = vi.fn()
+      .mockResolvedValueOnce(page)
+      .mockRejectedValueOnce({
+        status: 409, code: "PRODUCT_IMPORT_CORRECTION_CONFLICT",
+      });
+    render(<ImportInlineCorrectionPanel {...props} authFetch={authFetch} />);
+    expect(await screen.findByText("Row 14")).not.toBeNull();
+    fireEvent.change(screen.getByLabelText("products.fields.name"), {
+      target: { value: "Corrected name" },
+    });
+    fireEvent.click(screen.getByRole("button", {
+      name: "products.inlineCorrection.submit",
+    }));
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(ids.pending).toBeNull());
+    expect(screen.queryByRole("button", {
+      name: "products.inlineCorrection.retrySame",
+    })).toBeNull();
+  });
+
+  it("ignores a late acknowledged correction after the editor was unmounted", async () => {
+    let accept!: (value: unknown) => void;
+    const postResponse = new Promise<unknown>((resolve) => { accept = resolve; });
+    const authFetch = vi.fn(async (_url: string, options?: RequestInit) =>
+      options?.method === "POST" ? postResponse : page);
+    const onAccepted = vi.fn();
+    const view = render(<ImportInlineCorrectionPanel
+      {...props} onAccepted={onAccepted} authFetch={authFetch}
+    />);
+    expect(await screen.findByText("Row 14")).not.toBeNull();
+    fireEvent.change(screen.getByLabelText("products.fields.name"), {
+      target: { value: "Edited" },
+    });
+    fireEvent.click(screen.getByRole("button", {
+      name: "products.inlineCorrection.submit",
+    }));
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(2));
+    view.unmount();
+    await act(async () => {
+      accept({ job_id: JOB, status: "VALIDATING", corrected_rows: 1, replayed: false });
+      await postResponse;
+    });
+    expect(onAccepted).not.toHaveBeenCalled();
   });
 
   it("blocks any rejected-row editor when there are more than 25 failures", () => {

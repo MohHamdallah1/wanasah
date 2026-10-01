@@ -89,7 +89,15 @@ export function useImportInlineCorrection({
   const [storageWarning, setStorageWarning] = useState(false);
   const [revision, setRevision] = useState(0);
   const savingRef = useRef(false);
+  const editsRef = useRef<Edits>({});
+  const aliveRef = useRef(true);
   const currentJobRef = useRef(jobId);
+  const currentScopeRef = useRef(scope);
+  currentScopeRef.current = scope;
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => { aliveRef.current = false; };
+  }, []);
 
   useEffect(() => {
     currentJobRef.current = jobId;
@@ -104,6 +112,8 @@ export function useImportInlineCorrection({
     const abort = new AbortController();
     setLoading(true);
     setPage(null);
+    setPending(null);
+    setStaleDraft(false);
     setError(null);
     void (async () => {
       // Read pending command before making any new mutation or replacing drafts.
@@ -114,9 +124,11 @@ export function useImportInlineCorrection({
       if (disposed) return;
       setPage(response);
       if (savedDraft) {
+        editsRef.current = savedDraft.edits;
         setEdits(savedDraft.edits);
         setStaleDraft(!matchesDraft(savedDraft, response));
       } else {
+        editsRef.current = {};
         setEdits({});
         setStaleDraft(false);
       }
@@ -135,14 +147,15 @@ export function useImportInlineCorrection({
     if (!page || pending || savingRef.current || staleDraft) return;
     const row = page.items.find((candidate) => candidate.row_identity === identity);
     if (!row?.editable || !page.fields.includes(field)) return;
-    setEdits((previous) => {
-      const next: Edits = { ...previous };
+    const next: Edits = { ...editsRef.current };
       const changed = { ...next[identity] };
       if (text === formatInlineValue(row.values[field])) delete changed[field];
       else changed[field] = text;
       if (Object.keys(changed).length) next[identity] = changed;
       else delete next[identity];
-      // Persist synchronously before React can unmount on modal close.
+      // Persist once per user event, not as a side effect of a React state updater.
+      editsRef.current = next;
+      setEdits(next);
       if (draftKey) {
         try {
           if (Object.keys(next).length) {
@@ -158,8 +171,6 @@ export function useImportInlineCorrection({
           setStorageWarning(true);
         }
       }
-      return next;
-    });
   };
 
   const discardDraft = () => {
@@ -167,6 +178,7 @@ export function useImportInlineCorrection({
     if (draftKey) {
       try { sessionStorage.removeItem(draftKey); } catch { setStorageWarning(true); }
     }
+    editsRef.current = {};
     setEdits({});
     setStaleDraft(false);
     setRevision((current) => current + 1);
@@ -174,6 +186,7 @@ export function useImportInlineCorrection({
 
   const submit = async (recover = false) => {
     if (savingRef.current || !scope || !online || currentJobRef.current !== jobId) return;
+    const currentScope = () => aliveRef.current && currentScopeRef.current === scope;
     if (!recover && (!page || staleDraft || pending)) return;
     savingRef.current = true;
     setSaving(true);
@@ -210,7 +223,7 @@ export function useImportInlineCorrection({
         }
         command = await getOrCreateDurableCommand(scope, intent);
       }
-      setPending(command);
+      if (currentScope()) setPending(command);
       const body = {
         request_id: command.requestId,
         expected_job_version: command.payload.expected_job_version,
@@ -228,9 +241,12 @@ export function useImportInlineCorrection({
       if (draftKey) {
         try { sessionStorage.removeItem(draftKey); } catch { /* no mutation data loss */ }
       }
-      setPending(null);
-      setEdits({});
-      if (currentJobRef.current === jobId) onAccepted(ack);
+      if (currentScope()) {
+        setPending(null);
+        editsRef.current = {};
+        setEdits({});
+        if (currentJobRef.current === jobId) onAccepted(ack);
+      }
     } catch (cause) {
       // Known rejection, before the DB commit: retry may use a new stable id
       // after the user explicitly resolves the bad input or stale versions.
@@ -240,20 +256,24 @@ export function useImportInlineCorrection({
         code === "PRODUCT_IMPORT_CORRECTION_STALE_JOB" ||
         code === "PRODUCT_IMPORT_CORRECTION_STALE_ROW" ||
         code === "PRODUCT_IMPORT_CORRECTION_ROW_NOT_EDITABLE" ||
-        code === "PRODUCT_IMPORT_CORRECTION_DETAILS_EXPIRED"
+        code === "PRODUCT_IMPORT_CORRECTION_DETAILS_EXPIRED" ||
+        code === "PRODUCT_IMPORT_CORRECTION_CONFLICT"
       )) {
         abandonDurableOperation(scope);
-        setPending(null);
-        if (code?.includes("STALE") || code?.includes("EXPIRED") || code?.includes("NOT_EDITABLE")) {
-          setStaleDraft(true);
+        if (currentScope()) {
+          setPending(null);
+          if (code?.includes("STALE") || code?.includes("EXPIRED") ||
+              code?.includes("NOT_EDITABLE") || code === "PRODUCT_IMPORT_CORRECTION_CONFLICT") {
+            setStaleDraft(true);
+          }
         }
       }
-      if (currentJobRef.current === jobId) {
+      if (currentScope() && currentJobRef.current === jobId) {
         setError(apiErrorMessage(cause, saveFailedMessage));
       }
     } finally {
       savingRef.current = false;
-      setSaving(false);
+      if (currentScope()) setSaving(false);
     }
   };
 

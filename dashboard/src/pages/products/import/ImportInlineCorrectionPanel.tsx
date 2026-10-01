@@ -88,7 +88,9 @@ export function ImportInlineCorrectionPanel({
           <button
             type="button"
             disabled={review.saving || Boolean(review.pending)}
-            onClick={review.discardDraft}
+            onClick={() => {
+              if (window.confirm(t("products.inlineCorrection.discardConfirm"))) review.discardDraft();
+            }}
             className="min-h-9 rounded-lg border border-amber-300 px-3 font-bold disabled:opacity-40"
           >
             {t("products.inlineCorrection.discardDraft")}
