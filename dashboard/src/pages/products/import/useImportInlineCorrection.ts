@@ -39,19 +39,30 @@ type Params = {
   saveFailedMessage: string;
 };
 
-function readDraft(key: string): Draft | null {
+type StoredDraft = { status: "absent" } |
+  { status: "valid"; draft: Draft } |
+  { status: "unreadable" };
+
+function readDraft(key: string): StoredDraft {
+  // A corrupt/unreadable stored draft must NEVER be silently treated as
+  // absent: the route guard still sees its key and blocks leaving this job.
+  // Give the owner a clear, confirmed recovery path instead of trapping them.
   try {
     const text = sessionStorage.getItem(key);
-    if (!text) return null;
+    if (text === null) return { status: "absent" };
+    if (!text.trim()) return { status: "unreadable" };
     const parsed: unknown = JSON.parse(text);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { status: "unreadable" };
+    }
     const value = parsed as Draft;
     if (!Number.isSafeInteger(value.jobVersion) || value.jobVersion < 1 ||
-        !value.edits || typeof value.edits !== "object" ||
-        !value.rowVersions || typeof value.rowVersions !== "object") return null;
-    return value;
+        !value.edits || typeof value.edits !== "object" || Array.isArray(value.edits) ||
+        !value.rowVersions || typeof value.rowVersions !== "object" ||
+        Array.isArray(value.rowVersions)) return { status: "unreadable" };
+    return { status: "valid", draft: value };
   } catch {
-    return null;
+    return { status: "unreadable" };
   }
 }
 
@@ -86,6 +97,7 @@ export function useImportInlineCorrection({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [staleDraft, setStaleDraft] = useState(false);
+  const [unreadableDraft, setUnreadableDraft] = useState(false);
   const [storageWarning, setStorageWarning] = useState(false);
   const [revision, setRevision] = useState(0);
   const savingRef = useRef(false);
@@ -114,23 +126,26 @@ export function useImportInlineCorrection({
     setPage(null);
     setPending(null);
     setStaleDraft(false);
+    setUnreadableDraft(false);
     setError(null);
     void (async () => {
       // Read pending command before making any new mutation or replacing drafts.
       const savedCommand = await readDurableCommand<InlineCorrectionIntent>(scope);
       if (!disposed) setPending(savedCommand);
       const response = await loadInlineCorrectionRows(authFetch, jobId, abort.signal);
-      const savedDraft = draftKey ? readDraft(draftKey) : null;
+      const savedDraft = draftKey ? readDraft(draftKey) : { status: "absent" } as const;
       if (disposed) return;
       setPage(response);
-      if (savedDraft) {
-        editsRef.current = savedDraft.edits;
-        setEdits(savedDraft.edits);
-        setStaleDraft(!matchesDraft(savedDraft, response));
+      if (savedDraft.status === "valid") {
+        editsRef.current = savedDraft.draft.edits;
+        setEdits(savedDraft.draft.edits);
+        setStaleDraft(!matchesDraft(savedDraft.draft, response));
+        setUnreadableDraft(false);
       } else {
         editsRef.current = {};
         setEdits({});
-        setStaleDraft(false);
+        setStaleDraft(savedDraft.status === "unreadable");
+        setUnreadableDraft(savedDraft.status === "unreadable");
       }
     })().catch((cause) => {
       if (!disposed) setError(apiErrorMessage(cause, loadFailedMessage));
@@ -176,11 +191,19 @@ export function useImportInlineCorrection({
   const discardDraft = () => {
     if (pending || savingRef.current) return;
     if (draftKey) {
-      try { sessionStorage.removeItem(draftKey); } catch { setStorageWarning(true); }
+      try {
+        sessionStorage.removeItem(draftKey);
+      } catch {
+        // Leave stale/unreadable state intact if storage refused removal.
+        setStorageWarning(true);
+        return;
+      }
     }
     editsRef.current = {};
     setEdits({});
     setStaleDraft(false);
+    setUnreadableDraft(false);
+    setStorageWarning(false);
     setRevision((current) => current + 1);
   };
 
@@ -279,7 +302,7 @@ export function useImportInlineCorrection({
 
   const changedRows = Object.values(edits).filter((values) => Object.keys(values).length).length;
   return {
-    page, edits, loading, saving, pending, staleDraft, storageWarning,
+    page, edits, loading, saving, pending, staleDraft, unreadableDraft, storageWarning,
     changedRows, error, online, change, discardDraft,
     reload: () => setRevision((current) => current + 1),
     submit: () => void submit(false),
