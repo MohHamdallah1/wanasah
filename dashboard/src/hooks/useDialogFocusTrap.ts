@@ -87,6 +87,9 @@ export function useDialogFocusTrap<
     const handleKeyDown = (
       event: KeyboardEvent,
     ) => {
+      // Nested Radix layers dismiss first in capture phase. One Escape must
+      // close that layer, not the owning dialog as well.
+      if (event.defaultPrevented) return;
       if (event.key === "Escape") {
         event.preventDefault();
         closeRef.current();

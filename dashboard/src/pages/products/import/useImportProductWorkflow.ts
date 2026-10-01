@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type {
   QueryClient,
 } from "@tanstack/react-query";
@@ -62,13 +63,13 @@ export function useImportProductWorkflow({
   retryTrackingDefaults,
 }: Params) {
   const {
-    importOpen,
+    importOpen: savedImportOpen,
     setImportOpen,
     importFile,
     setImportFile,
-    importJobId,
+    importJobId: savedImportJobId,
     setImportJobId,
-    importStatus,
+    importStatus: savedImportStatus,
     setImportStatus,
     importPollError,
     setImportPollError,
@@ -86,6 +87,27 @@ export function useImportProductWorkflow({
     setDragging,
     fileRef,
   } = useImportProductState();
+
+  const identity = String(companyId) + ":" + String(driverId);
+  const identityRef = useRef(identity);
+  const identityChanged = identityRef.current !== identity;
+  // Hide the old tenant snapshot in the first render, before effects run.
+  const importOpen = !identityChanged && savedImportOpen;
+  const importJobId = identityChanged ? null : savedImportJobId;
+  const importStatus = identityChanged ? null : savedImportStatus;
+  useEffect(() => {
+    if (identityRef.current === identity) return;
+    identityRef.current = identity;
+    setImportOpen(false);
+    setImportFile(null);
+    setImportJobId(null);
+    setImportStatus(null);
+    setImportPollError(null);
+    setMapping({});
+    // Keep durable commands/drafts under their original company/actor keys.
+    // Session resume below may load only the new identity's own job.
+  }, [identity, setImportOpen, setImportFile, setImportJobId,
+    setImportStatus, setImportPollError, setMapping]);
 
   const importSessionKey =
     productImportSessionKey(

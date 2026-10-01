@@ -147,6 +147,7 @@ export function useImportProductPolling({
     let realtimeOpen = false;
     let completionHandled =
       false;
+    let completionToastId: string | number | undefined;
     let fallbackAttempt = 0;
     let reconnectAttempt = 0;
     let websocket:
@@ -279,7 +280,7 @@ export function useImportProductPolling({
           status.status ===
           "COMPLETED"
         ) {
-          toast.success(
+          completionToastId = toast.success(
             t(
               "products.importCompleted",
               {
@@ -289,7 +290,7 @@ export function useImportProductPolling({
             ),
           );
         } else {
-          toast.warning(
+          completionToastId = toast.warning(
             t(
               "products.importCompletedWithErrors",
               {
@@ -660,6 +661,8 @@ export function useImportProductPolling({
 
     return () => {
       disposed = true;
+      // Completion notifications belong to this job view, not a later tenant.
+      if (completionToastId !== undefined) toast.dismiss(completionToastId);
       clearTransportTimers();
       closeRealtime();
       document.removeEventListener(
