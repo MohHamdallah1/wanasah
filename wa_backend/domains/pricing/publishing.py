@@ -195,19 +195,29 @@ class _SameTransactionDirectPublication:
         publication: PricePublication,
         book: PriceBook,
         root_transaction: Any,
+        nested_transaction: Any,
     ) -> None:
         self._db = db
         self._company_id = int(company_id)
         self.publication = publication
         self._book = book
         self._root_transaction = root_transaction
+        self._nested_transaction = nested_transaction
         self._consumed = False
 
     async def publish(
         self, *, actor_id: int, expected_version: int,
     ) -> PricePublication:
-        if self._consumed or (
-            self._db.sync_session.get_transaction() is not self._root_transaction
+        if (
+            self._consumed
+            or self._db.sync_session.get_transaction() is not self._root_transaction
+            or self._db.sync_session.get_nested_transaction()
+            is not self._nested_transaction
+            or not self._root_transaction.is_active
+            or (
+                self._nested_transaction is not None
+                and not self._nested_transaction.is_active
+            )
         ):
             raise RuntimeError(
                 "Fresh Pricing publication proof is no longer valid in this transaction."
@@ -285,6 +295,7 @@ async def create_direct_publication(
         publication=row,
         book=locked_book,
         root_transaction=transaction,
+        nested_transaction=db.sync_session.get_nested_transaction(),
     )
 
 
