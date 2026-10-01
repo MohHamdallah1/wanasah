@@ -1013,19 +1013,26 @@ reproduced timeout/lock release, medium/50k measurement, and customer D7-P/D8-P*
   cluster was removed and original developer source unchanged.
   This verifies real abort/transaction-lock release, **not** the
   historical ClientRead driver root cause or elapsed 120-second policy.
-- [ ] **Live official HTTP cancellation + Worker concurrent-stall recovery:**
-  D4 previously proved real PostgreSQL/worker cancellation during PARSING
-  on a new synthetic 5k row job with 0 processed/0 linked products,
-  and hard-kill/recovery after 100 committed of a 3k synthetic job,
-  ending 2970/30 with no duplicate Product/Price/Audit/Outbox.
-  Separately the real-PG short-deadline test above released the
-  transaction lock. Still verify **official HTTP cancel while a real
-  staging SQL await is stalled**, worker's controlled retry/SourceStore
-  retention after an induced abort, connection pre-ping edge, and real
-  ambiguous-COMMIT acknowledgement under the actual queue launcher.
-  Do not infer these coupled scenarios from separate D4/guard tests.
-  The September Windows/asyncpg ClientRead root-cause investigation and
-  intermediate-size measured queue tests remain OPEN.
+- [x] **Official HTTP cancel during genuinely locked SQL staging (2026-10-01):**
+  in disposable PG16/real FastAPI+Worker roles, a synthetic new 5k job's
+  staging DELETE actually blocked on an operator-owned PostgreSQL ACCESS
+  EXCLUSIVE table lock (verified in pg_locks). HTTP POST to the standard
+  job /cancel endpoint durably returned CANCELLED while Worker SQL still
+  waited; cross-company cancel returned 404. Releasing the lock let the
+  actual worker rollback the one staging transaction; zero partial
+  ProductImportRows/Variant links, zero processed Products, SourceStore
+  cleared and queue inactive. Synthetic developer source verified unchanged,
+  disposable cluster removed. Evidence:
+  docs/operations/PRODUCT_IMPORT_P19_OFFICIAL_HTTP_LOCK_CANCEL_2026-10-01.md.
+  Existing D4 independently proved worker kill/recovery to 2970/30 and
+  actual 5k stage cancel; real PG short-deadline lock-release previously
+  passed. The coupled official HTTP-in-lock-wait safety case is now DONE.
+- [ ] **Remaining fault-injected Worker retry/ambiguous COMMIT diagnosis:**
+  prove SourceStore persistence and controlled retry after a staging
+  transport abort under the real launcher, connection pre-ping behavior
+  on a permanently dead checkout, and real ambiguous-COMMIT
+  acknowledgement. These are NOT proved by a successful HTTP cancel;
+  do not pretend September's historical ClientRead cause was identified.
 - [x] **50k fresh real-queue synthetic rerun completed:** after the scoped
   120s staging watchdog, real short-timeout PG lock-release PASS and
   intermediate 5k/10k real-queue PASS, a unique **50,000-row** run through

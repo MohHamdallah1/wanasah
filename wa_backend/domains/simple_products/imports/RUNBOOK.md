@@ -652,3 +652,33 @@ recursive child PIDs; a standalone 50 MiB child smoke verified 4.16 MiB
 launcher vs 64.16 MiB full process tree. Do NOT retroactively assign the
 corrected metric to the already-completed 50k run, or claim a statistical
 p95/per-phase SQL measurement from one measured sample.
+
+## Phase 19 disposable live HTTP cancellation with real SQL lock wait
+
+The opt-in cancellation test uses only the owned synthetic database/tenant,
+never the developer source jobs or user Excel files. From wa_backend:
+
+~~~powershell
+$env:WANASAH_P19_HTTP_LOCAL_GATE = '1'
+$env:WANASAH_P19_HTTP_SOURCE_ENV_FILE = (Resolve-Path '.\.env').Path
+$env:WANASAH_P19_HTTP_CASE = 'cancelstall'
+$env:WANASAH_P19_CANCEL_STALL_CONFIRM = 'ISOLATED_LOCK_ONLY'
+.\venv\Scripts\python.exe -m scripts.run_product_import_phase19_http_isolated_gate
+~~~
+
+The test takes an ACCESS EXCLUSIVE lock on staged-row storage inside its
+own disposable PostgreSQL16, submits a new 5k synthetic job through the
+actual authenticated API, waits to observe an actual Worker pg_locks waiter,
+and POSTs authorized official cancel while SQL is blocked. It verifies a
+different company's 404, then releases only its own test lock and waits for
+transaction rollback, zero staged rows/Variant links, SourceStore cleanup
+and zero remaining queue deliveries. The job/tenant identity, SQL rows and
+test-only lock are never taken from the original developer database.
+
+Verified on 2026-10-01: all markers PASS; original developer tenant
+unchanged; disposable cluster/worktree removed. Full evidence:
+docs/operations/PRODUCT_IMPORT_P19_OFFICIAL_HTTP_LOCK_CANCEL_2026-10-01.md.
+
+It does NOT reproduce the historical asyncpg ClientRead mechanism or the
+different transport-abort/lost-COMMIT recovery scenario; keep those separate
+unless independently proven.
