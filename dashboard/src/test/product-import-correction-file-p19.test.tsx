@@ -114,6 +114,10 @@ describe("same-job Product Import correction frontend", () => {
     expect(view.setImportStatus).not.toHaveBeenCalled();
     expect(view.setImportPollKey).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();
+    // Returning to the original tenant must not resurrect an already
+    // accepted file and prompt the user to submit it with a fresh UUID.
+    view.rerender({ jobId: JOB, companyId: 38, driverId: 17 });
+    expect(view.result.current.correctionFile).toBeNull();
     view.unmount();
   });
 
