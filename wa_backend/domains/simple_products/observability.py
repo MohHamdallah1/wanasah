@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
+from hashlib import sha256
 import json
 import logging
 import os
@@ -19,6 +20,12 @@ from sqlalchemy import event
 
 logger = logging.getLogger("wanasah_logger")
 _PROFILE_KEY = "simple_products_import_batch_profile"
+# Bound per-statement detail even when a 100-row batch splits after row errors.
+_MAX_SQL_STATEMENT_DETAILS = 256
+_SQL_OPERATION_LABELS = frozenset({
+    "SELECT", "INSERT", "UPDATE", "DELETE", "WITH", "SAVEPOINT",
+    "RELEASE", "ROLLBACK", "SET", "SHOW", "COMMIT",
+})
 _PHASES = frozenset({
     "session_open_rls", "batch_other", "input_python", "idempotency",
     "product_structures", "barcode_python", "variant_objects",
@@ -103,7 +110,10 @@ class ImportBatchProfile:
         self.stack: list[str] = []
         self.listeners: list[tuple[Any, str, Any]] = []
         self.session: Any = None
-        self.cursor_started: tuple[float, str] | None = None
+        self.cursor_started: tuple[float, str, int] | None = None
+        # Completed cursor calls, in actual execution order; never store SQL or binds.
+        self.sql_statement_timings: list[dict[str, Any]] = []
+        self.sql_statement_timings_dropped = 0
         self.flush_started: tuple[float, str] | None = None
         self.sql_started = 0
         self.sql_completed = 0
@@ -184,8 +194,8 @@ class ImportBatchProfile:
         self, connection, cursor, statement, parameters, context, executemany,
     ) -> None:
         phase = self._current_phase()
-        self.cursor_started = (perf_counter(), phase)
         self.sql_started += 1
+        self.cursor_started = (perf_counter(), phase, self.sql_started)
         self.sql_executemany += int(bool(executemany))
         self._phase(phase)["sql_calls_started"] += 1
 
@@ -194,12 +204,36 @@ class ImportBatchProfile:
     ) -> None:
         if self.cursor_started is None:
             return
-        started, phase = self.cursor_started
+        started, phase, ordinal = self.cursor_started
         self.cursor_started = None
+        elapsed_ms = (perf_counter() - started) * 1000
         self.sql_completed += 1
         metric = self._phase(phase)
         metric["sql_calls_completed"] += 1
-        metric["sql_completed_wall_ms"] += (perf_counter() - started) * 1000
+        metric["sql_completed_wall_ms"] += elapsed_ms
+
+        # This connection already belongs to one opt-in, sampled import batch.
+        # Hash the parameter-free SQL template; neither text nor bind values
+        # enter the log. Keep each completed call, rather than a phase aggregate,
+        # so price_publish's 11 calls can be compared individually.
+        try:
+            if len(self.sql_statement_timings) >= _MAX_SQL_STATEMENT_DETAILS:
+                self.sql_statement_timings_dropped += 1
+                return
+            operation = statement.lstrip().split(None, 1)
+            verb = operation[0].upper() if operation else "OTHER"
+            self.sql_statement_timings.append({
+                "ordinal": ordinal,
+                "phase": phase,
+                "sql_type": verb if verb in _SQL_OPERATION_LABELS else "OTHER",
+                "sql_sha256_16": sha256(statement.encode("utf-8")).hexdigest()[:16],
+                "executemany": bool(executemany),
+                "wall_ms": round(elapsed_ms, 3),
+            })
+        except Exception:
+            # Instrumentation must not change whether the import commits.
+            self.instrumentation_complete = False
+            self.sql_statement_timings_dropped += 1
 
     def _before_flush(self, session, flush_context, instances) -> None:
         phase = self._current_phase()
@@ -250,6 +284,11 @@ class ImportBatchProfile:
                 "sql_calls_completed": self.sql_completed,
                 "sql_calls_without_completion": self.sql_started - self.sql_completed,
                 "sql_executemany_calls": self.sql_executemany,
+                # One bounded row per completed call, with stable SQL-template
+                # hash and no SQL text, bind values, row contents or objects.
+                "sql_statement_timings": self.sql_statement_timings,
+                "sql_statement_timings_limit": _MAX_SQL_STATEMENT_DETAILS,
+                "sql_statement_timings_dropped": self.sql_statement_timings_dropped,
                 "flush_passes_started": self.flush_started_count,
                 "flush_passes_completed": self.flush_completed,
                 "flush_passes_without_completion": self.flush_started_count - self.flush_completed,
