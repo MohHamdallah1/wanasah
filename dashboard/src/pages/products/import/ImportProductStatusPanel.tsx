@@ -190,18 +190,7 @@ export function ImportProductStatusPanel({
           </button>
         </div>
 
-          <ImportCorrectionPanel
-            online={online}
-            correctionFile={correctionFile}
-            correctionFileRef={correctionFileRef}
-            downloadingCorrection={downloadingCorrection}
-            uploadingCorrection={uploadingCorrection}
-            onChooseCorrectionFile={onChooseCorrectionFile}
-            onDownloadCorrection={onDownloadCorrection}
-            onUploadCorrection={onUploadCorrection}
-          />
-
-        {jobId && canInlineCorrect ? (
+          {jobId && canInlineCorrect ? (
           <ImportInlineCorrectionPanel
             key={jobId}
             jobId={jobId}
@@ -216,7 +205,17 @@ export function ImportProductStatusPanel({
             {t("products.inlineCorrection.bulkOnly", { count: rejectedCount })}
           </p>
         ) : null}
-      </div>
+          <ImportCorrectionPanel
+            online={online}
+            correctionFile={correctionFile}
+            correctionFileRef={correctionFileRef}
+            downloadingCorrection={downloadingCorrection}
+            uploadingCorrection={uploadingCorrection}
+            onChooseCorrectionFile={onChooseCorrectionFile}
+            onDownloadCorrection={onDownloadCorrection}
+            onUploadCorrection={onUploadCorrection}
+          />
+     </div>
     );
   }
 
@@ -361,16 +360,6 @@ export function ImportProductStatusPanel({
             )}
           </button>
         </div>
-          <ImportCorrectionPanel
-            online={online}
-            correctionFile={correctionFile}
-            correctionFileRef={correctionFileRef}
-            downloadingCorrection={downloadingCorrection}
-            uploadingCorrection={uploadingCorrection}
-            onChooseCorrectionFile={onChooseCorrectionFile}
-            onDownloadCorrection={onDownloadCorrection}
-            onUploadCorrection={onUploadCorrection}
-          />
           {jobId && canInlineCorrect ? (
             <ImportInlineCorrectionPanel
               key={jobId}
@@ -386,7 +375,17 @@ export function ImportProductStatusPanel({
               {t("products.inlineCorrection.bulkOnly", { count: rejectedCount })}
             </p>
           ) : null}
-      </div>
+          <ImportCorrectionPanel
+            online={online}
+            correctionFile={correctionFile}
+            correctionFileRef={correctionFileRef}
+            downloadingCorrection={downloadingCorrection}
+            uploadingCorrection={uploadingCorrection}
+            onChooseCorrectionFile={onChooseCorrectionFile}
+            onDownloadCorrection={onDownloadCorrection}
+            onUploadCorrection={onUploadCorrection}
+          />
+     </div>
     );
   }
 
