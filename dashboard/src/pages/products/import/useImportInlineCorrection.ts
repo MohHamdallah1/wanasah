@@ -8,6 +8,7 @@ import {
   type DurableCommand,
 } from "@/lib/durableOperations";
 import { productDurableScope } from "@/pages/products/productDurableScope";
+import { correctionRouteBlocked } from "@/pages/products/import/correctionRouteGate";
 import type { ImportMappingField } from "@/pages/products/import/importFields";
 import {
   MAX_INLINE_CORRECTION_BODY_BYTES,
@@ -188,6 +189,9 @@ export function useImportInlineCorrection({
     setError(null);
     let command: DurableCommand<InlineCorrectionIntent> | null = null;
     try {
+      if (correctionRouteBlocked(companyId, driverId, jobId, "inline")) {
+        throw new Error("PRODUCT_IMPORT_CORRECTION_ROUTE_CONFLICT");
+      }
       if (recover) {
         command = await readDurableCommand<InlineCorrectionIntent>(scope);
         if (!command || command.payload.jobId !== jobId) {
