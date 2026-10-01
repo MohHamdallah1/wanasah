@@ -153,6 +153,26 @@ This is a **one-roundtrip reduction inside publish validation**, not removal of
 publish-time validation. No elapsed-time improvement is claimed until a future
 authorized real import records the new statement timings.
 
+## Fresh-publication version write coalescing
+
+The direct Simple Products pricing scope still increments the in-memory
+`PricePublication.version` for each bounded draft-entry chunk, but it now
+flushes only those new `PriceBookEntry` rows during draft construction.
+Because the publication row was already inserted and locked in the same root
+transaction/savepoint, its DRAFT-only `version/updated_at` write is not
+externally visible before commit. The direct scope therefore suppresses ORM
+autoflush for its own intermediate reads and lets the final publish flush persist
+the cumulative version together with `PUBLISHED` status and publish timestamps.
+
+The public/general draft-entry API is unchanged and still performs its original
+full flush. Final published version semantics are unchanged: create version +
+entry-count increments + publish increment. Rollback/savepoint boundaries remain
+the invalidation boundary for the direct scope.
+
+For the common <=200-entry import publication this removes one intermediate
+`UPDATE price_publications` SQL statement per publication from the source
+path. No runtime speedup is claimed until a future authorized real import.
+
 ## Timing boundaries
 
 All values are **client-visible wall time**, never PostgreSQL CPU or pure Python
