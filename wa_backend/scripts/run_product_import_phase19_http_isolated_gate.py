@@ -1,4 +1,4 @@
-"""Phase 19: opt-in REAL HTTP/PG/worker small-only acceptance on disposable PG16.
+"""Phase 19: opt-in REAL HTTP/PG/worker acceptance on disposable PG16.
 
 Never sends synthetic writes to the existing developer database. Clones only the
 preapproved empty tenant-2 fixture from a read-only source; creates tenant-3
@@ -50,10 +50,15 @@ def main() -> None:
     _ensure_free(PORT)
     _ensure_free(API_PORT)
     variant = os.environ.get("WANASAH_P19_HTTP_CASE", "small")
-    if variant not in {"small", "medium"}:
+    if variant not in {"small", "medium", "final50k"}:
         raise RuntimeError("Unknown P19 HTTP rehearsal case.")
     if variant == "medium" and os.environ.get("WANASAH_P19_INTERMEDIATE_ROWS") not in {"5000", "10000"}:
         raise RuntimeError("Medium rehearsal requires an explicit 5000 or 10000 row count.")
+    if variant == "final50k" and (
+        os.environ.get("WANASAH_P19_INTERMEDIATE_ROWS") != "50000" or
+        os.environ.get("WANASAH_P19_FINAL_50K_CONFIRM") != "ISOLATED_SYNTHETIC_ONLY"
+    ):
+        raise RuntimeError("50k requires explicit disposable synthetic-only opt-in.")
     root = Path(tempfile.mkdtemp(prefix="wanasah_p19_http_disposable_"))
     started = False
     try:
@@ -129,12 +134,12 @@ def main() -> None:
         if variant == "small":
             child = d4.run([sys.executable, "-m", child_module], env=env)
         else:
-            # 5k/10k are opt-in, bounded real queue runs; the original small
-            # gate keeps its established 420s budget unchanged.
+            # The final50k case has a separate explicit opt-in and a bounded
+            # larger time budget. It NEVER writes to the source developer DB.
             child = subprocess.run(
                 [sys.executable, "-m", child_module],
                 cwd=ROOT, env=env, capture_output=True, text=True,
-                timeout=1250, check=False,
+                timeout=3600 if variant == "final50k" else 1250, check=False,
             )
             if child.returncode:
                 # Do not replay private child traceback/SQL/DSN from stderr.
