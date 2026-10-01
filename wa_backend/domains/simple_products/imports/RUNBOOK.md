@@ -528,3 +528,39 @@ commit/rollback, resource-pressure/cancel recovery, or 50,000-row throughput.
 Those remain the original Phase 19.1, 19.2, 19.4–19.5 OPEN acceptance
 items until observed against the owner-authorized synthetic rehearsal
 tenant. The separate first-customer D7-P/D8-P release runbook remains OPEN.
+
+
+## Phase 19: live HTTP plus PostgreSQL/Worker on a disposable Windows cluster
+
+From wa_backend on the reviewed checkout run these PowerShell commands:
+
+    $env:WANASAH_P19_HTTP_LOCAL_GATE = "1"
+    $env:WANASAH_P19_HTTP_SOURCE_ENV_FILE = (Resolve-Path ".\.env").Path
+    .\venv\Scripts\python.exe -m scripts.run_product_import_phase19_http_isolated_gate
+
+This is real signed-bearer HTTP on 127.0.0.1:18046, a real isolated
+PostgreSQL 16 instance on 127.0.0.1:55446, and all three dedicated
+execution/control/maintenance workers. The parent REFUSES a different source
+DB, occupied ports, or a nonempty synthetic tenant. It copies only the
+preapproved EMPTY developer tenant-2 fixture, creates tenant-3 solely inside
+the new disposable cluster, and never starts recovery on the developer DB.
+Existing developer DB historical jobs are explicitly NOT available for
+this rehearsal. Backend Alembic HEAD is checked and migrations applied
+only to the disposable cluster. After exit, it verifies the source synthetic
+tenant is unchanged and removes its dedicated workers/API/DB/logs.
+
+On Windows a dedicated isolated Uvicorn entrypoint uses SelectorEventLoop:
+default ProactorEventLoop is incompatible with the application's async
+Psycopg queue connector. Production API sources are not rewritten.
+
+Test coverage: small same-job signed real HTTP imports and inline correction;
+official server-generated CSV and XLSX correction artifacts with unchanged
+identity metadata; actual HTTP/worker replay with the exact request ID and
+body after an intentionally dropped TCP response; persisted actor-role
+403 and cross-tenant 404; forged/preimported-row 409; physical row numbers;
+immutable previously successful Product/Variant/row versions, pricing
+publication IDs and active barcodes; and unique Variant/Pricing/Audit/Outbox
+readback. A separate 1-row case tests a *second new validation error*
+after the first is fixed. This is NOT browser/mobile/RTL/manual acceptance,
+an intentionally induced 120s ClientRead timeout, a medium/50k performance
+measurement, or first-customer D7-P/D8-P signoff.
