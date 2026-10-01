@@ -3,6 +3,7 @@ import {
   FileSpreadsheet,
   PackagePlus,
 } from "lucide-react";
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -32,6 +33,13 @@ export function ProductsAddMenu({
     useTranslation();
   const direction =
     i18n.dir();
+  const pendingImportRef = useRef(false);
+  const handleCloseAutoFocus = () => {
+    if (!pendingImportRef.current) return;
+    pendingImportRef.current = false;
+    // Let Radix restore the menu trigger before the dialog captures focus.
+    queueMicrotask(onOpenImport);
+  };
 
   if (
     !canCreateSimpleProduct &&
@@ -101,10 +109,11 @@ export function ProductsAddMenu({
 
         <DropdownMenuContent
           align="end"
+          onCloseAutoFocus={handleCloseAutoFocus}
           className="w-64 rounded-xl border-slate-200 p-1.5 text-start shadow-xl"
         >
           <DropdownMenuItem
-            onSelect={onOpenImport}
+            onSelect={() => { pendingImportRef.current = true; }}
             className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
           >
             <FileSpreadsheet className="h-4 w-4 shrink-0 text-slate-400" />

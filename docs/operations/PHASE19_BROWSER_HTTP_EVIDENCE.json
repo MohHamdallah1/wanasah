@@ -1,0 +1,461 @@
+{
+  "date": "2026-10-01",
+  "browser": "Edge",
+  "origin": "http://127.0.0.1:5187",
+  "backend": "SYNTHETIC_IN_MEMORY_HTTP_ONLY_NO_DATABASE_OR_WORKER",
+  "captured_before_fixture_restart": true,
+  "pending_after_releases": 0,
+  "requests_observed": 96,
+  "posts": [
+    {
+      "method": "POST",
+      "path": "/simple-products/imports/11111111-1111-4111-8111-111111111111/correction/rows",
+      "company": 91001,
+      "body": {
+        "request_id": "eae7532a-272f-4faa-acf3-147969fd2a61",
+        "expected_job_version": 7,
+        "rows": [
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000001",
+            "values": {
+              "name": "منتج معدل 000123"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/simple-products/imports/11111111-1111-4111-8111-111111111111/correction/rows",
+      "company": 91001,
+      "body": {
+        "request_id": "9b353873-5eed-4f16-8abb-a259d5318f7b",
+        "expected_job_version": 7,
+        "rows": [
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000001",
+            "values": {
+              "name": "Synthetic corrected 1"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000002",
+            "values": {
+              "name": "Synthetic corrected 2"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000003",
+            "values": {
+              "name": "Synthetic corrected 3"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000004",
+            "values": {
+              "name": "Synthetic corrected 4"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000005",
+            "values": {
+              "name": "Synthetic corrected 5"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000006",
+            "values": {
+              "name": "Synthetic corrected 6"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000007",
+            "values": {
+              "name": "Synthetic corrected 7"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000008",
+            "values": {
+              "name": "Synthetic corrected 8"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000009",
+            "values": {
+              "name": "Synthetic corrected 9"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000010",
+            "values": {
+              "name": "Synthetic corrected 10"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000011",
+            "values": {
+              "name": "Synthetic corrected 11"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000012",
+            "values": {
+              "name": "Synthetic corrected 12"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000013",
+            "values": {
+              "name": "Synthetic corrected 13"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000014",
+            "values": {
+              "name": "Synthetic corrected 14"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000015",
+            "values": {
+              "name": "Synthetic corrected 15"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000016",
+            "values": {
+              "name": "Synthetic corrected 16"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000017",
+            "values": {
+              "name": "Synthetic corrected 17"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000018",
+            "values": {
+              "name": "Synthetic corrected 18"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000019",
+            "values": {
+              "name": "Synthetic corrected 19"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000020",
+            "values": {
+              "name": "Synthetic corrected 20"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000021",
+            "values": {
+              "name": "Synthetic corrected 21"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000022",
+            "values": {
+              "name": "Synthetic corrected 22"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000023",
+            "values": {
+              "name": "Synthetic corrected 23"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000024",
+            "values": {
+              "name": "Synthetic corrected 24"
+            }
+          },
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000025",
+            "values": {
+              "name": "Synthetic corrected 25"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/simple-products/imports/11111111-1111-4111-8111-111111111111/correction/rows",
+      "company": 91001,
+      "body": {
+        "request_id": "034157b9-a428-4b47-8492-98239e527ced",
+        "expected_job_version": 7,
+        "rows": [
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000001",
+            "values": {
+              "name": "Company A late response"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/simple-products/imports/11111111-1111-4111-8111-111111111111/correction/rows",
+      "company": 91001,
+      "body": {
+        "request_id": "38be863d-a802-4cc6-b2cb-d74eebaec736",
+        "expected_job_version": 7,
+        "rows": [
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000001",
+            "values": {
+              "name": "A scoped correction after fix"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "last_company_b_requests": [
+    {
+      "method": "GET",
+      "path": "/inventory/access/me",
+      "company": 91002,
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/simple-products/package-uoms",
+      "company": 91002,
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/simple-products?limit=100&sort_by=lifecycle&sort_dir=asc",
+      "company": 91002,
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/simple-products/tracking/defaults",
+      "company": 91002,
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/inventory/access/me",
+      "company": 91002,
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/simple-products?limit=100&sort_by=lifecycle&sort_dir=asc",
+      "company": 91002,
+      "body": {}
+    },
+    {
+      "method": "GET",
+      "path": "/simple-products/tracking/defaults",
+      "company": 91002,
+      "body": {}
+    }
+  ],
+  "notification_scope_recheck": {
+    "separate_fixture_run_after_restart": true,
+    "pending_before_company_switch": 1,
+    "pending_after_release": 0,
+    "post": {
+      "method": "POST",
+      "path": "/simple-products/imports/11111111-1111-4111-8111-111111111111/correction/rows",
+      "company": 91001,
+      "body": {
+        "request_id": "af8cf92f-e0a9-43fe-8f3f-7d80ae91c43a",
+        "expected_job_version": 7,
+        "rows": [
+          {
+            "expected_version": 3,
+            "row_identity": "22222222-2222-4222-8222-000000000001",
+            "values": {
+              "name": "A notification scope recheck"
+            }
+          }
+        ]
+      }
+    },
+    "company_b_requests": [
+      {
+        "method": "GET",
+        "path": "/inventory/access/me",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/simple-products/package-uoms",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/inventory/access/me",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/simple-products/package-uoms",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/simple-products?limit=100&sort_by=lifecycle&sort_dir=asc",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/simple-products/tracking/defaults",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/inventory/access/me",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/simple-products/package-uoms",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/simple-products?limit=100&sort_by=lifecycle&sort_dir=asc",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/simple-products/tracking/defaults",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/inventory/access/me",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/simple-products/package-uoms",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/inventory/access/me",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/simple-products/package-uoms",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/simple-products?limit=100&sort_by=lifecycle&sort_dir=asc",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/simple-products/tracking/defaults",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/inventory/access/me",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/simple-products/package-uoms",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/simple-products?limit=100&sort_by=lifecycle&sort_dir=asc",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/simple-products/tracking/defaults",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/inventory/access/me",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/simple-products?limit=100&sort_by=lifecycle&sort_dir=asc",
+        "company": 91002,
+        "body": {}
+      },
+      {
+        "method": "GET",
+        "path": "/simple-products/tracking/defaults",
+        "company": 91002,
+        "body": {}
+      }
+    ],
+    "company_b_old_job_request_count": 0,
+    "browser_observed_after_release": "No old dialog, receipt or notification; company B product list only",
+    "screenshot": "PHASE19_BROWSER_COMPANY_AFTER.png"
+  }
+}
