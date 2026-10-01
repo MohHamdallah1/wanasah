@@ -422,8 +422,10 @@ describe("Products P8 production frontend gate", () => {
       "onOpenImport={ importWorkflow.openImport }",
     );
     expect(addMenu).toMatch(
-      /onSelect=\{\s*onOpenImport\s*\}/,
+      /onSelect=\{\s*\(\)\s*=>\s*\{\s*pendingImportRef\.current\s*=\s*true;?\s*\}\s*\}/,
     );
+    expect(addMenu).toContain("onCloseAutoFocus={handleCloseAutoFocus}");
+    expect(addMenu).toContain("queueMicrotask(onOpenImport)");
     expect(importWorkflow).toContain(
       "onClose: closeImport",
     );
