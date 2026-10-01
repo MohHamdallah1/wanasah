@@ -26,7 +26,7 @@
 |---|---|---|
 | P0 — أداة التشخيص | **مدموج في PR #92** | التشغيل فقط عند استيراد حقيقي مأذون |
 | P1 — الفهرس | **الكود مدموج في PR #93** | تشغيل Migration والقياس لاحقًا |
-| P2 — تكرار التحقق | **التحسين الجزئي مدموج في PR #92** | إعادة التحقق بين المرحلتين باقية |
+| P2 — تكرار التحقق | **#92 + #95 مدموجان** | بقي تكرار التحقق بين draft/publish، لكن publish نفسه صار roundtrip أقل |
 | P3 — بروتوكول نشر الأسعار | **التحسين الجزئي مدموج في PR #92** | 350 منشورًا باقية |
 | P4 — الكتابة المضاعفة | تحليل مصدر فقط | لا تعديل برمجي حتى الآن |
 | F1 — family_id | PR #89 / Codex | **مدموج إلى main** |
@@ -68,9 +68,9 @@
 - [x] **دمج تحسين P2 الجزئي:** أُعيد تطبيق #88 فوق أحدث `main` واندُمج ضمن PR #92 مع الحفاظ على تغييرات العائلات من #89. القياس التشغيلي مؤجل.
 
 - [x] `publishing.py:create_draft_entries_bulk` يقرأ `ProductVariant` و`ProductUomConversion` ويثبت SKU/UOM؛ `_validate_publication_entries` يعيد القراءتين والتحقق قبل النشر، مع إعادة قراءة entries `FOR UPDATE`. **— التكرار مُشخّص من المصدر؛ الاختصار الكامل بين المرحلتين مفتوح.**
-- [ ] تصميم contract داخل دومين Pricing لمسار **إنشاء مسودات جديدة ثم نشرها في نفس المعاملة** يعيد استخدام المعلومات الموثوقة حيث تصح، أو يدمج القراءات دون تجاوز التحقق الزمني أو صلاحية المنتجات والتداخل.
-- [ ] لا نعمم fast path على تعديل الأسعار القائمة أو أسعار منشورات بُنيت بمعاملة سابقة. إعادة التحقق واجبة عند تغير المدخلات أو صلاحيات التسعير أو انتهاء حدود الـsavepoint.
-- [ ] الحفاظ على Maker/Checker وtenant RLS ومفاتيح الشركات والتزامن، والتعامل الآمن مع فشل commit أو rollback/replay. أي تحسين لا يقلص سلطة Pricing.
+- [x] **عقد Pricing المتصل أصبح موجودًا ومندمجًا:** `create_direct_publication`/scope مملوك للدومين ومقيد بنفس root transaction والـsavepoint، وPR #95 دمج قراءة `PriceBookEntry FOR UPDATE` مع Variant/UOM fresh snapshot في استعلام واحد وقت النشر. ما زال التحقق بين draft/publish موجودًا عمدًا.
+- [x] **لم يُعمم fast path:** الـgeneric `publish_publication/approve_publication` بقيت بعقودها الأصلية، والـscope يفشل بعد reuse/commit/savepoint replacement؛ PR #95 لا يعيد استخدام snapshot قديم بل يأخذ snapshot نشر جديد.
+- [x] **الحواجز محفوظة في التغييرات المدموجة #92/#95:** Maker/Checker وtenant predicates وRLS ومفاتيح الشركة وPriceBookEntry locks وGiST/predecessor/effectivity وrollback/savepoint بقيت؛ لم يُضف trusted flag أو cache عبر transaction.
 
 ### P2 — نتيجة تحليل العقد البرمجي، قبل تعديل منطق Pricing
 
