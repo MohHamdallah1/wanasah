@@ -98,6 +98,7 @@ export function useImportInlineCorrection({
   const [error, setError] = useState<string | null>(null);
   const [staleDraft, setStaleDraft] = useState(false);
   const [unreadableDraft, setUnreadableDraft] = useState(false);
+  const [draftNeedsReload, setDraftNeedsReload] = useState(false);
   const [storageWarning, setStorageWarning] = useState(false);
   const [revision, setRevision] = useState(0);
   const savingRef = useRef(false);
@@ -122,6 +123,7 @@ export function useImportInlineCorrection({
       const offlineDraft = draftKey ? readDraft(draftKey) : { status: "absent" } as const;
       setStaleDraft(offlineDraft.status === "unreadable");
       setUnreadableDraft(offlineDraft.status === "unreadable");
+      setDraftNeedsReload(offlineDraft.status === "valid");
       setLoading(false);
       return;
     }
@@ -132,20 +134,27 @@ export function useImportInlineCorrection({
     setPending(null);
     setStaleDraft(false);
     setUnreadableDraft(false);
+    setDraftNeedsReload(false);
     setError(null);
     void (async () => {
+      // Inspect drafts before any async network/storage read: if the server
+      // cannot load the rejected rows, users still need a confirmed way to
+      // discard their *own* tab draft and leave this job without deadlock.
+      const savedDraft = draftKey ? readDraft(draftKey) : { status: "absent" } as const;
+      if (!disposed) {
+        setDraftNeedsReload(savedDraft.status === "valid");
+        if (savedDraft.status === "unreadable") {
+          setStaleDraft(true);
+          setUnreadableDraft(true);
+        }
+      }
       // Read pending command before making any new mutation or replacing drafts.
       const savedCommand = await readDurableCommand<InlineCorrectionIntent>(scope);
       if (!disposed) setPending(savedCommand);
-      const savedDraft = draftKey ? readDraft(draftKey) : { status: "absent" } as const;
-      if (!disposed && savedDraft.status === "unreadable") {
-        // Never hide the only discard path behind a potentially failed GET.
-        setStaleDraft(true);
-        setUnreadableDraft(true);
-      }
       const response = await loadInlineCorrectionRows(authFetch, jobId, abort.signal);
       if (disposed) return;
       setPage(response);
+      setDraftNeedsReload(false);
       if (savedDraft.status === "valid") {
         editsRef.current = savedDraft.draft.edits;
         setEdits(savedDraft.draft.edits);
@@ -213,6 +222,7 @@ export function useImportInlineCorrection({
     setEdits({});
     setStaleDraft(false);
     setUnreadableDraft(false);
+    setDraftNeedsReload(false);
     setStorageWarning(false);
     setRevision((current) => current + 1);
   };
@@ -312,7 +322,8 @@ export function useImportInlineCorrection({
 
   const changedRows = Object.values(edits).filter((values) => Object.keys(values).length).length;
   return {
-    page, edits, loading, saving, pending, staleDraft, unreadableDraft, storageWarning,
+    page, edits, loading, saving, pending, staleDraft, unreadableDraft,
+    draftNeedsReload, storageWarning,
     changedRows, error, online, change, discardDraft,
     reload: () => setRevision((current) => current + 1),
     submit: () => void submit(false),
