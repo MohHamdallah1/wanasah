@@ -152,11 +152,14 @@ export function useImportCorrection({
           // command on ambiguous responses, but free this proven zero-write
           // request so it cannot lock the job in the local UI forever.
           abandonDurableOperation(scope);
-          if (apiErrorStatus(error) === 410 &&
-              currentJobRef.current === jobId &&
-              currentScopeRef.current === scope) {
-            setSelected(null);
-            if (fileRef.current) fileRef.current.value = "";
+          if (apiErrorStatus(error) === 410) {
+            // Clear the old tenant file without touching a newly selected
+            // file under another company or actor.
+            setSelected((previous) => previous?.scope === scope ? null : previous);
+            if (currentJobRef.current === jobId &&
+                currentScopeRef.current === scope && fileRef.current) {
+              fileRef.current.value = "";
+            }
           }
         }
         throw error;
@@ -164,8 +167,8 @@ export function useImportCorrection({
     },
     onSuccess: ({ scope, requestId, requestedJob, ack }) => {
       completeDurableOperation(scope, requestId);
+      setSelected((previous) => previous?.scope === scope ? null : previous);
       if (requestedJob !== currentJobRef.current || scope !== currentScopeRef.current) return;
-      setSelected(null);
       if (fileRef.current) fileRef.current.value = "";
       setImportStatus((current) => current && current.job_id === requestedJob
         ? { ...current, status: ack.status }
