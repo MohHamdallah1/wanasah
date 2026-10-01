@@ -20,6 +20,9 @@ USER_SAFE_ERROR_MESSAGES: dict[str, str] = {
     "PRODUCT_IMPORT_STAGING_STORAGE_UNAVAILABLE":
         "Temporary import storage is unavailable or insufficient. "
         "The source file is retained; retry this import after storage is available.",
+    "PRODUCT_IMPORT_STAGING_TIMEOUT":
+        "Import staging stalled. Check its status and retry the same import "
+        "when the service is available.",
     "PRODUCT_IMPORT_RETRYING":
         "Import processing was interrupted and will retry safely.",
     "PRODUCT_IMPORT_SOURCE_INVALID":
@@ -245,6 +248,15 @@ class ProductImportTerminalError(RuntimeError):
         self.context = dict(context or {})
 
 
+class ProductImportStagingTimeoutError(TimeoutError):
+    """Retryable staging I/O stall, never a source/row validation failure."""
+
+    code = "PRODUCT_IMPORT_STAGING_TIMEOUT"
+
+    def __init__(self) -> None:
+        super().__init__(self.code)
+
+
 class ProductImportStagingStorageError(RuntimeError):
     """Worker storage pressure, never an invalid source or fabricated row error."""
 
@@ -304,7 +316,7 @@ class ImportErrorClassification:
 
 
 def classify_import_error(exc: BaseException) -> ImportErrorClassification:
-    if isinstance(exc, ProductImportStagingStorageError):
+    if isinstance(exc, (ProductImportStagingStorageError, ProductImportStagingTimeoutError)):
         return ImportErrorClassification(
             kind=ImportErrorKind.TRANSIENT_SYSTEM,
             scope=ImportFailureScope.JOB,

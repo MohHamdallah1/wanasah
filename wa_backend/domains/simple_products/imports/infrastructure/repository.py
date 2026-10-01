@@ -22,6 +22,7 @@ from domains.simple_products.imports.domain import (
 from domains.simple_products.imports.infrastructure.parsers import (
     ParsedRow,
 )
+from domains.simple_products.imports.infrastructure.staging_io import StagingIOGuard
 from domains.simple_products.imports.infrastructure.phase_timing import (
     observe_import_staging_insert,
 )
@@ -34,13 +35,14 @@ from models import (
 
 async def open_tenant_session(
     company_id: int,
+    *, io_guard: StagingIOGuard | None = None,
 ):
     token = tenant_context.set(
         int(company_id)
     )
     db = AsyncSessionLocal()
     try:
-        await db.execute(
+        tenant_setup = db.execute(
             text(
                 "SELECT set_config("
                 "'app.current_tenant', :c, false)"
@@ -51,12 +53,19 @@ async def open_tenant_session(
                 )
             },
         )
+        if io_guard is None:
+            await tenant_setup
+        else:
+            await io_guard.run(tenant_setup, operation="tenant_setup")
         return token, db
     except BaseException:
         # Cancellation during the initial RLS query must release the borrowed
         # connection and context just like a database/setup failure.
         try:
-            await db.close()
+            if io_guard is None:
+                await db.close()
+            else:
+                await io_guard.run(db.invalidate(), operation="setup_invalidate", cleanup=True)
         finally:
             tenant_context.reset(token)
         raise
@@ -65,9 +74,14 @@ async def open_tenant_session(
 async def close_tenant_session(
     token,
     db: AsyncSession,
+    *, io_guard: StagingIOGuard | None = None,
 ) -> None:
     try:
-        await db.close()
+        if io_guard is None:
+            await db.close()
+        else:
+            cleanup = db.invalidate() if io_guard.aborted else db.close()
+            await io_guard.run(cleanup, operation="session_close", cleanup=True)
     finally:
         tenant_context.reset(token)
 
@@ -153,6 +167,7 @@ async def insert_staged_rows(
     rows: Iterable[ParsedRow],
     batch_size: int,
     max_rows: int,
+    io_guard: StagingIOGuard | None = None,
 ) -> int:
     if batch_size <= 0:
         raise ValueError(
@@ -187,11 +202,11 @@ async def insert_staged_rows(
             first_source_row=int(batch[0]["row_number"]),
             last_source_row=int(batch[-1]["row_number"]),
         ):
-            await db.execute(
-                insert(ProductImportRow).values(
-                    list(batch)
-                ),
-            )
+            statement = insert(ProductImportRow).values(list(batch))
+            if io_guard is None:
+                await db.execute(statement)
+            else:
+                await io_guard.run(db.execute(statement), operation="staging_batch")
         batch.clear()
 
     for parsed in rows:

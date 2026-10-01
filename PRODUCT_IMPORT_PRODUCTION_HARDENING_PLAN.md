@@ -884,10 +884,25 @@ structural gates, parser benchmarks, or mocked failure injection alone.
   event-loop behavior, connection cancellation, DB backpressure and
   driver/transaction configuration. Do **not** guess that using a 500-row
   batch alone fixes this second observed failure.
-- [ ] Add bounded, recoverable staging stall detection and a
-  deterministic cancel/rollback/retry contract. Cancellation waiting
-  for a stalled staging transaction must not leave the user spinning
-  forever. Prove SourceStore retention and state consistency on timeout.
+- [x] **Staging stall recovery code and focused contracts (2026-10-01),
+  not live acceptance:** staging-only 120 s per-DB-step/500-row statement
+  watchdog, 10 s rollback/close/drain budgets, owned-transport abort and
+  late-checkout rejection on the existing pool; preserve tenant/RLS,
+  the single commit/count guard, SourceStore and existing bounded retry.
+  Reuse the batch BEGIN/STAGING_SQL markers; no parallel harness or
+  worker launcher. Windows SelectorEventLoop focused staging suite
+  **10/10 PASS** initially; final affected recovery cases **6/6 PASS**
+  after late-checkout/pool-checkin ownership hardening (11 distinct
+  focused checks). PostgreSQL/transport/queue boundaries are
+  doubles. Evidence: imports/PHASE19_STAGING_RECOVERY.md.
+- [ ] **Live staging cancellation/rollback/retry acceptance:** prove the
+  owned-transport watchdog releases PostgreSQL locks, official HTTP
+  cancellation completes safely, SourceStore retention/cleanup and
+  ambiguous COMMIT recovery remain consistent. Initial connection/
+  pre-ping and server disconnect handling require actual runtime proof.
+  No suitable D7S development configuration/worker was established;
+  actual small/medium acceptance remains OPEN. This code checkpoint
+  does not close the historical asyncpg/Windows root-cause investigation.
 - [ ] Rerun 50k real-queue import with unique identities **only
   after** the staging-hang root cause and fresh intermediate-size gates
   pass. Measure actual E2E latency/resources/lineage; do not
