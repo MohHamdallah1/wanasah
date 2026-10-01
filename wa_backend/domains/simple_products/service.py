@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from domains.pricing.core import PricingError, maker_checker_enabled, money_20_6
 from domains.pricing.publishing import (
     create_assignment,
-    create_draft_entries_bulk,
     create_direct_publication,
     create_price_book,
 )
@@ -1548,10 +1547,7 @@ async def publish_prices(
     # more than 100 SKUs; preserve one publication and its cumulative version.
     with product_phase(db, "price_draft_entries"):
         for start in range(0, len(entries), 200):
-            await create_draft_entries_bulk(
-                db,
-                company_id=int(actor.company_id),
-                publication_id=int(publication.id),
+            await direct_scope.add_draft_entries(
                 expected_publication_version=int(publication.version),
                 entries=entries[start:start + 200],
             )
