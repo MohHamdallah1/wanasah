@@ -173,7 +173,7 @@ describe("inline correction UI uses the server-owned failed-row contract", () =>
     expect(sessionStorage.getItem(key)).toBe(original);
     expect((screen.getByRole("button", {
       name: "products.inlineCorrection.submit",
-    }) as HTMLButtonElement).disabled).toBe(true;
+    }) as HTMLButtonElement).disabled.toBe(true;
     fireEvent.click(screen.getByRole("button", { name: "products.inlineCorrection.discardDraft" }));
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(sessionStorage.getItem(key)).toBe(original);
