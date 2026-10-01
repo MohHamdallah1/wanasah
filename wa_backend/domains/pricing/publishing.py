@@ -30,6 +30,7 @@ from .core import (
     require_aware_datetime,
     utc_now,
 )
+from .validation_lookups import load_variant_uom_snapshot
 
 
 SUPPORTED_ASSIGNMENT_SCOPES = frozenset(
@@ -351,43 +352,12 @@ async def create_draft_entries_bulk(
         ))
 
     ids = sorted({entry[0] for entry in prepared})
-    variant_rows = (
-        await db.execute(
-            select(
-                ProductVariant.id,
-                ProductVariant.base_uom_id,
-                ProductVariant.lifecycle_status,
-            ).where(
-                ProductVariant.company_id == int(company_id),
-                ProductVariant.id.in_(ids),
-            ).execution_options(wanasah_sql_trace_label="pricing_draft_variants")
-        )
-    ).all()
-    variants = {
-        int(v.id): (int(v.base_uom_id), str(v.lifecycle_status))
-        for v in variant_rows
-    }
-    conversion_rows = (
-        await db.execute(
-            select(
-                ProductUomConversion.product_variant_id,
-                ProductUomConversion.from_uom_id,
-                ProductUomConversion.to_uom_id,
-            ).where(
-                ProductUomConversion.company_id == int(company_id),
-                ProductUomConversion.product_variant_id.in_(ids),
-            ).execution_options(wanasah_sql_trace_label="pricing_draft_uoms")
-        )
-    ).all()
-    mapped = {
-        variant_id: {base_uom}
-        for variant_id, (base_uom, _) in variants.items()
-    }
-    for conversion in conversion_rows:
-        mapped.setdefault(int(conversion.product_variant_id), set()).update((
-            int(conversion.from_uom_id),
-            int(conversion.to_uom_id),
-        ))
+    variants, mapped = await load_variant_uom_snapshot(
+        db,
+        company_id=company_id,
+        variant_ids=ids,
+        stage="draft",
+    )
 
     for variant_id, uom_id, *_ in prepared:
         variant = variants.get(variant_id)
@@ -573,42 +543,12 @@ async def _validate_publication_entries(
         )
 
     variant_ids = sorted({int(row.product_variant_id) for row in entries})
-    variant_rows = (
-        await db.execute(
-            select(
-                ProductVariant.id,
-                ProductVariant.base_uom_id,
-                ProductVariant.lifecycle_status,
-            ).where(
-                ProductVariant.company_id == int(company_id),
-                ProductVariant.id.in_(variant_ids),
-            ).execution_options(wanasah_sql_trace_label="pricing_publish_variants")
-        )
-    ).all()
-    variants = {
-        int(row.id): (int(row.base_uom_id), str(row.lifecycle_status))
-        for row in variant_rows
-    }
-    conversion_rows = (
-        await db.execute(
-            select(
-                ProductUomConversion.product_variant_id,
-                ProductUomConversion.from_uom_id,
-                ProductUomConversion.to_uom_id,
-            ).where(
-                ProductUomConversion.company_id == int(company_id),
-                ProductUomConversion.product_variant_id.in_(variant_ids),
-            ).execution_options(wanasah_sql_trace_label="pricing_publish_uoms")
-        )
-    ).all()
-    mapped: dict[int, set[int]] = {
-        variant_id: {base_uom}
-        for variant_id, (base_uom, _) in variants.items()
-    }
-    for row in conversion_rows:
-        mapped.setdefault(int(row.product_variant_id), set()).update(
-            {int(row.from_uom_id), int(row.to_uom_id)}
-        )
+    variants, mapped = await load_variant_uom_snapshot(
+        db,
+        company_id=company_id,
+        variant_ids=variant_ids,
+        stage="publish",
+    )
 
     grouped: dict[tuple[int, int], list[PriceBookEntry]] = {}
     for entry in entries:
