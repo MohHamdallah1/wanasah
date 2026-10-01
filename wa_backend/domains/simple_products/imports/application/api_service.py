@@ -290,12 +290,14 @@ async def download_correction(
     company_id: int,
     job_id: UUID,
     file_format: str,
+    locale: str = "en",
 ):
     await _load_job(db, company_id=company_id, job_id=job_id)
     return await build_correction_artifact(
         company_id=int(company_id),
         job_id=job_id,
         file_format=str(file_format),
+        locale=locale,
     )
 
 

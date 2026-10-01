@@ -157,8 +157,9 @@ export function createImportDownloads({
   const downloadCorrection =
     async () => {
       if (!importJobId) return;
+      const locale = resolveI18nLocale(i18n);
       const raw = await authFetch(
-        `/simple-products/imports/${importJobId}/correction?format=xlsx`,
+        `/simple-products/imports/${importJobId}/correction?format=xlsx&locale=${encodeURIComponent(locale)}`,
       );
       saveImportFileArtifact(
         raw,

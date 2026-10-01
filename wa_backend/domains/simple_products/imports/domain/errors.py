@@ -118,8 +118,42 @@ _ROW_SAFE_MESSAGES: dict[str, str] = {
         "The barcode is duplicated in the import.",
     "IMPORT_BARCODE_CONFLICT":
         "The barcode is already in use.",
+    "SIMPLE_PRODUCT_PACKAGE_UOM_UNSUPPORTED":
+        "The selected outer package type is not supported.",
+    "SIMPLE_PRODUCT_PACKAGE_PRICE_WITHOUT_PACKAGE":
+        "A product without an outer package cannot have an outer package price.",
+    "SIMPLE_PRODUCT_PRICE_REQUIRED":
+        "A product price is required.",
+    "SIMPLE_PRODUCT_PRICE_INVALID":
+        "The product price is invalid.",
+    "PRODUCT_TRACKING_MODE_INVALID":
+        "The selected lot or expiry tracking mode is invalid.",
     "IMPORT_ROW_INVALID":
         "This row contains invalid import data.",
+}
+
+
+_ROW_SAFE_MESSAGES_AR: dict[str, str] = {
+    "IMPORT_NAME_REQUIRED": "اسم المنتج مطلوب.",
+    "IMPORT_NAME_TOO_LONG": "اسم المنتج أطول من الحد المسموح.",
+    "IMPORT_PACKAGE_SELECTION_REQUIRED": "اختر عدم وجود عبوة خارجية أو حدّد نوع العبوة.",
+    "IMPORT_PACKAGE_TYPE_REQUIRED": "نوع العبوة الخارجية مطلوب عند إدخال عدد الوحدات.",
+    "IMPORT_NO_PACKAGE_UNITS_INVALID": "لا يمكن أن يحتوي المنتج بدون عبوة خارجية على عدة وحدات ضمن عبوة.",
+    "IMPORT_PACKAGE_BARCODE_WITHOUT_PACKAGE": "باركود العبوة الخارجية يتطلب تحديد عبوة خارجية.",
+    "IMPORT_PACKAGING_REQUIRED": "عدد الوحدات الأساسية داخل العبوة الخارجية مطلوب.",
+    "IMPORT_PACKAGING_INVALID": "عدد الوحدات الأساسية داخل العبوة الخارجية غير صالح.",
+    "IMPORT_FORMULA_VALUE_UNAVAILABLE": "لا تتوفر قيمة محسوبة آمنة للخلية التي تحتوي على معادلة.",
+    "IMPORT_BARCODE_FORMULA_NOT_ALLOWED": "يجب إدخال الباركود كنص ثابت وليس معادلة.",
+    "IMPORT_BARCODE_NUMERIC_UNSAFE": "يجب تخزين الباركود كنص في Excel للحفاظ على أرقامه.",
+    "IMPORT_BARCODE_SCIENTIFIC_NOTATION": "لا يجوز كتابة الباركود بالصيغة العلمية.",
+    "IMPORT_BARCODE_DUPLICATE": "الباركود مكرر داخل ملف الاستيراد.",
+    "IMPORT_BARCODE_CONFLICT": "الباركود مستخدم مسبقًا.",
+    "SIMPLE_PRODUCT_PACKAGE_UOM_UNSUPPORTED": "نوع العبوة الخارجية المختار غير مدعوم.",
+    "SIMPLE_PRODUCT_PACKAGE_PRICE_WITHOUT_PACKAGE": "لا يمكن تحديد سعر عبوة خارجية لمنتج بدون عبوة خارجية.",
+    "SIMPLE_PRODUCT_PRICE_REQUIRED": "سعر المنتج مطلوب.",
+    "SIMPLE_PRODUCT_PRICE_INVALID": "سعر المنتج غير صالح.",
+    "PRODUCT_TRACKING_MODE_INVALID": "وضع تتبع الدفعة أو الصلاحية المختار غير صالح.",
+    "IMPORT_ROW_INVALID": "تحتوي بيانات هذا الصف على خطأ.",
 }
 
 
@@ -161,26 +195,25 @@ def import_error_field(
 
 def user_safe_row_error_message(
     code: str | None,
+    *,
+    locale: str | None = None,
 ) -> str:
-    normalized = str(
-        code
-        or "IMPORT_ROW_INVALID"
-    )
-    if normalized in _ROW_SAFE_MESSAGES:
-        return _ROW_SAFE_MESSAGES[
-            normalized
-        ]
-    if normalized.startswith(
-        "SIMPLE_PRODUCT_"
-    ):
-        return "This row contains invalid product data."
-    if normalized.startswith(
-        "PRODUCT_TRACKING_"
-    ):
-        return "This row contains invalid tracking data."
-    return _ROW_SAFE_MESSAGES[
-        "IMPORT_ROW_INVALID"
-    ]
+    normalized = str(code or "IMPORT_ROW_INVALID")
+    language = str(locale or "en").strip().replace("_", "-").split("-", 1)[0].lower()
+    messages = _ROW_SAFE_MESSAGES_AR if language == "ar" else _ROW_SAFE_MESSAGES
+    if normalized in messages:
+        return messages[normalized]
+    if normalized.startswith("SIMPLE_PRODUCT_"):
+        return (
+            "تحتوي بيانات المنتج في هذا الصف على خطأ."
+            if language == "ar" else "This row contains invalid product data."
+        )
+    if normalized.startswith("PRODUCT_TRACKING_"):
+        return (
+            "تحتوي إعدادات التتبع في هذا الصف على خطأ."
+            if language == "ar" else "This row contains invalid tracking data."
+        )
+    return messages["IMPORT_ROW_INVALID"]
 
 
 def public_error_summary(
