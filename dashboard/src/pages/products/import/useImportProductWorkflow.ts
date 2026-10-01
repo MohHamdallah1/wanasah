@@ -2,7 +2,7 @@ import type {
   QueryClient,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { productDurableScope } from "@/pages/products/productDurableScope";
+import { hasUnresolvedCorrectionWork } from "@/pages/products/import/correctionRouteGate";
 import type {
   TFunction,
 } from "i18next";
@@ -216,17 +216,9 @@ export function useImportProductWorkflow({
   });
 
   const guardInlineDraft = (leave: () => void) => {
-    if (companyId && driverId && importJobId) {
-      const scope = productDurableScope(companyId, driverId, "product-import-inline-correction", importJobId);
-      try {
-        if (sessionStorage.getItem(scope + ":draft") || localStorage.getItem(scope)) {
-          toast.warning(t("products.inlineCorrection.keepJob"));
-          return;
-        }
-      } catch {
-        toast.warning(t("products.inlineCorrection.keepJob"));
-        return;
-      }
+    if (hasUnresolvedCorrectionWork(companyId, driverId, importJobId)) {
+      toast.warning(t("products.inlineCorrection.keepJob"));
+      return;
     }
     leave();
   };

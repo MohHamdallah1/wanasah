@@ -8,13 +8,13 @@ import {
   type DurableCommand,
 } from "@/lib/durableOperations";
 import { productDurableScope } from "@/pages/products/productDurableScope";
+import { correctionRouteBlocked } from "@/pages/products/import/correctionRouteGate";
+import { loadInlineCorrectionRows } from "@/pages/products/import/loadInlineCorrectionRows";
 import type { ImportMappingField } from "@/pages/products/import/importFields";
 import {
   MAX_INLINE_CORRECTION_BODY_BYTES,
-  MAX_INLINE_CORRECTION_REJECTIONS,
   formatInlineValue,
   parseInlineCorrectionAck,
-  parseInlineCorrectionPage,
   type InlineCorrectionAck,
   type InlineCorrectionIntent,
   type InlineCorrectionPage,
@@ -103,21 +103,13 @@ export function useImportInlineCorrection({
     let disposed = false;
     const abort = new AbortController();
     setLoading(true);
+    setPage(null);
     setError(null);
     void (async () => {
       // Read pending command before making any new mutation or replacing drafts.
       const savedCommand = await readDurableCommand<InlineCorrectionIntent>(scope);
       if (!disposed) setPending(savedCommand);
-      const raw = await authFetch(
-        "/simple-products/imports/" + encodeURIComponent(jobId) +
-        "/correction/rows?after_row=0&limit=" + MAX_INLINE_CORRECTION_REJECTIONS,
-        { signal: abort.signal },
-      );
-      const response = parseInlineCorrectionPage(raw, jobId);
-      // Never expand the 25-row inline editor into a bulk import editor.
-      if (response.next_after_row !== null) {
-        throw new Error("PRODUCT_IMPORT_INLINE_TOO_MANY_ROWS");
-      }
+      const response = await loadInlineCorrectionRows(authFetch, jobId, abort.signal);
       const savedDraft = draftKey ? readDraft(draftKey) : null;
       if (disposed) return;
       setPage(response);
@@ -188,6 +180,9 @@ export function useImportInlineCorrection({
     setError(null);
     let command: DurableCommand<InlineCorrectionIntent> | null = null;
     try {
+      if (correctionRouteBlocked(companyId, driverId, jobId, "inline")) {
+        throw new Error("PRODUCT_IMPORT_CORRECTION_ROUTE_CONFLICT");
+      }
       if (recover) {
         command = await readDurableCommand<InlineCorrectionIntent>(scope);
         if (!command || command.payload.jobId !== jobId) {

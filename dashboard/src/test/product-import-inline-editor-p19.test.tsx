@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ImportInlineCorrectionPanel } from "@/pages/products/import/ImportInlineCorrectionPanel";
 import { ImportProductStatusPanel } from "@/pages/products/import/ImportProductStatusPanel";
 import type { ProductImportState } from "@/pages/products/contracts";
+import { productDurableScope } from "@/pages/products/productDurableScope";
 
 const ids = vi.hoisted(() => ({
   request: "33333333-3333-4333-8333-333333333333",
@@ -72,9 +73,46 @@ afterEach(() => {
   vi.clearAllMocks();
   ids.pending = null;
   sessionStorage.clear();
+  localStorage.clear();
 });
 
 describe("inline correction UI uses the server-owned failed-row contract", () => {
+  it("follows a short Backend page caused by byte limits without opening bulk editing", async () => {
+    const anotherRow = {
+      ...page.items[0],
+      row_identity: "44444444-4444-4444-8444-444444444444",
+      row_number: 28,
+      values: { name: "Another rejected row", unit_barcode: "000999" },
+    };
+    const authFetch = vi.fn()
+      .mockResolvedValueOnce({ ...page, next_after_row: 14 })
+      .mockResolvedValueOnce({ ...page, items: [anotherRow], next_after_row: null });
+    render(<ImportInlineCorrectionPanel {...props} authFetch={authFetch} />);
+    expect(await screen.findByText(/Row 28/)).not.toBeNull();
+    expect(screen.getByText("Row 14")).not.toBeNull();
+    expect(authFetch).toHaveBeenCalledTimes(2);
+    expect(authFetch).toHaveBeenNthCalledWith(2,
+      "/simple-products/imports/" + JOB +
+      "/correction/rows?after_row=14&limit=24&expected_job_version=7",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it("prevents inline submission while another same-job Excel correction is unresolved", async () => {
+    const fileScope = productDurableScope(38, 17, "product-import-correction", JOB);
+    const authFetch = vi.fn(async (_url: string, opts?: RequestInit) => {
+      if (opts?.method === "POST") throw new Error("unexpected inline POST");
+      return page;
+    });
+    render(<ImportInlineCorrectionPanel {...props} authFetch={authFetch} />);
+    expect(await screen.findByText("Row 14")).not.toBeNull();
+    fireEvent.change(screen.getByLabelText("products.fields.name"), { target: { value: "Corrected" } });
+    localStorage.setItem(fileScope, "pending-file-operation");
+    fireEvent.click(screen.getByRole("button", { name: "products.inlineCorrection.submit" }));
+    await waitFor(() => expect(screen.getByRole("alert")).not.toBeNull());
+    expect(authFetch.mock.calls.filter(([, options]) => options?.method === "POST")).toHaveLength(0);
+  });
+
   it("shows original row and field error, and posts only changed literal cells with the same job/row versions", async () => {
     const authFetch = vi.fn(async (url: string, opts?: RequestInit) => {
       if (!opts?.method) return page;

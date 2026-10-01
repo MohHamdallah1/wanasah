@@ -11,6 +11,7 @@ import {
   getOrCreateDurableCommand,
 } from "@/lib/durableOperations";
 import { productDurableScope } from "@/pages/products/productDurableScope";
+import { correctionRouteBlocked } from "@/pages/products/import/correctionRouteGate";
 import type { ProductImportState } from "@/pages/products/contracts";
 
 type AuthFetch = (path: string, options?: RequestInit) => Promise<unknown>;
@@ -103,6 +104,9 @@ export function useImportCorrection({
     mutationFn: async () => {
       if (!jobId || !file || !online) {
         throw new Error("PRODUCT_IMPORT_CORRECTION_FILE_REQUIRED");
+      }
+      if (correctionRouteBlocked(companyId, driverId, jobId, "file")) {
+        throw new Error("PRODUCT_IMPORT_CORRECTION_ROUTE_CONFLICT");
       }
       const scope = productDurableScope(
         companyId, driverId, "product-import-correction", jobId,

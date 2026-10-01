@@ -32,6 +32,7 @@ import {
   getOrCreateDurableCommand,
 } from "@/lib/durableOperations";
 import { useImportCorrection } from "@/pages/products/import/useImportCorrection";
+import { productDurableScope } from "@/pages/products/productDurableScope";
 import { createImportDownloads } from "@/pages/products/import/createImportDownloads";
 import { ImportProductStatusPanel } from "@/pages/products/import/ImportProductStatusPanel";
 import type { ProductImportState } from "@/pages/products/contracts";
@@ -74,9 +75,29 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.clearAllMocks();
+  localStorage.clear();
+  sessionStorage.clear();
 });
 
 describe("same-job Product Import correction frontend", () => {
+  it("does not send an Excel correction while an inline edit or draft owns the same job", async () => {
+    const fetch = vi.fn();
+    const inlineScope = productDurableScope(38, 17, "product-import-inline-correction", JOB);
+    const view = setup(fetch);
+    localStorage.setItem(inlineScope, "pending-inline-operation");
+    act(() => view.result.current.chooseCorrectionFile(file));
+    act(() => view.result.current.uploadCorrection());
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
+    expect(fetch).not.toHaveBeenCalled();
+    expect(getOrCreateDurableCommand).not.toHaveBeenCalled();
+    localStorage.removeItem(inlineScope);
+    sessionStorage.setItem(inlineScope + ":draft", "unsaved-cells");
+    act(() => view.result.current.uploadCorrection());
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(2));
+    expect(fetch).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
   it("downloads the server-owned correction artifact for the same job, not the diagnostic report", async () => {
     const payload = {
       file_name: `product-import-${JOB}-correction.xlsx`,
