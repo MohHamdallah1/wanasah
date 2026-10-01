@@ -430,7 +430,7 @@ describe("Products P8 production frontend gate", () => {
       "onClose: closeImport",
     );
     expect(importWorkflow).toContain(
-      "onCompletedClose: completeImport",
+      "onCompletedClose: () => guardInlineDraft(completeImport)",
     );
   });
 
