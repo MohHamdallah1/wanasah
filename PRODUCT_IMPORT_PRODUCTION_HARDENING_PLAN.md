@@ -674,7 +674,7 @@ The former urgent Catalog/Index/Worker roadmap is archived at `docs/archive/WANA
 - [x] **D7-S tool preservation, not a V1 gate**: PR #47 kept the Codex Issue #38 staging driver permanently under `wa_backend/tools/staging_load/wanasah_d7s_mixed_load_driver.py` with operator guide `docs/operations/WANASAH_D7S_MIXED_LOAD_TOOL.md`. Its relocated mock contract suite passed 32/32; no true 1,000-connection acceptance occurred. This is deferred V2 work and **not** a blocker for finishing the present correction UI.
 - [x] **19.3 Backend contract implemented, NOT live HTTP/DB accepted:** Codex commit `ad646ed`, merged as PR #50. The authorized bounded `GET/POST /simple-products/imports/{job_id}/correction/rows` contract exposes failed-row physical numbers, canonical mapped cell values, immutable row IDs, optimistic job/row versions, editable/retention states, and durable same-job cell patches delegated to the preexisting correction/queue authority. GET limit 1..100 is a **per-request technical bound**, not approval to display/edit any total number of rejected products in Dashboard. Codex reports 11/11 focused in-process tests with DB/queue doubles; real PostgreSQL/RLS, race and full HTTP/worker readback gates remain OPEN. No 5k/50k workload was run.
 - [x] **19.3 Frontend inline editor source implemented, real HTTP/browser acceptance OPEN:** the owner delegated the cutoff choice; this V1 UI intentionally offers immediate inline editing only when the **total rejected-row count is 1..25**, and displays only the official correction Excel path for 26+ rejects (including 15,000). Within the bound, request only bounded `/correction/rows` DTO pages pinned to the initial job version (Backend may return short pages under its 256 KiB response cap); stop after 25 total rows or 512 KiB combined, and never re-enable the editor from stale previous-page data after a failed refresh. Show original Excel row numbers, mapped cell values, visible errors, focusable accessible Tooltip, one-row cards and literal changed-cell patch only. Scope tab-local drafts and durable same-ID/body replay to company/user/job; reject attempts to submit the file-correction route while an inline draft/save is pending and reject inline submission while a file-correction request is unresolved. Protect switching to a new import while **either** correction route has pending work, and resume the original progress watcher after server ACK. Separate large, historical diagnostic API paging from this small-only editor. Source + mocked UI original 15/15 focused tests and 2026-10-01 **11/11** targeted correction route/short-page follow-ups PASS, TypeScript, ESLint and Vite production build PASS. PR #54 follow-up (code-only): a stale inline draft now requires confirmation before discard; known zero-write correction-conflict 409 releases its uncommitted request identity and forces refreshed review; stale ACKs after unmount or a company/actor change do not update the new tenant/job UI; draft storage updates occur once per user event outside React state reducers. Correction/editor focused tests **14/14 PASS** plus TypeScript/ESLint/Vite production build PASS. This verifies client contracts only; no deployed browser, PostgreSQL/worker, real manual accessibility or tenant-role acceptance asserted.
-- [ ] **19.1 final HTTP acceptance:** after implementing the contracts, one targeted real authorized HTTP/worker/database correction rehearsal with wrong-tenant/previously imported-row negatives, replay/ambiguous response and Product/Variant/Price/Audit lineage readback; preserve the completed original job and create fresh synthetic evidence only if necessary.
+- [x] **19.1 final HTTP acceptance — isolated synthetic real HTTP+PostgreSQL+Worker, 2026-10-01:** on separate disposable PostgreSQL 16 (port 55446) and real FastAPI/three worker roles, two 100-row imports each progressed 99 IMPORTED + 1 INVALID to 100/100 via the same-job inline JSON or official CSV correction; real signed bearer auth, cross-tenant 404, forged/imported-row 409, persisted unprivileged actor 403 even with forged is_admin JWT claim, an actual TCP response disconnect followed by SAME request-id/body replay, and Product/Variant original-row+price-publication+active-barcode immutable readback plus 100 Pricing/Audit/Outbox rows all PASS. A third single-row same-job test revealed a new error (missing name first, unsupported package after fixing name), corrected it to 1/1. Original completed historical 54-row job was not touched; developer tenant-2 unchanged, disposable PostgreSQL removed. Runner: `wa_backend/scripts/run_product_import_phase19_http_isolated_gate.py`. This is real small-scope backend acceptance, **NOT** browser/manual QA, the customer's actual deployment, or final 50k/stall diagnosis.
 - [ ] **19.2 final 50k measured acceptance, deliberately last:** owner postponed every 5k/50k load run until all correction work is implemented. Perform source-first review, then one scoped final actual HTTP + SourceStore + worker + persisted Product/Variant/Price/Audit/Outbox exercise in an owner-approved **synthetic development/rehearsal scope**, with a small admission sanity case if needed; capture total and stage timings, counts, resource/queue health and resume/cancel integrity. An additional physical PostgreSQL database is preferred when available but is NOT inherently required by the original §19.2 policy; never mix real company data or erase historical jobs. Diagnose a newly reproduced stall before retrying; prior September stalls do not by themselves prove a current regression.
 - [ ] **19.4–19.5 final closure:** concentrated architecture/build/test and real-browser keyboard/mobile/RTL-LTR/permission checks, then owner visual acceptance when ready. Archive this plan only after implementation evidence is recorded. Real customer installation D7-P/D8-P remains separately OPEN in `docs/operations/PRODUCT_IMPORT_V1_RELEASE_RUNBOOK_2026-09-30.md`.
 
@@ -686,6 +686,51 @@ They do **not** by themselves prove that the complete user-facing import,
 correction and 50,000-row execution journeys have passed live end-to-end
 release acceptance. Do not mark this phase complete on the strength of
 structural gates, parser benchmarks, or mocked failure injection alone.
+
+
+**2026-10-01 independent REAL acceptance evidence (not a simulated unit gate):**
+`wa_backend/scripts/run_product_import_d4_isolated_gate.py` ran on the
+actual Windows backend commit `aa46f6f` with isolated PostgreSQL port 55443:
+real worker orphan recovery 297 imported/3 rejected, 297 ProductPrice/Audit/
+Outbox; actual PARSING-stage cancellation on a **synthetic 5,000-row** input
+returned CANCELLED/0 processed/0 linked variants; worker hard-kill after
+100 committed of **synthetic 3,000 rows** recovered to 2970 imported/30 invalid
+with 2970 price/audit/outbox and no duplicate queue delivery.
+`PRODUCT_IMPORT_D4_ISOLATED_GATE=PASS`,
+`ORIGINAL_DEV_TENANT_UNMODIFIED=PASS`, disposable DB removed.
+The separate HTTP rehearsal later deliberately induced a REAL
+PostgreSQL `pg_sleep(5)` wait under the actual staging guard's test-only
+0.2-second deadline; native asyncpg disconnect and transaction-advisory
+lock release **PASS**. This is a deliberate genuine PostgreSQL wait,
+NOT recreation of the historic `ClientRead` driver stall or a measured
+120-second production threshold. Coupled official-HTTP cancel during a
+live stalled SQL/queue delivery remains OPEN.
+
+`wa_backend/scripts/run_product_import_phase19_http_isolated_gate.py`
+uses a DIFFERENT ephemeral PG16 instance on port 55446 plus local API 18046,
+isolates real roles execution/control/maintenance, validates current Alembic
+head and reads exactly one preapproved empty developer synthetic tenant-2
+fixture without copying customer data, seeds a second synthetic company
+only in ephemeral DB. All new HTTP/DB writes occurred there. The real
+auth-protected API scenarios cover two corrected 100-row jobs and one
+sequential-error 1-row job, wrong-tenant 404, ungranted actor 403,
+forged/previously imported 409, signed-token/RLS, exact same request-id
+replay even after raw-socket dropped response; native official CSV **and
+XLSX** downloads and correction uploads with exact replay; 100/100 source
+rows for each file path and matching Variant/Pricing/Audit/Outbox, with prior
+Product/Variant/Price publication and active Barcode identities immutable. Final marker
+`PRODUCT_IMPORT_PHASE19_REAL_HTTP_ISOLATED=PASS` with
+`P19_HTTP_SOURCE_DEVELOPER_UNMODIFIED=PASS` and
+`P19_HTTP_DISPOSABLE_CLUSTER_REMOVED=PASS`. The **third**
+100-row official XLSX correction via a real HTTP download/edited
+`Corrections` workbook/upload produced its own 100/100 lineage
+and exact same-ID `replayed=True`; marker
+`P19_REAL_HTTP_XLSX_CORRECTION_REPLAY=PASS`. The separate real
+PostgreSQL timeout/lock-release marker
+`P19_REAL_PG_STAGING_TIMEOUT_LOCK_RELEASE=PASS` also succeeded. No user Excel attachment or
+existing 54-row job was read or mutated. Both commands are repeatable
+separate from **manual browser testing, native XLSX UI, a genuinely
+reproduced timeout/lock release, medium/50k measurement, and customer D7-P/D8-P**.
 
 **Test evidence recorded 2026-09-28 (development tenant only):**
 - Mixed 54-product XLSX: one durable import finished with **38 IMPORTED +
@@ -709,23 +754,34 @@ structural gates, parser benchmarks, or mocked failure injection alone.
 - [x] Snapshot the original job and its imported identity set: baseline
   **38 IMPORTED + 16 INVALID**, **66 company Products** before a correction.
   The comparison uses the original job identity, not the all-invalid re-upload.
-- [ ] Snapshot/compare active barcode rows, Pricing publications and full
-  Product row versions as part of final end-to-end lineage verification.
+- [x] Snapshot/compare active barcode identities, Pricing publication IDs, full
+  Product/Variant versions, and original imported row identities/versions
+  **on fresh isolated same-job HTTP correction**: all 99 successful source rows
+  compared before vs after inline and file corrections, with matching
+  100 imported variants and 100 price/audit/outbox records after each correction.
+  The historic September 54-row job was not re-opened or snapshotted.
 - [x] Build the **original job's** official CSV and XLSX correction artifacts
   through the real application service: both had **16** source-rejected rows,
   16 distinct immutable row identities and the original 10 source headers;
   both parsed successfully. After one correction, future artifacts should
   contain only the remaining 15 invalid rows.
-- [ ] Verify the equivalent **authenticated HTTP GET** correction download,
-  exact physical row-number mapping and absence of exported successful rows
-  in the real Dashboard-access flow.
+- [x] Verify authenticated real HTTP GET official correction **CSV and XLSX**,
+  exactly one rejected physical row 101 after 99 successful rows (none
+  exported), and same-job re-upload with immutable row metadata. Real CSV
+  and XLSX GET/POST exact replay both PASS and both produce 100/100 persisted
+  variants, pricing, audit/outbox with original product/price/barcode
+  identities immutable. Actual browser download and manual accessibility
+  remain open under 19.4; this is not a browser walkthrough.
 - [x] Real-job application/repository safety preflight: malformed
   UUID, duplicate UUID, missing identity metadata, unexpected extra header,
   forged unknown row identity, previously IMPORTED row identity, and
   wrong-tenant job: **7/7 rejected**, with unchanged job-row status and
   Product counts.
-- [ ] Repeat forbidden corrections through the authenticated HTTP endpoint
-  and verify response codes, permission/RLS isolation, and no row mutation.
+- [x] Repeat forbidden corrections through authenticated real HTTP on
+  PostgreSQL: wrong-tenant GET/POST 404, same-tenant non-granted actor 403,
+  forged row identity and previously imported row both 409; the original
+  99 previously imported Product/Variant/Price/Barcode snapshots remained
+  unchanged and correction then completed 100/100.
 - [x] Prepare all **15 remaining** corrections in memory using canonical
   package/tracking codes, explicit positive amounts and unambiguous
   synthetic test barcodes. All 15 pass the current normalizer; all 28
@@ -754,26 +810,44 @@ structural gates, parser benchmarks, or mocked failure injection alone.
 - [x] Exact same correction request ID and same payload replayed with
   `replayed=True` and no extra Product. All 38 prior imported variant
   identities remained present in the original job.
-- [ ] Repeat the same scenario via the **real authorized HTTP POST** and
-  browser UX, with a lost-response/disconnect case and documented
-  event-loop/runtime compatibility on the actual deployment launcher.
+- [x] Repeat the original correction **contract** via real authenticated
+  same-job HTTP POST (fresh disposable 100-row rehearsal), intentionally
+  disconnect raw TCP after sending the entire body without reading response,
+  retry exactly the same request-id/body and verify `replayed=True`
+  and Product/Price/Audit/Outbox immutability. Windows isolated API uses
+  `SelectorEventLoop` because Psycopg's async connector rejects default
+  `ProactorEventLoop`; this launcher issue was reproduced and fixed
+  **inside the isolated harness**, not by changing runtime business code.
+  Manual real-browser UX remains OPEN in 19.4.
 - [x] Prove previously imported variant IDs (all 39 by the final
   15-row correction) were retained; the earlier one-row correction's
   exact request-ID replay returned `replayed=True` with no extra
   Product. The final 15-row request has a completed durable
   `operation_idempotency` ledger record.
-- [ ] Rebuild and replay the final 15-row **exact payload** against the
-  correction endpoint and verify the read-back response matches;
-  completed-job short-circuit does not itself demonstrate replay.
-- [ ] Snapshot/compare historical Product/Variant row versions and
-  price publication IDs at the same-job boundaries to verify that
-  correction did not silently mutate pre-existing rows.
+- [x] **Superseded historical acceptance case, not a historical replay:**
+  the September original 54/54 job is already completed and must remain
+  immutable; its historical 15-row exact payload was **not** resubmitted.
+  Instead a fresh disposable *correctable* 99+1-row job exercised real HTTP
+  exact request-id+body replay, including a deliberately lost TCP response,
+  with read-back `replayed=True`, and 100/100 Product/Pricing/Audit lineage
+  without duplicate writes. This closes the equivalent V1 idempotency
+  acceptance requirement, **not** the original 15-row literal replay.
+- [x] Compare Product/Variant and job-row versions, active barcodes and
+  original PriceBookEntry/publication IDs at **fresh isolated** same-job
+  correction boundaries. All pre-correction 99 successful rows/identities/
+  versions and price publication memberships remained unchanged. Historical
+  developer 54/54 identities not mutated or re-snapshotted; no claim to
+  have compared the original September publication IDs.
 - [x] Correct the 15 remaining deliberately invalid test rows after
   preflight. A malformed fixture command (non-canonical Arabic package
   label) was rejected **before mutation**; the canonical code fixed it.
   Final 15 rows each have an independent, active Variant.
-- [ ] Independently test a staged row whose next validation error is
-  revealed only after an earlier error is corrected.
+- [x] Independently test a staged source row whose next validation error
+  emerges only after correcting the earlier one, **real HTTP+PostgreSQL+Worker**:
+  physical row 2 `IMPORT_NAME_REQUIRED`, after name correction
+  `SIMPLE_PRODUCT_PACKAGE_UOM_UNSUPPORTED`, after package correction
+  same immutable row identity reaches COMPLETED with exactly one
+  Variant/Price/Audit/Outbox.
 - [x] Real-database final 54-row readback: **54 distinct ACTIVE variants,
   39 Product parents, 93 active barcodes, 96 published price entries,
   42 commercial UOM conversions**; 42 packaged + 12 unit-only rows.
@@ -786,9 +860,13 @@ structural gates, parser benchmarks, or mocked failure injection alone.
 - [x] Use the original partially successful job as the correction target;
   the all-invalid re-upload was **not** modified and no previously imported
   Product was deleted. Never upload the unchanged original XLSX again.
-- [ ] If the old job source/lineage is no longer correctable for retention
-  reasons, use a deliberately isolated fresh test job and document why;
-  never overwrite or delete historical successful Products.
+- [x] **Historical lineage preservation/isolated fallback executed:**
+  original developer 54/54 job is already complete; no need to reopen it,
+  no historical files, rows or Products were changed. Fresh tenant-2
+  synthetic job IDs were created **only in a disposable local PG cluster**
+  for acceptance, cleaned on exit, with original developer tenant-2
+  verified untouched. This is a recorded safe substitution for release
+  rehearsal, not evidence that the original September job expired.
 
 ## 19.2 50,000-row real end-to-end release exercise
 
@@ -899,14 +977,32 @@ structural gates, parser benchmarks, or mocked failure injection alone.
   `wa_backend/domains/simple_products/imports/PHASE19_STAGING_RECOVERY.md`.
   No live PostgreSQL rollback/lock release, worker or HTTP acceptance is
   implied by this code-only checkpoint.
-- [ ] **Actual staging cancellation/rollback/retry acceptance:**
-  verify worker error recovery and official HTTP cancel on an **approved
-  isolated synthetic rehearsal tenant**, including source retention,
-  retry/restart, lost COMMIT acknowledgement and no stuck transaction or
-  cross-tenant connection termination. Connection pre-ping and physical
-  PostgreSQL lock release cannot be proved from mocked cancellation.
-  The historical asyncpg/Windows ClientRead root-cause investigation
-  and intermediate-size real queue measurements remain separately OPEN.
+- [x] **Real PostgreSQL staging per-step timeout/transport/lock release,
+  short synthetic deadline (2026-10-01):** independent disposable-PG16
+  role-2 transaction obtained the actual backend PID, acquired a
+  transaction-scoped advisory lock, entered genuine server-side
+  `pg_sleep(5)`, and invoked the **real existing StagingIOGuard** with
+  a test-only **0.2 s** per-step deadline (production 120 s constant NOT
+  changed). Its actual asyncpg transport was aborted, classified as a
+  retryable `PRODUCT_IMPORT_STAGING_TIMEOUT`, released the backend PID
+  and the advisory lock. Marker
+  `P19_REAL_PG_STAGING_TIMEOUT_LOCK_RELEASE=PASS`; the same disposable
+  cluster was removed and original developer source unchanged.
+  This verifies real abort/transaction-lock release, **not** the
+  historical ClientRead driver root cause or elapsed 120-second policy.
+- [ ] **Live official HTTP cancellation + Worker concurrent-stall recovery:**
+  D4 previously proved real PostgreSQL/worker cancellation during PARSING
+  on a new synthetic 5k row job with 0 processed/0 linked products,
+  and hard-kill/recovery after 100 committed of a 3k synthetic job,
+  ending 2970/30 with no duplicate Product/Price/Audit/Outbox.
+  Separately the real-PG short-deadline test above released the
+  transaction lock. Still verify **official HTTP cancel while a real
+  staging SQL await is stalled**, worker's controlled retry/SourceStore
+  retention after an induced abort, connection pre-ping edge, and real
+  ambiguous-COMMIT acknowledgement under the actual queue launcher.
+  Do not infer these coupled scenarios from separate D4/guard tests.
+  The September Windows/asyncpg ClientRead root-cause investigation and
+  intermediate-size measured queue tests remain OPEN.
 - [ ] Rerun 50k real-queue import with unique identities **only
   after** the staging-hang root cause and fresh intermediate-size gates
   pass. Measure actual E2E latency/resources/lineage; do not
