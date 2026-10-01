@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Iterable
 from uuid import UUID
 
-from sqlalchemy import and_, func, select, text
+from sqlalchemy import and_, func, inspect, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import DomainAuditEvent, ProductVariant, TransactionalOutbox, utc_now
@@ -155,6 +155,76 @@ def apply_variant_publish_transition(
         "ProductPublished",
         "تم نشر الصنف وأصبحت بنيته ثابتة.",
     )
+
+
+async def create_published_variants(
+    db: AsyncSession,
+    *,
+    rows: list[ProductVariant],
+    company_id: int,
+    actor_id: int,
+    request_id: UUID,
+) -> None:
+    """Publish new transient drafts, persisting each Variant only once.
+
+    The lifecycle transition and DRAFT snapshot precede INSERT. Only the
+    snapshot's identity is bound after ORM flush assigns database-generated IDs;
+    no lifecycle state is reconstructed from an already ACTIVE persisted row.
+    Evidence is pending in this same Session until the caller's dependent flush.
+    This primitive never commits and cannot publish an existing/pending Variant.
+    """
+    evidence: list[tuple[ProductVariant, dict[str, Any], str, str]] = []
+    for row in rows:
+        if (
+            not inspect(row).transient
+            or row.id is not None
+            or row.company_id != company_id
+            or row.lifecycle_revision not in (None, 1)
+            or row.version not in (None, 1)
+            or row.published_at is not None
+            or row.retired_at is not None
+            or row.archived_at is not None
+        ):
+            raise ProductLifecycleTransitionError(
+                "PRODUCT_CREATION_STATE_INVALID",
+                "New publication requires a tenant-scoped transient draft.",
+                status_code=500,
+            )
+
+        # ORM INSERT defaults previously supplied these initial values. Make
+        # them explicit before the real DRAFT snapshot and its first transition.
+        row.lifecycle_revision = 1
+        row.version = 1
+        if row.created_at is None:
+            row.created_at = utc_now()
+        before = variant_snapshot(row)
+        now = utc_now()
+        event_type, message = apply_variant_publish_transition(row, now)
+        row.lifecycle_revision += 1
+        row.version += 1
+        row.updated_at = now
+        evidence.append((row, before, event_type, message))
+
+    db.add_all(rows)
+    await db.flush()
+
+    for row, before, event_type, message in evidence:
+        # Read each object's own generated identity; never correlate IDs by
+        # RETURNING order, preallocate sequences, or issue per-Variant queries.
+        variant_id = int(row.id)
+        before["id"] = variant_id
+        record_domain_event(
+            db,
+            company_id=company_id,
+            actor_id=actor_id,
+            request_id=request_id,
+            event_type=event_type,
+            entity_type="ProductVariant",
+            entity_id=variant_id,
+            reason=message,
+            before=before,
+            after=variant_snapshot(row),
+        )
 
 
 def evaluate_product_capability(

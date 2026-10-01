@@ -48,9 +48,8 @@ from models import (
 )
 from product_lifecycle import (
     ProductLifecycleTransitionError,
-    apply_variant_publish_transition,
+    create_published_variants,
     record_domain_event,
-    variant_snapshot,
 )
 
 _CODE_CLEAN_RE = re.compile(r"[^A-Z0-9_.-]+")
@@ -1472,15 +1471,25 @@ async def create_product_structures(
                 unit_barcode, package_barcode, shared_barcode,
             ))
 
-    # The authoritative family/UOM/tracking/barcode validation above remains
-    # per row, but SQLAlchemy can now flush all DRAFT SKUs together instead
-    # of one ORM round-trip per SKU. No ID is guessed or matched by RETURNING
-    # order: actual generated IDs are read off their own ORM identity objects.
-    # Keep official DRAFT->ACTIVE transition, audit, outbox and price posting
-    # AFTER the database has issued these IDs, in the same transaction.
-    db.add_all([row[0] for row in staged_variants])
+    # All family/UOM/tracking/barcode validations precede lifecycle preparation.
+    # The creation primitive captures real DRAFT evidence and applies the same
+    # publish authority before one final-state INSERT with ORM-generated IDs.
+    # Keep the existing phase label; its flush now inserts published new SKUs.
     with product_phase(db, "draft_flush"):
-        await db.flush()
+        try:
+            await create_published_variants(
+                db,
+                rows=[row[0] for row in staged_variants],
+                company_id=int(actor.company_id),
+                actor_id=int(actor.id),
+                request_id=request_id,
+            )
+        except ProductLifecycleTransitionError as exc:
+            raise SimpleProductError(
+                exc.code,
+                exc.message,
+                status_code=exc.status_code,
+            ) from exc
 
     with product_phase(db, "activation_objects"):
         for (
@@ -1500,7 +1509,8 @@ async def create_product_structures(
                     )
                 )
 
-            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            # Barcode effectivity remains the exact authoritative publish time.
+            now = variant.published_at
             if unit_barcode:
                 db.add(
                     ProductBarcode(
@@ -1535,34 +1545,6 @@ async def create_product_structures(
                     )
                 )
 
-            before = variant_snapshot(variant)
-            try:
-                event_type, message = apply_variant_publish_transition(
-                    variant,
-                    now,
-                )
-            except ProductLifecycleTransitionError as exc:
-                raise SimpleProductError(
-                    exc.code,
-                    exc.message,
-                    status_code=exc.status_code,
-                ) from exc
-
-            variant.lifecycle_revision += 1
-            variant.version += 1
-            variant.updated_at = now
-            record_domain_event(
-                db,
-                company_id=int(actor.company_id),
-                actor_id=int(actor.id),
-                request_id=request_id,
-                event_type=event_type,
-                entity_type="ProductVariant",
-                entity_id=int(variant.id),
-                reason=message,
-                before=before,
-                after=variant_snapshot(variant),
-            )
             result.append((variant, spec, prices, shape))
 
     with product_phase(db, "activation_flush"):
