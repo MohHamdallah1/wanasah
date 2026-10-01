@@ -94,3 +94,22 @@ def test_repeatability_no_overwrite_and_enforced_dev_limits(tmp_path: Path):
     )
     assert empty["source_rows"] == 0
     assert empty["last_physical_row"] == 1
+
+
+
+def test_actual_50k_load_source_preserves_four_blank_physical_rows():
+    """Regression: final DB readback must use 50005, not 50001."""
+    from scripts.run_product_import_phase19_live_load import build_source
+
+    payload, mapping, _prefix = build_source(50_000, "PH19-ROW-FIDELITY-OFFLINE")
+    assert len(payload) <= 8 * 1024 * 1024
+    with open_source("phase19-source.csv", payload) as source:
+        assert mapping_complete(suggest_mapping(source.headers))
+        n = 0
+        last = 1
+        for row in source.rows:
+            n += 1
+            assert row.row_number > last
+            last = row.row_number
+    assert n == 50_000
+    assert last == 50_005  # header + 50k data rows + 4 empty CSV lines
