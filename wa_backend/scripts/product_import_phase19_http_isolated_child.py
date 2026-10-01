@@ -289,8 +289,8 @@ def main() -> None:
         primary_token = create_access_token({"sub": "1", "is_admin": True}, 2, "Admin")
         foreign_token = create_access_token({"sub": "2", "is_admin": True}, 3, "Admin")
 
-        processes.append(start("p19-http-server", "-m", "uvicorn", "main:app", "--host",
-                               "127.0.0.1", "--port", str(API_PORT), "--no-access-log"))
+        processes.append(start("p19-http-server", "-m",
+                               "scripts.product_import_phase19_http_selector_server"))
         for role in ("control", "maintenance", "execution"):
             processes.append(start(f"p19-{role}", "-m",
                                    "domains.simple_products.imports.infrastructure.worker_cli",
