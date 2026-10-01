@@ -24,7 +24,7 @@ _PROFILE_KEY = "simple_products_import_batch_profile"
 _MAX_SQL_STATEMENT_DETAILS = 256
 # Only explicitly registered static labels may appear in product-import logs.
 # Pricing attaches the option to existing statements without importing this module.
-_IMPORT_SQL_LABEL_OPTION = "wanasah_import_sql_label"
+_IMPORT_SQL_LABEL_OPTION = "wanasah_sql_trace_label"
 _IMPORT_SQL_LABELS = frozenset({
     "pricing_company_lock", "pricing_maker_checker", "pricing_next_revision",
     "pricing_book_lock", "pricing_book_read", "pricing_draft_publication_lock",
