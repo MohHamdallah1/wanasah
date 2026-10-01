@@ -1147,6 +1147,20 @@ reproduced timeout/lock release, medium/50k measurement, and customer D7-P/D8-P*
   `docs/operations/PRODUCT_IMPORT_P19_FULL_DASHBOARD_GATE_2026-10-01.md`.
   These checks do not substitute for live browser/backend integrated status
   and physical-device owner acceptance.
+- [x] **Original ProductsPage + real browser + real backend integration, 2026-10-01:**
+  a single six-source-row synthetic CSV (five accepted, one invalid name)
+  ran on the owned disposable PostgreSQL16 + actual FastAPI/three-role Worker;
+  Edge headless opened the real import Radix menu via ArrowDown/Enter and
+  resumed its original job, rendered one rejected field with an accessible
+  reason, submitted a real React inline correction and observed its
+  persisted completion under the SAME job UUID: six imported Variants,
+  six distinct priced Variants, six ProductVariant audits and six outbox
+  events, no remaining invalid row or duplicate effect. Real Arabic RTL,
+  English LTR, focus containment and 390px viewport/no overflow PASS.
+  Original developer source unchanged, cluster destroyed, gate exit 0.
+  This is **not** a physical phone/screen reader, owner visual approval,
+  suspended-network/reconnect or large-job browser progress proof.
+  See `docs/operations/PRODUCT_IMPORT_P19_REAL_BROWSER_HTTP_ACCEPTANCE_2026-10-01.md`.
 - [ ] Run full backend+frontend gates, audit tenant isolation and validate
   the Dashboard's large-job progress, row report, retry, and reconnection
   behavior with keyboard and both RTL/LTR locales.
