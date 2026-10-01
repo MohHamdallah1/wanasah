@@ -10,6 +10,7 @@ import csv
 import io
 import json
 import socket
+from openpyxl import load_workbook
 import os
 from pathlib import Path
 import subprocess
@@ -310,6 +311,59 @@ def test_csv(client: httpx.Client, wrong: httpx.Client, admin) -> None:
     print("P19_REAL_HTTP_FILE_LINEAGE=" + str(final), flush=True)
 
 
+def test_xlsx(client: httpx.Client, wrong: httpx.Client, admin) -> None:
+    # Real official Excel path, not a CSV test renamed .xlsx. Preserve
+    # __wanasah_row_identity and all source columns in the roundtrip.
+    job_id, mapping = upload(client, label="P19REALXLSX" + uuid4().hex[:8])
+    before = original_imported(admin, job_id)
+    artifact = require(
+        client.get(f"/simple-products/imports/{job_id}/correction?format=xlsx"),
+        200, "official XLSX correction GET",
+    )
+    require(
+        wrong.get(f"/simple-products/imports/{job_id}/correction?format=xlsx"),
+        404, "foreign-company XLSX GET",
+    )
+    if artifact.get("row_count") != 1:
+        raise RuntimeError("Official XLSX must contain exactly one rejected physical row.")
+    binary = base64.b64decode(artifact["content_base64"], validate=True)
+    book = load_workbook(io.BytesIO(binary), read_only=False, data_only=False)
+    try:
+        if book.sheetnames != ["Corrections"]:
+            raise RuntimeError("Unexpected correction XLSX sheets.")
+        sheet = book["Corrections"]
+        table = list(sheet.values)
+        if len(table) != 2 or mapping["package_uom"] not in table[0]:
+            raise RuntimeError("Missing package selector in real official XLSX.")
+        if "__wanasah_row_identity" not in table[0]:
+            raise RuntimeError("Missing immutable identity in official XLSX.")
+        identity = str(table[1][table[0].index("__wanasah_row_identity")])
+        if not identity:
+            raise RuntimeError("No immutable identity in rejected Excel row.")
+        sheet.cell(row=2, column=table[0].index(mapping["package_uom"]) + 1).value = "CARTON"
+        out = io.BytesIO()
+        book.save(out)
+    finally:
+        book.close()
+    target = f"/simple-products/imports/{job_id}/correction"
+    request_id = str(uuid4())
+    payload = out.getvalue()
+    form = {"request_id": request_id}
+    file = {"file": ("p19-correction.xlsx", payload,
+                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+    first = require(client.post(target, data=form, files=file), 202,
+                    "official XLSX correction POST")
+    replay = require(client.post(target, data=form, files=file), 202,
+                     "official XLSX exact replay")
+    if first.get("replayed") or not replay.get("replayed"):
+        raise RuntimeError("XLSX correction replay contract invalid.")
+    wait_job(client, job_id, valid_states={"COMPLETED"})
+    final = verify_job(admin, job_id, 100)
+    assert_unmodified(admin, job_id, before)
+    print("P19_REAL_HTTP_XLSX_CORRECTION_REPLAY=PASS", flush=True)
+    print("P19_REAL_HTTP_XLSX_LINEAGE=" + str(final), flush=True)
+
+
 def test_next_error(client: httpx.Client, admin) -> None:
     # Construct one literal row with TWO faults. The first validation pass
     # reports the missing name, then the second exposes the bad package UOM.
@@ -442,6 +496,7 @@ def main() -> None:
             wait_worker(client)
             test_inline(client, wrong, admin)
             test_csv(client, wrong, admin)
+            test_xlsx(client, wrong, admin)
             test_next_error(client, admin)
         print("PRODUCT_IMPORT_PHASE19_REAL_HTTP_ISOLATED=PASS", flush=True)
     except BaseException:
