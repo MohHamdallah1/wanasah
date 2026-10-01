@@ -176,7 +176,8 @@ export function useImportCorrection({
       );
     },
     onError: (error) => {
-      if (pendingUploadScopeRef.current === currentScopeRef.current) {
+      if (pendingUploadScopeRef.current === null ||
+          pendingUploadScopeRef.current === currentScopeRef.current) {
         toast.error(apiErrorMessage(error, t("products.correction.uploadFailed")));
       }
     },
