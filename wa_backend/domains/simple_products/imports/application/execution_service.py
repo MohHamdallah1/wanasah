@@ -654,15 +654,16 @@ async def execute_import(
                 actor,
             )
             try:
-                for permission in (
-                    "catalog.manage",
-                    "catalog.publish",
-                    "pricing.manage",
-                ):
-                    await access.require(
-                        permission,
-                        any_location=True,
-                    )
+                # The actor was reloaded in this transaction. The authorization
+                # owner omits only constant admin checks, not live grant reads.
+                await access.require_all(
+                    (
+                        "catalog.manage",
+                        "catalog.publish",
+                        "pricing.manage",
+                    ),
+                    any_location=True,
+                )
             except HTTPException as exc:
                 raise ProductImportTerminalError(
                     "The import actor no longer has the required permissions."
