@@ -192,7 +192,7 @@ export function ImportProductStatusPanel({
 
           {jobId && canInlineCorrect ? (
           <ImportInlineCorrectionPanel
-            key={jobId}
+            key={`${companyId ?? "no-company"}:${driverId ?? "no-actor"}:${jobId}`}
             jobId={jobId}
             companyId={companyId}
             driverId={driverId}
@@ -362,7 +362,7 @@ export function ImportProductStatusPanel({
         </div>
           {jobId && canInlineCorrect ? (
             <ImportInlineCorrectionPanel
-              key={jobId}
+              key={`${companyId ?? "no-company"}:${driverId ?? "no-actor"}:${jobId}`}
               jobId={jobId}
               companyId={companyId}
               driverId={driverId}
