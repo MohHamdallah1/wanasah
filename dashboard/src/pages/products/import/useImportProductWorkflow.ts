@@ -1,6 +1,8 @@
 import type {
   QueryClient,
 } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { productDurableScope } from "@/pages/products/productDurableScope";
 import type {
   TFunction,
 } from "i18next";
@@ -213,6 +215,22 @@ export function useImportProductWorkflow({
     i18n,
   });
 
+  const guardInlineDraft = (leave: () => void) => {
+    if (companyId && driverId && importJobId) {
+      const scope = productDurableScope(companyId, driverId, "product-import-inline-correction", importJobId);
+      try {
+        if (sessionStorage.getItem(scope + ":draft") || localStorage.getItem(scope)) {
+          toast.warning(t("products.inlineCorrection.keepJob"));
+          return;
+        }
+      } catch {
+        toast.warning(t("products.inlineCorrection.keepJob"));
+        return;
+      }
+    }
+    leave();
+  };
+
   const correction = useImportCorrection({
     companyId,
     driverId,
@@ -243,6 +261,15 @@ export function useImportProductWorkflow({
         importMutation.isPending,
       online,
       jobId: importJobId,
+      companyId,
+      driverId,
+      onInlineCorrectionAccepted: (ack: import("@/pages/products/import/inlineCorrectionContracts").InlineCorrectionAck) => {
+        if (ack.job_id !== importJobId) return;
+        setImportStatus((current) => current && current.job_id === importJobId
+          ? { ...current, status: ack.status }
+          : current);
+        setImportPollKey((current) => current + 1);
+      },
       status: importStatus,
       pollError:
         importPollError,
@@ -297,13 +324,13 @@ export function useImportProductWorkflow({
       authFetch,
       ...correction,
       onResetImport:
-        resetImport,
+        () => guardInlineDraft(resetImport),
       onRetryImport:
         retryImport,
       onCancelImport:
         cancelImport,
       onCompletedClose:
-        completeImport,
+        () => guardInlineDraft(completeImport),
     },
   };
 }
