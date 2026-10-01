@@ -56,6 +56,53 @@ class StageIntegrityTests(unittest.IsolatedAsyncioTestCase):
             [500, 500, 200],
         )
 
+    async def test_staging_batch_trace_contains_only_safe_numeric_progress(self) -> None:
+        db = AsyncMock()
+        job_id = uuid4()
+        with self.assertLogs("wanasah_logger", level="INFO") as logs:
+            result = await insert_staged_rows(
+                db,
+                company_id=38,
+                job_id=job_id,
+                rows=(
+                    ParsedRow(row_number=2 + index, raw={
+                        "Name": "PRIVATE CUSTOMER PRODUCT DO NOT LOG",
+                    })
+                    for index in range(3)
+                ),
+                batch_size=2,
+                max_rows=50_000,
+            )
+        self.assertEqual(result, 3)
+        combined = "\n".join(logs.output)
+        self.assertEqual(combined.count("PRODUCT_IMPORT_STAGING_BATCH_BEGIN"), 2)
+        self.assertEqual(combined.count("phase=STAGING_SQL"), 2)
+        self.assertEqual(combined.count("outcome=returned"), 2)
+        self.assertIn("batch_index=2 candidate_rows=1", combined)
+        self.assertIn("first_source_row=4 last_source_row=4", combined)
+        self.assertNotIn("PRIVATE CUSTOMER PRODUCT", combined)
+
+    async def test_staging_failed_insert_has_interrupted_marker_without_source_data(self) -> None:
+        db = AsyncMock()
+        db.execute.side_effect = RuntimeError("PRIVATE CUSTOMER PRODUCT")
+        with self.assertLogs("wanasah_logger", level="INFO") as logs:
+            with self.assertRaises(RuntimeError):
+                await insert_staged_rows(
+                    db,
+                    company_id=38,
+                    job_id=uuid4(),
+                    rows=[ParsedRow(row_number=14, raw={
+                        "Name": "PRIVATE CUSTOMER PRODUCT",
+                    })],
+                    batch_size=500,
+                    max_rows=50_000,
+                )
+        combined = "\n".join(logs.output)
+        self.assertIn("PRODUCT_IMPORT_STAGING_BATCH_BEGIN", combined)
+        self.assertIn("first_source_row=14 last_source_row=14", combined)
+        self.assertIn("phase=STAGING_SQL outcome=interrupted", combined)
+        self.assertNotIn("PRIVATE CUSTOMER PRODUCT", combined)
+
     async def _run_with_persisted_count(
         self,
         *,
