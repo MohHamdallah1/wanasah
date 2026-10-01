@@ -31,6 +31,7 @@ _IMPORT_SQL_LABELS = frozenset({
     "pricing_draft_variants", "pricing_draft_uoms",
     "pricing_draft_variant_uom",
     "pricing_publish_publication_lock", "pricing_publish_entries_lock",
+    "pricing_publish_entries_variant_uom",
     "pricing_publish_variants", "pricing_publish_uoms",
     "pricing_publish_variant_uom",
     "pricing_predecessor_exists", "pricing_locked_context_check",

@@ -136,6 +136,23 @@ The additional draft saving applies to each 200-entry chunk in the direct
 scope. Real elapsed time and lock contention remain unknown. No benchmark,
 SQL execution, tests, worker restart, schema change or deployment occurred.
 
+## Publish validation query consolidation
+
+Publication validation still takes a **fresh publish-time database snapshot** and
+locks the same `PriceBookEntry` rows. The former two-step sequence
+(`PriceBookEntry FOR UPDATE`, then a separate Variant/UOM lookup) is now one
+tenant-scoped SELECT using LEFT JOINs and `FOR UPDATE OF price_book_entries`.
+Only price entry rows are locked; Variant/UOM rows keep their previous unlocked
+read semantics. Missing catalog references remain validation failures instead
+of disappearing from the result set, and duplicate UOM-conversion rows are
+folded back into the same per-variant UOM set.
+
+Static trace label: `pricing_publish_entries_variant_uom`.
+
+This is a **one-roundtrip reduction inside publish validation**, not removal of
+publish-time validation. No elapsed-time improvement is claimed until a future
+authorized real import records the new statement timings.
+
 ## Timing boundaries
 
 All values are **client-visible wall time**, never PostgreSQL CPU or pure Python
