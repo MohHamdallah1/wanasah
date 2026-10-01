@@ -33,15 +33,25 @@ queries, transaction boundaries, global engine listeners or logging streams
 are created by this change.
 
 Each detail includes `ordinal` (execution-order number within the batch),
-`phase` (the existing deepest phase), `sql_type` (a fixed allowlisted SQL
+`phase` (the existing deepest phase), `sql_label` (an allowlisted static,
+source-authored label or `unlabeled`), `sql_type` (an allowlisted SQL
 operation label), `sql_sha256_16` (the first 16 hex characters of SHA-256 of
 the DBAPI SQL **template**), `executemany`, and `wall_ms`. For example,
-filter `phase=price_publish` to inspect the eleven calls individually,
-then aggregate by `sql_sha256_16` across sampled batches. A matching fingerprint
-identifies the same **exact rendered SQL template**, not a unique business
-entity or bound-parameter combination. The ordinal helps connect known
-operations to their source sequence; the fingerprint alone cannot prove
-which named pricing query is slow without source review.
+filter `phase=price_publish` to inspect the eleven calls individually;
+aggregate by `sql_label` and `sql_sha256_16` to obtain count, total elapsed
+and maximum elapsed per statement shape across sampled batches. A matching
+fingerprint identifies the same **exact rendered SQL template**, not a unique
+business entity or bound-parameter combination.
+
+Pricing's existing SELECT/UPDATE/TextClause objects carry inert SQLAlchemy
+`execution_options(wanasah_import_sql_label="pricing_...")` metadata for
+the company lock, maker/checker policy, publication/book locks, entries,
+variant/UOM validation, predecessor check, effectivity conflict handling and
+publishing updates. It changes **no SQL, WHERE condition, lock, transaction or
+ORM flush semantics**, and only the selected import observer reads the tags.
+SQL emitted implicitly by ORM flush may remain `sql_label=unlabeled`; its
+`ordinal`, SQL type and template hash still distinguish it. User-controlled
+labels are never accepted: unknown values become `unlabeled`.
 
 **Privacy and bounds:** no statement text, query parameters, data values,
 barcodes, product IDs, client details, SQL exceptions or business object
