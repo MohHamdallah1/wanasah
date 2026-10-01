@@ -23,6 +23,44 @@ The existing `observe_import_phase` helper logs every context separately;
 reusing it for recursive attempts/per-product flushes would generate many logs.
 This observer aggregates those contexts into one record instead.
 
+## Per-statement timing detail (additive schema-1 fields)
+
+Each **already-selected** batch now includes `sql_statement_timings`, a bounded
+ordered list of **individual completed SQL cursor calls**. The existing opt-in
+`PRODUCT_IMPORT_PROFILE_EVERY_N_BATCHES=10` selects the same batches as before;
+profiling remains entirely off for unset/invalid/zero values. No new workers,
+queries, transaction boundaries, global engine listeners or logging streams
+are created by this change.
+
+Each detail includes `ordinal` (execution-order number within the batch),
+`phase` (the existing deepest phase), `sql_type` (a fixed allowlisted SQL
+operation label), `sql_sha256_16` (the first 16 hex characters of SHA-256 of
+the DBAPI SQL **template**), `executemany`, and `wall_ms`. For example,
+filter `phase=price_publish` to inspect the eleven calls individually,
+then aggregate by `sql_sha256_16` across sampled batches. A matching fingerprint
+identifies the same **exact rendered SQL template**, not a unique business
+entity or bound-parameter combination. The ordinal helps connect known
+operations to their source sequence; the fingerprint alone cannot prove
+which named pricing query is slow without source review.
+
+**Privacy and bounds:** no statement text, query parameters, data values,
+barcodes, product IDs, client details, SQL exceptions or business object
+references are emitted. A selected batch retains at most **256 completed
+calls**; `sql_statement_timings_limit=256` and
+`sql_statement_timings_dropped` reveal when that bound is reached or detail
+collection fails. `instrumentation_complete=false` means the record is
+incomplete. An unsuccessful SQL call has no `after_cursor_execute` event:
+the existing `sql_calls_without_completion` counter exposes the omission,
+and no fictitious latency is assigned. The original phase totals and creation
+counters remain unchanged.
+
+The measured interval is driver-visible elapsed time between SQLAlchemy's
+`before_cursor_execute` and `after_cursor_execute`; it includes driver
+work, possible lock wait, network and PostgreSQL execution. It **cannot**
+separate PostgreSQL CPU, disk IO or individual lock waits. No acceptance,
+throughput or performance improvement is claimed until independently verified
+by authorized observation of a future real import.
+
 ## Timing boundaries
 
 All values are **client-visible wall time**, never PostgreSQL CPU or pure Python
