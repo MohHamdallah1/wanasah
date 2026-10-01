@@ -150,21 +150,42 @@ def upload(client: httpx.Client, *, label: str):
 
 
 def original_imported(admin, job_id: str):
+    # All three snapshots exclude the intentionally rejected physical row 101.
+    # Compare precise Product/Variant/Row versions and ALL original price
+    # publication identities and active barcode identities before and after.
     rows = admin.execute(
-        "SELECT row_identity, product_variant_id, version FROM product_import_rows "
-        "WHERE company_id=2 AND job_id=%s AND status='IMPORTED' "
-        "AND row_number < 101 ORDER BY row_number",
+        "SELECT r.row_identity,r.product_variant_id,r.version,"
+        "v.version,p.id,p.version FROM product_import_rows r "
+        "JOIN product_variants v ON v.id=r.product_variant_id AND v.company_id=r.company_id "
+        "JOIN products p ON p.id=v.product_id AND p.company_id=v.company_id "
+        "WHERE r.company_id=2 AND r.job_id=%s AND r.status='IMPORTED' "
+        "AND r.row_number < 101 ORDER BY r.row_number",
         (job_id,),
     ).fetchall()
     if len(rows) != 99:
-        raise RuntimeError(f"Expected 99 persisted ProductVariant row links; got {len(rows)}.")
-    return [tuple(item) for item in rows]
+        raise RuntimeError(f"Expected 99 persisted original ProductVariant row links; got {len(rows)}.")
+    ids = [int(row[1]) for row in rows]
+    prices = admin.execute(
+        "SELECT id,product_variant_id,publication_id,version FROM price_book_entries "
+        "WHERE company_id=2 AND product_variant_id=ANY(%s) ORDER BY id",
+        (ids,),
+    ).fetchall()
+    barcodes = admin.execute(
+        "SELECT id,product_variant_id,barcode,version FROM product_barcodes "
+        "WHERE company_id=2 AND is_active=true AND product_variant_id=ANY(%s) ORDER BY id",
+        (ids,),
+    ).fetchall()
+    if len(prices) < 99 or len(barcodes) < 99:
+        raise RuntimeError("Missing original price/publication or active barcode identities.")
+    return (list(map(tuple, rows)), list(map(tuple, prices)), list(map(tuple, barcodes)))
 
 
 def assert_unmodified(admin, job_id: str, before) -> None:
-    after = original_imported(admin, job_id) if len(before) == 99 else []
-    if before != after:
-        raise RuntimeError("Correction changed previously imported row identities/versions.")
+    if before != original_imported(admin, job_id):
+        raise RuntimeError(
+            "Correction mutated an earlier successful row, Product/Variant version, "
+            "price publication or active barcode identity."
+        )
 
 
 def verify_job(admin, job_id: str, expected: int):
@@ -271,6 +292,61 @@ def test_csv(client: httpx.Client, wrong: httpx.Client, admin) -> None:
     print("P19_REAL_HTTP_FILE_LINEAGE=" + str(final), flush=True)
 
 
+def test_next_error(client: httpx.Client, admin) -> None:
+    # Construct one literal row with TWO faults. The first validation pass
+    # reports the missing name, then the second exposes the bad package UOM.
+    original, mapping, _ = build_source(100, "P19TWOERRORS" + uuid4().hex[:8])
+    parsed = list(csv.reader(io.StringIO(original.decode("utf-8-sig"), newline="")))
+    if len(parsed) != 101:
+        raise RuntimeError("Expected generator to produce 100 physical rows.")
+    candidate = list(parsed[-1])
+    candidate[parsed[0].index(mapping["name"])] = ""
+    output = io.StringIO(newline="")
+    csv.writer(output).writerows([parsed[0], candidate])
+    payload = output.getvalue().encode("utf-8-sig")
+    ack = require(client.post(
+        "/simple-products/imports",
+        data={"request_id": str(uuid4()), "default_lot_control_mode": "NONE",
+              "default_expiry_control_mode": "NONE"},
+        files={"file": ("p19-two-errors.csv", payload, "text/csv")},
+    ), 202, "two-error fresh import")
+    job_id = str(ack["job_id"])
+    wait_job(client, job_id, valid_states={"VALIDATION_FAILED"})
+    target = f"/simple-products/imports/{job_id}/correction/rows"
+    first = require(client.get(target), 200, "first rejection")
+    row = first["items"][0]
+    first_code = row["errors"][0]["code"]
+    if first_code != "IMPORT_NAME_REQUIRED":
+        raise RuntimeError(f"Unexpected first validation error code={first_code}")
+
+    require(client.post(target, json={
+        "request_id": str(uuid4()),
+        "expected_job_version": first["job_version"],
+        "rows": [{
+            "row_identity": row["row_identity"], "expected_version": row["version"],
+            "values": {"name": "Fixed name, bad package remains"},
+        }],
+    }), 202, "first correction revealing next validation error")
+    wait_job(client, job_id, valid_states={"VALIDATION_FAILED"})
+    second = require(client.get(target), 200, "newly exposed rejection")
+    row2 = second["items"][0]
+    new_code = row2["errors"][0]["code"]
+    if new_code == first_code or row2["row_identity"] != row["row_identity"]:
+        raise RuntimeError("Next validation error did not emerge on original row identity.")
+    require(client.post(target, json={
+        "request_id": str(uuid4()),
+        "expected_job_version": second["job_version"],
+        "rows": [{
+            "row_identity": row2["row_identity"], "expected_version": row2["version"],
+            "values": {"package_uom": "CARTON"},
+        }],
+    }), 202, "second correction")
+    wait_job(client, job_id, valid_states={"COMPLETED"})
+    proof = verify_job(admin, job_id, 1)
+    print(f"P19_REAL_HTTP_SEQUENTIAL_VALIDATION=PASS first={first_code} then={new_code}", flush=True)
+    print("P19_REAL_HTTP_SEQUENTIAL_LINEAGE=" + str(proof), flush=True)
+
+
 def main() -> None:
     admin_url = make_url(os.environ["DATABASE_URL_MIGRATION"])
     admin = psycopg.connect(
@@ -308,6 +384,7 @@ def main() -> None:
             wait_worker(client)
             test_inline(client, wrong, admin)
             test_csv(client, wrong, admin)
+            test_next_error(client, admin)
         print("PRODUCT_IMPORT_PHASE19_REAL_HTTP_ISOLATED=PASS", flush=True)
     except BaseException:
         # Sanitized component-level evidence only: never echo traceback, JWT,
