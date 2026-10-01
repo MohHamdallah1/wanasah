@@ -173,6 +173,29 @@ For the common <=200-entry import publication this removes one intermediate
 `UPDATE price_publications` SQL statement per publication from the source
 path. No runtime speedup is claimed until a future authorized real import.
 
+## Simple-pricing policy read consolidation
+
+The normal Simple Products path with an existing active company-default
+assignment previously issued six SQL cursor calls inside `pricing_policy`:
+Maker/Checker, advanced-assignment check, future-default check, active-default
+load, Company load, and active PriceBook load.
+
+The three assignment checks now share one tenant-scoped policy snapshot while
+preserving the original error precedence (advanced → future default → multiple
+active defaults → offer-exclusive default). Company plus the assigned active
+PriceBook are also loaded together for the common existing-default path.
+
+Source-call shape for that common path is therefore **6 → 3 SQL calls**:
+Maker/Checker + assignment-policy snapshot + Company/default-book snapshot.
+No policy result is cached across commits, retries, batches or tenants. The
+no-assignment path still retains the existing safe default-book creation logic.
+
+Static labels:
+- `simple_pricing_policy_assignments`
+- `simple_pricing_company_default_book`
+
+No runtime speedup is claimed until a future authorized import records timings.
+
 ## Timing boundaries
 
 All values are **client-visible wall time**, never PostgreSQL CPU or pure Python

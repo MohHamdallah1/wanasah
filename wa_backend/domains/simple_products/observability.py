@@ -27,6 +27,7 @@ _MAX_SQL_STATEMENT_DETAILS = 256
 _IMPORT_SQL_LABEL_OPTION = "wanasah_sql_trace_label"
 _IMPORT_SQL_LABELS = frozenset({
     "pricing_company_lock", "pricing_maker_checker", "pricing_next_revision",
+    "simple_pricing_policy_assignments", "simple_pricing_company_default_book",
     "pricing_book_lock", "pricing_book_read", "pricing_draft_publication_lock",
     "pricing_draft_variants", "pricing_draft_uoms",
     "pricing_draft_variant_uom",
