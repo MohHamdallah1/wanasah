@@ -4,7 +4,7 @@ import type { TFunction } from "i18next";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({ t: (key: string) => key, i18n: { dir: () => "ltr" } }),
 }));
 
 import { createImportFileActions } from "@/pages/products/import/createImportFileActions";
