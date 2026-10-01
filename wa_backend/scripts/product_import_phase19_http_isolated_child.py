@@ -266,7 +266,139 @@ def test_inline(client: httpx.Client, wrong: httpx.Client, admin) -> None:
     stale = dict(original, request_id=str(uuid4()))
     require(client.post(target, json=stale), 409, "stale/completed correction")
     print("P19_REAL_HTTP_STALE_SUCCESS_GUARD=PASS", flush=True)
+    return job_id
 
+
+
+def test_real_auth_revocation_and_audit(
+    client: httpx.Client,
+    wrong: httpx.Client,
+    admin: psycopg.Connection,
+    token: str,
+    job_id: str,
+) -> None:
+    """Actual auth dependency, persisted blacklist, RLS and audit envelope.
+
+    Restricted to disposable tenant-2; never mutates original source DB.
+    No bearer text or row cells are printed in diagnostic output.
+    """
+    from uuid import UUID
+
+    # A real idempotent 100-row correction must retain an accountable actor,
+    # request identity, scoped Variant linkage, before/after snapshots and
+    # outbox event references, not merely 100 table rows.
+    audit_rows = admin.execute(
+        """
+        SELECT e.company_id,e.event_type,e.entity_type,e.entity_id,
+               e.actor_user_id,e.actor_context,e.reason_code,e.request_id,
+               e.before_snapshot,e.after_snapshot,e.schema_version,
+               o.company_id,o.event_type,o.payload
+        FROM product_import_rows r
+        JOIN domain_audit_events e
+          ON e.company_id=r.company_id
+         AND e.entity_type='ProductVariant'
+         AND e.entity_id=r.product_variant_id::text
+        JOIN transactional_outbox o
+          ON o.company_id=e.company_id
+         AND o.aggregate_type=e.entity_type
+         AND o.aggregate_id=e.entity_id
+        WHERE r.company_id=2 AND r.job_id=%s AND r.status='IMPORTED'
+        ORDER BY r.row_number
+        """,
+        (job_id,),
+    ).fetchall()
+    if len(audit_rows) != 100:
+        raise RuntimeError("Expected exactly one persisted audit/outbox per corrected Variant.")
+    for row in audit_rows:
+        (company, event, entity_type, entity_id, actor, context, reason, request_id,
+         before, after, schema_version, outbox_company, outbox_event, payload) = row
+        if company != 2 or outbox_company != 2 or entity_type != "ProductVariant":
+            raise RuntimeError("Audit/outbox company or aggregate ownership violated.")
+        if actor != 1 or not isinstance(context, dict):
+            raise RuntimeError("Audit actor identity/context missing or foreign.")
+        if not event or not reason or not isinstance(request_id, UUID) or schema_version != 1:
+            raise RuntimeError("Audit event code/version/request identity invalid.")
+        if after is not None and not isinstance(after, dict):
+            raise RuntimeError("Audit after-snapshot malformed.")
+        if before is not None and not isinstance(before, dict):
+            raise RuntimeError("Audit before-snapshot malformed.")
+        if event != outbox_event or not isinstance(payload, dict):
+            raise RuntimeError("Audit/outbox event types diverged.")
+        if str(payload.get("entity_id")) != entity_id or str(payload.get("company_id")) != "2":
+            raise RuntimeError("Outbox payload refers to another tenant/Variant.")
+        if str(payload.get("request_id")) != str(request_id):
+            raise RuntimeError("Outbox command request differs from audit request.")
+    print("P19_REAL_HTTP_AUDIT_CONTENT_AND_FK_SCOPING=PASS", flush=True)
+
+    # Exercise actual DB composite-FK enforcement, not only successful joins.
+    # The role of actor-2 is in company-3. Attempting to assign that actor
+    # to a company-2 import job must fail as one atomic statement.
+    creator_before = admin.execute(
+        "SELECT created_by FROM product_import_jobs WHERE company_id=2 AND id=%s",
+        (job_id,),
+    ).fetchone()
+    if creator_before is None or int(creator_before[0]) != 1:
+        raise RuntimeError("Expected original synthetic import actor 1.")
+    try:
+        with admin.transaction():
+            admin.execute(
+                "UPDATE product_import_jobs SET created_by=2 "
+                "WHERE company_id=2 AND id=%s",
+                (job_id,),
+            )
+    except psycopg.errors.ForeignKeyViolation:
+        pass
+    else:
+        raise RuntimeError("Tenant-scoped job creator composite FK allowed a company-3 actor.")
+    creator_after = admin.execute(
+        "SELECT created_by FROM product_import_jobs WHERE company_id=2 AND id=%s",
+        (job_id,),
+    ).fetchone()
+    if creator_after != creator_before:
+        raise RuntimeError("Rejected cross-company foreign key update changed persisted import.")
+    print("P19_REAL_POSTGRES_IMPORT_ACTOR_COMPOSITE_FK=PASS", flush=True)
+
+    # Positive authorized read above + negative wrong HTTP identity below are
+    # complemented with direct real-app-role FORCE RLS, no migration bypass.
+    app_url = make_url(os.environ["DATABASE_URL"])
+    with psycopg.connect(
+        app_url.set(drivername="postgresql").render_as_string(hide_password=False),
+        autocommit=True,
+    ) as app:
+        app.execute("SELECT set_config('app.current_tenant','3',false)")
+        leaked = app.execute(
+            "SELECT count(*) FROM product_import_rows WHERE company_id=2 AND job_id=%s",
+            (job_id,),
+        ).fetchone()[0]
+        if int(leaked) != 0:
+            raise RuntimeError("Real app PostgreSQL role bypassed foreign-tenant import rows RLS.")
+        app.execute("SELECT set_config('app.current_tenant','2',false)")
+        own = app.execute(
+            "SELECT count(*) FROM product_import_rows WHERE company_id=2 AND job_id=%s",
+            (job_id,),
+        ).fetchone()[0]
+        if int(own) != 100:
+            raise RuntimeError("Owned import rows were incorrectly hidden after tenant scope restore.")
+    print("P19_REAL_POSTGRES_IMPORT_ROWS_APP_ROLE_RLS=PASS", flush=True)
+
+    # Browser token signatures/claims alone must not bypass live is_active
+    # or persisted blacklist. This uses the already-authenticated client
+    # against the same Uvicorn instance, not in-process auth mocks.
+    ready = "/simple-products/import-worker/readiness"
+    require(client.get(ready), 200, "authorized original tenant baseline")
+    admin.execute("UPDATE drivers SET is_active=false WHERE company_id=2 AND id=1")
+    try:
+        require(client.get(ready), 403, "revoked account must lose import permission immediately")
+        require(wrong.get(ready), 200, "unrelated company's access must survive revocation")
+    finally:
+        admin.execute("UPDATE drivers SET is_active=true WHERE company_id=2 AND id=1")
+    require(client.get(ready), 200, "restored test actor is authorized")
+    print("P19_REAL_HTTP_PERSISTED_ACCOUNT_REVOCATION=PASS", flush=True)
+
+    admin.execute("INSERT INTO token_blacklist(token,blacklisted_at) VALUES (%s,now())", (token,))
+    require(client.get(ready), 401, "blacklisted signed JWT must be rejected")
+    require(wrong.get(ready), 200, "other tenant JWT must remain valid")
+    print("P19_REAL_HTTP_BLACKLISTED_ACCESS_TOKEN=PASS", flush=True)
 
 def test_csv(client: httpx.Client, wrong: httpx.Client, admin) -> None:
     job_id, mapping = upload(client, label="P19REALFILE" + uuid4().hex[:8])
@@ -560,10 +692,13 @@ def main() -> None:
             require(wrong.get("/simple-products/import-worker/readiness"), 200,
                     "synthetic second tenant authenticated access")
             wait_worker(client)
-            test_inline(client, wrong, admin)
+            inline_job_id = test_inline(client, wrong, admin)
             test_csv(client, wrong, admin)
             test_xlsx(client, wrong, admin)
             test_next_error(client, admin)
+            test_real_auth_revocation_and_audit(
+                client, wrong, admin, primary_token, inline_job_id,
+            )
         print("PRODUCT_IMPORT_PHASE19_REAL_HTTP_ISOLATED=PASS", flush=True)
     except BaseException:
         # Sanitized component-level evidence only: never echo traceback, JWT,
