@@ -854,9 +854,25 @@ reproduced timeout/lock release, medium/50k measurement, and customer D7-P/D8-P*
   Per-row checks against normalized source data passed for base/outer
   barcode, unit/outer price, tracking modes and exact UOM ratios.
   No missing variant, parent, active barcode or published price.
-- [ ] Verify authenticated HTTP transport, variant/product versions,
-  permission revocation, all foreign-key ownership/RLS negative paths
-  and audit event contents before classing V1 release acceptance complete.
+- [x] **Product Import V1 real authorization/ownership/audit acceptance:**
+  signed HTTP and full correction replay passed in disposable PostgreSQL+Worker;
+  old imported Product/Variant versions, price publications and active barcodes
+  stay immutable. Wrong-company/forged-row HTTP boundaries return 404/409;
+  persisted unprivileged actor despite forged JWT is 403. On the **real
+  application PostgreSQL role**, company-3 reads saw zero of company-2
+  imported rows while company-2 saw all 100; the composite tenant-creator
+  FK rejected an attempt to assign the other company's actor, without
+  changing the original job. Disabling an existing driver invalidated its
+  signed bearer immediately (403); explicitly blacklisting the token then
+  produced 401, and an unrelated company's token stayed valid. For all
+  100 imported row-linked Variants, audited the event type, actor/company,
+  request UUID, schema/context/snapshots and corresponding Outbox aggregate
+  and request identity, beyond mere event counts. Real gate exit 0 and
+  temporary cluster removed; original developer tenant unmodified.
+  Evidence: docs/operations/PRODUCT_IMPORT_P19_AUTH_REVOCATION_AUDIT_2026-10-01.md.
+  This checks all security **paths under this import acceptance scenario**,
+  not every FK in the entire ERP. Distinct 19.5 concurrency, browser shell,
+  product-release and first-company acceptance remain separately OPEN.
 - [x] Use the original partially successful job as the correction target;
   the all-invalid re-upload was **not** modified and no previously imported
   Product was deleted. Never upload the unchanged original XLSX again.
