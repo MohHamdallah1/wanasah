@@ -1043,12 +1043,23 @@ reproduced timeout/lock release, medium/50k measurement, and customer D7-P/D8-P*
   Existing D4 independently proved worker kill/recovery to 2970/30 and
   actual 5k stage cancel; real PG short-deadline lock-release previously
   passed. The coupled official HTTP-in-lock-wait safety case is now DONE.
-- [ ] **Remaining fault-injected Worker retry/ambiguous COMMIT diagnosis:**
-  prove SourceStore persistence and controlled retry after a staging
-  transport abort under the real launcher, connection pre-ping behavior
-  on a permanently dead checkout, and real ambiguous-COMMIT
-  acknowledgement. These are NOT proved by a successful HTTP cancel;
-  do not pretend September's historical ClientRead cause was identified.
+- [x] **Real Worker fault-injected retry and ambiguous COMMIT acceptance (PR #73, 2026-10-01):**
+  PostgreSQL16/real HTTP/Worker on an owned disposable cluster verified (1)
+  transport abort during staging, with the identical SourceStore retained, zero
+  committed partial rows, advisory/row locks available and same-job retry; (2)
+  actual dead pooled connection invalidated by pre-ping and tenant 3 context
+  restored, without access to tenant 2; (3) server-side staging COMMIT succeeded
+  but its wire ACK was withheld, followed by resumed original physical rows and
+  row identities; (4) Product/Pricing COMMIT ACK withheld, followed by no repeated
+  Products, Variants, Price entries, Audit, or Outbox. Three targeted gate runs
+  proved different cases; prior harness-observer failures are documented rather
+  than labeled PASS. All three recovered jobs recorded 6 Products, 6 Variants,
+  11 Price entries, 6 Audit and 6 Outbox, no active queue delivery, and no original
+  developer tenant changes. Only disposable test harness/report changed; no
+  production logic changed and no 5k/10k/50k rerun. Proof:
+  `docs/operations/PRODUCT_IMPORT_P19_WORKER_FAILURE_RECOVERY_2026-10-01.md`.
+  **Not proved:** September ClientRead physical root cause, an actual 120s
+  watchdog expiry or p50/p95 SLA; retain their separate OPEN criteria.
 - [x] **50k fresh real-queue synthetic rerun completed:** after the scoped
   120s staging watchdog, real short-timeout PG lock-release PASS and
   intermediate 5k/10k real-queue PASS, a unique **50,000-row** run through
