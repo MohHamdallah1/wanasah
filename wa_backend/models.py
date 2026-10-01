@@ -1457,6 +1457,12 @@ class PriceBookEntry(Base):
             "company_id", "price_book_id", "product_variant_id", "uom_id",
             "is_published", "priority", "publication_id",
         ),
+        Index(
+            "ix_price_book_entry_company_publication",
+            "company_id", "publication_id",
+            unique=False,
+            postgresql_using="btree",
+        ),
     )
 
     id = Column(Integer, primary_key=True)
