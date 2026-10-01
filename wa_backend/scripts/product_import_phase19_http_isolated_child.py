@@ -322,6 +322,17 @@ def main() -> None:
                                              "ImportError:", "OSError:",
                                              "SystemExit:", "PermissionError:"))]
                 print(f"P19_COMPONENT_EXIT={proc.p19_label}:{proc.returncode} exception_kind={kinds[-1] if kinds else 'UNCLASSIFIED'}", flush=True)
+                # Only the known application startup error category, never raw
+                # SQL/request exception text or an authentication bearer.
+                import re
+                error_categories = []
+                for line in lines[-100:]:
+                    stripped = line.strip()
+                    if stripped.startswith("ERROR:"):
+                        error_categories.append(re.sub(r"(postgresql(?:\\+asyncpg)?://)[^\\s]+", r"\\1[REDACTED]", stripped)[:180])
+                    elif re.match(r"^(?:[A-Za-z_]+\\.)*[A-Za-z_]+(?:Error|Exception):", stripped):
+                        error_categories.append(stripped.split(":", 1)[0][:90])
+                print(f"P19_COMPONENT_ERROR_CLASSES={proc.p19_label}:{error_categories[-8:]}", flush=True)
         raise
     finally:
         for proc, handle in reversed(processes):
