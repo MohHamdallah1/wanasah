@@ -50,10 +50,13 @@ def main() -> None:
     _ensure_free(PORT)
     _ensure_free(API_PORT)
     variant = os.environ.get("WANASAH_P19_HTTP_CASE", "small")
-    if variant not in {"small", "medium"}:
+    if variant not in {"small", "medium", "final"}:
         raise RuntimeError("Unknown P19 HTTP rehearsal case.")
-    if variant == "medium" and os.environ.get("WANASAH_P19_INTERMEDIATE_ROWS") not in {"5000", "10000"}:
+    rows = os.environ.get("WANASAH_P19_INTERMEDIATE_ROWS")
+    if variant == "medium" and rows not in {"5000", "10000"}:
         raise RuntimeError("Medium rehearsal requires an explicit 5000 or 10000 row count.")
+    if variant == "final" and rows != "50000":
+        raise RuntimeError("Final load requires exact explicit 50000 source rows.")
     root = Path(tempfile.mkdtemp(prefix="wanasah_p19_http_disposable_"))
     started = False
     try:
@@ -129,12 +132,13 @@ def main() -> None:
         if variant == "small":
             child = d4.run([sys.executable, "-m", child_module], env=env)
         else:
-            # 5k/10k are opt-in, bounded real queue runs; the original small
-            # gate keeps its established 420s budget unchanged.
+            # 5k/10k and final 50k are *explicitly* opt-in real queue
+            # runs on a disposable cluster; the small gate is unchanged.
             child = subprocess.run(
                 [sys.executable, "-m", child_module],
                 cwd=ROOT, env=env, capture_output=True, text=True,
-                timeout=1250, check=False,
+                timeout=1250 if variant == "medium" else 4300,
+                check=False,
             )
             if child.returncode:
                 # Do not replay private child traceback/SQL/DSN from stderr.
