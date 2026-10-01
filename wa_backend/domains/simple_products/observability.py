@@ -22,6 +22,19 @@ logger = logging.getLogger("wanasah_logger")
 _PROFILE_KEY = "simple_products_import_batch_profile"
 # Bound per-statement detail even when a 100-row batch splits after row errors.
 _MAX_SQL_STATEMENT_DETAILS = 256
+# Only explicitly registered static labels may appear in product-import logs.
+# Pricing attaches the option to existing statements without importing this module.
+_IMPORT_SQL_LABEL_OPTION = "wanasah_import_sql_label"
+_IMPORT_SQL_LABELS = frozenset({
+    "pricing_company_lock", "pricing_maker_checker", "pricing_next_revision",
+    "pricing_book_lock", "pricing_book_read", "pricing_draft_publication_lock",
+    "pricing_draft_variants", "pricing_draft_uoms",
+    "pricing_publish_publication_lock", "pricing_publish_entries_lock",
+    "pricing_publish_variants", "pricing_publish_uoms",
+    "pricing_predecessor_exists", "pricing_locked_context_check",
+    "pricing_close_previous_ranges", "pricing_effectivity_overlap_check",
+    "pricing_publish_entry_update", "pricing_supersede_publications",
+})
 _SQL_OPERATION_LABELS = frozenset({
     "SELECT", "INSERT", "UPDATE", "DELETE", "WITH", "SAVEPOINT",
     "RELEASE", "ROLLBACK", "SET", "SHOW", "COMMIT",
@@ -222,9 +235,13 @@ class ImportBatchProfile:
                 return
             operation = statement.lstrip().split(None, 1)
             verb = operation[0].upper() if operation else "OTHER"
+            static_label = context.execution_options.get(_IMPORT_SQL_LABEL_OPTION)
+            if static_label not in _IMPORT_SQL_LABELS:
+                static_label = "unlabeled"
             self.sql_statement_timings.append({
                 "ordinal": ordinal,
                 "phase": phase,
+                "sql_label": static_label,
                 "sql_type": verb if verb in _SQL_OPERATION_LABELS else "OTHER",
                 "sql_sha256_16": sha256(statement.encode("utf-8")).hexdigest()[:16],
                 "executemany": bool(executemany),
