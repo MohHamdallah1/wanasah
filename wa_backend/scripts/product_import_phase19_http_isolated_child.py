@@ -192,7 +192,7 @@ def test_inline(client: httpx.Client, wrong: httpx.Client, admin) -> None:
             "request_id": str(uuid4()), "expected_job_version": rows["job_version"],
             "rows": [{
                 "row_identity": item["row_identity"], "expected_version": item["version"],
-                "values": {"name": "FOREIGN TENANT CANNOT EDIT"},
+                "values": {"package_uom": "CARTON"},
             }],
         },
     ), 404, "cross-tenant correction POST")
@@ -203,7 +203,7 @@ def test_inline(client: httpx.Client, wrong: httpx.Client, admin) -> None:
         "expected_job_version": rows["job_version"],
         "rows": [{
             "row_identity": item["row_identity"], "expected_version": item["version"],
-            "values": {"name": "Synthetic corrected item"},
+            "values": {"package_uom": "CARTON"},
         }],
     }
     target = f"/simple-products/imports/{job_id}/correction/rows"
@@ -242,9 +242,9 @@ def test_csv(client: httpx.Client, wrong: httpx.Client, admin) -> None:
     original_text = original_bytes.decode("utf-8-sig" if original_bom else "utf-8")
     reader = csv.reader(io.StringIO(original_text, newline=""))
     table = list(reader)
-    if len(table) != 2 or mapping["name"] not in table[0]:
+    if len(table) != 2 or mapping["package_uom"] not in table[0]:
         raise RuntimeError("Official correction CSV source columns/failed-row count invalid.")
-    table[1][table[0].index(mapping["name"])] = "Synthetic CSV correction"
+    table[1][table[0].index(mapping["package_uom"])] = "CARTON"
     buffer = io.StringIO(newline="")
     writer = csv.writer(buffer)
     writer.writerows(table)
