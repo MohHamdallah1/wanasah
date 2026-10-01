@@ -143,6 +143,9 @@ describe("Product Import cancellation connects the existing tenant-scoped backen
     } as ProductImportState;
     const props = {
       jobId: JOB,
+      companyId: 38,
+      driverId: 17,
+      onInlineCorrectionAccepted: vi.fn(),
       authFetch: vi.fn(),
       status: active,
       pollError: null,
