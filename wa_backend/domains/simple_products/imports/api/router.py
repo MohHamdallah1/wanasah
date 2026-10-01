@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import json
 from typing import Any
 from uuid import UUID
 
@@ -30,6 +31,9 @@ from domains.product_tracking import ProductTrackingError
 from domains.simple_products.imports.api.schemas import (
     ImportActionResponse,
     ImportCorrectionDownloadResponse,
+    ImportCorrectionRowsRequest,
+    ImportCorrectionRowsResponse,
+    inline_correction_request_schema,
     ImportCorrectionUploadResponse,
     ImportCreateResponse,
     ImportErrorsResponse,
@@ -40,6 +44,8 @@ from domains.simple_products.imports.api.schemas import (
 )
 from domains.simple_products.imports.application.api_service import (
     apply_correction,
+    apply_inline_correction,
+    read_correction_rows,
     cancel_import,
     create_import,
     download_correction,
@@ -76,6 +82,9 @@ from domains.simple_products.imports.infrastructure.template import (
 from domains.simple_products.imports.infrastructure.upload_stream import (
     ProductImportUploadTooLarge,
     spool_upload_bounded,
+)
+from domains.simple_products.imports.domain.inline_correction import (
+    MAX_INLINE_CORRECTION_BYTES, MAX_INLINE_CORRECTION_ROWS, InlineCorrectionError,
 )
 from inventory_access import InventoryAccess
 from models import Driver, ProductImportJob
@@ -1291,3 +1300,133 @@ async def retry_product_import(
     return ImportActionResponse.model_validate(
         result
     )
+
+
+def _raise_inline_correction_http(
+    request: Request, *, code: str, status_code: int,
+) -> None:
+    raise HTTPException(
+        status_code,
+        detail={
+            "code": code, "message": user_safe_error_message(code),
+            "context": _error_context(request),
+        },
+    )
+
+
+async def _parse_inline_correction_request(request: Request) -> ImportCorrectionRowsRequest:
+    if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
+        _raise_inline_correction_http(
+            request, code="PRODUCT_IMPORT_CORRECTION_CONTENT_TYPE_INVALID", status_code=415,
+        )
+    payload = bytearray()
+    async for chunk in request.stream():
+        if len(payload) + len(chunk) > MAX_INLINE_CORRECTION_BYTES:
+            _raise_inline_correction_http(
+                request, code="PRODUCT_IMPORT_CORRECTION_PAYLOAD_TOO_LARGE", status_code=413,
+            )
+        payload.extend(chunk)
+
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("Duplicate JSON key.")
+            result[key] = value
+        return result
+
+    def reject_constant(value):
+        raise ValueError("Non-finite JSON constant.")
+
+    try:
+        decoded = json.loads(
+            payload, object_pairs_hook=unique_object, parse_constant=reject_constant,
+        )
+        body = ImportCorrectionRowsRequest.model_validate(decoded)
+        # Reject lone JSON surrogates; never log/echo input validation details.
+        json.dumps(body.model_dump(mode="json"), ensure_ascii=False).encode("utf-8")
+        return body
+    except (ValueError, UnicodeError, RecursionError):
+        _raise_inline_correction_http(
+            request, code="PRODUCT_IMPORT_CORRECTION_ROWS_INVALID", status_code=422,
+        )
+
+
+@router.get(
+    "/imports/{job_id}/correction/rows",
+    response_model=ImportCorrectionRowsResponse,
+)
+async def get_product_import_correction_rows(
+    job_id: UUID,
+    request: Request,
+    after_row: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=MAX_INLINE_CORRECTION_ROWS),
+    expected_job_version: int | None = Query(None, ge=1),
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require_manage(db, actor)
+    try:
+        result = await read_correction_rows(
+            db, company_id=int(actor.company_id), job_id=job_id,
+            after_row=after_row, limit=limit, expected_job_version=expected_job_version,
+        )
+    except ProductImportTerminalError as exc:
+        _raise_terminal_http(request, exc, job_id=job_id)
+    except InlineCorrectionError as exc:
+        _raise_inline_correction_http(request, code=exc.code, status_code=409)
+    return ImportCorrectionRowsResponse.model_validate(result)
+
+
+@router.post(
+    "/imports/{job_id}/correction/rows",
+    status_code=202,
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": inline_correction_request_schema()}},
+        },
+    },
+    response_model=ImportCorrectionUploadResponse,
+    response_model_exclude_none=True,
+)
+async def patch_product_import_correction_rows(
+    job_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require_manage(db, actor)
+    try:
+        await ensure_import_job_access(db, company_id=int(actor.company_id), job_id=job_id)
+    except ProductImportTerminalError as exc:
+        _raise_terminal_http(request, exc, job_id=job_id)
+    body = await _parse_inline_correction_request(request)
+    try:
+        result = await apply_inline_correction(
+            db, company_id=int(actor.company_id), actor_id=int(actor.id), job_id=job_id,
+            request_id=body.request_id, expected_job_version=body.expected_job_version,
+            rows=[row.model_dump(mode="json") for row in body.rows],
+        )
+    except ProductImportTerminalError as exc:
+        _raise_terminal_http(request, exc, job_id=job_id)
+    except InlineCorrectionError as exc:
+        status_code = (
+            410 if exc.code == "PRODUCT_IMPORT_CORRECTION_DETAILS_EXPIRED"
+            else 422 if exc.code in {
+                "PRODUCT_IMPORT_CORRECTION_FIELD_INVALID", "PRODUCT_IMPORT_CORRECTION_ROWS_INVALID",
+            }
+            else 409
+        )
+        _raise_inline_correction_http(request, code=exc.code, status_code=status_code)
+    except ValueError as exc:
+        _log_api_exception(request, exc, code="PRODUCT_IMPORT_CORRECTION_CONFLICT", job_id=job_id)
+        _raise_inline_correction_http(
+            request, code="PRODUCT_IMPORT_CORRECTION_CONFLICT", status_code=409,
+        )
+    except Exception as exc:
+        _log_api_exception(request, exc, code="PRODUCT_IMPORT_QUEUE_UNAVAILABLE", job_id=job_id)
+        _raise_inline_correction_http(
+            request, code="PRODUCT_IMPORT_QUEUE_UNAVAILABLE", status_code=503,
+        )
+    return ImportCorrectionUploadResponse.model_validate(result)

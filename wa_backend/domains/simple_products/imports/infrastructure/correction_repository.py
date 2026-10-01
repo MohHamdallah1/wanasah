@@ -7,6 +7,11 @@ from uuid import UUID
 import psycopg
 from psycopg.types.json import Jsonb
 
+from domains.simple_products.imports.domain.inline_correction import (
+    MAX_INLINE_CORRECTION_ROWS, InlineCorrectionError,
+    correction_cell_patch, correction_details_expired, correction_field_mapping,
+)
+
 from domains.simple_products.imports.application.state_machine import (
     JobStatus,
     assert_job_transition,
@@ -126,15 +131,11 @@ async def _begin_correction_idempotency(
         ) != int(
             actor_id
         ):
-            raise ValueError(
-                "Correction request_id belongs to another actor."
-            )
+            raise InlineCorrectionError("PRODUCT_IMPORT_CORRECTION_REQUEST_REUSED")
         if str(
             existing_hash
         ) != canonical_hash:
-            raise ValueError(
-                "Correction request_id was reused with different content."
-            )
+            raise InlineCorrectionError("PRODUCT_IMPORT_CORRECTION_REQUEST_REUSED")
         if (
             completed_at
             is None
@@ -267,7 +268,9 @@ async def _stage_corrections(
         CREATE TEMP TABLE
             product_import_correction_input (
                 row_identity uuid PRIMARY KEY,
-                raw_data jsonb NOT NULL
+                raw_data jsonb NOT NULL,
+                edited_headers text[],
+                expected_version integer
             )
         ON COMMIT DROP
         """
@@ -277,9 +280,11 @@ async def _stage_corrections(
             """
             INSERT INTO product_import_correction_input (
                 row_identity,
-                raw_data
+                raw_data,
+                edited_headers,
+                expected_version
             )
-            VALUES (%s, %s)
+            VALUES (%s, %s, %s, %s)
             """,
             [
                 (
@@ -291,6 +296,8 @@ async def _stage_corrections(
                             ]
                         )
                     ),
+                    correction.get("edited_headers"),
+                    correction.get("expected_version"),
                 )
                 for (
                     identity,
@@ -381,7 +388,17 @@ async def _apply_correction_rows(
     result = await conn.execute(
         """
         UPDATE product_import_rows AS rows
-        SET raw_data = correction.raw_data,
+        SET raw_data = CASE
+                WHEN correction.edited_headers IS NULL THEN correction.raw_data
+                WHEN jsonb_typeof(rows.raw_data -> '__wanasah_source_cells__') = 'object'
+                THEN jsonb_set(
+                    rows.raw_data || correction.raw_data,
+                    '{__wanasah_source_cells__}',
+                    (rows.raw_data -> '__wanasah_source_cells__') - correction.edited_headers,
+                    true
+                )
+                ELSE rows.raw_data || correction.raw_data
+            END,
             normalized_data = '{}'::jsonb,
             status = 'STAGED',
             error_code = NULL,
@@ -396,6 +413,10 @@ async def _apply_correction_rows(
           AND rows.status IN (
               'INVALID',
               'IMPORT_FAILED'
+          )
+          AND (
+              correction.expected_version IS NULL
+              OR (rows.version = correction.expected_version AND rows.compacted_at IS NULL)
           )
         """,
         [
@@ -463,12 +484,15 @@ async def apply_correction_and_requeue(
     job_id: UUID,
     request_id: UUID,
     request_hash: str,
-    corrections: list[
-        dict[str, Any]
-    ],
+    corrections: list[dict[str, Any]] | None,
+    inline_rows: list[dict[str, Any]] | None = None,
+    expected_job_version: int | None = None,
 ) -> dict[str, Any]:
     """Update only failed rows and queue the same durable import atomically."""
-    if not corrections:
+    if inline_rows is not None:
+        if corrections is not None or expected_job_version is None or not 1 <= len(inline_rows) <= MAX_INLINE_CORRECTION_ROWS:
+            raise InlineCorrectionError("PRODUCT_IMPORT_CORRECTION_ROWS_INVALID")
+    elif not corrections:
         raise ValueError(
             "Correction file contains no rows."
         )
@@ -507,6 +531,11 @@ async def apply_correction_and_requeue(
                         job_id,
                 )
             )
+            if inline_rows is not None:
+                corrections = await _prepare_inline_corrections(
+                    conn, company_id=company_id, job_id=job_id,
+                    expected_job_version=expected_job_version, rows=inline_rows,
+                )
             identities = (
                 await _stage_corrections(
                     conn,
@@ -594,3 +623,56 @@ async def apply_correction_and_requeue(
                     response,
             )
             return response
+
+
+async def _prepare_inline_corrections(
+    conn: psycopg.AsyncConnection,
+    *,
+    company_id: int,
+    job_id: UUID,
+    expected_job_version: int,
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    # Called after durable replay and the shared correction job FOR UPDATE lock.
+    cursor = await conn.execute(
+        """
+        SELECT version, column_mapping, detected_headers, finished_at
+        FROM product_import_jobs
+        WHERE company_id = %s AND id = %s
+        """,
+        [int(company_id), job_id],
+    )
+    version, mapping, headers, finished_at = await cursor.fetchone()
+    if int(version) != expected_job_version:
+        raise InlineCorrectionError("PRODUCT_IMPORT_CORRECTION_STALE_JOB")
+    fields = correction_field_mapping(dict(mapping or {}), list(headers or []))
+    identities = [UUID(str(row["row_identity"])) for row in rows]
+    if len(identities) != len(set(identities)):
+        raise InlineCorrectionError("PRODUCT_IMPORT_CORRECTION_ROWS_INVALID")
+    cursor = await conn.execute(
+        """
+        SELECT row_identity, status, version, compacted_at
+        FROM product_import_rows
+        WHERE company_id = %s AND job_id = %s
+          AND row_identity = ANY(%s::uuid[])
+        ORDER BY row_number
+        FOR UPDATE
+        """,
+        [int(company_id), job_id, identities],
+    )
+    stored = {UUID(str(row[0])): row[1:] for row in await cursor.fetchall()}
+    corrections = []
+    for identity, patch in zip(identities, rows, strict=True):
+        current = stored.get(identity)
+        if current is None or current[0] not in {"INVALID", "IMPORT_FAILED"}:
+            raise InlineCorrectionError("PRODUCT_IMPORT_CORRECTION_ROW_NOT_EDITABLE")
+        if correction_details_expired(finished_at=finished_at, compacted_at=current[2]):
+            raise InlineCorrectionError("PRODUCT_IMPORT_CORRECTION_DETAILS_EXPIRED")
+        if int(current[1]) != patch["expected_version"]:
+            raise InlineCorrectionError("PRODUCT_IMPORT_CORRECTION_STALE_ROW")
+        raw_patch = correction_cell_patch(values=patch["values"], fields=fields)
+        corrections.append({
+            "row_identity": identity, "raw_data": raw_patch,
+            "edited_headers": list(raw_patch), "expected_version": patch["expected_version"],
+        })
+    return corrections

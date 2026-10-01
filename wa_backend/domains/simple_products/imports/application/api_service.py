@@ -5,6 +5,7 @@ parsing. Tenant-scoped lookup and mapping authority live outside the router.
 """
 from __future__ import annotations
 
+import json
 from typing import BinaryIO, Any
 from uuid import UUID
 
@@ -17,6 +18,7 @@ from domains.simple_products.imports.application.cancellation_service import (
 )
 from domains.simple_products.imports.application.correction_service import (
     apply_correction_upload,
+    apply_correction_cells,
     build_correction_artifact,
 )
 from domains.simple_products.imports.application.state_machine import RowStatus
@@ -38,6 +40,13 @@ from domains.simple_products.imports.infrastructure.repository import (
     ProductImportProgress,
     count_job_progress,
 )
+from domains.simple_products.imports.domain.inline_correction import (
+    MAX_INLINE_CORRECTION_BYTES, MAX_INLINE_CORRECTION_ROWS, InlineCorrectionError,
+    correction_details_expired, correction_field_mapping, correction_unavailable_reason,
+)
+from domains.simple_products.imports.infrastructure.correction_rows_repository import (
+    fetch_correction_rows_page,
+)
 from models import ProductImportJob, ProductImportRow
 
 
@@ -49,13 +58,14 @@ async def _load_job(
     *,
     company_id: int,
     job_id: UUID,
+    for_review: bool = False,
 ) -> ProductImportJob:
-    job = await db.scalar(
-        select(ProductImportJob).where(
-            ProductImportJob.company_id == int(company_id),
-            ProductImportJob.id == job_id,
-        )
+    statement = select(ProductImportJob).where(
+        ProductImportJob.company_id == int(company_id), ProductImportJob.id == job_id,
     )
+    if for_review:
+        statement = statement.with_for_update(read=True)
+    job = await db.scalar(statement)
     if job is None:
         raise ProductImportTerminalError(
             "Product import job was not found in tenant scope.",
@@ -372,3 +382,77 @@ async def retry_import(
         "status": str(status),
         "message": "Import retry accepted.",
     }
+
+
+async def read_correction_rows(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    job_id: UUID,
+    after_row: int,
+    limit: int,
+    expected_job_version: int | None = None,
+) -> dict[str, Any]:
+    if not 1 <= limit <= MAX_INLINE_CORRECTION_ROWS or after_row < 0:
+        raise InlineCorrectionError("PRODUCT_IMPORT_CORRECTION_ROWS_INVALID")
+    # A short shared job lock gives this page one stable mapping/state/version.
+    job = await _load_job(db, company_id=company_id, job_id=job_id, for_review=True)
+    if expected_job_version is not None and int(job.version) != expected_job_version:
+        raise InlineCorrectionError("PRODUCT_IMPORT_CORRECTION_STALE_JOB")
+    fields = correction_field_mapping(
+        dict(job.column_mapping or {}), list(job.detected_headers or []),
+    )
+    rows = await fetch_correction_rows_page(
+        db, company_id=company_id, job_id=job_id,
+        fields=fields, after_row=after_row, limit=limit,
+    )
+    payload: dict[str, Any] = {
+        "job_id": str(job_id), "job_version": int(job.version),
+        "status": str(job.status), "fields": list(fields),
+        "items": [], "next_after_row": None,
+    }
+    used_bytes = len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) + 64
+    for row in rows[:limit]:
+        details_expired = correction_details_expired(
+            finished_at=job.finished_at, compacted_at=row.compacted_at,
+        )
+        reason = correction_unavailable_reason(
+            status=str(job.status), details_expired=details_expired,
+            fields=fields, values_available=row.values is not None,
+        )
+        item = {
+            "row_identity": str(row.row_identity), "row_number": int(row.row_number),
+            "version": int(row.version), "status": str(row.status),
+            "values": {} if details_expired else dict(row.values or {}),
+            "errors": [_error_item(row)], "editable": reason is None,
+            "unavailable_reason": reason,
+        }
+        item_bytes = len(json.dumps(item, ensure_ascii=False, allow_nan=False).encode("utf-8")) + 2
+        if used_bytes + item_bytes > MAX_INLINE_CORRECTION_BYTES:
+            payload["next_after_row"] = int(payload["items"][-1]["row_number"])
+            break
+        payload["items"].append(item)
+        used_bytes += item_bytes
+    else:
+        if len(rows) > limit:
+            payload["next_after_row"] = int(payload["items"][-1]["row_number"])
+    return payload
+
+
+async def apply_inline_correction(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    actor_id: int,
+    job_id: UUID,
+    request_id: UUID,
+    expected_job_version: int,
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    # Lookup checks ownership only: do not pre-check mutable status before replay.
+    await _load_job(db, company_id=company_id, job_id=job_id)
+    result = await apply_correction_cells(
+        company_id=company_id, actor_id=actor_id, job_id=job_id,
+        request_id=request_id, expected_job_version=expected_job_version, rows=rows,
+    )
+    return {**result, "message": "Correction accepted for revalidation."}

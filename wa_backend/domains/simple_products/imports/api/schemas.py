@@ -6,8 +6,12 @@ not own mapping/business validation; application/domain services do.
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr, model_validator,
+)
+from domains.simple_products.imports.domain.inline_correction import MAX_INLINE_CORRECTION_ROWS
 
 
 class StrictImportRequest(BaseModel):
@@ -97,3 +101,55 @@ class ImportCorrectionUploadResponse(BaseModel):
     job_id: str | None = None
     status: str | None = None
     corrected_rows: int | None = None
+
+
+# Inline correction is additive: the existing file/error DTOs stay unchanged.
+
+class ImportCorrectionRowPatch(StrictImportRequest):
+    row_identity: UUID
+    expected_version: StrictInt = Field(ge=1)
+    # Literal text/null mirrors correction-file cells and preserves barcode zeros.
+    values: dict[str, StrictStr | None] = Field(min_length=1, max_length=10)
+
+
+class ImportCorrectionRowsRequest(StrictImportRequest):
+    request_id: UUID
+    expected_job_version: StrictInt = Field(ge=1)
+    rows: list[ImportCorrectionRowPatch] = Field(
+        min_length=1, max_length=MAX_INLINE_CORRECTION_ROWS,
+    )
+
+    @model_validator(mode="after")
+    def unique_rows(self):
+        identities = [row.row_identity for row in self.rows]
+        if len(identities) != len(set(identities)):
+            raise ValueError("Duplicate correction row identities.")
+        return self
+
+
+class ImportCorrectionRow(BaseModel):
+    row_identity: UUID
+    row_number: int
+    version: int
+    status: str
+    values: dict[str, StrictStr | StrictInt | StrictFloat | StrictBool | None]
+    errors: list[ImportErrorItem]
+    editable: bool
+    unavailable_reason: str | None = None
+
+
+class ImportCorrectionRowsResponse(BaseModel):
+    job_id: UUID
+    job_version: int
+    status: str
+    fields: list[str]
+    items: list[ImportCorrectionRow]
+    next_after_row: int | None = None
+
+
+def inline_correction_request_schema() -> dict[str, Any]:
+    """Publish the typed body while runtime parsing stays bounded and authorized."""
+    schema = ImportCorrectionRowsRequest.model_json_schema()
+    definitions = schema.pop("$defs", {})
+    schema["properties"]["rows"]["items"] = definitions["ImportCorrectionRowPatch"]
+    return schema
