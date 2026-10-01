@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from typing import Literal
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import ProductUomConversion, ProductVariant
+from models import PriceBookEntry, ProductUomConversion, ProductVariant
 
 
 async def load_variant_uom_snapshot(
@@ -69,3 +69,87 @@ async def load_variant_uom_snapshot(
             allowed.add(int(row.from_uom_id))
             allowed.add(int(row.to_uom_id))
     return variants, mapped
+
+async def load_locked_publication_validation_snapshot(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    publication_id: int,
+) -> tuple[
+    list[PriceBookEntry],
+    dict[int, tuple[int, str]],
+    dict[int, set[int]],
+]:
+    """Lock draft price rows and fetch current Variant/UOM state in one SQL call.
+
+    This preserves the old publish-time freshness boundary: no draft snapshot is
+    reused. Only PriceBookEntry rows are locked; joined catalog rows retain the
+    previous unlocked read semantics. LEFT JOINs preserve malformed/missing
+    catalog references as validation failures instead of silently dropping an
+    entry. Duplicate conversion rows are folded into the same UOM set.
+    """
+    stmt = (
+        select(
+            PriceBookEntry,
+            ProductVariant.base_uom_id.label("variant_base_uom_id"),
+            ProductVariant.lifecycle_status.label("variant_lifecycle_status"),
+            ProductUomConversion.from_uom_id,
+            ProductUomConversion.to_uom_id,
+        )
+        .select_from(PriceBookEntry)
+        .outerjoin(
+            ProductVariant,
+            and_(
+                ProductVariant.company_id == PriceBookEntry.company_id,
+                ProductVariant.id == PriceBookEntry.product_variant_id,
+            ),
+        )
+        .outerjoin(
+            ProductUomConversion,
+            and_(
+                ProductUomConversion.company_id == PriceBookEntry.company_id,
+                ProductUomConversion.product_variant_id
+                == PriceBookEntry.product_variant_id,
+            ),
+        )
+        .where(
+            PriceBookEntry.company_id == int(company_id),
+            PriceBookEntry.publication_id == int(publication_id),
+        )
+        .order_by(
+            PriceBookEntry.product_variant_id,
+            PriceBookEntry.uom_id,
+            func.lower(PriceBookEntry.effectivity),
+            PriceBookEntry.id,
+        )
+        .with_for_update(of=PriceBookEntry)
+        .execution_options(
+            wanasah_sql_trace_label="pricing_publish_entries_variant_uom"
+        )
+    )
+
+    entries: list[PriceBookEntry] = []
+    seen_entries: set[int] = set()
+    variants: dict[int, tuple[int, str]] = {}
+    mapped: dict[int, set[int]] = {}
+    for row in (await db.execute(stmt)).all():
+        entry = row[0]
+        entry_id = int(entry.id)
+        if entry_id not in seen_entries:
+            seen_entries.add(entry_id)
+            entries.append(entry)
+
+        variant_id = int(entry.product_variant_id)
+        if row.variant_base_uom_id is None:
+            continue
+        base_uom_id = int(row.variant_base_uom_id)
+        variants[variant_id] = (
+            base_uom_id,
+            str(row.variant_lifecycle_status),
+        )
+        allowed = mapped.setdefault(variant_id, {base_uom_id})
+        if row.from_uom_id is not None:
+            allowed.add(int(row.from_uom_id))
+            allowed.add(int(row.to_uom_id))
+    return entries, variants, mapped
+
