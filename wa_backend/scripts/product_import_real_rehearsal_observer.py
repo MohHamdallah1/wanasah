@@ -71,6 +71,14 @@ def _connect(expected_database: str):
                     f"Database mismatch: expected {expected_database!r}, got {actual!r}. "
                     "No import data was queried."
                 )
+            role = conn.execute(
+                "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname=current_user"
+            ).fetchone()
+            if role is None or role["rolsuper"] or role["rolbypassrls"]:
+                raise RuntimeError(
+                    "Observer refuses a superuser/BYPASSRLS connection; "
+                    "use the real tenant-scoped application role."
+                )
         return conn
     except BaseException:
         conn.close()
