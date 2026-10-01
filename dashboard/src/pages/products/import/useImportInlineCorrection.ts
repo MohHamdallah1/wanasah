@@ -117,6 +117,11 @@ export function useImportInlineCorrection({
 
   useEffect(() => {
     if (!scope || !online) {
+      // An unreadable local draft still needs a confirmed recovery action,
+      // even if the HTTP endpoint is offline and cannot render its rows.
+      const offlineDraft = draftKey ? readDraft(draftKey) : { status: "absent" } as const;
+      setStaleDraft(offlineDraft.status === "unreadable");
+      setUnreadableDraft(offlineDraft.status === "unreadable");
       setLoading(false);
       return;
     }
@@ -132,8 +137,13 @@ export function useImportInlineCorrection({
       // Read pending command before making any new mutation or replacing drafts.
       const savedCommand = await readDurableCommand<InlineCorrectionIntent>(scope);
       if (!disposed) setPending(savedCommand);
-      const response = await loadInlineCorrectionRows(authFetch, jobId, abort.signal);
       const savedDraft = draftKey ? readDraft(draftKey) : { status: "absent" } as const;
+      if (!disposed && savedDraft.status === "unreadable") {
+        // Never hide the only discard path behind a potentially failed GET.
+        setStaleDraft(true);
+        setUnreadableDraft(true);
+      }
+      const response = await loadInlineCorrectionRows(authFetch, jobId, abort.signal);
       if (disposed) return;
       setPage(response);
       if (savedDraft.status === "valid") {
