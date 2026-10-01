@@ -1126,6 +1126,16 @@ reproduced timeout/lock release, medium/50k measurement, and customer D7-P/D8-P*
   load to define an evidence-based p50/p95 completion-time and resource
   acceptance envelope. Fail and investigate any regression; do not claim
   "50,000 rows fast" without real end-to-end measurement.
+- [x] **Entire Dashboard test suite and build gate (source-only):** after
+  aligning three stale source-string checks with independently Edge-tested
+  focus/draft and centralized file-download behavior, and fixing one
+  **actual** missing bilingual `PRODUCT_IMPORT_ERROR_PAGE_INVALID` message,
+  the complete Dashboard Vitest run passed **388/388 tests / 73/73 files**;
+  TypeScript, targeted ESLint (zero warnings) and Vite production build
+  all PASS. Evidence:
+  `docs/operations/PRODUCT_IMPORT_P19_FULL_DASHBOARD_GATE_2026-10-01.md`.
+  These checks do not substitute for live browser/backend integrated status
+  and physical-device owner acceptance.
 - [ ] Run full backend+frontend gates, audit tenant isolation and validate
   the Dashboard's large-job progress, row report, retry, and reconnection
   behavior with keyboard and both RTL/LTR locales.
