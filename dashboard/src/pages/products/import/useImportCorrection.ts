@@ -62,37 +62,46 @@ export function useImportCorrection({
   setImportStatus,
   t,
 }: Params) {
-  const [selected, setSelected] = useState<{ jobId: string; file: File } | null>(null);
+  const currentScope = companyId && driverId && jobId
+    ? productDurableScope(companyId, driverId, "product-import-correction", jobId)
+    : null;
+  const [selected, setSelected] = useState<{ scope: string; file: File } | null>(null);
   const [downloading, setDownloading] = useState(false);
   const currentJobRef = useRef(jobId);
+  const currentScopeRef = useRef(currentScope);
+  const pendingUploadScopeRef = useRef<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  // A tenant or actor can switch without changing the public job UUID.
+  // The visible selection and all late async callbacks need the full scope.
+  currentScopeRef.current = currentScope;
   useEffect(() => {
     currentJobRef.current = jobId;
   }, [jobId]);
 
-  const file = selected?.jobId === jobId ? selected.file : null;
+  const file = selected?.scope === currentScope ? selected.file : null;
 
   const chooseFile = (next: File | null) => {
-    if (!jobId || !next || upload.isPending) return;
+    if (!currentScope || !next || upload.isPending) return;
     if (!/\.(xlsx|csv)$/i.test(next.name)) {
       toast.error(t("products.errors.unsupportedFile"));
       return;
     }
-    setSelected({ jobId, file: next });
+    setSelected({ scope: currentScope, file: next });
   };
 
   const download = async () => {
     if (!jobId || !online || downloading) return;
     const requestedJob = jobId;
+    const requestedScope = currentScope;
     setDownloading(true);
     try {
       // A resumed different import cannot download an obsolete job artifact.
       await downloadCorrection();
-      if (requestedJob === currentJobRef.current) {
+      if (requestedJob === currentJobRef.current && requestedScope === currentScopeRef.current) {
         toast.success(t("products.correction.downloaded"));
       }
     } catch (error) {
-      if (requestedJob === currentJobRef.current) {
+      if (requestedJob === currentJobRef.current && requestedScope === currentScopeRef.current) {
         toast.error(apiErrorMessage(error, t("products.correction.downloadFailed")));
       }
     } finally {
@@ -102,15 +111,14 @@ export function useImportCorrection({
 
   const upload = useMutation({
     mutationFn: async () => {
-      if (!jobId || !file || !online) {
+      if (!jobId || !currentScope || !file || !online) {
         throw new Error("PRODUCT_IMPORT_CORRECTION_FILE_REQUIRED");
       }
       if (correctionRouteBlocked(companyId, driverId, jobId, "file")) {
         throw new Error("PRODUCT_IMPORT_CORRECTION_ROUTE_CONFLICT");
       }
-      const scope = productDurableScope(
-        companyId, driverId, "product-import-correction", jobId,
-      );
+      const scope = currentScope;
+      pendingUploadScopeRef.current = scope;
       const fingerprint = await fileFingerprint(file);
       // No file bytes or tenant data are put in localStorage. A lost response
       // must be retried with the same file AND the same saved request identity.
@@ -144,10 +152,14 @@ export function useImportCorrection({
           // command on ambiguous responses, but free this proven zero-write
           // request so it cannot lock the job in the local UI forever.
           abandonDurableOperation(scope);
-          if (apiErrorStatus(error) === 410 &&
-              currentJobRef.current === jobId) {
-            setSelected(null);
-            if (fileRef.current) fileRef.current.value = "";
+          if (apiErrorStatus(error) === 410) {
+            // Clear the old tenant file without touching a newly selected
+            // file under another company or actor.
+            setSelected((previous) => previous?.scope === scope ? null : previous);
+            if (currentJobRef.current === jobId &&
+                currentScopeRef.current === scope && fileRef.current) {
+              fileRef.current.value = "";
+            }
           }
         }
         throw error;
@@ -155,8 +167,8 @@ export function useImportCorrection({
     },
     onSuccess: ({ scope, requestId, requestedJob, ack }) => {
       completeDurableOperation(scope, requestId);
-      if (requestedJob !== currentJobRef.current) return;
-      setSelected(null);
+      setSelected((previous) => previous?.scope === scope ? null : previous);
+      if (requestedJob !== currentJobRef.current || scope !== currentScopeRef.current) return;
       if (fileRef.current) fileRef.current.value = "";
       setImportStatus((current) => current && current.job_id === requestedJob
         ? { ...current, status: ack.status }
@@ -167,7 +179,13 @@ export function useImportCorrection({
       );
     },
     onError: (error) => {
-      toast.error(apiErrorMessage(error, t("products.correction.uploadFailed")));
+      if (pendingUploadScopeRef.current === null ||
+          pendingUploadScopeRef.current === currentScopeRef.current) {
+        toast.error(apiErrorMessage(error, t("products.correction.uploadFailed")));
+      }
+    },
+    onSettled: () => {
+      pendingUploadScopeRef.current = null;
     },
   });
 
