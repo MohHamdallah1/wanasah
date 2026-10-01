@@ -882,10 +882,24 @@ structural gates, parser benchmarks, or mocked failure injection alone.
 - [ ] Verify real HTTP authorization/correction, tenant concurrency,
   cancellation/recovery and refresh/RTL/LTR for the production release.
 
-- [ ] Generate realistic **new, unique** company-scoped test Products with
-  explicit package selection and a controlled mix of clean rows, deterministic
-  invalid rows, empty physical Excel rows, Arabic/English/mixed headers and
-  values, barcodes saved as text, packaging and tracking variations.
+- [x] Generate a realistic **new, uniquely run-labeled synthetic development**
+  Product Import fixture with explicit package selection and a controlled mix
+  of candidate-valid and intentionally invalid rows, empty physical CSV rows,
+  Arabic/English/mixed authoritative headers and values, leading-zero
+  EAN-13-format barcodes preserved as text, packaging and tracking variations.
+  The verified offline generator is
+  `wa_backend/tools/product_import/phase19_fixture.py` and operator notes are
+  `docs/operations/PRODUCT_IMPORT_PHASE19_FIXTURE_RUNBOOK.md`. It produced
+  **50,000 source rows / 1,612 intentionally empty physical lines / final
+  physical row 51,613 / 2,000 injected-invalid candidates / 48,000 other
+  candidates / 61,428 unique within-run text barcodes**, with byte-exact
+  SHA-256 and a 4,688,383-byte CSV (below the 9 MiB source headroom cap).
+  **Five focused offline parser/locale/source tests PASS**; the fixture is in
+  the local development TEMP folder, not in Git, and no HTTP/DB/Worker
+  request was sent. Runtime company_id, actual validation outcomes, unique
+  barcode collision checks against the *existing tenant database* and true
+  persisted Product/Variant/Price/Audit acceptance remain separately OPEN
+  under the subsequent 19.2 execution items.
 - [ ] Run within the explicitly authorized **development-only**
   PostgreSQL instance; a separate physical database is **not required**.
   Distinguish the 50k test job by a unique run identifier, names, barcodes,
