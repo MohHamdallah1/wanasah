@@ -966,6 +966,70 @@ async def _prefetch_batch_families(
     return _BatchFamilyLookup(locked_names, matches)
 
 
+async def _prefill_unique_implicit_families(
+    db: AsyncSession,
+    *,
+    actor: Driver,
+    request_id: UUID,
+    specs: list[SimpleProductSpec],
+    lookup: _BatchFamilyLookup,
+) -> None:
+    """Batch-flush independent legacy import masters, preserving resolver order.
+
+    Explicit new/none/existing modes keep the original row-by-row resolver.
+    Repeated names also use that resolver: later rows may intentionally reuse
+    the preceding master's identity, or detect an ambiguous existing match.
+    Transaction-local name locks and the one tenant SELECT already occurred.
+    """
+    if not specs or any(
+        spec.family_mode is not None or spec.family_id is not None
+        for spec in specs
+    ):
+        return
+
+    candidates: list[tuple[int, str, str]] = []
+    counts: dict[str, int] = {}
+    for index, spec in enumerate(specs, start=1):
+        try:
+            family_name = (
+                clean_text(spec.family_name, "family_name", 200, optional=True)
+                if spec.family_name is not None else None
+            ) or clean_text(spec.name, "product_name", 200)
+        except SimpleProductError:
+            # Preserve the original per-row error location and classification.
+            continue
+        assert family_name is not None
+        normalized = family_name.lower()
+        counts[normalized] = counts.get(normalized, 0) + 1
+        candidates.append((index, family_name, normalized))
+
+    pending: list[Product] = []
+    for index, family_name, normalized in candidates:
+        if (
+            counts[normalized] != 1
+            or normalized not in lookup.locked_names
+            or lookup.matches.get(normalized)
+        ):
+            continue
+        pending.append(Product(
+            company_id=int(actor.company_id),
+            code=_auto_code("FAM", request_id, index),
+            name=family_name,
+        ))
+
+    if not pending:
+        return
+
+    # One ORM flush replaces up to one separate parent INSERT flush per
+    # independent SKU. Do not guess DB-generated Product IDs or bypass the
+    # canonical Product model; all rows stay in the caller's single SAVEPOINT.
+    db.add_all(pending)
+    with product_phase(db, "family_flush"):
+        await db.flush()
+    for family in pending:
+        lookup.remember(family)
+
+
 async def _resolve_family(
     db: AsyncSession,
     *,
@@ -1224,6 +1288,10 @@ async def create_product_structures(
     # same file still obey original new/none/implicit and ambiguity contracts.
     batch_family_lookup = await _prefetch_batch_families(
         db, actor=actor, specs=specs,
+    )
+    await _prefill_unique_implicit_families(
+        db, actor=actor, request_id=request_id,
+        specs=specs, lookup=batch_family_lookup,
     )
     for index, spec in enumerate(specs, start=1):
         name = clean_text(spec.name, "product_name", 200)
