@@ -6,7 +6,7 @@ keeps Product/ProductVariant/UOM/PriceBook authority intact.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -818,6 +818,8 @@ class _BatchFamilyLookup:
 
     locked_names: frozenset[str]
     matches: dict[str, list[Product]]
+    # Positive ID lookups only; never reuse across a batch/rollback boundary.
+    by_id: dict[tuple[int, int], Product] = field(default_factory=dict)
 
     def remember(self, row: Product) -> None:
         normalized = str(row.name).lower()
@@ -977,31 +979,39 @@ async def _prefill_unique_implicit_families(
     """Batch-flush independent legacy import masters, preserving resolver order.
 
     Explicit new/none/existing modes keep the original row-by-row resolver.
-    Repeated names also use that resolver: later rows may intentionally reuse
-    the preceding master's identity, or detect an ambiguous existing match.
-    Transaction-local name locks and the one tenant SELECT already occurred.
+    Count names from every name-creating mode, including independent 'none'
+    masters, so prefill cannot change a later reuse/conflict/ambiguity result.
+    Only unrelated unique implicit names are candidates. Transaction-local
+    name locks and the one tenant SELECT already occurred.
     """
-    if not specs or any(
-        spec.family_mode is not None or spec.family_id is not None
-        for spec in specs
-    ):
-        return
-
     candidates: list[tuple[int, str, str]] = []
     counts: dict[str, int] = {}
     for index, spec in enumerate(specs, start=1):
+        if (
+            spec.family_id is not None
+            or spec.family_mode not in (None, "none", "new")
+        ):
+            continue
+        if spec.family_mode == "new" and (
+            spec.family_name is None or not spec.family_name.strip()
+        ):
+            continue
         try:
-            family_name = (
-                clean_text(spec.family_name, "family_name", 200, optional=True)
-                if spec.family_name is not None else None
-            ) or clean_text(spec.name, "product_name", 200)
+            if spec.family_mode == "none":
+                family_name = clean_text(spec.name, "product_name", 200)
+            else:
+                family_name = (
+                    clean_text(spec.family_name, "family_name", 200, optional=True)
+                    if spec.family_name is not None else None
+                ) or clean_text(spec.name, "product_name", 200)
         except SimpleProductError:
             # Preserve the original per-row error location and classification.
             continue
         assert family_name is not None
         normalized = family_name.lower()
         counts[normalized] = counts.get(normalized, 0) + 1
-        candidates.append((index, family_name, normalized))
+        if spec.family_mode is None:
+            candidates.append((index, family_name, normalized))
 
     pending: list[Product] = []
     for index, family_name, normalized in candidates:
@@ -1093,18 +1103,26 @@ async def _resolve_family(
         )
 
     if spec.family_id is not None:
-        row = await db.scalar(
-            select(Product).where(
-                Product.company_id == int(actor.company_id),
-                Product.id == int(spec.family_id),
+        # Resolve lazily after the original per-row selection checks. The
+        # lookup is owned by this create_product_structures invocation, so it
+        # cannot survive a failed savepoint or leak into a later batch.
+        key = (int(actor.company_id), int(spec.family_id))
+        row = batch_lookup.by_id.get(key) if batch_lookup is not None else None
+        if row is None:
+            row = await db.scalar(
+                select(Product).where(
+                    Product.company_id == key[0],
+                    Product.id == key[1],
+                )
             )
-        )
         if row is None:
             raise SimpleProductError(
                 "SIMPLE_PRODUCT_FAMILY_NOT_FOUND",
                 "Product family was not found.",
                 status_code=404,
             )
+        if batch_lookup is not None:
+            batch_lookup.by_id[key] = row
         return row
 
     family_name = (

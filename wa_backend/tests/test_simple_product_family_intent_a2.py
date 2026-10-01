@@ -18,6 +18,7 @@ from api.simple_products import (
 from domains.simple_products.service import (
     SimpleProductError,
     SimpleProductSpec,
+    _BatchFamilyLookup,
     _resolve_family,
 )
 from models import Product
@@ -100,6 +101,75 @@ class FamilyIntentA2Tests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIs(parent, existing)
         self.session.add.assert_not_called()
+
+    async def test_batch_id_lookup_is_shared_after_selection_validation(self):
+        parent = Product(id=71, company_id=38, code="FAM-A", name="Chips")
+        self.session.scalar.return_value = parent
+        lookup = _BatchFamilyLookup(frozenset(), {})
+        for index in range(1, 101):
+            item = self.spec(
+                family_mode="existing" if index % 2 else None, family_id=71,
+            )
+            resolved = await _resolve_family(
+                self.session, actor=self.actor, spec=item,
+                request_id=uuid4(), index=index, batch_lookup=lookup,
+            )
+            self.assertIs(resolved, parent)
+        self.session.scalar.assert_awaited_once()
+        statement = self.session.scalar.await_args.args[0]
+        self.assertEqual(
+            set(statement.compile().params.values()), {38, 71},
+        )
+        self.assertEqual(lookup.by_id, {(38, 71): parent})
+
+        for item in (
+            self.spec(family_mode="none", family_id=71),
+            self.spec(family_mode="new", family_id=71, family_name="Fresh"),
+            self.spec(family_id=71, family_name="Chips"),
+        ):
+            with self.assertRaises(SimpleProductError) as caught:
+                await _resolve_family(
+                    self.session, actor=self.actor, spec=item,
+                    request_id=uuid4(), index=101, batch_lookup=lookup,
+                )
+            self.assertEqual(caught.exception.status_code, 422)
+        self.session.scalar.assert_awaited_once()
+
+    async def test_id_cache_does_not_hide_missing_or_foreign_family(self):
+        parent = Product(id=71, company_id=38, code="FAM-A", name="Chips")
+        lookup = _BatchFamilyLookup(frozenset(), {}, {(38, 71): parent})
+        self.session.scalar.return_value = None
+        foreign_actor = SimpleNamespace(id=8, company_id=43)
+        for actor, family_id in ((foreign_actor, 71), (self.actor, 72)):
+            with self.assertRaises(SimpleProductError) as caught:
+                await _resolve_family(
+                    self.session, actor=actor,
+                    spec=self.spec(family_mode="existing", family_id=family_id),
+                    request_id=uuid4(), index=1, batch_lookup=lookup,
+                )
+            self.assertEqual(caught.exception.code, "SIMPLE_PRODUCT_FAMILY_NOT_FOUND")
+            self.assertEqual(caught.exception.status_code, 404)
+            self.assertEqual(lookup.by_id, {(38, 71): parent})
+        self.assertEqual(self.session.scalar.await_count, 2)
+
+    async def test_fresh_batch_lookup_reloads_after_previous_attempt(self):
+        parent = Product(id=71, company_id=38, code="FAM-A", name="Chips")
+        self.session.scalar.side_effect = [parent, None]
+        item = self.spec(family_mode="existing", family_id=71)
+        first = _BatchFamilyLookup(frozenset(), {})
+        await _resolve_family(
+            self.session, actor=self.actor, spec=item,
+            request_id=uuid4(), index=1, batch_lookup=first,
+        )
+        retry = _BatchFamilyLookup(frozenset(), {})
+        with self.assertRaises(SimpleProductError) as caught:
+            await _resolve_family(
+                self.session, actor=self.actor, spec=item,
+                request_id=uuid4(), index=1, batch_lookup=retry,
+            )
+        self.assertEqual(caught.exception.code, "SIMPLE_PRODUCT_FAMILY_NOT_FOUND")
+        self.assertEqual(retry.by_id, {})
+        self.assertEqual(self.session.scalar.await_count, 2)
 
     async def test_none_and_new_reject_conflicting_payload_fields(self):
         for opts in (
