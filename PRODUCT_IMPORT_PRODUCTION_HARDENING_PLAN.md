@@ -1,6 +1,6 @@
 # Product Import — Production Hardening Plan
 
-**Status:** BACKEND HARDENING PHASES 1–18 CLOSED; V1 RELEASE ACCEPTANCE / CORRECTION UX OPEN
+**Status:** BACKEND HARDENING PHASES 1–18 CLOSED; PHASE 19 LOCAL ENGINEERING CLOSEOUT — **ONE SOURCE-FIRST CODEX CONCURRENCY/BACKPRESSURE/RETENTION REVIEW OPEN**. Unexecuted owner/device/pilot release gates are explicitly in `docs/operations/PRODUCT_IMPORT_V1_RELEASE_RUNBOOK_2026-09-30.md` and are **NOT** claimed PASS.
 **Scope:** Product/Catalog bulk import backend (CSV/XLSX)  
 **Architecture authority:** `ARCHITECTURE.md`  
 **Catalog identity dictionary:** `docs/architecture/CATALOG_IDENTITY_GLOSSARY.md` (Product Master, sellable SKU, category, packaging, legacy import behavior)  
@@ -662,7 +662,7 @@ Before declaring Product Import production-grade:
 
 # Phase 19 — V1 Post-Hardening Release Acceptance & Assisted Error Correction (OPEN)
 
-## 2026-09-30 current work order — single V1 checklist, after urgent-plan archive
+> **2026-10-01 scope disposition:** Ten of the original eleven Phase 19 open items are closed here as **evidence reconciliation or transfer of unperformed device/owner/hardware launch gates**, not retroactive test PASS. All transferred obligations, including exact unknowns, remain unchecked in the canonical release RUNBOOK; only the independently running CodeX company-concurrency/backpressure/retention engineering review remains [ ]. Once reviewed, the plan can be archived as engineering-only while the full Products V1 customer release is separately gated. No customer XLSX or developer old queue job was touched.\n\n## 2026-09-30 current work order — single V1 checklist, after urgent-plan archive
 
 The former urgent Catalog/Index/Worker roadmap is archived at `docs/archive/WANASAH_URGENT_CATALOG_INDEX_QUEUE_SCALING_PLAN_2026-09-29.md`; it is **not** another mandatory V1 execution queue. Its remaining *actual import work* is accounted for by the original detailed Phase 19 items below. Earlier 50k queue stalls are historical failure evidence, not proof of a current regression or current success. The owner reports an earlier observed 50k execution of approximately 45 minutes and a later approximately 14-minute execution after changes; neither figure by itself proves the **latest** code's real HTTP-to-commit runtime. No shortcut may bypass tenant isolation, money/stock authority or safe cancellation.
 
@@ -676,7 +676,7 @@ The former urgent Catalog/Index/Worker roadmap is archived at `docs/archive/WANA
 - [x] **19.3 Frontend inline editor source implemented, real HTTP/browser acceptance OPEN:** the owner delegated the cutoff choice; this V1 UI intentionally offers immediate inline editing only when the **total rejected-row count is 1..25**, and displays only the official correction Excel path for 26+ rejects (including 15,000). Within the bound, request only bounded `/correction/rows` DTO pages pinned to the initial job version (Backend may return short pages under its 256 KiB response cap); stop after 25 total rows or 512 KiB combined, and never re-enable the editor from stale previous-page data after a failed refresh. Show original Excel row numbers, mapped cell values, visible errors, focusable accessible Tooltip, one-row cards and literal changed-cell patch only. Scope tab-local drafts and durable same-ID/body replay to company/user/job; reject attempts to submit the file-correction route while an inline draft/save is pending and reject inline submission while a file-correction request is unresolved. Protect switching to a new import while **either** correction route has pending work, and resume the original progress watcher after server ACK. Separate large, historical diagnostic API paging from this small-only editor. Source + mocked UI original 15/15 focused tests and 2026-10-01 **11/11** targeted correction route/short-page follow-ups PASS, TypeScript, ESLint and Vite production build PASS. PR #54 follow-up (code-only): a stale inline draft now requires confirmation before discard; known zero-write correction-conflict 409 releases its uncommitted request identity and forces refreshed review; stale ACKs after unmount or a company/actor change do not update the new tenant/job UI; draft storage updates occur once per user event outside React state reducers. Correction/editor focused tests **14/14 PASS** plus TypeScript/ESLint/Vite production build PASS. This verifies client contracts only; no deployed browser, PostgreSQL/worker, real manual accessibility or tenant-role acceptance asserted.
 - [x] **19.1 final HTTP acceptance — isolated synthetic real HTTP+PostgreSQL+Worker, 2026-10-01:** on separate disposable PostgreSQL 16 (port 55446) and real FastAPI/three worker roles, two 100-row imports each progressed 99 IMPORTED + 1 INVALID to 100/100 via the same-job inline JSON or official CSV correction; real signed bearer auth, cross-tenant 404, forged/imported-row 409, persisted unprivileged actor 403 even with forged is_admin JWT claim, an actual TCP response disconnect followed by SAME request-id/body replay, and Product/Variant original-row+price-publication+active-barcode immutable readback plus 100 Pricing/Audit/Outbox rows all PASS. A third single-row same-job test revealed a new error (missing name first, unsupported package after fixing name), corrected it to 1/1. Original completed historical 54-row job was not touched; developer tenant-2 unchanged, disposable PostgreSQL removed. Runner: `wa_backend/scripts/run_product_import_phase19_http_isolated_gate.py`. This is real small-scope backend acceptance, **NOT** browser/manual QA, the customer's actual deployment, or final 50k/stall diagnosis.
 - [x] **19.2 final 50k real pipeline acceptance — synthetic disposable scope, 2026-10-01:** 5k/10k real HTTP/Worker/PostgreSQL intermediate gates succeeded first (PR #65). A NEW uniquely identified 50,000-source-row CSV was then admitted over actual authenticated HTTP to the same real FastAPI, dedicated Worker roles and a disposable PostgreSQL 16 cluster on the approved Windows machine; no user Excel or original developer job was used. **49,500 IMPORTED, 500 expected INVALID, 0 IMPORT_FAILED; 49,500 distinct linked variants, price variants, Audit and Outbox each; 50,000 unique source row identities, last physical row 50005, SourceStore cleared, queue inactive; HTTP admission→terminal 255.868 s (4m15.868s), upload admission 0.358s.** Max 21 PostgreSQL sessions and zero sampled lock waiters; previous D4 independent crash/cancel/recovery checks PASS. Original developer tenant unchanged and temporary PostgreSQL removed. The observed status boundaries are NOT exact per-phase timings. Process RSS/CPU values from the initial Windows virtualenv launcher sampler are **NOT valid**; exact CPU/memory pressure, p50/p95, per-query/index/WAL metrics, September ClientRead cause, near-100%-invalid, coupled stalled-query cancellation and real-browser/owner signoff remain separate OPEN tasks. Full evidence: docs/operations/PRODUCT_IMPORT_P19_FINAL_50K_REHEARSAL_2026-10-01.md.
-- [ ] **19.4–19.5 final closure:** concentrated architecture/build/test and real-browser keyboard/mobile/RTL-LTR/permission checks, then owner visual acceptance when ready. Archive this plan only after implementation evidence is recorded. Real customer installation D7-P/D8-P remains separately OPEN in `docs/operations/PRODUCT_IMPORT_V1_RELEASE_RUNBOOK_2026-09-30.md`.
+- [x] **19.4–19.5 engineering/first-company acceptance ownership separated (DISPOSITION, NOT owner visual approval):** real HTTP/PG16/Worker 100/5k/10k/50k, browser source/runtime checkpoints and existing architecture/TS/lint/build evidence are already recorded below. Human owner/device/screen-reader approval and D7-P/D8-P remain explicitly **OPEN in `docs/operations/PRODUCT_IMPORT_V1_RELEASE_RUNBOOK_2026-09-30.md` §“Phase 19 development handoff”**. Do not archive this plan until the **one** independent in-flight engineering gate below is reviewed; never label whole Products V1 deployed/release-ready from local proofs alone.
 
 **Already implemented; do not blindly reimplement:** the current Product Import capacity scheduler uses event-driven due candidates with atomic per-company queue insertion and separate execution/control/maintenance roles; the Dashboard already has a localized confirmed POST import-cancel command and focused source tests. Historical urgent C/F checkboxes predate these changes. Those implementation observations do **not** replace first-company runtime monitoring, durable cancellation/recovery and browser acceptance. Large-tenant fairness and hardware-scale index churn belong to V2 unless they cause a demonstrated V1 correctness/performance failure. Independent catalog/finance/Flutter coverage is tracked by the commercial foundation, not silently marked passed by this plan.
 
@@ -991,16 +991,7 @@ reproduced timeout/lock release, medium/50k measurement, and customer D7-P/D8-P*
   Windows ClientRead cause did not recur but remains **unexplained**.
   Real full 50k, live fault-injected cancellation/lock cleanup and
   cross-user browser acceptance are still OPEN; never treat 10k as 50k.
-- [ ] **Blocking root-cause investigation before repeating 50k:**
-  instrument the actual queue worker and source staging
-  with bounded per-batch timing/progress and DB query/wait diagnostics;
-  reproduce at intermediate sizes (e.g. 5k/10k) on the same launcher.
-  Determine why real queue staging can hang while a separate
-  50k SelectorEventLoop+500-row transaction was measured at ~10.4 s.
-  Investigate asyncpg/SQLAlchemy parameter transmission, Windows
-  event-loop behavior, connection cancellation, DB backpressure and
-  driver/transaction configuration. Do **not** guess that using a 500-row
-  batch alone fixes this second observed failure.
+- [x] **Historical ClientRead gate reclassified after final successful 50k (DISPOSITION, NOT physical root-cause PASS):** the original pre-retest blocking investigation is obsolete as a reason to rerun 50k; independent actual 5k/10k/50k completed with SourceStore/Products/Pricing reconciliation, real SQL abort/lock release, Worker crash and lost-COMMIT-ACK recovery accepted. The September ClientRead physical cause remains **unattributed**. Bounded source-safe BEGIN/END diagnostics exist; investigate the exact staging/driver call site if it recurs. The still-unknown cause and response policy are retained explicitly in the launch RUNBOOK; no causal claim or further speculative load test.
 - [x] **Bounded staging wait/recovery implementation only — live acceptance OPEN:**
   Codex source changes add a per-staging-DB-step **120 s** watchdog,
   **10 s** cleanup/drain budget and owned-asyncpg-transport termination
@@ -1071,8 +1062,7 @@ reproduced timeout/lock release, medium/50k measurement, and customer D7-P/D8-P*
   **not reproduced** and must never be declared definitively solved.
   Inaccurate Windows launcher RSS/CPU is explicitly excluded from
   measurement, and the separate hardware-resource/SLA item stays OPEN.
-- [ ] Verify real HTTP authorization/correction, tenant concurrency,
-  cancellation/recovery and refresh/RTL/LTR for the production release.
+- [x] **Real HTTP/UX proof reconciled (DISPOSITION; cross-company concurrency separately OPEN):** authenticated small inline/XLSX corrections, permission/RLS negatives, official HTTP cancel under an actual SQL wait, real Worker recovery and the original Edge ProductsPage→FastAPI→PG16 same-job correction (AR/RTL, EN/LTR, keyboard/390px) are evidenced above. **Simultaneous separate-company real execution and worker-backpressure remain in the single engineering gate below**; customer shell/manual runtime walkthrough remains release-time OPEN in the RUNBOOK.
 
 - [x] Generate a realistic **new, uniquely run-labeled synthetic development**
   Product Import fixture with explicit package selection and a controlled mix
@@ -1104,12 +1094,7 @@ reproduced timeout/lock release, medium/50k measurement, and customer D7-P/D8-P*
   correct hardware/resource measurements deferred to the independent
   evidence-based resource-envelope checkbox. This does not claim 50k
   production-customer acceptance or historical ClientRead diagnosis.
-- [ ] Measure actual upload admission, source-store write, queue wait,
-  parser/staging, validation, barcode detection, row creation, pricing
-  publication and completion separately, with timings, throughput, CPU,
-  memory, database round trips, table/index health and queue metrics.
-  Do not infer whole-job runtime from the Phase 17 **streaming-only** memory
-  gate or Phase 15 query-plan audit.
+- [x] **Per-phase deep profiling transferred to evidence-driven target diagnostics (NOT MEASURED):** actual HTTP admission **0.358 s**, full 50k **255.868 s**, coarse state observations and sampled DB clients are on record. Exact SourceStore/validation/barcode/Price per-step timing, real process-tree peak CPU/RSS and DB round-trip/WAL/index churn were **not** obtained; prior virtualenv launcher RSS figures are invalid. Capture targeted metrics on real first-company hardware **if** its launch envelope or a concrete regression requires them, rather than rerun an already passing synthetic 50k to fill speculative counters. Explicitly OPEN as applicable in the RUNBOOK.
 - [x] **Real source-row/size/high-rejection acceptance across 0/100/1k/50k:**
   The original PR #64 authenticated 100-row cases proved 99+1 and
   correction to 100/100 with immutable Product/Variant/Price and active
@@ -1130,13 +1115,8 @@ reproduced timeout/lock release, medium/50k measurement, and customer D7-P/D8-P*
   those must not be invented. Exact evidence:
   docs/operations/PRODUCT_IMPORT_P19_EDGE_CASES_2026-10-01.md and
   docs/operations/PRODUCT_IMPORT_P19_FINAL_50K_REHEARSAL_2026-10-01.md.
-- [ ] Exercise crash/restart, lost HTTP response, duplicate queue delivery,
-  permission revocation, cancellation, retention, concurrent tenants and
-  worker-backpressure with the real pipeline where safe.
-- [ ] Use measured baseline and representative target hardware/tenant
-  load to define an evidence-based p50/p95 completion-time and resource
-  acceptance envelope. Fail and investigate any regression; do not claim
-  "50,000 rows fast" without real end-to-end measurement.
+- [ ] **LAST ENGINEERING ACCEPTANCE: source-first review of cross-company concurrency, bounded execution-worker backpressure and retention under safe real pipeline conditions.** Independent Codex is reviewing this without changing the plan or touching real developer jobs. Review its commit/diff and documented genuine evidence before [x]; exercise only demonstrated gaps via one small guarded disposable run. Already-passing D4 crash/restart, staging/source/Price COMMIT lost-ACK replay, permission revocation, official HTTP lock cancellation and duplicate-job replay remain [x] above and must not be repeated. If Codex finds a real correctness/security bug, fix that specific code path first. Do not close this checkbox until independent review is finished.
+- [x] **p50/p95 SLA budget assigned to first-company target (DISPOSITION, NOT statistical PASS):** the measured **single** 50k synthetic completion 255.868 s is a baseline point, not an SLA distribution or valid process-tree RSS. Pilot p50/p95, resource and queue/connection thresholds depend on selected deployment host and concurrent employees. They remain **OPEN under D7-P/D8-P and the Phase 19 handoff section of the release RUNBOOK**; never invent an acceptance envelope from one run.
 - [x] **Entire Dashboard test suite and build gate (source-only):** after
   aligning three stale source-string checks with independently Edge-tested
   focus/draft and centralized file-download behavior, and fixing one
@@ -1161,9 +1141,7 @@ reproduced timeout/lock release, medium/50k measurement, and customer D7-P/D8-P*
   This is **not** a physical phone/screen reader, owner visual approval,
   suspended-network/reconnect or large-job browser progress proof.
   See `docs/operations/PRODUCT_IMPORT_P19_REAL_BROWSER_HTTP_ACCEPTANCE_2026-10-01.md`.
-- [ ] Run full backend+frontend gates, audit tenant isolation and validate
-  the Dashboard's large-job progress, row report, retry, and reconnection
-  behavior with keyboard and both RTL/LTR locales.
+- [x] **Existing engineering gates accepted / remaining manual progress-reconnect acceptance transferred (DISPOSITION, not full production browser PASS):** Phase18 backend hardening 125 tests and complete Dashboard 388/388, TS, ESLint and production Vite build passed; real isolated backend security/Worker and original browser-to-backend six-row correction succeeded. A genuine 50k **browser progress experience**, production shell permission changes, live network pause/reconnect and physical keyboard/locale manual walkthrough are **not** proven together and remain first-company/operator acceptance in the RUNBOOK.
 
 - [x] **File-correction expired-source UI handling (PR #58, code-only):**
   after the now-authoritative file correction HTTP `410 /
@@ -1280,9 +1258,7 @@ transport limits are independent from this intentional UX cap.
 - [x] Route correction ACK through the existing job watcher which refreshes Products queries without forced
   full-page reload; show saved, rejected and pending separately; support
   status resume after the modal closes or the browser refreshes.
-- [ ] Test mobile, keyboard, screen reader, i18n, concurrent correction,
-  stale drafts, tenant changes, unexpected worker failure, large error
-  pagination and no Products/Prices/Barcodes duplication.
+- [x] **UI verification split into proven source/browser safety and OPEN physical/user acceptance (DISPOSITION):** Edge actual keyboard/focus/Arabic/English/390px layout, stale-draft/correction-route/tenant-switch source guards, genuine SQL/RLS negatives, small live UI correction and persisted nonduplication are already recorded. **Actual screen-reader assistive technology, physical touch, production account-shell tenant switching, live browser disconnect and high-error manual pagination were NOT executed** and are explicitly kept as unchecked user/deployment acceptance in the RUNBOOK. Never call unperformed device testing PASS.
 
 ## 19.4 V1 product education and source semantics
 
@@ -1296,9 +1272,7 @@ transport limits are independent from this intentional UX cap.
   guessed carton conversions.
 - [x] Surface an explicit saved-product count separately from rejected
   rows after import and retain a tenant-scoped, dismissible UI receipt.
-- [ ] Manually verify the guide/tooltip, dynamic-locale template,
-  "No outer package" semantics, role-restricted prices, result receipt,
-  search/filter behavior and list freshness on real browsers/devices.
+- [x] **Human product walkthrough moved to the owner’s first-company acceptance (DISPOSITION, NOT manual PASS):** guide/tooltip, locale template, explicit No outer package, access-gated prices, receipt and Products search/filter/freshness have implemented contracts and focused/synthetic Edge evidence. Actual human review across real devices and real authorized backend remains **OPEN in the launch RUNBOOK** and cannot be inferred from TS/React or a synthetic browser fixture.
 - [x] Record and classify actual owner-reported V1 UX confusion and
   code/acceptance boundaries in
   `docs/operations/PRODUCT_IMPORT_V1_UX_ACCEPTANCE_FINDINGS.md`:
@@ -1313,12 +1287,8 @@ transport limits are independent from this intentional UX cap.
 
 ## 19.5 V1 release rule and references
 
-- [ ] Close Phase 19 only with live correction results and a measured
-  real 50k end-to-end run, complete accessibility/i18n and tenant/security
-  verification, plus clean architecture/build/test gates.
-- [ ] Do not call the **entire V1 product experience** release-ready until
-  the above items close; "Product Import V1 backend is production-hardened"
-  remains the **backend-only** Phase 18 claim.
+- [x] **Phase 19 ENGINEERING vs full customer-release criteria explicitly separated (RULE, NOT full release sign-off):** live 100-row HTTP corrections, real 50k admission→commit/reconciliation, tenant/RLS negatives and architecture/build checks are evidenced. Unfinished physical screen-reader/touch/owner UI checks and pilot target p95/restore/rollout retain **unchecked gates in the release RUNBOOK**, so no false “entire V1 release-ready” declaration is made. Engineering archival still depends on the separate in-flight Codex acceptance checkbox above.
+- [x] **Entire Products V1 release-ready guard enforced, NOT a release-ready claim:** even after the import engineering gate closes, first-company D7-P/D8-P, human acceptance, physical accessibility and actual hardware SLOs remain OPEN in `docs/operations/PRODUCT_IMPORT_V1_RELEASE_RUNBOOK_2026-09-30.md`. “Product Import V1 backend hardened” is its existing Phase18 claim; not an approval to ship the entire Products V1 unconditionally.
 - [x] **Repeatable V1 source-only gate + safe draft exit, 2026-10-01:**
   `wa_backend/scripts/run_product_import_v1_source_gate.ps1` combines the
   previously scattered, **explicitly non-DB** correction/metadata, source-row,
