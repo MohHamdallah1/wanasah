@@ -42,21 +42,24 @@ async def open_tenant_session(
     )
     db = AsyncSessionLocal()
     try:
-        tenant_setup = db.execute(
-            text(
-                "SELECT set_config("
-                "'app.current_tenant', :c, false)"
-            ),
-            {
-                "c": str(
-                    int(company_id)
-                )
-            },
-        )
         if io_guard is None:
-            await tenant_setup
+            # AsyncSessionLocal is bound to database.engine. Its checkout hook
+            # sets RLS from the tenant_context above and fails closed on error.
+            # Eager checkout preserves setup failure/cleanup before returning;
+            # a second identical set_config on that connection is redundant.
+            await db.connection()
         else:
-            await io_guard.run(tenant_setup, operation="tenant_setup")
+            # Preserve the guarded staging setup operation and timeout contract.
+            await io_guard.run(
+                db.execute(
+                    text(
+                        "SELECT set_config("
+                        "'app.current_tenant', :c, false)"
+                    ),
+                    {"c": str(int(company_id))},
+                ),
+                operation="tenant_setup",
+            )
         return token, db
     except BaseException:
         # Cancellation during the initial RLS query must release the borrowed
