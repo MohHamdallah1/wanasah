@@ -654,6 +654,9 @@ async def retry_failed_import(
     job_id: UUID,
 ) -> str:
     """Retry once from FAILED; duplicate client retries only observe current state."""
+    from domains.simple_products.imports.domain.errors import ProductImportTerminalError
+    from domains.simple_products.imports.domain.retention import DEFAULT_PRODUCT_IMPORT_RETENTION
+
     async with await psycopg.AsyncConnection.connect(
         DSN
     ) as conn:
@@ -665,7 +668,7 @@ async def retry_failed_import(
             )
             cursor = await conn.execute(
                 """
-                SELECT status, error_summary
+                SELECT status, error_summary, source_id, source_payload_cleared_at, finished_at
                 FROM product_import_jobs
                 WHERE company_id = %s
                   AND id = %s
@@ -722,6 +725,54 @@ async def retry_failed_import(
                 JobStatus.IMPORTING.value,
             }:
                 resume_status = JobStatus.QUEUED.value
+
+            needs_source = resume_status in {JobStatus.QUEUED.value, JobStatus.PARSING.value}
+            unavailable_code = (
+                "PRODUCT_IMPORT_RETRY_SOURCE_UNAVAILABLE" if needs_source
+                else "PRODUCT_IMPORT_RETRY_DETAILS_EXPIRED"
+            )
+            if needs_source:
+                # Retention takes this same job lock BEFORE its source lock.
+                # SourceStore's ordinary cleanup releases source/capacity locks
+                # before it separately marks a job, so no inverse held lock order.
+                source = None
+                if row[2] is not None:
+                    cursor = await conn.execute(
+                        "SELECT deleted_at FROM product_import_sources "
+                        "WHERE company_id=%s AND id=%s FOR UPDATE",
+                        (int(company_id), row[2]),
+                    )
+                    source = await cursor.fetchone()
+                if row[3] is not None or source is None or source[0] is not None:
+                    raise ProductImportTerminalError(
+                        "Parse retry requires a retained immutable source.",
+                        code=unavailable_code, context={"reason": "SOURCE_UNAVAILABLE"},
+                    )
+            needs_details = False
+            if not needs_source:
+                # VALIDATING/IMPORTING consume heavy JSON only for pending rows.
+                # Already imported lineage can safely finish from durable counters
+                # after compaction; do not reject that idempotent finalization.
+                cursor = await conn.execute(
+                    "SELECT EXISTS (SELECT 1 FROM product_import_rows "
+                    "WHERE company_id=%s AND job_id=%s AND status IN ('STAGED','VALID'))",
+                    (int(company_id), job_id),
+                )
+                needs_details = (await cursor.fetchone())[0]
+            window = (DEFAULT_PRODUCT_IMPORT_RETENTION.upload_bytes if needs_source
+                      else DEFAULT_PRODUCT_IMPORT_RETENTION.full_row_detail)
+            # Check wall time AFTER acquiring locks, not transaction start time;
+            # waiting for retention must not extend a terminal retention window.
+            cursor = await conn.execute(
+                "SELECT %s::timestamp <= (clock_timestamp() AT TIME ZONE 'UTC') - %s::interval",
+                (row[4], window),
+            )
+            expired = (await cursor.fetchone())[0]
+            if expired is True and (needs_source or needs_details):
+                raise ProductImportTerminalError(
+                    "Retry requires import data beyond its retention window.",
+                    code=unavailable_code, context={"reason": "RETENTION_EXPIRED"},
+                )
 
             assert_job_transition(
                 status,

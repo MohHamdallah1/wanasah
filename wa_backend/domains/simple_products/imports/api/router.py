@@ -198,6 +198,11 @@ def _raise_terminal_http(
             404
             if resolved_code
             == "PRODUCT_IMPORT_NOT_FOUND"
+            else 410
+            if resolved_code in {
+                "PRODUCT_IMPORT_RETRY_SOURCE_UNAVAILABLE",
+                "PRODUCT_IMPORT_RETRY_DETAILS_EXPIRED",
+            }
             else 409
             if resolved_code
             in {
