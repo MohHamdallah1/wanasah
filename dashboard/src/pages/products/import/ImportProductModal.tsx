@@ -21,6 +21,9 @@ type Props = {
   importing: boolean;
   online: boolean;
   jobId: string | null;
+  companyId: number | null;
+  driverId: number | null;
+  onInlineCorrectionAccepted: (ack: import("@/pages/products/import/inlineCorrectionContracts").InlineCorrectionAck) => void;
   status: ProductImportState | null;
   pollError: string | null;
   mapping: Record<string, string>;
@@ -81,6 +84,9 @@ export function ImportProductModal({
   importing,
   online,
   jobId,
+  companyId,
+  driverId,
+  onInlineCorrectionAccepted,
   status,
   pollError,
   mapping,
@@ -225,6 +231,9 @@ export function ImportProductModal({
         ) : (
           <ImportProductStatusPanel
             jobId={jobId}
+            companyId={companyId}
+            driverId={driverId}
+            onInlineCorrectionAccepted={onInlineCorrectionAccepted}
             authFetch={authFetch}
             status={status}
             pollError={pollError}
