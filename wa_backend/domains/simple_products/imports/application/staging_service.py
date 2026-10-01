@@ -14,6 +14,7 @@ from domains.simple_products.imports.domain.mapping import (
 from domains.simple_products.imports.domain import (
     ProductImportTerminalError,
 )
+from domains.simple_products.imports.infrastructure.staging_io import StagingIOGuard
 from domains.simple_products.imports.infrastructure.parsers import (
     MAX_IMPORT_ROWS,
     ParsedRow,
@@ -74,14 +75,12 @@ async def _stage_source_transaction(
     suggestions: dict[str, str],
     expected_rows: int | None,
 ) -> None:
-    token, db = await open_tenant_session(
-        company_id
-    )
+    io_guard = StagingIOGuard(company_id=company_id, job_id=job_id)
+    token, db = await open_tenant_session(company_id, io_guard=io_guard)
     try:
-        await delete_job_rows(
-            db,
-            company_id=company_id,
-            job_id=job_id,
+        await io_guard.run(
+            delete_job_rows(db, company_id=company_id, job_id=job_id),
+            operation="delete_staged_rows",
         )
         total_rows = await insert_staged_rows(
             db,
@@ -90,16 +89,15 @@ async def _stage_source_transaction(
             rows=rows,
             batch_size=STAGE_BATCH,
             max_rows=MAX_IMPORT_ROWS,
+            io_guard=io_guard,
         )
 
         # Never advance to VALIDATING or release the immutable SourceStore
         # unless every non-empty source row is durably staged. This catches
         # silent short-writes before commit, preserving safe rollback/retry.
-        persisted_rows = await count_job_rows(
-            db,
-            company_id=company_id,
-            job_id=job_id,
-            status="STAGED",
+        persisted_rows = await io_guard.run(
+            count_job_rows(db, company_id=company_id, job_id=job_id, status="STAGED"),
+            operation="reconcile_rows",
         )
         if (
             persisted_rows != total_rows
@@ -112,11 +110,9 @@ async def _stage_source_transaction(
                 "source was not released."
             )
 
-        job = await load_job(
-            db,
-            company_id=company_id,
-            job_id=job_id,
-            for_update=True,
+        job = await io_guard.run(
+            load_job(db, company_id=company_id, job_id=job_id, for_update=True),
+            operation="lock_job",
         )
         if job is None:
             raise ValueError(
@@ -129,7 +125,7 @@ async def _stage_source_transaction(
             # Cancellation may commit while source rows are being buffered.
             # Roll back this whole staging transaction rather than preserving
             # a partially staged source.
-            await db.rollback()
+            await io_guard.run(db.rollback(), operation="cancel_rollback", cleanup=True)
             return
 
         mapping = dict(
@@ -154,12 +150,15 @@ async def _stage_source_transaction(
             valid_rows=0,
             failed_rows=0,
         )
-        await db.commit()
+        # Lost COMMIT acknowledgement is ambiguous. Retry reads durable job
+        # state before staging; it must not replace a committed row identity set.
+        await io_guard.run(db.commit(), operation="commit_staging")
     except BaseException:
-        await db.rollback()
+        try:
+            await io_guard.run(db.rollback(), operation="rollback_staging", cleanup=True)
+        except Exception:
+            io_guard.abort(operation="rollback_failed")
+            # The original failure/cancellation still owns queue behavior.
         raise
     finally:
-        await close_tenant_session(
-            token,
-            db,
-        )
+        await close_tenant_session(token, db, io_guard=io_guard)
