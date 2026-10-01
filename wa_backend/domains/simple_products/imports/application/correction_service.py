@@ -28,6 +28,9 @@ from domains.simple_products.imports.domain.errors import (
     import_error_field,
     user_safe_row_error_message,
 )
+from domains.simple_products.imports.domain.localization import (
+    resolve_import_locale_pack,
+)
 from domains.simple_products.imports.infrastructure.parsers import (
     MAX_IMPORT_COLUMNS,
     open_source,
@@ -43,21 +46,13 @@ from domains.simple_products.imports.infrastructure.repository import (
 )
 
 
-CORRECTION_IDENTITY_HEADER = (
-    "__wanasah_row_identity"
-)
-CORRECTION_ROW_NUMBER_HEADER = (
-    "__wanasah_original_row"
-)
-CORRECTION_ERROR_CODE_HEADER = (
-    "__wanasah_error_code"
-)
-CORRECTION_ERROR_FIELD_HEADER = (
-    "__wanasah_error_field"
-)
-CORRECTION_ERROR_MESSAGE_HEADER = (
-    "__wanasah_error_message"
-)
+# Plain, language-neutral export column names. Stable row identities remain
+# mandatory for same-job correction; brand names never appear in new files.
+CORRECTION_IDENTITY_HEADER = "row_identity"
+CORRECTION_ROW_NUMBER_HEADER = "original_row"
+CORRECTION_ERROR_CODE_HEADER = "error_code"
+CORRECTION_ERROR_FIELD_HEADER = "error_field"
+CORRECTION_ERROR_MESSAGE_HEADER = "error_message"
 CORRECTION_META_HEADERS = (
     CORRECTION_IDENTITY_HEADER,
     CORRECTION_ROW_NUMBER_HEADER,
@@ -65,6 +60,12 @@ CORRECTION_META_HEADERS = (
     CORRECTION_ERROR_FIELD_HEADER,
     CORRECTION_ERROR_MESSAGE_HEADER,
 )
+# Compatibility read path for correction files downloaded before this change.
+# Never produce these branded headers in new CSV/XLSX exports.
+LEGACY_CORRECTION_META_HEADERS = tuple(
+    "__wanasah_" + name for name in CORRECTION_META_HEADERS
+)
+LEGACY_CORRECTION_IDENTITY_HEADER = LEGACY_CORRECTION_META_HEADERS[0]
 
 _FORMULA_PREFIXES = (
     "=",
@@ -155,9 +156,10 @@ def _artifact_headers(
 ) -> list[str]:
     collisions = (
         set(source_headers)
-        & set(
-            CORRECTION_META_HEADERS
-        )
+        & set((
+            *CORRECTION_META_HEADERS,
+            *LEGACY_CORRECTION_META_HEADERS,
+        ))
     )
     if collisions:
         raise ProductImportTerminalError(
@@ -194,6 +196,8 @@ def _artifact_headers(
 def _artifact_values(
     row,
     source_headers: list[str],
+    *,
+    locale: str = "en",
 ) -> list[Any]:
     raw = dict(
         row.raw_data
@@ -226,7 +230,8 @@ def _artifact_values(
         ),
         sanitize_spreadsheet_cell(
             user_safe_row_error_message(
-                row.error_code
+                row.error_code,
+                locale=locale,
             )
         ),
         *[
@@ -246,7 +251,9 @@ async def build_correction_artifact(
     company_id: int,
     job_id: UUID,
     file_format: str,
+    locale: str = "en",
 ) -> ProductImportCorrectionArtifact:
+    language = resolve_import_locale_pack(locale).locale
     normalized_format = (
         str(
             file_format
@@ -356,6 +363,7 @@ async def build_correction_artifact(
                 values = _artifact_values(
                     row,
                     source_headers,
+                    locale=language,
                 )
                 if writer is not None:
                     writer.writerow(
@@ -456,7 +464,15 @@ def parse_correction_payload(
         actual_headers = set(
             source.headers
         )
-        if actual_headers != expected_headers:
+        legacy_headers = set((
+            *LEGACY_CORRECTION_META_HEADERS,
+            *(str(sanitize_spreadsheet_cell(h)) for h in source_headers),
+        ))
+        if actual_headers == expected_headers:
+            identity_header = CORRECTION_IDENTITY_HEADER
+        elif actual_headers == legacy_headers:
+            identity_header = LEGACY_CORRECTION_IDENTITY_HEADER
+        else:
             raise ProductImportTerminalError(
                 "Correction file columns do not match the generated correction artifact."
             )
@@ -467,7 +483,7 @@ def parse_correction_payload(
             )
             token_text = str(
                 raw.get(
-                    CORRECTION_IDENTITY_HEADER,
+                    identity_header,
                     "",
                 )
                 or ""

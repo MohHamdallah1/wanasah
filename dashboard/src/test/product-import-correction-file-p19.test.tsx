@@ -163,7 +163,7 @@ describe("same-job Product Import correction frontend", () => {
       });
       await downloads.downloadCorrection();
       expect(fetch).toHaveBeenCalledWith(
-        "/simple-products/imports/" + JOB + "/correction?format=xlsx",
+        "/simple-products/imports/" + JOB + "/correction?format=xlsx&locale=ar-JO-u-nu-latn",
       );
       expect(create).toHaveBeenCalledTimes(1);
       expect(click).toHaveBeenCalledTimes(1);
