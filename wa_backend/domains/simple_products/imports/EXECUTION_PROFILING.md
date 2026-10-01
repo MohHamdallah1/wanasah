@@ -97,6 +97,37 @@ and no load tests, SQL execution or deployment were performed. The optional
 per-statement observer can distinguish the consolidated query on a future
 authorized real import.
 
+## Same-transaction direct publication scope (stacked remediation PR)
+
+The ordinary Simple Products create/price flow now requests
+`create_direct_publication` from Pricing. Its opaque, single-use Pricing-owned
+scope holds the exact just-created `PricePublication` and the `PriceBook`
+already locked with `FOR UPDATE` under the Company `FOR NO KEY UPDATE`
+mutex. It retains the originating root ORM transaction object as an invalidation
+boundary, not a session-scoped or cross-batch cache.
+
+During the existing draft -> publish flow, `scope.publish` still checks
+Maker/Checker, DRAFT status and version, and executes the **unchanged**
+publish-time entry/variant/UOM validation, authoritative predecessor lookup,
+protected range-closing, overlap checking, publication updates and final
+flush. It reuses the **already-held** Company, book and new-publication row
+locks rather than re-requesting those same three SELECT locks; the public
+`publish_publication` and `approve_publication` API paths retain every
+original SELECT, lock and check. It cannot be used after commit, reuse or
+a different root transaction.
+
+The import still commits **every 100 active products**, maintains the
+same publication and version per batch and the same 200-price-entry draft
+limit. The same direct scope is valid for the Simple Products
+update-existing-price path: existing-price predecessor, route/commercial
+history, effective date and overlap checks remain enabled.
+
+Estimated SQL round-trip *shape* per normal new-publication
+`price_publish` path falls by three (the redundant Company, book and
+new-publication lock reads); real elapsed time and lock contention remain
+unknown. No new benchmark, SQL execution, tests, worker restart, schema
+modification or deployment was performed.
+
 ## Timing boundaries
 
 All values are **client-visible wall time**, never PostgreSQL CPU or pure Python
