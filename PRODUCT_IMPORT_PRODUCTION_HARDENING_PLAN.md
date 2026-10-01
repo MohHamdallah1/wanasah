@@ -673,7 +673,7 @@ The former urgent Catalog/Index/Worker roadmap is archived at `docs/archive/WANA
 - [x] **19.3 official file-correction UI**: PR #46 added same-job official XLSX download/upload, scoped durable request replay and AR/EN controls; **9/9** focused frontend/cancel tests, targeted lint, typecheck and Vite build passed. The existing diagnostic CSV remains separate. See the detailed `[x]` checkpoint in §19.3; inline cell editing is NOT included.
 - [x] **D7-S tool preservation, not a V1 gate**: PR #47 kept the Codex Issue #38 staging driver permanently under `wa_backend/tools/staging_load/wanasah_d7s_mixed_load_driver.py` with operator guide `docs/operations/WANASAH_D7S_MIXED_LOAD_TOOL.md`. Its relocated mock contract suite passed 32/32; no true 1,000-connection acceptance occurred. This is deferred V2 work and **not** a blocker for finishing the present correction UI.
 - [x] **19.3 Backend contract implemented, NOT live HTTP/DB accepted:** Codex commit `ad646ed`, merged as PR #50. The authorized bounded `GET/POST /simple-products/imports/{job_id}/correction/rows` contract exposes failed-row physical numbers, canonical mapped cell values, immutable row IDs, optimistic job/row versions, editable/retention states, and durable same-job cell patches delegated to the preexisting correction/queue authority. GET limit 1..100 is a **per-request technical bound**, not approval to display/edit any total number of rejected products in Dashboard. Codex reports 11/11 focused in-process tests with DB/queue doubles; real PostgreSQL/RLS, race and full HTTP/worker readback gates remain OPEN. No 5k/50k workload was run.
-- [ ] **19.3 Frontend — ChatGPT, small sets only:** use the Backend DTO to build accessible compact inline editing of rejected rows, localized row/cell errors, safe same-job submission/unknown-response recovery and normal job watcher/query refresh; preserve the official XLSX correction option. **Owner UX constraint:** a large import such as 15,000 rejected rows must NOT render 15,000 editable rows. The current PR #49 read-only preview loads 25 errors per user-requested page and can traverse further pages; this is not the same thing as a total-set inline-edit cap. A small-total threshold for direct display/edit must be made explicit before implementation; the previously mentioned 20-error figure was illustrative, not an approved constant. Large sets should use the same-job official correction Excel without materializing all rejects in React. The Backend's technical 100-row page bound must not be confused with the owner's UX cap.
+- [x] **19.3 Frontend inline editor source implemented, real HTTP/browser acceptance OPEN:** the owner delegated the cutoff choice; this V1 UI intentionally offers immediate inline editing only when the **total rejected-row count is 1..25**, and displays only the official correction Excel path for 26+ rejects (including 15,000). Within the bound, request the new authorized `/correction/rows` DTO once, show original Excel row numbers, mapped cell values, visible errors, focusable accessible Tooltip, one-row cards and literal changed-cell patch only. Scope tab-local drafts and durable same-ID/body replay to company/user/job; protect switching to a new import while a draft or unknown-outcome correction exists, and resume the original progress watcher after server ACK. Separate large, historical diagnostic API paging from this small-only editor. Source + mocked UI 15/15 focused tests, TypeScript, ESLint, Vite production build checked in this branch; no deployed browser, PostgreSQL/worker, real manual accessibility or tenant-role acceptance asserted.
 - [ ] **19.1 final HTTP acceptance:** after implementing the contracts, one targeted real authorized HTTP/worker/database correction rehearsal with wrong-tenant/previously imported-row negatives, replay/ambiguous response and Product/Variant/Price/Audit lineage readback; preserve the completed original job and create fresh synthetic evidence only if necessary.
 - [ ] **19.2 final 50k measured acceptance, deliberately last:** owner postponed every 5k/50k load run until all correction work is implemented. Perform source-first review, then one scoped final actual HTTP + SourceStore + worker + persisted Product/Variant/Price/Audit/Outbox exercise in an owner-approved **synthetic development/rehearsal scope**, with a small admission sanity case if needed; capture total and stage timings, counts, resource/queue health and resume/cancel integrity. An additional physical PostgreSQL database is preferred when available but is NOT inherently required by the original §19.2 policy; never mix real company data or erase historical jobs. Diagnose a newly reproduced stall before retrying; prior September stalls do not by themselves prove a current regression.
 - [ ] **19.4–19.5 final closure:** concentrated architecture/build/test and real-browser keyboard/mobile/RTL-LTR/permission checks, then owner visual acceptance when ready. Archive this plan only after implementation evidence is recorded. Real customer installation D7-P/D8-P remains separately OPEN in `docs/operations/PRODUCT_IMPORT_V1_RELEASE_RUNBOOK_2026-09-30.md`.
@@ -915,14 +915,16 @@ structural gates, parser benchmarks, or mocked failure injection alone.
   the Dashboard's large-job progress, row report, retry, and reconnection
   behavior with keyboard and both RTL/LTR locales.
 
-## 19.3 V1 correction UX — official file flow DONE; inline editing OPEN
+## 19.3 V1 correction UX — file and small-inline code DONE; live acceptance OPEN
 
 **Decision (owner sequencing updated 2026-09-30):** Implement the V1
 correction UX and Backend DTO before the final one-time 50k import benchmark.
 Authenticated HTTP acceptance is still required for actual release. The
-user's illustrative "20 errors" is **not** a business rule, API limit,
-or fixed release threshold. Use observed row count, payload size, response
-time and device constraints to choose direct editing vs paging/export.
+user's earlier illustrative "20 errors" was **not** a business rule. On
+2026-10-01 owner delegated a professional cutoff decision: Dashboard now
+restricts live cell editing to **25 or fewer TOTAL rejected rows**; 26 or
+more use the official same-job XLSX correction artifact. Backend 100-row
+transport limits are independent from this intentional UX cap.
 
 - [x] **File correction flow / frontend checkpoint (not inline editing):**
   On a terminal job with rejected rows, Products now offers official
@@ -959,23 +961,26 @@ time and device constraints to choose direct editing vs paging/export.
   successful state now has the same review. The diagnostic endpoint
   contains **no editable cell values**: this review is deliberately
   read-only until the separate Codex Backend inline correction DTO is
-  integrated. Evidence: `ImportRejectedRowsReview.tsx`, status/modal/
+  integrated. This PR #49 checkpoint is **historical**: the active terminal
+  screen now mounts the small-only inline editor rather than that unlimited
+  optional diagnostic preview. Evidence: `ImportRejectedRowsReview.tsx`, status/modal/
   workflow wiring; **12/12** focused import/correction/cancel frontend
   tests, TypeScript, targeted ESLint and direct Vite production build
   PASS on 2026-09-30. No actual-browser or new authenticated HTTP/DB
   acceptance is claimed.
-- [ ] Provide a bounded job-specific **Review rejected rows** view, with
+- [x] Implement a bounded job-specific **Review rejected rows** value view, with
   original Excel physical row numbers, canonical field identity,
   user-safe localized error text, and current row values; never expose
   successful Products as editable correction targets.
-- [ ] For a comfortably small error set, render an accessible compact
-  editable table. Visually identify erroneous cells but also give every
+- [x] For 1..25 rejected rows, render accessible compact expandable
+  editable row cards. Visually identify erroneous cells but also give every
   invalid field a **keyboard-focusable** error indicator, explicit message
   and non-hover-only help. Do not rely on red color alone.
-- [ ] For large error sets, use server pagination/virtualization and the
-  same job-specific correction XLSX/CSV path. Never fetch 50k failed rows
-  or entire files into React just to show the first page.
-- [ ] Treat correction as a patch to existing **failed row identities**,
+- [x] For >25 rejected rows, hide the direct editor and show only the
+  same job-specific official correction XLSX/CSV path; prior diagnostic
+  retrieval is separately bounded/paginated. Never fetch 50k failed rows
+  or entire files into React.
+- [x] Implement correction as a patch to existing **failed row identities**,
   not as a fresh Product import; authorize tenant/job/field access and
   server-validate edited data again through existing Product/Pricing/
   Tracking/UOM authority before committing.
@@ -983,16 +988,16 @@ time and device constraints to choose direct editing vs paging/export.
   `INVALID`/`IMPORT_FAILED` with explicit optimistic concurrency,
   durable idempotent submission, protected drafts, offline recovery and
   clear result reconciliation; reject unknown and cross-company identities.
-- [ ] Expect **multiple possible issues** per row; a row may expose its
+- [x] Represent **multiple possible issues** per row in UI contracts; a row may expose its
   next error only after the first is fixed. Show row-level and field-level
   feedback without promising that the first report is exhaustive.
-- [ ] If a server API is needed for row data/pages or patch requests,
+- [x] Design and implement a server API for row data/pages and patch requests,
   design/review its DTO, masking, permissions, rate limits, storage/retention
   and audit contract first. Do not leak raw staged data in public error DTOs.
-- [ ] Do not duplicate validation or package/pricing authority in React.
+- [x] Do not duplicate validation or package/pricing authority in React.
   Use canonical error codes + field mapping + localization; locale and
   mixed-language inputs remain independent from canonical business rules.
-- [ ] On successful correction, refresh Products queries without forced
+- [x] Route correction ACK through the existing job watcher which refreshes Products queries without forced
   full-page reload; show saved, rejected and pending separately; support
   status resume after the modal closes or the browser refreshes.
 - [ ] Test mobile, keyboard, screen reader, i18n, concurrent correction,
