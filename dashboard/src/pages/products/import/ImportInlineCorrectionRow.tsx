@@ -77,8 +77,10 @@ export function ImportInlineCorrectionRow({
                   (hasIssue ? "border-rose-400" : "border-slate-200");
                 return (
                   <div key={field} className="min-w-0 space-y-1">
-                    <label className="flex items-center gap-1.5 text-xs font-bold text-slate-800" htmlFor={prefix + "-" + field}>
-                      {label}
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs font-bold text-slate-800" htmlFor={prefix + "-" + field}>
+                        {label}
+                      </label>
                       {hasIssue ? (
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -96,7 +98,7 @@ export function ImportInlineCorrectionRow({
                           </TooltipContent>
                         </Tooltip>
                       ) : null}
-                    </label>
+                    </div>
                     {tracking ? (
                       <select
                         id={prefix + "-" + field}
