@@ -119,7 +119,7 @@ async def create_price_book(
     return row
 
 
-async def create_publication(
+async def _create_publication_with_locked_book(
     db: AsyncSession,
     *,
     company_id: int,
@@ -128,7 +128,7 @@ async def create_publication(
     expected_book_version: int,
     effective_at: datetime,
     request_id: UUID,
-) -> PricePublication:
+) -> tuple[PricePublication, PriceBook]:
     effective_at = require_aware_datetime(effective_at, "effective_at")
     await acquire_pricing_company_lock(db, company_id)
     book = await _active_book(
@@ -153,7 +153,139 @@ async def create_publication(
     )
     db.add(row)
     await db.flush()
+    return row, book
+
+
+async def create_publication(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    actor_id: int,
+    book_id: int,
+    expected_book_version: int,
+    effective_at: datetime,
+    request_id: UUID,
+) -> PricePublication:
+    """Keep the public standalone Pricing creation contract unchanged."""
+    row, _book = await _create_publication_with_locked_book(
+        db,
+        company_id=company_id,
+        actor_id=actor_id,
+        book_id=book_id,
+        expected_book_version=expected_book_version,
+        effective_at=effective_at,
+        request_id=request_id,
+    )
     return row
+
+
+class _SameTransactionDirectPublication:
+    """Opaque Pricing-owned proof of locks acquired while creating a fresh DRAFT.
+
+    Only create_direct_publication constructs this object. It is scoped to the
+    originating root ORM transaction, not the reusable AsyncSession, and can
+    publish only once. No caller-supplied trust flag can bypass revalidation.
+    """
+
+    def __init__(
+        self,
+        *,
+        db: AsyncSession,
+        company_id: int,
+        publication: PricePublication,
+        book: PriceBook,
+        root_transaction: Any,
+    ) -> None:
+        self._db = db
+        self._company_id = int(company_id)
+        self.publication = publication
+        self._book = book
+        self._root_transaction = root_transaction
+        self._consumed = False
+
+    async def publish(
+        self, *, actor_id: int, expected_version: int,
+    ) -> PricePublication:
+        if self._consumed or (
+            self._db.sync_session.get_transaction() is not self._root_transaction
+        ):
+            raise RuntimeError(
+                "Fresh Pricing publication proof is no longer valid in this transaction."
+            )
+        self._consumed = True
+
+        # The original create_publication acquired and retains Company
+        # FOR NO KEY UPDATE and PriceBook FOR UPDATE until transaction end.
+        # Re-check the mutable approval policy at the exact publication point.
+        if await maker_checker_enabled(self._db, self._company_id):
+            raise PricingError(
+                "PRICING_APPROVAL_REQUIRED",
+                "Maker/Checker مفعّل؛ يجب Submit ثم Approve.",
+            )
+
+        row = self.publication
+        if row.status != "DRAFT":
+            raise PricingError(
+                "PRICE_PUBLICATION_STATE_CONFLICT",
+                "النشر المباشر مسموح من DRAFT فقط.",
+                context={"status": row.status},
+            )
+        if int(row.version) != int(expected_version):
+            raise PricingError(
+                "PRICE_PUBLICATION_VERSION_CONFLICT",
+                "تغيرت نسخة النشر؛ حدّث البيانات وأعد المحاولة.",
+                context={"current_version": int(row.version)},
+            )
+        if (
+            int(row.company_id) != self._company_id
+            or int(self._book.company_id) != self._company_id
+            or int(self._book.id) != int(row.price_book_id)
+        ):
+            raise RuntimeError("Fresh Pricing publication scope has inconsistent tenant/book.")
+        return await _publish_locked(
+            self._db,
+            company_id=self._company_id,
+            actor_id=actor_id,
+            publication=row,
+            already_locked_book=self._book,
+        )
+
+
+async def create_direct_publication(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    actor_id: int,
+    book_id: int,
+    expected_book_version: int,
+    effective_at: datetime,
+    request_id: UUID,
+) -> _SameTransactionDirectPublication:
+    """Create a new DRAFT and retain the Pricing-owned same-txn lock proof.
+
+    Intended for the existing create-draft-publish sequence, including
+    Simple Products. General publish_publication/approve_publication keep
+    their normal locking, publication lookup and approval contracts.
+    """
+    row, locked_book = await _create_publication_with_locked_book(
+        db,
+        company_id=company_id,
+        actor_id=actor_id,
+        book_id=book_id,
+        expected_book_version=expected_book_version,
+        effective_at=effective_at,
+        request_id=request_id,
+    )
+    transaction = db.sync_session.get_transaction()
+    if transaction is None:
+        raise RuntimeError("Fresh Pricing publication requires an active transaction.")
+    return _SameTransactionDirectPublication(
+        db=db,
+        company_id=company_id,
+        publication=row,
+        book=locked_book,
+        root_transaction=transaction,
+    )
 
 
 async def _draft_publication(
@@ -876,13 +1008,27 @@ async def _publish_locked(
     company_id: int,
     actor_id: int,
     publication: PricePublication,
+    already_locked_book: PriceBook | None = None,
 ) -> PricePublication:
-    await _active_book(
-        db,
-        company_id=company_id,
-        book_id=int(publication.price_book_id),
-        lock=True,
-    )
+    if already_locked_book is None:
+        await _active_book(
+            db,
+            company_id=company_id,
+            book_id=int(publication.price_book_id),
+            lock=True,
+        )
+    else:
+        # A book locked at DRAFT creation cannot change in another transaction
+        # before this same root transaction commits or rolls back.
+        if already_locked_book.status != "ACTIVE":
+            raise PricingError(
+                "PRICE_BOOK_INACTIVE",
+                "دفتر الأسعار غير فعال ولا يقبل تعديلات تجارية جديدة.",
+                context={
+                    "price_book_id": int(publication.price_book_id),
+                    "status": already_locked_book.status,
+                },
+            )
     await _validate_publication_entries(
         db, company_id=company_id, publication=publication
     )
