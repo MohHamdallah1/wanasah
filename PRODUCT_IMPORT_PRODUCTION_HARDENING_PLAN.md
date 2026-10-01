@@ -1096,6 +1096,22 @@ transport limits are independent from this intentional UX cap.
 - [ ] Do not call the **entire V1 product experience** release-ready until
   the above items close; "Product Import V1 backend is production-hardened"
   remains the **backend-only** Phase 18 claim.
+- [x] **Repeatable V1 source-only gate + safe draft exit, 2026-10-01:**
+  `wa_backend/scripts/run_product_import_v1_source_gate.ps1` combines the
+  previously scattered, **explicitly non-DB** correction/metadata, source-row,
+  synthetic mixed-language, staging contract, retry/idempotency and frontend
+  cancellation/receipt/localization checks with TypeScript, selected ESLint
+  and Vite production build. **45/45 Backend + 48/48 Dashboard focused tests,
+  typecheck, lint, production build ALL PASS** on the Windows development
+  machine; source gate printed `P19_REAL_HTTP_POSTGRES_WORKER_BROWSER_50K=OPEN`.
+  In particular a stored valid draft is now recoverable with confirmation
+  if correction GET fails or network is offline, without silently deleting
+  the user's edited cells; two focused UI tests cover that edge case.
+  Source runbook: `wa_backend/domains/simple_products/imports/RUNBOOK.md`.
+  This completes **only** source-code regression automation and safe
+  draft recovery; it does **not** replace the pending real HTTP/PostgreSQL,
+  real queue/50k, manual accessibility, real tenant or customer-deployment
+  acceptance.
 - [ ] Add repeatable focused gates for the accepted correction workflow,
   real-load suite and representative small/mixed edge-case regressions.
 

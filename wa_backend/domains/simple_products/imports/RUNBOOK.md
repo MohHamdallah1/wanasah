@@ -493,3 +493,38 @@ version/retention rejection and authority/replay ordering, without a live DB or
 worker. Real PostgreSQL FORCE RLS, transaction rollback/lock races, queue-to-worker
 completion and authenticated deployed HTTP remain release acceptance work; do
 not label them PASS from these focused tests.
+
+
+## Phase 19.5 single source-only V1 import gate (no PostgreSQL)
+
+From the repository root on the existing **Windows development machine**:
+
+
+```powershell
+& .\wa_backend\scripts\run_product_import_v1_source_gate.ps1
+```
+
+This runs one bounded package of pre-existing real parser/source-semantics,
+inline/file correction, staging SQL isolation, immutable/idempotent correction,
+small/mixed synthetic fixture, and Dashboard error/draft/cancel/locale tests,
+then the TypeScript type-check, targeted ESLint and **production Vite build**.
+Only the explicitly named Phase 8 no-DB classes are selected: its sibling
+integration class would write to a database and is NOT included.
+
+The runner sets deliberately unreachable synthetic loopback PostgreSQL/Redis
+URLs in its process for the selected double-based tests and restores prior
+environment variables afterwards. It never invokes a Worker launcher,
+HTTP import, migration, real DB integration or 5k/50k job. A passing result
+prints `P19_SOURCE_GATE=PASS` and
+`P19_REAL_HTTP_POSTGRES_WORKER_BROWSER_50K=OPEN`. If a selected
+test/build step fails it stops immediately; do not misreport a partial
+step as an overall PASS.
+
+**Closure boundary:** this command can establish one repeatable **code-only**
+gate independent of Codex's staging recovery and the eventual rehearsal
+environment. It cannot prove browser keyboard/mobile/screen-reader behavior,
+authenticated tenant/RLS isolation, network replay, PostgreSQL/Worker
+commit/rollback, resource-pressure/cancel recovery, or 50,000-row throughput.
+Those remain the original Phase 19.1, 19.2, 19.4–19.5 OPEN acceptance
+items until observed against the owner-authorized synthetic rehearsal
+tenant. The separate first-customer D7-P/D8-P release runbook remains OPEN.

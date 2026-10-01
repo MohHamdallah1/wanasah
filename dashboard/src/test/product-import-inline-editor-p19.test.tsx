@@ -158,6 +158,51 @@ describe("inline correction UI uses the server-owned failed-row contract", () =>
     expect(bodies[0]).toBe(bodies[1]);
   });
 
+  it("preserves a valid draft after GET failure and permits only confirmed discard", async () => {
+    const key = productDurableScope(38, 17, "product-import-inline-correction", JOB) + ":draft";
+    const original = JSON.stringify({
+      jobVersion: 7,
+      rowVersions: { [ROW]: 3 },
+      edits: { [ROW]: { name: "Do not lose this name" } },
+    });
+    sessionStorage.setItem(key, original);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const authFetch = vi.fn().mockRejectedValue({ status: 503, code: "PRODUCT_IMPORT_WORKER_HEALTH_UNAVAILABLE" });
+    render(<ImportInlineCorrectionPanel {...props} authFetch={authFetch} />);
+    expect(await screen.findByText("products.inlineCorrection.draftNeedsReload")).not.toBeNull();
+    expect(sessionStorage.getItem(key)).toBe(original);
+    expect(screen.queryByRole("button", {
+      name: "products.inlineCorrection.submit",
+    })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "products.inlineCorrection.discardDraft" }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem(key)).toBe(original);
+    expect(authFetch).toHaveBeenCalledTimes(1);
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "products.inlineCorrection.discardDraft" }));
+    await waitFor(() => expect(sessionStorage.getItem(key)).toBeNull());
+    await waitFor(() => expect(screen.queryByText("products.inlineCorrection.draftNeedsReload")).toBeNull());
+    expect(authFetch.mock.calls.filter(([, options]) => options?.method === "POST")).toHaveLength(0);
+  });
+
+  it("offers confirmed draft discard offline without fetching or changing the job", async () => {
+    const key = productDurableScope(38, 17, "product-import-inline-correction", JOB) + ":draft";
+    sessionStorage.setItem(key, JSON.stringify({
+      jobVersion: 7,
+      rowVersions: { [ROW]: 3 },
+      edits: { [ROW]: { name: "My offline changes" } },
+    }));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const authFetch = vi.fn();
+    render(<ImportInlineCorrectionPanel {...props} online={false} authFetch={authFetch} />);
+    expect(await screen.findByText("products.inlineCorrection.draftNeedsReload")).not.toBeNull();
+    expect(screen.getByText("products.inlineCorrection.offline")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "products.inlineCorrection.discardDraft" }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(sessionStorage.getItem(key)).toBeNull());
+    expect(authFetch).not.toHaveBeenCalled();
+  });
+
   it("fails closed and offers confirmed recovery for an unreadable saved draft", async () => {
     const scope = productDurableScope(38, 17, "product-import-inline-correction", JOB);
     const key = scope + ":draft";
