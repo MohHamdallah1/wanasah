@@ -884,10 +884,29 @@ structural gates, parser benchmarks, or mocked failure injection alone.
   event-loop behavior, connection cancellation, DB backpressure and
   driver/transaction configuration. Do **not** guess that using a 500-row
   batch alone fixes this second observed failure.
-- [ ] Add bounded, recoverable staging stall detection and a
-  deterministic cancel/rollback/retry contract. Cancellation waiting
-  for a stalled staging transaction must not leave the user spinning
-  forever. Prove SourceStore retention and state consistency on timeout.
+- [x] **Bounded staging wait/recovery implementation only — live acceptance OPEN:**
+  Codex source changes add a per-staging-DB-step **120 s** watchdog,
+  **10 s** cleanup/drain budget and owned-asyncpg-transport termination
+  for unresponsive cancellation, scoped to the existing SQLAlchemy pool
+  without terminating transports already checked in/reborrowed by another
+  company. Preserve the original single transaction, actual staged-row
+  reconciliation, retryable JOB error, SourceStore bytes and ambiguous
+  COMMIT-replay authority. Peer review fixed a proven secondary edge where
+  terminate() throwing on an already-failing connection could skip
+  cancellation/drain and leak private diagnostics; reviewed **12/12**
+  focused staging source/double tests and AST syntax PASS on the independent
+  Windows worktree. See
+  `wa_backend/domains/simple_products/imports/PHASE19_STAGING_RECOVERY.md`.
+  No live PostgreSQL rollback/lock release, worker or HTTP acceptance is
+  implied by this code-only checkpoint.
+- [ ] **Actual staging cancellation/rollback/retry acceptance:**
+  verify worker error recovery and official HTTP cancel on an **approved
+  isolated synthetic rehearsal tenant**, including source retention,
+  retry/restart, lost COMMIT acknowledgement and no stuck transaction or
+  cross-tenant connection termination. Connection pre-ping and physical
+  PostgreSQL lock release cannot be proved from mocked cancellation.
+  The historical asyncpg/Windows ClientRead root-cause investigation
+  and intermediate-size real queue measurements remain separately OPEN.
 - [ ] Rerun 50k real-queue import with unique identities **only
   after** the staging-hang root cause and fresh intermediate-size gates
   pass. Measure actual E2E latency/resources/lineage; do not
