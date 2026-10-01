@@ -141,10 +141,29 @@ def main() -> None:
                 check=False,
             )
             if child.returncode:
-                # Do not replay private child traceback/SQL/DSN from stderr.
-                # Keep any still-running owned worker cleanup in child finally.
-                print("P19_INTERMEDIATE_CHILD_EXIT_NONZERO=" + str(child.returncode), flush=True)
-                raise RuntimeError("Real intermediate queue gate did not complete.")
+                # Do not replay a child traceback/SQL/DSN (which might contain
+                # passwords, authorization headers or customer source text).
+                # Expose only approved aggregate gate markers and exception TYPE.
+                import re
+                for line in child.stdout.splitlines():
+                    if line.startswith((
+                        "P19_REAL_HTTP_EXECUTION_READINESS=",
+                        "P19_REAL_QUEUE_",
+                        "P19_INTERMEDIATE_RESULT=",
+                    )):
+                        print("P19_CHILD_SAFE_MARKER=" + line[:900], flush=True)
+                kinds = re.findall(
+                    r"(?m)^([A-Za-z_]+(?:Error|Exception)):",
+                    child.stderr or "",
+                )
+                print(
+                    "P19_INTERMEDIATE_CHILD_EXIT_NONZERO="
+                    + str(child.returncode)
+                    + " exception_type="
+                    + (kinds[-1] if kinds else "UNKNOWN"),
+                    flush=True,
+                )
+                raise RuntimeError("Real isolated import queue gate did not complete.")
         # Children emit aggregate counts/timings, never bearer/JWT or source cells.
         print(child.stdout, end="", flush=True)
         expected_marker = (
