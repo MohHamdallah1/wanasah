@@ -108,3 +108,23 @@ reproduce the driver symptom; record timings and waits on the same launcher.
 Resolve that cause and prove row fidelity, tenant/RLS, atomic commit and ambiguous
 commit recovery before the owner's final 50k. The user's two Excel files remain
 reserved for that later acceptance. No Dashboard or business logic was modified.
+
+
+## Source peer review after Codex commit
+
+Review found one bounded-cancellation edge case: a captured asyncpg
+transport can already be disconnecting and its synchronous terminate()
+may raise. Previously abort() would propagate that secondary exception
+**before cancelling/draining the original awaited staging task**, potentially
+stranding it without the intended cleanup marker. The guard now logs a
+source-safe TERMINATE_FAILED marker and always continues to _stop(task);
+it never treats failed transport termination as proof of rollback or
+connection release. The focused regression injects a failing terminate()
+with a private error string, verifies cancellation completes and no
+sensitive error text enters operator logs.
+
+2026-10-01 reviewer isolated Windows worktree: **12/12** focused staging
+checks PASS; AST syntax PASS. The temporary review worktree was removed
+afterward; the operator's root checkout, Codex worktree, existing PostgreSQL
+and historical jobs were not modified. This is still mock/double-based
+source evidence: no real PostgreSQL lock-release/Worker/HTTP/50k PASS claimed.
