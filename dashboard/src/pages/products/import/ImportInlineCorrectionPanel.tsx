@@ -22,7 +22,8 @@ export function ImportInlineCorrectionPanel({
     loadFailedMessage: t("products.inlineCorrection.loadFailed"),
     saveFailedMessage: t("products.inlineCorrection.saveFailed"),
   });
-  const busy = review.saving || review.pending !== null || review.staleDraft || !online;
+  const busy = review.saving || review.pending !== null || review.staleDraft ||
+    review.draftNeedsReload || !online;
   return (
     <section aria-label={t("products.inlineCorrection.title")} className="space-y-3 rounded-xl border border-amber-200 bg-amber-50/30 p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -82,11 +83,13 @@ export function ImportInlineCorrectionPanel({
         </div>
       ) : null}
 
-      {review.staleDraft ? (
+      {(review.staleDraft || review.draftNeedsReload) ? (
         <div role="alert" className="space-y-2 rounded-lg border border-amber-300 bg-white p-3 text-xs text-amber-950">
           <p className="font-bold">{t(review.unreadableDraft
             ? "products.inlineCorrection.unreadableDraft"
-            : "products.inlineCorrection.staleDraft")}</p>
+            : review.draftNeedsReload
+              ? "products.inlineCorrection.draftNeedsReload"
+              : "products.inlineCorrection.staleDraft")}</p>
           <button
             type="button"
             disabled={review.saving || Boolean(review.pending)}
