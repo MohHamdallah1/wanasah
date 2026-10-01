@@ -158,6 +158,34 @@ describe("inline correction UI uses the server-owned failed-row contract", () =>
     expect(bodies[0]).toBe(bodies[1]);
   });
 
+  it("fails closed and offers confirmed recovery for an unreadable saved draft", async () => {
+    const scope = productDurableScope(38, 17, "product-import-inline-correction", JOB);
+    const key = scope + ":draft";
+    sessionStorage.setItem(key, "{broken-json");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const authFetch = vi.fn(async () => page);
+    render(<ImportInlineCorrectionPanel {...props} authFetch={authFetch} />);
+    expect(await screen.findByText("products.inlineCorrection.unreadableDraft")).not.toBeNull();
+    expect((screen.getByRole("button", {
+      name: "products.inlineCorrection.submit",
+    }) as HTMLButtonElement).disabled).toBe(true);
+    expect(sessionStorage.getItem(key)).toBe("{broken-json");
+    fireEvent.click(screen.getByRole("button", {
+      name: "products.inlineCorrection.discardDraft",
+    }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem(key)).toBe("{broken-json");
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", {
+      name: "products.inlineCorrection.discardDraft",
+    }));
+    await waitFor(() => expect(sessionStorage.getItem(key)).toBeNull());
+    await waitFor(() => expect(screen.queryByText(
+      "products.inlineCorrection.unreadableDraft",
+    )).toBeNull());
+    expect(authFetch).toHaveBeenCalledTimes(2);
+  });
+
   it("does not discard a stale typed draft unless the user confirms", async () => {
     const scope = productDurableScope(38, 17, "product-import-inline-correction", JOB);
     const draftKey = scope + ":draft";

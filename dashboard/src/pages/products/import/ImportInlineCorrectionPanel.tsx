@@ -84,7 +84,9 @@ export function ImportInlineCorrectionPanel({
 
       {review.staleDraft ? (
         <div role="alert" className="space-y-2 rounded-lg border border-amber-300 bg-white p-3 text-xs text-amber-950">
-          <p className="font-bold">{t("products.inlineCorrection.staleDraft")}</p>
+          <p className="font-bold">{t(review.unreadableDraft
+            ? "products.inlineCorrection.unreadableDraft"
+            : "products.inlineCorrection.staleDraft")}</p>
           <button
             type="button"
             disabled={review.saving || Boolean(review.pending)}

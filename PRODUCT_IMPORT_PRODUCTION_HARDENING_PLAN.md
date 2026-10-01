@@ -1025,10 +1025,26 @@ transport limits are independent from this intentional UX cap.
   not as a fresh Product import; authorize tenant/job/field access and
   server-validate edited data again through existing Product/Pricing/
   Tracking/UOM authority before committing.
-- [ ] Keep imported rows immutable; allow correction only for
-  `INVALID`/`IMPORT_FAILED` with explicit optimistic concurrency,
-  durable idempotent submission, protected drafts, offline recovery and
-  clear result reconciliation; reject unknown and cross-company identities.
+- [x] **Source implementation complete; live acceptance remains OPEN:**
+  keep `IMPORTED` rows immutable; permit only `INVALID`/`IMPORT_FAILED`
+  targets under job+row locks, tenant/job scoping and immutable row
+  identities. Inline corrections use explicit `expected_job_version` and
+  `expected_version`; official XLSX correction uses a serialized job lock,
+  immutable request hash and failed-row eligibility instead of inventing a
+  file-carried optimistic version. Both share the existing transactional
+  mutation/queue/idempotency authority; unknown/cross-job/company row
+  identities and previously successful rows fail closed. The UI persists
+  only changed-cell drafts per company/actor/job, preserves same-ID retries
+  on ambiguous outcomes and blocks overlapping correction routes.
+  Existing `test_product_import_inline_correction.py` and no-DB Phase 8
+  correction/idempotency classes **21/21 PASS** (on unreachable synthetic
+  DSN), while frontend correction/rejected review **20/20 PASS** on this
+  source revision, including a newly fixed case where corrupted tab-local
+  JSON used to trap the user behind a hidden reset guard: it now exposes
+  confirmed, non-silent draft discard even if the correction GET fails.
+  Do **not** infer live PostgreSQL FORCE RLS, race, actual Worker execution,
+  cross-tenant HTTP or Product/Variant/Price/Audit readback: independent
+  19.1 and 19.3 browser acceptance checkboxes remain OPEN.
 - [x] Represent **multiple possible issues** per row in UI contracts; a row may expose its
   next error only after the first is fixed. Show row-level and field-level
   feedback without promising that the first report is exhaustive.
@@ -1060,9 +1076,17 @@ transport limits are independent from this intentional UX cap.
 - [ ] Manually verify the guide/tooltip, dynamic-locale template,
   "No outer package" semantics, role-restricted prices, result receipt,
   search/filter behavior and list freshness on real browsers/devices.
-- [ ] Record user confusion or genuinely unsupported V1 requirements as
-  acceptance failures. Do not move required V1 correctness into V2 merely
-  because V2 has a broader UOM domain.
+- [x] Record and classify actual owner-reported V1 UX confusion and
+  code/acceptance boundaries in
+  `docs/operations/PRODUCT_IMPORT_V1_UX_ACCEPTANCE_FINDINGS.md`:
+  15k rejected rows vs 25-row total-edit cutoff, non-hover-only error
+  reasons, correcting on the original job vs re-upload, 202 ACK vs
+  finished Product/Price writes, physical source row vs Product parent/
+  Variant counts, text vs Excel numeric/formula barcodes, and
+  ambiguous-response/draft recovery. Each finding explicitly marks its
+  **unverified live/browser acceptance** and keeps V1 correctness in V1.
+  This closes the **recording/classification task only**, not manual user
+  signoff, role-restricted browser or the release rule.
 
 ## 19.5 V1 release rule and references
 
