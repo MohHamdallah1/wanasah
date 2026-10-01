@@ -243,6 +243,15 @@ export function useImportProductWorkflow({
         importMutation.isPending,
       online,
       jobId: importJobId,
+      companyId,
+      driverId,
+      onInlineCorrectionAccepted: (ack: import("@/pages/products/import/inlineCorrectionContracts").InlineCorrectionAck) => {
+        if (ack.job_id !== importJobId) return;
+        setImportStatus((current) => current && current.job_id === importJobId
+          ? { ...current, status: ack.status }
+          : current);
+        setImportPollKey((current) => current + 1);
+      },
       status: importStatus,
       pollError:
         importPollError,
