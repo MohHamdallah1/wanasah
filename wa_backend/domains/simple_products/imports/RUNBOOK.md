@@ -564,3 +564,53 @@ readback. A separate 1-row case tests a *second new validation error*
 after the first is fixed. This is NOT browser/mobile/RTL/manual acceptance,
 an intentionally induced 120s ClientRead timeout, a medium/50k performance
 measurement, or first-customer D7-P/D8-P signoff.
+
+
+## Phase 19: repeatable 5k/10k REAL intermediate import on disposable PG
+
+**Purpose:** exercise actual HTTP admission, PostgreSQL staging, queue/Worker,
+per-row validation and Product/Price/Audit/Outbox persistence between the
+100-row correction gate and the final 50k load. Reuses exactly the guarded
+Phase19 disposable API/DB/worker launcher (PG 127.0.0.1:55446, API
+127.0.0.1:18046) and the preapproved empty synthetic source company. No writes
+or worker recovery are performed against developer PG 5432 or user files.
+
+Run from wa_backend on Windows using the real checked-out source and existing
+venv. **Opt-in** is mandatory; always use a NEW disposable cluster:
+
+
+```powershell
+$env:WANASAH_P19_HTTP_LOCAL_GATE = "1"
+$env:WANASAH_P19_HTTP_SOURCE_ENV_FILE = (Resolve-Path ".\.env").Path
+$env:WANASAH_P19_HTTP_CASE = "medium"
+$env:WANASAH_P19_INTERMEDIATE_ROWS = "5000"  # or exactly "10000"
+.\venv\Scripts\python.exe -m scripts.run_product_import_phase19_http_isolated_gate
+```
+
+The child strictly rejects any database other than
+127.0.0.1:55446/p19_http_synthetic; no other row count is permitted. It
+checks the signed HTTP 202 response, watches the real status transitions,
+requires COMPLETED_WITH_ERRORS for its 1%-invalid synthetic input, reconciles
+all physical rows and distinct imported variant IDs, verifies matching
+Pricing/Audit/Outbox, source cleanup, no active delivery and untouched
+preapproved developer tenant. Existing 5k and 10k runs both exited 0,
+printed `P19_REAL_QUEUE_<ROWS>_SYNTHETIC=PASS` and the parent
+printed `P19_HTTP_DISPOSABLE_CLUSTER_REMOVED=PASS`.
+
+Measured **HTTP admission to terminal job status**, excluding disposable
+cluster bootstrap time:
+- 5,000 source / 4,950 imported / 50 rejected: **53.458 seconds**
+  (admission **0.110 seconds**), distinct price/audit/outbox **4,950**.
+- 10,000 source / 9,900 imported / 100 rejected: **80.266 seconds**
+  (admission **0.133 seconds**), distinct price/audit/outbox **9,900**.
+Both have 0 IMPORT_FAILED, source rows mapped to physical lines 2..5001
+and 2..10001 respectively, all staged source cleaned, and no active queue
+delivery after completion. These are **two independent single-run
+measurements** and cannot define completion-time p50/p95 or certify 50k.
+Historical September Windows/asyncpg ClientRead did not recur; its exact
+internal mechanism remains unknown. Do not disable guarded staging deadlines
+or report a historical root cause solely from these successes.
+
+The ordinary **small** command (without WANASAH_P19_HTTP_CASE=medium) still
+runs the proven 100-row inline/CSV/XLSX/permissions/replay suite; medium
+mode does not replace that acceptance or the final 50k/real-browser gates.

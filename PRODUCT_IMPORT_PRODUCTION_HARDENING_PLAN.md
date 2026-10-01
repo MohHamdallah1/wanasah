@@ -952,6 +952,29 @@ reproduced timeout/lock release, medium/50k measurement, and customer D7-P/D8-P*
   Focused staging integrity and secret-redaction checks **5/5 PASS**,
   syntax check PASS. **Actual queue/PG diagnosis and 5k/10k/50k execution
   are still OPEN and must not be inferred from these mocked tests.**
+- [x] **Actual isolated 5k/10k intermediate queue acceptance, 2026-10-01:**
+  Fresh opt-in synthetic workloads exercised the real signed HTTP upload,
+  PostgreSQL 16 SourceStore, SelectorEventLoop API and all three live
+  execution/control/maintenance worker roles in the *throwaway* 55446
+  instance, using unique run/request/barcode identities. Reused the
+  previously accepted small HTTP setup; no developer/customer DB writes.
+  **5,000 source rows: 4,950 IMPORTED / 50 INVALID / 0 IMPORT_FAILED,
+  53.458 s E2E, 0.110 s HTTP admission, 4,950 distinct pricing,
+  audit and outbox identities, no active queue delivery.**
+  **10,000 source rows: 9,900 IMPORTED / 100 INVALID / 0 IMPORT_FAILED,
+  80.266 s E2E, 0.133 s HTTP admission, 9,900 distinct pricing,
+  audit and outbox identities, no active queue delivery.**
+  Both verified physical row-number bounds (5001/10001), source cleanup,
+  job-counter parity, accepted ProductVariant lineage and the original
+  developer synthetic tenant unchanged; both temporary PG clusters
+  cleanly removed. Generator/guard:
+  `wa_backend/scripts/product_import_phase19_medium_isolated_child.py`
+  selected through `run_product_import_phase19_http_isolated_gate.py`
+  with explicit medium mode and 5k/10k row guard. These are **single
+  measured runs, not an evidence-based p95**; the September asyncpg/
+  Windows ClientRead cause did not recur but remains **unexplained**.
+  Real full 50k, live fault-injected cancellation/lock cleanup and
+  cross-user browser acceptance are still OPEN; never treat 10k as 50k.
 - [ ] **Blocking root-cause investigation before repeating 50k:**
   instrument the actual queue worker and source staging
   with bounded per-batch timing/progress and DB query/wait diagnostics;
@@ -1227,8 +1250,14 @@ transport limits are independent from this intentional UX cap.
   draft recovery; it does **not** replace the pending real HTTP/PostgreSQL,
   real queue/50k, manual accessibility, real tenant or customer-deployment
   acceptance.
-- [ ] Add repeatable focused gates for the accepted correction workflow,
-  real-load suite and representative small/mixed edge-case regressions.
+- [x] Add repeatable focused gates for correction, representative
+  small/mixed source rows and real-load acceptance. The selected
+  source-only 45/45 backend + 48/48 frontend gate, standalone
+  disposable D4 PG/worker recovery gate, Phase 19 signed HTTP inline/
+  CSV/XLSX+RLS+replay gate, and newly recorded real 5k/10k intermediate
+  queue runs now form a repeatable tested gate **suite**.
+  The final 50k source and owner-facing browser acceptance remain
+  independently OPEN above and are not covered by this checkbox.
 
 Relevant external design references (patterns to evaluate, **not** feature
 promises): Odoo product packaging and physical packages; SAP packaging

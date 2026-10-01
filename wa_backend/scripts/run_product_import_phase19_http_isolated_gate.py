@@ -49,6 +49,11 @@ def main() -> None:
         base._pg(bins, name)
     _ensure_free(PORT)
     _ensure_free(API_PORT)
+    variant = os.environ.get("WANASAH_P19_HTTP_CASE", "small")
+    if variant not in {"small", "medium"}:
+        raise RuntimeError("Unknown P19 HTTP rehearsal case.")
+    if variant == "medium" and os.environ.get("WANASAH_P19_INTERMEDIATE_ROWS") not in {"5000", "10000"}:
+        raise RuntimeError("Medium rehearsal requires an explicit 5000 or 10000 row count.")
     root = Path(tempfile.mkdtemp(prefix="wanasah_p19_http_disposable_"))
     started = False
     try:
@@ -116,14 +121,34 @@ def main() -> None:
             "SENTRY_DSN": "",
             "ENVIRONMENT": "development",
         })
-        child = d4.run([
-            sys.executable, "-m", "scripts.product_import_phase19_http_isolated_child"
-        ], env=env)
-        # The child emits only aggregate evidence and error CODEs, never JWT,
-        # source cells, role credentials, DB URLs, or private logs.
+        child_module = (
+            "scripts.product_import_phase19_http_isolated_child"
+            if variant == "small" else
+            "scripts.product_import_phase19_medium_isolated_child"
+        )
+        if variant == "small":
+            child = d4.run([sys.executable, "-m", child_module], env=env)
+        else:
+            # 5k/10k are opt-in, bounded real queue runs; the original small
+            # gate keeps its established 420s budget unchanged.
+            child = subprocess.run(
+                [sys.executable, "-m", child_module],
+                cwd=ROOT, env=env, capture_output=True, text=True,
+                timeout=1250, check=False,
+            )
+            if child.returncode:
+                # Do not replay private child traceback/SQL/DSN from stderr.
+                # Keep any still-running owned worker cleanup in child finally.
+                print("P19_INTERMEDIATE_CHILD_EXIT_NONZERO=" + str(child.returncode), flush=True)
+                raise RuntimeError("Real intermediate queue gate did not complete.")
+        # Children emit aggregate counts/timings, never bearer/JWT or source cells.
         print(child.stdout, end="", flush=True)
-        if MARKER not in child.stdout:
-            raise RuntimeError("REAL HTTP small acceptance marker was not emitted.")
+        expected_marker = (
+            MARKER if variant == "small" else
+            "P19_REAL_QUEUE_" + os.environ["WANASAH_P19_INTERMEDIATE_ROWS"] + "_SYNTHETIC=PASS"
+        )
+        if expected_marker not in child.stdout:
+            raise RuntimeError("Real isolated rehearsal did not emit its PASS marker.")
         asyncio.run(base._verify_source_still_empty(source))
         print("P19_HTTP_SOURCE_DEVELOPER_UNMODIFIED=PASS", flush=True)
     finally:
