@@ -893,7 +893,10 @@ structural gates, parser benchmarks, or mocked failure injection alone.
   worker launcher. Windows SelectorEventLoop focused staging suite
   **10/10 PASS** initially; final affected recovery cases **6/6 PASS**
   after late-checkout/pool-checkin ownership hardening (11 distinct
-  focused checks). PostgreSQL/transport/queue boundaries are
+  focused checks). Peer review also ensured that a failure in the driver's
+  synchronous terminate() cannot skip bounded coroutine cancellation or
+  expose private exception text; the isolated suite is **12/12 PASS**
+  with AST syntax PASS. PostgreSQL/transport/queue boundaries are
   doubles. Evidence: imports/PHASE19_STAGING_RECOVERY.md.
 - [ ] **Live staging cancellation/rollback/retry acceptance:** prove the
   owned-transport watchdog releases PostgreSQL locks, official HTTP
