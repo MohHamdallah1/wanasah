@@ -144,6 +144,11 @@ export function useImportCorrection({
           // command on ambiguous responses, but free this proven zero-write
           // request so it cannot lock the job in the local UI forever.
           abandonDurableOperation(scope);
+          if (apiErrorStatus(error) === 410 &&
+              currentJobRef.current === jobId) {
+            setSelected(null);
+            if (fileRef.current) fileRef.current.value = "";
+          }
         }
         throw error;
       }
@@ -162,12 +167,6 @@ export function useImportCorrection({
       );
     },
     onError: (error) => {
-      if (apiErrorStatus(error) === 410 &&
-          apiErrorCode(error) === "PRODUCT_IMPORT_CORRECTION_DETAILS_EXPIRED") {
-        // That file is permanently ineligible; do not offer a futile retry.
-        setSelected(null);
-        if (fileRef.current) fileRef.current.value = "";
-      }
       toast.error(apiErrorMessage(error, t("products.correction.uploadFailed")));
     },
   });
