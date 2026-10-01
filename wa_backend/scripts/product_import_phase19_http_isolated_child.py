@@ -330,6 +330,57 @@ def test_real_auth_revocation_and_audit(
             raise RuntimeError("Outbox command request differs from audit request.")
     print("P19_REAL_HTTP_AUDIT_CONTENT_AND_FK_SCOPING=PASS", flush=True)
 
+    # Exercise actual DB composite-FK enforcement, not only successful joins.
+    # The role of actor-2 is in company-3. Attempting to assign that actor
+    # to a company-2 import job must fail as one atomic statement.
+    creator_before = admin.execute(
+        "SELECT created_by FROM product_import_jobs WHERE company_id=2 AND id=%s",
+        (job_id,),
+    ).fetchone()
+    if creator_before is None or int(creator_before[0]) != 1:
+        raise RuntimeError("Expected original synthetic import actor 1.")
+    try:
+        with admin.transaction():
+            admin.execute(
+                "UPDATE product_import_jobs SET created_by=2 "
+                "WHERE company_id=2 AND id=%s",
+                (job_id,),
+            )
+    except psycopg.errors.ForeignKeyViolation:
+        pass
+    else:
+        raise RuntimeError("Tenant-scoped job creator composite FK allowed a company-3 actor.")
+    creator_after = admin.execute(
+        "SELECT created_by FROM product_import_jobs WHERE company_id=2 AND id=%s",
+        (job_id,),
+    ).fetchone()
+    if creator_after != creator_before:
+        raise RuntimeError("Rejected cross-company foreign key update changed persisted import.")
+    print("P19_REAL_POSTGRES_IMPORT_ACTOR_COMPOSITE_FK=PASS", flush=True)
+
+    # Positive authorized read above + negative wrong HTTP identity below are
+    # complemented with direct real-app-role FORCE RLS, no migration bypass.
+    app_url = make_url(os.environ["DATABASE_URL"])
+    with psycopg.connect(
+        app_url.set(drivername="postgresql").render_as_string(hide_password=False),
+        autocommit=True,
+    ) as app:
+        app.execute("SELECT set_config('app.current_tenant','3',false)")
+        leaked = app.execute(
+            "SELECT count(*) FROM product_import_rows WHERE company_id=2 AND job_id=%s",
+            (job_id,),
+        ).fetchone()[0]
+        if int(leaked) != 0:
+            raise RuntimeError("Real app PostgreSQL role bypassed foreign-tenant import rows RLS.")
+        app.execute("SELECT set_config('app.current_tenant','2',false)")
+        own = app.execute(
+            "SELECT count(*) FROM product_import_rows WHERE company_id=2 AND job_id=%s",
+            (job_id,),
+        ).fetchone()[0]
+        if int(own) != 100:
+            raise RuntimeError("Owned import rows were incorrectly hidden after tenant scope restore.")
+    print("P19_REAL_POSTGRES_IMPORT_ROWS_APP_ROLE_RLS=PASS", flush=True)
+
     # Browser token signatures/claims alone must not bypass live is_active
     # or persisted blacklist. This uses the already-authenticated client
     # against the same Uvicorn instance, not in-process auth mocks.
