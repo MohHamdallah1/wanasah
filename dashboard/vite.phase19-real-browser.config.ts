@@ -4,7 +4,8 @@ import path from "node:path";
 
 // This browser-only entry must never be reachable in a normal Vite build or
 // pointed at the developer's ordinary API / production backend.
-if (process.env.WANASAH_P19_REAL_BROWSER_CONFIRM !== "DISPOSABLE_PG16_ONLY") {
+if (process.env.WANASAH_P19_REAL_BROWSER_CONFIRM !== "DISPOSABLE_PG16_ONLY" ||
+    process.env.WANASAH_P19_HTTP_DISPOSABLE_CHILD !== "1") {
   throw new Error("Real-browser acceptance requires disposable-only authorization.");
 }
 
