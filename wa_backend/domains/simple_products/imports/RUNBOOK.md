@@ -614,3 +614,41 @@ or report a historical root cause solely from these successes.
 The ordinary **small** command (without WANASAH_P19_HTTP_CASE=medium) still
 runs the proven 100-row inline/CSV/XLSX/permissions/replay suite; medium
 mode does not replace that acceptance or the final 50k/real-browser gates.
+
+## Phase 19 final isolated synthetic 50k execution (2026-10-01 evidence)
+
+This is a narrowly opt-in **synthetic** acceptance mode of the existing
+disposable PG16/HTTP/three-Worker runner. It does NOT use the owner's reserved
+Excel files or connect a Worker to the developer production-like database.
+From wa_backend in PowerShell, only for an explicitly approved run:
+
+~~~powershell
+$env:WANASAH_P19_HTTP_LOCAL_GATE = '1'
+$env:WANASAH_P19_HTTP_SOURCE_ENV_FILE = (Resolve-Path '.\.env').Path
+$env:WANASAH_P19_HTTP_CASE = 'final50k'
+$env:WANASAH_P19_INTERMEDIATE_ROWS = '50000'
+$env:WANASAH_P19_FINAL_50K_CONFIRM = 'ISOLATED_SYNTHETIC_ONLY'
+.\venv\Scripts\python.exe -m scripts.run_product_import_phase19_http_isolated_gate
+~~~
+
+The runner refuses a non-dev source DB, occupied isolated ports, unknown
+run mode or missing final-50k acknowledgement. It creates/disposes its own
+PostgreSQL 16 cluster at 127.0.0.1:55446; only the whitelisted EMPTY synthetic
+developer tenant is read from source. Existing developer historical jobs are
+never touched. This mode is intended for one-off end-to-end proof, NOT ongoing
+load testing of original customer source files.
+
+An actual isolated run based on main 3a77f95 completed PASS (50,000 records,
+49,500 imported/500 deliberately invalid, 0 IMPORT_FAILED, source row last
+physical #50005, 49,500 Pricing/Audit/Outbox, 255.868 seconds from HTTP
+admission to terminal, no remaining active queue delivery, and source
+unchanged). Full exact evidence:
+docs/operations/PRODUCT_IMPORT_P19_FINAL_50K_REHEARSAL_2026-10-01.md.
+
+**Known measurement caveat:** The original run's 4 MiB process RSS readings
+came from Windows virtualenv launcher PIDs and were NOT credible process
+memory values. The harness now samples each Python subprocess and all
+recursive child PIDs; a standalone 50 MiB child smoke verified 4.16 MiB
+launcher vs 64.16 MiB full process tree. Do NOT retroactively assign the
+corrected metric to the already-completed 50k run, or claim a statistical
+p95/per-phase SQL measurement from one measured sample.

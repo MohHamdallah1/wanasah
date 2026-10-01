@@ -675,7 +675,7 @@ The former urgent Catalog/Index/Worker roadmap is archived at `docs/archive/WANA
 - [x] **19.3 Backend contract implemented, NOT live HTTP/DB accepted:** Codex commit `ad646ed`, merged as PR #50. The authorized bounded `GET/POST /simple-products/imports/{job_id}/correction/rows` contract exposes failed-row physical numbers, canonical mapped cell values, immutable row IDs, optimistic job/row versions, editable/retention states, and durable same-job cell patches delegated to the preexisting correction/queue authority. GET limit 1..100 is a **per-request technical bound**, not approval to display/edit any total number of rejected products in Dashboard. Codex reports 11/11 focused in-process tests with DB/queue doubles; real PostgreSQL/RLS, race and full HTTP/worker readback gates remain OPEN. No 5k/50k workload was run.
 - [x] **19.3 Frontend inline editor source implemented, real HTTP/browser acceptance OPEN:** the owner delegated the cutoff choice; this V1 UI intentionally offers immediate inline editing only when the **total rejected-row count is 1..25**, and displays only the official correction Excel path for 26+ rejects (including 15,000). Within the bound, request only bounded `/correction/rows` DTO pages pinned to the initial job version (Backend may return short pages under its 256 KiB response cap); stop after 25 total rows or 512 KiB combined, and never re-enable the editor from stale previous-page data after a failed refresh. Show original Excel row numbers, mapped cell values, visible errors, focusable accessible Tooltip, one-row cards and literal changed-cell patch only. Scope tab-local drafts and durable same-ID/body replay to company/user/job; reject attempts to submit the file-correction route while an inline draft/save is pending and reject inline submission while a file-correction request is unresolved. Protect switching to a new import while **either** correction route has pending work, and resume the original progress watcher after server ACK. Separate large, historical diagnostic API paging from this small-only editor. Source + mocked UI original 15/15 focused tests and 2026-10-01 **11/11** targeted correction route/short-page follow-ups PASS, TypeScript, ESLint and Vite production build PASS. PR #54 follow-up (code-only): a stale inline draft now requires confirmation before discard; known zero-write correction-conflict 409 releases its uncommitted request identity and forces refreshed review; stale ACKs after unmount or a company/actor change do not update the new tenant/job UI; draft storage updates occur once per user event outside React state reducers. Correction/editor focused tests **14/14 PASS** plus TypeScript/ESLint/Vite production build PASS. This verifies client contracts only; no deployed browser, PostgreSQL/worker, real manual accessibility or tenant-role acceptance asserted.
 - [x] **19.1 final HTTP acceptance — isolated synthetic real HTTP+PostgreSQL+Worker, 2026-10-01:** on separate disposable PostgreSQL 16 (port 55446) and real FastAPI/three worker roles, two 100-row imports each progressed 99 IMPORTED + 1 INVALID to 100/100 via the same-job inline JSON or official CSV correction; real signed bearer auth, cross-tenant 404, forged/imported-row 409, persisted unprivileged actor 403 even with forged is_admin JWT claim, an actual TCP response disconnect followed by SAME request-id/body replay, and Product/Variant original-row+price-publication+active-barcode immutable readback plus 100 Pricing/Audit/Outbox rows all PASS. A third single-row same-job test revealed a new error (missing name first, unsupported package after fixing name), corrected it to 1/1. Original completed historical 54-row job was not touched; developer tenant-2 unchanged, disposable PostgreSQL removed. Runner: `wa_backend/scripts/run_product_import_phase19_http_isolated_gate.py`. This is real small-scope backend acceptance, **NOT** browser/manual QA, the customer's actual deployment, or final 50k/stall diagnosis.
-- [ ] **19.2 final 50k measured acceptance, deliberately last:** owner postponed every 5k/50k load run until all correction work is implemented. Perform source-first review, then one scoped final actual HTTP + SourceStore + worker + persisted Product/Variant/Price/Audit/Outbox exercise in an owner-approved **synthetic development/rehearsal scope**, with a small admission sanity case if needed; capture total and stage timings, counts, resource/queue health and resume/cancel integrity. An additional physical PostgreSQL database is preferred when available but is NOT inherently required by the original §19.2 policy; never mix real company data or erase historical jobs. Diagnose a newly reproduced stall before retrying; prior September stalls do not by themselves prove a current regression.
+- [x] **19.2 final 50k real pipeline acceptance — synthetic disposable scope, 2026-10-01:** 5k/10k real HTTP/Worker/PostgreSQL intermediate gates succeeded first (PR #65). A NEW uniquely identified 50,000-source-row CSV was then admitted over actual authenticated HTTP to the same real FastAPI, dedicated Worker roles and a disposable PostgreSQL 16 cluster on the approved Windows machine; no user Excel or original developer job was used. **49,500 IMPORTED, 500 expected INVALID, 0 IMPORT_FAILED; 49,500 distinct linked variants, price variants, Audit and Outbox each; 50,000 unique source row identities, last physical row 50005, SourceStore cleared, queue inactive; HTTP admission→terminal 255.868 s (4m15.868s), upload admission 0.358s.** Max 21 PostgreSQL sessions and zero sampled lock waiters; previous D4 independent crash/cancel/recovery checks PASS. Original developer tenant unchanged and temporary PostgreSQL removed. The observed status boundaries are NOT exact per-phase timings. Process RSS/CPU values from the initial Windows virtualenv launcher sampler are **NOT valid**; exact CPU/memory pressure, p50/p95, per-query/index/WAL metrics, September ClientRead cause, near-100%-invalid, coupled stalled-query cancellation and real-browser/owner signoff remain separate OPEN tasks. Full evidence: docs/operations/PRODUCT_IMPORT_P19_FINAL_50K_REHEARSAL_2026-10-01.md.
 - [ ] **19.4–19.5 final closure:** concentrated architecture/build/test and real-browser keyboard/mobile/RTL-LTR/permission checks, then owner visual acceptance when ready. Archive this plan only after implementation evidence is recorded. Real customer installation D7-P/D8-P remains separately OPEN in `docs/operations/PRODUCT_IMPORT_V1_RELEASE_RUNBOOK_2026-09-30.md`.
 
 **Already implemented; do not blindly reimplement:** the current Product Import capacity scheduler uses event-driven due candidates with atomic per-company queue insertion and separate execution/control/maintenance roles; the Dashboard already has a localized confirmed POST import-cancel command and focused source tests. Historical urgent C/F checkboxes predate these changes. Those implementation observations do **not** replace first-company runtime monitoring, durable cancellation/recovery and browser acceptance. Large-tenant fairness and hardware-scale index churn belong to V2 unless they cause a demonstrated V1 correctness/performance failure. Independent catalog/finance/Flutter coverage is tracked by the commercial foundation, not silently marked passed by this plan.
@@ -1026,10 +1026,17 @@ reproduced timeout/lock release, medium/50k measurement, and customer D7-P/D8-P*
   Do not infer these coupled scenarios from separate D4/guard tests.
   The September Windows/asyncpg ClientRead root-cause investigation and
   intermediate-size measured queue tests remain OPEN.
-- [ ] Rerun 50k real-queue import with unique identities **only
-  after** the staging-hang root cause and fresh intermediate-size gates
-  pass. Measure actual E2E latency/resources/lineage; do not
-  overwrite or retry failed historical fixtures as new imports.
+- [x] **50k fresh real-queue synthetic rerun completed:** after the scoped
+  120s staging watchdog, real short-timeout PG lock-release PASS and
+  intermediate 5k/10k real-queue PASS, a unique **50,000-row** run through
+  the actual authenticated HTTP, SourceStore, parser, validation, Worker,
+  Product/Price/Audit/Outbox pipeline completed with exact persisted
+  reconciliation (49,500/500/0), 255.868 s observed E2E, sampled PG
+  connection and lock metrics, clean temporary DB teardown, and no user
+  file/old job mutation. The historical September ClientRead cause was
+  **not reproduced** and must never be declared definitively solved.
+  Inaccurate Windows launcher RSS/CPU is explicitly excluded from
+  measurement, and the separate hardware-resource/SLA item stays OPEN.
 - [ ] Verify real HTTP authorization/correction, tenant concurrency,
   cancellation/recovery and refresh/RTL/LTR for the production release.
 
@@ -1051,14 +1058,18 @@ reproduced timeout/lock release, medium/50k measurement, and customer D7-P/D8-P*
   barcode collision checks against the *existing tenant database* and true
   persisted Product/Variant/Price/Audit acceptance remain separately OPEN
   under the subsequent 19.2 execution items.
-- [ ] Run within the explicitly authorized **development-only**
-  PostgreSQL instance; a separate physical database is **not required**.
-  Distinguish the 50k test job by a unique run identifier, names, barcodes,
-  tenant scope (where feasible) and captured baseline. Never mix that
-  fixture with the original 54-row correction evidence or another run.
-  Require a current one-per-queue worker; record measured DB and system
-  resource pressure. Treat per-run isolation as **data attribution and
-  repeatability**, not a second mandatory DB installation.
+- [x] **Development-only isolated 50k execution and attribution proven:**
+  one fresh UUID/run-labeled CSV+barcode namespace on a purpose-created
+  loopback PostgreSQL 16 cluster; existing developer DB was strictly
+  read-only during setup/readback and the preapproved source tenant was
+  confirmed unchanged after the run. All three dedicated Worker roles
+  ran with one execution slot; the worker completed 50k and left no active
+  queue delivery. Actual PG connection pressure (21 peak sampled clients)
+  and lock waiters (0 at samples) were recorded; system peak RSS/CPU
+  from Windows launcher PIDs were **inaccurate and discarded**, with
+  correct hardware/resource measurements deferred to the independent
+  evidence-based resource-envelope checkbox. This does not claim 50k
+  production-customer acceptance or historical ClientRead diagnosis.
 - [ ] Measure actual upload admission, source-store write, queue wait,
   parser/staging, validation, barcode detection, row creation, pricing
   publication and completion separately, with timings, throughput, CPU,

@@ -1,4 +1,4 @@
-"""Real 5k/10k HTTP→PG→Product Import worker intermediate gate, disposable only.
+"""Real 5k/10k/50k HTTP→PG→Product Import worker gate, disposable only.
 
 Uses the already approved Phase19 isolated PG16+API+three-role worker orchestration.
 Never connects to existing developer PG; never opens user-supplied XLSX.
@@ -9,6 +9,8 @@ import json
 import os
 import time
 from uuid import uuid4
+
+import psutil
 
 import httpx
 import psycopg
@@ -30,12 +32,17 @@ if (
     raise RuntimeError("Medium gate refuses any database except isolated 127.0.0.1:55446.")
 
 ROWS = int(os.environ.get("WANASAH_P19_INTERMEDIATE_ROWS", "5000"))
-if ROWS not in (5000, 10000):
-    raise RuntimeError("Only explicit intermediate 5000 or 10000 rows are permitted.")
+if ROWS not in (5000, 10000, 50000):
+    raise RuntimeError("Only explicit intermediate 5000, 10000 or final 50000 rows are permitted.")
+if ROWS == 50000 and (
+    os.environ.get("WANASAH_P19_HTTP_CASE") != "final50k" or
+    os.environ.get("WANASAH_P19_FINAL_50K_CONFIRM") != "ISOLATED_SYNTHETIC_ONLY"
+):
+    raise RuntimeError("Real 50k requires explicit disposable-only authorization.")
 END_STATES = {"COMPLETED", "COMPLETED_WITH_ERRORS", "FAILED", "VALIDATION_FAILED", "CANCELLED"}
 
 
-def measure_one(client: httpx.Client, admin: psycopg.Connection) -> None:
+def measure_one(client: httpx.Client, admin: psycopg.Connection, processes) -> None:
     label = f"P19-INTERMEDIATE-{ROWS}-{uuid4().hex[:12]}"
     payload, _mapping, barcode_prefix = build_source(ROWS, label)
     if not payload or len(payload) > 8 * 1024 * 1024:
@@ -66,7 +73,14 @@ def measure_one(client: httpx.Client, admin: psycopg.Connection) -> None:
     phase_first: dict[str, float] = {}
     phases: list[str] = []
     latest = None
-    deadline = time.monotonic() + (660 if ROWS == 5000 else 1020)
+    peak_process_tree_rss_mib: dict[str, float] = {}
+    child_cpu_seconds: dict[str, float] = {}
+    max_pg_clients = 0
+    max_lock_waiting = 0
+    # Windows venv launchers may report ~4 MiB while the real Python worker
+    # runs as a descendant. Sample the complete subprocess tree; do not
+    # mistake the launcher PID for the actual backend/worker RSS.
+    deadline = time.monotonic() + (660 if ROWS == 5000 else 1020 if ROWS == 10000 else 2700)
     while time.monotonic() < deadline:
         response = shared.require(
             client.get(f"/simple-products/imports/{job_id}"),
@@ -74,6 +88,35 @@ def measure_one(client: httpx.Client, admin: psycopg.Connection) -> None:
             "intermediate authorized status",
         )
         latest = str(response["status"])
+        for proc, _handle in processes:
+            try:
+                root = psutil.Process(proc.pid)
+                members = [root, *root.children(recursive=True)]
+                label = str(proc.p19_label)
+                rss = 0
+                cpu = 0.0
+                for member in members:
+                    try:
+                        rss += int(member.memory_info().rss)
+                        times = member.cpu_times()
+                        cpu += float(times.user + times.system)
+                    except psutil.Error:
+                        # A terminating Worker may vanish between listing
+                        # the tree and sampling; keep the other members.
+                        continue
+                peak_process_tree_rss_mib[label] = max(
+                    peak_process_tree_rss_mib.get(label, 0.0),
+                    round(rss / (1024 * 1024), 2),
+                )
+                child_cpu_seconds[label] = round(cpu, 2)
+            except psutil.Error:
+                pass
+        pg_sample = admin.execute(
+            "SELECT count(*),count(*) FILTER (WHERE wait_event_type='Lock') "
+            "FROM pg_stat_activity WHERE datname=current_database()"
+        ).fetchone()
+        max_pg_clients = max(max_pg_clients, int(pg_sample[0]))
+        max_lock_waiting = max(max_lock_waiting, int(pg_sample[1]))
         if latest not in phase_first:
             phase_first[latest] = round(time.perf_counter() - start, 3)
             phases.append(latest)
@@ -110,7 +153,8 @@ def measure_one(client: httpx.Client, admin: psycopg.Connection) -> None:
         "FROM product_import_rows WHERE company_id=2 AND job_id=%s",
         (job_id,),
     ).fetchone()
-    if tuple(map(int, line)) != (ROWS, ROWS, 2, ROWS + 1):
+    expected_last_physical = ROWS + 1 + (ROWS - 1) // 10_000
+    if tuple(map(int, line)) != (ROWS, ROWS, 2, expected_last_physical):
         raise RuntimeError("Physical source-row identity or staging count mismatch.")
     active = admin.execute(
         "SELECT count(*) FROM procrastinate_jobs WHERE task_name='wanasah.process_product_import' "
@@ -137,6 +181,10 @@ def measure_one(client: httpx.Client, admin: psycopg.Connection) -> None:
         "last_physical_row": int(line[3]),
         "retained_source_cleared": True,
         "queue_active_after": int(active),
+        "peak_process_tree_rss_mib": peak_process_tree_rss_mib,
+        "process_cpu_seconds_last_sample": child_cpu_seconds,
+        "max_pg_clients_seen": max_pg_clients,
+        "max_pg_lock_waiters_seen": max_lock_waiting,
     }, separators=(",", ":")), flush=True)
     print(f"P19_REAL_QUEUE_{ROWS}_SYNTHETIC=PASS", flush=True)
 
@@ -176,7 +224,7 @@ def main() -> None:
         ) as client:
             shared.wait_health(client, processes)
             shared.wait_worker(client)
-            measure_one(client, admin)
+            measure_one(client, admin, processes)
     finally:
         for process, handle in reversed(processes):
             shared.stop(process, handle)
