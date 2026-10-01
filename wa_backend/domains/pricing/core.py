@@ -102,6 +102,7 @@ async def acquire_pricing_company_lock(db: AsyncSession, company_id: int) -> Non
         select(Company.id)
         .where(Company.id == int(company_id))
         .with_for_update(key_share=True, read=False)
+        .execution_options(wanasah_import_sql_label="pricing_company_lock")
     )
     if row is None:
         raise PricingError(
@@ -117,6 +118,7 @@ async def maker_checker_enabled(db: AsyncSession, company_id: int) -> bool:
             SystemSetting.company_id == int(company_id),
             SystemSetting.setting_key == PRICING_MAKER_CHECKER_SETTING,
         )
+        .execution_options(wanasah_import_sql_label="pricing_maker_checker")
     )
     if raw is None:
         return False
@@ -137,6 +139,7 @@ async def next_publication_revision(db: AsyncSession, company_id: int) -> int:
         select(func.max(PricePublication.revision)).where(
             PricePublication.company_id == int(company_id)
         )
+        .execution_options(wanasah_import_sql_label="pricing_next_revision")
     )
     return int(current or 0) + 1
 
