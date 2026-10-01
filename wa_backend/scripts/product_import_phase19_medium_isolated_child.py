@@ -19,7 +19,8 @@ from scripts.product_import_business_integrity_gate import _assert_business_evid
 from scripts.run_product_import_phase19_live_load import build_source
 from scripts import product_import_phase19_http_isolated_child as shared
 
-assert os.environ.get("WANASAH_P19_HTTP_DISPOSABLE_CHILD") == "1"
+if os.environ.get("WANASAH_P19_HTTP_DISPOSABLE_CHILD") != "1":
+    raise RuntimeError("Intermediate gate requires the disposable child marker.")
 target = make_url(os.environ.get("DATABASE_URL", ""))
 if (
     target.database != "p19_http_synthetic"
