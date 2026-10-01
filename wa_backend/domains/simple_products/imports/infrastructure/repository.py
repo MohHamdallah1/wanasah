@@ -22,6 +22,9 @@ from domains.simple_products.imports.domain import (
 from domains.simple_products.imports.infrastructure.parsers import (
     ParsedRow,
 )
+from domains.simple_products.imports.infrastructure.phase_timing import (
+    observe_import_staging_insert,
+)
 from models import (
     Driver,
     ProductImportJob,
@@ -164,18 +167,31 @@ async def insert_staged_rows(
         dict[str, Any]
     ] = []
     total_rows = 0
+    batch_index = 0
 
     async def flush() -> None:
+        nonlocal batch_index
         if not batch:
             return
         # A single explicit multi-VALUES statement avoids asyncpg
         # executemany stalls on Windows during large staging jobs.
-        # Keep the bounded batch and stage-count reconciliation.
-        await db.execute(
-            insert(ProductImportRow).values(
-                list(batch)
-            ),
-        )
+        # The START marker fires before driver formatting/transmission;
+        # if execution hangs, operators can identify the last SQL batch
+        # without disclosing product cells. This never commits partial rows.
+        batch_index += 1
+        with observe_import_staging_insert(
+            company_id=company_id,
+            job_id=job_id,
+            batch_index=batch_index,
+            candidate_count=len(batch),
+            first_source_row=int(batch[0]["row_number"]),
+            last_source_row=int(batch[-1]["row_number"]),
+        ):
+            await db.execute(
+                insert(ProductImportRow).values(
+                    list(batch)
+                ),
+            )
         batch.clear()
 
     for parsed in rows:
