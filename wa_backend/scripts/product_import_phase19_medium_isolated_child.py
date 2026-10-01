@@ -10,6 +10,7 @@ import os
 import time
 from uuid import uuid4
 
+import psutil
 import httpx
 import psycopg
 from sqlalchemy.engine import make_url
@@ -30,8 +31,11 @@ if (
     raise RuntimeError("Medium gate refuses any database except isolated 127.0.0.1:55446.")
 
 ROWS = int(os.environ.get("WANASAH_P19_INTERMEDIATE_ROWS", "5000"))
-if ROWS not in (5000, 10000):
-    raise RuntimeError("Only explicit intermediate 5000 or 10000 rows are permitted.")
+CASE = os.environ.get("WANASAH_P19_HTTP_CASE", "medium")
+if ((CASE == "medium" and ROWS not in (5000, 10000)) or
+    (CASE == "final" and ROWS != 50000) or
+    CASE not in {"medium", "final"}):
+    raise RuntimeError("Only medium 5k/10k or explicit final 50k are permitted.")
 END_STATES = {"COMPLETED", "COMPLETED_WITH_ERRORS", "FAILED", "VALIDATION_FAILED", "CANCELLED"}
 
 
@@ -65,9 +69,44 @@ def measure_one(client: httpx.Client, admin: psycopg.Connection) -> None:
     admit_s = time.perf_counter() - start
     phase_first: dict[str, float] = {}
     phases: list[str] = []
+    peak_rss_mb: dict[str, float] = {}
+    peak_cpu_pct: dict[str, float] = {}
+    max_db_clients = 0
+    max_db_lock_edges = 0
+    last_sample = 0.0
+    monitors = {}
+    for proc, _ in processes:
+        try:
+            monitor = psutil.Process(proc.pid)
+            monitor.cpu_percent(interval=None)
+            monitors[proc.p19_label] = monitor
+        except psutil.Error:
+            pass
     latest = None
-    deadline = time.monotonic() + (660 if ROWS == 5000 else 1020)
+    deadline = time.monotonic() + (660 if ROWS == 5000 else 1020 if ROWS == 10000 else 3600)
     while time.monotonic() < deadline:
+        now = time.perf_counter()
+        if now - last_sample > 5.0:
+            last_sample = now
+            for label, proc in monitors.items():
+                try:
+                    peak_rss_mb[label] = max(
+                        peak_rss_mb.get(label, 0.0),
+                        round(proc.memory_info().rss / (1024 ** 2), 2),
+                    )
+                    peak_cpu_pct[label] = max(
+                        peak_cpu_pct.get(label, 0.0),
+                        round(proc.cpu_percent(interval=None), 2),
+                    )
+                except psutil.Error:
+                    pass
+            current_clients, locked = admin.execute(
+                "SELECT count(*), coalesce(sum(cardinality(pg_blocking_pids(pid))),0) "
+                "FROM pg_stat_activity WHERE datname=current_database() "
+                "AND backend_type='client backend'",
+            ).fetchone()
+            max_db_clients = max(max_db_clients, int(current_clients))
+            max_db_lock_edges = max(max_db_lock_edges, int(locked))
         response = shared.require(
             client.get(f"/simple-products/imports/{job_id}"),
             200,
@@ -121,6 +160,11 @@ def measure_one(client: httpx.Client, admin: psycopg.Connection) -> None:
         raise RuntimeError("Intermediate run left an active queue delivery.")
 
     print("P19_INTERMEDIATE_RESULT=" + json.dumps({
+        "case": CASE,
+        "peak_rss_mib_per_role": peak_rss_mb,
+        "peak_cpu_pct_per_role_sample": peak_cpu_pct,
+        "max_db_client_connections": max_db_clients,
+        "max_pg_lock_wait_edges": max_db_lock_edges,
         "rows": ROWS,
         "source_bytes": len(payload),
         "admission_seconds": round(admit_s, 3),
