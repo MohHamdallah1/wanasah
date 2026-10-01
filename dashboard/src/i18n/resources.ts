@@ -695,7 +695,7 @@ export const resources = {
           unknownOutcome: "نتيجة الحفظ غير مؤكدة. لا تنشئ طلبًا جديدًا؛ أعد إرسال نفس التصحيح بهويته الأصلية.",
           retrySame: "إعادة محاولة نفس الحفظ",
           staleDraft: "تغيّرت نسخة العملية أو بعض الصفوف منذ تحريرها. احتفظ بالقيم التي أدخلتها للمراجعة ثم ابدأ من نسخة حديثة.",
-          unreadableDraft: "تعذّر قراءة مسودة التصحيح المحفوظة بهذا المتصفح. لن نرسل بيانات غير موثوقة؛ يمكنك تجاهل المسودة بعد التأكيد وإعادة تحميل صفوف الاستيراد."
+          unreadableDraft: "تعذّر قراءة مسودة التصحيح المحفوظة بهذا المتصفح. لن نرسل بيانات غير موثوقة؛ يمكنك تجاهل المسودة بعد التأكيد وإعادة تحميل صفوف الاستيراد.",
           keepJob: "لديك تصحيحات لم تُحسم أو مسودة لم تُحفظ. أنهِ الحفظ أو تجاهل المسودة قبل بدء عملية أخرى.",
           discardConfirm: "هل تريد تجاهل التعديلات التي لم تُحفظ لهذا الاستيراد؟",
           discardChanges: "تجاهل التعديلات",
@@ -2412,7 +2412,7 @@ export const resources = {
           unknownOutcome: "The save outcome is unknown. Do not create a new request; resend this correction with the original request identity.",
           retrySame: "Retry this exact save",
           staleDraft: "The import or row versions changed since you edited them. Keep your values for reference, then start from the latest version.",
-          unreadableDraft: "The saved correction draft could not be read. We will not submit untrusted data. You can confirm discarding this draft to reload the latest rejected rows."
+          unreadableDraft: "The saved correction draft could not be read. We will not submit untrusted data. You can confirm discarding this draft to reload the latest rejected rows.",
           keepJob: "You have an unsaved draft or an unresolved correction. Finish or discard it before starting another import.",
           discardConfirm: "Discard unsaved edits for this import?",
           discardChanges: "Discard edits",
