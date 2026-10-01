@@ -1446,6 +1446,7 @@ export const resources = {
           PRODUCT_IMPORT_COMMAND_SCOPE_MISMATCH: "استجابة أمر الاستيراد لا تطابق عملية الاستيراد الحالية.",
           PRODUCT_IMPORT_STATE_RESPONSE_INVALID: "استجابة حالة استيراد المنتجات غير صالحة أو غير مكتملة.",
           PRODUCT_IMPORT_ERRORS_RESPONSE_INVALID: "استجابة أخطاء استيراد المنتجات غير صالحة أو غير مكتملة.",
+          PRODUCT_IMPORT_ERROR_PAGE_INVALID: "استجابة صفحة أخطاء الاستيراد غير صالحة؛ أعد المحاولة."
           PRODUCT_IMPORT_CORRECTION_STALE_JOB: "تغيرت عملية الاستيراد؛ حدّث الصفوف قبل الحفظ.",
           PRODUCT_IMPORT_CORRECTION_STALE_ROW: "تغير هذا الصف؛ حدّث الصفوف قبل الحفظ.",
           PRODUCT_IMPORT_CORRECTION_ROW_NOT_EDITABLE: "يسمح بتصحيح الصفوف المرفوضة فقط.",
@@ -3163,6 +3164,7 @@ export const resources = {
           PRODUCT_IMPORT_COMMAND_SCOPE_MISMATCH: "The import-command response does not match the active import job.",
           PRODUCT_IMPORT_STATE_RESPONSE_INVALID: "The product-import status response is invalid or incomplete.",
           PRODUCT_IMPORT_ERRORS_RESPONSE_INVALID: "The product-import error response is invalid or incomplete.",
+          PRODUCT_IMPORT_ERROR_PAGE_INVALID: "The product-import error page is invalid; try again."
           PRODUCT_IMPORT_CORRECTION_STALE_JOB: "The import changed; refresh before saving.",
           PRODUCT_IMPORT_CORRECTION_STALE_ROW: "The row changed; refresh before saving.",
           PRODUCT_IMPORT_CORRECTION_ROW_NOT_EDITABLE: "Only rejected rows can be edited.",
