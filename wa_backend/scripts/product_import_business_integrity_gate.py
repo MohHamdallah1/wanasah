@@ -8,6 +8,8 @@ def _assert_business_evidence(
     admin: psycopg.Connection,
     job_id: str,
     expected_imported: int,
+    *,
+    company_id: int = 2,
 ) -> dict[str, int]:
     rows = admin.execute(
         """
@@ -17,9 +19,9 @@ def _assert_business_evidence(
           count(*) FILTER (WHERE status='INVALID'),
           count(*) FILTER (WHERE status='IMPORT_FAILED')
         FROM product_import_rows
-        WHERE company_id=2 AND job_id=%s
+        WHERE company_id=%s AND job_id=%s
         """,
-        (job_id,),
+        (company_id, job_id),
     ).fetchone()
     imported, distinct_variants, invalid, import_failed = map(int, rows)
     if imported != expected_imported or distinct_variants != expected_imported:
@@ -33,15 +35,15 @@ def _assert_business_evidence(
             """
             SELECT product_variant_id
             FROM product_import_rows
-            WHERE company_id=2 AND job_id=%s AND status='IMPORTED'
+            WHERE company_id=%s AND job_id=%s AND status='IMPORTED'
             ORDER BY row_number
             """,
-            (job_id,),
+            (company_id, job_id),
         ).fetchall()
     ]
     variant_count = int(admin.execute(
-        "SELECT count(*) FROM product_variants WHERE company_id=2 AND id=ANY(%s)",
-        (ids,),
+        "SELECT count(*) FROM product_variants WHERE company_id=%s AND id=ANY(%s)",
+        (company_id, ids),
     ).fetchone()[0])
     if variant_count != expected_imported:
         raise RuntimeError(f"Product Import ProductVariant count mismatch: {variant_count}")
@@ -50,21 +52,21 @@ def _assert_business_evidence(
         """
         SELECT count(DISTINCT product_variant_id)
         FROM price_book_entries
-        WHERE company_id=2 AND product_variant_id=ANY(%s)
+        WHERE company_id=%s AND product_variant_id=ANY(%s)
         """,
-        (ids,),
+        (company_id, ids),
     ).fetchone()[0])
     price_duplicates = int(admin.execute(
         """
         SELECT count(*) FROM (
           SELECT product_variant_id,uom_id,lower(effectivity),count(*) AS n
           FROM price_book_entries
-          WHERE company_id=2 AND product_variant_id=ANY(%s)
+          WHERE company_id=%s AND product_variant_id=ANY(%s)
           GROUP BY product_variant_id,uom_id,lower(effectivity)
           HAVING count(*) > 1
         ) AS duplicates
         """,
-        (ids,),
+        (company_id, ids),
     ).fetchone()[0])
     if price_variants != expected_imported or price_duplicates:
         raise RuntimeError(
@@ -77,19 +79,19 @@ def _assert_business_evidence(
         """
         SELECT count(*),count(DISTINCT entity_id)
         FROM domain_audit_events
-        WHERE company_id=2 AND entity_type='ProductVariant'
+        WHERE company_id=%s AND entity_type='ProductVariant'
           AND entity_id=ANY(%s)
         """,
-        (text_ids,),
+        (company_id, text_ids),
     ).fetchone()
     outbox = admin.execute(
         """
         SELECT count(*),count(DISTINCT aggregate_id)
         FROM transactional_outbox
-        WHERE company_id=2 AND aggregate_type='ProductVariant'
+        WHERE company_id=%s AND aggregate_type='ProductVariant'
           AND aggregate_id=ANY(%s)
         """,
-        (text_ids,),
+        (company_id, text_ids),
     ).fetchone()
     if tuple(map(int, audit)) != (expected_imported, expected_imported):
         raise RuntimeError(f"Product Import audit duplication/missing evidence: {audit}")
