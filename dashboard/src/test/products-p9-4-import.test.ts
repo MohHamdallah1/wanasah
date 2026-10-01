@@ -195,6 +195,12 @@ describe("Products P9.4 import workflow", () => {
       "/simple-products/import-template?locale="
     );
     expect(downloads).toContain(
+      "saveImportFileArtifact("
+    );
+    const artifactHelper = read(
+      "../pages/products/import/productImportFileDownload.ts",
+    );
+    expect(artifactHelper).toContain(
       "content_base64"
     );
     expect(downloads).not.toContain(
