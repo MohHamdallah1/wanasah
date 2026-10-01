@@ -50,7 +50,7 @@ def main() -> None:
     _ensure_free(PORT)
     _ensure_free(API_PORT)
     variant = os.environ.get("WANASAH_P19_HTTP_CASE", "small")
-    if variant not in {"small", "medium", "final50k", "cancelstall", "edges", "workerfaults", "realbrowser"}:
+    if variant not in {"small", "medium", "final50k", "cancelstall", "edges", "workerfaults", "realbrowser", "contention"}:
         raise RuntimeError("Unknown P19 HTTP rehearsal case.")
     if variant == "medium" and os.environ.get("WANASAH_P19_INTERMEDIATE_ROWS") not in {"5000", "10000"}:
         raise RuntimeError("Medium rehearsal requires an explicit 5000 or 10000 row count.")
@@ -63,6 +63,8 @@ def main() -> None:
         raise RuntimeError("Locked staging cancellation requires explicit disposable-only opt-in.")
     if variant == "edges" and os.environ.get("WANASAH_P19_EDGES_CONFIRM") != "ISOLATED_SYNTHETIC_ONLY":
         raise RuntimeError("Edge-size rehearsal requires explicit disposable-only opt-in.")
+    if variant == "contention" and os.environ.get("WANASAH_P19_CONTENTION_CONFIRM") != "ISOLATED_SYNTHETIC_ONLY":
+        raise RuntimeError("Tenant contention proof requires explicit disposable-only opt-in.")
     if variant == "workerfaults":
         if os.environ.get("WANASAH_P19_WORKER_FAULT_CONFIRM") != "ISOLATED_SYNTHETIC_ONLY":
             raise RuntimeError("Worker fault proof requires explicit disposable-only opt-in.")
@@ -139,15 +141,20 @@ def main() -> None:
             "SENTRY_DSN": "",
             "ENVIRONMENT": "development",
         })
+        if variant == "contention":
+            # Production-default execution bound; small admission bound in this fixture only.
+            env["PRODUCT_IMPORT_WORKER_SLOTS_PER_PROCESS"] = "2"
+            env["PRODUCT_IMPORT_MAX_ACTIVE_JOBS_PER_TENANT"] = "2"
         child_module = (
             "scripts.product_import_phase19_http_isolated_child" if variant == "small"
             else "scripts.product_import_phase19_http_cancel_stall_child" if variant == "cancelstall"
             else "scripts.product_import_phase19_edge_isolated_child" if variant == "edges"
+            else "scripts.product_import_phase19_contention_child" if variant == "contention"
             else "scripts.product_import_phase19_worker_fault_child" if variant == "workerfaults"
             else "scripts.product_import_phase19_real_browser_child" if variant == "realbrowser"
             else "scripts.product_import_phase19_medium_isolated_child"
         )
-        if variant in {"small", "cancelstall", "edges", "workerfaults", "realbrowser"}:
+        if variant in {"small", "cancelstall", "edges", "workerfaults", "realbrowser", "contention"}:
             child = d4.run([sys.executable, "-m", child_module], env=env)
         else:
             # The final50k case has a separate explicit opt-in and a bounded
@@ -168,6 +175,7 @@ def main() -> None:
             MARKER if variant == "small" else
             "PRODUCT_IMPORT_P19_REAL_HTTP_LOCK_CANCEL=PASS" if variant == "cancelstall" else
             "PRODUCT_IMPORT_P19_REAL_HTTP_EDGES=PASS" if variant == "edges" else
+            "PRODUCT_IMPORT_P19_REAL_CONTENTION=PASS" if variant == "contention" else
             "PRODUCT_IMPORT_P19_REAL_WORKER_FAULTS=PASS" if variant == "workerfaults" else
             "PRODUCT_IMPORT_P19_REAL_BROWSER_BACKEND=PASS" if variant == "realbrowser" else
             "P19_REAL_QUEUE_" + os.environ["WANASAH_P19_INTERMEDIATE_ROWS"] + "_SYNTHETIC=PASS"
