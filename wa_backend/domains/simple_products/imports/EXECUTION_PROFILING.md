@@ -103,8 +103,9 @@ The ordinary Simple Products create/price flow now requests
 `create_direct_publication` from Pricing. Its opaque, single-use Pricing-owned
 scope holds the exact just-created `PricePublication` and the `PriceBook`
 already locked with `FOR UPDATE` under the Company `FOR NO KEY UPDATE`
-mutex. It retains the originating root ORM transaction object as an invalidation
-boundary, not a session-scoped or cross-batch cache.
+mutex. It retains the originating root ORM transaction **and nested
+savepoint identities** as invalidation boundaries, not a session-scoped
+or cross-batch cache.
 
 During the existing draft -> publish flow, `scope.publish` still checks
 Maker/Checker, DRAFT status and version, and executes the **unchanged**
@@ -113,8 +114,8 @@ protected range-closing, overlap checking, publication updates and final
 flush. It reuses the **already-held** Company, book and new-publication row
 locks rather than re-requesting those same three SELECT locks; the public
 `publish_publication` and `approve_publication` API paths retain every
-original SELECT, lock and check. It cannot be used after commit, reuse or
-a different root transaction.
+original SELECT, lock and check. It cannot be used after commit, reuse,
+rollback to another savepoint or a different root transaction.
 
 The import still commits **every 100 active products**, maintains the
 same publication and version per batch and the same 200-price-entry draft
