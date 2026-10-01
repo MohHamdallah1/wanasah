@@ -333,6 +333,19 @@ def main() -> None:
                     elif re.match(r"^(?:[A-Za-z_]+\\.)*[A-Za-z_]+(?:Error|Exception):", stripped):
                         error_categories.append(stripped.split(":", 1)[0][:90])
                 print(f"P19_COMPONENT_ERROR_CLASSES={proc.p19_label}:{error_categories[-8:]}", flush=True)
+                if proc.p19_label == "p19-http-server":
+                    # Synthetic-only diagnostics. Remove all URL/DSN/token-like
+                    # spans and print just the traceback exception structure.
+                    for entry in lines[-55:]:
+                        stripped = entry.strip()
+                        if ("Error" not in stripped and "Exception" not in stripped
+                                and "Failed" not in stripped and "Permission" not in stripped
+                                and "connection" not in stripped.lower()):
+                            continue
+                        safe = re.sub(r"(?:postgresql(?:\\+asyncpg)?|redis)://[^\\s)]+",
+                                      "[REDACTED_DSN]", stripped)
+                        safe = re.sub(r"Bearer\\s+[A-Za-z0-9._-]+", "Bearer [REDACTED]", safe)
+                        print("P19_UVICORN_ERROR_CLASS_LINE=" + safe[:210], flush=True)
         raise
     finally:
         for proc, handle in reversed(processes):
