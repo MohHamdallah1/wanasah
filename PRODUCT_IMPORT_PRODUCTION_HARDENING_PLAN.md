@@ -1083,10 +1083,26 @@ reproduced timeout/lock release, medium/50k measurement, and customer D7-P/D8-P*
   memory, database round trips, table/index health and queue metrics.
   Do not infer whole-job runtime from the Phase 17 **streaming-only** memory
   gate or Phase 15 query-plan audit.
-- [ ] Assert every physical source-row number, **IMPORTED + INVALID +
-  IMPORT_FAILED** reconciliation, no duplicate successful products, and
-  expected product/price/barcode persistence. Test 0/100/1k/50k rows,
-  near-100% invalid, and mixed 50k cases without inventing performance SLAs.
+- [x] **Real source-row/size/high-rejection acceptance across 0/100/1k/50k:**
+  The original PR #64 authenticated 100-row cases proved 99+1 and
+  correction to 100/100 with immutable Product/Variant/Price and active
+  barcode identities. PR #66 ran a fresh **50,000-source-row** mixed-valid
+  and invalid CSV through real HTTP/Worker/disposable PostgreSQL:
+  **49,500 IMPORTED / 500 INVALID / 0 IMPORT_FAILED**, 50,000 unique
+  physical staged row identities, last actual source row 50005 (4 truly
+  blank source lines), and exactly 49,500 distinct linked Variants,
+  Price, Audit and Outbox; no leftover queue deliveries. A separate
+  real HTTP/Worker isolated edge gate exercised **0 rows** (rejected
+  with zero created products) and **1,000 rows, 999 intentionally INVALID,
+  1 IMPORTED, 0 IMPORT_FAILED** (one Price, one Audit, one Outbox), with
+  physical source rows 2..1001 and SourceStore/queue clean. No
+  duplicate successful Variant links. Historical 54-row developer data
+  and the owner's reserved Excel files were not touched. This is
+  representative sample-and-count barcode persistence, **not** a
+  full physical barcode-table census or a statistical performance SLA;
+  those must not be invented. Exact evidence:
+  docs/operations/PRODUCT_IMPORT_P19_EDGE_CASES_2026-10-01.md and
+  docs/operations/PRODUCT_IMPORT_P19_FINAL_50K_REHEARSAL_2026-10-01.md.
 - [ ] Exercise crash/restart, lost HTTP response, duplicate queue delivery,
   permission revocation, cancellation, retention, concurrent tenants and
   worker-backpressure with the real pipeline where safe.
