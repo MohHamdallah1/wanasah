@@ -14,18 +14,25 @@ if (import.meta.env.VITE_P19_REAL_BROWSER !== "isolated-only" ||
   throw new Error("DISPOSABLE_REAL_BROWSER_ORIGIN_REQUIRED");
 }
 
+i18n.addResourceBundle("ar", "acceptanceReal", {
+  language: "اللغة", arabic: "العربية", english: "الإنجليزية",
+});
+i18n.addResourceBundle("en", "acceptanceReal", {
+  language: "Language", arabic: "Arabic", english: "English",
+});
 const query = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 export default function Acceptance() {
   const [, redraw] = useState(0);
+  const t = (key: string) => i18n.t(key, { ns: "acceptanceReal" });
   return <>
     <div className="border-b bg-white p-2 text-xs">
-      <label htmlFor="p19-real-language">Language / اللغة</label>
+      <label htmlFor="p19-real-language">{t("language")}</label>
       <select id="p19-real-language" value={i18n.language.slice(0, 2)}
         onChange={async (event) => {
           await setAppLanguage(event.target.value as "ar" | "en");
           redraw((value) => value + 1);
         }}>
-        <option value="ar">العربية</option><option value="en">English</option>
+        <option value="ar">{t("arabic")}</option><option value="en">{t("english")}</option>
       </select>
     </div>
     <main className="min-h-screen bg-slate-100 p-2 sm:p-6">
