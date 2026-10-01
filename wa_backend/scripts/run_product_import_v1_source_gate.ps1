@@ -49,13 +49,13 @@ try {
     Push-Location $dashboard
     try {
         Write-Output 'P19_SOURCE_FRONTEND_START'
-        & $vitest run src/test/product-import-inline-editor-p19.test.tsx src/test/product-import-correction-file-p19.test.tsx src/test/product-import-rejected-rows-p19.test.tsx src/test/product-import-cancel-command-j.test.tsx src/test/product-import-inflight-file-guard-j.test.tsx src/test/product-import-realtime-lifecycle-j.test.tsx src/test/product-import-receipt.test.tsx src/test/products-import-file-preflight-p9.test.ts src/test/products-import-localization-p6.test.ts src/test/products-tracking-import.test.ts --maxWorkers=1
+        & $vitest run src/test/product-import-inline-editor-p19.test.tsx src/test/product-import-browser-regressions-p19.test.tsx src/test/product-import-correction-file-p19.test.tsx src/test/product-import-rejected-rows-p19.test.tsx src/test/product-import-cancel-command-j.test.tsx src/test/product-import-inflight-file-guard-j.test.tsx src/test/product-import-realtime-lifecycle-j.test.tsx src/test/product-import-receipt.test.tsx src/test/products-import-file-preflight-p9.test.ts src/test/products-import-localization-p6.test.ts src/test/products-tracking-import.test.ts --maxWorkers=1
         Assert-Success 'FRONTEND'
         Write-Output 'P19_SOURCE_TYPESCRIPT_START'
         & $tsc --noEmit -p tsconfig.app.json
         Assert-Success 'TYPESCRIPT'
         Write-Output 'P19_SOURCE_ESLINT_START'
-        & $eslint src/pages/products/import/useImportInlineCorrection.ts src/pages/products/import/ImportInlineCorrectionPanel.tsx src/pages/products/import/ImportInlineCorrectionRow.tsx src/pages/products/import/useImportCorrection.ts src/pages/products/import/correctionRouteGate.ts src/pages/products/import/loadInlineCorrectionRows.ts src/test/product-import-inline-editor-p19.test.tsx src/test/product-import-correction-file-p19.test.tsx src/i18n/resources.ts --max-warnings=0
+        & $eslint src/hooks/useDialogFocusTrap.ts src/pages/products/header/ProductsAddMenu.tsx src/pages/products/import/useImportProductPolling.ts src/pages/products/import/useImportProductWorkflow.ts src/pages/products/shared/ProductPackagingHelp.tsx src/test/product-import-browser-regressions-p19.test.tsx src/pages/products/import/useImportInlineCorrection.ts src/pages/products/import/ImportInlineCorrectionPanel.tsx src/pages/products/import/ImportInlineCorrectionRow.tsx src/pages/products/import/useImportCorrection.ts src/pages/products/import/correctionRouteGate.ts src/pages/products/import/loadInlineCorrectionRows.ts src/test/product-import-inline-editor-p19.test.tsx src/test/product-import-correction-file-p19.test.tsx src/i18n/resources.ts --max-warnings=0
         Assert-Success 'ESLINT'
         Write-Output 'P19_SOURCE_VITE_START'
         & $vite build
@@ -64,7 +64,7 @@ try {
         Pop-Location
     }
     Write-Output 'P19_SOURCE_GATE=PASS'
-    Write-Output 'P19_REAL_HTTP_POSTGRES_WORKER_BROWSER_50K=OPEN'
+    Write-Output 'P19_SOURCE_GATE_DOES_NOT_PERFORM_HTTP_DB_WORKER_OR_BROWSER=TRUE'
 } finally {
     foreach ($name in $environmentNames) {
         [Environment]::SetEnvironmentVariable($name, $before[$name], 'Process')
