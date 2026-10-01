@@ -127,6 +127,18 @@ export function ImportInlineCorrectionPanel({
             <span className="text-xs font-semibold text-slate-600">
               {t("products.inlineCorrection.changedRows", { count: review.changedRows })}
             </span>
+            {review.changedRows > 0 && !review.pending ? (
+              <button
+                type="button"
+                disabled={review.saving}
+                onClick={() => {
+                  if (window.confirm(t("products.inlineCorrection.discardConfirm"))) review.discardDraft();
+                }}
+                className="min-h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 disabled:opacity-40"
+              >
+                {t("products.inlineCorrection.discardChanges")}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={review.submit}
