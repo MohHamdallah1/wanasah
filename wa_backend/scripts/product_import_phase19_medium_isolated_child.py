@@ -39,7 +39,7 @@ if ((CASE == "medium" and ROWS not in (5000, 10000)) or
 END_STATES = {"COMPLETED", "COMPLETED_WITH_ERRORS", "FAILED", "VALIDATION_FAILED", "CANCELLED"}
 
 
-def measure_one(client: httpx.Client, admin: psycopg.Connection) -> None:
+def measure_one(client: httpx.Client, admin: psycopg.Connection, processes) -> None:
     label = f"P19-INTERMEDIATE-{ROWS}-{uuid4().hex[:12]}"
     payload, _mapping, barcode_prefix = build_source(ROWS, label)
     if not payload or len(payload) > 8 * 1024 * 1024:
@@ -220,7 +220,7 @@ def main() -> None:
         ) as client:
             shared.wait_health(client, processes)
             shared.wait_worker(client)
-            measure_one(client, admin)
+            measure_one(client, admin, processes)
     finally:
         for process, handle in reversed(processes):
             shared.stop(process, handle)
