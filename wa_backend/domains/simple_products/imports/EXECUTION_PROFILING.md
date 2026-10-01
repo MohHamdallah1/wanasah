@@ -44,7 +44,7 @@ fingerprint identifies the same **exact rendered SQL template**, not a unique
 business entity or bound-parameter combination.
 
 Pricing's existing SELECT/UPDATE/TextClause objects carry inert SQLAlchemy
-`execution_options(wanasah_import_sql_label="pricing_...")` metadata for
+`execution_options(wanasah_sql_trace_label="pricing_...")` metadata for
 the company lock, maker/checker policy, publication/book locks, entries,
 variant/UOM validation, predecessor check, effectivity conflict handling and
 publishing updates. It changes **no SQL, WHERE condition, lock, transaction or
