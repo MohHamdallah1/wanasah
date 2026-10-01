@@ -124,7 +124,7 @@ class _Connection:
         if "SELECT row_identity, status" in sql:
             return _Result(rows=[(self.identity, self.status, self.row_version, datetime(2026, 1, 1) if self.expired else None)])
         if "AS unknown_count" in sql:
-            return _Result(one=(0, 0, 0))
+            return _Result(one=(0, 0, 0, 0))
         return _Result()
 
 
@@ -333,6 +333,29 @@ class InlineCorrectionHttpTests(unittest.TestCase):
         self.assertNotIn("password", response.text)
 
 
+    def test_file_transport_preserves_expired_code_and_request_id(self):
+        url = f"/simple-products/imports/{self.job_id}/correction"
+        from domains.simple_products.imports.domain import ProductImportTerminalError
+        error = ProductImportTerminalError(
+            "private stored diagnostics", code="PRODUCT_IMPORT_CORRECTION_DETAILS_EXPIRED",
+        )
+        with patch.object(router, "download_correction", AsyncMock(side_effect=error)), \
+             patch.object(router, "_log_api_exception"):
+            response = self.client.get(url)
+        self.assertEqual(response.status_code, 410)
+        self.assertEqual(response.json()["error"]["code"], error.code)
+        with patch.object(router, "apply_correction", AsyncMock(side_effect=InlineCorrectionError(error.code))):
+            response = self.client.post(
+                url, data={"request_id": str(self.request_id)},
+                files={"file": ("correction.csv", b"Product,Price\nCorrected,1\n", "text/csv")},
+            )
+        self.assertEqual(response.status_code, 410)
+        self.assertEqual(response.json()["error"]["code"], error.code)
+        self.assertEqual(response.json()["error"]["request_id"], "inline-test-correlation")
+        self.assertNotIn("diagnostics", response.text)
+
+
+
 class InlineCorrectionAuthorityTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.identity, self.job_id, self.request_id = uuid4(), uuid4(), uuid4()
@@ -434,6 +457,97 @@ class InlineCorrectionAuthorityTests(unittest.IsolatedAsyncioTestCase):
         await repository._stage_corrections(conn, corrections=[{"row_identity": self.identity, "raw_data": raw}])
         self.assertEqual(conn.staged[0][1].obj, raw)
         self.assertEqual(conn.staged[0][2:], (None, None))
+
+
+class FileCorrectionSafetyTests(unittest.IsolatedAsyncioTestCase):
+    def correction_xlsx(self, barcode):
+        identity = uuid4()
+        workbook = correction_service.Workbook()
+        sheet = workbook.active
+        # A dangerous source header must keep its metadata under the original name.
+        headers = ["Product", "Price", "@Barcode"]
+        sheet.append(correction_service._artifact_headers(headers))
+        sheet.append([str(identity), 23, "IMPORT_NAME_REQUIRED", "name", "Safe error", "", "1.50", barcode])
+        from io import BytesIO
+        output = BytesIO()
+        workbook.save(output)
+        workbook.close()
+        patch_row = correction_service.parse_correction_payload(
+            file_name="correction.xlsx", payload=output.getvalue(), source_headers=headers,
+        )[0]
+        self.assertEqual(patch_row.row_identity, identity)
+        return patch_row.raw_data
+
+    def test_real_xlsx_metadata_preserves_numeric_formula_and_next_error(self):
+        from domains.simple_products.imports.domain.normalization import normalize_raw_row
+        from domains.simple_products.service import SimpleProductError
+        from domains.simple_products.imports.domain import SOURCE_CELL_META_KEY
+        mapping = {"name": "Product", "unit_price": "Price", "unit_barcode": "@Barcode"}
+        for barcode, expected in (
+            (123, "IMPORT_BARCODE_NUMERIC_UNSAFE"),
+            ("=1+1", "IMPORT_BARCODE_FORMULA_NOT_ALLOWED"),
+        ):
+            with self.subTest(expected=expected):
+                raw = self.correction_xlsx(barcode)
+                self.assertIn("@Barcode", raw[SOURCE_CELL_META_KEY])
+                self.assertNotIn("__wanasah_original_row", raw[SOURCE_CELL_META_KEY])
+                with self.assertRaises(SimpleProductError) as first:
+                    normalize_raw_row(raw, mapping, default_lot_control_mode="NONE", default_expiry_control_mode="NONE")
+                self.assertEqual(first.exception.code, "IMPORT_NAME_REQUIRED")
+                raw["Product"] = "Corrected"
+                with self.assertRaises(SimpleProductError) as second:
+                    normalize_raw_row(raw, mapping, default_lot_control_mode="NONE", default_expiry_control_mode="NONE")
+                self.assertEqual(second.exception.code, expected)
+        raw = self.correction_xlsx("000123")
+        raw["Product"] = "Corrected"
+        result = normalize_raw_row(raw, mapping, default_lot_control_mode="NONE", default_expiry_control_mode="NONE")
+        self.assertEqual(result["unit_barcode"], "000123")
+
+    async def test_shared_job_lock_enforces_retention_for_file_path(self):
+        job_id = uuid4()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        for age, expired in ((0, False), (31, True)):
+            conn = SimpleNamespace(execute=AsyncMock(return_value=_Result(one=("COMPLETED_WITH_ERRORS", now - timedelta(days=age)))))
+            if expired:
+                with self.assertRaises(InlineCorrectionError) as caught:
+                    await repository._load_correctable_job_status(conn, company_id=101, job_id=job_id)
+                self.assertEqual(caught.exception.code, "PRODUCT_IMPORT_CORRECTION_DETAILS_EXPIRED")
+            else:
+                self.assertEqual(await repository._load_correctable_job_status(conn, company_id=101, job_id=job_id), "COMPLETED_WITH_ERRORS")
+            sql, params = conn.execute.await_args.args
+            self.assertIn("FOR UPDATE", sql)
+            self.assertEqual(params, [101, job_id])
+
+    async def test_file_targets_lock_and_reject_compacted_before_update(self):
+        job_id = uuid4()
+        for counts, rejected in (((0, 0, 0, 0), False), ((0, 0, 0, 1), True)):
+            conn = SimpleNamespace(execute=AsyncMock(return_value=_Result(one=counts)))
+            if rejected:
+                with self.assertRaises(InlineCorrectionError) as caught:
+                    await repository._assert_correction_targets(conn, company_id=101, job_id=job_id)
+                self.assertEqual(caught.exception.code, "PRODUCT_IMPORT_CORRECTION_DETAILS_EXPIRED")
+            else:
+                await repository._assert_correction_targets(conn, company_id=101, job_id=job_id)
+            sql, params = conn.execute.await_args.args
+            self.assertIn("FOR UPDATE OF rows", sql)
+            self.assertIn("ORDER BY rows.row_number", sql)
+            self.assertEqual(params, [101, job_id])
+
+    async def test_completed_file_replay_precedes_retention_and_target_checks(self):
+        conn = _Connection(uuid4(), expired=True, overdue=True)
+        response = {"job_id": str(uuid4()), "status": "VALIDATING", "corrected_rows": 1, "replayed": True}
+        with patch.object(repository.psycopg.AsyncConnection, "connect", AsyncMock(return_value=conn)), \
+             patch.object(repository, "_begin_correction_idempotency", AsyncMock(return_value=response)), \
+             patch.object(repository, "_load_correctable_job_status", AsyncMock(side_effect=AssertionError("no retention before replay"))) as load, \
+             patch.object(repository, "defer_import_on_connection", AsyncMock()) as queue:
+            replay = await repository.apply_correction_and_requeue(
+                company_id=101, actor_id=11, job_id=uuid4(), request_id=uuid4(),
+                request_hash="a" * 64, corrections=[{"row_identity": conn.identity, "raw_data": {"Product": "Original"}}],
+            )
+        self.assertEqual(replay, response)
+        load.assert_not_awaited()
+        queue.assert_not_awaited()
+        self.assertEqual(conn.staged, [])
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ from openpyxl import Workbook
 
 from domains.simple_products.imports.domain.inline_correction import (
     MAX_INLINE_CORRECTION_BYTES, MAX_INLINE_CORRECTION_ROWS, InlineCorrectionError,
+    correction_details_expired,
 )
 
 from domains.simple_products.imports.application.state_machine import (
@@ -20,6 +21,8 @@ from domains.simple_products.imports.application.state_machine import (
 )
 from domains.simple_products.imports.domain import (
     ProductImportTerminalError,
+    SOURCE_CELL_META_KEY,
+    source_cell_metadata,
 )
 from domains.simple_products.imports.domain.errors import (
     import_error_field,
@@ -283,6 +286,12 @@ async def build_correction_artifact(
                 "This import has no correction workflow in its current state."
             )
 
+        if correction_details_expired(finished_at=job.finished_at, compacted_at=None):
+            raise ProductImportTerminalError(
+                "Correction source details have expired.",
+                code="PRODUCT_IMPORT_CORRECTION_DETAILS_EXPIRED",
+            )
+
         source_headers = [
             str(
                 header
@@ -304,15 +313,6 @@ async def build_correction_artifact(
             writer = csv.writer(
                 stream
             )
-            writer.writerow(
-                [
-                    sanitize_spreadsheet_cell(
-                        header
-                    )
-                    for header
-                    in headers
-                ]
-            )
             workbook = None
             sheet = None
         else:
@@ -324,18 +324,9 @@ async def build_correction_artifact(
             sheet = workbook.create_sheet(
                 "Corrections"
             )
-            sheet.append(
-                [
-                    sanitize_spreadsheet_cell(
-                        header
-                    )
-                    for header
-                    in headers
-                ]
-            )
-
         after_row_number = 0
         row_count = 0
+        expired_rows_seen = False
         while True:
             rows = await fetch_failed_rows_batch(
                 db,
@@ -350,6 +341,18 @@ async def build_correction_artifact(
                 break
 
             for row in rows:
+                if correction_details_expired(
+                    finished_at=job.finished_at, compacted_at=row.compacted_at,
+                ):
+                    expired_rows_seen = True
+                    continue
+                if row_count == 0:
+                    header_values = [sanitize_spreadsheet_cell(header) for header in headers]
+                    if writer is not None:
+                        writer.writerow(header_values)
+                    else:
+                        assert sheet is not None
+                        sheet.append(header_values)
                 values = _artifact_values(
                     row,
                     source_headers,
@@ -372,6 +375,11 @@ async def build_correction_artifact(
             )
 
         if row_count == 0:
+            if expired_rows_seen:
+                raise ProductImportTerminalError(
+                    "All rejected row details have expired.",
+                    code="PRODUCT_IMPORT_CORRECTION_DETAILS_EXPIRED",
+                )
             raise ProductImportTerminalError(
                 "This import has no failed rows to correct."
             )
@@ -481,24 +489,20 @@ def parse_correction_payload(
                 row_identity
             )
 
+            corrected_raw: dict[str, Any] = {}
+            cell_metadata: dict[str, dict[str, Any]] = {}
+            for header in source_headers:
+                safe_header = str(sanitize_spreadsheet_cell(header))
+                corrected_raw[header] = _restore_sanitized_cell(raw.get(safe_header))
+                metadata = source_cell_metadata(raw, safe_header)
+                if metadata:
+                    cell_metadata[header] = metadata
+            if cell_metadata:
+                corrected_raw[SOURCE_CELL_META_KEY] = cell_metadata
             patches.append(
                 ProductImportCorrectionPatch(
-                    row_identity=
-                        row_identity,
-                    raw_data={
-                        header:
-                            _restore_sanitized_cell(
-                                raw.get(
-                                    str(
-                                        sanitize_spreadsheet_cell(
-                                            header
-                                        )
-                                    )
-                                )
-                            )
-                        for header
-                        in source_headers
-                    },
+                    row_identity=row_identity,
+                    raw_data=corrected_raw,
                 )
             )
 

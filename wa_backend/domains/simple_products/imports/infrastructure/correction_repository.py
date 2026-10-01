@@ -196,7 +196,7 @@ async def _load_correctable_job_status(
 ) -> str:
     cursor = await conn.execute(
         """
-        SELECT status
+        SELECT status, finished_at
         FROM product_import_jobs
         WHERE company_id = %s
           AND id = %s
@@ -228,6 +228,8 @@ async def _load_correctable_job_status(
             "Import job is not awaiting failed-row correction."
         )
 
+    if correction_details_expired(finished_at=row[1], compacted_at=None):
+        raise InlineCorrectionError("PRODUCT_IMPORT_CORRECTION_DETAILS_EXPIRED")
     assert_job_transition(
         status,
         JobStatus.VALIDATING.value,
@@ -322,25 +324,35 @@ async def _assert_correction_targets(
 ) -> None:
     cursor = await conn.execute(
         """
+        WITH targets AS MATERIALIZED (
+            SELECT rows.row_identity, rows.status, rows.compacted_at
+            FROM product_import_rows AS rows
+            JOIN product_import_correction_input AS correction
+              ON correction.row_identity = rows.row_identity
+            WHERE rows.company_id = %s AND rows.job_id = %s
+            ORDER BY rows.row_number
+            FOR UPDATE OF rows
+        )
         SELECT
             count(*) FILTER (
-                WHERE rows.id IS NULL
+                WHERE rows.row_identity IS NULL
             ) AS unknown_count,
             count(*) FILTER (
                 WHERE rows.status = 'IMPORTED'
             ) AS imported_count,
             count(*) FILTER (
-                WHERE rows.id IS NOT NULL
+                WHERE rows.row_identity IS NOT NULL
                   AND rows.status NOT IN (
                     'INVALID',
                     'IMPORT_FAILED'
                   )
-            ) AS ineligible_count
+            ) AS ineligible_count,
+            count(*) FILTER (
+                WHERE rows.compacted_at IS NOT NULL
+            ) AS expired_count
         FROM product_import_correction_input AS correction
-        LEFT JOIN product_import_rows AS rows
-          ON rows.company_id = %s
-         AND rows.job_id = %s
-         AND rows.row_identity = correction.row_identity
+        LEFT JOIN targets AS rows
+          ON rows.row_identity = correction.row_identity
         """,
         [
             int(
@@ -353,6 +365,7 @@ async def _assert_correction_targets(
         unknown_count,
         imported_count,
         ineligible_count,
+        expired_count,
     ) = await cursor.fetchone()
 
     if int(
@@ -376,6 +389,8 @@ async def _assert_correction_targets(
         raise ValueError(
             "Correction can update only failed Product Import rows."
         )
+    if int(expired_count or 0):
+        raise InlineCorrectionError("PRODUCT_IMPORT_CORRECTION_DETAILS_EXPIRED")
 
 
 async def _apply_correction_rows(
@@ -414,9 +429,10 @@ async def _apply_correction_rows(
               'INVALID',
               'IMPORT_FAILED'
           )
+          AND rows.compacted_at IS NULL
           AND (
               correction.expected_version IS NULL
-              OR (rows.version = correction.expected_version AND rows.compacted_at IS NULL)
+              OR rows.version = correction.expected_version
           )
         """,
         [
