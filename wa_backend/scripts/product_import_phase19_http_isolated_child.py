@@ -51,6 +51,7 @@ def start(label: str, *args: str):
     except BaseException:
         handle.close()
         raise
+    process.p19_label = label
     return process, handle
 
 
@@ -85,7 +86,7 @@ def wait_health(client: httpx.Client, processes, seconds=70) -> None:
     while time.monotonic() < end:
         for proc, _ in processes:
             if proc.poll() is not None:
-                raise RuntimeError(f"An isolated API/worker exited before readiness (exit={proc.returncode}).")
+                raise RuntimeError(f"Isolated {proc.p19_label} exited before readiness (exit={proc.returncode}).")
         try:
             if client.get("/health").status_code == 200:
                 return
@@ -307,6 +308,21 @@ def main() -> None:
             test_inline(client, wrong, admin)
             test_csv(client, wrong, admin)
         print("PRODUCT_IMPORT_PHASE19_REAL_HTTP_ISOLATED=PASS", flush=True)
+    except BaseException:
+        # Sanitized component-level evidence only: never echo traceback, JWT,
+        # DSN, startup SQL or error-message parameters from a role log.
+        for proc, _ in processes:
+            if proc.poll() is not None:
+                lines = (LOG_DIR / f"{proc.p19_label}.log").read_text(
+                    encoding="utf-8", errors="replace"
+                ).splitlines()
+                kinds = [line.split(":", 1)[0].strip() for line in lines
+                         if line.startswith(("RuntimeError:", "ValueError:",
+                                             "TypeError:", "ModuleNotFoundError:",
+                                             "ImportError:", "OSError:",
+                                             "SystemExit:", "PermissionError:"))]
+                print(f"P19_COMPONENT_EXIT={proc.p19_label}:{proc.returncode} exception_kind={kinds[-1] if kinds else 'UNCLASSIFIED'}", flush=True)
+        raise
     finally:
         for proc, handle in reversed(processes):
             stop(proc, handle)
