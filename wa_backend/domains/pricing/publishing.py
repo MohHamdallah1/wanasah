@@ -222,6 +222,14 @@ class _SameTransactionDirectPublication:
             raise RuntimeError(
                 "Fresh Pricing publication proof is no longer valid in this transaction."
             )
+        if (
+            int(self.publication.company_id) != self._company_id
+            or int(self._book.company_id) != self._company_id
+            or int(self._book.id) != int(self.publication.price_book_id)
+        ):
+            raise RuntimeError(
+                "Fresh Pricing publication proof has an inconsistent tenant/book."
+            )
 
     async def add_draft_entries(
         self, *, expected_publication_version: int, entries: list[dict[str, Any]],
@@ -276,12 +284,6 @@ class _SameTransactionDirectPublication:
                 "تغيرت نسخة النشر؛ حدّث البيانات وأعد المحاولة.",
                 context={"current_version": int(row.version)},
             )
-        if (
-            int(row.company_id) != self._company_id
-            or int(self._book.company_id) != self._company_id
-            or int(self._book.id) != int(row.price_book_id)
-        ):
-            raise RuntimeError("Fresh Pricing publication scope has inconsistent tenant/book.")
         return await _publish_locked(
             self._db,
             company_id=self._company_id,
