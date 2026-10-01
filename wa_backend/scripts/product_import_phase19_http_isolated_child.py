@@ -5,6 +5,7 @@ This child refuses every other DB target. No user tokens/files are read or logge
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import csv
 import io
@@ -441,6 +442,69 @@ def test_next_error(client: httpx.Client, admin) -> None:
     print("P19_REAL_HTTP_SEQUENTIAL_LINEAGE=" + str(proof), flush=True)
 
 
+async def test_real_staging_io_lock_release(admin) -> None:
+    # Real asyncpg PostgreSQL transaction holds a transaction advisory lock
+    # during an actual server-side wait. A *short test-only* guard deadline
+    # exercises the exact production guard, not a mocked connection.
+    from unittest.mock import patch
+    from sqlalchemy import text
+    from database import engine
+    from domains.simple_products.imports.infrastructure import staging_io
+    from domains.simple_products.imports.infrastructure.repository import (
+        close_tenant_session, open_tenant_session,
+    )
+    from domains.simple_products.imports.domain.errors import (
+        ProductImportStagingTimeoutError, classify_import_error,
+    )
+    guard = staging_io.StagingIOGuard(company_id=2, job_id=uuid4())
+    locked_key = 209301033
+    token, db = await open_tenant_session(2, io_guard=guard)
+    backend_pid = -1
+    try:
+        backend_pid = int(await guard.run(
+            db.scalar(text("SELECT pg_backend_pid()")), operation="identify_staging_pid",
+        ))
+        await guard.run(
+            db.execute(text("SELECT pg_advisory_xact_lock(:k)").bindparams(k=locked_key)),
+            operation="create_test_transaction_lock",
+        )
+        with patch.object(staging_io, "STAGING_IO_TIMEOUT_SECONDS", 0.2):
+            try:
+                await guard.run(
+                    db.execute(text("SELECT pg_sleep(5)")),
+                    operation="staging_batch",
+                )
+            except ProductImportStagingTimeoutError as cause:
+                classified = classify_import_error(cause)
+                if not classified.retryable or classified.code != "PRODUCT_IMPORT_STAGING_TIMEOUT":
+                    raise RuntimeError("Timed-out staging was not retryable job-level error.") from cause
+            else:
+                raise RuntimeError("Real SQL sleep bypassed guarded staging timeout.")
+        try:
+            await guard.run(db.rollback(), operation="rollback_staging", cleanup=True)
+        except Exception:
+            # Severed asyncpg transport already owns transaction cleanup.
+            pass
+    finally:
+        await close_tenant_session(token, db, io_guard=guard)
+        await engine.dispose()
+
+    deadline = time.monotonic() + 6.0
+    while time.monotonic() < deadline:
+        active_pid = admin.execute(
+            "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid=%s",
+            (backend_pid,),
+        ).fetchone()[0]
+        free_lock = admin.execute(
+            "SELECT pg_try_advisory_xact_lock(%s)", (locked_key,),
+        ).fetchone()[0]
+        if int(active_pid) == 0 and bool(free_lock):
+            print("P19_REAL_PG_STAGING_TIMEOUT_LOCK_RELEASE=PASS", flush=True)
+            return
+        time.sleep(0.05)
+    raise RuntimeError("Real timed-out staging transport did not release PostgreSQL backend and transaction lock.")
+
+
 def main() -> None:
     admin_url = make_url(os.environ["DATABASE_URL_MIGRATION"])
     admin = psycopg.connect(
@@ -472,6 +536,8 @@ def main() -> None:
         restricted_token = create_access_token(
             {"sub": "3", "is_admin": True}, 2, "Admin",
         )
+
+        asyncio.run(test_real_staging_io_lock_release(admin), loop_factory=asyncio.SelectorEventLoop)
 
         processes.append(start("p19-http-server", "-m",
                                "scripts.product_import_phase19_http_selector_server"))
