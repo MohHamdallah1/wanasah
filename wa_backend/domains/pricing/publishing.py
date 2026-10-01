@@ -30,7 +30,10 @@ from .core import (
     require_aware_datetime,
     utc_now,
 )
-from .validation_lookups import load_variant_uom_snapshot
+from .validation_lookups import (
+    load_locked_publication_validation_snapshot,
+    load_variant_uom_snapshot,
+)
 
 
 SUPPORTED_ASSIGNMENT_SCOPES = frozenset(
@@ -709,24 +712,10 @@ async def _validate_publication_entries(
     company_id: int,
     publication: PricePublication,
 ) -> list[PriceBookEntry]:
-    entries = list(
-        (
-            await db.scalars(
-                select(PriceBookEntry)
-                .where(
-                    PriceBookEntry.company_id == int(company_id),
-                    PriceBookEntry.publication_id == int(publication.id),
-                )
-                .order_by(
-                    PriceBookEntry.product_variant_id,
-                    PriceBookEntry.uom_id,
-                    func.lower(PriceBookEntry.effectivity),
-                    PriceBookEntry.id,
-                )
-                .with_for_update()
-                .execution_options(wanasah_sql_trace_label="pricing_publish_entries_lock")
-            )
-        ).all()
+    entries, variants, mapped = await load_locked_publication_validation_snapshot(
+        db,
+        company_id=company_id,
+        publication_id=int(publication.id),
     )
     if not entries:
         raise PricingError(
@@ -738,14 +727,6 @@ async def _validate_publication_entries(
             "PRICE_PUBLICATION_EFFECTIVE_AT_REQUIRED",
             "effective_at مطلوب قبل النشر.",
         )
-
-    variant_ids = sorted({int(row.product_variant_id) for row in entries})
-    variants, mapped = await load_variant_uom_snapshot(
-        db,
-        company_id=company_id,
-        variant_ids=variant_ids,
-        stage="publish",
-    )
 
     grouped: dict[tuple[int, int], list[PriceBookEntry]] = {}
     for entry in entries:
