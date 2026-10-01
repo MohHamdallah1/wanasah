@@ -149,7 +149,11 @@ def measure_one(client: httpx.Client, admin: psycopg.Connection, processes) -> N
         "FROM product_import_rows WHERE company_id=2 AND job_id=%s",
         (job_id,),
     ).fetchone()
-    if tuple(map(int, line)) != (ROWS, ROWS, 2, ROWS + 1):
+    # The accepted synthetic CSV intentionally inserts one physically empty
+    # line after each 10,000th data row except the final record. These are
+    # skipped as products but MUST advance physical source row numbering.
+    expected_last_physical = 1 + ROWS + ((ROWS - 1) // 10_000)
+    if tuple(map(int, line)) != (ROWS, ROWS, 2, expected_last_physical):
         raise RuntimeError("Physical source-row identity or staging count mismatch.")
     active = admin.execute(
         "SELECT count(*) FROM procrastinate_jobs WHERE task_name='wanasah.process_product_import' "
