@@ -72,6 +72,9 @@ async def _active_book(
     )
     if lock:
         stmt = stmt.with_for_update()
+    stmt = stmt.execution_options(
+        wanasah_import_sql_label="pricing_book_lock" if lock else "pricing_book_read"
+    )
     row = await db.scalar(stmt)
     if row is None:
         raise PricingError(
@@ -166,6 +169,7 @@ async def _draft_publication(
             PricePublication.id == int(publication_id),
         )
         .with_for_update()
+        .execution_options(wanasah_import_sql_label="pricing_draft_publication_lock")
     )
     if row is None:
         raise PricingError(
@@ -356,7 +360,7 @@ async def create_draft_entries_bulk(
             ).where(
                 ProductVariant.company_id == int(company_id),
                 ProductVariant.id.in_(ids),
-            )
+            ).execution_options(wanasah_import_sql_label="pricing_draft_variants")
         )
     ).all()
     variants = {
@@ -372,7 +376,7 @@ async def create_draft_entries_bulk(
             ).where(
                 ProductUomConversion.company_id == int(company_id),
                 ProductUomConversion.product_variant_id.in_(ids),
-            )
+            ).execution_options(wanasah_import_sql_label="pricing_draft_uoms")
         )
     ).all()
     mapped = {
@@ -553,6 +557,7 @@ async def _validate_publication_entries(
                     PriceBookEntry.id,
                 )
                 .with_for_update()
+                .execution_options(wanasah_import_sql_label="pricing_publish_entries_lock")
             )
         ).all()
     )
@@ -577,7 +582,7 @@ async def _validate_publication_entries(
             ).where(
                 ProductVariant.company_id == int(company_id),
                 ProductVariant.id.in_(variant_ids),
-            )
+            ).execution_options(wanasah_import_sql_label="pricing_publish_variants")
         )
     ).all()
     variants = {
@@ -593,7 +598,7 @@ async def _validate_publication_entries(
             ).where(
                 ProductUomConversion.company_id == int(company_id),
                 ProductUomConversion.product_variant_id.in_(variant_ids),
-            )
+            ).execution_options(wanasah_import_sql_label="pricing_publish_uoms")
         )
     ).all()
     mapped: dict[int, set[int]] = {
@@ -741,7 +746,7 @@ async def _close_predecessor_ranges(
                 ) AS predecessor
             )
             """
-        ),
+        ).execution_options(wanasah_import_sql_label="pricing_predecessor_exists"),
         {
             "company_id": int(company_id),
             "price_book_id": int(publication.price_book_id),
@@ -813,7 +818,7 @@ async def _close_predecessor_ranges(
                   )
             )
             """
-        ),
+        ).execution_options(wanasah_import_sql_label="pricing_locked_context_check"),
         {
             "company_id": int(company_id),
             "publication_id": int(publication.id),
@@ -868,7 +873,7 @@ async def _close_predecessor_ranges(
             FROM candidates
             WHERE old.id = candidates.id
             """
-        ),
+        ).execution_options(wanasah_import_sql_label="pricing_close_previous_ranges"),
         {
             "company_id": int(company_id),
             "publication_id": int(publication.id),
@@ -910,7 +915,7 @@ async def _close_predecessor_ranges(
                 )
             )
             """
-        ),
+        ).execution_options(wanasah_import_sql_label="pricing_effectivity_overlap_check"),
         {
             "company_id": int(company_id),
             "price_book_id": int(publication.price_book_id),
@@ -958,6 +963,7 @@ async def _publish_locked(
             version=PriceBookEntry.version + 1,
             updated_at=now,
         )
+        .execution_options(wanasah_import_sql_label="pricing_publish_entry_update")
     )
 
     await db.execute(
@@ -973,6 +979,7 @@ async def _publish_locked(
             version=PricePublication.version + 1,
             updated_at=now,
         )
+        .execution_options(wanasah_import_sql_label="pricing_supersede_publications")
     )
 
     publication.status = "PUBLISHED"
@@ -1006,6 +1013,7 @@ async def publish_publication(
             PricePublication.id == int(publication_id),
         )
         .with_for_update()
+        .execution_options(wanasah_import_sql_label="pricing_publish_publication_lock")
     )
     if row is None:
         raise PricingError("PRICE_PUBLICATION_NOT_FOUND", "نسخة النشر غير موجودة.", status_code=404)
