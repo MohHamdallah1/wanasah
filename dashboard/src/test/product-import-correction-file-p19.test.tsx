@@ -50,9 +50,9 @@ function setup(authFetch: (path: string, options?: RequestInit) => Promise<unkno
   function wrapper({ children }: PropsWithChildren) {
     return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
   }
-  const view = renderHook(({ jobId }) => useImportCorrection({
-    companyId: 38,
-    driverId: 17,
+  const view = renderHook(({ jobId, companyId, driverId }) => useImportCorrection({
+    companyId,
+    driverId,
     jobId,
     online: true,
     authFetch,
@@ -62,7 +62,7 @@ function setup(authFetch: (path: string, options?: RequestInit) => Promise<unkno
     t: ((key: string) => key) as TFunction,
   }), {
     wrapper,
-    initialProps: { jobId: JOB },
+    initialProps: { jobId: JOB, companyId: 38, driverId: 17 },
   });
   return { ...view, setImportPollKey, setImportStatus };
 }
@@ -80,6 +80,43 @@ afterEach(() => {
 });
 
 describe("same-job Product Import correction frontend", () => {
+  it("does not reuse a correction XLSX selected under another company when the job UUID stays the same", async () => {
+    const fetch = vi.fn();
+    const view = setup(fetch);
+    act(() => view.result.current.chooseCorrectionFile(file));
+    expect(view.result.current.correctionFile).toBe(file);
+    view.rerender({ jobId: JOB, companyId: 99, driverId: 17 });
+    expect(view.result.current.correctionFile).toBeNull();
+    act(() => view.result.current.uploadCorrection());
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
+    expect(fetch).not.toHaveBeenCalled();
+    expect(getOrCreateDurableCommand).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("completes the original durable file request without updating the new tenant after a late ACK", async () => {
+    let acknowledge!: (payload: unknown) => void;
+    const response = new Promise<unknown>((resolve) => { acknowledge = resolve; });
+    const fetch = vi.fn(async () => response);
+    const view = setup(fetch);
+    act(() => view.result.current.chooseCorrectionFile(file));
+    act(() => view.result.current.uploadCorrection());
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    view.rerender({ jobId: JOB, companyId: 99, driverId: 17 });
+    expect(view.result.current.correctionFile).toBeNull();
+    await act(async () => {
+      acknowledge({ job_id: JOB, status: "VALIDATING", corrected_rows: 1, replayed: false });
+      await response;
+    });
+    await waitFor(() => expect(completeDurableOperation).toHaveBeenCalledWith(
+      productDurableScope(38, 17, "product-import-correction", JOB), REQUEST_ID,
+    ));
+    expect(view.setImportStatus).not.toHaveBeenCalled();
+    expect(view.setImportPollKey).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
   it("does not send an Excel correction while an inline edit or draft owns the same job", async () => {
     const fetch = vi.fn();
     const inlineScope = productDurableScope(38, 17, "product-import-inline-correction", JOB);
