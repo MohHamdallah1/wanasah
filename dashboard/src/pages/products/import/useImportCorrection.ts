@@ -3,7 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import { toast } from "sonner";
 
-import { apiErrorMessage, apiErrorStatus } from "@/lib/apiErrors";
+import { apiErrorCode, apiErrorMessage, apiErrorStatus } from "@/lib/apiErrors";
 import {
   abandonDurableOperation,
   completeDurableOperation,
@@ -135,8 +135,20 @@ export function useImportCorrection({
       } catch (error) {
         // Only a deterministic server rejection known to make zero writes may
         // release the local pending operation for the user to fix and resubmit.
-        if ([413, 422].includes(apiErrorStatus(error) ?? -1)) {
+        if (
+          [413, 422].includes(apiErrorStatus(error) ?? -1) ||
+          (apiErrorStatus(error) === 410 &&
+            apiErrorCode(error) === "PRODUCT_IMPORT_CORRECTION_DETAILS_EXPIRED")
+        ) {
+          // Expiry is confirmed before applying changes. Retain the pending
+          // command on ambiguous responses, but free this proven zero-write
+          // request so it cannot lock the job in the local UI forever.
           abandonDurableOperation(scope);
+          if (apiErrorStatus(error) === 410 &&
+              currentJobRef.current === jobId) {
+            setSelected(null);
+            if (fileRef.current) fileRef.current.value = "";
+          }
         }
         throw error;
       }

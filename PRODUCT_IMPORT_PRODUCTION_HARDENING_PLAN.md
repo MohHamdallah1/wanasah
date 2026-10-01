@@ -942,6 +942,20 @@ structural gates, parser benchmarks, or mocked failure injection alone.
   the Dashboard's large-job progress, row report, retry, and reconnection
   behavior with keyboard and both RTL/LTR locales.
 
+- [x] **File-correction expired-source UI handling (PR #58, code-only):**
+  after the now-authoritative file correction HTTP `410 /
+  PRODUCT_IMPORT_CORRECTION_DETAILS_EXPIRED` is verified, clear that
+  permanently ineligible selected XLSX and its scoped pending id so the
+  company/job is not trapped in an unresolvable correction. **Do not** drop
+  an ambiguous HTTP 503, connection-loss, or invalid ACK request identity:
+  preserve its original same-file idempotent replay. Added Arabic/English
+  fallback messages for invalid correction acknowledgements, missing file
+  and oversized inline pages. Focused frontend correction/editor tests
+  **16/16 PASS**; TypeScript, ESLint, Vite build PASS. In-process backend
+  correction/staging suite **21/21 PASS** using an unreachable synthetic
+  database DSN (no PostgreSQL/Worker writes). Authenticated real HTTP,
+  RLS, and release acceptance remain OPEN.
+
 ## 19.3 V1 correction UX — file and small-inline code DONE; live acceptance OPEN
 
 **Decision (owner sequencing updated 2026-09-30):** Implement the V1
