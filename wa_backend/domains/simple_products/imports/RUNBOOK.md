@@ -682,3 +682,28 @@ docs/operations/PRODUCT_IMPORT_P19_OFFICIAL_HTTP_LOCK_CANCEL_2026-10-01.md.
 It does NOT reproduce the historical asyncpg ClientRead mechanism or the
 different transport-abort/lost-COMMIT recovery scenario; keep those separate
 unless independently proven.
+
+## Phase 19 final isolated edge-case suite: zero/1k with 99.9% invalid
+
+Use the existing isolated port 55446 PostgreSQL+real HTTP/Worker
+orchestrator with explicitly selected case:
+
+~~~powershell
+$env:WANASAH_P19_HTTP_LOCAL_GATE = '1'
+$env:WANASAH_P19_HTTP_SOURCE_ENV_FILE = (Resolve-Path '.\.env').Path
+$env:WANASAH_P19_HTTP_CASE = 'edges'
+$env:WANASAH_P19_EDGES_CONFIRM = 'ISOLATED_SYNTHETIC_ONLY'
+.\venv\Scripts\python.exe -m scripts.run_product_import_phase19_http_isolated_gate
+~~~
+
+This creates one **header-only** file with zero Product rows (must be
+rejected without creating Products) and a separate source with 1,000
+rows/999 deliberately missing names (must import exactly one valid
+Product+Price+Audit+Outbox, with 999 rejected and no partial job
+errors). Both cases use a fresh request identity. The disposable
+cluster is deleted and the original developer source tenant verified
+unchanged afterward. Test outcome and exact size-case lineage evidence:
+docs/operations/PRODUCT_IMPORT_P19_EDGE_CASES_2026-10-01.md.
+
+These are real backend/worker tests; they do not test a customer's
+saved Excel files, a manual browser or statistical p95 performance.
