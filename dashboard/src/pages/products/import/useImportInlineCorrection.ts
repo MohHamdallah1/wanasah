@@ -147,8 +147,7 @@ export function useImportInlineCorrection({
     if (!page || pending || savingRef.current || staleDraft) return;
     const row = page.items.find((candidate) => candidate.row_identity === identity);
     if (!row?.editable || !page.fields.includes(field)) return;
-    {
-      const next: Edits = { ...editsRef.current };
+    const next: Edits = { ...editsRef.current };
       const changed = { ...next[identity] };
       if (text === formatInlineValue(row.values[field])) delete changed[field];
       else changed[field] = text;
@@ -172,7 +171,6 @@ export function useImportInlineCorrection({
           setStorageWarning(true);
         }
       }
-    }
   };
 
   const discardDraft = () => {
