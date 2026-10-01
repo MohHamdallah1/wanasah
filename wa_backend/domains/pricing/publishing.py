@@ -252,12 +252,18 @@ class _SameTransactionDirectPublication:
                 "تغيرت نسخة النشر؛ حدّث البيانات وأعد المحاولة.",
                 context={"current_version": int(publication.version)},
             )
-        return await _add_draft_entries_to_locked_publication(
-            self._db,
-            company_id=self._company_id,
-            publication=publication,
-            entries=entries,
-        )
+        # Keep the just-created publication version/update dirty in memory
+        # across bounded draft chunks. The entries themselves must be flushed
+        # now so publish-time SQL can lock/validate them. Suppressing autoflush
+        # prevents intermediate SELECTs from writing the publication row early.
+        with self._db.no_autoflush:
+            return await _add_draft_entries_to_locked_publication(
+                self._db,
+                company_id=self._company_id,
+                publication=publication,
+                entries=entries,
+                coalesce_publication_write=True,
+            )
 
     async def publish(
         self, *, actor_id: int, expected_version: int,
@@ -265,35 +271,39 @@ class _SameTransactionDirectPublication:
         self._require_open_transaction()
         self._consumed = True
 
-        # The original create_publication acquired and retains Company
-        # FOR NO KEY UPDATE and PriceBook FOR UPDATE until transaction end.
-        # Re-check the mutable approval policy at the exact publication point.
-        if await maker_checker_enabled(self._db, self._company_id):
-            raise PricingError(
-                "PRICING_APPROVAL_REQUIRED",
-                "Maker/Checker مفعّل؛ يجب Submit ثم Approve.",
-            )
+        # The direct scope may carry an intentionally dirty publication
+        # version accumulated while flushing only its new entry rows. Keep that
+        # DRAFT-only write coalesced until the final publish flush.
+        with self._db.no_autoflush:
+            # The original create_publication acquired and retains Company
+            # FOR NO KEY UPDATE and PriceBook FOR UPDATE until transaction end.
+            # Re-check the mutable approval policy at the exact publication point.
+            if await maker_checker_enabled(self._db, self._company_id):
+                raise PricingError(
+                    "PRICING_APPROVAL_REQUIRED",
+                    "Maker/Checker مفعّل؛ يجب Submit ثم Approve.",
+                )
 
-        row = self.publication
-        if row.status != "DRAFT":
-            raise PricingError(
-                "PRICE_PUBLICATION_STATE_CONFLICT",
-                "النشر المباشر مسموح من DRAFT فقط.",
-                context={"status": row.status},
+            row = self.publication
+            if row.status != "DRAFT":
+                raise PricingError(
+                    "PRICE_PUBLICATION_STATE_CONFLICT",
+                    "النشر المباشر مسموح من DRAFT فقط.",
+                    context={"status": row.status},
+                )
+            if int(row.version) != int(expected_version):
+                raise PricingError(
+                    "PRICE_PUBLICATION_VERSION_CONFLICT",
+                    "تغيرت نسخة النشر؛ حدّث البيانات وأعد المحاولة.",
+                    context={"current_version": int(row.version)},
+                )
+            return await _publish_locked(
+                self._db,
+                company_id=self._company_id,
+                actor_id=actor_id,
+                publication=row,
+                already_locked_book=self._book,
             )
-        if int(row.version) != int(expected_version):
-            raise PricingError(
-                "PRICE_PUBLICATION_VERSION_CONFLICT",
-                "تغيرت نسخة النشر؛ حدّث البيانات وأعد المحاولة.",
-                context={"current_version": int(row.version)},
-            )
-        return await _publish_locked(
-            self._db,
-            company_id=self._company_id,
-            actor_id=actor_id,
-            publication=row,
-            already_locked_book=self._book,
-        )
 
 
 async def create_direct_publication(
@@ -514,6 +524,7 @@ async def _add_draft_entries_to_locked_publication(
     company_id: int,
     publication: PricePublication,
     entries: list[dict[str, Any]],
+    coalesce_publication_write: bool = False,
 ) -> list[PriceBookEntry]:
     """Common Pricing validation and DRAFT mutation after verified row lock.
 
@@ -594,7 +605,14 @@ async def _add_draft_entries_to_locked_publication(
     db.add_all(rows)
     publication.version += len(rows)
     publication.updated_at = utc_now()
-    await db.flush()
+    if coalesce_publication_write:
+        # The PricePublication row was already INSERTed/flushed when this
+        # direct scope was created. Flush only the new entries; the dirty
+        # publication version/updated_at is intentionally persisted once by
+        # the final publish flush in this same transaction/savepoint.
+        await db.flush(rows)
+    else:
+        await db.flush()
     return rows
 
 
