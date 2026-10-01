@@ -419,60 +419,89 @@ async def assert_simple_pricing_mode(
             "Simple products cannot run while advanced price approval is enabled.",
         )
 
-    advanced = await db.scalar(
-        select(PriceBookAssignment.id)
-        .where(
-            PriceBookAssignment.company_id == int(company_id),
-            PriceBookAssignment.scope_type != "COMPANY_DEFAULT",
-            or_(
-                func.upper_inf(PriceBookAssignment.effectivity),
-                func.upper(PriceBookAssignment.effectivity) > as_of,
-            ),
-        )
-        .order_by(PriceBookAssignment.id.asc())
-        .limit(1)
+    # Preserve the exact previous error precedence while replacing three
+    # PriceBookAssignment reads (advanced, future default, active default)
+    # with one tenant-scoped snapshot.
+    advanced_predicate = and_(
+        PriceBookAssignment.scope_type != "COMPANY_DEFAULT",
+        or_(
+            func.upper_inf(PriceBookAssignment.effectivity),
+            func.upper(PriceBookAssignment.effectivity) > as_of,
+        ),
     )
-    if advanced is not None:
+    future_default_predicate = and_(
+        PriceBookAssignment.scope_type == "COMPANY_DEFAULT",
+        func.lower(PriceBookAssignment.effectivity) > as_of,
+    )
+    active_default_predicate = and_(
+        PriceBookAssignment.scope_type == "COMPANY_DEFAULT",
+        PriceBookAssignment.scope_id.is_(None),
+        PriceBookAssignment.effectivity.contains(as_of),
+    )
+    policy_rows = (
+        await db.execute(
+            select(
+                PriceBookAssignment,
+                advanced_predicate.label("is_advanced"),
+                future_default_predicate.label("is_future_default"),
+                active_default_predicate.label("is_active_default"),
+            )
+            .where(
+                PriceBookAssignment.company_id == int(company_id),
+                or_(
+                    advanced_predicate,
+                    future_default_predicate,
+                    active_default_predicate,
+                ),
+            )
+            .execution_options(
+                wanasah_sql_trace_label="simple_pricing_policy_assignments"
+            )
+        )
+    ).all()
+
+    advanced = sorted(
+        (
+            assignment
+            for assignment, is_advanced, _is_future, _is_default in policy_rows
+            if bool(is_advanced)
+        ),
+        key=lambda row: int(row.id),
+    )
+    if advanced:
         raise SimpleProductError(
             "SIMPLE_PRODUCTS_ADVANCED_PRICING_ACTIVE",
             "Advanced pricing is active or scheduled for this company.",
-            context={"assignment_id": int(advanced)},
+            context={"assignment_id": int(advanced[0].id)},
         )
 
-    future = await db.scalar(
-        select(PriceBookAssignment.id)
-        .where(
-            PriceBookAssignment.company_id == int(company_id),
-            PriceBookAssignment.scope_type == "COMPANY_DEFAULT",
-            func.lower(PriceBookAssignment.effectivity) > as_of,
-        )
-        .order_by(PriceBookAssignment.id.asc())
-        .limit(1)
+    future = sorted(
+        (
+            assignment
+            for assignment, _is_advanced, is_future, _is_default in policy_rows
+            if bool(is_future)
+        ),
+        key=lambda row: int(row.id),
     )
-    if future is not None:
+    if future:
         raise SimpleProductError(
             "SIMPLE_PRODUCTS_FUTURE_PRICING_ACTIVE",
             "A future company-default price assignment is already scheduled.",
-            context={"assignment_id": int(future)},
+            context={"assignment_id": int(future[0].id)},
         )
 
-    defaults = list(
-        (
-            await db.scalars(
-                select(PriceBookAssignment)
-                .where(
-                    PriceBookAssignment.company_id == int(company_id),
-                    PriceBookAssignment.scope_type == "COMPANY_DEFAULT",
-                    PriceBookAssignment.scope_id.is_(None),
-                    PriceBookAssignment.effectivity.contains(as_of),
-                )
-                .order_by(
-                    PriceBookAssignment.priority.desc(),
-                    PriceBookAssignment.revision.desc(),
-                    PriceBookAssignment.id.desc(),
-                )
-            )
-        ).all()
+    defaults = [
+        assignment
+        for assignment, _is_advanced, _is_future, is_default in policy_rows
+        if bool(is_default)
+    ]
+    defaults.sort(
+        key=lambda row: (
+            int(row.priority),
+            int(row.revision),
+            int(row.id),
+        ),
+        reverse=True,
     )
     if len(defaults) > 1:
         raise SimpleProductError(
@@ -485,6 +514,55 @@ async def assert_simple_pricing_mode(
             "The active default price is configured as offer-exclusive.",
         )
     return defaults[0] if defaults else None
+
+
+async def load_company_and_current_default_book(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    assignment: PriceBookAssignment | None,
+) -> tuple[Company, PriceBook | None]:
+    """Load the company and assigned active book in one common-path query."""
+    if assignment is None:
+        return await load_company(db, company_id), None
+
+    row = (
+        await db.execute(
+            select(Company, PriceBook)
+            .select_from(Company)
+            .outerjoin(
+                PriceBook,
+                and_(
+                    PriceBook.company_id == Company.id,
+                    PriceBook.id == int(assignment.price_book_id),
+                    PriceBook.status == "ACTIVE",
+                ),
+            )
+            .where(Company.id == int(company_id))
+            .execution_options(
+                wanasah_sql_trace_label="simple_pricing_company_default_book"
+            )
+        )
+    ).one_or_none()
+    if row is None:
+        raise SimpleProductError(
+            "COMPANY_NOT_FOUND",
+            "Company was not found.",
+            status_code=404,
+        )
+
+    company, book = row
+    if book is None:
+        raise SimpleProductError(
+            "SIMPLE_PRODUCT_DEFAULT_PRICE_BOOK_INVALID",
+            "The company default price book is invalid.",
+        )
+    if str(book.currency_code).upper() != str(company.currency_code).upper():
+        raise SimpleProductError(
+            "SIMPLE_PRODUCT_CURRENCY_MISMATCH",
+            "The default price-book currency differs from the company currency.",
+        )
+    return company, book
 
 
 async def current_default_book(
@@ -1685,16 +1763,21 @@ async def create_products_and_prices(
             company_id=int(actor.company_id),
             as_of=now,
         )
-        company = await load_company(
+        company, current_book = await load_company_and_current_default_book(
             db,
-            int(actor.company_id),
-        )
-        book = await ensure_default_book(
-            db,
-            company=company,
-            actor_id=int(actor.id),
-            as_of=now,
+            company_id=int(actor.company_id),
             assignment=assignment,
+        )
+        book = (
+            current_book
+            if current_book is not None
+            else await ensure_default_book(
+                db,
+                company=company,
+                actor_id=int(actor.id),
+                as_of=now,
+                assignment=None,
+            )
         )
 
     with product_phase(db, "product_structures"):
@@ -1856,16 +1939,21 @@ async def update_prices(
         unit_price=unit_price,
     )
 
-    company = await load_company(
+    company, current_book = await load_company_and_current_default_book(
         db,
-        int(actor.company_id),
-    )
-    book = await ensure_default_book(
-        db,
-        company=company,
-        actor_id=int(actor.id),
-        as_of=now,
+        company_id=int(actor.company_id),
         assignment=assignment,
+    )
+    book = (
+        current_book
+        if current_book is not None
+        else await ensure_default_book(
+            db,
+            company=company,
+            actor_id=int(actor.id),
+            as_of=now,
+            assignment=None,
+        )
     )
     spec = SimpleProductSpec(
         name=str(variant.name),
