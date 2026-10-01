@@ -861,6 +861,19 @@ structural gates, parser benchmarks, or mocked failure injection alone.
   job state `CANCELLED`, **0 staged rows, 0 products imported**,
   source bytes cleaned, queue wrapper task succeeded on its
   second attempt. There is no partial Product to delete.
+- [x] **Staging diagnostic instrumentation, not root-cause closure:** PR #56
+  emits source-safe, bounded per-batch START markers before SQLAlchemy
+  multi-VALUES encoding/asyncpg transmission, with the existing wall-time
+  `STAGING_SQL` phase completion/interruption record after each awaited
+  statement. Markers include only company/job correlation IDs, bounded
+  batch index/size and first/last physical source row numbers: no Product
+  cells, barcodes, SQL query parameters or exception text. Operators can
+  identify the last batch BEGIN lacking a matching completed phase if
+  ClientRead recurs. The staging transaction, SourceStore retention, row
+  integrity assertion, retry and cancel semantics were not modified.
+  Focused staging integrity and secret-redaction checks **5/5 PASS**,
+  syntax check PASS. **Actual queue/PG diagnosis and 5k/10k/50k execution
+  are still OPEN and must not be inferred from these mocked tests.**
 - [ ] **Blocking root-cause investigation before repeating 50k:**
   instrument the actual queue worker and source staging
   with bounded per-batch timing/progress and DB query/wait diagnostics;
