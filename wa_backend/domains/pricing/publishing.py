@@ -205,9 +205,9 @@ class _SameTransactionDirectPublication:
         self._nested_transaction = nested_transaction
         self._consumed = False
 
-    async def publish(
-        self, *, actor_id: int, expected_version: int,
-    ) -> PricePublication:
+    def _require_open_transaction(self) -> None:
+        # A savepoint rollback releases locks acquired after that savepoint.
+        # Keep the proof tied to both its original root and nested identities.
         if (
             self._consumed
             or self._db.sync_session.get_transaction() is not self._root_transaction
@@ -222,6 +222,36 @@ class _SameTransactionDirectPublication:
             raise RuntimeError(
                 "Fresh Pricing publication proof is no longer valid in this transaction."
             )
+
+    async def add_draft_entries(
+        self, *, expected_publication_version: int, entries: list[dict[str, Any]],
+    ) -> list[PriceBookEntry]:
+        """Append a bounded draft chunk while its original row lock is held."""
+        self._require_open_transaction()
+        publication = self.publication
+        if publication.status != "DRAFT":
+            raise PricingError(
+                "PRICE_PUBLICATION_NOT_EDITABLE",
+                "يمكن تعديل إدخالات السعر داخل DRAFT فقط.",
+                context={"status": publication.status},
+            )
+        if int(publication.version) != int(expected_publication_version):
+            raise PricingError(
+                "PRICE_PUBLICATION_VERSION_CONFLICT",
+                "تغيرت نسخة النشر؛ حدّث البيانات وأعد المحاولة.",
+                context={"current_version": int(publication.version)},
+            )
+        return await _add_draft_entries_to_locked_publication(
+            self._db,
+            company_id=self._company_id,
+            publication=publication,
+            entries=entries,
+        )
+
+    async def publish(
+        self, *, actor_id: int, expected_version: int,
+    ) -> PricePublication:
+        self._require_open_transaction()
         self._consumed = True
 
         # The original create_publication acquired and retains Company
@@ -465,6 +495,28 @@ async def create_draft_entries_bulk(
         publication_id=publication_id,
         expected_version=expected_publication_version,
     )
+    return await _add_draft_entries_to_locked_publication(
+        db,
+        company_id=company_id,
+        publication=publication,
+        entries=entries,
+    )
+
+
+async def _add_draft_entries_to_locked_publication(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    publication: PricePublication,
+    entries: list[dict[str, Any]],
+) -> list[PriceBookEntry]:
+    """Common Pricing validation and DRAFT mutation after verified row lock.
+
+    Only the existing public API and the Pricing-owned same-transaction
+    scope call this helper. The latter proves it still holds the lock.
+    """
+    if len(entries) > 200:
+        raise ValueError("Pricing batch exceeds 200 draft entries.")
     if publication.effective_at is None:
         raise PricingError(
             "PRICE_PUBLICATION_EFFECTIVE_AT_REQUIRED",
