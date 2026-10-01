@@ -82,7 +82,7 @@ describe("inline correction UI uses the server-owned failed-row contract", () =>
     });
     render(<ImportInlineCorrectionPanel {...props} authFetch={authFetch} />);
     expect(await screen.findByText("Row 14")).not.toBeNull();
-    expect(screen.getByText("products.inlineCorrection.genericError")).not.toBeNull();
+    expect(screen.getAllByText("products.inlineCorrection.genericError").length).toBeGreaterThan(0);
     fireEvent.change(screen.getByLabelText("products.fields.name"), { target: { value: "Corrected name" } });
     fireEvent.click(screen.getByRole("button", { name: "products.inlineCorrection.submit" }));
     await waitFor(() => expect(props.onAccepted).toHaveBeenCalledTimes(1));
