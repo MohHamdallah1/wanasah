@@ -1,5 +1,5 @@
 import { AlertCircle } from "lucide-react";
-import { useId } from "react";
+import { useEffect, useId, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
@@ -29,6 +29,10 @@ export function ImportInlineCorrectionRow({
 }: Props) {
   const { t, i18n } = useTranslation();
   const prefix = useId();
+  const firstRowRef = useRef<HTMLDetailsElement | null>(null);
+  useEffect(() => {
+    if (index === 0 && firstRowRef.current) firstRowRef.current.open = true;
+  }, [index]);
   const errorText = (error: InlineCorrectionError) => {
     const key = error.code ? "errors.codes." + error.code : "";
     return key && i18n.exists(key) ? t(key) : t("products.inlineCorrection.genericError");
@@ -37,7 +41,7 @@ export function ImportInlineCorrectionRow({
   const name = formatInlineValue(row.values.name);
   return (
     <li className="list-none">
-      <details className="group rounded-xl border border-amber-200 bg-white" open={undefined} {...(index === 0 ? { defaultOpen: true } : {})}>
+      <details ref={firstRowRef} className="group rounded-xl border border-amber-200 bg-white">
         <summary className="flex min-h-12 cursor-pointer flex-wrap items-start justify-between gap-2 px-3 py-2.5 marker:text-amber-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500">
           <span className="flex min-w-0 flex-1 items-start gap-2">
             <AlertCircle aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
