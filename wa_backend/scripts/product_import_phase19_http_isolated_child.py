@@ -152,7 +152,8 @@ def upload(client: httpx.Client, *, label: str):
 def original_imported(admin, job_id: str):
     rows = admin.execute(
         "SELECT row_identity, product_variant_id, version FROM product_import_rows "
-        "WHERE company_id=2 AND job_id=%s AND status='IMPORTED' ORDER BY row_number",
+        "WHERE company_id=2 AND job_id=%s AND status='IMPORTED' "
+        "AND row_number < 101 ORDER BY row_number",
         (job_id,),
     ).fetchall()
     if len(rows) != 99:
