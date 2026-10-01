@@ -188,6 +188,40 @@ describe("same-job Product Import correction frontend", () => {
     view.unmount();
   });
 
+  it("discards an expired correction file and its known zero-write durable identity on HTTP 410", async () => {
+    const fetch = vi.fn().mockRejectedValue({
+      status: 410,
+      code: "PRODUCT_IMPORT_CORRECTION_DETAILS_EXPIRED",
+    });
+    const view = setup(fetch);
+    act(() => view.result.current.chooseCorrectionFile(file));
+    act(() => view.result.current.uploadCorrection());
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(view.result.current.uploadingCorrection).toBe(false));
+    expect(abandonDurableOperation).toHaveBeenCalledWith(
+      productDurableScope(38, 17, "product-import-correction", JOB),
+    );
+    expect(view.result.current.correctionFile).toBeNull();
+    expect(view.setImportPollKey).not.toHaveBeenCalled();
+    expect(view.setImportStatus).not.toHaveBeenCalled();
+    expect(completeDurableOperation).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("does not drop an uncertain correction request on HTTP 503", async () => {
+    const fetch = vi.fn().mockRejectedValue({
+      status: 503,
+      code: "PRODUCT_IMPORT_QUEUE_UNAVAILABLE",
+    });
+    const view = setup(fetch);
+    act(() => view.result.current.chooseCorrectionFile(file));
+    act(() => view.result.current.uploadCorrection());
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
+    expect(abandonDurableOperation).not.toHaveBeenCalled();
+    expect(view.result.current.correctionFile).toBe(file);
+    view.unmount();
+  });
+
   it("offers correction in terminal rejected-row states, never on an active/complete import", () => {
     const current = {
       job_id: JOB, status: "VALIDATION_FAILED",
