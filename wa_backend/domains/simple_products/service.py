@@ -818,8 +818,26 @@ class _BatchFamilyLookup:
 
     locked_names: frozenset[str]
     matches: dict[str, list[Product]]
-    # Positive ID lookups only; never reuse across a batch/rollback boundary.
+    # Positive ID lookups require a row lock in this exact transaction scope.
     by_id: dict[tuple[int, int], Product] = field(default_factory=dict)
+    _id_scope: tuple[Any, Any, Any] | None = field(default=None, init=False)
+
+    def locked_ids(self, db: AsyncSession) -> dict[tuple[int, int], Product]:
+        scope = (db, db.get_transaction(), db.get_nested_transaction())
+        if (
+            scope[1] is None
+            or not scope[1].is_active
+            or (scope[2] is not None and not scope[2].is_active)
+            or self._id_scope is None
+            or any(previous is not current for previous, current in zip(
+                self._id_scope, scope,
+            ))
+        ):
+            # Rollback to a savepoint can release the corresponding row locks.
+            # A reused lookup must reacquire them, even in the same session.
+            self.by_id.clear()
+        self._id_scope = scope
+        return self.by_id
 
     def remember(self, row: Product) -> None:
         normalized = str(row.name).lower()
@@ -968,23 +986,15 @@ async def _prefetch_batch_families(
     return _BatchFamilyLookup(locked_names, matches)
 
 
-async def _prefill_unique_implicit_families(
-    db: AsyncSession,
-    *,
-    actor: Driver,
-    request_id: UUID,
+def _plan_unique_implicit_families(
     specs: list[SimpleProductSpec],
-    lookup: _BatchFamilyLookup,
-) -> None:
-    """Batch-flush independent legacy import masters, preserving resolver order.
+) -> dict[int, tuple[str, str]]:
+    """Pure candidate plan; never create masters or surface a future row error.
 
-    Explicit new/none/existing modes keep the original row-by-row resolver.
-    Count names from every name-creating mode, including independent 'none'
-    masters, so prefill cannot change a later reuse/conflict/ambiguity result.
-    Only unrelated unique implicit names are candidates. Transaction-local
-    name locks and the one tenant SELECT already occurred.
+    Count new/none names too: an overlapping implicit name must keep the
+    ordered resolver's reuse/conflict/ambiguity semantics.
     """
-    candidates: list[tuple[int, str, str]] = []
+    candidates: dict[int, tuple[str, str]] = {}
     counts: dict[str, int] = {}
     for index, spec in enumerate(specs, start=1):
         if (
@@ -1011,28 +1021,94 @@ async def _prefill_unique_implicit_families(
         normalized = family_name.lower()
         counts[normalized] = counts.get(normalized, 0) + 1
         if spec.family_mode is None:
-            candidates.append((index, family_name, normalized))
+            candidates[index] = (family_name, normalized)
 
-    pending: list[Product] = []
-    for index, family_name, normalized in candidates:
+    return {
+        index: (family_name, normalized)
+        for index, (family_name, normalized) in candidates.items()
+        if counts[normalized] == 1
+    }
+
+
+async def _prefill_unique_implicit_families(
+    db: AsyncSession,
+    *,
+    actor: Driver,
+    request_id: UUID,
+    specs: list[SimpleProductSpec],
+    lookup: _BatchFamilyLookup,
+    candidates: dict[int, tuple[str, str]],
+    start_index: int,
+    uom_cache: dict[str, UOM],
+    tracking_defaults: ProductTrackingDefaults | None,
+    per_spec_barcodes: list[tuple[str | None, str | None, bool]],
+) -> None:
+    """Flush only a contiguous, validated implicit run at its family step.
+
+    Lookahead uses existing caches and pure domain validators only. An explicit
+    selection, name overlap, invalid row or missing cached input is a barrier,
+    not an error to raise early. The ordinary row loop remains authoritative.
+    """
+    if tracking_defaults is None:
+        # Its first read/validation belongs AFTER the first family resolution.
+        return
+
+    ready: list[tuple[int, str]] = []
+    for index in range(start_index, len(specs) + 1):
+        candidate = candidates.get(index)
+        if candidate is None:
+            break
+        family_name, normalized = candidate
         if (
-            counts[normalized] != 1
-            or normalized not in lookup.locked_names
+            normalized not in lookup.locked_names
             or lookup.matches.get(normalized)
         ):
-            continue
-        pending.append(Product(
+            break
+        spec = specs[index - 1]
+        try:
+            clean_text(spec.name, "product_name", 200)
+            # Never issue a lookahead UOM SELECT: it could fail before an earlier
+            # parent INSERT. Unseen codes return to the ordinary ordered loop.
+            base = uom_cache.get(BASE_UOM_CODE)
+            package_code = normalize_package_code(spec.package_uom_code)
+            if base is None:
+                break
+            package = uom_cache.get(package_code) if package_code else None
+            if package_code is not None and package is None:
+                break
+            resolve_price_pair(
+                units_per_package=(
+                    int(spec.units_per_package) if package is not None else 1
+                ),
+                package_uom_code=str(package.code) if package is not None else None,
+                package_price=spec.package_price,
+                unit_price=spec.unit_price,
+            )
+            resolve_product_tracking_modes_from_defaults(
+                tracking_defaults,
+                lot_control_mode=spec.lot_control_mode,
+                expiry_control_mode=spec.expiry_control_mode,
+            )
+        except (
+            ProductTrackingError, PricingError, ValueError, TypeError, ArithmeticError,
+        ):
+            break
+        if package is None and per_spec_barcodes[index - 1][1] is not None:
+            break
+        ready.append((index, family_name))
+
+    # No Product objects are constructed until every row in this run passes
+    # both sides of its family step. Later failing rows are never prefetched.
+    pending = [
+        Product(
             company_id=int(actor.company_id),
             code=_auto_code("FAM", request_id, index),
             name=family_name,
-        ))
-
+        )
+        for index, family_name in ready
+    ]
     if not pending:
         return
-
-    # One ORM flush replaces up to one separate parent INSERT flush per
-    # independent SKU. Do not guess DB-generated Product IDs or bypass the
-    # canonical Product model; all rows stay in the caller's single SAVEPOINT.
     db.add_all(pending)
     with product_phase(db, "family_flush"):
         await db.flush()
@@ -1103,17 +1179,22 @@ async def _resolve_family(
         )
 
     if spec.family_id is not None:
-        # Resolve lazily after the original per-row selection checks. The
-        # lookup is owned by this create_product_structures invocation, so it
-        # cannot survive a failed savepoint or leak into a later batch.
+        # Resolve lazily after the original selection checks. A positive hit
+        # is safe only while its same-scope key-share lock protects the FK.
         key = (int(actor.company_id), int(spec.family_id))
-        row = batch_lookup.by_id.get(key) if batch_lookup is not None else None
+        locked_ids = (
+            batch_lookup.locked_ids(db) if batch_lookup is not None else {}
+        )
+        row = locked_ids.get(key)
         if row is None:
             row = await db.scalar(
-                select(Product).where(
+                select(Product)
+                .where(
                     Product.company_id == key[0],
                     Product.id == key[1],
                 )
+                .with_for_update(read=True, key_share=True)
+                .execution_options(populate_existing=True)
             )
         if row is None:
             raise SimpleProductError(
@@ -1122,7 +1203,8 @@ async def _resolve_family(
                 status_code=404,
             )
         if batch_lookup is not None:
-            batch_lookup.by_id[key] = row
+            # The SELECT may have autobegun a transaction. Bind after it too.
+            batch_lookup.locked_ids(db)[key] = row
         return row
 
     family_name = (
@@ -1307,10 +1389,7 @@ async def create_product_structures(
     batch_family_lookup = await _prefetch_batch_families(
         db, actor=actor, specs=specs,
     )
-    await _prefill_unique_implicit_families(
-        db, actor=actor, request_id=request_id,
-        specs=specs, lookup=batch_family_lookup,
-    )
+    implicit_family_candidates = _plan_unique_implicit_families(specs)
     for index, spec in enumerate(specs, start=1):
         name = clean_text(spec.name, "product_name", 200)
         assert name is not None
@@ -1328,6 +1407,14 @@ async def create_product_structures(
             unit_price=spec.unit_price,
         )
 
+        await _prefill_unique_implicit_families(
+            db, actor=actor, request_id=request_id,
+            specs=specs, lookup=batch_family_lookup,
+            candidates=implicit_family_candidates, start_index=index,
+            uom_cache=batch_uom_cache,
+            tracking_defaults=batch_tracking_defaults,
+            per_spec_barcodes=per_spec_barcodes,
+        )
         family = await _resolve_family(
             db,
             actor=actor,

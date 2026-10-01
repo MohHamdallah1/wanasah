@@ -27,7 +27,11 @@ from models import Product
 class FamilyIntentA2Tests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.actor = SimpleNamespace(id=3, company_id=38)
+        self.transaction = SimpleNamespace(is_active=True)
+        self.savepoint = SimpleNamespace(is_active=True)
         self.session = SimpleNamespace(
+            get_transaction=MagicMock(return_value=self.transaction),
+            get_nested_transaction=MagicMock(return_value=self.savepoint),
             execute=AsyncMock(),
             scalar=AsyncMock(),
             scalars=AsyncMock(),
@@ -121,6 +125,8 @@ class FamilyIntentA2Tests(unittest.IsolatedAsyncioTestCase):
             set(statement.compile().params.values()), {38, 71},
         )
         self.assertEqual(lookup.by_id, {(38, 71): parent})
+        self.assertTrue(statement._for_update_arg.read)
+        self.assertTrue(statement._for_update_arg.key_share)
 
         for item in (
             self.spec(family_mode="none", family_id=71),
@@ -137,7 +143,14 @@ class FamilyIntentA2Tests(unittest.IsolatedAsyncioTestCase):
 
     async def test_id_cache_does_not_hide_missing_or_foreign_family(self):
         parent = Product(id=71, company_id=38, code="FAM-A", name="Chips")
-        lookup = _BatchFamilyLookup(frozenset(), {}, {(38, 71): parent})
+        lookup = _BatchFamilyLookup(frozenset(), {})
+        self.session.scalar.return_value = parent
+        await _resolve_family(
+            self.session, actor=self.actor,
+            spec=self.spec(family_mode="existing", family_id=71),
+            request_id=uuid4(), index=1, batch_lookup=lookup,
+        )
+        self.session.scalar.reset_mock()
         self.session.scalar.return_value = None
         foreign_actor = SimpleNamespace(id=8, company_id=43)
         for actor, family_id in ((foreign_actor, 71), (self.actor, 72)):
@@ -152,7 +165,7 @@ class FamilyIntentA2Tests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(lookup.by_id, {(38, 71): parent})
         self.assertEqual(self.session.scalar.await_count, 2)
 
-    async def test_fresh_batch_lookup_reloads_after_previous_attempt(self):
+    async def test_reused_lookup_reloads_after_savepoint_scope_changes(self):
         parent = Product(id=71, company_id=38, code="FAM-A", name="Chips")
         self.session.scalar.side_effect = [parent, None]
         item = self.spec(family_mode="existing", family_id=71)
@@ -161,14 +174,17 @@ class FamilyIntentA2Tests(unittest.IsolatedAsyncioTestCase):
             self.session, actor=self.actor, spec=item,
             request_id=uuid4(), index=1, batch_lookup=first,
         )
-        retry = _BatchFamilyLookup(frozenset(), {})
+        self.savepoint.is_active = False
+        self.session.get_nested_transaction.return_value = SimpleNamespace(
+            is_active=True,
+        )
         with self.assertRaises(SimpleProductError) as caught:
             await _resolve_family(
                 self.session, actor=self.actor, spec=item,
-                request_id=uuid4(), index=1, batch_lookup=retry,
+                request_id=uuid4(), index=1, batch_lookup=first,
             )
         self.assertEqual(caught.exception.code, "SIMPLE_PRODUCT_FAMILY_NOT_FOUND")
-        self.assertEqual(retry.by_id, {})
+        self.assertEqual(first.by_id, {})
         self.assertEqual(self.session.scalar.await_count, 2)
 
     async def test_none_and_new_reject_conflicting_payload_fields(self):

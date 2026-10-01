@@ -7,10 +7,12 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
+from domains.product_tracking import ProductTrackingDefaults
 from domains.simple_products.service import (
     SimpleProductError,
     SimpleProductSpec,
     _BatchFamilyLookup,
+    _plan_unique_implicit_families,
     _prefill_unique_implicit_families,
     _resolve_family,
 )
@@ -43,19 +45,30 @@ class ImplicitFamilyBatchFlushTests(unittest.IsolatedAsyncioTestCase):
         self.db.add_all.side_effect = lambda rows: self.assigned.extend(rows)
         self.db.add.side_effect = self.assigned.append
 
+    async def prefill(self, specs, lookup, *, start_index=1):
+        # Model inputs already read and validated by earlier ordinary rows.
+        await _prefill_unique_implicit_families(
+            self.db, actor=self.actor, request_id=self.request_id,
+            specs=specs, lookup=lookup,
+            candidates=_plan_unique_implicit_families(specs),
+            start_index=start_index,
+            uom_cache={"EACH": SimpleNamespace(id=1, code="EACH")},
+            tracking_defaults=ProductTrackingDefaults(
+                lot_control_mode="NONE", expiry_control_mode="NONE",
+            ),
+            per_spec_barcodes=[(None, None, False) for _ in specs],
+        )
+
     async def fill(self, specs, *, cached=None):
         names = frozenset(
             (row.family_name or row.name).strip().lower()
             for row in specs if row.family_mode is None
         )
         lookup = _BatchFamilyLookup(names, cached or {})
-        await _prefill_unique_implicit_families(
-            self.db, actor=self.actor, request_id=self.request_id,
-            specs=specs, lookup=lookup,
-        )
+        await self.prefill(specs, lookup)
         return lookup
 
-    async def test_100_distinct_unmatched_import_names_flush_once_with_own_ids(self):
+    async def test_validated_implicit_run_flushes_once_with_own_ids(self):
         rows = [spec(f"SKU {i:03d}") for i in range(100)]
         lookup = await self.fill(rows)
         self.db.flush.assert_awaited_once()
@@ -80,6 +93,8 @@ class ImplicitFamilyBatchFlushTests(unittest.IsolatedAsyncioTestCase):
             spec("Four", family_name="Group B"),
         ]
         lookup = await self.fill(rows, cached={"already here": [existing]})
+        self.db.flush.assert_not_awaited()
+        await self.prefill(rows, lookup, start_index=4)
         self.db.flush.assert_awaited_once()
         self.assertEqual([p.name for p in self.assigned], ["Group B"])
         self.assertEqual(lookup.matches["already here"], [existing])
@@ -96,6 +111,9 @@ class ImplicitFamilyBatchFlushTests(unittest.IsolatedAsyncioTestCase):
             spec("Legacy B"),
         ]
         lookup = await self.fill(rows)
+        self.db.flush.assert_not_awaited()
+        # Only after the ordinary loop has processed the four explicit rows.
+        await self.prefill(rows, lookup, start_index=5)
         self.db.flush.assert_awaited_once()
         self.assertEqual([p.name for p in self.assigned], ["Legacy A", "Legacy B"])
         self.assertEqual([p.code[-5:] for p in self.assigned], ["00005", "00006"])
@@ -119,7 +137,8 @@ class ImplicitFamilyBatchFlushTests(unittest.IsolatedAsyncioTestCase):
                         else [implicit, explicit]
                     )
                     lookup = await self.fill(rows + [spec("Unrelated")])
-                    self.assertEqual([p.name for p in self.assigned], ["Unrelated"])
+                    self.assertEqual(self.assigned, [])
+                    self.db.flush.assert_not_awaited()
                     self.assertNotIn("shared", lookup.matches)
 
                     async def resolve(item, index):
@@ -152,7 +171,8 @@ class ImplicitFamilyBatchFlushTests(unittest.IsolatedAsyncioTestCase):
             spec("Unrelated"),
         ]
         lookup = await self.fill(rows)
-        self.assertEqual([p.name for p in self.assigned], ["Unrelated"])
+        self.assertEqual(self.assigned, [])
+        self.db.flush.assert_not_awaited()
         for index, item in enumerate(rows[:2], start=1):
             await _resolve_family(
                 self.db, actor=self.actor, request_id=self.request_id,
@@ -170,18 +190,15 @@ class ImplicitFamilyBatchFlushTests(unittest.IsolatedAsyncioTestCase):
     async def test_invalid_name_keeps_row_level_validation_as_authority(self):
         rows = [spec("X" * 201), spec("Healthy")]
         lookup = await self.fill(rows)
-        self.db.flush.assert_awaited_once()
-        self.assertEqual([p.name for p in self.assigned], ["Healthy"])
-        self.assertNotIn("x" * 201, lookup.matches)
+        self.db.flush.assert_not_awaited()
+        self.assertEqual(self.assigned, [])
+        self.assertEqual(lookup.matches, {})
 
     async def test_failed_batch_flush_does_not_publish_uncommitted_parent_cache(self):
         self.db.flush.side_effect = RuntimeError("synthetic flush abort")
         lookup = _BatchFamilyLookup(frozenset({"sku"}), {})
         with self.assertRaisesRegex(RuntimeError, "synthetic flush abort"):
-            await _prefill_unique_implicit_families(
-                self.db, actor=self.actor, request_id=self.request_id,
-                specs=[spec("SKU")], lookup=lookup,
-            )
+            await self.prefill([spec("SKU")], lookup)
         self.assertEqual(lookup.matches, {})
 
 
