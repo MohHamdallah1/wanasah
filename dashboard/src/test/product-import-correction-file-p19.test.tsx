@@ -176,6 +176,9 @@ describe("same-job Product Import correction frontend", () => {
     } as ProductImportState;
     const actions = {
       jobId: JOB,
+      companyId: 38,
+      driverId: 17,
+      onInlineCorrectionAccepted: vi.fn(),
       authFetch: vi.fn(),
       status: current,
       pollError: null,
