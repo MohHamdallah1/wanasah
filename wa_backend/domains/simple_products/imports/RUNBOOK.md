@@ -614,3 +614,47 @@ or report a historical root cause solely from these successes.
 The ordinary **small** command (without WANASAH_P19_HTTP_CASE=medium) still
 runs the proven 100-row inline/CSV/XLSX/permissions/replay suite; medium
 mode does not replace that acceptance or the final 50k/real-browser gates.
+
+
+## Phase 19: final 50,000-row synthetic PostgreSQL/Worker rehearsal
+
+**Never point this at the existing developer/customer DB**. After the 5k/10k
+gates pass and the source code is frozen, the opt-in real-load runner can
+launch a NEW disposable PostgreSQL 16 cluster plus production FastAPI/three
+Product Import worker roles on separate loopback ports. It checks its own
+database identity and refuses occupied ports or a nonempty source fixture.
+
+Run from `wa_backend` with the appropriate current Git checkout and the
+existing development virtual environment:
+
+
+```powershell
+$env:WANASAH_P19_HTTP_LOCAL_GATE = "1"
+$env:WANASAH_P19_HTTP_SOURCE_ENV_FILE = (Resolve-Path ".\.env").Path
+$env:WANASAH_P19_HTTP_CASE = "final"
+$env:WANASAH_P19_INTERMEDIATE_ROWS = "50000"
+.\venv\Scripts\python.exe -m scripts.run_product_import_phase19_http_isolated_gate
+```
+
+This is an independent CSV *synthetic* import with 50,000 deliberately
+unique row identities and one intentionally rejected row per hundred. The
+official Excel template's 50k-file browser/formula behavior is not inferred
+from this CSV gate. The generator deliberately inserts FOUR physically blank
+source lines: row numbers span 2..50005, but the business ImportRow count is
+exactly 50000. This distinction has a dedicated offline 50k parser regression
+in `wa_backend/tests/test_product_import_phase19_fixture_generator.py`.
+
+Measure upload acceptance, observed public status transitions, terminal
+counts, source cleanup and no active queue deliveries. Query committed
+ProductVariant/Pricing/Audit/Outbox readback and report worker/HTTP peak RSS,
+sampled CPU utilization, peak PostgreSQL client connections and lock waits.
+A new 50k job cannot certify **completion-time p95** from a single run;
+per-statement staging p50/p95 describe the bounded SQL batches ONLY.
+If the gate does not print `P19_REAL_QUEUE_50000_SYNTHETIC=PASS` and
+`P19_HTTP_DISPOSABLE_CLUSTER_REMOVED=PASS`, it is **not passed**.
+Do not silently rerun a failed job identity; a fresh disposable database
+and fresh new run id are necessary to reproduce/diagnose.
+
+The 50k synthetic CSV run does NOT read or modify either of the user's
+reserved XLSX templates, does not replace manual visual/mobile/keyboard
+acceptance and is not first-company deployment D7-P/D8-P signoff.
