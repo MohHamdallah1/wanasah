@@ -77,6 +77,27 @@ afterEach(() => {
 });
 
 describe("inline correction UI uses the server-owned failed-row contract", () => {
+  it("follows a short Backend page caused by byte limits without opening bulk editing", async () => {
+    const anotherRow = {
+      ...page.items[0],
+      row_identity: "44444444-4444-4444-8444-444444444444",
+      row_number: 28,
+      values: { name: "Another rejected row", unit_barcode: "000999" },
+    };
+    const authFetch = vi.fn()
+      .mockResolvedValueOnce({ ...page, next_after_row: 14 })
+      .mockResolvedValueOnce({ ...page, items: [anotherRow], next_after_row: null });
+    render(<ImportInlineCorrectionPanel {...props} authFetch={authFetch} />);
+    expect(await screen.findByText(/Row 28/)).not.toBeNull();
+    expect(screen.getByText("Row 14")).not.toBeNull();
+    expect(authFetch).toHaveBeenCalledTimes(2);
+    expect(authFetch).toHaveBeenNthCalledWith(2,
+      "/simple-products/imports/" + JOB +
+      "/correction/rows?after_row=14&limit=24&expected_job_version=7",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
   it("prevents inline submission while another same-job Excel correction is unresolved", async () => {
     const fileScope = productDurableScope(38, 17, "product-import-correction", JOB);
     const authFetch = vi.fn(async (_url: string, opts?: RequestInit) => {
