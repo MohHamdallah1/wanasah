@@ -94,7 +94,13 @@ describe(
       expect(guide).toContain("ProductPackagingHelp");
       expect(guide).toContain("products.importGuidePackagingRule");
       expect(create).toContain("ProductPackagingHelp compact");
-      expect(glossary).toContain("TooltipTrigger");
+      // The glossary uses a touch/keyboard-operable Radix Popover now;
+      // preserve accessibility and collision bounds rather than requiring
+      // the old hover-only Tooltip implementation.
+      expect(glossary).toContain("PopoverTrigger");
+      expect(glossary).toContain("PopoverContent");
+      expect(glossary).toContain("collisionPadding={8}");
+      expect(glossary).toContain("overflow-y-auto");
       expect(glossary).toContain("aria-label");
       expect(glossary).toContain("products.packageGlossary.limits");
       expect(glossary).toContain("products.packageGlossary.examplesTitle");
