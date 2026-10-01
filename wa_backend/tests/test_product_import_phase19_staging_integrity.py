@@ -233,6 +233,47 @@ class StagingRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(classify_import_error(failure.exception).code, "PRODUCT_IMPORT_STAGING_TIMEOUT")
 
 
+    async def test_terminate_failure_still_cancels_task_without_logging_private_driver_error(self):
+        import asyncio
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from domains.simple_products.imports.infrastructure import staging_io
+        from domains.simple_products.imports.domain.errors import ProductImportStagingTimeoutError
+
+        guard = staging_io.StagingIOGuard(company_id=38, job_id=uuid4())
+        private_message = "PRIVATE CUSTOMER SQL AND BARCODE"
+        driver = Mock()
+        driver.terminate.side_effect = RuntimeError(private_message)
+        stopped = asyncio.Event()
+
+        async def stalled():
+            staging_io._capture_staging_connection(
+                SimpleNamespace(driver_connection=driver),
+                SimpleNamespace(info={}),
+                None,
+            )
+            try:
+                await asyncio.Event().wait()
+            finally:
+                stopped.set()
+
+        with (
+            patch.object(staging_io, "STAGING_IO_TIMEOUT_SECONDS", 0.02),
+            self.assertLogs("wanasah_logger", level="WARNING") as logs,
+        ):
+            with self.assertRaises(ProductImportStagingTimeoutError):
+                await asyncio.wait_for(
+                    guard.run(stalled(), operation="staging_batch"),
+                    timeout=1,
+                )
+
+        self.assertTrue(stopped.is_set(), "Failed terminate must not orphan a running task.")
+        driver.terminate.assert_called_once()
+        output = "\n".join(logs.output)
+        self.assertIn("PRODUCT_IMPORT_STAGING_IO_TERMINATE_FAILED", output)
+        self.assertIn("PRODUCT_IMPORT_STAGING_IO_ABORT", output)
+        self.assertNotIn(private_message, output)
+
     async def test_returned_connection_cannot_be_aborted_after_another_tenant_borrows_it(self):
         from types import SimpleNamespace
         from unittest.mock import Mock
