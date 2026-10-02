@@ -146,7 +146,7 @@ describe("Products P9.4 create flow", () => {
       '"products.tracking.createChange"',
     );
     expect(advanced).toContain(
-      "<ProductTrackingFields",
+      "<ProductTrackingSimpleControls",
     );
     expect(advanced).toContain(
       "!trackingUsesCompanyDefaults ?",
