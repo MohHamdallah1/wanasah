@@ -12,7 +12,7 @@
 
 ## V1 catalog/finance safety still open after archiving the 2026-09-29 urgent roadmap
 
-The historical `docs/archive/WANASAH_URGENT_CATALOG_INDEX_QUEUE_SCALING_PLAN_2026-09-29.md` documented A3/C2 concerns spanning domains **outside** Product Import. Do not lose or claim these gates passed merely by archiving that plan. This note consolidates responsibility here, **not** an additional bulk-import execution phase.
+The removed 2026-09-29 urgent Catalog/Index/Queue roadmap documented A3/C2 concerns spanning domains **outside** Product Import. Those still-open cross-domain responsibilities were consolidated here before repository cleanup; this file is now the active authority for them, **not** an additional bulk-import execution phase.
 
 - [ ] Complete source- and deployed-DB-grounded Product Master versus sellable Variant identity / composite-FK / FORCE RLS negative coverage on the relevant Inventory, Pricing, cost, Sale, reporting and Flutter/offline paths, with actual populated multi-company fixtures where required for isolation. Existing sampled A3 assertions and C2 gates are partial evidence, not a global cross-domain pass.
 - [ ] Close only the genuinely required company-costing and immutable sale/return/retry/COGS accounting scenarios for the enabled V1 commercial workflows, including real login/middleware and ambiguous-response boundaries as relevant. Preserve one official profit/valuation authority; do not silently implement a different cash-refund or supplier-invoice correction workflow without separate owner approval. The 2026-09-29 partial C1/C2 results remain in the archive.

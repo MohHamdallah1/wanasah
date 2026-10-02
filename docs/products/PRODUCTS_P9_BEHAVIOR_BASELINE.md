@@ -547,3 +547,8 @@ P9.0 is complete when this file and the active plan agree that:
 - no runtime behavior or visual design was changed during the audit.
 
 The next step after P9.0 is **P9.1 functional completion**, not visual redesign and not file splitting by guesswork.
+
+
+## Current polish continuation — 2026-10-02
+
+The old archived Products production checklist was removed during repository cleanup after its engineering gates were completed/transferred. This behavior baseline remains the reference while Products-page visual/UX polish continues. Final owner visual/manual walkthrough remains the acceptance boundary after the current polish work; do not reinterpret removal of the old plan as visual sign-off.

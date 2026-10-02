@@ -477,7 +477,7 @@ exists; require a complete end-to-end workflow and verified gates.
 - **ERPNext / import UX pattern:** use human-readable field guidance,
   original source-row numbers and deterministic correction artifacts.
   V1 import UX/inline repair tasks live in
-  `PRODUCT_IMPORT_PRODUCTION_HARDENING_PLAN.md` **Phase 19**, not here.
+  `docs/operations/PRODUCT_IMPORT_FINAL_ACCEPTANCE_2026-10-02.md`; only deferred V2 scale work belongs here.
 
 **Authoritative source examples:**
 - Odoo product packaging: https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/configure/packaging.html
@@ -498,11 +498,7 @@ exists; require a complete end-to-end workflow and verified gates.
 independent external load generators, production-like hardware profiling and
 horizontal autoscaling is not the launch gate for that first company. These
 items are **deferred, not implemented or tested**. The original source-first
-Astra audit, historical failures, all successful D0-D7-L gates and the original
-unclosed criteria are preserved VERBATIM in
-[`docs/archive/V1_MULTITENANT_ASYNC_AND_IMPORT_RELEASE_PLAN_2026-09-30.md`](docs/archive/V1_MULTITENANT_ASYNC_AND_IMPORT_RELEASE_PLAN_2026-09-30.md);
-the local load evidence lives in
-[`docs/architecture/PRODUCT_IMPORT_D7_LOCAL_LOAD_REPORT_2026-09-30.md`](docs/architecture/PRODUCT_IMPORT_D7_LOCAL_LOAD_REPORT_2026-09-30.md).
+The closed V1 engineering baseline, final real-Dashboard evidence, D3 health and D4 recovery closure are summarized in [`docs/operations/PRODUCT_IMPORT_FINAL_ACCEPTANCE_2026-10-02.md`](docs/operations/PRODUCT_IMPORT_FINAL_ACCEPTANCE_2026-10-02.md). The preserved opt-in external scale tool and operator constraints remain in [`docs/operations/WANASAH_D7S_MIXED_LOAD_TOOL.md`](docs/operations/WANASAH_D7S_MIXED_LOAD_TOOL.md).
 Do not reinterpret the historical 1,000 *arrivals* with a 10/20-client
 ASGI semaphore as 1,000 simultaneously open real TCP connections.
 
