@@ -507,8 +507,11 @@ describe(
       expect(drawer).toContain(
         "detailSections.barcodes",
       );
-      expect(drawer).toContain(
+      expect(drawer).not.toContain(
         "detailSections.pricing",
+      );
+      expect(storage).toContain(
+        "pricing: true",
       );
       expect(drawer).toContain(
         "detailSections.compatibility",
