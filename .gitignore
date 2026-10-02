@@ -72,3 +72,6 @@ wa_backend/scripts/*_summary.json
 
 # Surgical patch backups are temporary only
 **/.patch_backups/
+
+# Local product-import performance evidence (kept on the owner device, not committed)
+IMPORT_PERFORMANCE_EVIDENCE_*/
