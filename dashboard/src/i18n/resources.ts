@@ -632,7 +632,7 @@ export const resources = {
           "ضع كل منتج في صف مستقل. يمكن أن تختلف العائلة والتغليف والسعر من صف لآخر.",
         importGuideTrackingTitle: "2. التتبع: حدّد الاستثناءات فقط",
         importGuideTrackingRule:
-          "في Excel ستجد قائمة جاهزة: {{defaultValue}} / {{none}} / {{optional}} / {{required}}.",
+          "اترك خانتي الدفعة والصلاحية فارغتين لاستخدام إعداد الشركة. حدّد قيمة مختلفة فقط للمنتجات التي تحتاج استثناءً.",
         importGuideUseDefault: "استخدام الافتراضي",
         importGuideBlankTitle: "3. اتركها فارغة إذا ما عندك استثناء",
         importGuideFallbackCompany:
@@ -2361,7 +2361,7 @@ export const resources = {
           "Put each product on its own row. Family, packaging, and price may differ per row.",
         importGuideTrackingTitle: "2. Tracking: mark exceptions only",
         importGuideTrackingRule:
-          "Excel provides a ready list: {{defaultValue}} / {{none}} / {{optional}} / {{required}}.",
+          "Leave batch and expiry cells blank to use the company setting. Choose a different value only for products that need an exception.",
         importGuideUseDefault: "Use default",
         importGuideBlankTitle: "3. Leave it blank when there is no exception",
         importGuideFallbackCompany:
