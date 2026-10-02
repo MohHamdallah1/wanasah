@@ -5,10 +5,7 @@ import { useTranslation } from "react-i18next";
 
 export type ProductDetailTabKey =
   | "overview"
-  | "package"
-  | "tracking"
-  | "barcodes"
-  | "pricing";
+  | "tracking";
 
 type Props = {
   tabs: ProductDetailTabKey[];
@@ -150,7 +147,7 @@ export function ProductDetailTabs({
                   }
                 }}
                 className={
-                  "relative flex min-h-11 min-w-0 flex-1 items-center justify-center px-1.5 py-2 text-center text-[10px] font-black leading-4 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400 sm:px-2 sm:text-[11px] " +
+                  "relative flex min-h-11 min-w-0 flex-1 items-center justify-center px-2 py-2 text-center text-[11px] font-black leading-4 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400 " +
                   (
                     selected
                       ? "text-slate-950"
@@ -166,7 +163,7 @@ export function ProductDetailTabs({
                 {selected ? (
                   <span
                     aria-hidden="true"
-                    className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-amber-400"
+                    className="absolute inset-x-4 bottom-0 h-0.5 rounded-full bg-amber-400"
                   />
                 ) : null}
               </button>
