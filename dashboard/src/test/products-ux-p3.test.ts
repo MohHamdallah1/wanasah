@@ -28,8 +28,17 @@ describe("Products P3 detail foundation", () => {
         "../pages/products/detail/ProductDetailTabPanel.tsx",
       ),
     );
+    const detailHero = compact(
+      readSource(
+        "../pages/products/detail/ProductDetailHero.tsx",
+      ),
+    );
     const detailSurface =
-      drawer + " " + detailPanel;
+      drawer +
+      " " +
+      detailPanel +
+      " " +
+      detailHero;
 
     expect(drawer).toContain(
       'role="dialog"',
@@ -73,8 +82,16 @@ describe("Products P3 detail foundation", () => {
       ),
     );
 
-    expect(drawer).toContain(
-      "pricingVisible && detailSections.pricing",
+    const detailPanel = compact(
+      readSource(
+        "../pages/products/detail/ProductDetailTabPanel.tsx",
+      ),
+    );
+    expect(drawer).not.toContain(
+      "detailSections.pricing",
+    );
+    expect(detailPanel).not.toContain(
+      "formatLocaleMoney",
     );
     const actionMenu = compact(
       readSource(
@@ -501,7 +518,7 @@ describe("Products P3 detail foundation", () => {
     const detailPanel = readSource(
       "../pages/products/detail/ProductDetailTabPanel.tsx",
     );
-    expect(detailPanel).toContain(
+    expect(detailPanel).not.toContain(
       "formatLocaleMoney",
     );
     expect(detailPanel).toContain(
