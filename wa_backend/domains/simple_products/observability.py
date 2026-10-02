@@ -20,7 +20,7 @@ from sqlalchemy import event
 
 logger = logging.getLogger("wanasah_logger")
 _PROFILE_KEY = "simple_products_import_batch_profile"
-# Bound per-statement detail even when a 100-row batch splits after row errors.
+# Bound per-statement detail even when a 200-row batch splits after row errors.
 _MAX_SQL_STATEMENT_DETAILS = 256
 # Only explicitly registered static labels may appear in product-import logs.
 # Pricing attaches the option to existing statements without importing this module.
