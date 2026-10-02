@@ -34,7 +34,7 @@ type BarcodeReplaceBody = {
 };
 
 type Params = {
-  product: SimpleProduct;
+  product: SimpleProduct | null;
   items: ProductBarcodeRecord[];
   companyId: number | null;
   driverId: number | null;
@@ -59,21 +59,25 @@ export function usePrimaryBarcodeReplacement({
     setReplacing,
   ] = useState(false);
 
+  const productId =
+    product?.id ?? null;
+
   const replaceScope = useCallback(
     (uomId: number) =>
       companyId !== null &&
-      driverId !== null
+      driverId !== null &&
+      productId !== null
         ? durableScope(
             companyId,
             driverId,
             "catalog-barcode-replace-primary-v1",
-            `${product.id}:${uomId}`,
+            `${productId}:${uomId}`,
           )
         : null,
     [
       companyId,
       driverId,
-      product.id,
+      productId,
     ],
   );
 
@@ -84,6 +88,10 @@ export function usePrimaryBarcodeReplacement({
           SimpleBarcodeTarget,
         nextBarcode: string,
       ): Promise<boolean> => {
+        if (!product) {
+          return false;
+        }
+
         const uomId =
           replacementTarget ===
           "package"
