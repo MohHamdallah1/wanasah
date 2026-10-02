@@ -376,6 +376,9 @@ describe(
       const detailPanel = read(
         "src/pages/products/detail/ProductDetailTabPanel.tsx",
       );
+      const detailHero = read(
+        "src/pages/products/detail/ProductDetailHero.tsx",
+      );
       const barcodes = read(
         "src/pages/products/barcode/ProductBarcodeList.tsx",
       );
@@ -387,7 +390,9 @@ describe(
         "products.tracking.shortModes.",
       );
       expect(
-        drawer + detailPanel,
+        drawer +
+          detailPanel +
+          detailHero,
       ).toContain(
         "products.details.lifecycleModes.",
       );
