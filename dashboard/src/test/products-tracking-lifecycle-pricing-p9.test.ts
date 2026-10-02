@@ -157,7 +157,7 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
       '"products.details.actions"',
     );
     expect(actions).toContain(
-      "<span>",
+      'className="md:whitespace-nowrap"',
     );
   });
 
