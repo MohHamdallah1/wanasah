@@ -17,19 +17,28 @@ const read = (relativePath: string) =>
   );
 
 describe("Products lifecycle, focus, and barcode UX", () => {
-  it("focuses dialog content before the close control", () => {
-    const source = read(
+  it("focuses app-modal content before the close control without changing generic dialogs", () => {
+    const trap = read(
       "../hooks/useDialogFocusTrap.ts",
     );
+    const modal = read(
+      "../components/ui/modal.tsx",
+    );
 
-    expect(source).toContain(
-      '".app-modal-body, .app-modal-footer"',
+    expect(trap).toContain(
+      '".app-modal-body"',
     );
-    expect(source).toContain(
-      "firstInContent.focus();",
+    expect(trap).toContain(
+      "firstInBody.focus();",
     );
-    expect(source).toContain(
-      "container.focus();",
+    expect(trap).toContain(
+      "modalBody.focus();",
+    );
+    expect(trap).toContain(
+      "focusableWithin(container)[0]",
+    );
+    expect(modal).toContain(
+      "tabIndex={-1}",
     );
   });
 
