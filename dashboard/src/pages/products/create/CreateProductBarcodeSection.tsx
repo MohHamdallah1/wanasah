@@ -43,7 +43,7 @@ export function CreateProductBarcodeSection({
         }`}
       >
         <label className="block text-xs font-black text-slate-600">
-          <span className="flex h-7 items-center">
+          <span className="flex h-8 items-center">
             {t("products.unitBarcode")}
           </span>
           <input
@@ -59,28 +59,30 @@ export function CreateProductBarcodeSection({
 
         {draft.has_package ? (
           <label className="block text-xs font-black text-slate-600">
-            <span className="flex h-7 items-center">
-              {t(
-                "products.quickCreate.packageBarcode",
-                {
-                  package:
-                    packageLabel,
+            <span className="flex h-8 items-center justify-between gap-2">
+              <span>
+                {t(
+                  "products.quickCreate.packageBarcode",
+                  {
+                    package:
+                      packageLabel,
+                  }
+                )}
+              </span>
+              <button
+                type="button"
+                disabled={
+                  !draft.unit_barcode.trim()
                 }
-              )}
+                onClick={onCopyBarcode}
+                className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[10px] font-black text-slate-600 transition hover:border-slate-300 hover:bg-white hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-30"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                {t(
+                  "products.copyBarcode"
+                )}
+              </button>
             </span>
-            <button
-              type="button"
-              disabled={
-                !draft.unit_barcode.trim()
-              }
-              onClick={onCopyBarcode}
-              className="mb-1.5 inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-[10px] font-black text-slate-600 transition hover:border-slate-300 hover:bg-white hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-30"
-            >
-              <Copy className="h-3.5 w-3.5" />
-              {t(
-                "products.copyBarcode"
-              )}
-            </button>
             <input
               value={
                 draft.package_barcode
