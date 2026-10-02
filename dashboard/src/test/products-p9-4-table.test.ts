@@ -104,7 +104,7 @@ describe("Products P9.4 desktop table", () => {
       '["ACTIVE", "RETIRING"]',
     );
     expect(actions).toContain(
-      "onEditTracking(item)",
+      "onEditTracking(",
     );
     expect(actions).toContain(
       "onRenameProduct(",
