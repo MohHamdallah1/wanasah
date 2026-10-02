@@ -47,7 +47,7 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
     );
 
     expect(actionMenu).toContain("products.barcodeManager.action");
-    expect(manager).toContain('"/catalog/variants/" + product.id + "/barcodes"');
+    expect(manager).toContain('"/catalog/variants/" + productId + "/barcodes?limit=100"');
     expect(manager).toContain('"/catalog/barcodes/" + item.id');
     expect(manager).toContain("expected_version: item.version");
     expect(manager).toContain("getOrCreateDurableCommand(");
