@@ -227,17 +227,16 @@ export function ProductLifecycleManager({
               variant={variant}
             />
 
-            <div className="products-lifecycle-actions-scope rounded-xl border border-slate-200 bg-white p-3 [&>section]:border-0 [&>section]:p-0 [&>section>div:first-child]:justify-start [&>section>div:first-child>div:first-child]:hidden [&_button]:min-h-9 [&_input]:bg-slate-50 [&_input]:transition [&_input:focus]:bg-white">
-              <CatalogLifecycleActions
-                variant={variant}
-                onVariantChanged={async (
-                  updated,
-                ) => {
-                  setVariant(updated);
-                  await onChanged();
-                }}
-              />
-            </div>
+            <CatalogLifecycleActions
+              variant={variant}
+              simpleMode
+              onVariantChanged={async (
+                updated,
+              ) => {
+                setVariant(updated);
+                await onChanged();
+              }}
+            />
           </>
         ) : null}
       </div>
