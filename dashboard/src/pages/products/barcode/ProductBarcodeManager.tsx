@@ -136,6 +136,10 @@ export function ProductBarcodeManager({
     useState(0);
   const [busy, setBusy] =
     useState(false);
+  const [
+    advancedOpen,
+    setAdvancedOpen,
+  ] = useState(false);
   const [barcode, setBarcode] =
     useState("");
   const [barcodeType, setBarcodeType] =
@@ -373,6 +377,7 @@ export function ProductBarcodeManager({
     let cancelled = false;
 
     setBarcode("");
+    setAdvancedOpen(false);
     setBarcodeType("INTERNAL");
     setTarget("base");
     setIsPrimary(false);
@@ -1002,85 +1007,95 @@ export function ProductBarcodeManager({
               }
             />
 
-            <details className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            <details
+              open={advancedOpen}
+              onToggle={(event) =>
+                setAdvancedOpen(
+                  event.currentTarget.open,
+                )
+              }
+              className="overflow-hidden rounded-2xl border border-slate-200 bg-white"
+            >
               <summary className="cursor-pointer select-none px-4 py-3 text-[11px] font-black text-slate-600 transition hover:bg-slate-50">
                 {t(
                   "products.barcodeManager.advanced",
                 )}
               </summary>
-              <div className="border-t border-slate-100">
-                <p className="px-4 pt-3 text-[10px] font-semibold leading-5 text-slate-500">
-                  {t(
-                    "products.barcodeManager.advancedHint",
-                  )}
-                </p>
-                <ProductBarcodeList
-                  items={items}
-                  loading={false}
-                  loadReady={loadReady}
-                  loadError={false}
-                  hasMore={hasMore}
-                  loadingMore={
-                    loadingMore
-                  }
-                  canMutate={
-                    canMutate
-                  }
-                  onRetry={
-                    refreshBarcodes
-                  }
-                  onLoadMore={() =>
-                    void loadMore()
-                  }
-                  onDeactivate={(item) =>
-                    void deactivate(
-                      item,
-                    )
-                  }
-                />
+              {advancedOpen ? (
+                <div className="border-t border-slate-100">
+                  <p className="px-4 pt-3 text-[10px] font-semibold leading-5 text-slate-500">
+                    {t(
+                      "products.barcodeManager.advancedHint",
+                    )}
+                  </p>
+                  <ProductBarcodeList
+                    items={items}
+                    loading={false}
+                    loadReady={loadReady}
+                    loadError={false}
+                    hasMore={hasMore}
+                    loadingMore={
+                      loadingMore
+                    }
+                    canMutate={
+                      canMutate
+                    }
+                    onRetry={
+                      refreshBarcodes
+                    }
+                    onLoadMore={() =>
+                      void loadMore()
+                    }
+                    onDeactivate={(item) =>
+                      void deactivate(
+                        item,
+                      )
+                    }
+                  />
 
-                <ProductBarcodeCreatePanel
-                  product={product}
-                  barcode={barcode}
-                  barcodeType={
-                    barcodeType
-                  }
-                  target={target}
-                  isPrimary={
-                    isPrimary
-                  }
-                  pendingCreate={Boolean(
-                    pendingCreate
-                  )}
-                  pendingCreateBlocked={
-                    pendingCreateBlocked
-                  }
-                  canEditCreate={
-                    canEditCreate
-                  }
-                  canMutate={
-                    canMutate
-                  }
-                  targetUomId={
-                    targetUomId
-                  }
-                  onBarcodeChange={
-                    setBarcode
-                  }
-                  onBarcodeTypeChange={
-                    setBarcodeType
-                  }
-                  onTargetChange={
-                    setTarget
-                  }
-                  onPrimaryChange={
-                    setIsPrimary
-                  }
-                  onSave={() =>
-                    void addBarcode()
-                  }
-                />
-              </div>
+                  <ProductBarcodeCreatePanel
+                    product={product}
+                    barcode={barcode}
+                    barcodeType={
+                      barcodeType
+                    }
+                    target={target}
+                    isPrimary={
+                      isPrimary
+                    }
+                    pendingCreate={Boolean(
+                      pendingCreate
+                    )}
+                    pendingCreateBlocked={
+                      pendingCreateBlocked
+                    }
+                    canEditCreate={
+                      canEditCreate
+                    }
+                    canMutate={
+                      canMutate
+                    }
+                    targetUomId={
+                      targetUomId
+                    }
+                    onBarcodeChange={
+                      setBarcode
+                    }
+                    onBarcodeTypeChange={
+                      setBarcodeType
+                    }
+                    onTargetChange={
+                      setTarget
+                    }
+                    onPrimaryChange={
+                      setIsPrimary
+                    }
+                    onSave={() =>
+                      void addBarcode()
+                    }
+                  />
+                </div>
+              ) : null}
             </details>
           </>
         ) : null}
