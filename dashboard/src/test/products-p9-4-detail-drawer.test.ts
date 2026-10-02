@@ -69,6 +69,46 @@ describe("Products P9.4 detail drawer", () => {
     );
   });
 
+  it("uses a fixed hero plus accessible tabs instead of one long details stack", () => {
+    const drawer = read(
+      "../pages/products/detail/ProductDetailDrawer.tsx",
+    );
+    const tabs = read(
+      "../pages/products/detail/ProductDetailTabs.tsx",
+    );
+    const panel = read(
+      "../pages/products/detail/ProductDetailTabPanel.tsx",
+    );
+
+    expect(drawer).toContain(
+      "<ProductDetailTabs",
+    );
+    expect(drawer).toContain(
+      "<ProductDetailTabPanel",
+    );
+    expect(drawer).toContain(
+      'activeTab',
+    );
+    expect(tabs).toContain(
+      'role="tablist"',
+    );
+    expect(tabs).toContain(
+      'role="tab"',
+    );
+    expect(tabs).toContain(
+      'aria-selected={',
+    );
+    expect(tabs).toContain(
+      '"ArrowRight"',
+    );
+    expect(tabs).toContain(
+      '"ArrowLeft"',
+    );
+    expect(panel).toContain(
+      'role="tabpanel"',
+    );
+  });
+
   it("keeps details view-first while preserving all mutation permissions in one compact actions surface", () => {
     const drawer = read(
       "../pages/products/detail/ProductDetailDrawer.tsx",
