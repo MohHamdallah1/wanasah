@@ -11,7 +11,7 @@
 - [ ] **P1 — فهرس أسعار المنشور المفقود:** غياب فهرس مناسب لـ `price_book_entries(company_id, publication_id)` في لقطة قاعدة البيانات المحفوظة.
 - [x] **P2 — تكرار قراءة المنتجات ووحدات البيع والتحقق منها:** أُغلق هندسيًا عبر #92/#95: قراءات Variant/UOM داخل كل مرحلة جُمعت، ووقت النشر صار fresh Variant/UOM snapshot جزءًا من نفس SQL الذي يقفل `PriceBookEntry` بدل roundtrip منفصل. إعادة التحقق نفسها بقيت عمدًا لأنها freshness guarantee وليست تكرارًا آمن الحذف.
 - [ ] **P3 — تكرار بروتوكول نشر الأسعار لكل 100 منتج:** 350 معاملة نشر منفصلة للـ35,000 المقبولة.
-- [ ] **P4 — الكتابة المضاعفة للمنتجات والأسعار:** انتقال Variant من DRAFT إلى ACTIVE، والسعر من DRAFT إلى PUBLISHED، مع كلفة UPDATE/الفهارس وسجلات Audit/Outbox الضرورية.
+- [ ] **P4 — الكتابة المضاعفة للمنتجات والأسعار:** **جزء ProductVariant أُصلح واندُمج في PR #102** بإدراج ACTIVE مرة واحدة مع حفظ DRAFT evidence/Audit/Outbox في نفس المعاملة. المتبقي في P4 هو `PriceBookEntry` الذي ما زال يُدرج draft ثم يُحدَّث إلى published.
 - [x] **F1 — تكرار استعلام العائلة عند استخدام `family_id`:** أُصلح واندُمج إلى `main` عبر PR #89؛ lookup إيجابي tenant-scoped مع `FOR KEY SHARE` ومربوط بالمعاملة/الـsavepoint. التحقق التشغيلي المؤجل لا يعيد فتح مشكلة الكود تحت حظر الاختبارات الحالي.
 - [x] **F2 — تعطيل تجميع العائلات بسبب صف واحد:** أُصلح واندُمج إلى `main` عبر PR #89؛ التجميع صار للصفوف الضمنية المتتابعة التي اجتازت التحقق ويحترم حواجز الصفوف الصريحة/غير الصالحة وأسبقية الأخطاء.
 - [x] **P5 — العمل الزائد في تهيئة جلسة الاستيراد والصلاحيات:** أُغلق كمسار تنفيذ بعد PR #91 وPR #97: حُذفت 3 `SELECT true` للمدير، وحُذف `SELECT set_config` المكرر بعد checkout مع إبقاء RLS fail-closed. قراءات actor/job/cancel/idempotency والـSKIP LOCKED بقيت لأنها حدود freshness/concurrency وليست تكرارًا آمن الحذف. قراءات Pricing التجارية تُتابع ضمن P2/P3، لا P5.
@@ -81,6 +81,7 @@
 - **القرار:** لا يتم تنفيذ fast path أو دمج دورة النشر خارج الحدود الحالية قبل تصميم يثبت كل invariants. إغلاق بند P2 لا يعني تحسين زمن مقاسًا؛ القبول الحقيقي بعد تصريح صاحب المشروع بالتحقق المطلوب. رصد PR #86 يحدد أي SQL من هذه القراءات يستحق الاختصار أولًا في استيراد حقيقي لاحق.
 
 ## P3 — تكرار بروتوكول نشر الأسعار لكل 100 منتج (350 دورة لكل 35,000)
+- **PR #104 مدموج:** بعد Company pricing mutex، صار قفل الـPriceBook واحتساب tenant-global next publication revision في SQL واحد بدل استعلامين؛ خُفض roundtrip إضافي لكل منشور مع بقاء lock/version/status/unique revision semantics.
 - **PR #101 مدموج:** مسار pricing-policy الطبيعي انخفض من 6 SQL calls إلى 3 لكل دفعة موجودة Default Assignment: Maker/Checker + policy snapshot موحد + Company/PriceBook snapshot موحد. لا cache عبر batch/commit/retry.
 - **PR #99 مدموج:** خفّض write amplification داخل كل دورة بنقل تحديث version الخاص بمنشور DRAFT إلى flush النشر النهائي؛ عدد المنشورات 350 وحدود الدفعة 100 لم تتغير.
 - [x] **اختصار أربعة SQL lock reads المعادة داخل دورة التسعير، PR #90:** إنشاء scope ملك Pricing يثبت Company/PriceBook/PricePublication locks منذ إنشاء المسودة داخل نفس root transaction ونفس savepoint، ويمرّر المنشور نفسه إلى إعداد مسوداته ونشره؛ اختصار قفل المسودة مرة لكل مجموعة 200 مع أقفال النشر الثلاثة؛ يبقى Maker/Checker وحالة DRAFT/version وفحوص SKU/UOM والسلف والتداخل والتاريخ التجاري والـGiST والتحديثات دون حذف. **الكود أُعيد تطبيقه فوق أحدث `main` واندُمج ضمن PR #92؛ لم يُنفّذ استيراد أو اختبار**. هذا اختصار داخل كل دورة وليس دمج 350 منشورًا.
@@ -93,8 +94,8 @@
 - [x] مراجعة `_close_predecessor_ranges`: الفحص الحالي لديه fast path آمن للأسعار الأولى و`LATERAL LIMIT 1`، فلا نفترض مسحًا كاملاً للتاريخ؛ نزيل أي كلفة إضافية فقط بدليل من P0. **— راجعنا fast path؛ زمن SQL الفردي لم يُعزل.**
 
 ## P4 — الكتابة المضاعفة للمنتجات والأسعار — ليس الأولوية الأولى
-- [ ] `ProductVariant` يُنشأ DRAFT ثم ينتقل ACTIVE؛ `PriceBookEntry` يُدرج draft ثم يصير published؛ يوجد UPDATE وفهرسة إضافية. الحفاظ على lifecycle/version/effectivity والحدود الذرية.
-- [ ] Audit وOutbox مطلوبان لكل Variant، وكتابتهما ضمن نفس Session/transaction جزء من العقد. تحليل تجميع آمن وتخفيف payload/roundtrips فقط إذا بقي event delivery مطابقًا ولا ضياع/تكرار.
+- [ ] **المتبقي فقط في كتابة P4:** `PriceBookEntry` يُدرج draft ثم يصير published؛ ما زال هناك UPDATE لكل سعر. مسار `ProductVariant` المزدوج أُزيل في #102 مع بقاء lifecycle revision/version ودليل DRAFT→ACTIVE.
+- [x] **Audit/Outbox في P4 حُفظت مع الإصلاح:** PR #102 أبقى `ProductPublished` ولقطتي DRAFT/ACTIVE وAudit/TransactionalOutbox داخل نفس Session/transaction، بينما حذف UPDATE الـVariant الوسيط.
 - [x] من عينات التجربة القديمة: بناء كائنات `variant_objects` في Python = 0.185 ثانية، و`activation_objects` = 1.527 ثانية عبر 35 دفعة؛ فلا نعالج هذا أولًا بإزالة ORM عالميًا أو Core Bulk 5,000. **— روجعت العينات؛ لا تحسن مُقاس أو Core Bulk.**
 - [ ] التحقق من أي تحسين متخصص عبر code review وسجلات الاستيراد الاعتيادي، لا التجارب الاصطناعية خلال هذا التكليف.
 
