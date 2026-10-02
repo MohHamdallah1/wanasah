@@ -508,7 +508,7 @@ export const resources = {
         unitBarcode: "باركود الحبة",
         packageBarcode: "باركود العبوة",
         copyBarcode:
-          "نفس باركود الحبة",
+          "نسخ باركود الحبة",
         copiedBarcode: "تم نسخ الباركود",
         saveProduct: "حفظ المنتج",
         savePrice: "حفظ السعر",
