@@ -75,7 +75,7 @@ describe("Products P3 detail foundation", () => {
     );
   });
 
-  it("keeps pricing and mutation actions permission aware inside the drawer", () => {
+  it("keeps pricing and mutation actions permission aware in the unified row menu", () => {
     const drawer = compact(
       readSource(
         "../pages/products/detail/ProductDetailDrawer.tsx",
@@ -95,11 +95,11 @@ describe("Products P3 detail foundation", () => {
     );
     const actionMenu = compact(
       readSource(
-        "../pages/products/detail/ProductDetailActionsMenu.tsx",
+        "../pages/products/list/ProductRowActions.tsx",
       ),
     );
     expect(actionMenu).toContain(
-      "canEditPrice && product.simple_compatible",
+      "canEditPrice && item.simple_compatible",
     );
     expect(actionMenu).toContain(
       "{canEditTracking ? (",
@@ -118,17 +118,6 @@ describe("Products P3 detail foundation", () => {
         "../pages/products/list/ProductTableRow.tsx",
       ),
     );
-    const detailWorkflow = compact(
-      readSource(
-        "../pages/products/detail/useProductDetailWorkflow.ts",
-      ),
-    );
-    const detailActionMenu = compact(
-      readSource(
-        "../pages/products/detail/ProductDetailActionsMenu.tsx",
-      ),
-    );
-
     expect(page).toContain(
       "onOpenDetails: detailWorkflow.openProductDetails",
     );
@@ -322,7 +311,7 @@ describe("Products P3 detail foundation", () => {
     );
     const detailActionMenu = compact(
       readSource(
-        "../pages/products/detail/ProductDetailActionsMenu.tsx",
+        "../pages/products/list/ProductRowActions.tsx",
       ),
     );
     const manager = compact(
@@ -346,8 +335,11 @@ describe("Products P3 detail foundation", () => {
       ),
     );
 
-    expect(detailWorkflow).toContain(
+    expect(page).toContain(
       "canManageBarcodes: canManageCatalog",
+    );
+    expect(page).toContain(
+      "barcodeWorkflow.openBarcodeManager",
     );
     expect(page).toContain(
       "<ProductBarcodeManager",
