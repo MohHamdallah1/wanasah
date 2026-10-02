@@ -19,6 +19,9 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
     const detailPanel = compact(
       readSource("../pages/products/detail/ProductDetailTabPanel.tsx"),
     );
+    const detailHero = compact(
+      readSource("../pages/products/detail/ProductDetailHero.tsx"),
+    );
     const actionMenu = compact(
       readSource("../pages/products/detail/ProductDetailActionsMenu.tsx"),
     );
@@ -73,7 +76,7 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
       readSource("../pages/inventory/catalog/CatalogLifecycleActions.tsx"),
     );
 
-    expect(detailPanel).toContain("products.details.operationalHold");
+    expect(detailHero).toContain("products.details.holdModes.");
     expect(actionMenu).toContain("products.lifecycleManager.action");
     expect(manager).toContain("<CatalogLifecycleActions");
     expect(actions).toContain('"sales-hold"');
@@ -102,7 +105,8 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
 
     expect(capabilities).toContain('canAny("pricing.view")');
     expect(capabilities).toContain('canAny("pricing.manage")');
-    expect(drawer).toContain("pricingVisible && detailSections.pricing");
+    expect(drawer).not.toContain("detailSections.pricing");
+    expect(detailPanel).not.toContain("formatLocaleMoney");
     expect(actionMenu).toContain("canEditPrice && product.simple_compatible");
     expect(modal).toContain('"products.priceHelp"');
     expect(modal).toContain('"products.independentPrices"');
