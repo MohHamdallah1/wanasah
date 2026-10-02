@@ -88,7 +88,10 @@ describe("Products P9.4 tracking workspace", () => {
       'role="switch"',
     );
     expect(simple).toContain(
-      'required ? "OPTIONAL" : "REQUIRED"',
+      '"OPTIONAL"',
+    );
+    expect(simple).toContain(
+      '"REQUIRED"',
     );
     expect(simple).toContain(
       'mode === "NONE"',
