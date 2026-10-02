@@ -30,12 +30,10 @@ import {
   type ProductBarcodeType,
   type SimpleProduct,
 } from "@/pages/products/contracts";
-import { ProductBarcodeCreatePanel } from "@/pages/products/barcode/ProductBarcodeCreatePanel";
+import { ProductBarcodeAdvancedPanel } from "@/pages/products/barcode/ProductBarcodeAdvancedPanel";
 import { ProductBarcodeList } from "@/pages/products/barcode/ProductBarcodeList";
-import {
-  ProductBarcodeSimplePanel,
-  type SimpleBarcodeTarget,
-} from "@/pages/products/barcode/ProductBarcodeSimplePanel";
+import { ProductBarcodeSimplePanel } from "@/pages/products/barcode/ProductBarcodeSimplePanel";
+import { usePrimaryBarcodeReplacement } from "@/pages/products/barcode/usePrimaryBarcodeReplacement";
 
 type Props = {
   product: SimpleProduct | null;
@@ -59,13 +57,6 @@ type BarcodeDeactivateBody = {
   is_primary: false;
   valid_to: null;
   is_active: false;
-};
-
-type BarcodeReplaceBody = {
-  uom_id: number;
-  barcode: string;
-  expected_current_id: number | null;
-  expected_current_version: number | null;
 };
 
 const isBarcodeCreateBody = (
@@ -193,23 +184,6 @@ export function ProductBarcodeManager({
             driverId,
             "catalog-barcode-update",
             barcodeId
-          )
-        : null,
-    [companyId, driverId],
-  );
-
-  const replaceScope = useCallback(
-    (
-      productId: number,
-      uomId: number,
-    ) =>
-      companyId !== null &&
-      driverId !== null
-        ? durableScope(
-            companyId,
-            driverId,
-            "catalog-barcode-replace-primary-v1",
-            `${productId}:${uomId}`,
           )
         : null,
     [companyId, driverId],
@@ -519,12 +493,28 @@ export function ProductBarcodeManager({
     pendingCreate === null &&
     !pendingCreateBlocked;
 
-  const refreshBarcodes = () => {
-    setLoadReady(false);
-    setReloadToken(
-      (current) => current + 1
-    );
-  };
+  const refreshBarcodes = useCallback(
+    () => {
+      setLoadReady(false);
+      setReloadToken(
+        (current) => current + 1
+      );
+    },
+    [],
+  );
+
+  const {
+    replacing,
+    replacePrimaryBarcode,
+  } = usePrimaryBarcodeReplacement({
+    product,
+    items,
+    companyId,
+    driverId,
+    canMutate,
+    refreshBarcodes,
+    onChanged,
+  });
 
   const loadMore = async () => {
     if (
@@ -746,129 +736,6 @@ export function ProductBarcodeManager({
     }
   };
 
-  const replacePrimaryBarcode =
-    async (
-      replacementTarget:
-        SimpleBarcodeTarget,
-      nextBarcode: string,
-    ): Promise<boolean> => {
-      const uomId =
-        replacementTarget ===
-        "package"
-          ? product.package_uom_id
-          : product.base_uom_id;
-      if (
-        !canMutate ||
-        uomId === null ||
-        (
-          replacementTarget ===
-            "package" &&
-          product.package_uses_base_barcode
-        )
-      ) {
-        return false;
-      }
-
-      const current =
-        items.find(
-          (item) =>
-            item.uom.id ===
-              uomId &&
-            item.is_active &&
-            item.is_primary,
-        ) ?? null;
-      const freshBody:
-        BarcodeReplaceBody = {
-          uom_id: uomId,
-          barcode:
-            nextBarcode.trim(),
-          expected_current_id:
-            current?.id ?? null,
-          expected_current_version:
-            current?.version ??
-            null,
-        };
-      if (!freshBody.barcode) {
-        return false;
-      }
-
-      const scope =
-        replaceScope(
-          product.id,
-          uomId,
-        );
-      if (!scope) {
-        return false;
-      }
-
-      setBusy(true);
-      try {
-        const command =
-          await getOrCreateDurableCommand(
-            scope,
-            freshBody,
-          );
-
-        parseProductBarcodeMutation(
-          await authFetch(
-            "/catalog/variants/" +
-              product.id +
-              "/barcodes/replace-primary",
-            {
-              method: "POST",
-              body: JSON.stringify({
-                request_id:
-                  command.requestId,
-                ...command.payload,
-              }),
-            },
-          ),
-        );
-        completeDurableOperation(
-          scope,
-          command.requestId,
-        );
-        toast.success(
-          t(
-            "products.barcodeManager.replaced",
-          ),
-        );
-        refreshBarcodes();
-        await onChanged();
-        return true;
-      } catch (error) {
-        const errorCode =
-          apiErrorCode(error);
-        if (
-          errorCode !==
-            "DURABLE_OPERATION_PENDING" &&
-          errorCode !==
-            "DURABLE_OPERATION_CORRUPT" &&
-          !isAmbiguousRequestError(
-            error,
-          )
-        ) {
-          abandonDurableOperation(
-            scope,
-          );
-        }
-        toast.error(
-          apiErrorMessage(
-            error,
-            t(
-              errorCode ===
-                "DURABLE_OPERATION_PENDING"
-                ? "products.barcodeManager.replacePending"
-                : "products.barcodeManager.saveFailed",
-            ),
-          ),
-        );
-        return false;
-      } finally {
-        setBusy(false);
-      }
-    };
-
   const deactivate = async (
     item: ProductBarcodeRecord
   ) => {
@@ -960,7 +827,7 @@ export function ProductBarcodeManager({
     <Modal
       isOpen={product !== null}
       onClose={() => {
-        if (!busy) {
+        if (!busy && !replacing) {
           onClose();
         }
       }}
@@ -1001,105 +868,65 @@ export function ProductBarcodeManager({
               canMutate={
                 canMutate
               }
-              busy={busy}
+              busy={
+                busy ||
+                replacing
+              }
               onReplace={
                 replacePrimaryBarcode
               }
             />
 
-            <details
+            <ProductBarcodeAdvancedPanel
               open={advancedOpen}
-              className="overflow-hidden rounded-2xl border border-slate-200 bg-white"
-            >
-              <summary
-                onClick={(event) => {
-                  event.preventDefault();
-                  setAdvancedOpen(
-                    (current) => !current,
-                  );
-                }}
-                className="cursor-pointer select-none px-4 py-3 text-[11px] font-black text-slate-600 transition hover:bg-slate-50"
-              >
-                {t(
-                  "products.barcodeManager.advanced",
-                )}
-              </summary>
-              {advancedOpen ? (
-                <div className="border-t border-slate-100">
-                  <p className="px-4 pt-3 text-[10px] font-semibold leading-5 text-slate-500">
-                    {t(
-                      "products.barcodeManager.advancedHint",
-                    )}
-                  </p>
-                  <ProductBarcodeList
-                    items={items}
-                    loading={false}
-                    loadReady={loadReady}
-                    loadError={false}
-                    hasMore={hasMore}
-                    loadingMore={
-                      loadingMore
-                    }
-                    canMutate={
-                      canMutate
-                    }
-                    onRetry={
-                      refreshBarcodes
-                    }
-                    onLoadMore={() =>
-                      void loadMore()
-                    }
-                    onDeactivate={(item) =>
-                      void deactivate(
-                        item,
-                      )
-                    }
-                  />
-
-                  <ProductBarcodeCreatePanel
-                    product={product}
-                    barcode={barcode}
-                    barcodeType={
-                      barcodeType
-                    }
-                    target={target}
-                    isPrimary={
-                      isPrimary
-                    }
-                    pendingCreate={Boolean(
-                      pendingCreate
-                    )}
-                    pendingCreateBlocked={
-                      pendingCreateBlocked
-                    }
-                    canEditCreate={
-                      canEditCreate
-                    }
-                    canMutate={
-                      canMutate
-                    }
-                    targetUomId={
-                      targetUomId
-                    }
-                    onBarcodeChange={
-                      setBarcode
-                    }
-                    onBarcodeTypeChange={
-                      setBarcodeType
-                    }
-                    onTargetChange={
-                      setTarget
-                    }
-                    onPrimaryChange={
-                      setIsPrimary
-                    }
-                    onSave={() =>
-                      void addBarcode()
-                    }
-                  />
-                </div>
-              ) : null}
-            </details>
+              onOpenChange={
+                setAdvancedOpen
+              }
+              listProps={{
+                items,
+                loading: false,
+                loadReady,
+                loadError: false,
+                hasMore,
+                loadingMore,
+                canMutate,
+                onRetry:
+                  refreshBarcodes,
+                onLoadMore: () =>
+                  void loadMore(),
+                onDeactivate: (
+                  item,
+                ) =>
+                  void deactivate(
+                    item,
+                  ),
+              }}
+              createProps={{
+                product,
+                barcode,
+                barcodeType,
+                target,
+                isPrimary,
+                pendingCreate:
+                  Boolean(
+                    pendingCreate,
+                  ),
+                pendingCreateBlocked,
+                canEditCreate,
+                canMutate,
+                targetUomId,
+                onBarcodeChange:
+                  setBarcode,
+                onBarcodeTypeChange:
+                  setBarcodeType,
+                onTargetChange:
+                  setTarget,
+                onPrimaryChange:
+                  setIsPrimary,
+                onSave: () =>
+                  void addBarcode(),
+              }}
+            />
           </>
         ) : null}
       </div>
