@@ -136,31 +136,25 @@ describe("Products P9 family reassignment", () => {
     );
   });
 
-  it("exposes family movement from Product Details only with catalog management authority", () => {
+  it("exposes family movement only from unified Product row actions with catalog management authority", () => {
     const drawer = source(
       "../pages/products/detail/ProductDetailDrawer.tsx",
     );
-    const actionMenu = source(
-      "../pages/products/detail/ProductDetailActionsMenu.tsx",
-    );
-    const workflow = source(
-      "../pages/products/detail/useProductDetailWorkflow.ts",
+    const rowActions = source(
+      "../pages/products/list/ProductRowActions.tsx",
     );
     const page = source(
       "../pages/products/ProductsPage.tsx",
     );
 
-    expect(drawer).toContain(
+    expect(drawer).not.toContain(
       "canReassignFamily",
     );
-    expect(drawer).toContain(
-      "canReassignFamily",
-    );
-    expect(actionMenu).toContain(
+    expect(rowActions).toContain(
       '"products.familyReassign.action"',
     );
-    expect(workflow).toContain(
-      "canReassignFamily: canManageCatalog",
+    expect(page).toContain(
+      "canReassignFamily:",
     );
     expect(page).toContain(
       "familyReassignWorkflow.openFamilyReassign",
