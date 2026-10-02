@@ -18,6 +18,7 @@ import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import {
   apiErrorCode,
+  apiErrorContext,
   apiErrorMessage,
   isAmbiguousRequestError,
 } from "@/lib/apiErrors";
@@ -29,7 +30,10 @@ import {
   readDurableCommand,
   type DurableCommand,
 } from "@/lib/durableOperations";
-import { CatalogLifecycleSimplePanel } from "@/pages/inventory/catalog/CatalogLifecycleSimplePanel";
+import {
+  CatalogLifecycleSimplePanel,
+  type RecallCompletionBlocker,
+} from "@/pages/inventory/catalog/CatalogLifecycleSimplePanel";
 
 import {
   parseArchivePreflight,
@@ -102,6 +106,50 @@ const COMMANDS: LifecycleCommandName[] = [
   "recall",
   "close-recall",
 ];
+
+const readRecallCompletionBlockers = (
+  error: unknown,
+): RecallCompletionBlocker[] => {
+  const blockers =
+    apiErrorContext(error)?.blockers;
+  if (!Array.isArray(blockers)) {
+    return [];
+  }
+
+  const result:
+    RecallCompletionBlocker[] = [];
+  for (const item of blockers) {
+    if (
+      item === null ||
+      typeof item !== "object" ||
+      Array.isArray(item)
+    ) {
+      continue;
+    }
+
+    const row = item as Record<
+      string,
+      unknown
+    >;
+    const code = row.code;
+    const count = row.count;
+    if (
+      typeof code !== "string" ||
+      !code.trim() ||
+      typeof count !== "number" ||
+      !Number.isFinite(count) ||
+      count < 0
+    ) {
+      continue;
+    }
+
+    result.push({
+      code: code.trim(),
+      count,
+    });
+  }
+  return result;
+};
 
 const isLifecyclePayload = (
   value: unknown,
@@ -198,6 +246,12 @@ export function CatalogLifecycleActions({
     useState<LifecycleCommandName | null>(
       null,
     );
+  const [
+    recallCompletionBlockers,
+    setRecallCompletionBlockers,
+  ] = useState<
+    RecallCompletionBlocker[]
+  >([]);
 
   const companyId =
     access.data?.company_id ??
@@ -226,6 +280,7 @@ export function CatalogLifecycleActions({
     setPreflight(null);
     setDeletePreflight(null);
     setSelectedCommand(null);
+    setRecallCompletionBlockers([]);
     setReason("");
   }, [
     variant.id,
@@ -511,6 +566,7 @@ export function CatalogLifecycleActions({
       setPending(null);
       setPendingBlocked(false);
       setSelectedCommand(null);
+      setRecallCompletionBlockers([]);
       setReason("");
       setPreflight(null);
       setDeletePreflight(null);
@@ -527,6 +583,21 @@ export function CatalogLifecycleActions({
     } catch (error) {
       const code =
         apiErrorCode(error);
+      if (
+        code ===
+        "PRODUCT_RECALL_COMPLETION_REQUIRED"
+      ) {
+        setRecallCompletionBlockers(
+          readRecallCompletionBlockers(
+            error,
+          ),
+        );
+      } else if (command !== null) {
+        setRecallCompletionBlockers(
+          [],
+        );
+      }
+
       const durableConflict =
         code ===
         "DURABLE_OPERATION_PENDING";
@@ -704,6 +775,7 @@ export function CatalogLifecycleActions({
       }
 
       setReason("");
+      setRecallCompletionBlockers([]);
       setSelectedCommand(command);
     };
 
@@ -756,6 +828,9 @@ export function CatalogLifecycleActions({
             : null
         }
         preflight={preflight}
+        recallCompletionBlockers={
+          recallCompletionBlockers
+        }
         onChooseCommand={(
           command,
         ) => {
