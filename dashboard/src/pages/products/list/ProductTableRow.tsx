@@ -110,7 +110,7 @@ export function ProductTableRow({
 
   return (
     <tr className="group bg-white transition-colors hover:bg-slate-50/80">
-      <td className={`${cellSpacing} w-12 text-center`}>
+      <td className={`${cellSpacing} w-32 text-center`}>
         <span className="inline-flex min-w-7 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-1.5 py-1 text-[10px] font-black tabular-nums text-slate-500">
           {formatLocaleDecimal(
             String(rowNumber),
