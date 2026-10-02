@@ -196,6 +196,33 @@ Static labels:
 
 No runtime speedup is claimed until a future authorized import records timings.
 
+## First-price single-write path
+
+Simple-product **creation** now uses a Pricing-owned first-price publication
+method instead of the generic draft-entry workflow. Pricing itself proves that
+none of the target Variant IDs has any existing PriceBookEntry in the locked
+PriceBook before taking this path; callers cannot pass a trust flag.
+
+The method still validates current Variant lifecycle/UOM mappings, money and
+effectivity, rejects overlapping ranges inside the new publication, re-checks
+Maker/Checker, retains the Company/PriceBook transaction locks, supersedes the
+previous published PricePublication, and relies on the existing FK/GiST
+constraints as final race guards.
+
+For a proven first-ever price, PriceBookEntry is inserted directly with the
+same externally visible final state as the former two-write path:
+`is_published=true, version=2`. This removes the bulk
+`UPDATE price_book_entries ... is_published=true` and the second
+publish-time entry/UOM validation query for product creation. The generic
+`publish_prices` path used by **existing-product price updates** is unchanged
+and still performs historical predecessor/range handling.
+
+Trace labels:
+- `pricing_initial_variant_uom`
+- `pricing_initial_history_check`
+
+No runtime speedup is claimed until a future authorized real import records it.
+
 ## Timing boundaries
 
 All values are **client-visible wall time**, never PostgreSQL CPU or pure Python
