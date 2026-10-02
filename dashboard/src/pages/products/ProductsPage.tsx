@@ -242,27 +242,9 @@ export default function ProductsPage() {
 
   const detailWorkflow =
     useProductDetailWorkflow({
-      pricingVisible:
-        listWorkflow.pricingVisible,
-      canEditPrice:
-        canEditSimplePrice,
-      canManageCatalog,
-      canManageLifecycle,
       detailSections:
         displayPreferences
           .detailSections,
-      openRenameProduct:
-        renameWorkflow.openRenameProduct,
-      openFamilyReassign:
-        familyReassignWorkflow.openFamilyReassign,
-      openPriceEditor:
-        priceWorkflow.openPriceEditor,
-      openTrackingEditor:
-        trackingWorkflow.openTrackingEditor,
-      openLifecycleManager:
-        lifecycleWorkflow.openLifecycleManager,
-      openBarcodeManager:
-        barcodeWorkflow.openBarcodeManager,
     });
 
   useProductsIdentityScopeReset({
@@ -370,18 +352,29 @@ export default function ProductsPage() {
           isNarrowViewport,
           canEditPrice:
             canEditSimplePrice,
+          canRenameProduct:
+            canManageCatalog,
           canReassignFamily:
             canManageCatalog,
           canEditTracking:
             canManageCatalog,
+          canManageBarcodes:
+            canManageCatalog,
+          canManageLifecycle,
           onOpenDetails:
             detailWorkflow.openProductDetails,
+          onRenameProduct:
+            renameWorkflow.openRenameProduct,
           onEditPrice:
             priceWorkflow.openPriceEditor,
           onReassignFamily:
             familyReassignWorkflow.openFamilyReassign,
           onEditTracking:
             trackingWorkflow.openTrackingEditor,
+          onManageBarcodes:
+            barcodeWorkflow.openBarcodeManager,
+          onManageLifecycle:
+            lifecycleWorkflow.openLifecycleManager,
         }}
       />
 
