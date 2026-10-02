@@ -141,7 +141,7 @@ describe("Products barcode workspace", () => {
       "barcode_type",
     );
     expect(history).not.toContain(
-      "is_primary",
+      '"products.barcodeManager.primary"',
     );
 
     expect(manager).toContain(
