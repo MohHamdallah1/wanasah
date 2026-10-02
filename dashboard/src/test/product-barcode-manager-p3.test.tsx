@@ -997,11 +997,14 @@ describe("ProductBarcodeManager runtime behavior", () => {
       10,
       "FIRST",
     );
-    const secondPage = barcode(
-      2,
-      10,
-      "SECOND",
-    );
+    const secondPage = {
+      ...barcode(
+        2,
+        10,
+        "SECOND",
+      ),
+      is_primary: false,
+    };
     mocks.authFetch
       .mockResolvedValueOnce({
         items: [firstPage],
