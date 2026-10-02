@@ -1,7 +1,7 @@
 # خطة إصلاح أداء استيراد المنتجات — مرجع العمل الوحيد
 
 **المشروع:** Wanasah · **الأساس:** main عند 71fd5083 · **تاريخ الإنشاء:** 2026-10-01.
-**الحالة:** إصلاحات مكتوبة في فروع Draft مستقلة؛ لم تُدمج ولم تُشغّل اختبارات أو SQL أو migrations في هذه المرحلة.
+**الحالة:** إصلاحات الأداء الأساسية مدموجة في `main`، وبوابة القياس النهائية أُنجزت على Dashboard الفعلي بتاريخ 2026-10-02.
 **الهدف:** تحسين الأداء هندسيًا مع الحفاظ على عزل الشركات، الأسعار، الصلاحيات، التدقيق والاستعادة. لا وعود زمنية غير مقاسة.
 
 ## قائمة المشاكل كاملة — بالمسميات التي اعتمدها صاحب المشروع
@@ -53,7 +53,7 @@
 - [x] **تنفيذ تسجيل كل SQL مكتمل على حدة** في `wa_backend/domains/simple_products/observability.py`: ordinal/phase/SQL-template fingerprint/نوع الاستعلام/زمنه، مع إمكانية استخراج count/sum/max بالتجميع. **الكود اندمج إلى `main` ضمن PR #92؛ لم يُشغّل بعد على استيراد حقيقي، لذلك لا توجد نتيجة وقت فردي جديدة.**
 - [x] **تسمية استدعاءات نشر الأسعار داخل PR #86** بإشارات SQLAlchemy غير مؤثرة على التنفيذ: قفل الشركة/سياسة Maker-Checker، قفل المنشور، قفل الدفتر، تحقق entries/variant/UOM، فحص السعر السابق، تحديث الأسعار وتحديث حالة المنشورات. SQL الصادر من ORM flush قد يبقى `unlabeled` لكنه يظهر بالترتيب والبصمة والمدة. **التنفيذ اندمج إلى `main` ضمن PR #92؛ لم يُشغّل بعد.**
 - [x] **قيد الخصوصية والتكلفة مُنفَّذ في PR #86**: لا SQL خام ولا bind params أو أسماء/أسعار؛ hooks تخص اتصال الدفعة المختارة، وسقف 256 سجلًا مع عدّ ما سقط، وفشل تفاصيل الرصد لا يمنع المعاملة. **التحقق التشغيلي ما زال مفتوحًا**.
-- [ ] **بوابة القياس النهائية فقط:** شغّل الاستيراد الحقيقي الكبير القادم. عامل execution الحالي يسجل كل Batch (`PRODUCT_IMPORT_PROFILE_EVERY_N_BATCHES=1`) إلى `IMPORT_PERFORMANCE_EVIDENCE_2026-10-02/execution-worker.stderr.log`، والمراقب مُثبت ذاتيًا أنه يسجل كل SQL call بترتيبه/phase/label/hash/type/wall_ms. يوجد snapshot قبل التجربة في `before-50000.json`؛ بعد النهاية نلتقط snapshot مماثل مرتبطًا بالـjob ونقارن.
+- [x] **بوابة القياس النهائية أُنجزت:** تجربة Dashboard الفعلية لملف `products-import-test-mixed-50000-v2.xlsx` انتهت بـ50,000 صف = 35,000 IMPORTED + 15,000 INVALID مقصودة + 0 IMPORT_FAILED. زمن العامل الكامل **243.302s (~4m03s)** مقابل **726.390s (~12m06s)** في المرجع السابق، أي تحسن يقارب **66.5%**. سُجلت **175** دفعة تنفيذ فعلية (200 منتج/دفعة) + profile ختامي؛ `instrumentation_complete=true` لكل السجلات، و`sql_statement_timings_dropped=0` و`sql_calls_without_completion=0`. حُفظ `before-50000.json` و`after-50000.json` والـstderr الدائم محليًا كدليل التجربة.
 
 - [x] **دمج تحديث المراقب:** أُعيد دمج stack #86/#88/#90 على أحدث `main` في PR #92. يبقى فقط تشغيل نسخة العامل لاحقًا بإذن المالك للحصول على قيم statement-level.
 
@@ -164,3 +164,17 @@
 ## شروط الأمان الثابتة
 - RLS + company filters + FK، سياق Actor والصلاحيات، التسعير وMaker/Checker، ترتيب أقفال الشركة، GiST/effectivity، PricePublication revisions، Audit/Outbox، DRAFT→ACTIVE وDRAFT→PUBLISHED، replay/cancel/savepoint/idempotency.
 - لا اختبارات، ولا استعلام SQL، ولا تعديل قاعدة بيانات المالك في مرحلة التحليل. إذا طُلب تنفيذ تحسين بدون أي اختبار إطلاقًا، لا نعلن اجتياز بوابة إطلاق أو الحفاظ على كافة العقود كحقيقة مُتحقّق منها؛ فرق بين مراجعة الكود والقبول الفعلي.
+
+
+## نتيجة بوابة القياس النهائية — 2026-10-02
+
+- **Job:** `e8586bf2-4700-4cc0-abbe-b2d555ef6ec7` — `COMPLETED_WITH_ERRORS` بالمعنى المتوقع: 35,000 IMPORTED + 15,000 INVALID + 0 IMPORT_FAILED.
+- **الزمن الكلي:** worker = **243.302s**؛ من `started_at` إلى `finished_at` ≈ **243.104s**.
+- **قراءة/تجهيز المصدر:** `SOURCE_ROW_BUFFER` = **30.808s**.
+- **Staging:** `STAGING_SESSION` = **39.102s**، منها 100 دفعة SQL بإجمالي **36.469s** (متوسط **364.7ms** لكل 500 صف).
+- **Validation المقاس:** barcode rebuild = **3.435s**؛ internal barcodes = **13.622s**؛ external barcodes = **1.306s**؛ final commit = **0.009s**.
+- **Execution Service:** **123.658s** لـ175 دفعة فعلية، متوسط الدفعة **704.9ms**، median **690.0ms**، min **432.5ms**، max **1501.1ms**. أول 25 دفعة متوسطها **685.9ms** وآخر 25 **831.9ms**؛ يوجد تباطؤ متدرج محدود يستحق التحليل فقط إن قررنا تحسينًا إضافيًا.
+- **SQL داخل execution:** 10,737 calls بإجمالي cursor wall ≈ **51.550s**. أعلى المناطق: activation flush ≈ **14.738s SQL**، price publish ≈ **10.515s**، draft flush ≈ **8.338s**، savepoint-attempt SQL ≈ **5.675s**، product structures SQL ≈ **4.755s**، family flush ≈ **3.186s**.
+- **المشتبهات القديمة لم تعد bottleneck مثبتًا:** `simple_pricing_policy_assignments` = **122ms** إجمالًا عبر 175 دفعة؛ `simple_product_family_name_resolver` = **1.867s** إجمالًا.
+- مجموع البوابات المسماة لا يساوي الزمن الكلي حرفيًا؛ يبقى جزء orchestration/validation غير موسوم كمرحلة مستقلة، فلا ننسبه لأي مكوّن بدون قياس إضافي.
+- **الدليل المحلي النهائي:** `IMPORT_PERFORMANCE_EVIDENCE_2026-10-02/before-50000.json`، `after-50000.json`، و`execution-worker.stderr.log`. لا تُرفع هذه السجلات التشغيلية الخام إلى GitHub.
