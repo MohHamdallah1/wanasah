@@ -2,6 +2,9 @@
   --dashboard-ink: #10213a;
   --dashboard-navy: #0d1b30;
   --dashboard-navy-soft: #173252;
+  --dashboard-frame-start: #142945;
+  --dashboard-frame-mid: #112640;
+  --dashboard-frame-end: #0c192c;
   --dashboard-blue: #1976a8;
   --dashboard-blue-strong: #0f5f8e;
   --dashboard-gold: #f5bd34;
@@ -126,14 +129,14 @@
   box-shadow: 0 0 0 4px rgb(53 201 144 / 0.12);
 }
 
-.operations-sidebar .sidebar-profile > button {
+.operations-sidebar .sidebar-account-button {
   color: #e8f0f8;
   border-color: rgb(255 255 255 / 0.12);
   background: rgb(255 255 255 / 0.07);
   box-shadow: none;
 }
 
-.operations-sidebar .sidebar-profile > button:hover {
+.operations-sidebar .sidebar-account-button:hover {
   background: rgb(255 255 255 / 0.11);
 }
 
@@ -630,5 +633,14 @@
 
   .dashboard-main-stage {
     padding-block: 1rem;
+  }
+}
+
+
+@media (min-width: 1024px) {
+  .operations-sidebar {
+    border-color: transparent !important;
+    border-start-end-radius: 0;
+    box-shadow: none;
   }
 }

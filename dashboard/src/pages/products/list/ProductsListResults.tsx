@@ -345,7 +345,7 @@ export function ProductsListResults({
               <tr>
                 <th
                   scope="col"
-                  className={`${tableHeaderSpacing} w-32 text-center`}
+                  className={`${tableHeaderSpacing} w-12 text-center`}
                 >
                   #
                 </th>
@@ -413,7 +413,7 @@ export function ProductsListResults({
                   </th>
                 ) : null}
                 <th
-                  className={`${tableHeaderSpacing} w-12 text-center`}
+                  className={`${tableHeaderSpacing} min-w-[7.75rem] text-center`}
                 >
                   <span className="sr-only">
                     {t(
@@ -442,11 +442,20 @@ export function ProductsListResults({
                     canEditPrice={
                       canEditPrice
                     }
+                    canRenameProduct={
+                      canRenameProduct
+                    }
                     canReassignFamily={
                       canReassignFamily
                     }
                     canEditTracking={
                       canEditTracking
+                    }
+                    canManageBarcodes={
+                      canManageBarcodes
+                    }
+                    canManageLifecycle={
+                      canManageLifecycle
                     }
                     columns={
                       columns
@@ -457,6 +466,9 @@ export function ProductsListResults({
                     onOpenDetails={
                       onOpenDetails
                     }
+                    onRenameProduct={
+                      onRenameProduct
+                    }
                     onEditPrice={
                       onEditPrice
                     }
@@ -465,6 +477,12 @@ export function ProductsListResults({
                     }
                     onEditTracking={
                       onEditTracking
+                    }
+                    onManageBarcodes={
+                      onManageBarcodes
+                    }
+                    onManageLifecycle={
+                      onManageLifecycle
                     }
                   />
                 ),

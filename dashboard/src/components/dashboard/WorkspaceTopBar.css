@@ -18,12 +18,16 @@
   border-radius: 1rem;
   color: #fff;
   background:
+    radial-gradient(
+      circle at 0% 0%,
+      rgb(34 132 178 / 0.24),
+      transparent 20rem
+    ),
     linear-gradient(
       to right,
-      #142945 0%,
-      #142945 12%,
-      #112640 48%,
-      #0c192c 100%
+      var(--dashboard-frame-start, #142945) 0%,
+      var(--dashboard-frame-mid, #112640) 52%,
+      var(--dashboard-frame-end, #0c192c) 100%
     );
   box-shadow:
     0 14px 32px -25px rgb(13 27 48 / 0.48);
@@ -33,12 +37,16 @@
 
 .workspace-top-bar:dir(rtl) {
   background:
+    radial-gradient(
+      circle at 100% 0%,
+      rgb(34 132 178 / 0.24),
+      transparent 20rem
+    ),
     linear-gradient(
       to left,
-      #142945 0%,
-      #142945 12%,
-      #112640 48%,
-      #0c192c 100%
+      var(--dashboard-frame-start, #142945) 0%,
+      var(--dashboard-frame-mid, #112640) 52%,
+      var(--dashboard-frame-end, #0c192c) 100%
     );
 }
 
@@ -66,8 +74,7 @@
     width: auto;
     min-height: 3.25rem;
     margin-block-start: -1.5rem;
-    margin-inline-start:
-      calc(-0.75rem - 1px);
+    margin-inline-start: -1rem;
     margin-inline-end: -1rem;
   }
 

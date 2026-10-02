@@ -288,7 +288,7 @@ export function OperationsSidebar({
                     !current
                 )
               }
-              className={`min-w-0 flex-1 items-center justify-between rounded-xl border border-white/50 bg-white/40 px-3 py-2 shadow-sm transition-all hover:bg-white/60 ${
+              className={`sidebar-account-button min-w-0 flex-1 items-center justify-between rounded-xl border px-3 py-2 shadow-sm transition-all ${
                 collapsed
                   ? "flex lg:hidden"
                   : "flex"
