@@ -321,16 +321,14 @@ class _SameTransactionDirectPublication:
         expected_version: int,
         entries: list[dict[str, Any]],
     ) -> tuple[PricePublication, list[PriceBookEntry]]:
-        """Publish first-ever prices in one INSERT, guarded by database proof.
+        """Publish first-ever prices with one final PriceBookEntry write.
 
-        This path is intentionally stricter than normal publish: every Variant
-        must have no PriceBookEntry history in this PriceBook. Pricing performs
-        that proof itself; callers cannot assert or bypass it.
+        Pricing proves the target variants have no prior PriceBookEntry history
+        in this PriceBook. Validation remains chunked at 200 entries so callers
+        keep the previous bounded SQL/write shape even for larger bulk creates.
         """
         self._require_open_transaction()
         self._consumed = True
-        if len(entries) > 200:
-            raise ValueError("Initial Pricing batch exceeds 200 entries.")
 
         with self._db.no_autoflush:
             if await maker_checker_enabled(self._db, self._company_id):
@@ -372,61 +370,78 @@ class _SameTransactionDirectPublication:
                     "لا يمكن نشر نسخة أسعار بلا إدخالات.",
                 )
 
-            prepared: list[
+            prepared_chunks: list[
+                list[tuple[int, int, Any, Range[datetime], int, dict[str, Any]]]
+            ] = []
+            prepared_all: list[
                 tuple[int, int, Any, Range[datetime], int, dict[str, Any]]
             ] = []
-            for item in entries:
-                variant_id = int(item["product_variant_id"])
-                uom_id = int(item["uom_id"])
-                effectivity = _range(
-                    item["effective_from"],
-                    item.get("effective_to"),
-                )
-                if effectivity.lower < publication.effective_at:
-                    raise PricingError(
-                        "PRICE_EFFECTIVITY_BEFORE_PUBLICATION",
-                        "بداية سعر إدخال تسبق effective_at لنسخة النشر.",
-                    )
-                prepared.append(
-                    (
-                        variant_id,
-                        uom_id,
-                        money_20_6(item["amount"]),
-                        effectivity,
-                        int(item["priority"]),
-                        dict(item.get("metadata") or {}),
-                    )
-                )
 
-            variant_ids = sorted({row[0] for row in prepared})
-            variants, mapped = await load_variant_uom_snapshot(
-                self._db,
-                company_id=self._company_id,
-                variant_ids=variant_ids,
-                stage="initial",
-            )
+            # Preserve the existing <=200 validation boundary without forcing
+            # multiple publications. Each chunk validates before the next one,
+            # matching the old bulk-draft error ordering as closely as possible.
+            for start in range(0, len(entries), 200):
+                raw_chunk = entries[start:start + 200]
+                prepared: list[
+                    tuple[int, int, Any, Range[datetime], int, dict[str, Any]]
+                ] = []
+                for item in raw_chunk:
+                    variant_id = int(item["product_variant_id"])
+                    uom_id = int(item["uom_id"])
+                    effectivity = _range(
+                        item["effective_from"],
+                        item.get("effective_to"),
+                    )
+                    if effectivity.lower < publication.effective_at:
+                        raise PricingError(
+                            "PRICE_EFFECTIVITY_BEFORE_PUBLICATION",
+                            "بداية سعر إدخال تسبق effective_at لنسخة النشر.",
+                        )
+                    prepared.append(
+                        (
+                            variant_id,
+                            uom_id,
+                            money_20_6(item["amount"]),
+                            effectivity,
+                            int(item["priority"]),
+                            dict(item.get("metadata") or {}),
+                        )
+                    )
+
+                variant_ids = sorted({row[0] for row in prepared})
+                variants, mapped = await load_variant_uom_snapshot(
+                    self._db,
+                    company_id=self._company_id,
+                    variant_ids=variant_ids,
+                    stage="initial",
+                )
+                for item in prepared:
+                    variant_id, uom_id, *_ = item
+                    variant = variants.get(variant_id)
+                    if (
+                        variant is None
+                        or variant[1] not in {"ACTIVE", "RETIRING"}
+                        or uom_id not in mapped.get(variant_id, set())
+                    ):
+                        raise PricingError(
+                            "PRICE_UOM_MAPPING_UNRESOLVED",
+                            "وحدة السعر لا ترتبط بهذا الـSKU أو أن الصنف غير صالح للنشر التجاري.",
+                            context={
+                                "product_variant_id": variant_id,
+                                "uom_id": uom_id,
+                            },
+                        )
+                prepared_chunks.append(prepared)
+                prepared_all.extend(prepared)
+
+            # Keep the same overlap contract that generic publish validates,
+            # including duplicates that happen to cross a 200-entry boundary.
             grouped: dict[
                 tuple[int, int],
                 list[tuple[int, int, Any, Range[datetime], int, dict[str, Any]]],
             ] = {}
-            for item in prepared:
-                variant_id, uom_id, *_ = item
-                variant = variants.get(variant_id)
-                if (
-                    variant is None
-                    or variant[1] not in {"ACTIVE", "RETIRING"}
-                    or uom_id not in mapped.get(variant_id, set())
-                ):
-                    raise PricingError(
-                        "PRICE_UOM_MAPPING_UNRESOLVED",
-                        "وحدة السعر لا ترتبط بهذا الـSKU أو أن الصنف غير صالح للنشر التجاري.",
-                        context={
-                            "product_variant_id": variant_id,
-                            "uom_id": uom_id,
-                        },
-                    )
-                grouped.setdefault((variant_id, uom_id), []).append(item)
-
+            for item in prepared_all:
+                grouped.setdefault((item[0], item[1]), []).append(item)
             for pair, pair_rows in grouped.items():
                 ordered = sorted(pair_rows, key=lambda row: row[3].lower)
                 previous = None
@@ -446,15 +461,13 @@ class _SameTransactionDirectPublication:
                         )
                     previous = effectivity
 
-            # Pricing proves freshness itself. For newly created Variant IDs this
-            # is normally empty; a caller accidentally passing an existing SKU
-            # fails closed instead of skipping historical-price handling.
+            all_variant_ids = sorted({row[0] for row in prepared_all})
             historical_entry = await self._db.scalar(
                 select(PriceBookEntry.id)
                 .where(
                     PriceBookEntry.company_id == self._company_id,
                     PriceBookEntry.price_book_id == int(publication.price_book_id),
-                    PriceBookEntry.product_variant_id.in_(variant_ids),
+                    PriceBookEntry.product_variant_id.in_(all_variant_ids),
                 )
                 .limit(1)
                 .execution_options(
@@ -469,39 +482,41 @@ class _SameTransactionDirectPublication:
                 )
 
             now = utc_now()
-            price_rows = [
-                PriceBookEntry(
-                    company_id=self._company_id,
-                    price_book_id=int(publication.price_book_id),
-                    publication_id=int(publication.id),
-                    product_variant_id=variant_id,
-                    uom_id=uom_id,
-                    amount=amount,
-                    effectivity=effectivity,
-                    priority=priority,
-                    is_published=True,
-                    entry_metadata=metadata,
-                    # Preserve the externally visible final version from the
-                    # former DRAFT(v1) -> PUBLISHED(v2) workflow.
-                    version=2,
-                    updated_at=now,
-                )
-                for (
-                    variant_id,
-                    uom_id,
-                    amount,
-                    effectivity,
-                    priority,
-                    metadata,
-                ) in prepared
-            ]
-            self._db.add_all(price_rows)
-            publication.version += len(price_rows)
-            publication.updated_at = now
-
-            # Flush only entries first: FK/GiST remain the authoritative race
-            # guards. The publication is still private inside this transaction.
-            await self._db.flush(price_rows)
+            price_rows: list[PriceBookEntry] = []
+            for prepared in prepared_chunks:
+                chunk_rows = [
+                    PriceBookEntry(
+                        company_id=self._company_id,
+                        price_book_id=int(publication.price_book_id),
+                        publication_id=int(publication.id),
+                        product_variant_id=variant_id,
+                        uom_id=uom_id,
+                        amount=amount,
+                        effectivity=effectivity,
+                        priority=priority,
+                        is_published=True,
+                        entry_metadata=metadata,
+                        # Preserve the externally visible final version from the
+                        # old DRAFT(v1) -> PUBLISHED(v2) workflow.
+                        version=2,
+                        updated_at=now,
+                    )
+                    for (
+                        variant_id,
+                        uom_id,
+                        amount,
+                        effectivity,
+                        priority,
+                        metadata,
+                    ) in prepared
+                ]
+                self._db.add_all(chunk_rows)
+                publication.version += len(chunk_rows)
+                publication.updated_at = now
+                # Keep the previous 200-entry persistence bound. FK and GiST
+                # remain authoritative DB race/integrity guards.
+                await self._db.flush(chunk_rows)
+                price_rows.extend(chunk_rows)
 
             await self._db.execute(
                 update(PricePublication)
