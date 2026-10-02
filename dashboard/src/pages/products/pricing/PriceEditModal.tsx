@@ -12,6 +12,9 @@ import { Modal } from "@/components/ui/modal";
 import type {
   SimpleProduct,
 } from "@/pages/products/contracts";
+import {
+  compactEditableMoney,
+} from "@/pages/products/pricing/usePriceEditState";
 import type {
   PriceFieldError,
 } from "@/pages/products/pricing/types";
@@ -288,7 +291,9 @@ export function PriceEditModal({
                   )}
                   :{" "}
                   <strong className="font-black text-slate-900">
-                    {derivedPackagePrice}{" "}
+                    {compactEditableMoney(
+                      derivedPackagePrice,
+                    )}{" "}
                     {product?.currency_code}
                   </strong>
                 </span>
@@ -302,7 +307,9 @@ export function PriceEditModal({
                   )}
                   :{" "}
                   <strong className="font-black text-slate-900">
-                    {derivedUnitPrice}{" "}
+                    {compactEditableMoney(
+                      derivedUnitPrice,
+                    )}{" "}
                     {product?.currency_code}
                   </strong>
                 </span>

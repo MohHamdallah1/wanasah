@@ -2,6 +2,10 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import {
+  compactEditableMoney,
+} from "@/pages/products/pricing/usePriceEditState";
+
 const readSource = (relativePath: string): string =>
   readFileSync(
     new URL(relativePath, import.meta.url),
@@ -102,6 +106,59 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
     expect(modal).toContain('"products.priceHelp"');
     expect(modal).toContain('"products.independentPrices"');
     expect(create).toContain('"products.derivedPrice"');
+  });
+
+  it("keeps raw six-decimal storage out of the ordinary price-edit presentation", () => {
+    expect(
+      compactEditableMoney(
+        "13.500000",
+      ),
+    ).toBe("13.500");
+    expect(
+      compactEditableMoney(
+        "0.270000",
+      ),
+    ).toBe("0.270");
+    expect(
+      compactEditableMoney(
+        "12.345600",
+      ),
+    ).toBe("12.3456");
+
+    const state = compact(
+      readSource("../pages/products/pricing/usePriceEditState.ts"),
+    );
+    const modal = compact(
+      readSource("../pages/products/pricing/PriceEditModal.tsx"),
+    );
+    const actions = compact(
+      readSource("../pages/products/detail/ProductDetailActionsMenu.tsx"),
+    );
+
+    expect(state).toContain(
+      "compactEditableMoney",
+    );
+    expect(state).toContain(
+      "fraction.length > 3",
+    );
+    expect(state).toContain(
+      'fraction.endsWith("0")',
+    );
+    expect(state).toContain(
+      "fraction.padEnd( 3,",
+    );
+    expect(modal).toContain(
+      "compactEditableMoney( derivedPackagePrice",
+    );
+    expect(modal).toContain(
+      "compactEditableMoney( derivedUnitPrice",
+    );
+    expect(actions).toContain(
+      '"products.details.actions"',
+    );
+    expect(actions).toContain(
+      "<span>",
+    );
   });
 
   it("preserves full durable commands for price and tracking ambiguous retries", () => {
