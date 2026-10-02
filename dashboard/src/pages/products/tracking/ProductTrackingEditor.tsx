@@ -9,7 +9,7 @@ import type {
   ProductTrackingMode,
   SimpleProduct,
 } from "@/pages/products/contracts";
-import { ProductTrackingFields } from "@/pages/products/tracking/ProductTrackingFields";
+import { ProductTrackingSimpleControls } from "@/pages/products/tracking/ProductTrackingSimpleControls";
 
 type Props = {
   product: SimpleProduct | null;
@@ -105,7 +105,7 @@ export function ProductTrackingEditor({
           </p>
         </div>
 
-        <ProductTrackingFields
+        <ProductTrackingSimpleControls
           lotControlMode={lotControlMode}
           expiryControlMode={
             expiryControlMode

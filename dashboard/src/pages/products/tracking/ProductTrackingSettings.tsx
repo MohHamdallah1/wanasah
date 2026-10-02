@@ -7,7 +7,7 @@ import { Modal } from "@/components/ui/modal";
 import type {
   ProductTrackingMode,
 } from "@/pages/products/contracts";
-import { ProductTrackingFields } from "@/pages/products/tracking/ProductTrackingFields";
+import { ProductTrackingSimpleControls } from "@/pages/products/tracking/ProductTrackingSimpleControls";
 
 type Props = {
   open: boolean;
@@ -92,7 +92,7 @@ export function ProductTrackingSettings({
           </div>
         </div>
 
-        <ProductTrackingFields
+        <ProductTrackingSimpleControls
           lotControlMode={lotControlMode}
           expiryControlMode={
             expiryControlMode

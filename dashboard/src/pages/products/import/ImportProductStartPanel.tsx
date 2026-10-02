@@ -12,7 +12,7 @@ import type {
   ProductTrackingMode,
 } from "@/pages/products/contracts";
 import { ImportProductQuickGuide } from "@/pages/products/import/ImportProductQuickGuide";
-import { ProductTrackingFields } from "@/pages/products/tracking/ProductTrackingFields";
+import { ProductTrackingSimpleControls } from "@/pages/products/tracking/ProductTrackingSimpleControls";
 
 type Props = {
   importing: boolean;
@@ -257,7 +257,7 @@ export function ImportProductStartPanel({
 
             {trackingExpanded ? (
               <div className="space-y-2.5 border-t border-slate-100 pt-3">
-                <ProductTrackingFields
+                <ProductTrackingSimpleControls
                   lotControlMode={
                     lotControlMode
                   }

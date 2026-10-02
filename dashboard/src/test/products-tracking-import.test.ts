@@ -46,7 +46,7 @@ describe("product import tracking workflow", () => {
     expect(importFields).toContain(
       '"products.fields.expiryControlMode"',
     );
-    expect(startPanel).toContain("<ProductTrackingFields");
+    expect(startPanel).toContain("<ProductTrackingSimpleControls");
   });
 
   it("keeps import tracking compact by default and makes per-import overrides explicit", () => {

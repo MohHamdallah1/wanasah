@@ -93,7 +93,7 @@ describe("Products P9.4 import workflow", () => {
       "<ImportProductQuickGuide",
     );
     expect(start).toContain(
-      "<ProductTrackingFields",
+      "<ProductTrackingSimpleControls",
     );
     expect(start).toContain(
       "onResetTracking",

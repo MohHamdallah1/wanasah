@@ -519,7 +519,7 @@ export const resources = {
         importTrackingTitle:
           "الإعداد الافتراضي للخانات الفارغة",
         importTrackingHint:
-          "لا تحتاج تغييره عادةً. يُستخدم فقط إذا تركت خانة الدفعة أو الصلاحية فارغة، أو اخترت «استخدام الافتراضي» داخل الملف.",
+          "يستخدم الاستيراد إعدادات الشركة تلقائياً للخانات الفارغة. افتح الخيارات المتقدمة فقط إذا كان هذا الملف يحتاج استثناءً.",
         importTrackingSummary:
           "الدفعة / التشغيلة: {{lot}} — الصلاحية: {{expiry}}",
         importTrackingCompanyScope:
@@ -527,7 +527,7 @@ export const resources = {
         importTrackingCustomScope:
           "مخصص لهذا الملف فقط.",
         importTrackingChange:
-          "تغيير الافتراضي لهذا الملف",
+          "خيارات متقدمة لهذا الاستيراد",
         importTrackingReset:
           "العودة لإعدادات الشركة",
         importTrackingOnlyThisImport:
@@ -549,13 +549,23 @@ export const resources = {
           createCustomScope:
             "تم تخصيص الإعداد لهذا المنتج فقط.",
           createChange:
-            "تغيير لهذا المنتج",
+            "تخصيص لهذا المنتج",
           createReset:
             "استخدام افتراضيات الشركة",
           createOnlyThisProduct:
             "أي تغيير هنا يخص هذا المنتج فقط ولا يغيّر الإعداد الافتراضي للشركة أو المنتجات الأخرى.",
           createDefaultHint:
             "هذا الاختيار يخص المنتج الجديد فقط ولا يغيّر الإعداد الافتراضي لباقي منتجات الشركة.",
+          simple: {
+            lotRequired: "رقم الدفعة إلزامي",
+            expiryRequired: "تاريخ الصلاحية إلزامي",
+            required: "سيطلبه النظام عند كل توريد.",
+            optional: "غير إلزامي؛ يُسجّل إذا كان موجوداً.",
+            notUsed: "غير مستخدم حالياً. يمكن تغييره من الخيارات المتقدمة.",
+            advanced: "خيارات متقدمة",
+            advancedHint:
+              "استخدمها فقط للحالات الخاصة: اختياري، إلزامي، أو غير مستخدم. هذه القيم نفسها محفوظة في النظام ولا تتغير.",
+          },
           lotLabel: "رقم الدفعة",
           lotHelp:
             "هو الرقم المطبوع من المصنع لتمييز مجموعة إنتاج واحدة. عند استلام المنتج، هل تريد أن يطلب النظام تسجيل هذا الرقم؟ إذا اخترت «إلزامي» فلن يكتمل التوريد بدون رقم الدفعة.",
@@ -594,7 +604,7 @@ export const resources = {
           title: "الإعدادات الافتراضية للمنتجات الجديدة",
           descriptionTitle: "إعداد افتراضي على مستوى الشركة",
           description:
-            "تُستخدم هذه الإعدادات تلقائياً عند إضافة منتج جديد أو بدء استيراد جديد. لا تغيّر المنتجات الموجودة، ويمكن تخصيصها لمنتج واحد أثناء إضافته أو لاستيراد واحد.",
+            "فعّل الإلزام فقط لما يجب على الموظف إدخال القيمة عند كل توريد. عند إيقافه تبقى القيمة اختيارية عند توفرها. إضافة المنتج والاستيراد يرثان هذا الإعداد تلقائياً.",
           save: "حفظ الإعدادات الافتراضية",
           saved: "تم حفظ الإعدادات الافتراضية للشركة.",
           companySource: "إعداد الشركة",
@@ -622,7 +632,7 @@ export const resources = {
           "ضع كل منتج في صف مستقل. يمكن أن تختلف العائلة والتغليف والسعر من صف لآخر.",
         importGuideTrackingTitle: "2. التتبع: حدّد الاستثناءات فقط",
         importGuideTrackingRule:
-          "في Excel ستجد قائمة جاهزة: {{defaultValue}} / {{none}} / {{optional}} / {{required}}.",
+          "اترك خانتي الدفعة والصلاحية فارغتين لاستخدام إعداد الشركة. حدّد قيمة مختلفة فقط للمنتجات التي تحتاج استثناءً.",
         importGuideUseDefault: "استخدام الافتراضي",
         importGuideBlankTitle: "3. اتركها فارغة إذا ما عندك استثناء",
         importGuideFallbackCompany:
@@ -2238,7 +2248,7 @@ export const resources = {
         importTrackingTitle:
           "Default for blank tracking cells",
         importTrackingHint:
-          "You normally do not need to change this. It is used only when a batch or expiry cell is blank, or says “Use default” in the file.",
+          "Imports use the company settings automatically for blank cells. Open advanced options only when this file needs an exception.",
         importTrackingSummary:
           "Batch / lot: {{lot}} — expiry: {{expiry}}",
         importTrackingCompanyScope:
@@ -2246,7 +2256,7 @@ export const resources = {
         importTrackingCustomScope:
           "Customized for this file only.",
         importTrackingChange:
-          "Change this file's default",
+          "Advanced options for this import",
         importTrackingReset:
           "Return to company settings",
         importTrackingOnlyThisImport:
@@ -2268,13 +2278,23 @@ export const resources = {
           createCustomScope:
             "Tracking is customized for this product only.",
           createChange:
-            "Change for this product",
+            "Customize this product",
           createReset:
             "Use company defaults",
           createOnlyThisProduct:
             "Changes here apply only to this product and do not change company defaults or other products.",
           createDefaultHint:
             "This choice applies only to the new product and does not change the company default for other products.",
+          simple: {
+            lotRequired: "Batch / lot number is required",
+            expiryRequired: "Expiry date is required",
+            required: "The system will require it on every receipt.",
+            optional: "Not required; record it when available.",
+            notUsed: "Not currently used. Change it from Advanced options.",
+            advanced: "Advanced options",
+            advancedHint:
+              "Use these only for special cases: Optional, Required, or Not used. The underlying system values remain unchanged.",
+          },
           lotLabel: "Manufacturer batch / lot number",
           lotHelp:
             "This is the manufacturer number that identifies one production batch. When receiving the product, should the system require staff to record it? If Required is selected, the receipt cannot be completed without a batch number.",
@@ -2313,7 +2333,7 @@ export const resources = {
           title: "Default settings for new products",
           descriptionTitle: "Company-wide default",
           description:
-            "These settings are applied automatically when adding a new product or starting a new import. They do not change existing products, and a single product or import can override them.",
+            "Turn a requirement on only when staff must enter that value on every receipt. When off, the value stays optional when available. New products and imports inherit this company setting automatically.",
           save: "Save default settings",
           saved: "Company default settings saved.",
           companySource: "Company setting",
@@ -2341,7 +2361,7 @@ export const resources = {
           "Put each product on its own row. Family, packaging, and price may differ per row.",
         importGuideTrackingTitle: "2. Tracking: mark exceptions only",
         importGuideTrackingRule:
-          "Excel provides a ready list: {{defaultValue}} / {{none}} / {{optional}} / {{required}}.",
+          "Leave batch and expiry cells blank to use the company setting. Choose a different value only for products that need an exception.",
         importGuideUseDefault: "Use default",
         importGuideBlankTitle: "3. Leave it blank when there is no exception",
         importGuideFallbackCompany:
