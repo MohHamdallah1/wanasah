@@ -16,6 +16,7 @@ from sqlalchemy import String, and_, cast, func, or_, select, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from domains.barcode_identity import infer_barcode_type
 from domains.pricing.core import PricingError, maker_checker_enabled, money_20_6
 from domains.pricing.publishing import (
     create_assignment,
@@ -54,7 +55,6 @@ from product_lifecycle import (
 )
 
 _CODE_CLEAN_RE = re.compile(r"[^A-Z0-9_.-]+")
-_DIGITS_RE = re.compile(r"^\d+$")
 
 BASE_UOM_CODE = "EACH"
 SUPPORTED_PACKAGE_UOM_CODES = (
@@ -286,32 +286,6 @@ def resolve_price_pair(
         package_derived=package_derived,
         unit_derived=unit_derived,
     )
-
-
-def _valid_gtin(value: str) -> bool:
-    if not _DIGITS_RE.fullmatch(value) or len(value) not in {8, 12, 13, 14}:
-        return False
-    digits = [int(char) for char in value]
-    expected = (
-        10
-        - sum(
-            digit * (3 if (len(digits) - 1 - index) % 2 == 0 else 1)
-            for index, digit in enumerate(digits[:-1])
-        )
-        % 10
-    ) % 10
-    return digits[-1] == expected
-
-
-def barcode_type(value: str) -> str:
-    if _valid_gtin(value):
-        return {
-            8: "EAN8",
-            12: "UPC_A",
-            13: "EAN13",
-            14: "GTIN14",
-        }[len(value)]
-    return "INTERNAL"
 
 
 def normalize_barcode(value: Any, field: str) -> str | None:
@@ -1621,7 +1595,7 @@ async def create_product_structures(
                         product_variant_id=int(variant.id),
                         uom_id=int(shape.base_uom.id),
                         barcode=unit_barcode,
-                        barcode_type=barcode_type(unit_barcode),
+                        barcode_type=infer_barcode_type(unit_barcode),
                         is_primary=True,
                         valid_from=now,
                         valid_to=None,
@@ -1640,7 +1614,7 @@ async def create_product_structures(
                         product_variant_id=int(variant.id),
                         uom_id=int(shape.package_uom.id),
                         barcode=package_barcode,
-                        barcode_type=barcode_type(package_barcode),
+                        barcode_type=infer_barcode_type(package_barcode),
                         is_primary=True,
                         valid_from=now,
                         valid_to=None,
