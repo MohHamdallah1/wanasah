@@ -398,6 +398,18 @@ export function ProductRenameDialog({
                 setFieldError(null);
               }
             }}
+            onKeyDown={(event) => {
+              if (
+                event.key === "Enter" &&
+                !inputLocked &&
+                isOnline &&
+                cleanName &&
+                !unchanged
+              ) {
+                event.preventDefault();
+                void save();
+              }
+            }}
             aria-invalid={
               fieldError ? "true" : undefined
             }
