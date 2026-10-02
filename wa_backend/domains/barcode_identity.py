@@ -347,3 +347,93 @@ async def replace_primary_barcode(
         previous_barcode_id=previous_barcode_id,
         changed=True,
     )
+
+
+@dataclass(frozen=True)
+class IndependentPackageBarcodeResult:
+    barcode: ProductBarcode
+    variant_version: int
+
+
+async def assign_independent_package_barcode(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    product_variant_id: int,
+    package_uom_id: int,
+    barcode: str,
+    expected_variant_version: int,
+) -> IndependentPackageBarcodeResult:
+    clean = normalize_barcode_value(barcode)
+
+    variant = await db.scalar(
+        select(ProductVariant)
+        .where(
+            ProductVariant.company_id == int(company_id),
+            ProductVariant.id == int(product_variant_id),
+        )
+        .with_for_update()
+    )
+    if variant is None:
+        raise BarcodeIdentityError(
+            "VARIANT_NOT_FOUND",
+            "Product was not found.",
+            status_code=404,
+        )
+
+    if int(variant.version) != int(expected_variant_version):
+        raise BarcodeIdentityError(
+            "PRODUCT_VERSION_CONFLICT",
+            "Product changed. Refresh and retry.",
+            context={"current_version": int(variant.version)},
+        )
+
+    if int(package_uom_id) == int(variant.base_uom_id):
+        raise BarcodeIdentityError(
+            "PACKAGE_UOM_INVALID",
+            "Package unit must differ from the base unit.",
+            status_code=422,
+        )
+
+    conversion_exists = await db.scalar(
+        select(ProductUomConversion.id)
+        .where(
+            ProductUomConversion.company_id == int(company_id),
+            ProductUomConversion.product_variant_id == int(product_variant_id),
+            ProductUomConversion.from_uom_id == int(package_uom_id),
+            ProductUomConversion.to_uom_id == int(variant.base_uom_id),
+        )
+        .limit(1)
+    )
+    if conversion_exists is None:
+        raise BarcodeIdentityError(
+            "PACKAGE_UOM_NOT_IN_PRODUCT",
+            "Package unit is not part of this product.",
+            status_code=422,
+        )
+
+    if not bool(variant.package_uses_base_barcode):
+        raise BarcodeIdentityError(
+            "PACKAGE_BARCODE_ALREADY_INDEPENDENT",
+            "Package already uses an independent barcode.",
+            context={"current_version": int(variant.version)},
+        )
+
+    variant.package_uses_base_barcode = False
+    variant.version = int(variant.version) + 1
+    await db.flush()
+
+    replacement = await replace_primary_barcode(
+        db,
+        company_id=int(company_id),
+        product_variant_id=int(product_variant_id),
+        uom_id=int(package_uom_id),
+        barcode=clean,
+        expected_current_id=None,
+        expected_current_version=None,
+    )
+
+    return IndependentPackageBarcodeResult(
+        barcode=replacement.barcode,
+        variant_version=int(variant.version),
+    )
