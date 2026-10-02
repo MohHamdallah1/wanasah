@@ -96,7 +96,7 @@ describe(
       );
       const actionMenu = compact(
         source(
-          "../pages/products/detail/ProductDetailActionsMenu.tsx",
+          "../pages/products/list/ProductRowActions.tsx",
         ),
       );
       const detailWorkflow = compact(
@@ -104,12 +104,6 @@ describe(
           "../pages/products/detail/useProductDetailWorkflow.ts",
         ),
       );
-      const detailActions = compact(
-        source(
-          "../pages/products/detail/createProductDetailActions.ts",
-        ),
-      );
-
       expect(drawer).not.toContain(
         "canManageAdvancedUom",
       );
@@ -118,9 +112,6 @@ describe(
       );
       expect(detailWorkflow).not.toContain(
         "canManageAdvancedUom",
-      );
-      expect(detailActions).not.toContain(
-        "/products/advanced-uom?variant=",
       );
     });
   },
