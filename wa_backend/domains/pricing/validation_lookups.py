@@ -19,7 +19,7 @@ async def load_variant_uom_snapshot(
     *,
     company_id: int,
     variant_ids: list[int],
-    stage: Literal["draft", "publish", "initial"],
+    stage: Literal["draft", "publish"],
 ) -> tuple[dict[int, tuple[int, str]], dict[int, set[int]]]:
     """Fetch operational state and allowed UOMs in one tenant-scoped SQL call.
 
@@ -30,11 +30,11 @@ async def load_variant_uom_snapshot(
     ids = sorted({int(variant_id) for variant_id in variant_ids})
     if not ids:
         return {}, {}
-    label = {
-        "draft": "pricing_draft_variant_uom",
-        "publish": "pricing_publish_variant_uom",
-        "initial": "pricing_initial_variant_uom",
-    }[stage]
+    label = (
+        "pricing_draft_variant_uom"
+        if stage == "draft"
+        else "pricing_publish_variant_uom"
+    )
     stmt = (
         select(
             ProductVariant.id.label("variant_id"),
