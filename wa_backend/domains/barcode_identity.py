@@ -74,7 +74,7 @@ def _valid_gtin(value: str) -> bool:
                 3
                 if (
                     len(digits)
-                    - 1
+                    - 2
                     - index
                 )
                 % 2
