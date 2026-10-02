@@ -345,7 +345,7 @@ export function ProductsListResults({
               <tr>
                 <th
                   scope="col"
-                  className={`${tableHeaderSpacing} w-12 text-center`}
+                  className={`${tableHeaderSpacing} w-32 text-center`}
                 >
                   #
                 </th>
