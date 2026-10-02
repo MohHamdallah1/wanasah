@@ -90,6 +90,9 @@ describe("Products lifecycle, focus, and barcode UX", () => {
     const actions = read(
       "../pages/inventory/catalog/CatalogLifecycleActions.tsx",
     );
+    const simplePanel = read(
+      "../pages/inventory/catalog/CatalogLifecycleSimplePanel.tsx",
+    );
 
     expect(manager).toContain(
       "simpleMode",
@@ -98,21 +101,24 @@ describe("Products lifecycle, focus, and barcode UX", () => {
       "variant.version",
     );
     expect(actions).toContain(
+      "<CatalogLifecycleSimplePanel",
+    );
+    expect(simplePanel).toContain(
       "catalogLifecycle.simple.productStatusTitle",
     );
-    expect(actions).toContain(
+    expect(simplePanel).toContain(
       "catalogLifecycle.simple.salesStatusTitle",
     );
-    expect(actions).toContain(
+    expect(simplePanel).toContain(
       "selectedCommand",
     );
-    expect(actions).toContain(
+    expect(simplePanel).toContain(
       'event.key ===',
     );
-    expect(actions).toContain(
+    expect(simplePanel).toContain(
       '"Enter"',
     );
-    expect(actions).toContain(
+    expect(simplePanel).toContain(
       '"Escape"',
     );
   });
