@@ -12,7 +12,8 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy import String, and_, cast, func, or_, select, text
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domains.pricing.core import PricingError, maker_checker_enabled, money_20_6
@@ -738,6 +739,50 @@ async def list_families(
     ]
 
 
+async def _family_matches_by_normalized_names(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    normalized_names: list[str],
+) -> list[tuple[Product, str]]:
+    """Resolve at most two Product masters per normalized name under FORCE RLS.
+
+    The SECURITY DEFINER function validates app.current_tenant and performs the
+    lower(name) predicate below the RLS security barrier, where the matching
+    expression index is usable. The outer Product join remains tenant-scoped and
+    returns ORM entities in the caller's normal session.
+    """
+    names = sorted(set(normalized_names))
+    if not names:
+        return []
+    resolver = (
+        func.public.simple_products_family_match_ids(
+            int(company_id),
+            cast(names, ARRAY(String())),
+        )
+        .table_valued("id", "normalized")
+        .alias("family_name_matches")
+    )
+    rows = (
+        await db.execute(
+            select(Product, resolver.c.normalized)
+            .join(
+                resolver,
+                and_(
+                    Product.company_id == int(company_id),
+                    Product.id == resolver.c.id,
+                ),
+            )
+            .where(Product.company_id == int(company_id))
+            .order_by(Product.id.asc())
+            .execution_options(
+                wanasah_sql_trace_label="simple_product_family_name_resolver"
+            )
+        )
+    ).all()
+    return [(row, str(normalized)) for row, normalized in rows]
+
+
 async def create_family(
     db: AsyncSession,
     *,
@@ -753,13 +798,12 @@ async def create_family(
         family_name=clean_name,
     )
 
-    existing = await db.scalar(
-        select(Product.id).where(
-            Product.company_id == int(company_id),
-            func.lower(Product.name) == clean_name.lower(),
-        )
+    existing_matches = await _family_matches_by_normalized_names(
+        db,
+        company_id=int(company_id),
+        normalized_names=[clean_name.lower()],
     )
-    if existing is not None:
+    if existing_matches:
         raise SimpleProductError(
             "SIMPLE_PRODUCT_FAMILY_NAME_CONFLICT",
             "A family with this name already exists.",
@@ -812,12 +856,18 @@ async def rename_family(
             context={"current_version": int(row.version)},
         )
 
-    duplicate = await db.scalar(
-        select(Product.id).where(
-            Product.company_id == int(company_id),
-            func.lower(Product.name) == clean_name.lower(),
-            Product.id != int(family_id),
-        )
+    duplicate_matches = await _family_matches_by_normalized_names(
+        db,
+        company_id=int(company_id),
+        normalized_names=[clean_name.lower()],
+    )
+    duplicate = next(
+        (
+            family
+            for family, _normalized in duplicate_matches
+            if int(family.id) != int(family_id)
+        ),
+        None,
     )
     if duplicate is not None:
         raise SimpleProductError(
@@ -1030,31 +1080,11 @@ async def _prefetch_batch_families(
         company_id=int(actor.company_id),
         normalized_names=sorted(names),
     )
-    normalized_db_name = func.lower(Product.name)
-    ordered = (
-        select(
-            Product.id.label("id"),
-            normalized_db_name.label("normalized"),
-            func.row_number().over(
-                partition_by=normalized_db_name,
-                order_by=Product.id.asc(),
-            ).label("row_rank"),
-        )
-        .where(
-            Product.company_id == int(actor.company_id),
-            normalized_db_name.in_(sorted(names)),
-        )
-        .subquery()
+    rows = await _family_matches_by_normalized_names(
+        db,
+        company_id=int(actor.company_id),
+        normalized_names=sorted(names),
     )
-    rows = (await db.execute(
-        select(Product, ordered.c.normalized)
-        .join(ordered, Product.id == ordered.c.id)
-        .where(
-            Product.company_id == int(actor.company_id),
-            ordered.c.row_rank <= 2,
-        )
-        .order_by(Product.id.asc())
-    )).all()
     matches: dict[str, list[Product]] = {}
     for row, normalized in rows:
         matches.setdefault(str(normalized), []).append(row)
@@ -1310,19 +1340,14 @@ async def _resolve_family(
             company_id=int(actor.company_id),
             family_name=family_name,
         )
-        matches = list(
-            (
-                await db.scalars(
-                    select(Product)
-                    .where(
-                        Product.company_id == int(actor.company_id),
-                        func.lower(Product.name) == normalized,
-                    )
-                    .order_by(Product.id.asc())
-                    .limit(2)
-                )
-            ).all()
-        )
+        matches = [
+            family
+            for family, _normalized in await _family_matches_by_normalized_names(
+                db,
+                company_id=int(actor.company_id),
+                normalized_names=[normalized],
+            )
+        ]
     if mode == "new" and matches:
         raise SimpleProductError(
             "SIMPLE_PRODUCT_FAMILY_NAME_CONFLICT",
