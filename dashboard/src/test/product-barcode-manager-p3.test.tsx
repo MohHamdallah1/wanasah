@@ -145,6 +145,20 @@ const barcode = (
   version: 1,
 });
 
+const openAdvancedBarcodeTools =
+  async () => {
+    const summary =
+      await screen.findByText(
+        "products.barcodeManager.advanced",
+      );
+    fireEvent.click(summary);
+    await waitFor(() => {
+      expect(
+        summary.closest("details"),
+      ).toHaveAttribute("open");
+    });
+  };
+
 const deferred = <T,>() => {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -431,6 +445,7 @@ describe("ProductBarcodeManager runtime behavior", () => {
       ).toBeInTheDocument();
     });
 
+    await openAdvancedBarcodeTools();
     expect(
       screen.getAllByRole(
         "button",
@@ -439,6 +454,131 @@ describe("ProductBarcodeManager runtime behavior", () => {
         },
       ),
     ).toHaveLength(1);
+  });
+
+  it("changes the primary barcode through one atomic user action", async () => {
+    const current = barcode(
+      300,
+      10,
+      "OLD-CODE",
+    );
+    const replacement = {
+      ...barcode(
+        301,
+        10,
+        "NEW-CODE",
+      ),
+      version: 1,
+    };
+
+    mocks.authFetch
+      .mockResolvedValueOnce({
+        items: [current],
+        next_cursor: null,
+        has_more: false,
+      })
+      .mockResolvedValueOnce({
+        message: "changed",
+        barcode: replacement,
+      })
+      .mockResolvedValueOnce({
+        items: [replacement],
+        next_cursor: null,
+        has_more: false,
+      });
+
+    render(
+      <ProductBarcodeManager
+        product={product(10, "A")}
+        companyId={1}
+        driverId={2}
+        onClose={vi.fn()}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByText(
+        "OLD-CODE",
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name: "products.barcodeManager.change",
+        },
+      ),
+    );
+
+    const input =
+      screen.getByLabelText(
+        "products.barcodeManager.newValue",
+      );
+    fireEvent.change(input, {
+      target: {
+        value: "NEW-CODE",
+      },
+    });
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name: "common.save",
+        },
+      ),
+    );
+
+    await waitFor(() => {
+      const replacementCalls =
+        mocks.authFetch.mock.calls.filter(
+          ([url, options]) =>
+            url ===
+              "/catalog/variants/10/barcodes/replace-primary" &&
+            options?.method ===
+              "POST",
+        );
+      expect(
+        replacementCalls,
+      ).toHaveLength(1);
+
+      const body = JSON.parse(
+        String(
+          replacementCalls[0][1]
+            ?.body,
+        ),
+      ) as {
+        request_id: string;
+        uom_id: number;
+        barcode: string;
+        expected_current_id:
+          | number
+          | null;
+        expected_current_version:
+          | number
+          | null;
+      };
+      expect(
+        body.request_id,
+      ).toBeTruthy();
+      expect(body.uom_id).toBe(1);
+      expect(body.barcode).toBe(
+        "NEW-CODE",
+      );
+      expect(
+        body.expected_current_id,
+      ).toBe(300);
+      expect(
+        body.expected_current_version,
+      ).toBe(1);
+    });
+
+    expect(
+      await screen.findByText(
+        "NEW-CODE",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("does not present failed barcode loading as a confirmed empty state", async () => {
@@ -515,6 +655,7 @@ describe("ProductBarcodeManager runtime behavior", () => {
       />,
     );
 
+    await openAdvancedBarcodeTools();
     const input =
       await screen.findByLabelText(
         "products.barcodeManager.value",
@@ -624,6 +765,7 @@ describe("ProductBarcodeManager runtime behavior", () => {
         {...props}
       />,
     );
+    await openAdvancedBarcodeTools();
     const input =
       await screen.findByLabelText(
         "products.barcodeManager.value",
@@ -673,6 +815,7 @@ describe("ProductBarcodeManager runtime behavior", () => {
       />,
     );
 
+    await openAdvancedBarcodeTools();
     const restored =
       await screen.findByLabelText(
         "products.barcodeManager.value",
@@ -745,6 +888,7 @@ describe("ProductBarcodeManager runtime behavior", () => {
       />,
     );
 
+    await openAdvancedBarcodeTools();
     expect(
       await screen.findByText(
         "products.barcodeManager.pendingBlocked",
@@ -804,6 +948,7 @@ describe("ProductBarcodeManager runtime behavior", () => {
       />,
     );
 
+    await openAdvancedBarcodeTools();
     expect(
       await screen.findByText(
         "products.barcodeManager.pendingBlocked",
@@ -902,6 +1047,7 @@ describe("ProductBarcodeManager runtime behavior", () => {
       />,
     );
 
+    await openAdvancedBarcodeTools();
     expect(
       await screen.findByText(
         "products.barcodeManager.pendingBlocked",
@@ -952,7 +1098,12 @@ describe("ProductBarcodeManager runtime behavior", () => {
 
     expect(
       await screen.findByText(
-        "products.barcodeManager.sharedPackageHint",
+        "products.barcodeManager.packageSharedHint",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "products.barcodeManager.packageSharesUnit",
       ),
     ).toBeInTheDocument();
     expect(
@@ -971,11 +1122,14 @@ describe("ProductBarcodeManager runtime behavior", () => {
       10,
       "FIRST",
     );
-    const secondPage = barcode(
-      2,
-      10,
-      "SECOND",
-    );
+    const secondPage = {
+      ...barcode(
+        2,
+        10,
+        "SECOND",
+      ),
+      is_primary: false,
+    };
     mocks.authFetch
       .mockResolvedValueOnce({
         items: [firstPage],
@@ -1004,6 +1158,7 @@ describe("ProductBarcodeManager runtime behavior", () => {
       ),
     ).toBeInTheDocument();
 
+    await openAdvancedBarcodeTools();
     fireEvent.click(
       screen.getByRole(
         "button",

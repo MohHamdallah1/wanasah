@@ -17,15 +17,21 @@ const read = (relativePath: string) =>
   );
 
 describe("Products P9.4 Barcode workspace", () => {
-  it("keeps race, scope, durable create and durable deactivation authority in the manager", () => {
+  it("keeps race, scope, atomic replacement, and advanced durable authority in the manager", () => {
     const manager = read(
       "../pages/products/barcode/ProductBarcodeManager.tsx",
+    );
+    const advanced = read(
+      "../pages/products/barcode/ProductBarcodeAdvancedPanel.tsx",
+    );
+    const replacement = read(
+      "../pages/products/barcode/usePrimaryBarcodeReplacement.ts",
     );
 
     expect(manager).toContain(
       "<ProductBarcodeList",
     );
-    expect(manager).toContain(
+    expect(advanced).toContain(
       "<ProductBarcodeCreatePanel",
     );
     expect(manager).toContain(
@@ -43,11 +49,60 @@ describe("Products P9.4 Barcode workspace", () => {
     expect(manager).toContain(
       '"catalog-barcode-update"',
     );
+    expect(replacement).toContain(
+      '"catalog-barcode-replace-primary-v1"',
+    );
+    expect(replacement).toContain(
+      '"/barcodes/replace-primary"',
+    );
     expect(manager).toContain(
       "getOrCreateDurableCommand(",
     );
     expect(manager).toContain(
       "expected_version:",
+    );
+  });
+
+  it("keeps the ordinary barcode workflow to unit/package cards with one-step replacement", () => {
+    const panel = read(
+      "../pages/products/barcode/ProductBarcodeSimplePanel.tsx",
+    );
+    const manager = read(
+      "../pages/products/barcode/ProductBarcodeManager.tsx",
+    );
+    const advanced = read(
+      "../pages/products/barcode/ProductBarcodeAdvancedPanel.tsx",
+    );
+
+    expect(panel).toContain(
+      '"products.barcodeManager.unitBarcode"',
+    );
+    expect(panel).toContain(
+      '"products.barcodeManager.packageBarcode"',
+    );
+    expect(panel).toContain(
+      '"products.barcodeManager.replaceHint"',
+    );
+    expect(panel).toContain(
+      '"products.barcodeManager.restorePrevious"',
+    );
+    expect(panel).not.toContain(
+      "barcodeType",
+    );
+    expect(panel).not.toContain(
+      "isPrimary",
+    );
+    expect(panel).not.toContain(
+      "onDeactivate",
+    );
+    expect(manager).toContain(
+      "<ProductBarcodeSimplePanel",
+    );
+    expect(manager).toContain(
+      "<ProductBarcodeAdvancedPanel",
+    );
+    expect(advanced).toContain(
+      "open ? (",
     );
   });
 
@@ -116,10 +171,13 @@ describe("Products P9.4 Barcode workspace", () => {
     );
 
     expect(manager).toContain(
-      "loadReady &&",
+      "loadReady ? (",
     );
     expect(manager).toContain(
-      "!loadError ? (",
+      "loading ||",
+    );
+    expect(manager).toContain(
+      "loadError ? (",
     );
     expect(list).toContain(
       "if (loadError)",
