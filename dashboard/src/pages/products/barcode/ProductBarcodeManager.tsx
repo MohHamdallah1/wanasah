@@ -470,29 +470,6 @@ export function ProductBarcodeManager({
     t,
   ]);
 
-  if (!product) {
-    return null;
-  }
-
-  const targetUomId =
-    target === "package"
-      ? product.package_uom_id
-      : product.base_uom_id;
-
-  const canMutate =
-    loadReady &&
-    !loadError &&
-    !loading &&
-    !busy &&
-    isOnline &&
-    companyId !== null &&
-    driverId !== null;
-
-  const canEditCreate =
-    canMutate &&
-    pendingCreate === null &&
-    !pendingCreateBlocked;
-
   const refreshBarcodes = useCallback(
     () => {
       setLoadReady(false);
@@ -503,6 +480,15 @@ export function ProductBarcodeManager({
     [],
   );
 
+  const baseCanMutate =
+    loadReady &&
+    !loadError &&
+    !loading &&
+    !busy &&
+    isOnline &&
+    companyId !== null &&
+    driverId !== null;
+
   const {
     replacing,
     replacePrimaryBarcode,
@@ -511,10 +497,29 @@ export function ProductBarcodeManager({
     items,
     companyId,
     driverId,
-    canMutate,
+    canMutate:
+      baseCanMutate,
     refreshBarcodes,
     onChanged,
   });
+
+  if (!product) {
+    return null;
+  }
+
+  const targetUomId =
+    target === "package"
+      ? product.package_uom_id
+      : product.base_uom_id;
+
+  const canMutate =
+    baseCanMutate &&
+    !replacing;
+
+  const canEditCreate =
+    canMutate &&
+    pendingCreate === null &&
+    !pendingCreateBlocked;
 
   const loadMore = async () => {
     if (
