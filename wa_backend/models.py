@@ -248,6 +248,12 @@ class Product(Base):
         UniqueConstraint('company_id', 'code', name='uq_company_product_code'),
         UniqueConstraint('company_id', 'id', name='uq_products_company_id'),
         Index('ix_product_company_name_id', 'company_id', 'name', 'id'),
+        Index(
+            'ix_product_company_lower_name_id',
+            'company_id',
+            text('lower((name)::text)'),
+            'id',
+        ),
     )
     id          = Column(Integer, primary_key=True)
     company_id  = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)

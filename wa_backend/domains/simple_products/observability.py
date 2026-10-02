@@ -28,6 +28,7 @@ _IMPORT_SQL_LABEL_OPTION = "wanasah_sql_trace_label"
 _IMPORT_SQL_LABELS = frozenset({
     "pricing_company_lock", "pricing_maker_checker", "pricing_next_revision",
     "simple_pricing_policy_assignments", "simple_pricing_company_default_book",
+    "simple_product_family_name_resolver",
     "pricing_book_lock", "pricing_book_lock_next_revision", "pricing_book_read",
     "pricing_draft_publication_lock",
     "pricing_draft_variants", "pricing_draft_uoms",
