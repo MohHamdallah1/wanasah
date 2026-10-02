@@ -342,17 +342,17 @@ export const resources = {
             "رمز SKU مقفل بعد النشر. يمكن تعديله فقط عندما يكون المتغير بحالة مسودة (DRAFT) من إدارة الكتالوج المتقدمة.",
           lifecycle: "حالة المنتج",
           operationalHold:
-            "الإيقاف التشغيلي",
+            "حالة البيع",
           lifecycleModes: {
             DRAFT: "مسودة",
-            ACTIVE: "نشط",
+            ACTIVE: "متاح",
             RETIRING: "قيد الإيقاف",
             ARCHIVED: "مؤرشف",
           },
           holdModes: {
-            NONE: "بدون إيقاف",
-            SALES_HOLD: "إيقاف بيع",
-            RECALL: "استدعاء",
+            NONE: "البيع متاح",
+            SALES_HOLD: "البيع موقوف مؤقتًا",
+            RECALL: "مسحوب من التداول",
           },
           package: "العبوة",
           structure: "بنية المنتج",
@@ -380,11 +380,11 @@ export const resources = {
           notSet: "غير محدد",
         },
         lifecycleManager: {
-          action: "إدارة دورة الحياة",
+          action: "حالة المنتج والبيع",
           title:
-            "إدارة دورة الحياة — {{name}}",
+            "حالة المنتج والبيع — {{name}}",
           loadFailed:
-            "تعذر تحميل الحالة التشغيلية الحالية للمنتج.",
+            "تعذر تحميل حالة المنتج والبيع الحالية.",
         },
         barcodeManager: {
           action: "إدارة الباركود",
@@ -909,20 +909,20 @@ export const resources = {
         },
       },
       catalogLifecycle: {
-        title: "دورة الحياة والإيقاف التشغيلي",
+        title: "حالة المنتج والبيع",
         summary:
-          "الحالة: {{lifecycle}} · الإيقاف: {{hold}} · الإصدار: {{version}}",
-        reason: "سبب الإجراء",
+          "حالة المنتج: {{lifecycle}} · حالة البيع: {{hold}}",
+        reason: "سبب التغيير",
         reasonPlaceholder:
-          "سبب واضح لا يقل عن 3 أحرف",
+          "اكتب سببًا مختصرًا وواضحًا",
         preflightPassed:
-          "فحص الأرشفة ناجح؛ لا توجد موانع حالية.",
+          "المنتج جاهز للأرشفة ولا توجد موانع حالية.",
         deletePreflightPassed:
           "فحص الحذف ناجح: هذه مسودة غير منشورة ولا تحمل مراجع أعمال. الحذف النهائي متاح الآن.",
         deleteBlockersTitle:
           "الحذف النهائي غير متاح لأن هذه المسودة تحمل مراجع أو تاريخاً يجب الحفاظ عليه:",
         blockersTitle:
-          "الأرشفة متوقفة حتى معالجة الموانع التالية:",
+          "لا يمكن أرشفة المنتج قبل معالجة التالي:",
         pendingRetry:
           "هناك أمر سابق ({{action}}) نتيجته غير مؤكدة. يجب إعادة نفس الأمر قبل تنفيذ أمر مختلف.",
         retryPending:
@@ -930,37 +930,67 @@ export const resources = {
         pendingBlocked:
           "تعذر التحقق من الأمر المعلّق المحفوظ. تم إيقاف أوامر دورة الحياة حتى تتم تسويته بأمان.",
         actions: {
-          publish: "نشر",
+          publish: "تفعيل المنتج",
           checkDeleteDraft:
             "فحص إمكانية حذف المسودة",
           deleteDraft: "حذف المسودة نهائياً",
-          retire: "بدء التقاعد",
-          restore: "استعادة",
-          checkArchive: "فحص الأرشفة",
-          archive: "أرشفة نهائية",
-          salesHold: "إيقاف بيع",
-          releaseSalesHold: "تحرير الإيقاف",
-          recall: "استدعاء",
-          closeRecall: "إغلاق الاستدعاء",
+          retire: "إيقاف المنتج",
+          restore: "إعادة تفعيل المنتج",
+          checkArchive: "التحقق من إمكانية الأرشفة",
+          archive: "أرشفة المنتج",
+          salesHold: "إيقاف البيع مؤقتًا",
+          releaseSalesHold: "استئناف البيع",
+          recall: "سحب المنتج من التداول",
+          closeRecall: "إنهاء سحب المنتج",
         },
         success: {
-          publish: "تم نشر الصنف.",
+          publish: "تم تفعيل المنتج.",
           deleteDraft:
-            "تم حذف مسودة الصنف.",
+            "تم حذف مسودة المنتج.",
           retire:
-            "بدأت عملية تقاعد الصنف.",
+            "تم وضع المنتج في حالة الإيقاف.",
           restore:
-            "تمت استعادة الصنف.",
+            "تمت إعادة تفعيل المنتج.",
           archive:
-            "تمت أرشفة الصنف.",
+            "تمت أرشفة المنتج.",
           salesHold:
-            "تم إيقاف بيع الصنف.",
+            "تم إيقاف بيع المنتج مؤقتًا.",
           releaseSalesHold:
-            "تم تحرير إيقاف البيع.",
+            "تم استئناف بيع المنتج.",
           recall:
-            "تم وضع الصنف تحت الاستدعاء.",
+            "تم سحب المنتج من التداول.",
           closeRecall:
-            "تم إغلاق استدعاء الصنف.",
+            "تم إنهاء حالة سحب المنتج من التداول.",
+        },
+        simple: {
+          productStatusTitle: "حالة المنتج",
+          productStatusHint:
+            "تحكم في بقاء المنتج ضمن الكتالوج التشغيلي بدون حذف تاريخه.",
+          salesStatusTitle: "البيع والتداول",
+          confirm: "تنفيذ الإجراء",
+          salesHints: {
+            NONE: "المنتج متاح للبيع حاليًا.",
+            SALES_HOLD: "بيع المنتج موقوف مؤقتًا بدون أرشفته.",
+            RECALL: "المنتج مسحوب من التداول حتى تتم معالجة الحالة وإنهاؤها بأمان.",
+          },
+          actionHints: {
+            publish:
+              "يجعل المنتج متاحًا للاستخدام التشغيلي.",
+            retire:
+              "يوقف المنتج من الاستخدام النشط مع الاحتفاظ بكامل سجله، ويمكن إعادة تفعيله لاحقًا.",
+            restore:
+              "يعيد المنتج إلى الحالة المتاحة إذا كانت بياناته وشروطه سليمة.",
+            archive:
+              "ينقل المنتج إلى الأرشيف بعد التحقق تلقائيًا من عدم وجود مخزون أو عمليات مفتوحة تمنع ذلك.",
+            salesHold:
+              "يوقف البيع والتحميل مؤقتًا بدون أرشفة المنتج.",
+            releaseSalesHold:
+              "يعيد السماح ببيع المنتج بعد الإيقاف المؤقت.",
+            recall:
+              "استخدمه عند الحاجة لسحب المنتج من التداول بسبب مشكلة جودة أو سلامة أو قرار تشغيلي مهم.",
+            closeRecall:
+              "ينهي حالة سحب المنتج بعد التأكد من معالجة المخزون والعمليات المفتوحة.",
+          },
         },
         assignments: {
           title:
@@ -1038,7 +1068,7 @@ export const resources = {
           OPERATIONAL_HOLD:
             "يوجد إيقاف تشغيلي مفتوح",
           PUBLISHED_HISTORY:
-            "للمنتج تاريخ نشر أو تقاعد أو أرشفة",
+            "للمنتج تاريخ تفعيل أو إيقاف أو أرشفة",
           WAREHOUSE_OR_STOCK_REFERENCE:
             "مرجع مخزون أو مستودع أو حركة تشغيلية",
           SALES_REFERENCE:
@@ -2126,17 +2156,17 @@ export const resources = {
             "SKU is locked after publication. It can only be edited while the variant is in DRAFT through advanced catalog management.",
           lifecycle: "Product status",
           operationalHold:
-            "Operational hold",
+            "Sales status",
           lifecycleModes: {
             DRAFT: "Draft",
-            ACTIVE: "Active",
-            RETIRING: "Retiring",
+            ACTIVE: "Available",
+            RETIRING: "Being discontinued",
             ARCHIVED: "Archived",
           },
           holdModes: {
-            NONE: "No hold",
-            SALES_HOLD: "Sales hold",
-            RECALL: "Recall",
+            NONE: "Sales available",
+            SALES_HOLD: "Sales temporarily paused",
+            RECALL: "Withdrawn from circulation",
           },
           package: "Packaging",
           structure: "Product structure",
@@ -2164,11 +2194,11 @@ export const resources = {
           notSet: "Not set",
         },
         lifecycleManager: {
-          action: "Manage lifecycle",
+          action: "Product & sales status",
           title:
-            "Manage lifecycle — {{name}}",
+            "Product & sales status — {{name}}",
           loadFailed:
-            "Could not load the product's current operational state.",
+            "Could not load the current product and sales status.",
         },
         barcodeManager: {
           action: "Manage barcodes",
@@ -2692,20 +2722,20 @@ export const resources = {
         },
       },
       catalogLifecycle: {
-        title: "Lifecycle and operational hold",
+        title: "Product & sales status",
         summary:
-          "Status: {{lifecycle}} · Hold: {{hold}} · Version: {{version}}",
-        reason: "Reason",
+          "Product status: {{lifecycle}} · Sales status: {{hold}}",
+        reason: "Reason for change",
         reasonPlaceholder:
-          "Provide a clear reason of at least 3 characters",
+          "Enter a short, clear reason",
         preflightPassed:
-          "Archive preflight passed; no blockers remain.",
+          "The product is ready to archive; no blockers remain.",
         deletePreflightPassed:
           "Delete preflight passed: this is an unpublished draft with no business references. Permanent deletion is now available.",
         deleteBlockersTitle:
           "Permanent deletion is unavailable because this draft has references or history that must be preserved:",
         blockersTitle:
-          "Archiving is blocked until these dependencies are resolved:",
+          "The product cannot be archived until these items are resolved:",
         pendingRetry:
           "A previous {{action}} command has an unknown outcome. Retry the same command before sending a different lifecycle action.",
         retryPending:
@@ -2713,38 +2743,68 @@ export const resources = {
         pendingBlocked:
           "The saved pending lifecycle command could not be verified. Lifecycle actions are blocked until it is safely reconciled.",
         actions: {
-          publish: "Publish",
+          publish: "Activate product",
           checkDeleteDraft:
             "Check draft deletion",
           deleteDraft:
             "Permanently delete draft",
-          retire: "Start retirement",
-          restore: "Restore",
-          checkArchive: "Check archive",
-          archive: "Archive",
-          salesHold: "Sales hold",
-          releaseSalesHold: "Release hold",
-          recall: "Recall",
-          closeRecall: "Close recall",
+          retire: "Discontinue product",
+          restore: "Reactivate product",
+          checkArchive: "Check archive readiness",
+          archive: "Archive product",
+          salesHold: "Temporarily pause sales",
+          releaseSalesHold: "Resume sales",
+          recall: "Withdraw product from circulation",
+          closeRecall: "End product withdrawal",
         },
         success: {
-          publish: "Product published.",
+          publish: "Product activated.",
           deleteDraft:
             "Draft product deleted.",
           retire:
-            "Product retirement started.",
+            "Product moved to discontinued status.",
           restore:
-            "Product restored.",
+            "Product reactivated.",
           archive:
             "Product archived.",
           salesHold:
-            "Product sales placed on hold.",
+            "Product sales temporarily paused.",
           releaseSalesHold:
-            "Product sales hold released.",
+            "Product sales resumed.",
           recall:
-            "Product placed under recall.",
+            "Product withdrawn from circulation.",
           closeRecall:
-            "Product recall closed.",
+            "Product withdrawal ended.",
+        },
+        simple: {
+          productStatusTitle: "Product status",
+          productStatusHint:
+            "Control whether the product remains in the operational catalog without deleting its history.",
+          salesStatusTitle: "Sales & circulation",
+          confirm: "Apply change",
+          salesHints: {
+            NONE: "The product is currently available for sale.",
+            SALES_HOLD: "Sales are temporarily paused without archiving the product.",
+            RECALL: "The product is withdrawn from circulation until the issue is safely resolved.",
+          },
+          actionHints: {
+            publish:
+              "Makes the product available for normal operations.",
+            retire:
+              "Removes the product from active use while preserving its full history; it can be reactivated later.",
+            restore:
+              "Returns the product to available status when its data and conditions are valid.",
+            archive:
+              "Moves the product to the archive after automatically checking that no stock or open operations block it.",
+            salesHold:
+              "Temporarily stops sales and loading without archiving the product.",
+            releaseSalesHold:
+              "Allows sales again after a temporary pause.",
+            recall:
+              "Use this when the product must be withdrawn because of a quality, safety, or important operational issue.",
+            closeRecall:
+              "Ends the withdrawal after stock and open operations have been resolved.",
+          },
         },
         assignments: {
           title:
