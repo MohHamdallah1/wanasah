@@ -2,6 +2,10 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import {
+  compactEditableMoney,
+} from "@/pages/products/pricing/usePriceEditState";
+
 const readSource = (relativePath: string): string =>
   readFileSync(
     new URL(relativePath, import.meta.url),
@@ -105,6 +109,22 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
   });
 
   it("keeps raw six-decimal storage out of the ordinary price-edit presentation", () => {
+    expect(
+      compactEditableMoney(
+        "13.500000",
+      ),
+    ).toBe("13.500");
+    expect(
+      compactEditableMoney(
+        "0.270000",
+      ),
+    ).toBe("0.270");
+    expect(
+      compactEditableMoney(
+        "12.345600",
+      ),
+    ).toBe("12.3456");
+
     const state = compact(
       readSource("../pages/products/pricing/usePriceEditState.ts"),
     );
