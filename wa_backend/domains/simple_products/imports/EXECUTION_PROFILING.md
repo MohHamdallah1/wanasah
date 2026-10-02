@@ -308,7 +308,7 @@ The hook contracts are SQLAlchemy's public
 
 ## Source analysis and expected effect
 
-- A successful 100-SKU batch has more than two flushes: idempotency, each newly
+- A successful 200-SKU batch has more than two flushes: idempotency, each newly
   resolved master, grouped DRAFT IDs, grouped ACTIVE evidence, live-stock summary,
   publication ID, draft prices and published state can flush. Query autoflush,
   nested transaction exit, commit and failed split attempts add others.
@@ -327,7 +327,7 @@ constant-size dictionaries, clock reads and O(1) callback work per SQL/creation
 event, plus a fixed-width creation-count checkpoint per savepoint. Flush candidate
 snapshots use public Session collections and can cost O(pending/dirty objects),
 bounded by this transaction, rather than O(source rows).
-Worst-case deterministic splitting of 100 rows has at most 199 attempts and
+Worst-case deterministic splitting of 200 rows has at most 399 attempts and
 still one profile record. Memory does not grow with the source file or retain
 ORM objects. Logging cost and callback overhead require independent acceptance
 measurement. Large imports keep their existing 100-row transaction boundaries,
