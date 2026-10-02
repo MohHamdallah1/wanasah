@@ -764,8 +764,8 @@ async def _family_matches_by_normalized_names(
         .alias("family_name_matches")
     )
     rows = (
-        await db.execute(
-            select(Product, resolver.c.normalized)
+        await db.scalars(
+            select(Product)
             .join(
                 resolver,
                 and_(
@@ -780,7 +780,7 @@ async def _family_matches_by_normalized_names(
             )
         )
     ).all()
-    return [(row, str(normalized)) for row, normalized in rows]
+    return [(row, str(row.name).lower()) for row in rows]
 
 
 async def create_family(
