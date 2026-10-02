@@ -1,8 +1,8 @@
 # Product Import — Final V1 Engineering Acceptance
 
-**Closed:** 2026-10-02  
-**Scope:** Product Import development/engineering acceptance.  
-**Runtime authority:** current source + `ARCHITECTURE.md`.  
+**Closed:** 2026-10-02
+**Scope:** Product Import development/engineering acceptance.
+**Runtime authority:** current source + `ARCHITECTURE.md`.
 **Release-time authority:** `docs/operations/PRODUCT_IMPORT_V1_RELEASE_RUNBOOK_2026-09-30.md`.
 
 ## Final owner Dashboard evidence
