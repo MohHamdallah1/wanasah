@@ -973,6 +973,14 @@ export const resources = {
             SALES_HOLD: "بيع المنتج موقوف مؤقتًا بدون أرشفته.",
             RECALL: "المنتج مسحوب من التداول حتى تتم معالجة الحالة وإنهاؤها بأمان.",
           },
+          salesHoldDifference:
+            "يوقف البيع والتحميل فقط. المنتج يبقى في الكتالوج ويمكن استئناف البيع مباشرة من هذه الشاشة.",
+          recallDifference:
+            "حالة أقوى لمشكلة جودة أو سلامة أو قرار تشغيلي مهم. تمنع التداول، ولا يمكن إنهاؤها حتى تتم معالجة مخزون المنتج والحوالات والحمولات والعهد وطلبات النقص المفتوحة.",
+          recallCompletionTitle:
+            "لا يمكن إنهاء سحب المنتج بعد",
+          recallCompletionHint:
+            "عالج البنود التالية أولاً، ثم أعد تنفيذ «إنهاء سحب المنتج». الرقم يوضح عدد السجلات أو العمليات التي ما زالت مفتوحة.",
           actionHints: {
             publish:
               "يجعل المنتج متاحًا للاستخدام التشغيلي.",
@@ -1634,10 +1642,10 @@ export const resources = {
           PRODUCT_ARCHIVE_TRANSITION_INVALID: "لا يمكن أرشفة المنتج من حالته الحالية.",
           PRODUCT_ARCHIVE_BLOCKED: "لا يمكن أرشفة المنتج قبل معالجة الموانع الحالية.",
           PRODUCT_HOLD_OPEN: "يوجد إيقاف تشغيلي مفتوح يجب معالجته أولاً.",
-          PRODUCT_RECALL_OPEN: "يوجد استدعاء منتج مفتوح يجب معالجته أولاً.",
-          PRODUCT_RECALL_COMPLETION_REQUIRED: "يجب إكمال متطلبات الاستدعاء قبل متابعة العملية.",
-          PRODUCT_RECALL_TRANSITION_INVALID: "لا يمكن إصدار استدعاء للمنتج من حالته الحالية.",
-          PRODUCT_RECALL_CLOSE_INVALID: "لا يوجد استدعاء مفتوح يمكن إغلاقه.",
+          PRODUCT_RECALL_OPEN: "المنتج مسحوب من التداول حالياً. أنهِ حالة السحب أولاً.",
+          PRODUCT_RECALL_COMPLETION_REQUIRED: "لا يمكن إنهاء سحب المنتج قبل معالجة المخزون والعمليات المفتوحة الموضحة.",
+          PRODUCT_RECALL_TRANSITION_INVALID: "لا يمكن سحب المنتج من التداول من حالته الحالية.",
+          PRODUCT_RECALL_CLOSE_INVALID: "لا توجد حالة سحب مفتوحة يمكن إنهاؤها.",
           PRODUCT_SALES_HOLD_TRANSITION_INVALID: "لا يمكن إيقاف بيع المنتج من حالته الحالية.",
           PRODUCT_SALES_HOLD_RELEASE_INVALID: "لا يوجد إيقاف بيع يمكن تحريره.",
           PRODUCT_DRAFT_DELETE_BLOCKED: "لا يمكن حذف المسودة قبل معالجة الارتباطات أو الموانع الحالية.",
@@ -2787,6 +2795,14 @@ export const resources = {
             SALES_HOLD: "Sales are temporarily paused without archiving the product.",
             RECALL: "The product is withdrawn from circulation until the issue is safely resolved.",
           },
+          salesHoldDifference:
+            "Stops sales and loading only. The product stays in the catalog and sales can be resumed directly from this screen.",
+          recallDifference:
+            "A stronger state for quality, safety, or a major operational issue. It blocks circulation and cannot be ended while product stock, transfers, route loads, custody, or shortage requests remain open.",
+          recallCompletionTitle:
+            "Product withdrawal cannot be ended yet",
+          recallCompletionHint:
+            "Resolve the items below first, then run “End product withdrawal” again. The number shows how many records or operations are still open.",
           actionHints: {
             publish:
               "Makes the product available for normal operations.",
@@ -3448,10 +3464,10 @@ export const resources = {
           PRODUCT_ARCHIVE_TRANSITION_INVALID: "The product cannot be archived from its current state.",
           PRODUCT_ARCHIVE_BLOCKED: "The product cannot be archived until the current blockers are resolved.",
           PRODUCT_HOLD_OPEN: "An operational hold is still open and must be resolved first.",
-          PRODUCT_RECALL_OPEN: "A product recall is still open and must be resolved first.",
-          PRODUCT_RECALL_COMPLETION_REQUIRED: "Recall requirements must be completed before continuing.",
-          PRODUCT_RECALL_TRANSITION_INVALID: "A recall cannot be issued from the product's current state.",
-          PRODUCT_RECALL_CLOSE_INVALID: "There is no open recall to close.",
+          PRODUCT_RECALL_OPEN: "The product is currently withdrawn from circulation. End the withdrawal first.",
+          PRODUCT_RECALL_COMPLETION_REQUIRED: "The product withdrawal cannot end until the listed stock and open operations are resolved.",
+          PRODUCT_RECALL_TRANSITION_INVALID: "The product cannot be withdrawn from circulation from its current state.",
+          PRODUCT_RECALL_CLOSE_INVALID: "There is no active product withdrawal to end.",
           PRODUCT_SALES_HOLD_TRANSITION_INVALID: "Sales cannot be put on hold from the product's current state.",
           PRODUCT_SALES_HOLD_RELEASE_INVALID: "There is no sales hold to release.",
           PRODUCT_DRAFT_DELETE_BLOCKED: "The draft cannot be deleted until its current links or blockers are resolved.",
