@@ -29,6 +29,8 @@ import {
   readDurableCommand,
   type DurableCommand,
 } from "@/lib/durableOperations";
+import { CatalogLifecycleSimplePanel } from "@/pages/inventory/catalog/CatalogLifecycleSimplePanel";
+
 import {
   parseArchivePreflight,
   parseDraftDeletePreflight,
@@ -86,6 +88,7 @@ type Props = {
   onVariantDeleted?: (
     variantId: number,
   ) => void | Promise<void>;
+  simpleMode?: boolean;
 };
 
 const COMMANDS: LifecycleCommandName[] = [
@@ -153,6 +156,7 @@ export function CatalogLifecycleActions({
   variant,
   onVariantChanged,
   onVariantDeleted,
+  simpleMode = false,
 }: Props) {
   const { t } = useTranslation();
   const authFetch = useAuthFetch();
@@ -187,6 +191,13 @@ export function CatalogLifecycleActions({
     pendingBlocked,
     setPendingBlocked,
   ] = useState(false);
+  const [
+    selectedCommand,
+    setSelectedCommand,
+  ] =
+    useState<LifecycleCommandName | null>(
+      null,
+    );
 
   const companyId =
     access.data?.company_id ??
@@ -214,6 +225,8 @@ export function CatalogLifecycleActions({
   useEffect(() => {
     setPreflight(null);
     setDeletePreflight(null);
+    setSelectedCommand(null);
+    setReason("");
   }, [
     variant.id,
     variant.version,
@@ -497,6 +510,7 @@ export function CatalogLifecycleActions({
       );
       setPending(null);
       setPendingBlocked(false);
+      setSelectedCommand(null);
       setReason("");
       setPreflight(null);
       setDeletePreflight(null);
@@ -611,12 +625,12 @@ export function CatalogLifecycleActions({
     };
 
   const checkArchive =
-    async () => {
+    async (): Promise<ArchivePreflight | null> => {
       if (
         busy ||
         !isOnline
       ) {
-        return;
+        return null;
       }
       setBusy(true);
       try {
@@ -638,7 +652,8 @@ export function CatalogLifecycleActions({
         }
         setPreflight(result);
         if (
-          result.can_archive
+          result.can_archive &&
+          !simpleMode
         ) {
           toast.success(
             t(
@@ -646,6 +661,7 @@ export function CatalogLifecycleActions({
             ),
           );
         }
+        return result;
       } catch (error) {
         setPreflight(null);
         toast.error(
@@ -656,6 +672,7 @@ export function CatalogLifecycleActions({
             ),
           ),
         );
+        return null;
       } finally {
         setBusy(false);
       }
@@ -669,6 +686,111 @@ export function CatalogLifecycleActions({
     pending !== null ||
     pendingBlocked ||
     scope === null;
+
+  const chooseSimpleCommand =
+    async (
+      command: LifecycleCommandName,
+    ) => {
+      if (actionsDisabled) {
+        return;
+      }
+
+      if (command === "archive") {
+        const result =
+          await checkArchive();
+        if (!result?.can_archive) {
+          return;
+        }
+      }
+
+      setReason("");
+      setSelectedCommand(command);
+    };
+
+  if (simpleMode) {
+    const simpleSelectedCommand =
+      selectedCommand === "delete-draft"
+        ? null
+        : selectedCommand;
+    const simpleSelectedActionKey =
+      simpleSelectedCommand
+        ? lifecycleActionKey(
+            simpleSelectedCommand,
+          )
+        : null;
+
+    return (
+      <CatalogLifecycleSimplePanel
+        variant={variant}
+        actionsDisabled={actionsDisabled}
+        busy={busy}
+        isOnline={isOnline}
+        pendingBlocked={pendingBlocked}
+        canPublish={can(
+          "catalog.publish",
+        )}
+        canRetire={can(
+          "catalog.retire",
+        )}
+        canRestore={can(
+          "catalog.restore",
+        )}
+        canArchive={can(
+          "catalog.archive",
+        )}
+        canHold={can(
+          "catalog.hold",
+        )}
+        selectedCommand={
+          simpleSelectedCommand
+        }
+        selectedActionKey={
+          simpleSelectedActionKey
+        }
+        reason={reason}
+        pendingActionKey={
+          pending
+            ? lifecycleActionKey(
+                pending.payload.command,
+              )
+            : null
+        }
+        preflight={preflight}
+        onChooseCommand={(
+          command,
+        ) => {
+          void chooseSimpleCommand(
+            command,
+          );
+        }}
+        onReasonChange={setReason}
+        onConfirm={() => {
+          if (
+            !simpleSelectedCommand
+          ) {
+            return;
+          }
+          void runCommand(
+            simpleSelectedCommand,
+            simpleSelectedCommand ===
+              "close-recall"
+              ? {
+                  target_hold:
+                    "NONE",
+                }
+              : {},
+          );
+        }}
+        onCancel={() => {
+          setSelectedCommand(null);
+          setReason("");
+        }}
+        onRetryPending={() =>
+          void runCommand(null)
+        }
+      />
+    );
+  }
 
   return (
     <section className="rounded-xl border border-slate-200 p-4">

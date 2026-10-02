@@ -73,6 +73,23 @@ export function useDialogFocusTrap<
         return;
       }
 
+      const modalBody =
+        container.querySelector<HTMLElement>(
+          ".app-modal-body",
+        );
+      if (modalBody) {
+        const firstInBody =
+          focusableWithin(
+            modalBody,
+          )[0];
+        if (firstInBody) {
+          firstInBody.focus();
+          return;
+        }
+        modalBody.focus();
+        return;
+      }
+
       const first =
         focusableWithin(container)[0] ??
         container;

@@ -45,7 +45,7 @@ export function ProductLifecycleStatusRail({
   const { t } = useTranslation();
 
   return (
-    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+    <div className="grid gap-2 sm:grid-cols-2">
       <div className="flex min-w-0 items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-slate-500 ring-1 ring-slate-200">
           <Activity className="h-4 w-4" />
@@ -90,9 +90,6 @@ export function ProductLifecycleStatusRail({
         </div>
       </div>
 
-      <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px] font-black tabular-nums text-slate-400">
-        v{variant.version}
-      </div>
     </div>
   );
 }
