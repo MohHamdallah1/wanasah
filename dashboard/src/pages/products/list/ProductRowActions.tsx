@@ -3,10 +3,13 @@ import {
   useState,
 } from "react";
 import {
+  ArchiveRestore,
+  Barcode,
   CircleDollarSign,
   Eye,
   FolderTree,
   MoreHorizontal,
+  Pencil,
   Waypoints,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -15,6 +18,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type {
@@ -24,9 +28,15 @@ import type {
 type Props = {
   item: SimpleProduct;
   canEditPrice: boolean;
+  canRenameProduct: boolean;
   canReassignFamily: boolean;
   canEditTracking: boolean;
+  canManageBarcodes: boolean;
+  canManageLifecycle: boolean;
   onOpenDetails: (
+    item: SimpleProduct,
+  ) => void;
+  onRenameProduct: (
     item: SimpleProduct,
   ) => void;
   onEditPrice: (
@@ -38,24 +48,35 @@ type Props = {
   onEditTracking: (
     item: SimpleProduct,
   ) => void;
+  onManageBarcodes: (
+    item: SimpleProduct,
+  ) => void;
+  onManageLifecycle: (
+    item: SimpleProduct,
+  ) => void;
 };
 
 export function ProductRowActions({
   item,
   canEditPrice,
+  canRenameProduct,
   canReassignFamily,
   canEditTracking,
+  canManageBarcodes,
+  canManageLifecycle,
   onOpenDetails,
+  onRenameProduct,
   onEditPrice,
   onReassignFamily,
   onEditTracking,
+  onManageBarcodes,
+  onManageLifecycle,
 }: Props) {
   const { t, i18n } =
     useTranslation();
   const direction =
     i18n.dir();
-  const familyReassignAllowed =
-    canReassignFamily &&
+  const lifecycleEditable =
     ["ACTIVE", "RETIRING"].includes(
       item.lifecycle_status,
     );
@@ -65,7 +86,7 @@ export function ProductRowActions({
   ] = useState(false);
   const pendingActionRef =
     useRef<(() => void) | null>(
-      null
+      null,
     );
 
   const queueAfterMenuClose = (
@@ -75,17 +96,18 @@ export function ProductRowActions({
       action;
   };
 
-  const handleCloseAutoFocus = () => {
-    const action =
-      pendingActionRef.current;
-    if (!action) {
-      return;
-    }
+  const handleCloseAutoFocus =
+    () => {
+      const action =
+        pendingActionRef.current;
+      if (!action) {
+        return;
+      }
 
-    pendingActionRef.current =
-      null;
-    queueMicrotask(action);
-  };
+      pendingActionRef.current =
+        null;
+      queueMicrotask(action);
+    };
 
   return (
     <DropdownMenu
@@ -103,24 +125,30 @@ export function ProductRowActions({
         <button
           type="button"
           aria-label={t(
-            "products.columns.action",
+            "products.details.actions",
           )}
           title={t(
-            "products.columns.action",
+            "products.details.actions",
           )}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-slate-400 transition hover:border-slate-200 hover:bg-white hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+          className="inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-black text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
         >
-          <MoreHorizontal className="h-4 w-4" />
+          <MoreHorizontal className="h-3.5 w-3.5 shrink-0" />
+          <span>
+            {t(
+              "products.details.actions",
+            )}
+          </span>
         </button>
       </DropdownMenuTrigger>
 
       <DropdownMenuContent
+        dir={direction}
         align="end"
         loop
         onCloseAutoFocus={
           handleCloseAutoFocus
         }
-        className="w-52 rounded-xl border-slate-200 p-1.5 text-start shadow-xl"
+        className="w-64 rounded-xl border-slate-200 p-1.5 text-start shadow-xl"
       >
         <DropdownMenuItem
           onSelect={() =>
@@ -131,37 +159,47 @@ export function ProductRowActions({
           }
           className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
         >
-          <Eye className="h-4 w-4 text-slate-400" />
+          <Eye className="h-4 w-4 shrink-0 text-slate-400" />
           {t(
             "products.details.open",
           )}
         </DropdownMenuItem>
 
-        {canEditPrice &&
-        item.simple_compatible ? (
+        {(canRenameProduct &&
+          lifecycleEditable) ||
+        (canReassignFamily &&
+          lifecycleEditable) ? (
+          <DropdownMenuSeparator />
+        ) : null}
+
+        {canRenameProduct &&
+        lifecycleEditable ? (
           <DropdownMenuItem
             onSelect={() =>
               queueAfterMenuClose(
                 () =>
-                  onEditPrice(item),
+                  onRenameProduct(
+                    item,
+                  ),
               )
             }
             className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
           >
-            <CircleDollarSign className="h-4 w-4 text-slate-400" />
+            <Pencil className="h-4 w-4 shrink-0 text-slate-400" />
             {t(
-              "products.editPrice",
+              "products.rename.action",
             )}
           </DropdownMenuItem>
         ) : null}
 
-        {familyReassignAllowed ? (
+        {canReassignFamily &&
+        lifecycleEditable ? (
           <DropdownMenuItem
             onSelect={() =>
               queueAfterMenuClose(
                 () =>
                   onReassignFamily(
-                    item
+                    item,
                   ),
               )
             }
@@ -174,19 +212,85 @@ export function ProductRowActions({
           </DropdownMenuItem>
         ) : null}
 
+        {(canEditPrice &&
+          item.simple_compatible) ||
+        canEditTracking ||
+        canManageBarcodes ||
+        canManageLifecycle ? (
+          <DropdownMenuSeparator />
+        ) : null}
+
+        {canEditPrice &&
+        item.simple_compatible ? (
+          <DropdownMenuItem
+            onSelect={() =>
+              queueAfterMenuClose(
+                () =>
+                  onEditPrice(item),
+              )
+            }
+            className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
+          >
+            <CircleDollarSign className="h-4 w-4 shrink-0 text-slate-400" />
+            {t(
+              "products.editPrice",
+            )}
+          </DropdownMenuItem>
+        ) : null}
+
         {canEditTracking ? (
           <DropdownMenuItem
             onSelect={() =>
               queueAfterMenuClose(
                 () =>
-                  onEditTracking(item),
+                  onEditTracking(
+                    item,
+                  ),
               )
             }
             className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
           >
-            <Waypoints className="h-4 w-4 text-slate-400" />
+            <Waypoints className="h-4 w-4 shrink-0 text-slate-400" />
             {t(
               "products.trackingEditor.action",
+            )}
+          </DropdownMenuItem>
+        ) : null}
+
+        {canManageBarcodes ? (
+          <DropdownMenuItem
+            onSelect={() =>
+              queueAfterMenuClose(
+                () =>
+                  onManageBarcodes(
+                    item,
+                  ),
+              )
+            }
+            className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
+          >
+            <Barcode className="h-4 w-4 shrink-0 text-slate-400" />
+            {t(
+              "products.barcodeManager.action",
+            )}
+          </DropdownMenuItem>
+        ) : null}
+
+        {canManageLifecycle ? (
+          <DropdownMenuItem
+            onSelect={() =>
+              queueAfterMenuClose(
+                () =>
+                  onManageLifecycle(
+                    item,
+                  ),
+              )
+            }
+            className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
+          >
+            <ArchiveRestore className="h-4 w-4 shrink-0 text-slate-400" />
+            {t(
+              "products.lifecycleManager.action",
             )}
           </DropdownMenuItem>
         ) : null}
