@@ -1,7 +1,5 @@
 import {
-  BadgeDollarSign,
   Boxes,
-  Fingerprint,
   PackageCheck,
   ScanBarcode,
   ShieldCheck,
@@ -14,7 +12,6 @@ import {
 } from "@/lib/locale";
 import {
   formatLocaleDecimal,
-  formatLocaleMoney,
 } from "@/lib/localeNumbers";
 import type {
   SimpleProduct,
@@ -31,28 +28,25 @@ type Props = {
   product: SimpleProduct;
   activeTab: ProductDetailTabKey;
   expanded: boolean;
+  showPackage: boolean;
   showCompatibility: boolean;
+  showTracking: boolean;
+  showBarcodes: boolean;
 };
 
 export function ProductDetailTabPanel({
   product,
   activeTab,
   expanded,
+  showPackage,
   showCompatibility,
+  showTracking,
+  showBarcodes,
 }: Props) {
   const { t, i18n } =
     useTranslation();
   const locale =
     resolveI18nLocale(i18n);
-
-  const price = (
-    value: string | null,
-  ) =>
-    formatLocaleMoney(
-      value,
-      product.currency_code,
-      locale,
-    );
 
   const baseUomLabel =
     product.base_uom_code
@@ -97,6 +91,21 @@ export function ProductDetailTabPanel({
           },
         );
 
+  const packageBarcodeRelation =
+    !product.package_uom_code
+      ? null
+      : product.package_uses_base_barcode
+        ? t(
+            "products.details.packageBarcodeShared",
+          )
+        : product.package_barcode
+          ? t(
+              "products.details.packageBarcodeSeparate",
+            )
+          : t(
+              "products.details.packageBarcodeMissing",
+            );
+
   return (
     <div
       id={`product-detail-panel-${activeTab}`}
@@ -110,57 +119,47 @@ export function ProductDetailTabPanel({
         <div
           className={
             expanded &&
+            showPackage &&
             showCompatibility
               ? "grid gap-3 sm:grid-cols-2"
               : "space-y-3"
           }
         >
-          <ProductDetailSection
-            icon={Fingerprint}
-            title={t(
-              "products.details.identity",
-            )}
-          >
-            <dl
-              className={
-                expanded
-                  ? "grid gap-x-4 gap-y-2.5 sm:grid-cols-3"
-                  : "grid gap-x-4 gap-y-2.5 sm:grid-cols-2"
-              }
+          {showPackage ? (
+            <ProductDetailSection
+              icon={PackageCheck}
+              title={t(
+                "products.details.structure",
+              )}
             >
-              <ProductDetailField
-                label={t(
-                  "products.fields.sku",
-                )}
-                mono
-                hint={t(
-                  "products.details.skuLockedPublished",
-                )}
-              >
-                {product.sku}
-              </ProductDetailField>
+              <dl className="grid gap-x-4 gap-y-2.5 sm:grid-cols-2">
+                <ProductDetailField
+                  label={t(
+                    "products.details.baseUnit",
+                  )}
+                >
+                  {baseUomLabel}
+                </ProductDetailField>
+              </dl>
 
-              <ProductDetailField
-                label={t(
-                  "products.details.lifecycle",
-                )}
-              >
-                {t(
-                  `products.details.lifecycleModes.${product.lifecycle_status}`,
-                )}
-              </ProductDetailField>
-
-              <ProductDetailField
-                label={t(
-                  "products.details.operationalHold",
-                )}
-              >
-                {t(
-                  `products.details.holdModes.${product.operational_hold}`,
-                )}
-              </ProductDetailField>
-            </dl>
-          </ProductDetailSection>
+              <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50/70 px-2.5 py-2 ring-1 ring-inset ring-amber-100">
+                <Boxes
+                  aria-hidden="true"
+                  className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-700"
+                />
+                <div className="min-w-0">
+                  <p className="text-[11px] font-black leading-5 text-slate-800">
+                    {packageConversion}
+                  </p>
+                  <p className="mt-0.5 text-[9px] font-semibold leading-4 text-slate-500">
+                    {t(
+                      "products.details.packageStructureLockedPublished",
+                    )}
+                  </p>
+                </div>
+              </div>
+            </ProductDetailSection>
+          ) : null}
 
           {showCompatibility ? (
             <ProductDetailSection
@@ -182,149 +181,92 @@ export function ProductDetailTabPanel({
       ) : null}
 
       {activeTab ===
-      "package" ? (
-        <ProductDetailSection
-          icon={PackageCheck}
-          title={t(
-            "products.details.package",
-          )}
-        >
-          <dl className="grid gap-x-4 gap-y-2.5 sm:grid-cols-2">
-            <ProductDetailField
-              label={t(
-                "products.details.baseUnit",
-              )}
-            >
-              {baseUomLabel}
-            </ProductDetailField>
-
-            <ProductDetailField
-              label={t(
-                "products.columns.package",
-              )}
-            >
-              {packageUomLabel ??
-                t("uom.NONE")}
-            </ProductDetailField>
-          </dl>
-
-          <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50/70 px-2.5 py-2 ring-1 ring-inset ring-amber-100">
-            <Boxes
-              aria-hidden="true"
-              className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-700"
-            />
-            <div className="min-w-0">
-              <p className="text-[11px] font-black leading-5 text-slate-800">
-                {packageConversion}
-              </p>
-              <p className="mt-0.5 text-[9px] font-semibold leading-4 text-slate-500">
-                {t(
-                  "products.details.packageStructureLockedPublished",
-                )}
-              </p>
-            </div>
-          </div>
-        </ProductDetailSection>
-      ) : null}
-
-      {activeTab ===
       "tracking" ? (
-        <ProductDetailSection
-          icon={Waypoints}
-          title={t(
-            "products.details.tracking",
-          )}
+        <div
+          className={
+            expanded &&
+            showTracking &&
+            showBarcodes
+              ? "grid gap-3 sm:grid-cols-2"
+              : "space-y-3"
+          }
         >
-          <dl className="grid gap-x-4 gap-y-2.5 sm:grid-cols-2">
-            <ProductDetailField
-              label={t(
-                "products.tracking.shortLot",
+          {showTracking ? (
+            <ProductDetailSection
+              icon={Waypoints}
+              title={t(
+                "products.details.tracking",
               )}
             >
-              {t(
-                `products.tracking.lotModes.${product.lot_control_mode}`,
-              )}
-            </ProductDetailField>
+              <dl className="grid gap-x-4 gap-y-2.5 sm:grid-cols-2">
+                <ProductDetailField
+                  label={t(
+                    "products.tracking.shortLot",
+                  )}
+                >
+                  {t(
+                    `products.tracking.lotModes.${product.lot_control_mode}`,
+                  )}
+                </ProductDetailField>
 
-            <ProductDetailField
-              label={t(
-                "products.tracking.shortExpiry",
-              )}
-            >
-              {t(
-                `products.tracking.expiryModes.${product.expiry_control_mode}`,
-              )}
-            </ProductDetailField>
-          </dl>
-        </ProductDetailSection>
-      ) : null}
+                <ProductDetailField
+                  label={t(
+                    "products.tracking.shortExpiry",
+                  )}
+                >
+                  {t(
+                    `products.tracking.expiryModes.${product.expiry_control_mode}`,
+                  )}
+                </ProductDetailField>
+              </dl>
+            </ProductDetailSection>
+          ) : null}
 
-      {activeTab ===
-      "barcodes" ? (
-        <ProductDetailSection
-          icon={ScanBarcode}
-          title={t(
-            "products.details.barcodes",
-          )}
-        >
-          <dl className="grid gap-x-4 gap-y-2.5 sm:grid-cols-2">
-            <ProductDetailField
-              label={t(
-                "products.unitBarcode",
+          {showBarcodes ? (
+            <ProductDetailSection
+              icon={ScanBarcode}
+              title={t(
+                "products.details.barcodes",
               )}
-              mono
             >
-              {product.unit_barcode ??
-                t(
-                  "products.details.notSet",
-                )}
-            </ProductDetailField>
+              <dl className="grid gap-x-4 gap-y-2.5 sm:grid-cols-2">
+                <ProductDetailField
+                  label={t(
+                    "products.unitBarcode",
+                  )}
+                  mono
+                >
+                  {product.unit_barcode ??
+                    t(
+                      "products.details.notSet",
+                    )}
+                </ProductDetailField>
 
-            <ProductDetailField
-              label={t(
-                "products.packageBarcode",
-              )}
-              mono
-            >
-              {product.package_barcode ??
-                t(
-                  "products.details.notSet",
-                )}
-            </ProductDetailField>
-          </dl>
-        </ProductDetailSection>
-      ) : null}
+                <ProductDetailField
+                  label={t(
+                    "products.packageBarcode",
+                  )}
+                  mono
+                >
+                  {product.package_barcode ??
+                    t(
+                      "products.details.notSet",
+                    )}
+                </ProductDetailField>
 
-      {activeTab ===
-      "pricing" ? (
-        <ProductDetailSection
-          icon={BadgeDollarSign}
-          title={t(
-            "products.details.pricing",
-          )}
-        >
-          <dl className="grid gap-x-4 gap-y-2.5 sm:grid-cols-2">
-            <ProductDetailField
-              label={t(
-                "products.columns.packagePrice",
-              )}
-            >
-              {price(
-                product.package_price,
-              )}
-            </ProductDetailField>
-
-            <ProductDetailField
-              label={t(
-                "products.columns.unitPrice",
-              )}
-            >
-              {price(
-                product.unit_price,
-              )}
-            </ProductDetailField>
-          </dl>
-        </ProductDetailSection>
+                {packageBarcodeRelation ? (
+                  <ProductDetailField
+                    label={t(
+                      "products.details.packageBarcodeRelation",
+                    )}
+                  >
+                    {packageBarcodeRelation}
+                  </ProductDetailField>
+                ) : null}
+              </dl>
+            </ProductDetailSection>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );
