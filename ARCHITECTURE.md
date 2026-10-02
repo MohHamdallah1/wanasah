@@ -692,7 +692,7 @@ hierarchies or mixed-product assembly configuration.
   lifecycle, permissions, mutation idempotency, tenant/RLS and release
   gates. Never add a UI business rule that contradicts backend authority.
 - **V1 release and error-correction gates:** see
-  `PRODUCT_IMPORT_PRODUCTION_HARDENING_PLAN.md` Phase 19.
+  `docs/operations/PRODUCT_IMPORT_FINAL_ACCEPTANCE_2026-10-02.md`.
 - **V2 and beyond backlog and scope separation:** see
   `VERSION_2_FUTURE_FEATURES.md` sections 6–7.
 
