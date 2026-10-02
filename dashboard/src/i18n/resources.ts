@@ -41,6 +41,8 @@ export const resources = {
         administrator: "المدير",
         pageInDevelopment: "صفحة «{{page}}» قيد التطوير",
         openNavigation: "فتح قائمة التنقل",
+        collapseNavigation: "تصغير القائمة الجانبية",
+        expandNavigation: "توسيع القائمة الجانبية",
       },
       access: {
         loading: "جاري تحميل صلاحيات الحساب...",
@@ -1775,6 +1777,8 @@ export const resources = {
         pageInDevelopment:
           "\"{{page}}\" is still in development",
         openNavigation: "Open navigation",
+        collapseNavigation: "Collapse sidebar",
+        expandNavigation: "Expand sidebar",
       },
       access: {
         loading: "Loading account permissions...",
