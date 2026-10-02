@@ -16,24 +16,169 @@ const read = (relativePath: string) =>
     "utf8",
   );
 
-describe("Products P9.4 Barcode workspace", () => {
-  it("keeps race, scope, atomic replacement, and advanced durable authority in the manager", () => {
+describe("Products barcode workspace", () => {
+  it("keeps the everyday flow current-first and hides technical barcode metadata", () => {
     const manager = read(
       "../pages/products/barcode/ProductBarcodeManager.tsx",
     );
-    const advanced = read(
-      "../pages/products/barcode/ProductBarcodeAdvancedPanel.tsx",
+    const simple = read(
+      "../pages/products/barcode/ProductBarcodeSimplePanel.tsx",
+    );
+
+    expect(manager).toContain(
+      "<ProductBarcodeSimplePanel",
+    );
+    expect(manager).toContain(
+      "<ProductBarcodeHistoryPanel",
+    );
+    expect(manager).toContain(
+      '"products.barcodeManager.history"',
+    );
+    expect(manager).not.toContain(
+      "<ProductBarcodeAdvancedPanel",
+    );
+    expect(manager).not.toContain(
+      "<ProductBarcodeCreatePanel",
+    );
+
+    expect(simple).toContain(
+      '"products.barcodeManager.unitBarcode"',
+    );
+    expect(simple).toContain(
+      '"products.barcodeManager.packageBarcode"',
+    );
+    expect(simple).toContain(
+      '"products.barcodeManager.change"',
+    );
+    expect(simple).toContain(
+      '"products.barcodeManager.set"',
+    );
+    expect(simple).not.toContain(
+      "barcodeType",
+    );
+    expect(simple).not.toContain(
+      "isPrimary",
+    );
+    expect(simple).not.toContain(
+      "barcode_type",
+    );
+    expect(simple).not.toContain(
+      "restorePrevious",
+    );
+  });
+
+  it("lets a shared package become independent through one atomic workflow", () => {
+    const simple = read(
+      "../pages/products/barcode/ProductBarcodeSimplePanel.tsx",
+    );
+    const hook = read(
+      "../pages/products/barcode/useIndependentPackageBarcode.ts",
+    );
+    const api = read(
+      "../../../wa_backend/api/catalog.py",
+    );
+    const domain = read(
+      "../../../wa_backend/domains/barcode_identity.py",
+    );
+
+    expect(simple).toContain(
+      '"products.barcodeManager.makePackageIndependent"',
+    );
+    expect(simple).toContain(
+      "onAssignIndependentPackage",
+    );
+    expect(hook).toContain(
+      '"catalog-package-barcode-independent-v1"',
+    );
+    expect(hook).toContain(
+      '"/barcodes/package-independent"',
+    );
+    expect(hook).toContain(
+      "expected_variant_version:",
+    );
+
+    expect(api).toContain(
+      'operation="CATALOG_PACKAGE_BARCODE_INDEPENDENT"',
+    );
+    expect(api).toContain(
+      "assign_independent_package_barcode(",
+    );
+    expect(domain).toContain(
+      "variant.package_uses_base_barcode = False",
+    );
+    expect(domain).toContain(
+      "replace_primary_barcode(",
+    );
+  });
+
+  it("moves removal and reuse into explicit barcode history", () => {
+    const history = read(
+      "../pages/products/barcode/ProductBarcodeHistoryPanel.tsx",
+    );
+    const manager = read(
+      "../pages/products/barcode/ProductBarcodeManager.tsx",
+    );
+
+    expect(history).toContain(
+      '"products.barcodeManager.historyDescription"',
+    );
+    expect(history).toContain(
+      '"products.barcodeManager.useAgain"',
+    );
+    expect(history).toContain(
+      '"products.barcodeManager.removeFromProduct"',
+    );
+    expect(history).toContain(
+      '"products.barcodeManager.removeConfirm"',
+    );
+    expect(history).toContain(
+      "item.valid_from",
+    );
+    expect(history).toContain(
+      "item.valid_to",
+    );
+    expect(history).not.toContain(
+      "barcode_type",
+    );
+    expect(history).not.toContain(
+      "is_primary",
+    );
+
+    expect(manager).toContain(
+      '"catalog-barcode-update"',
+    );
+    expect(manager).toContain(
+      '"products.barcodeManager.removed"',
+    );
+  });
+
+  it("keeps keyboard-first barcode editing", () => {
+    const simple = read(
+      "../pages/products/barcode/ProductBarcodeSimplePanel.tsx",
+    );
+
+    expect(simple).toContain(
+      'event.key ===',
+    );
+    expect(simple).toContain(
+      '"Enter"',
+    );
+    expect(simple).toContain(
+      '"Escape"',
+    );
+    expect(simple).toContain(
+      "autoFocus",
+    );
+  });
+
+  it("keeps barcode loading race-safe and tenant-scoped", () => {
+    const manager = read(
+      "../pages/products/barcode/ProductBarcodeManager.tsx",
     );
     const replacement = read(
       "../pages/products/barcode/usePrimaryBarcodeReplacement.ts",
     );
 
-    expect(manager).toContain(
-      "<ProductBarcodeList",
-    );
-    expect(advanced).toContain(
-      "<ProductBarcodeCreatePanel",
-    );
     expect(manager).toContain(
       "requestSequence.current",
     );
@@ -43,147 +188,11 @@ describe("Products P9.4 Barcode workspace", () => {
     expect(manager).toContain(
       "PRODUCT_BARCODES_CURSOR_DUPLICATE",
     );
-    expect(manager).toContain(
-      '"catalog-barcode-create-v2"',
-    );
-    expect(manager).toContain(
-      '"catalog-barcode-update"',
-    );
     expect(replacement).toContain(
       '"catalog-barcode-replace-primary-v1"',
     );
     expect(replacement).toContain(
       '"/barcodes/replace-primary"',
-    );
-    expect(manager).toContain(
-      "getOrCreateDurableCommand(",
-    );
-    expect(manager).toContain(
-      "expected_version:",
-    );
-  });
-
-  it("keeps the ordinary barcode workflow to unit/package cards with one-step replacement", () => {
-    const panel = read(
-      "../pages/products/barcode/ProductBarcodeSimplePanel.tsx",
-    );
-    const manager = read(
-      "../pages/products/barcode/ProductBarcodeManager.tsx",
-    );
-    const advanced = read(
-      "../pages/products/barcode/ProductBarcodeAdvancedPanel.tsx",
-    );
-
-    expect(panel).toContain(
-      '"products.barcodeManager.unitBarcode"',
-    );
-    expect(panel).toContain(
-      '"products.barcodeManager.packageBarcode"',
-    );
-    expect(panel).toContain(
-      '"products.barcodeManager.replaceHint"',
-    );
-    expect(panel).toContain(
-      '"products.barcodeManager.restorePrevious"',
-    );
-    expect(panel).not.toContain(
-      "barcodeType",
-    );
-    expect(panel).not.toContain(
-      "isPrimary",
-    );
-    expect(panel).not.toContain(
-      "onDeactivate",
-    );
-    expect(manager).toContain(
-      "<ProductBarcodeSimplePanel",
-    );
-    expect(manager).toContain(
-      "<ProductBarcodeAdvancedPanel",
-    );
-    expect(advanced).toContain(
-      "open ? (",
-    );
-  });
-
-  it("renders barcode history as a compact status-rich list with local loading/error/empty pagination", () => {
-    const list = read(
-      "../pages/products/barcode/ProductBarcodeList.tsx",
-    );
-
-    expect(list).toContain(
-      '"products.barcodeManager.loadFailed"',
-    );
-    expect(list).toContain(
-      '"products.barcodeManager.none"',
-    );
-    expect(list).toContain(
-      '"products.barcodeManager.primary"',
-    );
-    expect(list).toContain(
-      '"products.barcodeManager.inactive"',
-    );
-    expect(list).toContain(
-      '"products.barcodeManager.loadMore"',
-    );
-    expect(list).toContain(
-      "onDeactivate(item)",
-    );
-    expect(list).toContain(
-      "break-all font-mono",
-    );
-  });
-
-  it("keeps barcode creation compact while preserving target type primary and shared-package semantics", () => {
-    const create = read(
-      "../pages/products/barcode/ProductBarcodeCreatePanel.tsx",
-    );
-
-    expect(create).toContain(
-      '"products.barcodeManager.scope"',
-    );
-    expect(create).toContain(
-      '"products.barcodeManager.type"',
-    );
-    expect(create).toContain(
-      '"products.barcodeManager.value"',
-    );
-    expect(create).toContain(
-      '"products.barcodeManager.makePrimary"',
-    );
-    expect(create).toContain(
-      '"products.barcodeManager.sharedPackageHint"',
-    );
-    expect(create).toContain(
-      "pendingCreateBlocked",
-    );
-    expect(create).toContain(
-      "targetUomId",
-    );
-  });
-
-  it("keeps failed loading isolated from confirmed empty and barcode creation", () => {
-    const manager = read(
-      "../pages/products/barcode/ProductBarcodeManager.tsx",
-    );
-    const list = read(
-      "../pages/products/barcode/ProductBarcodeList.tsx",
-    );
-
-    expect(manager).toContain(
-      "loadReady ? (",
-    );
-    expect(manager).toContain(
-      "loading ||",
-    );
-    expect(manager).toContain(
-      "loadError ? (",
-    );
-    expect(list).toContain(
-      "if (loadError)",
-    );
-    expect(list).toContain(
-      "loadReady &&",
     );
   });
 });
