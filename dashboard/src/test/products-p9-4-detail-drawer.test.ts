@@ -31,6 +31,15 @@ describe("Products P9.4 detail drawer", () => {
     expect(drawer).toContain(
       "sm:w-[min(60vw,860px)]",
     );
+    expect(drawer).toContain(
+      "sm:inset-y-4",
+    );
+    expect(drawer).toContain(
+      "sm:end-4",
+    );
+    expect(drawer).toContain(
+      "sm:rounded-2xl",
+    );
     const hero = read(
       "../pages/products/detail/ProductDetailHero.tsx",
     );
@@ -136,6 +145,9 @@ describe("Products P9.4 detail drawer", () => {
       'className="rounded-2xl border border-slate-200 p-4"',
     );
 
+    expect(actions).toContain(
+      'className="z-[120] w-64',
+    );
     expect(actions).toContain(
       "canRenameProduct &&",
     );
