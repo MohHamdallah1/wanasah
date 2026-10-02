@@ -174,8 +174,8 @@ describe("Products P9 family reassignment", () => {
     const drawer = source(
       "../pages/products/detail/ProductDetailDrawer.tsx",
     );
-    const detailPanel = source(
-      "../pages/products/detail/ProductDetailTabPanel.tsx",
+    const detailHero = source(
+      "../pages/products/detail/ProductDetailHero.tsx",
     );
     const contracts = source(
       "../pages/products/contracts.ts",
@@ -193,10 +193,10 @@ describe("Products P9 family reassignment", () => {
     expect(contracts).not.toContain(
       '| "DRAFT"',
     );
-    expect(detailPanel).toContain(
+    expect(detailHero).toContain(
       "{product.sku}",
     );
-    expect(detailPanel).toContain(
+    expect(detailHero).toContain(
       '"products.details.skuLockedPublished"',
     );
     expect(drawer).not.toContain(
