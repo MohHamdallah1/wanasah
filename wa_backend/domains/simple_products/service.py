@@ -1643,6 +1643,54 @@ async def create_product_structures(
     return result
 
 
+def _build_price_entry_payloads(
+    *,
+    rows,
+    effective_at: datetime,
+) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for variant, _spec, prices, shape in rows:
+        entries.append({
+            "product_variant_id": int(variant.id),
+            "uom_id": int(shape.base_uom.id),
+            "amount": prices.unit_price,
+            "effective_from": effective_at,
+            "effective_to": None,
+            "priority": 0,
+            "metadata": {
+                "managed_by": "simple_products",
+                "price_input": (
+                    "derived" if prices.unit_derived else "explicit"
+                ),
+                "package_uom_code": (
+                    str(shape.package_uom.code)
+                    if shape.package_uom is not None
+                    else None
+                ),
+                "units_per_package": int(shape.units_per_package),
+            },
+        })
+        if shape.package_uom is not None:
+            assert prices.package_price is not None
+            entries.append({
+                "product_variant_id": int(variant.id),
+                "uom_id": int(shape.package_uom.id),
+                "amount": prices.package_price,
+                "effective_from": effective_at,
+                "effective_to": None,
+                "priority": 0,
+                "metadata": {
+                    "managed_by": "simple_products",
+                    "price_input": (
+                        "derived" if prices.package_derived else "explicit"
+                    ),
+                    "package_uom_code": str(shape.package_uom.code),
+                    "units_per_package": int(shape.units_per_package),
+                },
+            })
+    return entries
+
+
 async def publish_prices(
     db: AsyncSession,
     *,
@@ -1664,50 +1712,11 @@ async def publish_prices(
         )
         publication = direct_scope.publication
 
-    # This request already has a bounded set of freshly published SKUs.
-    # Build the exact same base/package entries and let the Pricing domain
-    # check tenant/SKU/UOM/effectivity in sets under ONE draft lock.
     with product_phase(db, "price_entries_python"):
-        entries: list[dict[str, Any]] = []
-        for variant, _spec, prices, shape in rows:
-            entries.append({
-                "product_variant_id": int(variant.id),
-                "uom_id": int(shape.base_uom.id),
-                "amount": prices.unit_price,
-                "effective_from": effective_at,
-                "effective_to": None,
-                "priority": 0,
-                "metadata": {
-                    "managed_by": "simple_products",
-                    "price_input": (
-                        "derived" if prices.unit_derived else "explicit"
-                    ),
-                    "package_uom_code": (
-                        str(shape.package_uom.code)
-                        if shape.package_uom is not None
-                        else None
-                    ),
-                    "units_per_package": int(shape.units_per_package),
-                },
-            })
-            if shape.package_uom is not None:
-                assert prices.package_price is not None
-                entries.append({
-                    "product_variant_id": int(variant.id),
-                    "uom_id": int(shape.package_uom.id),
-                    "amount": prices.package_price,
-                    "effective_from": effective_at,
-                    "effective_to": None,
-                    "priority": 0,
-                    "metadata": {
-                        "managed_by": "simple_products",
-                        "price_input": (
-                            "derived" if prices.package_derived else "explicit"
-                        ),
-                        "package_uom_code": str(shape.package_uom.code),
-                        "units_per_package": int(shape.units_per_package),
-                    },
-                })
+        entries = _build_price_entry_payloads(
+            rows=rows,
+            effective_at=effective_at,
+        )
     # PriceBookEntry validation is bounded. Bulk dashboard calls may contain
     # more than 100 SKUs; preserve one publication and its cumulative version.
     with product_phase(db, "price_draft_entries"):
@@ -1721,6 +1730,42 @@ async def publish_prices(
         await direct_scope.publish(
             actor_id=int(actor.id),
             expected_version=int(publication.version),
+        )
+
+
+
+async def publish_initial_prices(
+    db: AsyncSession,
+    *,
+    actor: Driver,
+    book: PriceBook,
+    rows,
+    effective_at: datetime,
+    request_id: UUID,
+) -> None:
+    """Publish first-ever prices for newly created products in one row write."""
+    with product_phase(db, "price_publication_create"):
+        direct_scope = await create_direct_publication(
+            db,
+            company_id=int(actor.company_id),
+            actor_id=int(actor.id),
+            book_id=int(book.id),
+            expected_book_version=int(book.version),
+            effective_at=effective_at,
+            request_id=request_id,
+        )
+        publication = direct_scope.publication
+
+    with product_phase(db, "price_entries_python"):
+        entries = _build_price_entry_payloads(
+            rows=rows,
+            effective_at=effective_at,
+        )
+    with product_phase(db, "price_publish"):
+        await direct_scope.publish_initial_entries(
+            actor_id=int(actor.id),
+            expected_version=int(publication.version),
+            entries=entries,
         )
 
 
@@ -1769,7 +1814,7 @@ async def create_products_and_prices(
             request_id=request_id,
             specs=specs,
         )
-    await publish_prices(
+    await publish_initial_prices(
         db,
         actor=actor,
         book=book,
