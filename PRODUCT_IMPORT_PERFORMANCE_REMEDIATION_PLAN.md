@@ -53,7 +53,7 @@
 - [x] **تنفيذ تسجيل كل SQL مكتمل على حدة** في `wa_backend/domains/simple_products/observability.py`: ordinal/phase/SQL-template fingerprint/نوع الاستعلام/زمنه، مع إمكانية استخراج count/sum/max بالتجميع. **الكود اندمج إلى `main` ضمن PR #92؛ لم يُشغّل بعد على استيراد حقيقي، لذلك لا توجد نتيجة وقت فردي جديدة.**
 - [x] **تسمية استدعاءات نشر الأسعار داخل PR #86** بإشارات SQLAlchemy غير مؤثرة على التنفيذ: قفل الشركة/سياسة Maker-Checker، قفل المنشور، قفل الدفتر، تحقق entries/variant/UOM، فحص السعر السابق، تحديث الأسعار وتحديث حالة المنشورات. SQL الصادر من ORM flush قد يبقى `unlabeled` لكنه يظهر بالترتيب والبصمة والمدة. **التنفيذ اندمج إلى `main` ضمن PR #92؛ لم يُشغّل بعد.**
 - [x] **قيد الخصوصية والتكلفة مُنفَّذ في PR #86**: لا SQL خام ولا bind params أو أسماء/أسعار؛ hooks تخص اتصال الدفعة المختارة، وسقف 256 سجلًا مع عدّ ما سقط، وفشل تفاصيل الرصد لا يمنع المعاملة. **التحقق التشغيلي ما زال مفتوحًا**.
-- [ ] استخدام النتائج من **الاستيراد الحقيقي القادم بإذن المالك فقط**؛ سجل التجربة الماضية تجميعي ولا يكشف الـ11 منفصلة. لا تنفيذ قياسات أو اختبارات الآن.
+- [ ] **بوابة القياس النهائية فقط:** شغّل الاستيراد الحقيقي الكبير القادم. عامل execution الحالي يسجل كل Batch (`PRODUCT_IMPORT_PROFILE_EVERY_N_BATCHES=1`) إلى `IMPORT_PERFORMANCE_EVIDENCE_2026-10-02/execution-worker.stderr.log`، والمراقب مُثبت ذاتيًا أنه يسجل كل SQL call بترتيبه/phase/label/hash/type/wall_ms. يوجد snapshot قبل التجربة في `before-50000.json`؛ بعد النهاية نلتقط snapshot مماثل مرتبطًا بالـjob ونقارن.
 
 - [x] **دمج تحديث المراقب:** أُعيد دمج stack #86/#88/#90 على أحدث `main` في PR #92. يبقى فقط تشغيل نسخة العامل لاحقًا بإذن المالك للحصول على قيم statement-level.
 
@@ -147,6 +147,13 @@
 - Procrastinate لا يحتوي `todo` أو `doing` حاليًا؛ الموجود تاريخي `succeeded/failed` فقط.
 - أُعيد تشغيل أدوار Product Import الثلاثة (control/maintenance/execution) من كود `origin/main` الحالي، مع رصد SQL الفردي كل 10 دفعات للاستيراد القادم.
 - ملفات الكود الـ15 التي تختلف بين checkout المحلي القديم و`origin/main` تطابق محتوى `origin/main` byte-for-byte؛ تعديلات المستخدم في جذر المشروع تُركت كما هي.
+
+## إغلاقات إضافية قبل تجربة الـ50 ألف — 2026-10-02
+
+- **فجوة exact family lookup تحت FORCE RLS أُغلقت فعليًا:** PR #112 أضاف `ix_product_company_lower_name_id(company_id, lower(name), id)` + resolver `SECURITY DEFINER` محدود ومقيد بـ`app.current_tenant`. Migration `d7c4a8e1f205` مطبقة؛ الفهرس VALID/READY/LIVE. `EXPLAIN` انتقل من Seq Scan إلى Index Scan بتكلفة تقريبية `0.41..8.43`. استدعاء tenant صحيح نجح، وtenant خاطئ رُفض. اختبارات العائلات: **23 passed + 16 subtests passed**.
+- **مراقب SQL الفردي مُثبت قبل التجربة الكبيرة:** self-check سجّل `PRODUCT_IMPORT_BATCH_PROFILE` حقيقيًا وفيه `sql_statement_timings` مع ordinal/phase/sql_label/sql_type/hash/wall_ms ودون SQL text أو bind values. فقدان تفاصيل تجربة الـ500 السابقة كان بسبب تشغيل العامل بدون ملف stderr دائم، وليس نقصًا في بنية المراقب.
+- **بوابات snapshot صارت قابلة للتكرار:** PR #113 أضاف `scripts/capture_product_import_perf_snapshot.py`; snapshot `before-50000.json` موجود ويحتوي Alembic/job queue/workers/table counts/sizes/index validity. لا يكتب بيانات تجارية.
+- **عامل execution أعيد تشغيله على `origin/main` الحالي** مع profiling لكل دفعة وتسجيل دائم؛ control/maintenance أعيدا تشغيلهما أيضًا، ولا توجد مهمة Import معلقة عند تجهيز البوابة.
 
 ## شروط الأمان الثابتة
 - RLS + company filters + FK، سياق Actor والصلاحيات، التسعير وMaker/Checker، ترتيب أقفال الشركة، GiST/effectivity، PricePublication revisions، Audit/Outbox، DRAFT→ACTIVE وDRAFT→PUBLISHED، replay/cancel/savepoint/idempotency.
