@@ -12,13 +12,12 @@ import {
 import { useTranslation } from "react-i18next";
 
 import type {
+  SimpleBarcodeTarget,
+} from "@/pages/products/barcode/barcodeUiTypes";
+import type {
   ProductBarcodeRecord,
   SimpleProduct,
 } from "@/pages/products/contracts";
-
-export type SimpleBarcodeTarget =
-  | "base"
-  | "package";
 
 type Props = {
   product: SimpleProduct;
