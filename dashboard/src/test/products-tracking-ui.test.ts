@@ -171,6 +171,9 @@ describe("products tracking UI contracts", () => {
       '"products.tracking.createChange"',
     );
     expect(createAdvanced).toContain(
+      "<ProductTrackingSimpleControls",
+    );
+    expect(createAdvanced).toContain(
       '"products.tracking.createReset"',
     );
     expect(createAdvanced).toContain(
@@ -191,6 +194,34 @@ describe("products tracking UI contracts", () => {
     );
     expect(translations).toContain(
       "createReset:",
+    );
+  });
+
+  it("keeps the simple switches presentation-only while preserving all three backend modes", () => {
+    const simple = normalizeWhitespace(
+      readSource("../pages/products/tracking/ProductTrackingSimpleControls.tsx"),
+    );
+    const fields = normalizeWhitespace(
+      readSource("../pages/products/tracking/ProductTrackingFields.tsx"),
+    );
+
+    expect(simple).toContain(
+      'role="switch"',
+    );
+    expect(simple).toContain(
+      'mode === "REQUIRED"',
+    );
+    expect(simple).toContain(
+      'required ? "OPTIONAL" : "REQUIRED"',
+    );
+    expect(simple).toContain(
+      'mode === "NONE"',
+    );
+    expect(simple).toContain(
+      "<ProductTrackingFields",
+    );
+    expect(fields).toContain(
+      "<ProductTrackingModePicker",
     );
   });
 
@@ -219,6 +250,7 @@ describe("products tracking UI contracts", () => {
       readSource("../pages/products/create/CreateProductModal.tsx"),
       readSource("../pages/products/import/ImportProductModal.tsx"),
       readSource("../pages/products/tracking/ProductTrackingFields.tsx"),
+      readSource("../pages/products/tracking/ProductTrackingSimpleControls.tsx"),
       readSource("../pages/products/tracking/ProductTrackingSettings.tsx"),
       readSource("../pages/products/tracking/ProductTrackingEditor.tsx"),
     ];
@@ -288,10 +320,10 @@ describe("products tracking UI contracts", () => {
       "إعداد افتراضي على مستوى الشركة",
     );
     expect(translations).toContain(
-      "لا تغيّر المنتجات الموجودة",
+      "فعّل الإلزام فقط",
     );
     expect(translations).toContain(
-      "يمكن تخصيصها لمنتج واحد أثناء إضافته",
+      "إضافة المنتج والاستيراد يرثان هذا الإعداد تلقائياً",
     );
     expect(translations).toContain(
       "إذا اخترت «إلزامي» فلن يكتمل التوريد بدون رقم الدفعة",
