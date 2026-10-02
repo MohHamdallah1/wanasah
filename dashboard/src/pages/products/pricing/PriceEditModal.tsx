@@ -55,6 +55,7 @@ type PriceInputProps = {
   onChange: (
     value: string,
   ) => void;
+  onSubmit: () => void;
   icon:
     | "package"
     | "unit";
@@ -69,6 +70,7 @@ function PriceInput({
   inputRef,
   errorId,
   onChange,
+  onSubmit,
   icon,
 }: PriceInputProps) {
   const Icon =
@@ -102,6 +104,12 @@ function PriceInput({
             event.target.value,
           )
         }
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            onSubmit();
+          }
+        }}
         aria-invalid={
           invalid
             ? "true"
@@ -228,6 +236,7 @@ export function PriceEditModal({
               onChange={
                 onPackagePriceChange
               }
+              onSubmit={onSubmit}
               icon="package"
             />
           ) : null}
@@ -252,6 +261,7 @@ export function PriceEditModal({
               onChange={
                 onUnitPriceChange
               }
+              onSubmit={onSubmit}
               icon="unit"
             />
           ) : null}
