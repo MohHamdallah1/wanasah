@@ -42,6 +42,10 @@ from product_lifecycle import (
     variant_snapshot,
 )
 from services import InventoryMutationError, begin_idempotent_operation, complete_idempotent_operation
+from domains.barcode_identity import (
+    BarcodeIdentityError,
+    replace_primary_barcode,
+)
 from domains.catalog_identity import (
     CatalogIdentityError,
     reassign_published_product_family,
@@ -432,6 +436,31 @@ class BarcodeUpdate(StrictRequest):
     is_primary: bool
     valid_to: Optional[datetime] = None
     is_active: bool
+
+
+class PrimaryBarcodeReplace(StrictRequest):
+    request_id: UUID
+    uom_id: int = Field(gt=0)
+    barcode: str = Field(max_length=128)
+    expected_current_id: Optional[int] = Field(None, gt=0)
+    expected_current_version: Optional[int] = Field(None, gt=0)
+
+    @field_validator("barcode", mode="before")
+    @classmethod
+    def barcode_value(cls, value: Any) -> str:
+        return _text(value, "barcode", 128)  # type: ignore[return-value]
+
+    @model_validator(mode="after")
+    def expectation_pair(self):
+        if (
+            self.expected_current_id is None
+        ) != (
+            self.expected_current_version is None
+        ):
+            raise ValueError(
+                "expected_current_id/version must be provided together."
+            )
+        return self
 
 
 class Gs1Request(StrictRequest):
@@ -1112,6 +1141,105 @@ async def create_barcode(variant_id: int, payload: BarcodeCreate, db: AsyncSessi
     except IntegrityError as exc:
         await db.rollback()
         raise _error(409, "BARCODE_CONFLICT", "الباركود الفعال أو الباركود الأساسي مستخدم مسبقاً.") from exc
+
+
+@router.post("/variants/{variant_id}/barcodes/replace-primary")
+async def replace_variant_primary_barcode(
+    variant_id: int,
+    payload: PrimaryBarcodeReplace,
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require(db, actor, "catalog.manage")
+    try:
+        record, replay = await begin_idempotent_operation(
+            db,
+            company_id=actor.company_id,
+            actor_id=actor.id,
+            operation="CATALOG_BARCODE_REPLACE_PRIMARY",
+            request_id=str(payload.request_id),
+            request_hash=_request_hash(
+                payload,
+                variant_id=variant_id,
+            ),
+        )
+        if replay is not None:
+            await db.rollback()
+            return replay
+
+        result = await replace_primary_barcode(
+            db,
+            company_id=int(actor.company_id),
+            product_variant_id=int(variant_id),
+            uom_id=int(payload.uom_id),
+            barcode=payload.barcode,
+            expected_current_id=payload.expected_current_id,
+            expected_current_version=payload.expected_current_version,
+        )
+        uom = await db.get(
+            UOM,
+            result.barcode.uom_id,
+        )
+        if uom is None:
+            raise _error(
+                500,
+                "BARCODE_UOM_MISSING",
+                "وحدة الباركود غير موجودة.",
+            )
+
+        response = {
+            "message": (
+                "تم تغيير الباركود مع الاحتفاظ بتاريخه."
+                if result.changed
+                else "الباركود الحالي لم يتغير."
+            ),
+            "barcode": _barcode_row(
+                result.barcode,
+                uom,
+            ),
+        }
+        if result.changed:
+            _audit(
+                db,
+                actor,
+                f"ProductVariant_{variant_id}",
+                "CATALOG_PRIMARY_BARCODE_REPLACED",
+                {
+                    "barcode_id": result.previous_barcode_id,
+                    "barcode": result.previous_barcode,
+                    "uom_id": int(payload.uom_id),
+                },
+                {
+                    "barcode_id": int(result.barcode.id),
+                    "barcode": str(result.barcode.barcode),
+                    "barcode_type": str(result.barcode.barcode_type),
+                    "uom_id": int(result.barcode.uom_id),
+                },
+            )
+        complete_idempotent_operation(
+            record,
+            response,
+        )
+        await db.commit()
+        return response
+    except BarcodeIdentityError as exc:
+        await db.rollback()
+        raise _error(
+            exc.status_code,
+            exc.code,
+            exc.message,
+            **exc.context,
+        ) from exc
+    except HTTPException:
+        await db.rollback()
+        raise
+    except IntegrityError as exc:
+        await db.rollback()
+        raise _error(
+            409,
+            "BARCODE_CONFLICT",
+            "الباركود الفعال مستخدم مسبقاً.",
+        ) from exc
 
 
 @router.patch("/barcodes/{barcode_id}")
