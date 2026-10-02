@@ -314,7 +314,7 @@ polling/realtime behavior are consumed by the Dashboard.
 - `domains/simple_products/imports/README.md` — Product Import module contract.
 - `domains/simple_products/imports/PHASE13_RUNTIME.md` — runtime/concurrency.
 - `domains/simple_products/imports/PHASE15_DATABASE.md` — database/index health.
-- `PRODUCT_IMPORT_PRODUCTION_HARDENING_PLAN.md` — completed hardening plan.
+- `docs/operations/PRODUCT_IMPORT_FINAL_ACCEPTANCE_2026-10-02.md` — final V1 engineering acceptance and retained evidence summary.
 
 ## WebSocket authentication and logging (D5)
 Product Import's exact-job realtime endpoint no longer accepts access tokens in
@@ -643,7 +643,7 @@ An actual isolated run based on main 3a77f95 completed PASS (50,000 records,
 physical #50005, 49,500 Pricing/Audit/Outbox, 255.868 seconds from HTTP
 admission to terminal, no remaining active queue delivery, and source
 unchanged). Full exact evidence:
-docs/operations/PRODUCT_IMPORT_P19_FINAL_50K_REHEARSAL_2026-10-01.md.
+docs/operations/PRODUCT_IMPORT_FINAL_ACCEPTANCE_2026-10-02.md.
 
 **Known measurement caveat:** The original run's 4 MiB process RSS readings
 came from Windows virtualenv launcher PIDs and were NOT credible process
@@ -677,7 +677,7 @@ test-only lock are never taken from the original developer database.
 
 Verified on 2026-10-01: all markers PASS; original developer tenant
 unchanged; disposable cluster/worktree removed. Full evidence:
-docs/operations/PRODUCT_IMPORT_P19_OFFICIAL_HTTP_LOCK_CANCEL_2026-10-01.md.
+docs/operations/PRODUCT_IMPORT_FINAL_ACCEPTANCE_2026-10-02.md.
 
 It does NOT reproduce the historical asyncpg ClientRead mechanism or the
 different transport-abort/lost-COMMIT recovery scenario; keep those separate
@@ -703,7 +703,7 @@ Product+Price+Audit+Outbox, with 999 rejected and no partial job
 errors). Both cases use a fresh request identity. The disposable
 cluster is deleted and the original developer source tenant verified
 unchanged afterward. Test outcome and exact size-case lineage evidence:
-docs/operations/PRODUCT_IMPORT_P19_EDGE_CASES_2026-10-01.md.
+docs/operations/PRODUCT_IMPORT_FINAL_ACCEPTANCE_2026-10-02.md.
 
 These are real backend/worker tests; they do not test a customer's
 saved Excel files, a manual browser or statistical p95 performance.
