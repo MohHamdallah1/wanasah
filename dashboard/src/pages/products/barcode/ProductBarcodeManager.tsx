@@ -1009,14 +1009,17 @@ export function ProductBarcodeManager({
 
             <details
               open={advancedOpen}
-              onToggle={(event) =>
-                setAdvancedOpen(
-                  event.currentTarget.open,
-                )
-              }
               className="overflow-hidden rounded-2xl border border-slate-200 bg-white"
             >
-              <summary className="cursor-pointer select-none px-4 py-3 text-[11px] font-black text-slate-600 transition hover:bg-slate-50">
+              <summary
+                onClick={(event) => {
+                  event.preventDefault();
+                  setAdvancedOpen(
+                    (current) => !current,
+                  );
+                }}
+                className="cursor-pointer select-none px-4 py-3 text-[11px] font-black text-slate-600 transition hover:bg-slate-50"
+              >
                 {t(
                   "products.barcodeManager.advanced",
                 )}
