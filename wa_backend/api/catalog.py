@@ -44,6 +44,7 @@ from product_lifecycle import (
 from services import InventoryMutationError, begin_idempotent_operation, complete_idempotent_operation
 from domains.barcode_identity import (
     BarcodeIdentityError,
+    assign_independent_package_barcode,
     replace_primary_barcode,
 )
 from domains.catalog_identity import (
@@ -461,6 +462,18 @@ class PrimaryBarcodeReplace(StrictRequest):
                 "expected_current_id/version must be provided together."
             )
         return self
+
+
+class IndependentPackageBarcode(StrictRequest):
+    request_id: UUID
+    package_uom_id: int = Field(gt=0)
+    barcode: str = Field(max_length=128)
+    expected_variant_version: int = Field(gt=0)
+
+    @field_validator("barcode", mode="before")
+    @classmethod
+    def barcode_value(cls, value: Any) -> str:
+        return _text(value, "barcode", 128)  # type: ignore[return-value]
 
 
 class Gs1Request(StrictRequest):
@@ -1220,6 +1233,92 @@ async def replace_variant_primary_barcode(
             record,
             response,
         )
+        await db.commit()
+        return response
+    except BarcodeIdentityError as exc:
+        await db.rollback()
+        raise _error(
+            exc.status_code,
+            exc.code,
+            exc.message,
+            **exc.context,
+        ) from exc
+    except HTTPException:
+        await db.rollback()
+        raise
+    except IntegrityError as exc:
+        await db.rollback()
+        raise _error(
+            409,
+            "BARCODE_CONFLICT",
+            "الباركود الفعال مستخدم مسبقاً.",
+        ) from exc
+
+
+@router.post("/variants/{variant_id}/barcodes/package-independent")
+async def set_variant_package_barcode_independent(
+    variant_id: int,
+    payload: IndependentPackageBarcode,
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require(db, actor, "catalog.manage")
+    try:
+        record, replay = await begin_idempotent_operation(
+            db,
+            company_id=actor.company_id,
+            actor_id=actor.id,
+            operation="CATALOG_PACKAGE_BARCODE_INDEPENDENT",
+            request_id=str(payload.request_id),
+            request_hash=_request_hash(
+                payload,
+                variant_id=variant_id,
+            ),
+        )
+        if replay is not None:
+            await db.rollback()
+            return replay
+
+        result = await assign_independent_package_barcode(
+            db,
+            company_id=int(actor.company_id),
+            product_variant_id=int(variant_id),
+            package_uom_id=int(payload.package_uom_id),
+            barcode=payload.barcode,
+            expected_variant_version=int(payload.expected_variant_version),
+        )
+        uom = await db.get(UOM, result.barcode.uom_id)
+        if uom is None:
+            raise _error(
+                500,
+                "BARCODE_UOM_MISSING",
+                "وحدة الباركود غير موجودة.",
+            )
+
+        response = {
+            "message": "تم تعيين باركود مستقل للكرتونة.",
+            "barcode": _barcode_row(result.barcode, uom),
+            "product_variant_id": int(variant_id),
+            "version": int(result.variant_version),
+            "package_uses_base_barcode": False,
+        }
+        _audit(
+            db,
+            actor,
+            f"ProductVariant_{variant_id}",
+            "CATALOG_PACKAGE_BARCODE_MADE_INDEPENDENT",
+            {
+                "package_uses_base_barcode": True,
+                "package_uom_id": int(payload.package_uom_id),
+            },
+            {
+                "package_uses_base_barcode": False,
+                "package_uom_id": int(payload.package_uom_id),
+                "barcode_id": int(result.barcode.id),
+                "barcode": str(result.barcode.barcode),
+            },
+        )
+        complete_idempotent_operation(record, response)
         await db.commit()
         return response
     except BarcodeIdentityError as exc:
