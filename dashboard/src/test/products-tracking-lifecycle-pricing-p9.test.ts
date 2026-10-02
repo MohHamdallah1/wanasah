@@ -16,6 +16,9 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
     const drawer = compact(
       readSource("../pages/products/detail/ProductDetailDrawer.tsx"),
     );
+    const detailPanel = compact(
+      readSource("../pages/products/detail/ProductDetailTabPanel.tsx"),
+    );
     const actionMenu = compact(
       readSource("../pages/products/detail/ProductDetailActionsMenu.tsx"),
     );
@@ -26,8 +29,8 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
       readSource("../pages/products/tracking/useProductTrackingMutations.ts"),
     );
 
-    expect(drawer).toContain("products.tracking.lotModes.");
-    expect(drawer).toContain("products.tracking.expiryModes.");
+    expect(detailPanel).toContain("products.tracking.lotModes.");
+    expect(detailPanel).toContain("products.tracking.expiryModes.");
     expect(actionMenu).toContain("products.trackingEditor.action");
     expect(editor).toContain("products.trackingEditor.lockHint");
     expect(mutation).toContain("expected_version: trackingEdit.version");
@@ -67,7 +70,7 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
       readSource("../pages/inventory/catalog/CatalogLifecycleActions.tsx"),
     );
 
-    expect(drawer).toContain("products.details.operationalHold");
+    expect(detailPanel).toContain("products.details.operationalHold");
     expect(actionMenu).toContain("products.lifecycleManager.action");
     expect(manager).toContain("<CatalogLifecycleActions");
     expect(actions).toContain('"sales-hold"');
