@@ -13,14 +13,8 @@ const compact = (value: string): string =>
 
 describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
   it("keeps tracking visible in plain language and backend-locked edits reachable", () => {
-    const drawer = compact(
-      readSource("../pages/products/detail/ProductDetailDrawer.tsx"),
-    );
     const detailPanel = compact(
       readSource("../pages/products/detail/ProductDetailTabPanel.tsx"),
-    );
-    const detailHero = compact(
-      readSource("../pages/products/detail/ProductDetailHero.tsx"),
     );
     const actionMenu = compact(
       readSource("../pages/products/detail/ProductDetailActionsMenu.tsx"),
@@ -41,9 +35,6 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
   });
 
   it("keeps barcode management reachable from Product Details with durable deactivation", () => {
-    const drawer = compact(
-      readSource("../pages/products/detail/ProductDetailDrawer.tsx"),
-    );
     const actionMenu = compact(
       readSource("../pages/products/detail/ProductDetailActionsMenu.tsx"),
     );
@@ -60,11 +51,8 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
   });
 
   it("keeps lifecycle, sales hold and recall actions reachable through catalog authority", () => {
-    const drawer = compact(
-      readSource("../pages/products/detail/ProductDetailDrawer.tsx"),
-    );
-    const detailPanel = compact(
-      readSource("../pages/products/detail/ProductDetailTabPanel.tsx"),
+    const detailHero = compact(
+      readSource("../pages/products/detail/ProductDetailHero.tsx"),
     );
     const actionMenu = compact(
       readSource("../pages/products/detail/ProductDetailActionsMenu.tsx"),
@@ -92,6 +80,9 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
     );
     const drawer = compact(
       readSource("../pages/products/detail/ProductDetailDrawer.tsx"),
+    );
+    const detailPanel = compact(
+      readSource("../pages/products/detail/ProductDetailTabPanel.tsx"),
     );
     const actionMenu = compact(
       readSource("../pages/products/detail/ProductDetailActionsMenu.tsx"),
