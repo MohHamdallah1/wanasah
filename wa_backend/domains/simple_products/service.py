@@ -1761,13 +1761,6 @@ async def publish_initial_prices(
             rows=rows,
             effective_at=effective_at,
         )
-    if len(entries) > 200:
-        raise SimpleProductError(
-            "SIMPLE_PRODUCT_INITIAL_PRICE_BATCH_TOO_LARGE",
-            "Initial simple-product price publication exceeds the bounded Pricing batch.",
-            status_code=500,
-        )
-
     with product_phase(db, "price_publish"):
         await direct_scope.publish_initial_entries(
             actor_id=int(actor.id),
