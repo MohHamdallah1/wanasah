@@ -118,7 +118,7 @@ describe("Products P9.4 detail drawer", () => {
     );
   });
 
-  it("keeps details view-first while preserving all mutation permissions in one compact actions surface", () => {
+  it("keeps details strictly view-only and centralizes mutations in the locale-driven row actions menu", () => {
     const drawer = read(
       "../pages/products/detail/ProductDetailDrawer.tsx",
     );
@@ -126,7 +126,7 @@ describe("Products P9.4 detail drawer", () => {
       "../pages/products/detail/ProductDetailHero.tsx",
     );
     const actions = read(
-      "../pages/products/detail/ProductDetailActionsMenu.tsx",
+      "../pages/products/list/ProductRowActions.tsx",
     );
     const primitives = read(
       "../pages/products/detail/ProductDetailPrimitives.tsx",
@@ -135,49 +135,49 @@ describe("Products P9.4 detail drawer", () => {
     expect(drawer).toContain(
       "<ProductDetailHero",
     );
-    expect(hero).toContain(
-      "<ProductDetailActionsMenu",
+    expect(hero).not.toContain(
+      "ProductDetailActionsMenu",
+    );
+    expect(hero).not.toContain(
+      "<Box",
     );
     expect(drawer).not.toContain(
-      "<footer",
+      "canEditPrice",
     );
     expect(drawer).not.toContain(
-      'className="rounded-2xl border border-slate-200 p-4"',
+      "canManageBarcodes",
     );
 
     expect(actions).toContain(
-      'className="z-[120] w-64',
+      "i18n.dir()",
     );
     expect(actions).toContain(
-      "canRenameProduct &&",
+      "dir={direction}",
     );
     expect(actions).toContain(
-      "canReassignFamily &&",
+      '"products.rename.action"',
     );
     expect(actions).toContain(
-      "canEditPrice &&",
+      '"products.familyReassign.action"',
     );
     expect(actions).toContain(
-      "{canEditTracking ? (",
+      '"products.editPrice"',
     );
     expect(actions).toContain(
-      "{canManageBarcodes ? (",
+      '"products.trackingEditor.action"',
     );
     expect(actions).toContain(
-      "{canManageLifecycle ? (",
+      '"products.barcodeManager.action"',
+    );
+    expect(actions).toContain(
+      '"products.lifecycleManager.action"',
     );
     expect(actions).not.toContain(
       "canManageAdvancedUom",
     );
-    expect(actions).not.toContain(
-      "products.advancedUom.productAction",
-    );
 
     expect(primitives).toContain(
       "border-b border-slate-100",
-    );
-    expect(primitives).not.toContain(
-      "rounded-2xl",
     );
   });
 });
