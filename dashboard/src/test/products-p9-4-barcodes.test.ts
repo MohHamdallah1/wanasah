@@ -70,6 +70,9 @@ describe("Products P9.4 Barcode workspace", () => {
     const manager = read(
       "../pages/products/barcode/ProductBarcodeManager.tsx",
     );
+    const advanced = read(
+      "../pages/products/barcode/ProductBarcodeAdvancedPanel.tsx",
+    );
 
     expect(panel).toContain(
       '"products.barcodeManager.unitBarcode"',
