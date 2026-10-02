@@ -75,24 +75,15 @@ function RequirementToggle({
           )
         }
         className={
-          "relative h-7 w-12 shrink-0 rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50 " +
+          "flex h-7 w-12 shrink-0 items-center rounded-full p-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50 " +
           (
             required
-              ? "bg-slate-950"
-              : "bg-slate-200"
+              ? "justify-end bg-slate-950"
+              : "justify-start bg-slate-200"
           )
         }
       >
-        <span
-          className={
-            "absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-all " +
-            (
-              required
-                ? "end-1"
-                : "start-1"
-            )
-          }
-        />
+        <span className="h-5 w-5 rounded-full bg-white shadow-sm transition-all" />
         <span className="sr-only">
           {label}
         </span>
