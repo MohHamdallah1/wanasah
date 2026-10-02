@@ -155,6 +155,12 @@
 - **بوابات snapshot صارت قابلة للتكرار:** PR #113 أضاف `scripts/capture_product_import_perf_snapshot.py`; snapshot `before-50000.json` موجود ويحتوي Alembic/job queue/workers/table counts/sizes/index validity. لا يكتب بيانات تجارية.
 - **عامل execution أعيد تشغيله على `origin/main` الحالي** مع profiling لكل دفعة وتسجيل دائم؛ control/maintenance أعيدا تشغيلهما أيضًا، ولا توجد مهمة Import معلقة عند تجهيز البوابة.
 
+## ملاحظة Scalability مؤجلة — PriceBookAssignment
+
+- استعلام `simple_pricing_policy_assignments` يستخدم حدود `effectivity` عبر `lower/upper/upper_inf`. الفهرس الحالي يضيّق بالشركة/نوع النطاق لكنه لا يفهرس هذه التعبيرات مباشرة، وتحت FORCE RLS لا نضيف expression indexes عميانيًا.
+- في لقطة 2026-10-02 جدول `price_book_assignments` يحتوي **صفًا واحدًا فقط**؛ الـSeq Scan الحالي تكلفة صغيرة جدًا وليس اختناقًا مثبتًا. لذلك **عدم إضافة فهرس الآن قرار مقصود** لتجنب write amplification بلا فائدة.
+- نراقب هذا الاستعلام في تجربة الـ50 ألف عبر label `simple_pricing_policy_assignments`. إذا ظهر بزمن مؤثر أو نما تاريخ Assignments، يكون العلاج التالي query/schema redesign آمن تحت RLS (وليس index عشوائيًا).
+
 ## شروط الأمان الثابتة
 - RLS + company filters + FK، سياق Actor والصلاحيات، التسعير وMaker/Checker، ترتيب أقفال الشركة، GiST/effectivity، PricePublication revisions، Audit/Outbox، DRAFT→ACTIVE وDRAFT→PUBLISHED، replay/cancel/savepoint/idempotency.
 - لا اختبارات، ولا استعلام SQL، ولا تعديل قاعدة بيانات المالك في مرحلة التحليل. إذا طُلب تنفيذ تحسين بدون أي اختبار إطلاقًا، لا نعلن اجتياز بوابة إطلاق أو الحفاظ على كافة العقود كحقيقة مُتحقّق منها؛ فرق بين مراجعة الكود والقبول الفعلي.
