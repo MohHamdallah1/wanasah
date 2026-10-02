@@ -104,6 +104,43 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
     expect(create).toContain('"products.derivedPrice"');
   });
 
+  it("keeps raw six-decimal storage out of the ordinary price-edit presentation", () => {
+    const state = compact(
+      readSource("../pages/products/pricing/usePriceEditState.ts"),
+    );
+    const modal = compact(
+      readSource("../pages/products/pricing/PriceEditModal.tsx"),
+    );
+    const actions = compact(
+      readSource("../pages/products/detail/ProductDetailActionsMenu.tsx"),
+    );
+
+    expect(state).toContain(
+      "compactEditableMoney",
+    );
+    expect(state).toContain(
+      "fraction.length > 3",
+    );
+    expect(state).toContain(
+      'fraction.endsWith("0")',
+    );
+    expect(state).toContain(
+      "fraction.padEnd( 3,",
+    );
+    expect(modal).toContain(
+      "compactEditableMoney( derivedPackagePrice",
+    );
+    expect(modal).toContain(
+      "compactEditableMoney( derivedUnitPrice",
+    );
+    expect(actions).toContain(
+      '"products.details.actions"',
+    );
+    expect(actions).toContain(
+      "<span>",
+    );
+  });
+
   it("preserves full durable commands for price and tracking ambiguous retries", () => {
     const priceMutation = compact(
       readSource("../pages/products/pricing/usePriceEditMutation.ts"),
