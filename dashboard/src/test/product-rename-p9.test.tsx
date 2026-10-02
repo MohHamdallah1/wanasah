@@ -92,46 +92,40 @@ describe("Products P9 published-name editing", () => {
     );
   });
 
-  it("exposes rename through Product details only with catalog-manage capability", () => {
+  it("exposes rename only through the unified Product row actions with catalog-manage capability", () => {
     const drawer = source(
       "src/pages/products/detail/ProductDetailDrawer.tsx",
     );
-    const actionMenu = source(
-      "src/pages/products/detail/ProductDetailActionsMenu.tsx",
+    const rowActions = source(
+      "src/pages/products/list/ProductRowActions.tsx",
     );
     const page = source(
       "src/pages/products/ProductsPage.tsx",
     );
-    const detailActions = source(
-      "src/pages/products/detail/createProductDetailActions.ts",
-    );
-    const detailWorkflow = source(
-      "src/pages/products/detail/useProductDetailWorkflow.ts",
-    );
 
-    expect(drawer).toContain(
-      "canRenameProduct: boolean",
+    expect(drawer).not.toContain(
+      "canRenameProduct",
     );
-    expect(actionMenu).toContain(
+    expect(rowActions).toContain(
       '"products.rename.action"',
     );
-    expect(actionMenu).toContain(
+    expect(rowActions).toContain(
       '["ACTIVE", "RETIRING"].includes',
     );
-    expect(detailWorkflow).toContain(
+    expect(page).toContain(
       "canRenameProduct:",
-    );
-    expect(detailWorkflow).toContain(
-      "canManageCatalog",
     );
     expect(page).toContain(
       "canManageCatalog",
+    );
+    expect(page).toContain(
+      "onRenameProduct:",
+    );
+    expect(page).toContain(
+      "renameWorkflow.openRenameProduct",
     );
     expect(page).toContain(
       "<ProductRenameDialog",
-    );
-    expect(detailActions).toContain(
-      "openRenameProduct(product)",
     );
   });
 

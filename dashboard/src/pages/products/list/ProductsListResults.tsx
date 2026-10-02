@@ -34,8 +34,11 @@ type Props = {
   isNarrowViewport: boolean;
   pricingVisible: boolean;
   canEditPrice: boolean;
+  canRenameProduct: boolean;
   canReassignFamily: boolean;
   canEditTracking: boolean;
+  canManageBarcodes: boolean;
+  canManageLifecycle: boolean;
   columns: Record<
     ProductDisplayColumn,
     boolean
@@ -49,6 +52,9 @@ type Props = {
   onOpenDetails: (
     item: SimpleProduct,
   ) => void;
+  onRenameProduct: (
+    item: SimpleProduct,
+  ) => void;
   onEditPrice: (
     item: SimpleProduct,
   ) => void;
@@ -56,6 +62,12 @@ type Props = {
     item: SimpleProduct,
   ) => void;
   onEditTracking: (
+    item: SimpleProduct,
+  ) => void;
+  onManageBarcodes: (
+    item: SimpleProduct,
+  ) => void;
+  onManageLifecycle: (
     item: SimpleProduct,
   ) => void;
 };
@@ -71,8 +83,11 @@ export function ProductsListResults({
   isNarrowViewport,
   pricingVisible,
   canEditPrice,
+  canRenameProduct,
   canReassignFamily,
   canEditTracking,
+  canManageBarcodes,
+  canManageLifecycle,
   columns,
   density,
   tableHeaderSpacing,
@@ -81,9 +96,12 @@ export function ProductsListResults({
   onRetry,
   onClearCriteria,
   onOpenDetails,
+  onRenameProduct,
   onEditPrice,
   onReassignFamily,
   onEditTracking,
+  onManageBarcodes,
+  onManageLifecycle,
 }: Props) {
   const { t } =
     useTranslation();
@@ -269,11 +287,20 @@ export function ProductsListResults({
                   canEditPrice={
                     canEditPrice
                   }
+                  canRenameProduct={
+                    canRenameProduct
+                  }
                   canReassignFamily={
                     canReassignFamily
                   }
                   canEditTracking={
                     canEditTracking
+                  }
+                  canManageBarcodes={
+                    canManageBarcodes
+                  }
+                  canManageLifecycle={
+                    canManageLifecycle
                   }
                   columns={
                     columns
@@ -284,6 +311,9 @@ export function ProductsListResults({
                   onOpenDetails={
                     onOpenDetails
                   }
+                  onRenameProduct={
+                    onRenameProduct
+                  }
                   onEditPrice={
                     onEditPrice
                   }
@@ -292,6 +322,12 @@ export function ProductsListResults({
                   }
                   onEditTracking={
                     onEditTracking
+                  }
+                  onManageBarcodes={
+                    onManageBarcodes
+                  }
+                  onManageLifecycle={
+                    onManageLifecycle
                   }
                 />
               ),
@@ -309,7 +345,7 @@ export function ProductsListResults({
               <tr>
                 <th
                   scope="col"
-                  className={`${tableHeaderSpacing} w-12 text-center`}
+                  className={`${tableHeaderSpacing} w-32 text-center`}
                 >
                   #
                 </th>

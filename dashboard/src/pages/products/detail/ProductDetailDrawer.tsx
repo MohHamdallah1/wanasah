@@ -23,55 +23,18 @@ import {
 
 type Props = {
   product: SimpleProduct | null;
-  pricingVisible: boolean;
-  canEditPrice: boolean;
-  canRenameProduct: boolean;
-  canReassignFamily: boolean;
-  canEditTracking: boolean;
-  canManageBarcodes: boolean;
-  canManageLifecycle: boolean;
   detailSections?: Record<
     ProductDetailSectionKey,
     boolean
   >;
   onClose: () => void;
-  onRenameProduct: (
-    product: SimpleProduct,
-  ) => void;
-  onReassignFamily: (
-    product: SimpleProduct,
-  ) => void;
-  onEditPrice: (
-    product: SimpleProduct,
-  ) => void;
-  onEditTracking: (
-    product: SimpleProduct,
-  ) => void;
-  onManageBarcodes: (
-    product: SimpleProduct,
-  ) => void;
-  onManageLifecycle: (
-    product: SimpleProduct,
-  ) => void;
 };
 
 export function ProductDetailDrawer({
   product,
-  canEditPrice,
-  canRenameProduct,
-  canReassignFamily,
-  canEditTracking,
-  canManageBarcodes,
-  canManageLifecycle,
   detailSections =
     DEFAULT_PRODUCT_DISPLAY_PREFERENCES.detailSections,
   onClose,
-  onRenameProduct,
-  onReassignFamily,
-  onEditPrice,
-  onEditTracking,
-  onManageBarcodes,
-  onManageLifecycle,
 }: Props) {
   const { i18n } =
     useTranslation();
@@ -163,24 +126,6 @@ export function ProductDetailDrawer({
         <ProductDetailHero
           product={product}
           expanded={expanded}
-          canEditPrice={
-            canEditPrice
-          }
-          canRenameProduct={
-            canRenameProduct
-          }
-          canReassignFamily={
-            canReassignFamily
-          }
-          canEditTracking={
-            canEditTracking
-          }
-          canManageBarcodes={
-            canManageBarcodes
-          }
-          canManageLifecycle={
-            canManageLifecycle
-          }
           onToggleExpanded={() =>
             setExpanded(
               (current) =>
@@ -188,24 +133,6 @@ export function ProductDetailDrawer({
             )
           }
           onClose={handleClose}
-          onRenameProduct={
-            onRenameProduct
-          }
-          onReassignFamily={
-            onReassignFamily
-          }
-          onEditPrice={
-            onEditPrice
-          }
-          onEditTracking={
-            onEditTracking
-          }
-          onManageBarcodes={
-            onManageBarcodes
-          }
-          onManageLifecycle={
-            onManageLifecycle
-          }
         />
 
         <ProductDetailTabs

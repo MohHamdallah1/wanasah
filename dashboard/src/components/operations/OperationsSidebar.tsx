@@ -14,7 +14,6 @@ import {
   RotateCcw,
   Settings,
   Truck,
-  User,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -93,6 +92,8 @@ export function OperationsSidebar({
   const tenantIdentity =
     useTenantIdentity();
   const location = useLocation();
+  const isRtl =
+    i18n.dir() === "rtl";
 
   const displayLocation =
     tenantIdentity.data?.display_location ||
@@ -265,38 +266,6 @@ export function OperationsSidebar({
         `}
       >
         <div
-          className={`mb-2 hidden lg:flex ${
-            collapsed
-              ? "justify-center"
-              : "justify-end"
-          }`}
-        >
-          <button
-            type="button"
-            onClick={
-              onToggleCollapsed
-            }
-            aria-label={t(
-              collapsed
-                ? "nav.expandNavigation"
-                : "nav.collapseNavigation",
-            )}
-            title={t(
-              collapsed
-                ? "nav.expandNavigation"
-                : "nav.collapseNavigation",
-            )}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-300 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
-          >
-            {collapsed ? (
-              <ChevronsLeft className="h-4 w-4" />
-            ) : (
-              <ChevronsRight className="h-4 w-4" />
-            )}
-          </button>
-        </div>
-
-        <div
           className={`sidebar-profile relative ${
             collapsed
               ? "mb-4"
@@ -304,48 +273,32 @@ export function OperationsSidebar({
           }`}
           ref={dropdownRef}
         >
-          <button
-            type="button"
-            onClick={() =>
-              setIsDropdownOpen(
-                (current) =>
-                  !current
-              )
-            }
-            aria-label={
+          <div
+            className={`flex items-stretch gap-2 ${
               collapsed
-                ? adminName
-                : undefined
-            }
-            title={
-              collapsed
-                ? adminName
-                : undefined
-            }
-            className={`flex w-full items-center rounded-2xl border border-white/50 bg-white/40 p-2.5 shadow-sm transition-all hover:bg-white/60 ${
-              collapsed
-                ? "lg:justify-center lg:px-1"
-                : "justify-between"
+                ? "lg:justify-center"
+                : ""
             }`}
           >
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-warning shadow-command">
-                <User
-                  className="h-5 w-5 text-primary-foreground"
-                  strokeWidth={1.5}
-                />
-              </div>
-              <div
-                className={`flex flex-col items-start ${
-                  collapsed
-                    ? "lg:hidden"
-                    : ""
-                }`}
-              >
-                <span className="text-sm font-extrabold tracking-tight text-foreground">
+            <button
+              type="button"
+              onClick={() =>
+                setIsDropdownOpen(
+                  (current) =>
+                    !current
+                )
+              }
+              className={`min-w-0 flex-1 items-center justify-between rounded-xl border border-white/50 bg-white/40 px-3 py-2 shadow-sm transition-all hover:bg-white/60 ${
+                collapsed
+                  ? "flex lg:hidden"
+                  : "flex"
+              }`}
+            >
+              <div className="min-w-0 flex flex-col items-start">
+                <span className="max-w-full truncate text-sm font-extrabold tracking-tight text-foreground">
                   {adminName}
                 </span>
-                <span className="text-[10px] font-bold text-muted-foreground">
+                <span className="max-w-full truncate text-[10px] font-bold text-muted-foreground">
                   {access.isCompanyAdmin
                     ? t(
                         "nav.systemAdmin"
@@ -355,20 +308,47 @@ export function OperationsSidebar({
                       )}
                 </span>
               </div>
-            </div>
 
-            <ChevronDown
-              className={`h-4 w-4 text-muted-foreground transition-transform duration-300 ${
+              <ChevronDown
+                className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-300 ${
+                  isDropdownOpen
+                    ? "rotate-180"
+                    : ""
+                }`}
+              />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setIsDropdownOpen(false);
+                onToggleCollapsed();
+              }}
+              aria-label={t(
                 collapsed
-                  ? "lg:hidden "
-                  : ""
-              }${
-                isDropdownOpen
-                  ? "rotate-180"
-                  : ""
-              }`}
-            />
-          </button>
+                  ? "nav.expandNavigation"
+                  : "nav.collapseNavigation",
+              )}
+              title={t(
+                collapsed
+                  ? "nav.expandNavigation"
+                  : "nav.collapseNavigation",
+              )}
+              className="hidden h-10 w-10 shrink-0 items-center justify-center self-center rounded-xl border border-white/10 bg-white/5 text-slate-300 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 lg:inline-flex"
+            >
+              {collapsed ? (
+                isRtl ? (
+                  <ChevronsLeft className="h-4 w-4" />
+                ) : (
+                  <ChevronsRight className="h-4 w-4" />
+                )
+              ) : isRtl ? (
+                <ChevronsRight className="h-4 w-4" />
+              ) : (
+                <ChevronsLeft className="h-4 w-4" />
+              )}
+            </button>
+          </div>
 
           {isDropdownOpen ? (
             <div

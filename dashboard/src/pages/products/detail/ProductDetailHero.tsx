@@ -1,5 +1,4 @@
 import {
-  Box,
   Maximize2,
   Minimize2,
   X,
@@ -9,56 +8,19 @@ import { useTranslation } from "react-i18next";
 import type {
   SimpleProduct,
 } from "@/pages/products/contracts";
-import { ProductDetailActionsMenu } from "@/pages/products/detail/ProductDetailActionsMenu";
 
 type Props = {
   product: SimpleProduct;
   expanded: boolean;
-  canEditPrice: boolean;
-  canRenameProduct: boolean;
-  canReassignFamily: boolean;
-  canEditTracking: boolean;
-  canManageBarcodes: boolean;
-  canManageLifecycle: boolean;
   onToggleExpanded: () => void;
   onClose: () => void;
-  onRenameProduct: (
-    product: SimpleProduct,
-  ) => void;
-  onReassignFamily: (
-    product: SimpleProduct,
-  ) => void;
-  onEditPrice: (
-    product: SimpleProduct,
-  ) => void;
-  onEditTracking: (
-    product: SimpleProduct,
-  ) => void;
-  onManageBarcodes: (
-    product: SimpleProduct,
-  ) => void;
-  onManageLifecycle: (
-    product: SimpleProduct,
-  ) => void;
 };
 
 export function ProductDetailHero({
   product,
   expanded,
-  canEditPrice,
-  canRenameProduct,
-  canReassignFamily,
-  canEditTracking,
-  canManageBarcodes,
-  canManageLifecycle,
   onToggleExpanded,
   onClose,
-  onRenameProduct,
-  onReassignFamily,
-  onEditPrice,
-  onEditTracking,
-  onManageBarcodes,
-  onManageLifecycle,
 }: Props) {
   const { t } = useTranslation();
 
@@ -86,46 +48,6 @@ export function ProductDetailHero({
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          <ProductDetailActionsMenu
-            product={product}
-            canEditPrice={
-              canEditPrice
-            }
-            canRenameProduct={
-              canRenameProduct
-            }
-            canReassignFamily={
-              canReassignFamily
-            }
-            canEditTracking={
-              canEditTracking
-            }
-            canManageBarcodes={
-              canManageBarcodes
-            }
-            canManageLifecycle={
-              canManageLifecycle
-            }
-            onRenameProduct={
-              onRenameProduct
-            }
-            onReassignFamily={
-              onReassignFamily
-            }
-            onEditPrice={
-              onEditPrice
-            }
-            onEditTracking={
-              onEditTracking
-            }
-            onManageBarcodes={
-              onManageBarcodes
-            }
-            onManageLifecycle={
-              onManageLifecycle
-            }
-          />
-
           <button
             type="button"
             onClick={
@@ -166,11 +88,7 @@ export function ProductDetailHero({
         </div>
       </div>
 
-      <div className="grid grid-cols-[44px_minmax(0,1fr)] items-center gap-3 px-4 py-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-amber-200 bg-amber-50 text-amber-700">
-          <Box className="h-5 w-5" />
-        </div>
-
+      <div className="px-4 py-3">
         <div className="min-w-0">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <h2

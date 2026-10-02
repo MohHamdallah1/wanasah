@@ -167,7 +167,7 @@ describe(
       );
       const detailActionMenu = compact(
         readSource(
-          "../pages/products/detail/ProductDetailActionsMenu.tsx",
+          "../pages/products/list/ProductRowActions.tsx",
         ),
       );
       const advanced = compact(

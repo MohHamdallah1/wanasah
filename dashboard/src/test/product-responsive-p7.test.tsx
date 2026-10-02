@@ -321,12 +321,18 @@ describe(
           item={product}
           pricingVisible
           canEditPrice
+          canRenameProduct={false}
           canEditTracking
           canReassignFamily={false}
+          canManageBarcodes={false}
+          canManageLifecycle={false}
           onOpenDetails={vi.fn()}
+          onRenameProduct={vi.fn()}
           onEditPrice={vi.fn()}
           onEditTracking={vi.fn()}
           onReassignFamily={vi.fn()}
+          onManageBarcodes={vi.fn()}
+          onManageLifecycle={vi.fn()}
         />,
       );
 
@@ -354,7 +360,7 @@ describe(
           "button",
           {
             name:
-              "LONG_TRANSLATED_LABEL_products.columns.action_ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+              "LONG_TRANSLATED_LABEL_products.details.actions_ABCDEFGHIJKLMNOPQRSTUVWXYZ",
           },
         ),
       ).toBeInTheDocument();
