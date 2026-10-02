@@ -13,6 +13,46 @@ import type {
   PriceFieldError,
 } from "@/pages/products/pricing/types";
 
+export const compactEditableMoney = (
+  value: string | null,
+): string => {
+  if (value === null) {
+    return "";
+  }
+
+  const trimmed = value.trim();
+  const match =
+    /^(\d+)(?:\.(\d+))?$/.exec(
+      trimmed,
+    );
+
+  if (!match) {
+    return trimmed;
+  }
+
+  const whole = match[1];
+  let fraction = match[2] ?? "";
+
+  while (
+    fraction.length > 3 &&
+    fraction.endsWith("0")
+  ) {
+    fraction = fraction.slice(
+      0,
+      -1,
+    );
+  }
+
+  fraction = fraction.padEnd(
+    3,
+    "0",
+  );
+
+  return fraction
+    ? `${whole}.${fraction}`
+    : whole;
+};
+
 export function usePriceEditState() {
   const [
     priceEdit,
@@ -50,10 +90,14 @@ export function usePriceEditState() {
     setPriceFieldError(null);
     setPriceEdit(product);
     setEditPackagePrice(
-      product.package_price ?? ""
+      compactEditableMoney(
+        product.package_price,
+      ),
     );
     setEditUnitPrice(
-      product.unit_price ?? ""
+      compactEditableMoney(
+        product.unit_price,
+      ),
     );
   };
 
