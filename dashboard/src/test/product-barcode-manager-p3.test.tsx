@@ -145,6 +145,20 @@ const barcode = (
   version: 1,
 });
 
+const openAdvancedBarcodeTools =
+  async () => {
+    const summary =
+      await screen.findByText(
+        "products.barcodeManager.advanced",
+      );
+    fireEvent.click(summary);
+    await waitFor(() => {
+      expect(
+        summary.closest("details"),
+      ).toHaveAttribute("open");
+    });
+  };
+
 const deferred = <T,>() => {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -431,6 +445,7 @@ describe("ProductBarcodeManager runtime behavior", () => {
       ).toBeInTheDocument();
     });
 
+    await openAdvancedBarcodeTools();
     expect(
       screen.getAllByRole(
         "button",
@@ -515,6 +530,7 @@ describe("ProductBarcodeManager runtime behavior", () => {
       />,
     );
 
+    await openAdvancedBarcodeTools();
     const input =
       await screen.findByLabelText(
         "products.barcodeManager.value",
@@ -624,6 +640,7 @@ describe("ProductBarcodeManager runtime behavior", () => {
         {...props}
       />,
     );
+    await openAdvancedBarcodeTools();
     const input =
       await screen.findByLabelText(
         "products.barcodeManager.value",
@@ -673,6 +690,7 @@ describe("ProductBarcodeManager runtime behavior", () => {
       />,
     );
 
+    await openAdvancedBarcodeTools();
     const restored =
       await screen.findByLabelText(
         "products.barcodeManager.value",
@@ -745,6 +763,7 @@ describe("ProductBarcodeManager runtime behavior", () => {
       />,
     );
 
+    await openAdvancedBarcodeTools();
     expect(
       await screen.findByText(
         "products.barcodeManager.pendingBlocked",
@@ -804,6 +823,7 @@ describe("ProductBarcodeManager runtime behavior", () => {
       />,
     );
 
+    await openAdvancedBarcodeTools();
     expect(
       await screen.findByText(
         "products.barcodeManager.pendingBlocked",
@@ -902,6 +922,7 @@ describe("ProductBarcodeManager runtime behavior", () => {
       />,
     );
 
+    await openAdvancedBarcodeTools();
     expect(
       await screen.findByText(
         "products.barcodeManager.pendingBlocked",
@@ -952,7 +973,12 @@ describe("ProductBarcodeManager runtime behavior", () => {
 
     expect(
       await screen.findByText(
-        "products.barcodeManager.sharedPackageHint",
+        "products.barcodeManager.packageSharedHint",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "products.barcodeManager.packageSharesUnit",
       ),
     ).toBeInTheDocument();
     expect(
@@ -1004,6 +1030,7 @@ describe("ProductBarcodeManager runtime behavior", () => {
       ),
     ).toBeInTheDocument();
 
+    await openAdvancedBarcodeTools();
     fireEvent.click(
       screen.getByRole(
         "button",
