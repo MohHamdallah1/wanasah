@@ -60,6 +60,9 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
     const drawer = compact(
       readSource("../pages/products/detail/ProductDetailDrawer.tsx"),
     );
+    const detailPanel = compact(
+      readSource("../pages/products/detail/ProductDetailTabPanel.tsx"),
+    );
     const actionMenu = compact(
       readSource("../pages/products/detail/ProductDetailActionsMenu.tsx"),
     );
