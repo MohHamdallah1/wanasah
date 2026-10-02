@@ -26,7 +26,6 @@ from .core import (
     maker_checker_enabled,
     money_20_6,
     next_assignment_revision,
-    next_publication_revision,
     require_aware_datetime,
     utc_now,
 )
@@ -96,6 +95,55 @@ async def _active_book(
     return row
 
 
+async def _active_book_with_next_publication_revision(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    book_id: int,
+) -> tuple[PriceBook, int]:
+    """Lock the active book and derive the tenant-global next revision in one SQL call.
+
+    The Company pricing mutex must be acquired by the caller first. That mutex
+    serializes pricing writers, so the MAX(revision)+1 snapshot remains protected
+    exactly as in the former separate query.
+    """
+    next_revision = (
+        select(func.coalesce(func.max(PricePublication.revision), 0) + 1)
+        .where(PricePublication.company_id == int(company_id))
+        .scalar_subquery()
+    )
+    result = await db.execute(
+        select(
+            PriceBook,
+            next_revision.label("next_publication_revision"),
+        )
+        .where(
+            PriceBook.company_id == int(company_id),
+            PriceBook.id == int(book_id),
+        )
+        .with_for_update(of=PriceBook)
+        .execution_options(
+            wanasah_sql_trace_label="pricing_book_lock_next_revision"
+        )
+    )
+    result_row = result.one_or_none()
+    if result_row is None:
+        raise PricingError(
+            "PRICE_BOOK_NOT_FOUND",
+            "دفتر الأسعار غير موجود.",
+            status_code=404,
+            context={"price_book_id": int(book_id)},
+        )
+    book, revision = result_row
+    if book.status != "ACTIVE":
+        raise PricingError(
+            "PRICE_BOOK_INACTIVE",
+            "دفتر الأسعار غير فعال ولا يقبل تعديلات تجارية جديدة.",
+            context={"price_book_id": int(book_id), "status": book.status},
+        )
+    return book, int(revision)
+
+
 async def create_price_book(
     db: AsyncSession,
     *,
@@ -134,8 +182,10 @@ async def _create_publication_with_locked_book(
 ) -> tuple[PricePublication, PriceBook]:
     effective_at = require_aware_datetime(effective_at, "effective_at")
     await acquire_pricing_company_lock(db, company_id)
-    book = await _active_book(
-        db, company_id=company_id, book_id=book_id, lock=True
+    book, revision = await _active_book_with_next_publication_revision(
+        db,
+        company_id=company_id,
+        book_id=book_id,
     )
     if int(book.version) != int(expected_book_version):
         raise PricingError(
@@ -143,7 +193,6 @@ async def _create_publication_with_locked_book(
             "تغير دفتر الأسعار؛ حدّث البيانات وأعد المحاولة.",
             context={"current_version": int(book.version)},
         )
-    revision = await next_publication_revision(db, company_id)
     row = PricePublication(
         company_id=int(company_id),
         price_book_id=int(book_id),
