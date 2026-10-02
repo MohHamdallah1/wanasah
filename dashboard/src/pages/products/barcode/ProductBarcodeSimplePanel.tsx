@@ -85,9 +85,28 @@ export function ProductBarcodeSimplePanel({
         }
         const previous =
           result.get(item.uom.id);
+        const itemEndedAt =
+          item.valid_to
+            ? Date.parse(
+                item.valid_to,
+              )
+            : 0;
+        const previousEndedAt =
+          previous?.valid_to
+            ? Date.parse(
+                previous.valid_to,
+              )
+            : 0;
         if (
           !previous ||
-          item.id > previous.id
+          itemEndedAt >
+            previousEndedAt ||
+          (
+            itemEndedAt ===
+              previousEndedAt &&
+            item.id >
+              previous.id
+          )
         ) {
           result.set(
             item.uom.id,
