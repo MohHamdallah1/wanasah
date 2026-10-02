@@ -37,6 +37,15 @@ describe("Products P9.4 desktop table", () => {
     expect(row).toContain(
       "canReassignFamily={",
     );
+    expect(row).toContain(
+      "canRenameProduct={",
+    );
+    expect(row).toContain(
+      "canManageBarcodes={",
+    );
+    expect(row).toContain(
+      "canManageLifecycle={",
+    );
     expect(row).not.toContain(
       'className="rounded-xl border border-slate-200 bg-white px-3 py-2',
     );
@@ -90,12 +99,21 @@ describe("Products P9.4 desktop table", () => {
       actions.match(
         /queueAfterMenuClose\(/g,
       )?.length ?? 0,
-    ).toBe(4);
+    ).toBe(7);
     expect(actions).toContain(
       '["ACTIVE", "RETIRING"]',
     );
     expect(actions).toContain(
       "onEditTracking(item)",
+    );
+    expect(actions).toContain(
+      "onRenameProduct(",
+    );
+    expect(actions).toContain(
+      "onManageBarcodes(",
+    );
+    expect(actions).toContain(
+      "onManageLifecycle(",
     );
   });
 
@@ -146,6 +164,21 @@ describe("Products P9.4 desktop table", () => {
     expect(
       results.match(
         /canReassignFamily=\{/g,
+      )?.length ?? 0,
+    ).toBeGreaterThanOrEqual(2);
+    expect(
+      results.match(
+        /canRenameProduct=\{/g,
+      )?.length ?? 0,
+    ).toBeGreaterThanOrEqual(2);
+    expect(
+      results.match(
+        /canManageBarcodes=\{/g,
+      )?.length ?? 0,
+    ).toBeGreaterThanOrEqual(2);
+    expect(
+      results.match(
+        /canManageLifecycle=\{/g,
       )?.length ?? 0,
     ).toBeGreaterThanOrEqual(2);
     expect(
