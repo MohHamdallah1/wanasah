@@ -59,7 +59,13 @@ from services import (
 from inventory_access import InventoryAccess
 
 
-IMPORT_BATCH = 100
+# 200 products keeps one bounded execution/idempotency unit while halving
+# successful publication cycles versus the historical 100-row batch.
+# A Simple Product emits at most two price entries, and Pricing persists those
+# in <=200-entry chunks inside the SAME publication; 200 products therefore
+# means at most two price-entry chunks without changing publication semantics.
+# Row failures still use the existing recursive savepoint split.
+IMPORT_BATCH = 200
 _ROW_CREATE_OPERATION = "PRODUCT_IMPORT_ROW_CREATE"
 
 
