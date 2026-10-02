@@ -333,10 +333,7 @@ export const resources = {
           tabs: {
             label: "أقسام تفاصيل المنتج",
             overview: "نظرة عامة",
-            package: "التعبئة",
-            tracking: "التتبع",
-            barcodes: "الباركود",
-            pricing: "التسعير",
+            tracking: "التتبع والباركود",
           },
           identity: "هوية المنتج",
           skuLockedPublished:
@@ -356,6 +353,7 @@ export const resources = {
             RECALL: "استدعاء",
           },
           package: "العبوة",
+          structure: "بنية المنتج",
           baseUnit: "وحدة المخزون الأساسية",
           packageConversion:
             "1 {{package}} = {{units}} {{base}}",
@@ -368,6 +366,10 @@ export const resources = {
           tracking: "التتبع",
           barcodes: "الباركود",
           pricing: "التسعير",
+          packageBarcodeRelation: "علاقة باركود العبوة",
+          packageBarcodeShared: "تستخدم العبوة باركود الوحدة نفسه.",
+          packageBarcodeSeparate: "للعبوة باركود مستقل.",
+          packageBarcodeMissing: "لا يوجد باركود مسجل للعبوة.",
           compatibility: "التوافق",
           simpleCompatible:
             "هذا المنتج متوافق مع مسار المنتجات المبسط ويمكن إدارته من هذه الصفحة.",
@@ -2069,10 +2071,7 @@ export const resources = {
           tabs: {
             label: "Product detail sections",
             overview: "Overview",
-            package: "Packaging",
-            tracking: "Tracking",
-            barcodes: "Barcodes",
-            pricing: "Pricing",
+            tracking: "Tracking & barcodes",
           },
           identity: "Product identity",
           skuLockedPublished:
@@ -2092,6 +2091,7 @@ export const resources = {
             RECALL: "Recall",
           },
           package: "Packaging",
+          structure: "Product structure",
           baseUnit: "Base stock/selling unit",
           packageConversion:
             "1 {{package}} = {{units}} {{base}}",
@@ -2104,6 +2104,10 @@ export const resources = {
           tracking: "Tracking",
           barcodes: "Barcodes",
           pricing: "Pricing",
+          packageBarcodeRelation: "Package barcode relationship",
+          packageBarcodeShared: "The package uses the same barcode as the base unit.",
+          packageBarcodeSeparate: "The package has its own barcode.",
+          packageBarcodeMissing: "No package barcode is registered.",
           compatibility: "Compatibility",
           simpleCompatible:
             "This product is compatible with the simple product workflow and can be managed from this page.",

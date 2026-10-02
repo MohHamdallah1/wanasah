@@ -45,7 +45,6 @@ const DETAIL_SECTIONS: ProductDetailSection[] =
     "package",
     "tracking",
     "barcodes",
-    "pricing",
     "compatibility",
   ];
 

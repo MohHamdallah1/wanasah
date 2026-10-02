@@ -243,6 +243,7 @@ describe(
         "product.expiry_control_mode",
         "product.unit_barcode",
         "product.package_barcode",
+        "product.package_uses_base_barcode",
         "product.lifecycle_status",
         "product.operational_hold",
         "pricingVisible",

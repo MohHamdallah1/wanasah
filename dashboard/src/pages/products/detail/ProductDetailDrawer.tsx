@@ -57,7 +57,6 @@ type Props = {
 
 export function ProductDetailDrawer({
   product,
-  pricingVisible,
   canEditPrice,
   canRenameProduct,
   canReassignFamily,
@@ -95,41 +94,17 @@ export function ProductDetailDrawer({
       () => [
         "overview",
         ...(
-          detailSections.package
-            ? ([
-                "package",
-              ] as const)
-            : []
-        ),
-        ...(
-          detailSections.tracking
-            ? ([
-                "tracking",
-              ] as const)
-            : []
-        ),
-        ...(
+          detailSections.tracking ||
           detailSections.barcodes
             ? ([
-                "barcodes",
-              ] as const)
-            : []
-        ),
-        ...(
-          pricingVisible &&
-          detailSections.pricing
-            ? ([
-                "pricing",
+                "tracking",
               ] as const)
             : []
         ),
       ],
       [
         detailSections.barcodes,
-        detailSections.package,
-        detailSections.pricing,
         detailSections.tracking,
-        pricingVisible,
       ],
     );
 
@@ -246,8 +221,17 @@ export function ProductDetailDrawer({
             product={product}
             activeTab={activeTab}
             expanded={expanded}
+            showPackage={
+              detailSections.package
+            }
             showCompatibility={
               detailSections.compatibility
+            }
+            showTracking={
+              detailSections.tracking
+            }
+            showBarcodes={
+              detailSections.barcodes
             }
           />
         </div>

@@ -212,7 +212,12 @@ export function ProductDetailHero({
             >
               ·
             </span>
-            <span className="break-all font-mono tracking-tight text-slate-400">
+            <span
+              title={t(
+                "products.details.skuLockedPublished",
+              )}
+              className="break-all font-mono tracking-tight text-slate-400"
+            >
               {product.sku}
             </span>
           </div>
