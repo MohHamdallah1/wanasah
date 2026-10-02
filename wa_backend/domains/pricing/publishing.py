@@ -314,6 +314,223 @@ class _SameTransactionDirectPublication:
                 coalesce_publication_write=True,
             )
 
+    async def publish_initial_entries(
+        self,
+        *,
+        actor_id: int,
+        expected_version: int,
+        entries: list[dict[str, Any]],
+    ) -> tuple[PricePublication, list[PriceBookEntry]]:
+        """Publish first-ever prices in one INSERT, guarded by database proof.
+
+        This path is intentionally stricter than normal publish: every Variant
+        must have no PriceBookEntry history in this PriceBook. Pricing performs
+        that proof itself; callers cannot assert or bypass it.
+        """
+        self._require_open_transaction()
+        self._consumed = True
+        if len(entries) > 200:
+            raise ValueError("Initial Pricing batch exceeds 200 entries.")
+
+        with self._db.no_autoflush:
+            if await maker_checker_enabled(self._db, self._company_id):
+                raise PricingError(
+                    "PRICING_APPROVAL_REQUIRED",
+                    "Maker/Checker مفعّل؛ يجب Submit ثم Approve.",
+                )
+
+            publication = self.publication
+            if publication.status != "DRAFT":
+                raise PricingError(
+                    "PRICE_PUBLICATION_STATE_CONFLICT",
+                    "النشر المباشر مسموح من DRAFT فقط.",
+                    context={"status": publication.status},
+                )
+            if int(publication.version) != int(expected_version):
+                raise PricingError(
+                    "PRICE_PUBLICATION_VERSION_CONFLICT",
+                    "تغيرت نسخة النشر؛ حدّث البيانات وأعد المحاولة.",
+                    context={"current_version": int(publication.version)},
+                )
+            if self._book.status != "ACTIVE":
+                raise PricingError(
+                    "PRICE_BOOK_INACTIVE",
+                    "دفتر الأسعار غير فعال ولا يقبل تعديلات تجارية جديدة.",
+                    context={
+                        "price_book_id": int(publication.price_book_id),
+                        "status": self._book.status,
+                    },
+                )
+            if publication.effective_at is None:
+                raise PricingError(
+                    "PRICE_PUBLICATION_EFFECTIVE_AT_REQUIRED",
+                    "نسخة النشر لا تحمل effective_at صالحاً.",
+                )
+            if not entries:
+                raise PricingError(
+                    "PRICE_PUBLICATION_EMPTY",
+                    "لا يمكن نشر نسخة أسعار بلا إدخالات.",
+                )
+
+            prepared: list[
+                tuple[int, int, Any, Range[datetime], int, dict[str, Any]]
+            ] = []
+            for item in entries:
+                variant_id = int(item["product_variant_id"])
+                uom_id = int(item["uom_id"])
+                effectivity = _range(
+                    item["effective_from"],
+                    item.get("effective_to"),
+                )
+                if effectivity.lower < publication.effective_at:
+                    raise PricingError(
+                        "PRICE_EFFECTIVITY_BEFORE_PUBLICATION",
+                        "بداية سعر إدخال تسبق effective_at لنسخة النشر.",
+                    )
+                prepared.append(
+                    (
+                        variant_id,
+                        uom_id,
+                        money_20_6(item["amount"]),
+                        effectivity,
+                        int(item["priority"]),
+                        dict(item.get("metadata") or {}),
+                    )
+                )
+
+            variant_ids = sorted({row[0] for row in prepared})
+            variants, mapped = await load_variant_uom_snapshot(
+                self._db,
+                company_id=self._company_id,
+                variant_ids=variant_ids,
+                stage="initial",
+            )
+            grouped: dict[
+                tuple[int, int],
+                list[tuple[int, int, Any, Range[datetime], int, dict[str, Any]]],
+            ] = {}
+            for item in prepared:
+                variant_id, uom_id, *_ = item
+                variant = variants.get(variant_id)
+                if (
+                    variant is None
+                    or variant[1] not in {"ACTIVE", "RETIRING"}
+                    or uom_id not in mapped.get(variant_id, set())
+                ):
+                    raise PricingError(
+                        "PRICE_UOM_MAPPING_UNRESOLVED",
+                        "وحدة السعر لا ترتبط بهذا الـSKU أو أن الصنف غير صالح للنشر التجاري.",
+                        context={
+                            "product_variant_id": variant_id,
+                            "uom_id": uom_id,
+                        },
+                    )
+                grouped.setdefault((variant_id, uom_id), []).append(item)
+
+            for pair, pair_rows in grouped.items():
+                ordered = sorted(pair_rows, key=lambda row: row[3].lower)
+                previous = None
+                for item in ordered:
+                    effectivity = item[3]
+                    if previous is not None and (
+                        previous.upper is None
+                        or effectivity.lower < previous.upper
+                    ):
+                        raise PricingError(
+                            "PRICE_EFFECTIVITY_CONFLICT",
+                            "نسخة النشر تحتوي فترات أسعار متداخلة لنفس SKU/UOM.",
+                            context={
+                                "product_variant_id": pair[0],
+                                "uom_id": pair[1],
+                            },
+                        )
+                    previous = effectivity
+
+            # Pricing proves freshness itself. For newly created Variant IDs this
+            # is normally empty; a caller accidentally passing an existing SKU
+            # fails closed instead of skipping historical-price handling.
+            historical_entry = await self._db.scalar(
+                select(PriceBookEntry.id)
+                .where(
+                    PriceBookEntry.company_id == self._company_id,
+                    PriceBookEntry.price_book_id == int(publication.price_book_id),
+                    PriceBookEntry.product_variant_id.in_(variant_ids),
+                )
+                .limit(1)
+                .execution_options(
+                    wanasah_sql_trace_label="pricing_initial_history_check"
+                )
+            )
+            if historical_entry is not None:
+                raise PricingError(
+                    "INITIAL_PRICE_HISTORY_EXISTS",
+                    "المسار الأولي لا يقبل SKU له تاريخ أسعار سابق.",
+                    context={"price_book_id": int(publication.price_book_id)},
+                )
+
+            now = utc_now()
+            price_rows = [
+                PriceBookEntry(
+                    company_id=self._company_id,
+                    price_book_id=int(publication.price_book_id),
+                    publication_id=int(publication.id),
+                    product_variant_id=variant_id,
+                    uom_id=uom_id,
+                    amount=amount,
+                    effectivity=effectivity,
+                    priority=priority,
+                    is_published=True,
+                    entry_metadata=metadata,
+                    # Preserve the externally visible final version from the
+                    # former DRAFT(v1) -> PUBLISHED(v2) workflow.
+                    version=2,
+                    updated_at=now,
+                )
+                for (
+                    variant_id,
+                    uom_id,
+                    amount,
+                    effectivity,
+                    priority,
+                    metadata,
+                ) in prepared
+            ]
+            self._db.add_all(price_rows)
+            publication.version += len(price_rows)
+            publication.updated_at = now
+
+            # Flush only entries first: FK/GiST remain the authoritative race
+            # guards. The publication is still private inside this transaction.
+            await self._db.flush(price_rows)
+
+            await self._db.execute(
+                update(PricePublication)
+                .where(
+                    PricePublication.company_id == self._company_id,
+                    PricePublication.price_book_id
+                    == int(publication.price_book_id),
+                    PricePublication.status == "PUBLISHED",
+                    PricePublication.id != int(publication.id),
+                )
+                .values(
+                    status="SUPERSEDED",
+                    version=PricePublication.version + 1,
+                    updated_at=now,
+                )
+                .execution_options(
+                    wanasah_sql_trace_label="pricing_supersede_publications"
+                )
+            )
+
+            publication.status = "PUBLISHED"
+            publication.approved_by = int(actor_id)
+            publication.approved_at = now
+            publication.published_at = now
+            publication.version += 1
+            publication.updated_at = now
+            await self._db.flush()
+            return publication, price_rows
+
     async def publish(
         self, *, actor_id: int, expected_version: int,
     ) -> PricePublication:
