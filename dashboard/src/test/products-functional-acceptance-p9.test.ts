@@ -160,6 +160,11 @@ describe(
           "../pages/products/detail/ProductDetailDrawer.tsx",
         ),
       );
+      const detailPanel = compact(
+        readSource(
+          "../pages/products/detail/ProductDetailTabPanel.tsx",
+        ),
+      );
       const detailActionMenu = compact(
         readSource(
           "../pages/products/detail/ProductDetailActionsMenu.tsx",
@@ -176,10 +181,10 @@ describe(
         ),
       );
 
-      expect(drawer).toContain(
+      expect(detailPanel).toContain(
         "product.base_uom_code",
       );
-      expect(drawer).toContain(
+      expect(detailPanel).toContain(
         "product.units_per_package",
       );
       expect(detailActionMenu).not.toContain(

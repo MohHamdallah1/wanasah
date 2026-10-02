@@ -107,7 +107,7 @@ describe("Products P9 package and unit structure", () => {
 
   it("shows the base unit and a plain-language package conversion in Product Details", () => {
     const drawer = source(
-      "../pages/products/detail/ProductDetailDrawer.tsx",
+      "../pages/products/detail/ProductDetailTabPanel.tsx",
     );
 
     expect(drawer).toContain(

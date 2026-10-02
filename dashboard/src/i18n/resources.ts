@@ -330,6 +330,14 @@ export const resources = {
           actions: "إجراءات المنتج",
           expand: "توسيع التفاصيل",
           compact: "تصغير التفاصيل",
+          tabs: {
+            label: "أقسام تفاصيل المنتج",
+            overview: "نظرة عامة",
+            package: "التعبئة",
+            tracking: "التتبع",
+            barcodes: "الباركود",
+            pricing: "التسعير",
+          },
           identity: "هوية المنتج",
           skuLockedPublished:
             "رمز SKU مقفل بعد النشر. يمكن تعديله فقط عندما يكون المتغير بحالة مسودة (DRAFT) من إدارة الكتالوج المتقدمة.",
@@ -2058,6 +2066,14 @@ export const resources = {
           actions: "Product actions",
           expand: "Expand details",
           compact: "Compact details",
+          tabs: {
+            label: "Product detail sections",
+            overview: "Overview",
+            package: "Packaging",
+            tracking: "Tracking",
+            barcodes: "Barcodes",
+            pricing: "Pricing",
+          },
           identity: "Product identity",
           skuLockedPublished:
             "SKU is locked after publication. It can only be edited while the variant is in DRAFT through advanced catalog management.",

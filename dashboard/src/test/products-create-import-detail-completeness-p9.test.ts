@@ -224,8 +224,13 @@ describe(
           "../pages/products/detail/ProductDetailHero.tsx",
         ),
       );
+      const panel = compact(
+        readSource(
+          "../pages/products/detail/ProductDetailTabPanel.tsx",
+        ),
+      );
       const detailSurface =
-        `${drawer} ${hero}`;
+        `${drawer} ${hero} ${panel}`;
 
       for (const evidence of [
         "product.name",
