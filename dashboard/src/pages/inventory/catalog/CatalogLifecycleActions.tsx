@@ -836,9 +836,7 @@ export function CatalogLifecycleActions({
                 <button
                   type="button"
                   disabled={
-                    busy ||
-                    !isOnline ||
-                    pendingBlocked
+                    actionsDisabled
                   }
                   onClick={() =>
                     void chooseSimpleCommand(
