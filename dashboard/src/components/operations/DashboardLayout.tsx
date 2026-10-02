@@ -1,5 +1,8 @@
 import { Menu, WifiOff } from "lucide-react";
-import { useState } from "react";
+import {
+  useEffect,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import {
   Navigate,
@@ -13,6 +16,9 @@ import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import "./dashboard.css";
 import { OperationsSidebar } from "./OperationsSidebar";
 
+const OPERATIONS_SIDEBAR_COLLAPSED_KEY =
+  "wanasah:layout:operations-sidebar-collapsed";
+
 const DashboardLayout = () => {
   const { t, i18n } =
     useTranslation();
@@ -20,12 +26,30 @@ const DashboardLayout = () => {
     sidebarOpen,
     setSidebarOpen,
   ] = useState(false);
+  const [
+    sidebarCollapsed,
+    setSidebarCollapsed,
+  ] = useState(
+    () =>
+      localStorage.getItem(
+        OPERATIONS_SIDEBAR_COLLAPSED_KEY,
+      ) === "1",
+  );
   const location =
     useLocation();
   const access =
     useInventoryAccess();
   const isOnline =
     useNetworkStatus();
+
+  useEffect(() => {
+    localStorage.setItem(
+      OPERATIONS_SIDEBAR_COLLAPSED_KEY,
+      sidebarCollapsed
+        ? "1"
+        : "0",
+    );
+  }, [sidebarCollapsed]);
 
   if (access.isPending) {
     return (
@@ -148,8 +172,14 @@ const DashboardLayout = () => {
     >
       <OperationsSidebar
         open={sidebarOpen}
+        collapsed={sidebarCollapsed}
         onClose={() =>
           setSidebarOpen(false)
+        }
+        onToggleCollapsed={() =>
+          setSidebarCollapsed(
+            (current) => !current,
+          )
         }
       />
 

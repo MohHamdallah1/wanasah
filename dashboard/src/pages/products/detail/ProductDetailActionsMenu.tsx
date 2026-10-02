@@ -108,7 +108,7 @@ export function ProductDetailActionsMenu({
 
       <DropdownMenuContent
         align="end"
-        className="w-64 rounded-xl border-slate-200 p-1.5 shadow-xl"
+        className="z-[120] w-64 rounded-xl border-slate-200 p-1.5 shadow-xl"
       >
         {canRenameProduct &&
         lifecycleEditable ? (

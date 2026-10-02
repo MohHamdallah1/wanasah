@@ -322,6 +322,44 @@ describe("products P2 read contract", () => {
     );
   });
 
+  it("keeps desktop navigation collapsible without changing route permission authority", () => {
+    const layout = normalizeWhitespace(
+      readSource(
+        "../components/operations/DashboardLayout.tsx",
+      ),
+    );
+    const sidebar = normalizeWhitespace(
+      readSource(
+        "../components/operations/OperationsSidebar.tsx",
+      ),
+    );
+
+    expect(layout).toContain(
+      '"wanasah:layout:operations-sidebar-collapsed"',
+    );
+    expect(layout).toContain(
+      "collapsed={sidebarCollapsed}",
+    );
+    expect(layout).toContain(
+      "onToggleCollapsed={",
+    );
+    expect(sidebar).toContain(
+      'collapsed ? "lg:w-[76px] lg:p-2.5" : "lg:w-[250px] lg:p-5"',
+    );
+    expect(sidebar).toContain(
+      '"nav.collapseNavigation"',
+    );
+    expect(sidebar).toContain(
+      '"nav.expandNavigation"',
+    );
+    expect(sidebar).toContain(
+      '"lg:sr-only"',
+    );
+    expect(sidebar).toContain(
+      'aria-label={ collapsed ? t(item.labelKey)',
+    );
+  });
+
   it("keeps dashboard caches tenant scoped and pricing UI permission aware", () => {
     const page = normalizeWhitespace(
       readSource(

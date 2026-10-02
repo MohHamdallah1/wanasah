@@ -3,6 +3,8 @@ import {
   BadgePercent,
   Calendar,
   ChevronDown,
+  ChevronsLeft,
+  ChevronsRight,
   FileText,
   LogOut,
   MapPin,
@@ -31,7 +33,9 @@ import { preloadProductsPage } from "@/routes/routePreloaders";
 
 interface OperationsSidebarProps {
   open: boolean;
+  collapsed: boolean;
   onClose: () => void;
+  onToggleCollapsed: () => void;
 }
 
 const navItems = [
@@ -79,7 +83,9 @@ const navItems = [
 
 export function OperationsSidebar({
   open,
+  collapsed,
   onClose,
+  onToggleCollapsed,
 }: OperationsSidebarProps) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -240,9 +246,17 @@ export function OperationsSidebar({
       ) : null}
 
       <aside
+        data-collapsed={
+          collapsed
+            ? "true"
+            : "false"
+        }
         className={`
-          operations-sidebar fixed inset-y-0 end-0 z-50 w-[250px] glass-sidebar p-5 flex flex-col transition-transform duration-300
+          operations-sidebar fixed inset-y-0 end-0 z-50 flex w-[250px] flex-col glass-sidebar p-5 transition-[transform,width,padding] duration-300
           lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:translate-x-0 lg:rounded-2xl lg:border lg:z-auto
+          ${collapsed
+            ? "lg:w-[76px] lg:p-2.5"
+            : "lg:w-[250px] lg:p-5"}
           ${
             open
               ? "translate-x-0"
@@ -251,7 +265,43 @@ export function OperationsSidebar({
         `}
       >
         <div
-          className="sidebar-profile relative mb-6"
+          className={`mb-2 hidden lg:flex ${
+            collapsed
+              ? "justify-center"
+              : "justify-end"
+          }`}
+        >
+          <button
+            type="button"
+            onClick={
+              onToggleCollapsed
+            }
+            aria-label={t(
+              collapsed
+                ? "nav.expandNavigation"
+                : "nav.collapseNavigation",
+            )}
+            title={t(
+              collapsed
+                ? "nav.expandNavigation"
+                : "nav.collapseNavigation",
+            )}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-300 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+          >
+            {collapsed ? (
+              <ChevronsLeft className="h-4 w-4" />
+            ) : (
+              <ChevronsRight className="h-4 w-4" />
+            )}
+          </button>
+        </div>
+
+        <div
+          className={`sidebar-profile relative ${
+            collapsed
+              ? "mb-4"
+              : "mb-6"
+          }`}
           ref={dropdownRef}
         >
           <button
@@ -262,7 +312,21 @@ export function OperationsSidebar({
                   !current
               )
             }
-            className="flex w-full items-center justify-between rounded-2xl border border-white/50 bg-white/40 p-2.5 shadow-sm transition-all hover:bg-white/60"
+            aria-label={
+              collapsed
+                ? adminName
+                : undefined
+            }
+            title={
+              collapsed
+                ? adminName
+                : undefined
+            }
+            className={`flex w-full items-center rounded-2xl border border-white/50 bg-white/40 p-2.5 shadow-sm transition-all hover:bg-white/60 ${
+              collapsed
+                ? "lg:justify-center lg:px-1"
+                : "justify-between"
+            }`}
           >
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-warning shadow-command">
@@ -271,7 +335,13 @@ export function OperationsSidebar({
                   strokeWidth={1.5}
                 />
               </div>
-              <div className="flex flex-col items-start">
+              <div
+                className={`flex flex-col items-start ${
+                  collapsed
+                    ? "lg:hidden"
+                    : ""
+                }`}
+              >
                 <span className="text-sm font-extrabold tracking-tight text-foreground">
                   {adminName}
                 </span>
@@ -289,6 +359,10 @@ export function OperationsSidebar({
 
             <ChevronDown
               className={`h-4 w-4 text-muted-foreground transition-transform duration-300 ${
+                collapsed
+                  ? "lg:hidden "
+                  : ""
+              }${
                 isDropdownOpen
                   ? "rotate-180"
                   : ""
@@ -297,7 +371,13 @@ export function OperationsSidebar({
           </button>
 
           {isDropdownOpen ? (
-            <div className="absolute end-0 top-full z-50 mt-2 w-full overflow-hidden rounded-xl border border-border bg-white shadow-lg animate-in fade-in slide-in-from-top-2">
+            <div
+              className={`absolute end-0 top-full z-[80] mt-2 w-full overflow-hidden rounded-xl border border-border bg-white shadow-lg animate-in fade-in slide-in-from-top-2 ${
+                collapsed
+                  ? "lg:w-64"
+                  : ""
+              }`}
+            >
               <div className="p-2">
                 <button
                   type="button"
@@ -384,7 +464,21 @@ export function OperationsSidebar({
                   data-active={
                     active
                   }
+                  aria-label={
+                    collapsed
+                      ? t(item.labelKey)
+                      : undefined
+                  }
+                  title={
+                    collapsed
+                      ? t(item.labelKey)
+                      : undefined
+                  }
                   className={`operations-nav-item flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200 ${
+                    collapsed
+                      ? "lg:justify-center lg:gap-0 lg:px-0"
+                      : ""
+                  } ${
                     active
                       ? "bg-primary/15 text-primary-foreground font-bold shadow-sm"
                       : "text-muted-foreground hover:bg-white/60 hover:text-foreground"
@@ -394,14 +488,34 @@ export function OperationsSidebar({
                     className="h-[18px] w-[18px]"
                     strokeWidth={1.5}
                   />
-                  {t(item.labelKey)}
+                  <span
+                    className={
+                      collapsed
+                        ? "lg:sr-only"
+                        : ""
+                    }
+                  >
+                    {t(item.labelKey)}
+                  </span>
                 </button>
               );
             })}
         </nav>
 
-        <div className="sidebar-context mt-auto pt-6">
-          <div className="flex flex-col gap-3 rounded-2xl border border-white/50 bg-white/40 p-4 shadow-sm backdrop-blur-md">
+        <div
+          className={`sidebar-context mt-auto ${
+            collapsed
+              ? "pt-3"
+              : "pt-6"
+          }`}
+        >
+          <div
+            className={`flex flex-col gap-3 rounded-2xl border border-white/50 bg-white/40 p-4 shadow-sm backdrop-blur-md ${
+              collapsed
+                ? "lg:hidden"
+                : ""
+            }`}
+          >
             <div className="flex items-center gap-2.5 text-sm font-bold text-slate-700">
               <div className="rounded-lg bg-primary/10 p-1.5">
                 <Calendar
@@ -424,6 +538,31 @@ export function OperationsSidebar({
               {displayLocation}
             </div>
           </div>
+
+          {collapsed ? (
+            <div className="hidden flex-col items-center gap-2 lg:flex">
+              <div
+                title={currentDate}
+                aria-label={currentDate}
+                className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-300"
+              >
+                <Calendar
+                  className="h-4 w-4"
+                  strokeWidth={2}
+                />
+              </div>
+              <div
+                title={displayLocation}
+                aria-label={displayLocation}
+                className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-amber-300"
+              >
+                <MapPin
+                  className="h-4 w-4"
+                  strokeWidth={2}
+                />
+              </div>
+            </div>
+          ) : null}
         </div>
       </aside>
     </>

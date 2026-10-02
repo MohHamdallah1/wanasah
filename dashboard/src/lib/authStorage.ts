@@ -4,6 +4,7 @@ const LAST_COMPANY_CODE_KEY =
 const PERSISTENT_LOCAL_STORAGE_PREFIXES =
   [
     "wanasah:products:display:v",
+    "wanasah:layout:",
   ] as const;
 
 export const readLastCompanyCode = (): string =>

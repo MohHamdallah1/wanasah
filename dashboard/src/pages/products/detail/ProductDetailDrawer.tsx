@@ -154,7 +154,7 @@ export function ProductDetailDrawer({
         aria-modal="true"
         aria-labelledby="product-detail-title"
         dir={i18n.dir()}
-        className={`absolute inset-y-0 end-0 flex w-full flex-col border-s border-slate-200 bg-white shadow-2xl transition-[width] duration-200 sm:max-w-none ${
+        className={`absolute inset-y-0 end-0 flex w-full flex-col overflow-hidden border-s border-slate-200 bg-white shadow-2xl transition-[width] duration-200 sm:inset-y-4 sm:end-4 sm:max-w-none sm:rounded-2xl sm:border sm:border-slate-200 ${
           expanded
             ? "sm:w-[min(60vw,860px)]"
             : "sm:w-[min(36vw,520px)]"

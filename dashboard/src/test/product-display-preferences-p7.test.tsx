@@ -287,6 +287,10 @@ describe(
         "driver_id",
         "44",
       );
+      localStorage.setItem(
+        "wanasah:layout:operations-sidebar-collapsed",
+        "1",
+      );
 
       clearLocalStoragePreservingLoginHintsAndPreferences();
 
@@ -321,6 +325,11 @@ describe(
           44,
         ),
       ).toEqual(custom);
+      expect(
+        localStorage.getItem(
+          "wanasah:layout:operations-sidebar-collapsed",
+        ),
+      ).toBe("1");
     });
 
     it("renders only selected Product columns and applies table density", () => {
