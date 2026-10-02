@@ -178,3 +178,14 @@
 - **المشتبهات القديمة لم تعد bottleneck مثبتًا:** `simple_pricing_policy_assignments` = **122ms** إجمالًا عبر 175 دفعة؛ `simple_product_family_name_resolver` = **1.867s** إجمالًا.
 - مجموع البوابات المسماة لا يساوي الزمن الكلي حرفيًا؛ يبقى جزء orchestration/validation غير موسوم كمرحلة مستقلة، فلا ننسبه لأي مكوّن بدون قياس إضافي.
 - **الدليل المحلي النهائي:** `IMPORT_PERFORMANCE_EVIDENCE_2026-10-02/before-50000.json`، `after-50000.json`، و`execution-worker.stderr.log`. لا تُرفع هذه السجلات التشغيلية الخام إلى GitHub.
+
+
+## D3 final database-health closure — 2026-10-02
+
+- [x] **D3 performance/table-health closure:** after the owner-operated 50,000-all-valid Dashboard import (50,000 IMPORTED / 0 INVALID / 0 IMPORT_FAILED; worker 241.798s), read-only PostgreSQL health checks show no destructive tuple churn or index neglect.
+- `uq_product_variants_company_id(company_id,id)`: `idx_scan=33,088,620`, `idx_tup_read=35,274,421`, `idx_tup_fetch=33,803,319`, size ≈ **10 MB**. The composite tenant-identity index is actively used.
+- Dead-tuple ratios after the runs: `product_variants=0.0000%`, `price_book_entries=0.0000%`, `product_barcodes=0.0434%`, `product_uom_conversions=0.0512%`, `products=0.0122%`, `product_import_rows=0.5524%`, `operation_idempotency=1.7133%`. The last is only ~2.3k live rows / 14 MB and had an immediate autovacuum; no table shows a bloat signal that justifies VACUUM FULL/REINDEX or index removal.
+- Autovacuum/autoanalyze ran during/immediately after the large imports on the heavy tables, including `product_variants`, `price_book_entries`, `product_barcodes`, `product_import_rows`, and `product_uom_conversions`.
+- Exact row counts at the health check: `products=32,801`, `product_variants=394,884`, `product_barcodes=490,799`, `price_book_entries=489,821`, `product_import_rows=374,431`.
+- Tenant distribution is intentionally noted for future scale work: company 38 owns **274,607 variants (69.54%)**. Tenant-prefixed indexes preserve row-selection locality, but PostgreSQL cache/WAL/autovacuum/I/O remain shared physical resources; sustained single-tenant dominance is a V2 scale concern unless it produces a measured V1 regression.
+- **Decision:** D3 is closed. No further V1 performance rewrite is justified by current evidence. Any deeper ORM/flush/index/resource optimization moves to evidence-driven V2 work.
