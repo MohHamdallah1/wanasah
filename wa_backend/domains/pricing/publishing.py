@@ -30,6 +30,7 @@ from .core import (
     utc_now,
 )
 from .validation_lookups import (
+    load_initial_variant_uom_history_snapshot,
     load_locked_publication_validation_snapshot,
     load_variant_uom_snapshot,
 )
@@ -409,12 +410,21 @@ class _SameTransactionDirectPublication:
                     )
 
                 variant_ids = sorted({row[0] for row in prepared})
-                variants, mapped = await load_variant_uom_snapshot(
-                    self._db,
-                    company_id=self._company_id,
-                    variant_ids=variant_ids,
-                    stage="initial",
+                variants, mapped, has_history = (
+                    await load_initial_variant_uom_history_snapshot(
+                        self._db,
+                        company_id=self._company_id,
+                        price_book_id=int(publication.price_book_id),
+                        publication_id=int(publication.id),
+                        variant_ids=variant_ids,
+                    )
                 )
+                if has_history:
+                    raise PricingError(
+                        "INITIAL_PRICE_HISTORY_EXISTS",
+                        "المسار الأولي لا يقبل SKU له تاريخ أسعار سابق.",
+                        context={"price_book_id": int(publication.price_book_id)},
+                    )
                 for item in prepared:
                     variant_id, uom_id, *_ = item
                     variant = variants.get(variant_id)
@@ -460,26 +470,6 @@ class _SameTransactionDirectPublication:
                             },
                         )
                     previous = effectivity
-
-            all_variant_ids = sorted({row[0] for row in prepared_all})
-            historical_entry = await self._db.scalar(
-                select(PriceBookEntry.id)
-                .where(
-                    PriceBookEntry.company_id == self._company_id,
-                    PriceBookEntry.price_book_id == int(publication.price_book_id),
-                    PriceBookEntry.product_variant_id.in_(all_variant_ids),
-                )
-                .limit(1)
-                .execution_options(
-                    wanasah_sql_trace_label="pricing_initial_history_check"
-                )
-            )
-            if historical_entry is not None:
-                raise PricingError(
-                    "INITIAL_PRICE_HISTORY_EXISTS",
-                    "المسار الأولي لا يقبل SKU له تاريخ أسعار سابق.",
-                    context={"price_book_id": int(publication.price_book_id)},
-                )
 
             now = utc_now()
             price_rows: list[PriceBookEntry] = []

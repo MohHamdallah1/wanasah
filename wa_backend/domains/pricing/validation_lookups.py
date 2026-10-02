@@ -19,7 +19,7 @@ async def load_variant_uom_snapshot(
     *,
     company_id: int,
     variant_ids: list[int],
-    stage: Literal["draft", "publish", "initial"],
+    stage: Literal["draft", "publish"],
 ) -> tuple[dict[int, tuple[int, str]], dict[int, set[int]]]:
     """Fetch operational state and allowed UOMs in one tenant-scoped SQL call.
 
@@ -30,11 +30,11 @@ async def load_variant_uom_snapshot(
     ids = sorted({int(variant_id) for variant_id in variant_ids})
     if not ids:
         return {}, {}
-    label = {
-        "draft": "pricing_draft_variant_uom",
-        "publish": "pricing_publish_variant_uom",
-        "initial": "pricing_initial_variant_uom",
-    }[stage]
+    label = (
+        "pricing_draft_variant_uom"
+        if stage == "draft"
+        else "pricing_publish_variant_uom"
+    )
     stmt = (
         select(
             ProductVariant.id.label("variant_id"),
@@ -69,6 +69,80 @@ async def load_variant_uom_snapshot(
             allowed.add(int(row.from_uom_id))
             allowed.add(int(row.to_uom_id))
     return variants, mapped
+
+async def load_initial_variant_uom_history_snapshot(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    price_book_id: int,
+    publication_id: int,
+    variant_ids: list[int],
+) -> tuple[
+    dict[int, tuple[int, str]],
+    dict[int, set[int]],
+    bool,
+]:
+    """Fetch initial-price UOM state and prior-history proof in one SQL call.
+
+    The EXISTS subquery excludes the in-flight publication so repeated 200-entry
+    chunks can safely include another UOM for the same newly priced Variant.
+    Any other PriceBookEntry in this PriceBook rejects the first-price fast path.
+    """
+    ids = sorted({int(variant_id) for variant_id in variant_ids})
+    if not ids:
+        return {}, {}, False
+
+    history_exists = (
+        select(PriceBookEntry.id)
+        .where(
+            PriceBookEntry.company_id == int(company_id),
+            PriceBookEntry.price_book_id == int(price_book_id),
+            PriceBookEntry.product_variant_id.in_(ids),
+            PriceBookEntry.publication_id != int(publication_id),
+        )
+        .exists()
+        .label("has_price_history")
+    )
+    stmt = (
+        select(
+            ProductVariant.id.label("variant_id"),
+            ProductVariant.base_uom_id,
+            ProductVariant.lifecycle_status,
+            ProductUomConversion.from_uom_id,
+            ProductUomConversion.to_uom_id,
+            history_exists,
+        )
+        .select_from(ProductVariant)
+        .outerjoin(
+            ProductUomConversion,
+            and_(
+                ProductUomConversion.company_id == ProductVariant.company_id,
+                ProductUomConversion.product_variant_id == ProductVariant.id,
+            ),
+        )
+        .where(
+            ProductVariant.company_id == int(company_id),
+            ProductVariant.id.in_(ids),
+        )
+        .execution_options(
+            wanasah_sql_trace_label="pricing_initial_variant_uom_history"
+        )
+    )
+
+    variants: dict[int, tuple[int, str]] = {}
+    mapped: dict[int, set[int]] = {}
+    has_history = False
+    for row in (await db.execute(stmt)).all():
+        has_history = bool(row.has_price_history)
+        variant_id = int(row.variant_id)
+        base_uom_id = int(row.base_uom_id)
+        variants[variant_id] = (base_uom_id, str(row.lifecycle_status))
+        allowed = mapped.setdefault(variant_id, {base_uom_id})
+        if row.from_uom_id is not None:
+            allowed.add(int(row.from_uom_id))
+            allowed.add(int(row.to_uom_id))
+    return variants, mapped, has_history
+
 
 async def load_locked_publication_validation_snapshot(
     db: AsyncSession,

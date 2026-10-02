@@ -217,9 +217,12 @@ publish-time entry/UOM validation query for product creation. The generic
 `publish_prices` path used by **existing-product price updates** is unchanged
 and still performs historical predecessor/range handling.
 
-Trace labels:
-- `pricing_initial_variant_uom`
-- `pricing_initial_history_check`
+Trace label:
+- `pricing_initial_variant_uom_history`
+
+The Variant/UOM snapshot and "no prior PriceBookEntry in this PriceBook" proof
+now share that one SQL statement; the prior separate history-check roundtrip is
+gone.
 
 No runtime speedup is claimed until a future authorized real import records it.
 
