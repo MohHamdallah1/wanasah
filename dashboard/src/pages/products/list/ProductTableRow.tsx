@@ -22,14 +22,20 @@ type Props = {
   rowNumber: number;
   pricingVisible: boolean;
   canEditPrice: boolean;
+  canRenameProduct: boolean;
   canReassignFamily: boolean;
   canEditTracking: boolean;
+  canManageBarcodes: boolean;
+  canManageLifecycle: boolean;
   columns?: Record<
     ProductDisplayColumn,
     boolean
   >;
   density?: ProductDisplayDensity;
   onOpenDetails: (
+    item: SimpleProduct,
+  ) => void;
+  onRenameProduct: (
     item: SimpleProduct,
   ) => void;
   onEditPrice: (
@@ -41,6 +47,12 @@ type Props = {
   onEditTracking: (
     item: SimpleProduct,
   ) => void;
+  onManageBarcodes: (
+    item: SimpleProduct,
+  ) => void;
+  onManageLifecycle: (
+    item: SimpleProduct,
+  ) => void;
 };
 
 export function ProductTableRow({
@@ -48,15 +60,21 @@ export function ProductTableRow({
   rowNumber,
   pricingVisible,
   canEditPrice,
+  canRenameProduct,
   canReassignFamily,
   canEditTracking,
+  canManageBarcodes,
+  canManageLifecycle,
   columns,
   density =
     DEFAULT_PRODUCT_DISPLAY_PREFERENCES.density,
   onOpenDetails,
+  onRenameProduct,
   onEditPrice,
   onReassignFamily,
   onEditTracking,
+  onManageBarcodes,
+  onManageLifecycle,
 }: Props) {
   const { t, i18n } =
     useTranslation();
@@ -241,14 +259,26 @@ export function ProductTableRow({
           canEditPrice={
             canEditPrice
           }
+          canRenameProduct={
+            canRenameProduct
+          }
           canReassignFamily={
             canReassignFamily
           }
           canEditTracking={
             canEditTracking
           }
+          canManageBarcodes={
+            canManageBarcodes
+          }
+          canManageLifecycle={
+            canManageLifecycle
+          }
           onOpenDetails={
             onOpenDetails
+          }
+          onRenameProduct={
+            onRenameProduct
           }
           onEditPrice={
             onEditPrice
@@ -258,6 +288,12 @@ export function ProductTableRow({
           }
           onEditTracking={
             onEditTracking
+          }
+          onManageBarcodes={
+            onManageBarcodes
+          }
+          onManageLifecycle={
+            onManageLifecycle
           }
         />
       </td>
