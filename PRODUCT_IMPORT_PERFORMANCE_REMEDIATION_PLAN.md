@@ -61,7 +61,7 @@
 - [x] معالجة **فجوة فهرس مؤكدة من السناب**: `price_book_entries` لا يحتوي فهرسًا يبدأ بـ `(company_id,publication_id)` في اللقطة القديمة، بينما `_validate_publication_entries` وتحديثات النشر تبحث بهما. **— كود الفهرس في PR #87، غير منفذ على DB.**
 - [x] تصميم فهرس مناسب غير جزئي للمسودات والمنشورات `(company_id,publication_id)` دون حذف فهارس حالية؛ مطابقة `models.py` مع migration وحالة schema الموجودة، ومنع اسم مكرر أو drift. **— الكود والمهاجرة اندمجا إلى `main` عبر PR #93؛ الـMigration نفسها لم تُنفذ على قاعدة البيانات بعد.**
 - [x] طريقة إنشاء آمنة لنظام يعمل: راجع `CREATE INDEX CONCURRENTLY` مع سياق Alembic وخطوات الفشل وإعادة التنفيذ وحالة الفهرس غير الصالح (INVALID). لا تنفذ migration على قاعدة المالك الآن. **— تصميم migration اندمج إلى `main` عبر PR #93، دون تشغيل.**
-- [ ] مراجعة تأثير الفهرس على الكتابة/المساحة. نقص الفهرس مشكلة نعالجها، لكن لا ندّعي أن إضافة الفهرس توفر دقائق بعينها قبل الحصول على توقيت الاستعلام الفردي.
+- [x] **مراجعة الفهرس التشغيلية أُنجزت:** طُبقت migration `a9e2c7d4f610` فعليًا، وأصبح `ix_price_book_entry_company_publication(company_id,publication_id)` `VALID/READY`. حجمه الحالي نحو **2232 kB** عند **325,288** صف سعر؛ كلفته كتابة B-tree إضافية مقبولة مقابل حصر lookup المنشور. لا ندّعي توفير دقائق قبل الاستيراد الحقيقي.
 
 ## P2 — تكرار قراءة المنتجات ووحدات البيع والتحقق منها في Pricing
 - [x] **تحسين قراءات P2 داخل كل مرحلة، PR #88:** نقل تحميل ProductVariant وProductUomConversion إلى `domains/pricing/validation_lookups.py` باستعلام tenant-scoped LEFT JOIN واحد بدل استعلامين في كل من إنشاء المسودة والتحقق وقت النشر. لا تغيير لعقود التحقق أو الأقفال، وP2 **لا تزال مفتوحة** بسبب تكرار التحقق بين المرحلتين. الكود اندمج إلى `main` ضمن PR #92، ولا توجد اختبارات أو SQL أو بيانات قياس جديدة.
@@ -139,6 +139,14 @@
 5. **#91 صلاحيات المدير:** مستقل في `inventory_access.py` و`execution_service.py`؛ لا تتغير صلاحيات غير المدير أو إلغاء المهمة.
 6. لا تسحب فرعًا قد يستبدل تغييرات المالك في `C:\Users\admin\Desktop\wanasah`؛ راجع `git status` ونسّق حماية الملفات معه أولًا.
 7. [x] في مهمة كود لا يساوي اختبار PASS ولا إغلاق المشكلة الرئيسية؛ بوابة القبول والقياس مؤجلة بإذن المالك.
+
+## جاهزية التشغيل قبل الاستيراد التالي — 2026-10-02
+
+- Alembic عند `a9e2c7d4f610 (head)`; فهرس المنشور الجديد VALID/READY.
+- لا توجد Product Import jobs في `QUEUED/PARSING/VALIDATING/IMPORTING/RETRYING`.
+- Procrastinate لا يحتوي `todo` أو `doing` حاليًا؛ الموجود تاريخي `succeeded/failed` فقط.
+- أُعيد تشغيل أدوار Product Import الثلاثة (control/maintenance/execution) من كود `origin/main` الحالي، مع رصد SQL الفردي كل 10 دفعات للاستيراد القادم.
+- ملفات الكود الـ15 التي تختلف بين checkout المحلي القديم و`origin/main` تطابق محتوى `origin/main` byte-for-byte؛ تعديلات المستخدم في جذر المشروع تُركت كما هي.
 
 ## شروط الأمان الثابتة
 - RLS + company filters + FK، سياق Actor والصلاحيات، التسعير وMaker/Checker، ترتيب أقفال الشركة، GiST/effectivity، PricePublication revisions، Audit/Outbox، DRAFT→ACTIVE وDRAFT→PUBLISHED، replay/cancel/savepoint/idempotency.
