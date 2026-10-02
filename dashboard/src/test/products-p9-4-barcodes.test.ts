@@ -21,11 +21,17 @@ describe("Products P9.4 Barcode workspace", () => {
     const manager = read(
       "../pages/products/barcode/ProductBarcodeManager.tsx",
     );
+    const advanced = read(
+      "../pages/products/barcode/ProductBarcodeAdvancedPanel.tsx",
+    );
+    const replacement = read(
+      "../pages/products/barcode/usePrimaryBarcodeReplacement.ts",
+    );
 
     expect(manager).toContain(
       "<ProductBarcodeList",
     );
-    expect(manager).toContain(
+    expect(advanced).toContain(
       "<ProductBarcodeCreatePanel",
     );
     expect(manager).toContain(
@@ -43,10 +49,10 @@ describe("Products P9.4 Barcode workspace", () => {
     expect(manager).toContain(
       '"catalog-barcode-update"',
     );
-    expect(manager).toContain(
+    expect(replacement).toContain(
       '"catalog-barcode-replace-primary-v1"',
     );
-    expect(manager).toContain(
+    expect(replacement).toContain(
       '"/barcodes/replace-primary"',
     );
     expect(manager).toContain(
@@ -90,7 +96,10 @@ describe("Products P9.4 Barcode workspace", () => {
       "<ProductBarcodeSimplePanel",
     );
     expect(manager).toContain(
-      "advancedOpen ? (",
+      "<ProductBarcodeAdvancedPanel",
+    );
+    expect(advanced).toContain(
+      "open ? (",
     );
   });
 
