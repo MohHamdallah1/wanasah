@@ -23,6 +23,13 @@ describe("Products P3 detail foundation", () => {
         "../pages/products/detail/ProductDetailDrawer.tsx",
       ),
     );
+    const detailPanel = compact(
+      readSource(
+        "../pages/products/detail/ProductDetailTabPanel.tsx",
+      ),
+    );
+    const detailSurface =
+      drawer + " " + detailPanel;
 
     expect(drawer).toContain(
       'role="dialog"',
@@ -30,31 +37,31 @@ describe("Products P3 detail foundation", () => {
     expect(drawer).toContain(
       'aria-modal="true"',
     );
-    expect(drawer).toContain(
+    expect(detailSurface).toContain(
       "product.sku",
     );
-    expect(drawer).toContain(
+    expect(detailSurface).toContain(
       "product.lifecycle_status",
     );
-    expect(drawer).toContain(
+    expect(detailSurface).toContain(
       "product.operational_hold",
     );
-    expect(drawer).toContain(
+    expect(detailSurface).toContain(
       "products.details.holdModes.",
     );
-    expect(drawer).toContain(
+    expect(detailSurface).toContain(
       "product.lot_control_mode",
     );
-    expect(drawer).toContain(
+    expect(detailSurface).toContain(
       "product.expiry_control_mode",
     );
-    expect(drawer).toContain(
+    expect(detailSurface).toContain(
       "product.unit_barcode",
     );
-    expect(drawer).toContain(
+    expect(detailSurface).toContain(
       "product.package_barcode",
     );
-    expect(drawer).toContain(
+    expect(detailSurface).toContain(
       "product.simple_compatible",
     );
   });
@@ -67,7 +74,7 @@ describe("Products P3 detail foundation", () => {
     );
 
     expect(drawer).toContain(
-      "{pricingVisible && detailSections.pricing ? (",
+      "pricingVisible && detailSections.pricing",
     );
     const actionMenu = compact(
       readSource(
@@ -491,10 +498,13 @@ describe("Products P3 detail foundation", () => {
     expect(drawer).not.toContain(
       'dir="ltr"',
     );
-    expect(drawer).toContain(
+    const detailPanel = readSource(
+      "../pages/products/detail/ProductDetailTabPanel.tsx",
+    );
+    expect(detailPanel).toContain(
       "formatLocaleMoney",
     );
-    expect(drawer).toContain(
+    expect(detailPanel).toContain(
       "formatLocaleDecimal",
     );
     expect(modal).toContain(
