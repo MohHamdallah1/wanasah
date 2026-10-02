@@ -80,7 +80,10 @@ export function Modal({
                 <X className="w-5 h-5" strokeWidth={2} />
               </button>
             </div>
-            <div className={`app-modal-body min-h-0 flex-1 overflow-y-auto ${bodyClassName}`}>
+            <div
+              tabIndex={-1}
+              className={`app-modal-body min-h-0 flex-1 overflow-y-auto ${bodyClassName}`}
+            >
               {children}
             </div>
             {footer && (
