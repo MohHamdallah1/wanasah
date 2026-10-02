@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   Archive,
+  CircleHelp,
   PauseCircle,
   PlayCircle,
   ShieldAlert,
@@ -11,6 +12,11 @@ import {
   type ArchivePreflight,
   type CatalogVariant,
 } from "@/pages/inventory/catalog/contracts";
+
+export type RecallCompletionBlocker = {
+  code: string;
+  count: number;
+};
 
 type SimpleLifecycleCommand =
   | "publish"
@@ -40,6 +46,7 @@ type Props = {
   reason: string;
   pendingActionKey: string | null;
   preflight: ArchivePreflight | null;
+  recallCompletionBlockers: RecallCompletionBlocker[];
   onChooseCommand: (
     command: SimpleLifecycleCommand,
   ) => void;
@@ -67,6 +74,7 @@ export function CatalogLifecycleSimplePanel({
   reason,
   pendingActionKey,
   preflight,
+  recallCompletionBlockers,
   onChooseCommand,
   onReasonChange,
   onConfirm,
@@ -193,6 +201,31 @@ export function CatalogLifecycleSimplePanel({
             )}
           </p>
 
+          <div className="mt-3 space-y-1.5 rounded-xl bg-slate-50 p-2.5 text-[10px] font-semibold leading-5 text-slate-600">
+            <div className="flex items-start gap-2">
+              <CircleHelp className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+              <p>
+                <strong className="font-black text-slate-800">
+                  {t("catalogLifecycle.actions.salesHold")}:
+                </strong>{" "}
+                {t(
+                  "catalogLifecycle.simple.salesHoldDifference",
+                )}
+              </p>
+            </div>
+            <div className="flex items-start gap-2">
+              <CircleHelp className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-600" />
+              <p>
+                <strong className="font-black text-slate-800">
+                  {t("catalogLifecycle.actions.recall")}:
+                </strong>{" "}
+                {t(
+                  "catalogLifecycle.simple.recallDifference",
+                )}
+              </p>
+            </div>
+          </div>
+
           <div className="mt-3 flex flex-wrap gap-2">
             {variant.operational_hold ===
               "NONE" &&
@@ -205,6 +238,9 @@ export function CatalogLifecycleSimplePanel({
             canHold ? (
               <button
                 type="button"
+                title={t(
+                  "catalogLifecycle.simple.actionHints.salesHold",
+                )}
                 disabled={actionsDisabled}
                 onClick={() =>
                   onChooseCommand(
@@ -255,6 +291,9 @@ export function CatalogLifecycleSimplePanel({
             canHold ? (
               <button
                 type="button"
+                title={t(
+                  "catalogLifecycle.simple.actionHints.recall",
+                )}
                 disabled={actionsDisabled}
                 onClick={() =>
                   onChooseCommand(
@@ -275,6 +314,9 @@ export function CatalogLifecycleSimplePanel({
             canHold ? (
               <button
                 type="button"
+                title={t(
+                  "catalogLifecycle.simple.actionHints.closeRecall",
+                )}
                 disabled={actionsDisabled}
                 onClick={() =>
                   onChooseCommand(
@@ -373,6 +415,47 @@ export function CatalogLifecycleSimplePanel({
               {t("common.cancel")}
             </button>
           </div>
+        </div>
+      ) : null}
+
+      {recallCompletionBlockers.length > 0 ? (
+        <div
+          role="alert"
+          className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-rose-950"
+        >
+          <h3 className="text-xs font-black">
+            {t(
+              "catalogLifecycle.simple.recallCompletionTitle",
+            )}
+          </h3>
+          <p className="mt-1 text-[10px] font-semibold leading-5 text-rose-800">
+            {t(
+              "catalogLifecycle.simple.recallCompletionHint",
+            )}
+          </p>
+          <ul className="mt-2 space-y-1.5 text-[11px] font-bold">
+            {recallCompletionBlockers.map(
+              (item) => (
+                <li
+                  key={item.code}
+                  className="flex items-center justify-between gap-3 rounded-lg bg-white/70 px-2.5 py-1.5"
+                >
+                  <span>
+                    {t(
+                      `catalogLifecycle.blockers.${item.code}`,
+                      {
+                        defaultValue:
+                          item.code,
+                      },
+                    )}
+                  </span>
+                  <span className="shrink-0 tabular-nums">
+                    {item.count}
+                  </span>
+                </li>
+              ),
+            )}
+          </ul>
         </div>
       ) : null}
 
