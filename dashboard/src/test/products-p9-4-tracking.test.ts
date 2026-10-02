@@ -79,6 +79,25 @@ describe("Products P9.4 tracking workspace", () => {
     );
   });
 
+  it("keeps the common path to required-or-optional and leaves NONE in advanced controls", () => {
+    const simple = read(
+      "../pages/products/tracking/ProductTrackingSimpleControls.tsx",
+    );
+
+    expect(simple).toContain(
+      'role="switch"',
+    );
+    expect(simple).toContain(
+      'required ? "OPTIONAL" : "REQUIRED"',
+    );
+    expect(simple).toContain(
+      'mode === "NONE"',
+    );
+    expect(simple).toContain(
+      "<ProductTrackingFields",
+    );
+  });
+
   it("keeps company defaults plain-language while per-product tracking retains safety guidance", () => {
     const settings = read(
       "../pages/products/tracking/ProductTrackingSettings.tsx",
