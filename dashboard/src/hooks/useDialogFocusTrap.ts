@@ -73,10 +73,20 @@ export function useDialogFocusTrap<
         return;
       }
 
-      const first =
-        focusableWithin(container)[0] ??
-        container;
-      first.focus();
+      const contentScopes =
+        container.querySelectorAll<HTMLElement>(
+          ".app-modal-body, .app-modal-footer",
+        );
+      for (const scope of contentScopes) {
+        const firstInContent =
+          focusableWithin(scope)[0];
+        if (firstInContent) {
+          firstInContent.focus();
+          return;
+        }
+      }
+
+      container.focus();
     };
 
     const frame =
