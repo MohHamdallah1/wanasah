@@ -11,7 +11,7 @@ import type {
 import type {
   ProductDraft,
 } from "@/pages/products/create/types";
-import { ProductTrackingFields } from "@/pages/products/tracking/ProductTrackingFields";
+import { ProductTrackingSimpleControls } from "@/pages/products/tracking/ProductTrackingSimpleControls";
 
 type Props = {
   draft: ProductDraft;
@@ -145,7 +145,7 @@ export function CreateProductAdvancedSection({
 
       {createAdvancedExpanded ? (
         <div className="border-t border-slate-200 bg-slate-50/60 px-4 py-4 sm:px-6">
-          <ProductTrackingFields
+          <ProductTrackingSimpleControls
             lotControlMode={
               draft.lot_control_mode
             }
