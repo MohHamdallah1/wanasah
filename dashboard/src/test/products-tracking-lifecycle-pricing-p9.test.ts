@@ -21,7 +21,7 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
       readSource("../pages/products/detail/ProductDetailTabPanel.tsx"),
     );
     const actionMenu = compact(
-      readSource("../pages/products/detail/ProductDetailActionsMenu.tsx"),
+      readSource("../pages/products/list/ProductRowActions.tsx"),
     );
     const editor = compact(
       readSource("../pages/products/tracking/ProductTrackingEditor.tsx"),
@@ -38,9 +38,9 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
     expect(mutation).toContain("PRODUCT_TRACKING_SCOPE_MISMATCH");
   });
 
-  it("keeps barcode management reachable from Product Details with durable deactivation", () => {
+  it("keeps barcode management reachable from Product row actions with durable deactivation", () => {
     const actionMenu = compact(
-      readSource("../pages/products/detail/ProductDetailActionsMenu.tsx"),
+      readSource("../pages/products/list/ProductRowActions.tsx"),
     );
     const manager = compact(
       readSource("../pages/products/barcode/ProductBarcodeManager.tsx"),
@@ -59,7 +59,7 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
       readSource("../pages/products/detail/ProductDetailHero.tsx"),
     );
     const actionMenu = compact(
-      readSource("../pages/products/detail/ProductDetailActionsMenu.tsx"),
+      readSource("../pages/products/list/ProductRowActions.tsx"),
     );
     const manager = compact(
       readSource("../pages/products/lifecycle/ProductLifecycleManager.tsx"),
@@ -89,7 +89,7 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
       readSource("../pages/products/detail/ProductDetailTabPanel.tsx"),
     );
     const actionMenu = compact(
-      readSource("../pages/products/detail/ProductDetailActionsMenu.tsx"),
+      readSource("../pages/products/list/ProductRowActions.tsx"),
     );
     const modal = compact(
       readSource("../pages/products/pricing/PriceEditModal.tsx"),
@@ -102,7 +102,7 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
     expect(capabilities).toContain('canAny("pricing.manage")');
     expect(drawer).not.toContain("detailSections.pricing");
     expect(detailPanel).not.toContain("formatLocaleMoney");
-    expect(actionMenu).toContain("canEditPrice && product.simple_compatible");
+    expect(actionMenu).toContain("canEditPrice && item.simple_compatible");
     expect(modal).toContain('"products.priceHelp"');
     expect(modal).toContain('"products.independentPrices"');
     expect(create).toContain('"products.derivedPrice"');
@@ -132,7 +132,7 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
       readSource("../pages/products/pricing/PriceEditModal.tsx"),
     );
     const actions = compact(
-      readSource("../pages/products/detail/ProductDetailActionsMenu.tsx"),
+      readSource("../pages/products/list/ProductRowActions.tsx"),
     );
 
     expect(state).toContain(
