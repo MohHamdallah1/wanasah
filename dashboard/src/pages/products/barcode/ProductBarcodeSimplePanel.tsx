@@ -1,5 +1,6 @@
 import {
   Check,
+  Copy,
   Package,
   ScanBarcode,
   X,
@@ -139,8 +140,31 @@ export function ProductBarcodeSimplePanel({
 
   const editor = (
     hintKey: string,
+    allowCopyUnitBarcode = false,
   ) => (
     <div className="mt-4">
+      {allowCopyUnitBarcode ? (
+        <div className="mb-2 flex justify-end">
+          <button
+            type="button"
+            disabled={
+              !baseCurrent?.barcode ||
+              !canMutate ||
+              busy
+            }
+            onClick={() =>
+              setDraft(
+                baseCurrent?.barcode ?? "",
+              )
+            }
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-[10px] font-black text-slate-600 transition hover:border-slate-300 hover:bg-white hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-30"
+          >
+            <Copy className="h-3.5 w-3.5" />
+            {t("products.copyBarcode")}
+          </button>
+        </div>
+      ) : null}
+
       <label className="text-[10px] font-black text-slate-600">
         {t(
           "products.barcodeManager.newValue",
@@ -281,6 +305,7 @@ export function ProductBarcodeSimplePanel({
         {editing ? (
           editor(
             "products.barcodeManager.replaceHint",
+            target === "package",
           )
         ) : (
           <div className="mt-4">
@@ -371,6 +396,7 @@ export function ProductBarcodeSimplePanel({
             "packageIndependent" ? (
               editor(
                 "products.barcodeManager.packageIndependentHint",
+                true,
               )
             ) : (
               <div className="mt-4 rounded-xl bg-amber-50 px-3 py-2.5 text-[11px] font-bold leading-5 text-amber-900 ring-1 ring-inset ring-amber-100">
