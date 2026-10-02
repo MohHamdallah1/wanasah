@@ -373,6 +373,9 @@ describe(
       const drawer = read(
         "src/pages/products/detail/ProductDetailDrawer.tsx",
       );
+      const detailPanel = read(
+        "src/pages/products/detail/ProductDetailTabPanel.tsx",
+      );
       const barcodes = read(
         "src/pages/products/barcode/ProductBarcodeList.tsx",
       );
@@ -383,7 +386,9 @@ describe(
       expect(row).toContain(
         "products.tracking.shortModes.",
       );
-      expect(drawer).toContain(
+      expect(
+        drawer + detailPanel,
+      ).toContain(
         "products.details.lifecycleModes.",
       );
       expect(barcodes).toContain(
