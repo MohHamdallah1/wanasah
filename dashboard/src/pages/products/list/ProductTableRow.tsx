@@ -253,7 +253,7 @@ export function ProductTableRow({
         </td>
       ) : null}
 
-      <td className={`${cellSpacing} w-12 text-center`}>
+      <td className={`${cellSpacing} min-w-[7.75rem] text-center`}>
         <ProductRowActions
           item={item}
           canEditPrice={
