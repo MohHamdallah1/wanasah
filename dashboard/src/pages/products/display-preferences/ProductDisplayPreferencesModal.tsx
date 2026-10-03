@@ -33,7 +33,6 @@ const COLUMNS: ProductDisplayColumn[] =
     "package",
     "unitsPerPackage",
     "tracking",
-    "lifecycle",
     "unitBarcode",
     "packageBarcode",
     "packagePrice",

@@ -338,7 +338,7 @@ describe(
         package: false,
         unitsPerPackage: false,
         tracking: false,
-        lifecycle: true,
+        lifecycle: false,
         unitBarcode: true,
         packageBarcode: false,
         packagePrice: false,
@@ -380,7 +380,7 @@ describe(
 
       expect(
         scope.getByText(
-          "products.details.lifecycleModes.ACTIVE",
+          "products.tableStatus.ACTIVE",
         ),
       ).toBeInTheDocument();
       expect(

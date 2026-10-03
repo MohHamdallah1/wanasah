@@ -41,6 +41,10 @@ from api.dependencies import get_current_driver
 from config import Config
 from database import get_db
 from domains.pricing.core import PricingError
+from domains.simple_products.catalog_summary import (
+    CatalogSummaryResponse,
+    load_catalog_summary,
+)
 from domains.simple_products.service import (
     SimpleProductError,
     SimpleProductSpec,
@@ -1360,6 +1364,15 @@ async def delete_product_family(
                 },
             },
         ) from exc
+
+
+@router.get("/summary", response_model=CatalogSummaryResponse)
+async def catalog_summary(
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require(db, actor, "catalog.read")
+    return await load_catalog_summary(db, company_id=int(actor.company_id))
 
 
 @router.get("")

@@ -101,6 +101,7 @@ export default function ProductsPage() {
   const listWorkflow =
     useProductsListWorkflow({
       companyId,
+      driverId,
       authFetch,
       canViewPricing,
       displayPreferences,
@@ -337,6 +338,7 @@ export default function ProductsPage() {
       ) : null}
 
       <ProductsListSection
+        summary={listWorkflow.section.summary}
         toolbar={
           listWorkflow.section.toolbar
         }

@@ -375,13 +375,9 @@ export function ProductsListResults({
                     )}
                   </th>
                 ) : null}
-                {columns.lifecycle ? (
-                  <th className={`${tableHeaderSpacing} text-center`}>
-                    {t(
-                      "products.columns.lifecycle",
-                    )}
-                  </th>
-                ) : null}
+                <th scope="col" className={`${tableHeaderSpacing} text-center`}>
+                  {t("products.tableStatus.column")}
+                </th>
                 {columns.unitBarcode ? (
                   <th className={`${tableHeaderSpacing} text-center`}>
                     {t(

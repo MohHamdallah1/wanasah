@@ -15,6 +15,7 @@ import type {
   SimpleProduct,
 } from "@/pages/products/contracts";
 import { ProductRowActions } from "@/pages/products/list/ProductRowActions";
+import { ProductStatusBadges } from "@/pages/products/list/ProductStatusBadges";
 
 type Props = {
   item: SimpleProduct;
@@ -138,14 +139,6 @@ export function ProductMobileCard({
           0,
         );
 
-  const lifecycleTone =
-    item.lifecycle_status === "ACTIVE"
-      ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
-      : item.lifecycle_status ===
-          "RETIRING"
-        ? "bg-amber-50 text-amber-800 ring-amber-200"
-        : "bg-slate-100 text-slate-600 ring-slate-200";
-
   const packageLabel =
     item.package_uom_code
       ? t(
@@ -236,25 +229,7 @@ export function ProductMobileCard({
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        {visibleColumns.lifecycle ? (
-          <span
-            className={`inline-flex rounded-full px-2 py-1 text-[9px] font-black ring-1 ring-inset ${lifecycleTone}`}
-          >
-            {t(
-              `products.details.lifecycleModes.${item.lifecycle_status}`,
-            )}
-          </span>
-        ) : null}
-
-        {visibleColumns.lifecycle &&
-        item.operational_hold !==
-          "NONE" ? (
-          <span className="inline-flex rounded-full bg-rose-50 px-2 py-1 text-[9px] font-black text-rose-700 ring-1 ring-inset ring-rose-200">
-            {t(
-              `products.details.holdModes.${item.operational_hold}`,
-            )}
-          </span>
-        ) : null}
+        <ProductStatusBadges item={item} />
 
         {visibleColumns.tracking ? (
           <>
