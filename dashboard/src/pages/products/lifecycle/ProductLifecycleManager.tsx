@@ -21,7 +21,6 @@ import {
 import type {
   SimpleProduct,
 } from "@/pages/products/contracts";
-import { ProductLifecycleStatusRail } from "@/pages/products/lifecycle/ProductLifecycleStatusRail";
 
 type Props = {
   product: SimpleProduct | null;
@@ -173,18 +172,18 @@ export function ProductLifecycleManager({
             product.name,
         },
       )}
-      maxWidth="max-w-3xl"
+      maxWidth="max-w-2xl"
     >
       <div className="space-y-3">
         {loading ? (
           <div
             aria-live="polite"
-            className="grid gap-2 sm:grid-cols-3"
+            className="space-y-2"
           >
-            {[0, 1, 2].map((item) => (
+            {[0, 1].map((item) => (
               <div
                 key={item}
-                className="h-14 animate-pulse rounded-xl border border-slate-200 bg-slate-50"
+                className="h-24 animate-pulse rounded-2xl border border-slate-200 bg-slate-50"
               />
             ))}
             <span className="sr-only">
@@ -222,22 +221,16 @@ export function ProductLifecycleManager({
         ) : null}
 
         {variant ? (
-          <>
-            <ProductLifecycleStatusRail
-              variant={variant}
-            />
-
-            <CatalogLifecycleActions
-              variant={variant}
-              simpleMode
-              onVariantChanged={async (
-                updated,
-              ) => {
-                setVariant(updated);
-                await onChanged();
-              }}
-            />
-          </>
+          <CatalogLifecycleActions
+            variant={variant}
+            simpleMode
+            onVariantChanged={async (
+              updated,
+            ) => {
+              setVariant(updated);
+              await onChanged();
+            }}
+          />
         ) : null}
       </div>
     </Modal>
