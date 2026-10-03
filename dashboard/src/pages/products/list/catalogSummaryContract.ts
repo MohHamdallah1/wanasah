@@ -5,6 +5,7 @@ const schema = z.object({
   schema_version: z.literal(1),
   company_id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   total: count,
+  families: count,
   available: count,
   retiring: count,
   archived: count,

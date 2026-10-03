@@ -244,6 +244,7 @@ export const resources = {
           retiring: "قيد الإيقاف",
           archived: "مؤرشف",
           sales_restricted: "قيود البيع",
+          families: "العائلات",
           error: "تعذر تحميل ملخص الكتالوج.",
         },
         columns: {
@@ -2106,6 +2107,7 @@ export const resources = {
           retiring: "Retiring",
           archived: "Archived",
           sales_restricted: "Sales restrictions",
+          families: "Families",
           error: "Could not load catalog summary.",
         },
         columns: {

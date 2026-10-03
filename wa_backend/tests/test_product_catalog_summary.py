@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 from domains.simple_products.catalog_summary import CatalogSummaryResponse, load_catalog_summary
 
 
-COUNTS = dict(total=1234, available=1000, retiring=120, archived=100, sales_restricted=14)
+COUNTS = dict(total=1234, families=82, available=1000, retiring=120, archived=100, sales_restricted=14)
 
 
 @pytest.mark.asyncio
@@ -25,11 +25,12 @@ async def test_one_tenant_aggregate_without_pagination_or_mutations():
     statement = db.execute.call_args.args[0]
     sql = str(statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
     assert "WHERE product_variants.company_id = 38" in sql
+    assert "FROM products" in sql and "products.company_id = 38" in sql
     assert "FILTER (WHERE product_variants.lifecycle_status = 'ACTIVE' AND product_variants.operational_hold = 'NONE')" in sql
     assert "FILTER (WHERE product_variants.lifecycle_status = 'RETIRING')" in sql
     assert "FILTER (WHERE product_variants.lifecycle_status = 'ARCHIVED')" in sql
     assert "FILTER (WHERE product_variants.operational_hold IN ('SALES_HOLD', 'RECALL'))" in sql
-    assert sql.count("count(*)") == 5
+    assert sql.count("count(*)") == 6
     assert all(word not in sql for word in ("JOIN", "LIMIT", "OFFSET", "UPDATE", "INSERT", "FOR UPDATE"))
 
 

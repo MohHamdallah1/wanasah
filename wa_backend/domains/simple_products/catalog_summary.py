@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import ProductVariant
+from models import Product, ProductVariant
 
 
 class CatalogSummaryResponse(BaseModel):
@@ -14,6 +14,7 @@ class CatalogSummaryResponse(BaseModel):
     schema_version: Literal[1] = 1
     company_id: int = Field(gt=0)
     total: int = Field(ge=0)
+    families: int = Field(ge=0)
     available: int = Field(ge=0)
     retiring: int = Field(ge=0)
     archived: int = Field(ge=0)
@@ -29,9 +30,16 @@ async def load_catalog_summary(
     counts; availability means exactly ACTIVE + NONE, not inventory or pricing
     readiness. The caller retains catalog.read and the existing tenant/RLS scope.
     """
+    family_count = (
+        select(func.count())
+        .select_from(Product)
+        .where(Product.company_id == company_id)
+        .scalar_subquery()
+    )
     row = (await db.execute(
         select(
             func.count().label("total"),
+            family_count.label("families"),
             func.count().filter(and_(
                 ProductVariant.lifecycle_status == "ACTIVE",
                 ProductVariant.operational_hold == "NONE",

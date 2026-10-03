@@ -15,7 +15,7 @@ import { useProductCatalogSummary } from "@/pages/products/list/useProductCatalo
 import { useProductsListWorkflow } from "@/pages/products/list/useProductsListWorkflow";
 
 const summary = {
-  schema_version: 1 as const, company_id: 38, total: 1234,
+  schema_version: 1 as const, company_id: 38, total: 1234, families: 82,
   available: 1000, retiring: 120, archived: 100, sales_restricted: 14,
 };
 const clients: QueryClient[] = [];
@@ -67,12 +67,12 @@ describe("Product status: existing lifecycle and hold dimensions", () => {
 describe("Company catalog summary contract and compact presentation", () => {
   it("accepts company-wide counts, zero catalogs and overlapping hold counts", () => {
     expect(parseCatalogSummary(summary, 38)).toEqual(summary);
-    expect(parseCatalogSummary({ ...summary, total: 0, available: 0, retiring: 0, archived: 0, sales_restricted: 0 }, 38).total).toBe(0);
+    expect(parseCatalogSummary({ ...summary, total: 0, families: 0, available: 0, retiring: 0, archived: 0, sales_restricted: 0 }, 38).total).toBe(0);
     expect(parseCatalogSummary({ ...summary, sales_restricted: 1234 }, 38).sales_restricted).toBe(1234);
   });
   it.each([
     { company_id: 39 }, { schema_version: 2 }, { total: -1 }, { total: "1234" },
-    { available: null }, { retiring: 0.5 }, { total: Number.MAX_SAFE_INTEGER + 1 },
+    { available: null }, { families: -1 }, { retiring: 0.5 }, { total: Number.MAX_SAFE_INTEGER + 1 },
     { available: 1234, retiring: 1 }, { sales_restricted: 1235 },
   ])("rejects invalid/foreign-company summary data: %j", (invalid) => {
     expect(() => parseCatalogSummary({ ...summary, ...invalid }, 38)).toThrow("SIMPLE_PRODUCT_SUMMARY_CONTRACT_INVALID");
