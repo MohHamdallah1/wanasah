@@ -13,6 +13,9 @@ import {
   type ArchivePreflight,
   type CatalogVariant,
 } from "@/pages/inventory/catalog/contracts";
+import {
+  productCommercialStatus,
+} from "@/pages/products/status/productCommercialStatus";
 
 export type RecallCompletionBlocker = {
   code: string;
@@ -65,7 +68,6 @@ type ActionItemProps = {
   hint: string;
   disabled: boolean;
   onClick: () => void;
-  title?: string;
   emphasis?: "normal" | "warning";
 };
 
@@ -75,16 +77,14 @@ function ActionItem({
   hint,
   disabled,
   onClick,
-  title,
   emphasis = "normal",
 }: ActionItemProps) {
   return (
     <button
       type="button"
-      title={title}
       disabled={disabled}
       onClick={onClick}
-      className="group grid w-full grid-cols-[2rem_minmax(0,1fr)] items-start gap-2 rounded-xl px-2 py-2 text-start transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+      className="group grid w-full grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-2 rounded-xl px-2.5 py-2 text-start transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
     >
       <span
         className={`flex h-8 w-8 items-center justify-center rounded-full ring-1 ring-inset ${
@@ -95,7 +95,7 @@ function ActionItem({
       >
         {icon}
       </span>
-      <span className="min-w-0 pt-0.5">
+      <span className="min-w-0">
         <span
           className={`block text-[11px] font-black ${
             emphasis === "warning"
@@ -109,29 +109,22 @@ function ActionItem({
           {hint}
         </span>
       </span>
+      <span
+        aria-hidden="true"
+        className="text-sm font-black text-slate-300 transition group-hover:text-slate-500"
+      >
+        ←
+      </span>
     </button>
   );
 }
 
-const productDot = (
-  status: CatalogVariant["lifecycle_status"],
-) =>
-  status === "ACTIVE"
-    ? "bg-emerald-500"
-    : status === "RETIRING"
-      ? "bg-amber-500"
-      : status === "ARCHIVED"
-        ? "bg-slate-400"
-        : "bg-sky-500";
-
-const salesDot = (
-  hold: CatalogVariant["operational_hold"],
-) =>
-  hold === "NONE"
-    ? "bg-emerald-500"
-    : hold === "SALES_HOLD"
-      ? "bg-amber-500"
-      : "bg-rose-500";
+const statusDot = {
+  good: "bg-emerald-500",
+  warning: "bg-amber-500",
+  blocked: "bg-rose-500",
+  muted: "bg-slate-400",
+} as const;
 
 export function CatalogLifecycleSimplePanel({
   variant,
@@ -157,179 +150,91 @@ export function CatalogLifecycleSimplePanel({
   onRetryPending,
 }: Props) {
   const { t } = useTranslation();
+  const commercial =
+    productCommercialStatus(variant);
+
+  const showAvailableStopOptions =
+    commercial.state === "available";
+  const showTemporaryRecovery =
+    commercial.state === "stopped" &&
+    variant.operational_hold ===
+      "SALES_HOLD";
+  const showProblemRecovery =
+    commercial.state === "stopped" &&
+    variant.operational_hold === "RECALL";
+  const showDraftActivation =
+    commercial.state === "stopped" &&
+    variant.lifecycle_status === "DRAFT" &&
+    variant.operational_hold === "NONE";
+  const showStoppedProductActions =
+    commercial.state === "stopped" &&
+    variant.lifecycle_status ===
+      "RETIRING" &&
+    variant.operational_hold === "NONE";
+  const showArchivedRecovery =
+    commercial.state === "archived";
 
   return (
     <section className="overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_18px_50px_-42px_rgba(15,23,42,0.65)]">
-      <div className="grid gap-4 px-5 py-4 md:grid-cols-[minmax(0,1fr)_15rem] md:items-center">
-        <div className="min-w-0">
-          <p className="text-[10px] font-black text-slate-400">
-            {t(
-              "catalogLifecycle.simple.productStatusTitle",
-            )}
-          </p>
-          <div className="mt-1.5 flex items-center gap-2">
-            <span
-              aria-hidden="true"
-              className={`h-2 w-2 rounded-full ${productDot(
-                variant.lifecycle_status,
-              )}`}
-            />
-            <span className="text-base font-black text-slate-950">
+      <div className="px-5 py-5">
+        <p className="text-[10px] font-black tracking-wide text-slate-400">
+          {t(
+            "products.commercialStatus.label",
+          )}
+        </p>
+
+        <div className="mt-2 flex flex-wrap items-center gap-2.5">
+          <span
+            aria-hidden="true"
+            className={`h-2.5 w-2.5 rounded-full ${statusDot[commercial.tone]}`}
+          />
+          <h3 className="text-lg font-black text-slate-950">
+            {t(commercial.stateKey)}
+          </h3>
+          {commercial.reasonKey ? (
+            <span className="text-[10px] font-bold text-slate-500">
               {t(
-                `products.details.lifecycleModes.${variant.lifecycle_status}`,
+                "products.commercialStatus.reasonLabel",
               )}
+              : {t(commercial.reasonKey)}
             </span>
-          </div>
-          <p className="mt-1 max-w-xl text-[10px] font-semibold leading-5 text-slate-500">
+          ) : null}
+        </div>
+
+        <p className="mt-2 max-w-2xl text-[10px] font-semibold leading-5 text-slate-500">
+          {t(
+            `products.commercialStatus.hints.${commercial.state}`,
+          )}
+        </p>
+
+        {commercial.reason ? (
+          <p className="mt-1 max-w-2xl text-[10px] font-semibold leading-5 text-slate-600">
             {t(
-              `catalogLifecycle.simple.lifecycleStatusHints.${variant.lifecycle_status}`,
+              `products.commercialStatus.reasonHints.${commercial.reason}`,
             )}
           </p>
-        </div>
+        ) : null}
 
-        <div className="grid gap-1 border-slate-100 md:border-s md:ps-3">
-          {variant.lifecycle_status ===
-            "DRAFT" &&
-          canPublish ? (
-            <ActionItem
-              icon={<Play className="h-3.5 w-3.5" />}
-              label={t(
-                "catalogLifecycle.actions.publish",
-              )}
-              hint={t(
-                "catalogLifecycle.simple.actionHints.publish",
-              )}
-              disabled={actionsDisabled}
-              onClick={() =>
-                onChooseCommand(
-                  "publish",
-                )
-              }
-            />
-          ) : null}
-
-          {variant.lifecycle_status ===
-            "ACTIVE" &&
-          canRetire ? (
-            <ActionItem
-              icon={<Pause className="h-3.5 w-3.5" />}
-              label={t(
-                "catalogLifecycle.actions.retire",
-              )}
-              hint={t(
-                "catalogLifecycle.simple.actionHints.retire",
-              )}
-              disabled={actionsDisabled}
-              onClick={() =>
-                onChooseCommand(
-                  "retire",
-                )
-              }
-            />
-          ) : null}
-
-          {(
-            [
-              "RETIRING",
-              "ARCHIVED",
-            ] as const
-          ).includes(
-            variant.lifecycle_status as
-              | "RETIRING"
-              | "ARCHIVED",
-          ) &&
-          canRestore ? (
-            <ActionItem
-              icon={<RotateCcw className="h-3.5 w-3.5" />}
-              label={t(
-                "catalogLifecycle.actions.restore",
-              )}
-              hint={t(
-                "catalogLifecycle.simple.actionHints.restore",
-              )}
-              disabled={actionsDisabled}
-              onClick={() =>
-                onChooseCommand(
-                  "restore",
-                )
-              }
-            />
-          ) : null}
-
-          {variant.lifecycle_status ===
-            "RETIRING" &&
-          canArchive ? (
-            <ActionItem
-              icon={<Archive className="h-3.5 w-3.5" />}
-              label={t(
-                "catalogLifecycle.actions.archive",
-              )}
-              hint={t(
-                "catalogLifecycle.simple.actionHints.archive",
-              )}
-              disabled={actionsDisabled}
-              onClick={() =>
-                onChooseCommand(
-                  "archive",
-                )
-              }
-            />
-          ) : null}
-        </div>
+        {commercial.secondaryReasonKey ? (
+          <p className="mt-2 max-w-2xl border-s-2 border-amber-300 ps-3 text-[9px] font-semibold leading-5 text-slate-500">
+            {t(
+              commercial.secondaryReasonKey,
+            )}
+          </p>
+        ) : null}
       </div>
 
-      <div className="grid gap-4 border-t border-slate-100 px-5 py-4 md:grid-cols-[minmax(0,1fr)_15rem] md:items-start">
-        <div className="min-w-0">
-          <p className="text-[10px] font-black text-slate-400">
-            {t(
-              "catalogLifecycle.simple.salesStatusTitle",
-            )}
-          </p>
-          <div className="mt-1.5 flex items-center gap-2">
-            <span
-              aria-hidden="true"
-              className={`h-2 w-2 rounded-full ${salesDot(
-                variant.operational_hold,
-              )}`}
-            />
-            <span className="text-base font-black text-slate-950">
-              {t(
-                `products.details.holdModes.${variant.operational_hold}`,
-              )}
-            </span>
-          </div>
-          <p className="mt-1 max-w-xl text-[10px] font-semibold leading-5 text-slate-500">
-            {t(
-              `catalogLifecycle.simple.salesHints.${variant.operational_hold}`,
-            )}
-          </p>
+      <div className="border-t border-slate-100 px-5 py-4">
+        <p className="mb-2 text-[10px] font-black text-slate-400">
+          {t(
+            showAvailableStopOptions
+              ? "products.commercialStatus.stopOptionsTitle"
+              : "products.commercialStatus.availableActionsTitle",
+          )}
+        </p>
 
-          {variant.operational_hold ===
-          "RECALL" ? (
-            <div className="mt-3 border-s-2 border-rose-400 ps-3">
-              <p className="text-[10px] font-black text-rose-800">
-                {t(
-                  "catalogLifecycle.simple.problemSaleStopTitle",
-                )}
-              </p>
-              <p className="mt-0.5 text-[9px] font-semibold leading-5 text-slate-600">
-                {t(
-                  "catalogLifecycle.simple.problemSaleStopHint",
-                )}
-              </p>
-            </div>
-          ) : null}
-        </div>
-
-        <div className="grid gap-1 border-slate-100 md:border-s md:ps-3">
-          {variant.operational_hold ===
-            "NONE" &&
-          [
-            "ACTIVE",
-            "RETIRING",
-          ].includes(
-            variant.lifecycle_status,
-          ) &&
+        <div className="grid gap-1 md:max-w-2xl">
+          {showAvailableStopOptions &&
           canHold ? (
             <>
               <ActionItem
@@ -338,9 +243,6 @@ export function CatalogLifecycleSimplePanel({
                   "catalogLifecycle.actions.salesHold",
                 )}
                 hint={t(
-                  "catalogLifecycle.simple.salesHoldDifference",
-                )}
-                title={t(
                   "catalogLifecycle.simple.actionHints.salesHold",
                 )}
                 disabled={actionsDisabled}
@@ -356,9 +258,6 @@ export function CatalogLifecycleSimplePanel({
                   "catalogLifecycle.actions.recall",
                 )}
                 hint={t(
-                  "catalogLifecycle.simple.recallDifference",
-                )}
-                title={t(
                   "catalogLifecycle.simple.actionHints.recall",
                 )}
                 disabled={actionsDisabled}
@@ -372,8 +271,26 @@ export function CatalogLifecycleSimplePanel({
             </>
           ) : null}
 
-          {variant.operational_hold ===
-            "SALES_HOLD" &&
+          {showAvailableStopOptions &&
+          canRetire ? (
+            <ActionItem
+              icon={<Archive className="h-3.5 w-3.5" />}
+              label={t(
+                "catalogLifecycle.actions.retire",
+              )}
+              hint={t(
+                "catalogLifecycle.simple.actionHints.retire",
+              )}
+              disabled={actionsDisabled}
+              onClick={() =>
+                onChooseCommand(
+                  "retire",
+                )
+              }
+            />
+          ) : null}
+
+          {showTemporaryRecovery &&
           canHold ? (
             <ActionItem
               icon={<Play className="h-3.5 w-3.5" />}
@@ -392,8 +309,7 @@ export function CatalogLifecycleSimplePanel({
             />
           ) : null}
 
-          {variant.operational_hold ===
-            "RECALL" &&
+          {showProblemRecovery &&
           canHold ? (
             <ActionItem
               icon={<ShieldCheck className="h-3.5 w-3.5" />}
@@ -403,13 +319,87 @@ export function CatalogLifecycleSimplePanel({
               hint={t(
                 "catalogLifecycle.simple.actionHints.closeRecall",
               )}
-              title={t(
-                "catalogLifecycle.simple.actionHints.closeRecall",
-              )}
               disabled={actionsDisabled}
               onClick={() =>
                 onChooseCommand(
                   "close-recall",
+                )
+              }
+              emphasis="warning"
+            />
+          ) : null}
+
+          {showDraftActivation &&
+          canPublish ? (
+            <ActionItem
+              icon={<Play className="h-3.5 w-3.5" />}
+              label={t(
+                "catalogLifecycle.actions.publish",
+              )}
+              hint={t(
+                "catalogLifecycle.simple.actionHints.publish",
+              )}
+              disabled={actionsDisabled}
+              onClick={() =>
+                onChooseCommand(
+                  "publish",
+                )
+              }
+            />
+          ) : null}
+
+          {showStoppedProductActions &&
+          canRestore ? (
+            <ActionItem
+              icon={<RotateCcw className="h-3.5 w-3.5" />}
+              label={t(
+                "catalogLifecycle.actions.restore",
+              )}
+              hint={t(
+                "catalogLifecycle.simple.actionHints.restore",
+              )}
+              disabled={actionsDisabled}
+              onClick={() =>
+                onChooseCommand(
+                  "restore",
+                )
+              }
+            />
+          ) : null}
+
+          {showStoppedProductActions &&
+          canArchive ? (
+            <ActionItem
+              icon={<Archive className="h-3.5 w-3.5" />}
+              label={t(
+                "catalogLifecycle.actions.archive",
+              )}
+              hint={t(
+                "catalogLifecycle.simple.actionHints.archive",
+              )}
+              disabled={actionsDisabled}
+              onClick={() =>
+                onChooseCommand(
+                  "archive",
+                )
+              }
+            />
+          ) : null}
+
+          {showArchivedRecovery &&
+          canRestore ? (
+            <ActionItem
+              icon={<RotateCcw className="h-3.5 w-3.5" />}
+              label={t(
+                "catalogLifecycle.actions.restore",
+              )}
+              hint={t(
+                "catalogLifecycle.simple.actionHints.restore",
+              )}
+              disabled={actionsDisabled}
+              onClick={() =>
+                onChooseCommand(
+                  "restore",
                 )
               }
             />
@@ -460,8 +450,7 @@ export function CatalogLifecycleSimplePanel({
                   onConfirm();
                 }
                 if (
-                  event.key ===
-                  "Escape"
+                  event.key === "Escape"
                 ) {
                   event.preventDefault();
                   onCancel();
