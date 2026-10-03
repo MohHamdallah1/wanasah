@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 from domains.simple_products.catalog_summary import CatalogSummaryResponse, load_catalog_summary
 
 
-COUNTS = dict(total=1234, families=82, available=1000, retiring=120, archived=100, sales_restricted=14)
+COUNTS = dict(total=1234, families=82, available=1000, stopped=134, archived=100)
 
 
 @pytest.mark.asyncio
@@ -20,17 +20,17 @@ async def test_one_tenant_aggregate_without_pagination_or_mutations():
     result.mappings.return_value.one.return_value = COUNTS
     db = SimpleNamespace(execute=AsyncMock(return_value=result))
     summary = await load_catalog_summary(db, company_id=38)
-    assert summary.model_dump() == dict(schema_version=1, company_id=38, **COUNTS)
+    assert summary.model_dump() == dict(schema_version=2, company_id=38, **COUNTS)
     db.execute.assert_awaited_once()
     statement = db.execute.call_args.args[0]
     sql = str(statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
     assert "WHERE product_variants.company_id = 38" in sql
     assert "FROM products" in sql and "products.company_id = 38" in sql
     assert "FILTER (WHERE product_variants.lifecycle_status = 'ACTIVE' AND product_variants.operational_hold = 'NONE')" in sql
-    assert "FILTER (WHERE product_variants.lifecycle_status = 'RETIRING')" in sql
+    assert "product_variants.lifecycle_status != 'ARCHIVED'" in sql
+    assert "product_variants.lifecycle_status != 'ACTIVE' OR product_variants.operational_hold != 'NONE'" in sql
     assert "FILTER (WHERE product_variants.lifecycle_status = 'ARCHIVED')" in sql
-    assert "FILTER (WHERE product_variants.operational_hold IN ('SALES_HOLD', 'RECALL'))" in sql
-    assert sql.count("count(*)") == 6
+    assert sql.count("count(*)") == 5
     assert all(word not in sql for word in ("JOIN", "LIMIT", "OFFSET", "UPDATE", "INSERT", "FOR UPDATE"))
 
 
@@ -40,10 +40,16 @@ async def test_empty_catalog_preserves_zero_counts():
     row_result.mappings.return_value.one.return_value = {key: 0 for key in COUNTS}
     db = SimpleNamespace(execute=AsyncMock(return_value=row_result))
     result = await load_catalog_summary(db, company_id=38)
-    assert result.total == result.available == result.sales_restricted == 0
+    assert result.total == result.available == result.stopped == result.archived == 0
 
 
-@pytest.mark.parametrize("invalid", [dict(total=-1), dict(available="5"), dict(retiring=None), dict(schema_version=2)])
+@pytest.mark.parametrize("invalid", [
+    dict(total=-1),
+    dict(available="5"),
+    dict(stopped=None),
+    dict(schema_version=1),
+    dict(total=1234, available=1000, stopped=135, archived=100),
+])
 def test_summary_contract_rejects_invalid_counts(invalid):
     with pytest.raises(ValidationError):
         CatalogSummaryResponse(company_id=38, **(dict(COUNTS, **invalid)))
