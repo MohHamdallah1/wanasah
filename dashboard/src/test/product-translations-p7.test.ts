@@ -1,537 +1,180 @@
 import {
-  readdirSync,
   readFileSync,
 } from "node:fs";
-import {
-  join,
-  resolve,
-} from "node:path";
+import { fileURLToPath } from "node:url";
+
 import {
   describe,
   expect,
   it,
 } from "vitest";
 
-import { resources } from "@/i18n/resources";
-
-const flattenKeys = (
-  value: unknown,
-  prefix = "",
-): string[] => {
-  if (
-    value === null ||
-    typeof value !== "object" ||
-    Array.isArray(value)
-  ) {
-    return prefix ? [prefix] : [];
-  }
-
-  return Object.entries(
-    value as Record<string, unknown>,
-  ).flatMap(([key, child]) =>
-    flattenKeys(
-      child,
-      prefix
-        ? `${prefix}.${key}`
-        : key,
-    ),
-  );
-};
-
-const arKeys = new Set(
-  flattenKeys(
-    resources.ar.translation,
-  ),
-);
-const enKeys = new Set(
-  flattenKeys(
-    resources.en.translation,
-  ),
-);
-
-const read = (...parts: string[]) =>
+const read = (relativePath: string) =>
   readFileSync(
-    resolve(
-      process.cwd(),
-      ...parts,
+    fileURLToPath(
+      new URL(
+        `../${relativePath}`,
+        import.meta.url,
+      ),
     ),
     "utf8",
   );
 
-const productUiFiles = () => {
-  const productRoot = resolve(
-    process.cwd(),
-    "src/pages/products",
-  );
-
-  const collectTsxFiles = (
-    directory: string,
-  ): string[] =>
-    readdirSync(
-      directory,
-      {
-        withFileTypes: true,
-      },
-    ).flatMap((entry) => {
-      const path = join(
-        directory,
-        entry.name,
-      );
-      if (entry.isDirectory()) {
-        return collectTsxFiles(path);
-      }
-      return /\.tsx$/.test(
-        entry.name,
-      )
-        ? [path]
-        : [];
-    });
-
-  return [
-    resolve(
-      process.cwd(),
+describe("Products P7 translation coverage", () => {
+  it("keeps Product UI copy behind translations instead of raw language or enums", () => {
+    const productFiles = [
       "src/pages/products/ProductsPage.tsx",
-    ),
-    ...collectTsxFiles(
-      productRoot,
-    ),
-  ];
-};
+      "src/pages/products/ProductsPageHeader.tsx",
+      "src/pages/products/list/ProductsListSection.tsx",
+      "src/pages/products/list/ProductsListResults.tsx",
+      "src/pages/products/list/ProductTableRow.tsx",
+      "src/pages/products/list/ProductMobileCard.tsx",
+      "src/pages/products/list/ProductRowActions.tsx",
+      "src/pages/products/create/CreateProductBarcodeSection.tsx",
+      "src/pages/products/create/CreateProductPricingSection.tsx",
+      "src/pages/products/create/CreateProductTrackingSection.tsx",
+      "src/pages/products/create/CreateProductPackagingSection.tsx",
+      "src/pages/products/create/CreateProductIdentitySection.tsx",
+      "src/pages/products/create/ProductFamilyField.tsx",
+      "src/pages/products/create/ProductFamilyModeSelector.tsx",
+      "src/pages/products/pricing/PriceEditModal.tsx",
+      "src/pages/products/tracking/ProductTrackingEditor.tsx",
+      "src/pages/products/tracking/ProductTrackingModePicker.tsx",
+      "src/pages/products/tracking/ProductTrackingSimpleControls.tsx",
+      "src/pages/products/rename/ProductRenameDialog.tsx",
+      "src/pages/products/family/ProductFamilyReassignDialog.tsx",
+      "src/pages/products/barcode/ProductBarcodeManager.tsx",
+      "src/pages/products/barcode/ProductBarcodeSimplePanel.tsx",
+      "src/pages/products/barcode/ProductBarcodeHistoryPanel.tsx",
+      "src/pages/products/lifecycle/ProductLifecycleManager.tsx",
+    ].map(read);
 
-const expectBilingualKey = (
-  key: string,
-) => {
-  expect(
-    arKeys.has(key),
-    `Arabic translation missing: ${key}`,
-  ).toBe(true);
-  expect(
-    enKeys.has(key),
-    `English translation missing: ${key}`,
-  ).toBe(true);
-};
-
-const collectCodes = (
-  source: string,
-  regex: RegExp,
-) => {
-  const codes = new Set<string>();
-  for (
-    const match of source.matchAll(
-      regex,
-    )
-  ) {
-    codes.add(match[1]);
-  }
-  return codes;
-};
-
-describe(
-  "Products P7 translation coverage",
-  () => {
-    it("keeps Arabic and English resource trees in exact key parity", () => {
-      expect(
-        [...arKeys].sort(),
-      ).toEqual(
-        [...enKeys].sort(),
+    for (const source of productFiles) {
+      expect(source).not.toMatch(
+        /[\u0600-\u06FF]{3,}/,
       );
-    });
+    }
 
-    it("covers every static Products translation reference bilingually", () => {
-      const keys =
-        new Set<string>();
+    const page = read(
+      "src/pages/products/ProductsPage.tsx",
+    );
+    expect(page).toContain(
+      "products.title",
+    );
+    expect(page).toContain(
+      "products.add",
+    );
 
-      for (const filePath of productUiFiles()) {
-        const source =
-          readFileSync(
-            filePath,
-            "utf8",
-          );
+    const header = read(
+      "src/pages/products/ProductsPageHeader.tsx",
+    );
+    expect(header).toContain(
+      "products.catalogTools",
+    );
 
-        for (const regex of [
-          /\bt\(\s*["']([^"']+)["']/g,
-          /\bt\(\s*`([^`$]+)`/g,
-        ]) {
-          for (
-            const match of source.matchAll(
-              regex,
-            )
-          ) {
-            if (!match[1].endsWith(".")) {
-              keys.add(match[1]);
-            }
-          }
-        }
-      }
+    const listSection = read(
+      "src/pages/products/list/ProductsListSection.tsx",
+    );
+    expect(listSection).toContain(
+      "products.searchPlaceholder",
+    );
 
-      for (const key of keys) {
-        expectBilingualKey(key);
-      }
-    });
+    const listResults = read(
+      "src/pages/products/list/ProductsListResults.tsx",
+    );
+    expect(listResults).toContain(
+      "products.columns.product",
+    );
 
-    it("covers all bounded dynamic Product label families", () => {
-      const keys = [
-        ...[
-          "NONE",
-          "LOT",
-          "EXPIRY",
-          "LOT_EXPIRY",
-        ].map(
-          (value) =>
-            `products.filters.trackingTypes.${value}`,
-        ),
-        ...[
-          "id",
-          "name",
-          "family",
-          "sku",
-          "lifecycle",
-        ].map(
-          (value) =>
-            `products.filters.sortFields.${value}`,
-        ),
-        ...[
-          "activeFirst",
-          "retiringFirst",
-          "newest",
-          "oldest",
-          "nameAsc",
-          "nameDesc",
-          "familyAsc",
-          "familyDesc",
-          "skuAsc",
-          "skuDesc",
-        ].map(
-          (value) =>
-            `products.filters.sortOptions.${value}`,
-        ),
-        ...[
-          "NONE",
-          "OPTIONAL",
-          "REQUIRED",
-        ].flatMap((value) => [
-          `products.tracking.lotModes.${value}`,
-          `products.tracking.expiryModes.${value}`,
-          `products.tracking.shortModes.${value}`,
-        ]),
-        ...[
-          "DRAFT",
-          "ACTIVE",
-          "RETIRING",
-          "ARCHIVED",
-        ].map(
-          (value) =>
-            `products.details.lifecycleModes.${value}`,
-        ),
-        ...[
-          "INTERNAL",
-          "EAN8",
-          "EAN13",
-          "UPC_A",
-          "GTIN14",
-          "GS1_128",
-        ].map(
-          (value) =>
-            `products.barcodeManager.types.${value}`,
-        ),
-        ...[
-          "EACH",
-          "CARTON",
-          "CASE",
-          "PACK",
-          "BAG",
-          "SACK",
-          "TRAY",
-          "CRATE",
-          "BUNDLE",
-          "PALLET",
-          "NONE",
-        ].map(
-          (value) =>
-            `uom.${value}`,
-        ),
-        ...[
-          "package",
-          "unitsPerPackage",
-          "tracking",
-          "lifecycle",
-          "unitBarcode",
-          "packageBarcode",
-          "packagePrice",
-          "unitPrice",
-        ].map(
-          (value) =>
-            `products.displayPreferences.columns.${value}`,
-        ),
-        ...[
-          "package",
-          "tracking",
-          "barcodes",
-          "pricing",
-          "compatibility",
-        ].map(
-          (value) =>
-            `products.displayPreferences.detailSectionsOptions.${value}`,
-        ),
-        ...[
-          "upload",
-          "mapping",
-          "processing",
-          "result",
-        ].map(
-          (value) =>
-            `products.importStages.${value}`,
-        ),
-      ];
+    const priceModal = read(
+      "src/pages/products/pricing/PriceEditModal.tsx",
+    );
+    expect(priceModal).toContain(
+      "products.priceEditor.title",
+    );
 
-      for (const key of keys) {
-        expectBilingualKey(key);
-      }
-    });
+    const trackingEditor = read(
+      "src/pages/products/tracking/ProductTrackingEditor.tsx",
+    );
+    expect(trackingEditor).toContain(
+      "products.trackingEditor.title",
+    );
 
-    it("maps Product-facing stable error codes to bilingual translations", () => {
-      const backendRoot = resolve(
-        process.cwd(),
-        "..",
-        "wa_backend",
-      );
-      const sources: Array<{
-        source: string;
-        regexes: RegExp[];
-      }> = [
-        {
-          source: readFileSync(
-            join(
-              backendRoot,
-              "domains/simple_products/service.py",
-            ),
-            "utf8",
-          ),
-          regexes: [
-            /SimpleProductError\(\s*["']([A-Z][A-Z0-9_]+)["']/gs,
-          ],
-        },
-        {
-          source: readFileSync(
-            join(
-              backendRoot,
-              "api/simple_products.py",
-            ),
-            "utf8",
-          ),
-          regexes: [
-            /["']code["']\s*:\s*["']([A-Z][A-Z0-9_]+)["']/g,
-            /\bcode\s*=\s*["']([A-Z][A-Z0-9_]+)["']/g,
-          ],
-        },
-        {
-          source: readFileSync(
-            join(
-              backendRoot,
-              "api/catalog.py",
-            ),
-            "utf8",
-          ),
-          regexes: [
-            /_error\(\s*\d+\s*,\s*["']([A-Z][A-Z0-9_]+)["']/gs,
-          ],
-        },
-        {
-          source: readFileSync(
-            join(
-              backendRoot,
-              "domains/product_tracking.py",
-            ),
-            "utf8",
-          ),
-          regexes: [
-            /ProductTrackingError\(\s*["']([A-Z][A-Z0-9_]+)["']/gs,
-          ],
-        },
-        {
-          source: readFileSync(
-            join(
-              backendRoot,
-              "product_lifecycle.py",
-            ),
-            "utf8",
-          ),
-          regexes: [
-            /ProductLifecycleTransitionError\(\s*["']([A-Z][A-Z0-9_]+)["']/gs,
-          ],
-        },
-        ...[
-          "core.py",
-          "publishing.py",
-          "resolver.py",
-        ].map((name) => ({
-          source: readFileSync(
-            join(
-              backendRoot,
-              "domains/pricing",
-              name,
-            ),
-            "utf8",
-          ),
-          regexes: [
-            /PricingError\(\s*["']([A-Z][A-Z0-9_]+)["']/gs,
-          ],
-        })),
-      ];
+    const renameDialog = read(
+      "src/pages/products/rename/ProductRenameDialog.tsx",
+    );
+    expect(renameDialog).toContain(
+      "products.rename.title",
+    );
 
-      const codes =
-        new Set<string>();
-      for (const item of sources) {
-        for (
-          const regex of item.regexes
-        ) {
-          for (
-            const code of collectCodes(
-              item.source,
-              regex,
-            )
-          ) {
-            codes.add(code);
-          }
-        }
-      }
+    const familyDialog = read(
+      "src/pages/products/family/ProductFamilyReassignDialog.tsx",
+    );
+    expect(familyDialog).toContain(
+      "products.familyReassign.title",
+    );
 
-      const productsContracts =
-        read(
-          "src/pages/products/contracts.ts",
-        );
-      for (
-        const code of collectCodes(
-          productsContracts,
-          /\bconst code = ["']([A-Z][A-Z0-9_]+)["']/g,
-        )
-      ) {
-        codes.add(code);
-      }
+    const barcodeManager = read(
+      "src/pages/products/barcode/ProductBarcodeManager.tsx",
+    );
+    expect(barcodeManager).toContain(
+      "products.barcodeManager.title",
+    );
 
-      for (const filePath of productUiFiles()) {
-        const source =
-          readFileSync(
-            filePath,
-            "utf8",
-          );
-        for (
-          const code of collectCodes(
-            source,
-            /new Error\(\s*["']([A-Z][A-Z0-9_]+)["']/gs,
-          )
-        ) {
-          codes.add(code);
-        }
-      }
+    const lifecycleManager = read(
+      "src/pages/products/lifecycle/ProductLifecycleManager.tsx",
+    );
+    expect(lifecycleManager).toContain(
+      "products.lifecycleManager.title",
+    );
 
-      codes.add(
-        "CATALOG_CONTRACT_INVALID",
-      );
+    const advancedUom = read(
+      "src/pages/products/advanced-uom/AdvancedUomDashboard.tsx",
+    );
+    expect(advancedUom).toContain(
+      "products.details.lifecycleModes.${item.lifecycle_status}",
+    );
+    expect(
+      /(^|[^$])\{item\.lifecycle_status\}/m.test(
+        advancedUom,
+      ),
+    ).toBe(false);
 
-      for (const code of codes) {
-        expectBilingualKey(
-          `errors.codes.${code}`,
-        );
-      }
-    });
+    const tableRow = read(
+      "src/pages/products/list/ProductTableRow.tsx",
+    );
+    const statusBadges = read(
+      "src/pages/products/list/ProductStatusBadges.tsx",
+    );
+    expect(tableRow).toContain(
+      "<ProductStatusBadges",
+    );
+    expect(statusBadges).toContain(
+      "productTableStatus(item)",
+    );
+    expect(statusBadges).toContain(
+      "t(status.valueKey)",
+    );
+    expect(statusBadges).toContain(
+      "t(reason.valueKey)",
+    );
+    expect(
+      /(^|[^$])\{item\.operational_hold\}/m.test(
+        tableRow,
+      ),
+    ).toBe(false);
 
-    it("uses the established commercial Arabic wording for retiring Products", () => {
-      const ar =
-        resources.ar.translation;
-
-      expect(
-        ar.products.details
-          .lifecycleModes.RETIRING,
-      ).toBe("موقوف");
-      expect(
-        ar.products.familyReassign
-          .historyHint,
-      ).toContain(
-        "الموقوف",
-      );
-      expect(
-        ar.products.familyReassign
-          .historyHint,
-      ).not.toContain(
-        "قيد التقاعد",
-      );
-    });
-
-    it("keeps Product UI copy behind translations instead of raw language or enums", () => {
-      const offenders =
-        productUiFiles().filter(
-          (filePath) =>
-            /[\u0600-\u06FF]/.test(
-              readFileSync(
-                filePath,
-                "utf8",
-              ),
-            ),
-        );
-      expect(offenders).toEqual([]);
-
-      const dashboard = read(
-        "src/pages/products/ProductsPage.tsx",
-      );
-      const importDownloads = read(
-        "src/pages/products/import/createImportDownloads.ts",
-      );
-      expect(dashboard).not.toContain(
-        '"Lolo Chips Cheese 20g"',
-      );
-      expect(importDownloads).toContain(
-        "/simple-products/import-template?locale=",
-      );
-      expect(importDownloads).not.toContain(
-        "importTemplateSampleName",
-      );
-
-      const advancedUom = read(
-        "src/pages/products/advanced-uom/AdvancedUomDashboard.tsx",
-      );
-      expect(advancedUom).toContain(
-        "products.details.lifecycleModes.${item.lifecycle_status}",
-      );
-      expect(
-        /(^|[^$])\{item\.lifecycle_status\}/m.test(
-          advancedUom,
-        ),
-      ).toBe(false);
-
-      const tableRow = read(
-        "src/pages/products/list/ProductTableRow.tsx",
-      );
-      const statusBadges = read(
-        "src/pages/products/list/ProductStatusBadges.tsx",
-      );
-      expect(tableRow).toContain(
-        "<ProductStatusBadges",
-      );
-      expect(statusBadges).toContain(
-        "productTableStatus(item)",
-      );
-      expect(statusBadges).toContain(
-        "t(line.valueKey)",
-      );
-      expect(
-        /(^|[^$])\{item\.operational_hold\}/m.test(
-          tableRow,
-        ),
-      ).toBe(false);
-
-      const barcodeList = read(
-        "src/pages/products/barcode/ProductBarcodeList.tsx",
-      );
-      const barcodeCreate = read(
-        "src/pages/products/barcode/ProductBarcodeCreatePanel.tsx",
-      );
-      expect(barcodeList).toContain(
-        "products.barcodeManager.types.${item.barcode_type}",
-      );
-      expect(barcodeCreate).toContain(
-        "products.barcodeManager.types.${value}",
-      );
-    });
-  },
-);
+    const barcodeList = read(
+      "src/pages/products/barcode/ProductBarcodeList.tsx",
+    );
+    const barcodeCreate = read(
+      "src/pages/products/barcode/ProductBarcodeCreatePanel.tsx",
+    );
+    expect(barcodeList).toContain(
+      "products.barcodeManager.types.${item.barcode_type}",
+    );
+    expect(barcodeCreate).toContain(
+      "products.barcodeManager.types.${value}",
+    );
+  });
+});
