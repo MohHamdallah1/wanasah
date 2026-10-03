@@ -443,18 +443,18 @@ describe(
       expect(
         ar.products.details
           .lifecycleModes.RETIRING,
-      ).toBe("┘à┘ê┘é┘ê┘ü");
+      ).toBe("موقوف");
       expect(
         ar.products.familyReassign
           .historyHint,
       ).toContain(
-        "╪º┘ä┘à┘ê┘é┘ê┘ü",
+        "الموقوف",
       );
       expect(
         ar.products.familyReassign
           .historyHint,
       ).not.toContain(
-        "┘é┘è╪» ╪º┘ä╪¬┘é╪º╪╣╪»",
+        "قيد التقاعد",
       );
     });
 
