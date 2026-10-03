@@ -16,7 +16,7 @@ const read = (relativePath: string) =>
     "utf8",
   );
 
-describe("Products fast Enter and sales-status UX", () => {
+describe("Products fast Enter and commercial-status UX", () => {
   it("keeps Enter-to-save across text-entry product actions", () => {
     const price = read(
       "../pages/products/pricing/PriceEditModal.tsx",
@@ -70,16 +70,19 @@ describe("Products fast Enter and sales-status UX", () => {
     );
   });
 
-  it("shows the operational difference between sales pause and withdrawal", () => {
+  it("keeps stop types as contextual reasons under one commercial status", () => {
     const source = read(
       "../pages/inventory/catalog/CatalogLifecycleSimplePanel.tsx",
     );
 
     expect(source).toContain(
-      "catalogLifecycle.simple.salesHoldDifference",
+      "products.commercialStatus.stopOptionsTitle",
     );
     expect(source).toContain(
-      "catalogLifecycle.simple.recallDifference",
+      "showTemporaryRecovery",
+    );
+    expect(source).toContain(
+      "showProblemRecovery",
     );
     expect(source).toContain(
       "catalogLifecycle.simple.actionHints.salesHold",
@@ -92,7 +95,7 @@ describe("Products fast Enter and sales-status UX", () => {
     );
   });
 
-  it("preserves and displays backend recall-completion blockers", () => {
+  it("preserves and displays backend issue-completion blockers", () => {
     const actions = read(
       "../pages/inventory/catalog/CatalogLifecycleActions.tsx",
     );
@@ -126,10 +129,30 @@ describe("Products fast Enter and sales-status UX", () => {
       "catalogLifecycle.blockers.",
     );
   });
-  it("keeps user-facing wording commercial", () => {
-    const resources = read("../i18n/resources.ts");
-    for (const oldTerm of ["سحب المنتج من التداول", "مسحوب من التداول", "إعادة المنتج للتداول", "Withdraw product from circulation", "Withdrawn from circulation", "Return product to circulation"]) expect(resources).not.toContain(oldTerm);
-    for (const term of ["إيقاف البيع بسبب مشكلة", "موقوف لحين المعالجة", "إعادة إتاحة البيع", "حالة المنتج", "حالة البيع"]) expect(resources).toContain(term);
-  });
 
+  it("keeps user-facing wording commercial and unified", () => {
+    const resources = read("../i18n/resources.ts");
+    for (const oldTerm of [
+      "سحب المنتج من التداول",
+      "مسحوب من التداول",
+      "إعادة المنتج للتداول",
+      "Withdraw product from circulation",
+      "Withdrawn from circulation",
+      "Return product to circulation",
+      "حالة المنتج والبيع",
+      "Product & sales status",
+    ]) {
+      expect(resources).not.toContain(oldTerm);
+    }
+    for (const term of [
+      "متاح للبيع",
+      "موقوف",
+      "مؤرشف",
+      "إيقاف مؤقت",
+      "إيقاف بسبب مشكلة",
+      "إعادة البيع",
+    ]) {
+      expect(resources).toContain(term);
+    }
+  });
 });
