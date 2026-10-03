@@ -1481,6 +1481,7 @@ class WarehouseInventoryBatchItem(BaseModel):
     production_date: Optional[date] = None
     expiry_date: Optional[date] = None
     disposition: Literal["RELEASED", "QUARANTINED", "BLOCKED", "RECALLED"]
+    disposition_revision: PositiveDbInt
     days_to_expiry: Optional[int] = None
     on_hand_quantity: NonNegativeQuantity
     reserved_quantity: NonNegativeQuantity

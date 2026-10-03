@@ -70,28 +70,34 @@ describe("Products fast Enter and commercial-status UX", () => {
     );
   });
 
-  it("keeps stop types as contextual reasons under one commercial status", () => {
+  it("separates ordinary product actions from quality-issue scope", () => {
     const source = read(
       "../pages/inventory/catalog/CatalogLifecycleSimplePanel.tsx",
     );
 
     expect(source).toContain(
-      "products.commercialStatus.stopOptionsTitle",
+      "catalogLifecycle.simple.qualityIssueTitle",
+    );
+    expect(source).toContain(
+      "catalogLifecycle.simple.issueScopeQuestion",
+    );
+    expect(source).toContain(
+      "catalogLifecycle.simple.issueScopes.batch.label",
+    );
+    expect(source).toContain(
+      "catalogLifecycle.simple.issueScopes.product.label",
+    );
+    expect(source).toContain(
+      "onManageBatchIssue();",
+    );
+    expect(source).toContain(
+      'onChooseCommand("recall")',
     );
     expect(source).toContain(
       "showTemporaryRecovery",
     );
     expect(source).toContain(
       "showProblemRecovery",
-    );
-    expect(source).toContain(
-      "catalogLifecycle.simple.actionHints.salesHold",
-    );
-    expect(source).toContain(
-      "catalogLifecycle.simple.actionHints.recall",
-    );
-    expect(source).toContain(
-      "catalogLifecycle.simple.actionHints.closeRecall",
     );
   });
 
@@ -141,15 +147,22 @@ describe("Products fast Enter and commercial-status UX", () => {
       "Return product to circulation",
       "حالة المنتج والبيع",
       "Product & sales status",
+      "قيد الأرشفة",
+      "قيد الإنهاء",
     ]) {
       expect(resources).not.toContain(oldTerm);
     }
     for (const term of [
       "متاح للبيع",
       "موقوف",
+      "خارج الاستخدام",
       "مؤرشف",
-      "إيقاف مؤقت",
-      "إيقاف بسبب مشكلة",
+      "إيقاف البيع مؤقتًا",
+      "مشكلة جودة أو سلامة",
+      "أين توجد المشكلة؟",
+      "دفعة محددة",
+      "المنتج بالكامل",
+      "استدعاء المنتج بالكامل",
       "إعادة البيع",
     ]) {
       expect(resources).toContain(term);

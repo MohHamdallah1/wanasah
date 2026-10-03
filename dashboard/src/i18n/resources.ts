@@ -16,6 +16,7 @@ export const resources = {
         refresh: "تحديث",
         edit: "تعديل",
         retry: "إعادة المحاولة",
+        back: "رجوع",
         optional: "اختياري",
         loading: "جاري التحميل...",
         saving: "جاري الحفظ...",
@@ -238,30 +239,32 @@ export const resources = {
           label: "الحالة",
           available: "متاح للبيع",
           stopped: "موقوف",
+          outOfUse: "خارج الاستخدام",
           archived: "مؤرشف",
           reasonLabel: "سبب الإيقاف",
           reasons: {
             draft: "غير مفعّل بعد",
             temporary: "إيقاف مؤقت",
             requiresAction: "يتطلب معالجة",
-            pendingArchive: "متوقف عن الاستخدام",
+            pendingArchive: "خارج الاستخدام",
           },
           hints: {
             available: "المنتج يعمل بشكل طبيعي ويمكن بيعه.",
             stopped: "المنتج غير متاح للبيع حاليًا. السبب أدناه يوضح نوع الإيقاف وما يمكن فعله.",
+            outOfUse: "قررت الشركة عدم الاستمرار بهذا المنتج. البيع والتشغيل متوقفان، والسجل محفوظ ويمكن إعادته للاستخدام أو أرشفته عندما يسمح النظام.",
             archived: "المنتج خارج التشغيل اليومي ومحفوظ بكامل تاريخه.",
           },
           reasonHints: {
             draft: "لم يتم تفعيل المنتج بعد.",
             temporary: "إيقاف قصير يمكن الرجوع عنه مباشرة.",
             requiresAction: "الإيقاف مرتبط بمشكلة يجب معالجتها قبل إعادة البيع.",
-            pendingArchive: "تم إيقاف المنتج عن الاستخدام؛ يمكنك إعادة تفعيله أو أرشفته.",
+            pendingArchive: "المنتج خارج الاستخدام، وسجله ما زال محفوظًا داخل الكتالوج.",
           },
           secondary: {
-            pendingArchive: "بعد إنهاء سبب الإيقاف الحالي سيبقى المنتج موقوفًا عن الاستخدام حتى تعيد تفعيله أو تؤرشفه.",
+            pendingArchive: "بعد إنهاء سبب الإيقاف الحالي سيبقى المنتج خارج الاستخدام حتى تختار إعادته للاستخدام أو أرشفة سجله.",
           },
-          stopOptionsTitle: "اختر نوع الإيقاف",
-          availableActionsTitle: "الإجراء المتاح",
+          stopOptionsTitle: "خيارات الإيقاف",
+          availableActionsTitle: "ماذا تريد أن تفعل؟",
         },
         summary: {
           title: "ملخص الكتالوج",
@@ -982,13 +985,13 @@ export const resources = {
           checkDeleteDraft:
             "فحص إمكانية حذف المسودة",
           deleteDraft: "حذف المسودة نهائياً",
-          retire: "إيقاف المنتج",
-          restore: "إعادة تفعيل المنتج",
+          retire: "التوقف عن استخدام المنتج",
+          restore: "إعادة المنتج للاستخدام",
           checkArchive: "التحقق من إمكانية الأرشفة",
-          archive: "أرشفة المنتج",
-          salesHold: "إيقاف مؤقت",
+          archive: "أرشفة السجل",
+          salesHold: "إيقاف البيع مؤقتًا",
           releaseSalesHold: "إعادة البيع",
-          recall: "إيقاف بسبب مشكلة",
+          recall: "استدعاء المنتج بالكامل",
           closeRecall: "إعادة البيع",
         },
         success: {
@@ -996,17 +999,17 @@ export const resources = {
           deleteDraft:
             "تم حذف مسودة المنتج.",
           retire:
-            "تم وضع المنتج في حالة الإيقاف.",
+            "أصبح المنتج خارج الاستخدام مع بقاء سجله محفوظًا.",
           restore:
-            "تمت إعادة تفعيل المنتج.",
+            "تمت إعادة المنتج للاستخدام.",
           archive:
-            "تمت أرشفة المنتج.",
+            "تمت أرشفة سجل المنتج.",
           salesHold:
             "تم إيقاف بيع المنتج مؤقتًا.",
           releaseSalesHold:
             "تم استئناف بيع المنتج.",
           recall:
-            "تم إيقاف بيع المنتج لحين معالجة المشكلة.",
+            "تم استدعاء المنتج بالكامل وإيقاف بيعه لحين المعالجة.",
           closeRecall:
             "تمت إعادة المنتج للبيع.",
         },
@@ -1016,6 +1019,23 @@ export const resources = {
             "تحكم في بقاء المنتج ضمن الكتالوج التشغيلي بدون حذف تاريخه.",
           salesStatusTitle: "حالة البيع",
           confirm: "تنفيذ الإجراء",
+          qualityIssueTitle: "مشكلة جودة أو سلامة",
+          qualityIssueHint:
+            "حدد أولًا هل المشكلة تخص دفعة بعينها أم المنتج بالكامل حتى يطبّق النظام الإجراء على النطاق الصحيح.",
+          issueScopeQuestion: "أين توجد المشكلة؟",
+          issueScopeHint:
+            "اختيار النطاق الصحيح يمنع إيقاف منتجات أو دفعات سليمة بدون حاجة.",
+          issueScopes: {
+            batch: {
+              label: "دفعة محددة",
+              hint: "افتح إدارة الدفعات واعزل أو احظر أو استدعِ الدفعة المتأثرة فقط. بقية الدفعات السليمة تبقى قابلة للبيع.",
+              unavailableHint: "هذا المنتج لا يستخدم تتبع الدفعات أو الصلاحية، لذلك لا توجد دفعة محددة يمكن إيقافها بهذا المسار.",
+            },
+            product: {
+              label: "المنتج بالكامل",
+              hint: "استخدم الاستدعاء الكامل عندما تشمل المشكلة المنتج كله، وليس دفعة واحدة فقط.",
+            },
+          },
           salesHints: {
             NONE: "يمكن بيع المنتج وتحميله بشكل طبيعي.",
             SALES_HOLD: "البيع متوقف مؤقتًا ويمكن إعادته مباشرة من هذه الشاشة.",
@@ -1051,24 +1071,24 @@ export const resources = {
           lifecycleStatusHints: {
             DRAFT: "المنتج ما زال مسودة ولم يدخل التشغيل بعد.",
             ACTIVE: "المنتج ضمن الكتالوج التشغيلي ومتاح حسب حالة البيع.",
-            RETIRING: "المنتج في طريقه للإيقاف أو الأرشفة، لكنه لم يُحذف ويمكن إعادة تفعيله.",
+            RETIRING: "المنتج خارج الاستخدام بالفعل. سجله محفوظ، ويمكن إعادته للاستخدام أو أرشفة السجل إذا سمحت الشروط.",
             ARCHIVED: "المنتج محفوظ في الأرشيف ولا يعمل تشغيليًا حاليًا.",
           },
           actionHints: {
             publish:
               "يجعل المنتج متاحًا للاستخدام التشغيلي.",
             retire:
-              "يوقف المنتج عن الاستخدام اليومي، ويمكن إعادة تفعيله أو أرشفته لاحقًا.",
+              "استخدمه عندما قررت الشركة عدم الاستمرار بهذا المنتج. يصبح خارج الاستخدام فورًا مع بقاء سجله محفوظًا.",
             restore:
-              "يعيد المنتج إلى الحالة المتاحة إذا كانت بياناته وشروطه سليمة.",
+              "يعيد المنتج للاستخدام التشغيلي إذا كانت بياناته وشروطه سليمة.",
             archive:
-              "ينقل المنتج إلى الأرشيف بعد التحقق تلقائيًا من عدم وجود مخزون أو عمليات مفتوحة تمنع ذلك.",
+              "يؤرشف سجل منتج أصبح خارج الاستخدام. الأرشفة خطوة مستقلة وليست شرطًا حتى يكون المنتج متوقفًا عن الاستخدام.",
             salesHold:
-              "إيقاف مؤقت يمكن الرجوع عنه مباشرة بدون أرشفة المنتج.",
+              "يوقف البيع مؤقتًا ويمكن الرجوع عنه مباشرة؛ مناسب لقرار إداري أو توقف قصير.",
             releaseSalesHold:
               "يعيد المنتج للبيع مباشرة بعد الإيقاف المؤقت.",
             recall:
-              "يوقف البيع بسبب مشكلة جودة أو سلامة أو سبب تشغيلي يتطلب معالجة قبل إعادة البيع.",
+              "يستدعي المنتج بالكامل عند مشكلة تشمل كل المنتج. النظام يمنع إعادة البيع حتى تزول الموانع المرتبطة به.",
             closeRecall:
               "يعيد المنتج للبيع بعد التحقق تلقائيًا من زوال الموانع المرتبطة بالمشكلة.",
           },
@@ -1289,6 +1309,46 @@ export const resources = {
         loadedBatchCount: "تم تحميل {{count}} دفعة",
         status: "الحالة",
         restrictions: "القيود والحالات",
+        issueFocusHint: "تم فتح الدفعات للمنتج «{{product}}». اختر الدفعة المتأثرة فقط ثم اضغط «إدارة حالة الدفعة».",
+        action: "الإجراء",
+        manageStatus: "إدارة حالة الدفعة",
+        disposition: {
+          title: "إدارة الدفعة {{batch}}",
+          scopeHint: "هذا الإجراء يخص هذه الدفعة على مستوى الشركة، ولا يوقف بقية دفعات المنتج.",
+          current: "حالة الدفعة الحالية",
+          choose: "ماذا تريد أن تفعل بهذه الدفعة؟",
+          reason: "سبب التغيير",
+          reasonPlaceholder: "اكتب سببًا واضحًا لهذا القرار",
+          apply: "تنفيذ الإجراء",
+          retry: "إعادة إرسال نفس الإجراء",
+          pending: "نتيجة المحاولة السابقة غير مؤكدة. تم قفل البيانات؛ أعد إرسال نفس الإجراء بدل إنشاء إجراء جديد.",
+          pendingBlocked: "تعذر قراءة الإجراء المحفوظ بأمان. تم إيقاف التعديل لحماية الدفعة من تنفيذ مكرر.",
+          noPermission: "لا يملك حسابك صلاحية تغيير حالة الدفعات.",
+          recalledTerminal: "هذه الدفعة مستدعاة نهائيًا في مسار الحالة العام. إعادة أو التخلص من الكمية الفعلية تتم عبر حركات الاستدعاء أو الإتلاف المعتمدة، وليس بإرجاع الحالة إلى متاح.",
+          success: "تم تحديث حالة الدفعة.",
+          targets: {
+            RELEASED: {
+              label: "إعادة الدفعة للبيع",
+              hint: "متاح فقط للدفعة المعزولة للفحص بعد التأكد من سلامتها.",
+            },
+            QUARANTINED: {
+              label: "عزل الدفعة للفحص",
+              hint: "يوقف بيع هذه الدفعة مؤقتًا ويمكن إعادتها للبيع بعد الفحص إذا كانت سليمة.",
+            },
+            BLOCKED: {
+              label: "حظر الدفعة",
+              hint: "يمنع استخدام الدفعة كقرار تشغيلي أقوى؛ لا تعود مباشرة إلى متاح من هذه الحالة.",
+            },
+            RECALLED: {
+              label: "استدعاء الدفعة",
+              hint: "استدعاء نهائي لهذه الدفعة ضمن مسار الحالة؛ استخدمه عندما ثبت أن الدفعة يجب سحبها من التداول.",
+            },
+          },
+          errors: {
+            required: "اختر الإجراء واكتب سبب التغيير.",
+            save: "تعذر تحديث حالة الدفعة.",
+          },
+        },
         errors: {
           products: "تعذر تحميل منتجات المستودع.",
           details: "تعذر تحميل تفاصيل الدفعات.",
@@ -1906,6 +1966,7 @@ export const resources = {
         refresh: "Refresh",
         edit: "Edit",
         retry: "Retry",
+        back: "Back",
         optional: "Optional",
         loading: "Loading...",
         saving: "Saving...",
@@ -2132,30 +2193,32 @@ export const resources = {
           label: "Status",
           available: "Available for sale",
           stopped: "Stopped",
+          outOfUse: "Out of use",
           archived: "Archived",
           reasonLabel: "Stop reason",
           reasons: {
             draft: "Not activated yet",
             temporary: "Temporary stop",
             requiresAction: "Requires resolution",
-            pendingArchive: "Stopped from use",
+            pendingArchive: "Out of use",
           },
           hints: {
             available: "The product is operating normally and can be sold.",
             stopped: "The product is not currently available for sale. The reason below explains the stop and what can be done next.",
+            outOfUse: "The company has decided not to continue using this product. Sales and operations are stopped, while its record stays preserved and can be restored or archived when allowed.",
             archived: "The product is out of daily operations and its full history is preserved.",
           },
           reasonHints: {
             draft: "The product has not been activated yet.",
             temporary: "A short stop that can be reversed directly.",
             requiresAction: "The stop is tied to an issue that must be resolved before sales resume.",
-            pendingArchive: "The product is stopped from use; it can be reactivated or archived.",
+            pendingArchive: "The product is out of use and its catalog record is still preserved.",
           },
           secondary: {
-            pendingArchive: "After resolving the current stop, the product will remain stopped from use until you reactivate or archive it.",
+            pendingArchive: "After resolving the current stop, the product will remain out of use until you choose to restore it or archive its record.",
           },
-          stopOptionsTitle: "Choose how to stop the product",
-          availableActionsTitle: "Available action",
+          stopOptionsTitle: "Stop options",
+          availableActionsTitle: "What do you want to do?",
         },
         summary: {
           title: "Catalog summary",
@@ -2877,13 +2940,13 @@ export const resources = {
             "Check draft deletion",
           deleteDraft:
             "Permanently delete draft",
-          retire: "Stop product",
-          restore: "Reactivate product",
+          retire: "Stop using product",
+          restore: "Return product to use",
           checkArchive: "Check archive readiness",
-          archive: "Archive product",
-          salesHold: "Temporary stop",
+          archive: "Archive record",
+          salesHold: "Pause sales temporarily",
           releaseSalesHold: "Resume sales",
-          recall: "Stop for an issue",
+          recall: "Recall the whole product",
           closeRecall: "Resume sales",
         },
         success: {
@@ -2891,17 +2954,17 @@ export const resources = {
           deleteDraft:
             "Draft product deleted.",
           retire:
-            "Product moved to discontinued status.",
+            "The product is now out of use while its record remains preserved.",
           restore:
-            "Product reactivated.",
+            "Product returned to use.",
           archive:
-            "Product archived.",
+            "Product record archived.",
           salesHold:
             "Product sales temporarily paused.",
           releaseSalesHold:
             "Product sales resumed.",
           recall:
-            "Product sales paused pending issue resolution.",
+            "The whole product was recalled and sales are paused pending resolution.",
           closeRecall:
             "Product returned to sale.",
         },
@@ -2911,6 +2974,23 @@ export const resources = {
             "Control whether the product remains in the operational catalog without deleting its history.",
           salesStatusTitle: "Sales status",
           confirm: "Apply change",
+          qualityIssueTitle: "Quality or safety issue",
+          qualityIssueHint:
+            "First choose whether the issue affects one batch or the whole product so the system applies the action to the correct scope.",
+          issueScopeQuestion: "Where is the issue?",
+          issueScopeHint:
+            "Choosing the correct scope avoids stopping healthy products or batches unnecessarily.",
+          issueScopes: {
+            batch: {
+              label: "A specific batch",
+              hint: "Open batch management and quarantine, block, or recall only the affected batch. Other healthy batches can remain sellable.",
+              unavailableHint: "This product does not use batch or expiry tracking, so there is no specific batch to stop through this flow.",
+            },
+            product: {
+              label: "The whole product",
+              hint: "Use the full product recall when the issue affects the product as a whole, not just one batch.",
+            },
+          },
           salesHints: {
             NONE: "The product can be sold and loaded normally.",
             SALES_HOLD: "Sales are temporarily paused and can be restored directly from this screen.",
@@ -2946,24 +3026,24 @@ export const resources = {
           lifecycleStatusHints: {
             DRAFT: "The product is still a draft and has not entered operations.",
             ACTIVE: "The product is in the operational catalog and availability depends on its sales status.",
-            RETIRING: "The product is being discontinued or prepared for archive; it is not deleted and can be reactivated.",
+            RETIRING: "The product is already out of use. Its record is preserved and can be returned to use or archived when conditions allow.",
             ARCHIVED: "The product is retained in history and is not operationally active.",
           },
           actionHints: {
             publish:
               "Makes the product available for normal operations.",
             retire:
-              "Stops the product from daily use while preserving its history; it can be reactivated or archived later.",
+              "Use this when the company has decided not to continue using the product. It becomes out of use immediately while its record remains preserved.",
             restore:
-              "Returns the product to available status when its data and conditions are valid.",
+              "Returns the product to operational use when its data and conditions are valid.",
             archive:
-              "Moves the product to the archive after automatically checking that no stock or open operations block it.",
+              "Archives the record of a product that is already out of use. Archiving is a separate record step, not a requirement for stopping product use.",
             salesHold:
-              "A temporary stop that can be reversed directly without archiving the product.",
+              "Pauses sales temporarily and can be reversed directly; use it for a short administrative or operational pause.",
             releaseSalesHold:
               "Returns the product to sale after a temporary stop.",
             recall:
-              "Stops the product because of a quality, safety, or operational issue that must be resolved before sales resume.",
+              "Recalls the whole product when the issue affects all of it. Sales stay blocked until the related blockers are resolved.",
             closeRecall:
               "Returns the product to sale after the system verifies that no blocking stock or open operations remain.",
           },
@@ -3184,6 +3264,46 @@ export const resources = {
         loadedBatchCount: "{{count}} batches loaded",
         status: "Status",
         restrictions: "Restrictions & states",
+        issueFocusHint: "Batches opened for “{{product}}”. Choose only the affected batch, then select “Manage batch status”.",
+        action: "Action",
+        manageStatus: "Manage batch status",
+        disposition: {
+          title: "Manage batch {{batch}}",
+          scopeHint: "This action applies to this batch company-wide and does not stop the product's other batches.",
+          current: "Current batch status",
+          choose: "What do you want to do with this batch?",
+          reason: "Reason for change",
+          reasonPlaceholder: "Enter a clear reason for this decision",
+          apply: "Apply action",
+          retry: "Retry the same action",
+          pending: "The previous attempt has an unknown outcome. The data is locked; retry the same action instead of creating a different one.",
+          pendingBlocked: "The saved action could not be read safely. Changes are blocked to protect the batch from duplicate execution.",
+          noPermission: "Your account does not have permission to change batch status.",
+          recalledTerminal: "This batch is terminally recalled in the general disposition flow. Physical return or disposal uses the approved recall-return or disposal movement workflows, not a transition back to available.",
+          success: "Batch status updated.",
+          targets: {
+            RELEASED: {
+              label: "Return batch to sale",
+              hint: "Available only for a quarantined batch after it has been confirmed safe.",
+            },
+            QUARANTINED: {
+              label: "Quarantine batch for inspection",
+              hint: "Temporarily stops this batch from sale and allows it to be released again after inspection if safe.",
+            },
+            BLOCKED: {
+              label: "Block batch",
+              hint: "Applies a stronger operational block; this state cannot be returned directly to available.",
+            },
+            RECALLED: {
+              label: "Recall batch",
+              hint: "Terminally recalls this batch in the disposition flow; use it when the batch must be withdrawn from circulation.",
+            },
+          },
+          errors: {
+            required: "Choose an action and enter the reason for the change.",
+            save: "Could not update batch status.",
+          },
+        },
         errors: {
           products: "Could not load warehouse products.",
           details: "Could not load batch details.",

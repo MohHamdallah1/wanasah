@@ -42,7 +42,7 @@ describe("Product status: one commercial state over the internal state machine",
     ["ACTIVE", "NONE", "available", null],
     ["ACTIVE", "SALES_HOLD", "stopped", "temporary"],
     ["ACTIVE", "RECALL", "stopped", "requiresAction"],
-    ["RETIRING", "NONE", "stopped", "pendingArchive"],
+    ["RETIRING", "NONE", "stopped", null],
     ["RETIRING", "SALES_HOLD", "stopped", "temporary"],
     ["RETIRING", "RECALL", "stopped", "requiresAction"],
     ["ARCHIVED", "NONE", "archived", null],
@@ -51,6 +51,14 @@ describe("Product status: one commercial state over the internal state machine",
     const status = productCommercialStatus({ lifecycle_status, operational_hold });
     expect(status.state).toBe(state);
     expect(status.reason).toBe(reason);
+  });
+
+  it("presents RETIRING as an already-complete out-of-use business state", () => {
+    const status = productCommercialStatus({ lifecycle_status: "RETIRING", operational_hold: "NONE" });
+    expect(status.state).toBe("stopped");
+    expect(status.stateKey).toBe("products.commercialStatus.outOfUse");
+    expect(status.hintKey).toBe("products.commercialStatus.hints.outOfUse");
+    expect(status.reason).toBeNull();
   });
 
   it("keeps retiring as a secondary backend concern when a sales hold is active", () => {

@@ -92,6 +92,7 @@ type Props = {
   onVariantDeleted?: (
     variantId: number,
   ) => void | Promise<void>;
+  onManageBatchIssue?: () => void;
   simpleMode?: boolean;
 };
 
@@ -204,6 +205,7 @@ export function CatalogLifecycleActions({
   variant,
   onVariantChanged,
   onVariantDeleted,
+  onManageBatchIssue,
   simpleMode = false,
 }: Props) {
   const { t } = useTranslation();
@@ -839,6 +841,9 @@ export function CatalogLifecycleActions({
           void chooseSimpleCommand(
             command,
           );
+        }}
+        onManageBatchIssue={() => {
+          onManageBatchIssue?.();
         }}
         onReasonChange={setReason}
         onConfirm={() => {

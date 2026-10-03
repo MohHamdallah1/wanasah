@@ -1997,6 +1997,7 @@ async def get_warehouse_inventory_batches(
                     ProductBatch.production_date,
                     ProductBatch.expiry_date,
                     ProductBatch.disposition,
+                    ProductBatch.disposition_revision,
                     func.sum(
                         InventoryBalance.on_hand_quantity
                     ).label("on_hand_total"),
@@ -2135,6 +2136,7 @@ async def get_warehouse_inventory_batches(
                     ProductBatch.production_date,
                     ProductBatch.expiry_date,
                     ProductBatch.disposition,
+                    ProductBatch.disposition_revision,
                 )
                 .order_by(
                     ProductBatch.expiry_date.asc().nulls_last(),
@@ -2314,6 +2316,7 @@ async def get_warehouse_inventory_batches(
                     "production_date": row.production_date,
                     "expiry_date": row.expiry_date,
                     "disposition": str(row.disposition),
+                    "disposition_revision": int(row.disposition_revision),
                     "days_to_expiry": (
                         (row.expiry_date - as_of_date).days
                         if row.expiry_date is not None

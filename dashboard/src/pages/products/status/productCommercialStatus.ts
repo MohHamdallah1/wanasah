@@ -23,6 +23,7 @@ export type ProductStopReason =
 export type ProductCommercialStatus = {
   state: ProductCommercialState;
   stateKey: string;
+  hintKey: string;
   reason: ProductStopReason | null;
   reasonKey: string | null;
   secondaryReasonKey: string | null;
@@ -48,6 +49,7 @@ export function productCommercialStatus(
     return {
       state: "archived",
       stateKey: "products.commercialStatus.archived",
+      hintKey: "products.commercialStatus.hints.archived",
       reason: null,
       reasonKey: null,
       secondaryReasonKey: null,
@@ -62,6 +64,7 @@ export function productCommercialStatus(
     return {
       state: "stopped",
       stateKey: "products.commercialStatus.stopped",
+      hintKey: "products.commercialStatus.hints.stopped",
       reason: "requiresAction",
       reasonKey:
         "products.commercialStatus.reasons.requiresAction",
@@ -76,6 +79,7 @@ export function productCommercialStatus(
     return {
       state: "stopped",
       stateKey: "products.commercialStatus.stopped",
+      hintKey: "products.commercialStatus.hints.stopped",
       reason: "temporary",
       reasonKey:
         "products.commercialStatus.reasons.temporary",
@@ -89,12 +93,12 @@ export function productCommercialStatus(
   if (pendingArchive) {
     return {
       state: "stopped",
-      stateKey: "products.commercialStatus.stopped",
-      reason: "pendingArchive",
-      reasonKey:
-        "products.commercialStatus.reasons.pendingArchive",
+      stateKey: "products.commercialStatus.outOfUse",
+      hintKey: "products.commercialStatus.hints.outOfUse",
+      reason: null,
+      reasonKey: null,
       secondaryReasonKey: null,
-      tone: "warning",
+      tone: "muted",
     };
   }
 
@@ -102,6 +106,7 @@ export function productCommercialStatus(
     return {
       state: "stopped",
       stateKey: "products.commercialStatus.stopped",
+      hintKey: "products.commercialStatus.hints.stopped",
       reason: "draft",
       reasonKey:
         "products.commercialStatus.reasons.draft",
@@ -113,6 +118,7 @@ export function productCommercialStatus(
   return {
     state: "available",
     stateKey: "products.commercialStatus.available",
+    hintKey: "products.commercialStatus.hints.available",
     reason: null,
     reasonKey: null,
     secondaryReasonKey: null,

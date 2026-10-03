@@ -7,12 +7,14 @@ import {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 
 import { Modal } from "@/components/ui/modal";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import {
   apiErrorMessage,
 } from "@/lib/apiErrors";
+import { prepareBatchIssueNavigation } from "@/pages/inventory/batches/batchIssueNavigation";
 import { CatalogLifecycleActions } from "@/pages/inventory/catalog/CatalogLifecycleActions";
 import {
   parseCatalogPage,
@@ -34,6 +36,7 @@ export function ProductLifecycleManager({
   onChanged,
 }: Props) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const authFetch = useAuthFetch();
   const sequenceRef =
     useRef(0);
@@ -224,6 +227,21 @@ export function ProductLifecycleManager({
           <CatalogLifecycleActions
             variant={variant}
             simpleMode
+            onManageBatchIssue={() => {
+              const companyId =
+                localStorage.getItem("company_id");
+              if (companyId) {
+                prepareBatchIssueNavigation(
+                  companyId,
+                  {
+                    variantId: variant.id,
+                    productName: product.name,
+                  },
+                );
+              }
+              onClose();
+              navigate("/inventory");
+            }}
             onVariantChanged={async (
               updated,
             ) => {

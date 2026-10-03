@@ -11,9 +11,12 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { useAuthFetch } from "@/hooks/useAuthFetch";
+import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { resolveI18nLocale } from "@/lib/locale";
 import { formatMoneyExact } from "@/lib/money";
+import { BatchDispositionManager } from "./batches/BatchDispositionManager";
+import { takeBatchIssueFocus } from "./batches/batchIssueNavigation";
 import {
   parseBatchDetailResponse,
   parseBatchProductPage,
@@ -57,8 +60,18 @@ const dispositionTone = (
 
 export function TabBatches({ locationId }: Props) {
   const authFetch = useAuthFetch();
+  const access = useInventoryAccess();
   const { t, i18n } = useTranslation();
   const locale = resolveI18nLocale(i18n);
+  const canManageDisposition =
+    access.isCompanyAdmin || access.can("batch.disposition");
+  const companyId = localStorage.getItem("company_id") || "";
+  const [batchIssueFocus] = useState(() =>
+    companyId ? takeBatchIssueFocus(companyId) : null,
+  );
+  const [focusVariantId, setFocusVariantId] = useState<number | null>(
+    batchIssueFocus?.variantId ?? null,
+  );
 
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -68,6 +81,8 @@ export function TabBatches({ locationId }: Props) {
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [details, setDetails] = useState<WarehouseBatchDetailResponse | null>(null);
+  const [selectedBatch, setSelectedBatch] =
+    useState<WarehouseBatchInventoryItem | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [loadingMoreDetails, setLoadingMoreDetails] = useState(false);
   const [detailsFailed, setDetailsFailed] = useState(false);
@@ -90,6 +105,7 @@ export function TabBatches({ locationId }: Props) {
     setNextCursor(null);
     setSelectedProductId(null);
     setDetails(null);
+    setSelectedBatch(null);
     setLoadingMoreDetails(false);
     setDetailsFailed(false);
 
@@ -102,6 +118,22 @@ export function TabBatches({ locationId }: Props) {
   }, [locationId]);
 
   useEffect(() => {
+    if (!batchIssueFocus || focusVariantId === null) return;
+    setSearchInput(batchIssueFocus.productName);
+  }, [batchIssueFocus, focusVariantId, locationId]);
+
+  useEffect(() => {
+    if (
+      focusVariantId === null ||
+      !products.some((product) => product.id === focusVariantId)
+    ) {
+      return;
+    }
+    setSelectedProductId(focusVariantId);
+    setFocusVariantId(null);
+  }, [focusVariantId, products]);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
       const clean = searchInput.trim();
       const next = clean.length >= 2 ? clean : "";
@@ -111,6 +143,7 @@ export function TabBatches({ locationId }: Props) {
       setNextCursor(null);
       setSelectedProductId(null);
       setDetails(null);
+      setSelectedBatch(null);
       setLoadingMoreDetails(false);
       setDetailsFailed(false);
       setSearch(next);
@@ -311,7 +344,10 @@ export function TabBatches({ locationId }: Props) {
           <input
             type="search"
             value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
+            onChange={(event) => {
+              setFocusVariantId(null);
+              setSearchInput(event.target.value);
+            }}
             placeholder={t("inventoryBatches.searchPlaceholder")}
             maxLength={100}
           />
@@ -337,7 +373,10 @@ export function TabBatches({ locationId }: Props) {
               type="button"
               className="inventory-batches-product"
               data-active={selectedProductId === product.id}
-              onClick={() => setSelectedProductId(product.id)}
+              onClick={() => {
+                setSelectedBatch(null);
+                setSelectedProductId(product.id);
+              }}
             >
               <span className="inventory-batches-product-name">
                 {product.name}
@@ -364,6 +403,17 @@ export function TabBatches({ locationId }: Props) {
       </aside>
 
       <section className="inventory-batches-details">
+        {batchIssueFocus ? (
+          <div
+            role="status"
+            className="mx-3 mt-3 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-[10px] font-bold leading-5 text-amber-950"
+          >
+            {t("inventoryBatches.issueFocusHint", {
+              product: batchIssueFocus.productName,
+            })}
+          </div>
+        ) : null}
+
         {!selectedProduct && (
           <div className="inventory-batches-empty">
             <PackageOpen className="h-7 w-7" />
@@ -437,6 +487,9 @@ export function TabBatches({ locationId }: Props) {
                         <th>{t("inventoryLive.unavailable")}</th>
                         <th>{t("inventoryBatches.restrictions")}</th>
                         <th>{t("inventoryLive.latestBatchPurchase")}</th>
+                        {canManageDisposition ? (
+                          <th>{t("inventoryBatches.action")}</th>
+                        ) : null}
                       </tr>
                     </thead>
                     <tbody>
@@ -559,6 +612,17 @@ export function TabBatches({ locationId }: Props) {
                                 "—"
                               )}
                             </td>
+                            {canManageDisposition ? (
+                              <td>
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedBatch(batch)}
+                                  className="whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-black text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+                                >
+                                  {t("inventoryBatches.manageStatus")}
+                                </button>
+                              </td>
+                            ) : null}
                           </tr>
                         );
                       })}
@@ -586,6 +650,15 @@ export function TabBatches({ locationId }: Props) {
           </>
         )}
       </section>
+
+      <BatchDispositionManager
+        batch={selectedBatch}
+        onClose={() => setSelectedBatch(null)}
+        onChanged={async () => {
+          setSelectedBatch(null);
+          await fetchDetails(null);
+        }}
+      />
     </div>
   );
 }

@@ -6,7 +6,7 @@ import {
   RotateCcw,
   ShieldCheck,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -54,6 +54,7 @@ type Props = {
   onChooseCommand: (
     command: SimpleLifecycleCommand,
   ) => void;
+  onManageBatchIssue: () => void;
   onReasonChange: (
     value: string,
   ) => void;
@@ -144,6 +145,7 @@ export function CatalogLifecycleSimplePanel({
   preflight,
   recallCompletionBlockers,
   onChooseCommand,
+  onManageBatchIssue,
   onReasonChange,
   onConfirm,
   onCancel,
@@ -152,9 +154,14 @@ export function CatalogLifecycleSimplePanel({
   const { t } = useTranslation();
   const commercial =
     productCommercialStatus(variant);
+  const [issueScopeOpen, setIssueScopeOpen] =
+    useState(false);
 
   const showAvailableStopOptions =
     commercial.state === "available";
+  const supportsBatchScope =
+    variant.lot_control_mode !== "NONE" ||
+    variant.expiry_control_mode !== "NONE";
   const showTemporaryRecovery =
     commercial.state === "stopped" &&
     variant.operational_hold ===
@@ -202,9 +209,7 @@ export function CatalogLifecycleSimplePanel({
         </div>
 
         <p className="mt-2 max-w-2xl text-[10px] font-semibold leading-5 text-slate-500">
-          {t(
-            `products.commercialStatus.hints.${commercial.state}`,
-          )}
+          {t(commercial.hintKey)}
         </p>
 
         {commercial.reason ? (
@@ -226,11 +231,7 @@ export function CatalogLifecycleSimplePanel({
 
       <div className="border-t border-slate-100 px-5 py-4">
         <p className="mb-2 text-[10px] font-black text-slate-400">
-          {t(
-            showAvailableStopOptions
-              ? "products.commercialStatus.stopOptionsTitle"
-              : "products.commercialStatus.availableActionsTitle",
-          )}
+          {t("products.commercialStatus.availableActionsTitle")}
         </p>
 
         <div className="grid gap-1 md:max-w-2xl">
@@ -251,22 +252,6 @@ export function CatalogLifecycleSimplePanel({
                     "sales-hold",
                   )
                 }
-              />
-              <ActionItem
-                icon={<CircleAlert className="h-3.5 w-3.5" />}
-                label={t(
-                  "catalogLifecycle.actions.recall",
-                )}
-                hint={t(
-                  "catalogLifecycle.simple.actionHints.recall",
-                )}
-                disabled={actionsDisabled}
-                onClick={() =>
-                  onChooseCommand(
-                    "recall",
-                  )
-                }
-                emphasis="warning"
               />
             </>
           ) : null}
@@ -405,6 +390,79 @@ export function CatalogLifecycleSimplePanel({
             />
           ) : null}
         </div>
+
+        {showAvailableStopOptions && canHold ? (
+          <div className="mt-4 border-t border-slate-100 pt-4 md:max-w-2xl">
+            {!issueScopeOpen ? (
+              <ActionItem
+                icon={<CircleAlert className="h-3.5 w-3.5" />}
+                label={t(
+                  "catalogLifecycle.simple.qualityIssueTitle",
+                )}
+                hint={t(
+                  "catalogLifecycle.simple.qualityIssueHint",
+                )}
+                disabled={actionsDisabled}
+                onClick={() => setIssueScopeOpen(true)}
+                emphasis="warning"
+              />
+            ) : (
+              <div className="rounded-xl border border-rose-100 bg-rose-50/30 p-3">
+                <p className="text-xs font-black text-slate-950">
+                  {t(
+                    "catalogLifecycle.simple.issueScopeQuestion",
+                  )}
+                </p>
+                <p className="mt-1 text-[9px] font-semibold leading-4 text-slate-500">
+                  {t(
+                    "catalogLifecycle.simple.issueScopeHint",
+                  )}
+                </p>
+                <div className="mt-2 grid gap-1">
+                  <ActionItem
+                    icon={<CircleAlert className="h-3.5 w-3.5" />}
+                    label={t(
+                      "catalogLifecycle.simple.issueScopes.batch.label",
+                    )}
+                    hint={t(
+                      supportsBatchScope
+                        ? "catalogLifecycle.simple.issueScopes.batch.hint"
+                        : "catalogLifecycle.simple.issueScopes.batch.unavailableHint",
+                    )}
+                    disabled={actionsDisabled || !supportsBatchScope}
+                    onClick={() => {
+                      setIssueScopeOpen(false);
+                      onManageBatchIssue();
+                    }}
+                  />
+                  <ActionItem
+                    icon={<ShieldCheck className="h-3.5 w-3.5" />}
+                    label={t(
+                      "catalogLifecycle.simple.issueScopes.product.label",
+                    )}
+                    hint={t(
+                      "catalogLifecycle.simple.issueScopes.product.hint",
+                    )}
+                    disabled={actionsDisabled}
+                    onClick={() => {
+                      setIssueScopeOpen(false);
+                      onChooseCommand("recall");
+                    }}
+                    emphasis="warning"
+                  />
+                </div>
+                <button
+                  type="button"
+                  disabled={actionsDisabled}
+                  onClick={() => setIssueScopeOpen(false)}
+                  className="mt-2 rounded-lg px-2 py-1 text-[9px] font-black text-slate-500 hover:bg-white hover:text-slate-900 disabled:opacity-40"
+                >
+                  {t("common.back")}
+                </button>
+              </div>
+            )}
+          </div>
+        ) : null}
       </div>
 
       {selectedCommand &&
