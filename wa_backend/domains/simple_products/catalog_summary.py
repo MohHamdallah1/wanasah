@@ -1,7 +1,7 @@
 """Read-only, company-wide catalog counters; never a product-state authority."""
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +18,12 @@ class CatalogSummaryResponse(BaseModel):
     available: int = Field(ge=0)
     stopped: int = Field(ge=0)
     archived: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def commercial_states_partition_total(self):
+        if self.available + self.stopped + self.archived != self.total:
+            raise ValueError("commercial status counts must partition total")
+        return self
 
 
 async def load_catalog_summary(

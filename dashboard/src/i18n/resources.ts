@@ -957,9 +957,9 @@ export const resources = {
         },
       },
       catalogLifecycle: {
-        title: "حالة المنتج والبيع",
+        title: "إدارة حالة المنتج",
         summary:
-          "حالة المنتج: {{lifecycle}} · حالة البيع: {{hold}}",
+          "الحالة الداخلية: {{lifecycle}} · القيد التشغيلي: {{hold}}",
         reason: "سبب التغيير",
         reasonPlaceholder:
           "اكتب سببًا مختصرًا وواضحًا",
@@ -2851,9 +2851,9 @@ export const resources = {
         },
       },
       catalogLifecycle: {
-        title: "Product & sales status",
+        title: "Manage product status",
         summary:
-          "Product status: {{lifecycle}} · Sales status: {{hold}}",
+          "Internal state: {{lifecycle}} · Operational hold: {{hold}}",
         reason: "Reason for change",
         reasonPlaceholder:
           "Enter a short, clear reason",
