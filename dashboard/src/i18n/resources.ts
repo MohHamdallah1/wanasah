@@ -1027,14 +1027,14 @@ export const resources = {
             "استخدمه عند مشكلة جودة أو سلامة أو سبب تشغيلي يتطلب معالجة. إعادة البيع قد تتطلب تصفية مخزون أو عمليات مفتوحة.",
           problemSaleStopTitle: "لماذا البيع موقوف؟",
           problemSaleStopHint:
-            "البيع موقوف بسبب مشكلة تتطلب معالجة. المنتج نفسه لم يُحذف ولم يُؤرشف؛ حالة المنتج وحالة البيع منفصلتان.",
+            "المنتج موقوف بسبب مشكلة يجب معالجتها قبل إعادة البيع.",
           recallCompletionTitle:
             "لا يمكن إعادة البيع بعد",
           recallCompletionHint:
             "هذه ليست مشكلة في الزر. ما زال للمنتج مخزون أو عمليات مرتبطة به. نفّذ المطلوب تحت كل بند، ثم أعد محاولة «إعادة البيع». الرقم هو عدد السجلات المفتوحة وليس عدد الوحدات.",
           recallCurrentTitle: "البيع موقوف لحين المعالجة",
           recallCurrentHint:
-            "السحب يمنع بيع وتداول المنتج بسبب حالة مهمة. عند محاولة إعادته، يفحص النظام تلقائيًا ما إذا بقي مخزون أو عمليات مفتوحة مرتبطة به.",
+            "هذا الإيقاف يمنع البيع بسبب مشكلة مهمة. عند محاولة إعادة البيع، يفحص النظام تلقائيًا ما إذا بقي مخزون أو عمليات مفتوحة مرتبطة بالمنتج.",
           recallRecoveryTitle: "كيف أعيد البيع؟",
           recallRecoverySteps: {
             first: "اضغط «إعادة البيع» واكتب سبب الرجوع.",
@@ -2922,14 +2922,14 @@ export const resources = {
             "Use this for a quality, safety, or operational issue that requires resolution. Restoring sales may require clearing stock or open operations.",
           problemSaleStopTitle: "Why are sales paused?",
           problemSaleStopHint:
-            "Sales are paused for an issue that requires resolution. The product itself is not deleted or archived; product status and sales status are separate.",
+            "Sales are stopped because an issue must be resolved before the product can be sold again.",
           recallCompletionTitle:
             "Sales cannot resume yet",
           recallCompletionHint:
-            "The button is not the problem. Stock or open operations still reference this product. Follow the action under each item, then try “Make available for sale” again. The number is open records, not units.",
+            "The button is not the problem. Stock or open operations still reference this product. Follow the action under each item, then try “Resume sales” again. The number is open records, not units.",
           recallCurrentTitle: "Sales are paused pending resolution",
           recallCurrentHint:
-            "Withdrawal blocks normal sale and circulation because of an important issue. When returning it, the system automatically checks for remaining stock and open operations.",
+            "This protected stop blocks sales because of an important issue. When sales resume, the system automatically checks remaining stock and open operations.",
           recallRecoveryTitle: "How do I resume sales?",
           recallRecoverySteps: {
             first: "Choose “Resume sales” and enter the reason for returning it.",
@@ -2965,7 +2965,7 @@ export const resources = {
             recall:
               "Stops the product because of a quality, safety, or operational issue that must be resolved before sales resume.",
             closeRecall:
-              "Returns the product to normal sale and circulation after the system verifies that no blocking stock or open operations remain.",
+              "Returns the product to sale after the system verifies that no blocking stock or open operations remain.",
           },
         },
         assignments: {
