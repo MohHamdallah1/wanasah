@@ -9,8 +9,7 @@ import type { ProductLifecycleFilter } from "@/pages/products/list/types";
 const chips = [
   { key: "total", filter: null },
   { key: "available", filter: null },
-  { key: "retiring", filter: "RETIRING" },
-  { key: "sales_restricted", filter: null },
+  { key: "stopped", filter: null },
   { key: "archived", filter: "ARCHIVED" },
   { key: "families", filter: null },
 ] as const;

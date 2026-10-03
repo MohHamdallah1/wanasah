@@ -1,4 +1,7 @@
 import type { SimpleProduct } from "@/pages/products/contracts";
+import {
+  productCommercialStatus,
+} from "@/pages/products/status/productCommercialStatus";
 
 type StatusTone =
   | "good"
@@ -7,47 +10,34 @@ type StatusTone =
   | "blocked";
 
 export type ProductStatusLine = {
-  labelKey: string;
   valueKey: string;
   tone: StatusTone;
 };
 
-/** Presentation only: keep product state and sales state visibly separate. */
+/** Presentation only: one commercial status, backend authority stays unchanged. */
 export function productTableStatus(
   item: Pick<
     SimpleProduct,
     "lifecycle_status" | "operational_hold"
   >,
 ): {
-  product: ProductStatusLine;
-  sales: ProductStatusLine;
+  status: ProductStatusLine;
+  reason: ProductStatusLine | null;
 } {
-  const productTone: StatusTone =
-    item.lifecycle_status === "ACTIVE"
-      ? "good"
-      : item.lifecycle_status === "RETIRING"
-        ? "warning"
-        : "muted";
-
-  const salesTone: StatusTone =
-    item.operational_hold === "NONE"
-      ? "good"
-      : item.operational_hold === "SALES_HOLD"
-        ? "warning"
-        : "blocked";
+  const commercial =
+    productCommercialStatus(item);
 
   return {
-    product: {
-      labelKey:
-        "products.tableStatus.productLabel",
-      valueKey: `products.tableStatus.lifecycle.${item.lifecycle_status}`,
-      tone: productTone,
+    status: {
+      valueKey: commercial.stateKey,
+      tone: commercial.tone,
     },
-    sales: {
-      labelKey:
-        "products.tableStatus.salesLabel",
-      valueKey: `products.tableStatus.sales.${item.operational_hold}`,
-      tone: salesTone,
-    },
+    reason: commercial.reasonKey
+      ? {
+          valueKey:
+            commercial.reasonKey,
+          tone: "muted",
+        }
+      : null,
   };
 }

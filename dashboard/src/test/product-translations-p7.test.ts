@@ -512,7 +512,10 @@ describe(
         "productTableStatus(item)",
       );
       expect(statusBadges).toContain(
-        "t(line.valueKey)",
+        "t(status.valueKey)",
+      );
+      expect(statusBadges).toContain(
+        "t(reason.valueKey)",
       );
       expect(
         /(^|[^$])\{item\.operational_hold\}/m.test(
