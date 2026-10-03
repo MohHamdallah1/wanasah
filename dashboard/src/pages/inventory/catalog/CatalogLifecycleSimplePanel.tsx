@@ -201,30 +201,42 @@ export function CatalogLifecycleSimplePanel({
             )}
           </p>
 
-          <div className="mt-3 space-y-1.5 rounded-xl bg-slate-50 p-2.5 text-[10px] font-semibold leading-5 text-slate-600">
-            <div className="flex items-start gap-2">
-              <CircleHelp className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
-              <p>
-                <strong className="font-black text-slate-800">
-                  {t("catalogLifecycle.actions.salesHold")}:
-                </strong>{" "}
-                {t(
-                  "catalogLifecycle.simple.salesHoldDifference",
-                )}
-              </p>
+          {variant.operational_hold === "RECALL" ? (
+            <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-rose-950">
+              <div className="flex items-start gap-2">
+                <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
+                <div>
+                  <p className="text-[11px] font-black">
+                    {t("catalogLifecycle.simple.recallCurrentTitle")}
+                  </p>
+                  <p className="mt-1 text-[10px] font-semibold leading-5 text-rose-800">
+                    {t("catalogLifecycle.simple.recallCurrentHint")}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 rounded-lg bg-white/70 p-2.5">
+                <p className="text-[10px] font-black text-slate-800">
+                  {t("catalogLifecycle.simple.recallRecoveryTitle")}
+                </p>
+                <ol className="mt-1.5 list-decimal space-y-1 pe-4 text-[9px] font-semibold leading-5 text-slate-600 marker:font-black">
+                  <li>{t("catalogLifecycle.simple.recallRecoverySteps.first")}</li>
+                  <li>{t("catalogLifecycle.simple.recallRecoverySteps.second")}</li>
+                  <li>{t("catalogLifecycle.simple.recallRecoverySteps.third")}</li>
+                </ol>
+              </div>
             </div>
-            <div className="flex items-start gap-2">
-              <CircleHelp className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-600" />
-              <p>
-                <strong className="font-black text-slate-800">
-                  {t("catalogLifecycle.actions.recall")}:
-                </strong>{" "}
-                {t(
-                  "catalogLifecycle.simple.recallDifference",
-                )}
-              </p>
+          ) : (
+            <div className="mt-3 space-y-1.5 rounded-xl bg-slate-50 p-2.5 text-[10px] font-semibold leading-5 text-slate-600">
+              <div className="flex items-start gap-2">
+                <CircleHelp className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                <p><strong className="font-black text-slate-800">{t("catalogLifecycle.actions.salesHold")}:</strong>{" "}{t("catalogLifecycle.simple.salesHoldDifference")}</p>
+              </div>
+              <div className="flex items-start gap-2">
+                <CircleHelp className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-600" />
+                <p><strong className="font-black text-slate-800">{t("catalogLifecycle.actions.recall")}:</strong>{" "}{t("catalogLifecycle.simple.recallDifference")}</p>
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="mt-3 flex flex-wrap gap-2">
             {variant.operational_hold ===
@@ -323,7 +335,7 @@ export function CatalogLifecycleSimplePanel({
                     "close-recall",
                   )
                 }
-                className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 text-xs font-black text-slate-700 disabled:opacity-40"
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-black text-emerald-800 disabled:opacity-40"
               >
                 <PlayCircle className="h-4 w-4" />
                 {t(
@@ -440,16 +452,17 @@ export function CatalogLifecycleSimplePanel({
                   key={item.code}
                   className="flex items-center justify-between gap-3 rounded-lg bg-white/70 px-2.5 py-1.5"
                 >
-                  <span>
-                    {t(
-                      `catalogLifecycle.blockers.${item.code}`,
-                      {
-                        defaultValue:
-                          item.code,
-                      },
-                    )}
-                  </span>
-                  <span className="shrink-0 tabular-nums">
+                  <div className="min-w-0">
+                    <p className="font-black">
+                      {t(`catalogLifecycle.blockers.${item.code}`, { defaultValue: item.code })}
+                    </p>
+                    <p className="mt-0.5 text-[9px] font-semibold leading-4 text-rose-800">
+                      {t(`catalogLifecycle.simple.recallBlockerActions.${item.code}`, {
+                        defaultValue: t("catalogLifecycle.simple.recallCompletionHint"),
+                      })}
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-white px-2 py-0.5 tabular-nums ring-1 ring-rose-200">
                     {item.count}
                   </span>
                 </li>

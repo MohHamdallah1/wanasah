@@ -65,6 +65,11 @@ export function ProductLifecycleStatusRail({
               `products.details.lifecycleModes.${variant.lifecycle_status}`,
             )}
           </span>
+          <p className="mt-1 text-[9px] font-semibold leading-4 text-slate-500">
+            {t(
+              `catalogLifecycle.simple.lifecycleStatusHints.${variant.lifecycle_status}`,
+            )}
+          </p>
         </div>
       </div>
 
@@ -87,6 +92,11 @@ export function ProductLifecycleStatusRail({
               `products.details.holdModes.${variant.operational_hold}`,
             )}
           </span>
+          <p className="mt-1 text-[9px] font-semibold leading-4 text-slate-500">
+            {t(
+              `catalogLifecycle.simple.salesHints.${variant.operational_hold}`,
+            )}
+          </p>
         </div>
       </div>
 

@@ -941,7 +941,7 @@ export const resources = {
           salesHold: "إيقاف البيع مؤقتًا",
           releaseSalesHold: "استئناف البيع",
           recall: "سحب المنتج من التداول",
-          closeRecall: "إنهاء سحب المنتج",
+          closeRecall: "إعادة المنتج للتداول",
         },
         success: {
           publish: "تم تفعيل المنتج.",
@@ -960,7 +960,7 @@ export const resources = {
           recall:
             "تم سحب المنتج من التداول.",
           closeRecall:
-            "تم إنهاء حالة سحب المنتج من التداول.",
+            "تمت إعادة المنتج للتداول.",
         },
         simple: {
           productStatusTitle: "حالة المنتج",
@@ -978,9 +978,31 @@ export const resources = {
           recallDifference:
             "حالة أقوى لمشكلة جودة أو سلامة أو قرار تشغيلي مهم. تمنع التداول، ولا يمكن إنهاؤها حتى تتم معالجة مخزون المنتج والحوالات والحمولات والعهد وطلبات النقص المفتوحة.",
           recallCompletionTitle:
-            "لا يمكن إنهاء سحب المنتج بعد",
+            "لا يمكن إعادة المنتج للتداول الآن",
           recallCompletionHint:
-            "عالج البنود التالية أولاً، ثم أعد تنفيذ «إنهاء سحب المنتج». الرقم يوضح عدد السجلات أو العمليات التي ما زالت مفتوحة.",
+            "هذه ليست مشكلة في الزر. ما زال للمنتج مخزون أو عمليات مرتبطة به. نفّذ المطلوب تحت كل بند، ثم أعد محاولة «إعادة المنتج للتداول». الرقم هو عدد السجلات المفتوحة وليس عدد الوحدات.",
+          recallCurrentTitle: "المنتج مسحوب من التداول حاليًا",
+          recallCurrentHint:
+            "السحب يمنع بيع وتداول المنتج بسبب حالة مهمة. عند محاولة إعادته، يفحص النظام تلقائيًا ما إذا بقي مخزون أو عمليات مفتوحة مرتبطة به.",
+          recallRecoveryTitle: "كيف أعيد المنتج للتداول؟",
+          recallRecoverySteps: {
+            first: "اضغط «إعادة المنتج للتداول» واكتب سبب الرجوع.",
+            second: "إذا ظهرت موانع، نفّذ الإجراء المكتوب تحت كل مانع في الشاشة.",
+            third: "بعد تصفية الموانع، أعد المحاولة وسيعود المنتج للتداول إذا أصبحت الشروط سليمة.",
+          },
+          recallBlockerActions: {
+            INVENTORY_BALANCE: "افتح المخزون وابحث عن هذا المنتج، ثم عالج الكمية أو الحجز القائم وفق الإجراء المعتمد في شركتك حتى يصبح الرصيد والحجز صفرًا.",
+            OPEN_TRANSFER: "افتح الحوالات وأكمل أو ألغِ كل حوالة مفتوحة تحتوي هذا المنتج.",
+            ACTIVE_ROUTE_LOAD: "عالج الحمولة النشطة التي تحتوي المنتج: أغلقها أو أعد الكمية منها وفق مسار العمل المعتمد.",
+            OPEN_CUSTODY: "سوِّ عهدة المندوب التي ما زال هذا المنتج ضمنها ثم أغلق العهدة المفتوحة.",
+            OPEN_SHORTAGE: "أغلق طلب النقص المفتوح المرتبط بالمنتج بعد معالجته.",
+          },
+          lifecycleStatusHints: {
+            DRAFT: "المنتج ما زال مسودة ولم يدخل التشغيل بعد.",
+            ACTIVE: "المنتج ضمن الكتالوج التشغيلي ومتاح حسب حالة البيع.",
+            RETIRING: "المنتج في طريقه للإيقاف أو الأرشفة، لكنه لم يُحذف ويمكن إعادة تفعيله.",
+            ARCHIVED: "المنتج محفوظ في الأرشيف ولا يعمل تشغيليًا حاليًا.",
+          },
           actionHints: {
             publish:
               "يجعل المنتج متاحًا للاستخدام التشغيلي.",
@@ -997,7 +1019,7 @@ export const resources = {
             recall:
               "استخدمه عند الحاجة لسحب المنتج من التداول بسبب مشكلة جودة أو سلامة أو قرار تشغيلي مهم.",
             closeRecall:
-              "ينهي حالة سحب المنتج بعد التأكد من معالجة المخزون والعمليات المفتوحة.",
+              "يعيد المنتج للبيع والتداول. قبل التنفيذ يفحص النظام تلقائيًا أن المنتج لم يعد له مخزون أو عمليات مفتوحة تمنع الرجوع.",
           },
         },
         assignments: {
@@ -2763,7 +2785,7 @@ export const resources = {
           salesHold: "Temporarily pause sales",
           releaseSalesHold: "Resume sales",
           recall: "Withdraw product from circulation",
-          closeRecall: "End product withdrawal",
+          closeRecall: "Return product to circulation",
         },
         success: {
           publish: "Product activated.",
@@ -2782,7 +2804,7 @@ export const resources = {
           recall:
             "Product withdrawn from circulation.",
           closeRecall:
-            "Product withdrawal ended.",
+            "Product returned to circulation.",
         },
         simple: {
           productStatusTitle: "Product status",
@@ -2800,9 +2822,31 @@ export const resources = {
           recallDifference:
             "A stronger state for quality, safety, or a major operational issue. It blocks circulation and cannot be ended while product stock, transfers, route loads, custody, or shortage requests remain open.",
           recallCompletionTitle:
-            "Product withdrawal cannot be ended yet",
+            "Product cannot return to circulation yet",
           recallCompletionHint:
-            "Resolve the items below first, then run “End product withdrawal” again. The number shows how many records or operations are still open.",
+            "The button is not the problem. Stock or open operations still reference this product. Follow the action under each item, then try “Return product to circulation” again. The number is open records, not units.",
+          recallCurrentTitle: "Product is currently withdrawn from circulation",
+          recallCurrentHint:
+            "Withdrawal blocks normal sale and circulation because of an important issue. When returning it, the system automatically checks for remaining stock and open operations.",
+          recallRecoveryTitle: "How do I return it to circulation?",
+          recallRecoverySteps: {
+            first: "Choose “Return product to circulation” and enter the reason for returning it.",
+            second: "If blockers appear, follow the action shown under each blocker.",
+            third: "After clearing the blockers, retry; the product returns to circulation when the conditions are clean.",
+          },
+          recallBlockerActions: {
+            INVENTORY_BALANCE: "Open inventory, find this product, and resolve the remaining quantity or reservation through your approved workflow until stock and reservations are zero.",
+            OPEN_TRANSFER: "Open transfers and complete or cancel every open transfer containing this product.",
+            ACTIVE_ROUTE_LOAD: "Resolve the active route load containing the product by closing it or returning the quantity through the approved workflow.",
+            OPEN_CUSTODY: "Settle the representative custody that still contains this product and close the open custody record.",
+            OPEN_SHORTAGE: "Resolve and close the open shortage request linked to this product.",
+          },
+          lifecycleStatusHints: {
+            DRAFT: "The product is still a draft and has not entered operations.",
+            ACTIVE: "The product is in the operational catalog and availability depends on its sales status.",
+            RETIRING: "The product is being discontinued or prepared for archive; it is not deleted and can be reactivated.",
+            ARCHIVED: "The product is retained in history and is not operationally active.",
+          },
           actionHints: {
             publish:
               "Makes the product available for normal operations.",
@@ -2819,7 +2863,7 @@ export const resources = {
             recall:
               "Use this when the product must be withdrawn because of a quality, safety, or important operational issue.",
             closeRecall:
-              "Ends the withdrawal after stock and open operations have been resolved.",
+              "Returns the product to normal sale and circulation after the system verifies that no blocking stock or open operations remain.",
           },
         },
         assignments: {

@@ -583,15 +583,15 @@ export function CatalogLifecycleActions({
     } catch (error) {
       const code =
         apiErrorCode(error);
-      if (
+      const recallCompletionRequired =
         code ===
-        "PRODUCT_RECALL_COMPLETION_REQUIRED"
-      ) {
+        "PRODUCT_RECALL_COMPLETION_REQUIRED";
+      if (recallCompletionRequired) {
         setRecallCompletionBlockers(
-          readRecallCompletionBlockers(
-            error,
-          ),
+          readRecallCompletionBlockers(error),
         );
+        setSelectedCommand(null);
+        setReason("");
       } else if (command !== null) {
         setRecallCompletionBlockers(
           [],
@@ -629,14 +629,16 @@ export function CatalogLifecycleActions({
         setPending(null);
       }
 
-      toast.error(
-        apiErrorMessage(
-          error,
-          t(
-            "catalogLifecycle.errors.action",
+      if (!recallCompletionRequired) {
+        toast.error(
+          apiErrorMessage(
+            error,
+            t(
+              "catalogLifecycle.errors.action",
+            ),
           ),
-        ),
-      );
+        );
+      }
     } finally {
       setBusy(false);
     }
