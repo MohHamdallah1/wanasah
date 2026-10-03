@@ -84,9 +84,6 @@ describe("Products lifecycle, focus, and barcode UX", () => {
     const manager = read(
       "../pages/products/lifecycle/ProductLifecycleManager.tsx",
     );
-    const rail = read(
-      "../pages/products/lifecycle/ProductLifecycleStatusRail.tsx",
-    );
     const actions = read(
       "../pages/inventory/catalog/CatalogLifecycleActions.tsx",
     );
@@ -97,8 +94,8 @@ describe("Products lifecycle, focus, and barcode UX", () => {
     expect(manager).toContain(
       "simpleMode",
     );
-    expect(rail).not.toContain(
-      "variant.version",
+    expect(manager).not.toContain(
+      "ProductLifecycleStatusRail",
     );
     expect(actions).toContain(
       "<CatalogLifecycleSimplePanel",
@@ -109,6 +106,8 @@ describe("Products lifecycle, focus, and barcode UX", () => {
     expect(simplePanel).toContain(
       "catalogLifecycle.simple.salesStatusTitle",
     );
+    expect(simplePanel).toContain("products.details.lifecycleModes.");
+    expect(simplePanel).toContain("products.details.holdModes.");
     expect(simplePanel).toContain(
       "selectedCommand",
     );

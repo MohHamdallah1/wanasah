@@ -443,12 +443,12 @@ describe(
       expect(
         ar.products.details
           .lifecycleModes.RETIRING,
-      ).toBe("قيد الإيقاف");
+      ).toBe("موقوف");
       expect(
         ar.products.familyReassign
           .historyHint,
       ).toContain(
-        "قيد الإيقاف",
+        "الموقوف",
       );
       expect(
         ar.products.familyReassign
@@ -502,8 +502,17 @@ describe(
       const tableRow = read(
         "src/pages/products/list/ProductTableRow.tsx",
       );
+      const statusBadges = read(
+        "src/pages/products/list/ProductStatusBadges.tsx",
+      );
       expect(tableRow).toContain(
-        "products.details.holdModes.${item.operational_hold}",
+        "<ProductStatusBadges",
+      );
+      expect(statusBadges).toContain(
+        "productTableStatus(item)",
+      );
+      expect(statusBadges).toContain(
+        "t(line.valueKey)",
       );
       expect(
         /(^|[^$])\{item\.operational_hold\}/m.test(
