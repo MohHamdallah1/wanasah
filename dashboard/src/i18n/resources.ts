@@ -227,6 +227,25 @@ export const resources = {
           refreshFailedDescription:
             "تعذر تحديث قائمة المنتجات. نعرض آخر بيانات ناجحة ويمكنك إعادة المحاولة.",
         },
+        tableStatus: {
+          column: "الحالة",
+          ACTIVE: "متاح",
+          RETIRING: "قيد الإيقاف",
+          ARCHIVED: "مؤرشف",
+          activeLifecycle: "نشط",
+          SALES_HOLD: "البيع موقوف",
+          RECALL: "مسحوب من التداول",
+        },
+        summary: {
+          title: "ملخص الكتالوج",
+          scope: "إجماليات الشركة",
+          total: "كل المنتجات",
+          available: "متاح",
+          retiring: "قيد الإيقاف",
+          archived: "مؤرشف",
+          sales_restricted: "قيود البيع",
+          error: "تعذر تحميل ملخص الكتالوج.",
+        },
         columns: {
           product: "المنتج",
           package: "العبوة",
@@ -246,7 +265,7 @@ export const resources = {
             "هذه التفضيلات تخص حسابك داخل هذه الشركة فقط، ولا تغيّر بيانات المنتج أو إعدادات الشركة.",
           visibleColumns: "الأعمدة الظاهرة",
           fixedColumnsHint:
-            "هوية المنتج والإجراءات الأساسية تبقى ظاهرة دائماً.",
+            "هوية المنتج وحالته والإجراءات الأساسية تبقى ظاهرة دائماً.",
           density: "كثافة الجدول",
           densities: {
             comfortable: "مريح",
@@ -2070,6 +2089,25 @@ export const resources = {
           refreshFailedDescription:
             "The Product list could not be refreshed. The last successful data remains visible and you can retry.",
         },
+        tableStatus: {
+          column: "Status",
+          ACTIVE: "Available",
+          RETIRING: "Retiring",
+          ARCHIVED: "Archived",
+          activeLifecycle: "Active",
+          SALES_HOLD: "Sales on hold",
+          RECALL: "Recalled",
+        },
+        summary: {
+          title: "Catalog summary",
+          scope: "Company totals",
+          total: "All products",
+          available: "Available",
+          retiring: "Retiring",
+          archived: "Archived",
+          sales_restricted: "Sales restrictions",
+          error: "Could not load catalog summary.",
+        },
         columns: {
           product: "Product",
           package: "Package",
@@ -2090,7 +2128,7 @@ export const resources = {
             "These preferences apply only to your account in this company. They do not change product data or company settings.",
           visibleColumns: "Visible columns",
           fixedColumnsHint:
-            "Product identity and core actions always remain visible.",
+            "Product identity, status and core actions always remain visible.",
           density: "Table density",
           densities: {
             comfortable: "Comfortable",

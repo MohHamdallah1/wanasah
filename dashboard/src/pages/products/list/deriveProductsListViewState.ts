@@ -63,9 +63,7 @@ export function deriveProductsListViewState({
     Number(
       visibleColumns.tracking
     ) +
-    Number(
-      visibleColumns.lifecycle
-    ) +
+    1 + // Status is one fixed column, independent of legacy visibility preferences.
     Number(
       visibleColumns.unitBarcode
     ) +

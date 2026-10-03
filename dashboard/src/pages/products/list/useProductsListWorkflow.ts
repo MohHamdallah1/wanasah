@@ -8,6 +8,7 @@ import { useProductsListDebounce } from "@/pages/products/list/useProductsListDe
 import { useProductsListParams } from "@/pages/products/list/useProductsListParams";
 import { useProductsListQueries } from "@/pages/products/list/useProductsListQueries";
 import { useProductsListState } from "@/pages/products/list/useProductsListState";
+import { useProductCatalogSummary } from "@/pages/products/list/useProductCatalogSummary";
 
 type AuthFetch = (
   path: string,
@@ -16,6 +17,7 @@ type AuthFetch = (
 
 type Params = {
   companyId: number | null;
+  driverId: number | null;
   authFetch: AuthFetch;
   canViewPricing: boolean;
   displayPreferences:
@@ -25,6 +27,7 @@ type Params = {
 
 export function useProductsListWorkflow({
   companyId,
+  driverId,
   authFetch,
   canViewPricing,
   displayPreferences,
@@ -118,6 +121,7 @@ export function useProductsListWorkflow({
 
   const page =
     productsQuery.data;
+  const summaryQuery = useProductCatalogSummary({ companyId, driverId, authFetch });
   const accumulatedItems =
     useProductsInfiniteRows({
       page,
@@ -195,9 +199,11 @@ export function useProductsListWorkflow({
 
   return {
     isFetching:
-      productsQuery.isFetching,
-    refresh: () =>
-      void productsQuery.refetch(),
+      productsQuery.isFetching || summaryQuery.isFetching,
+    refresh: () => {
+      void productsQuery.refetch();
+      void summaryQuery.refetch();
+    },
     pricingVisible,
     identityScope: {
       setCursor,
@@ -227,6 +233,14 @@ export function useProductsListWorkflow({
       resetProductPagination,
     },
     section: {
+      summary: {
+        data: summaryQuery.data,
+        isFetching: summaryQuery.isFetching,
+        error: summaryQuery.error,
+        lifecycleFilter,
+        onLifecycleFilterChange: updateLifecycleFilter,
+        onRetry: () => { void summaryQuery.refetch(); },
+      },
       toolbar: {
         searchInput,
         filtersOpen,

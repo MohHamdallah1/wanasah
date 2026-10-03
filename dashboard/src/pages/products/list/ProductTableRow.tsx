@@ -16,6 +16,7 @@ import type {
   SimpleProduct,
 } from "@/pages/products/contracts";
 import { ProductRowActions } from "@/pages/products/list/ProductRowActions";
+import { ProductStatusBadges } from "@/pages/products/list/ProductStatusBadges";
 
 type Props = {
   item: SimpleProduct;
@@ -100,14 +101,6 @@ export function ProductTableRow({
           0,
         );
 
-  const lifecycleTone =
-    item.lifecycle_status === "ACTIVE"
-      ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
-      : item.lifecycle_status ===
-          "RETIRING"
-        ? "bg-amber-50 text-amber-800 ring-amber-200"
-        : "bg-slate-100 text-slate-600 ring-slate-200";
-
   return (
     <tr className="group bg-white transition-colors hover:bg-slate-50/80">
       <td className={`${cellSpacing} w-32 text-center`}>
@@ -189,27 +182,9 @@ export function ProductTableRow({
         </td>
       ) : null}
 
-      {visibleColumns.lifecycle ? (
-        <td className={`${cellSpacing} text-center`}>
-          <div className="flex flex-col items-center gap-1.5">
-            <span
-              className={`inline-flex rounded-full px-2 py-1 text-[10px] font-black ring-1 ring-inset ${lifecycleTone}`}
-            >
-              {t(
-                `products.details.lifecycleModes.${item.lifecycle_status}`,
-              )}
-            </span>
-            {item.operational_hold !==
-            "NONE" ? (
-              <span className="text-[10px] font-black leading-4 text-rose-700">
-                {t(
-                  `products.details.holdModes.${item.operational_hold}`,
-                )}
-              </span>
-            ) : null}
-          </div>
-        </td>
-      ) : null}
+      <td className={`${cellSpacing} text-center`}>
+        <ProductStatusBadges item={item} />
+      </td>
 
       {visibleColumns.unitBarcode ? (
         <td className={`${cellSpacing} max-w-[180px] break-all text-center font-mono text-[11px] font-bold text-slate-600`}>

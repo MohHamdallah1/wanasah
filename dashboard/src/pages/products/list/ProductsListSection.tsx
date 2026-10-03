@@ -6,8 +6,10 @@ import { ProductsActiveFilters } from "@/pages/products/list/ProductsActiveFilte
 import { ProductsFiltersPanel } from "@/pages/products/list/ProductsFiltersPanel";
 import { ProductsListResults } from "@/pages/products/list/ProductsListResults";
 import { ProductsListToolbar } from "@/pages/products/list/ProductsListToolbar";
+import { ProductsCatalogSummary } from "@/pages/products/list/ProductsCatalogSummary";
 
 type Props = {
+  summary?: ComponentProps<typeof ProductsCatalogSummary>;
   toolbar: Omit<
     ComponentProps<
       typeof ProductsListToolbar
@@ -26,6 +28,7 @@ type Props = {
 };
 
 export function ProductsListSection({
+  summary,
   toolbar,
   activeFilters,
   filters,
@@ -42,6 +45,8 @@ export function ProductsListSection({
             />
           }
         />
+
+        {summary ? <ProductsCatalogSummary {...summary} /> : null}
 
         <ProductsActiveFilters
           {...activeFilters}
