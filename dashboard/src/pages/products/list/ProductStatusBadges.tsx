@@ -11,10 +11,10 @@ const dotTones = {
 };
 
 const valueTones = {
-  good: "text-slate-900",
-  warning: "text-amber-900",
-  muted: "text-slate-600",
-  blocked: "text-rose-800",
+  good: "text-slate-950",
+  warning: "text-amber-950",
+  muted: "text-slate-700",
+  blocked: "text-rose-900",
 };
 
 export function ProductStatusBadges({
@@ -26,33 +26,30 @@ export function ProductStatusBadges({
   >;
 }) {
   const { t, i18n } = useTranslation();
-  const { product, sales } =
+  const { status, reason } =
     productTableStatus(item);
 
   return (
     <div
       dir={i18n.dir()}
-      className="grid min-w-[9.5rem] gap-1.5 text-start"
+      className="min-w-[8.75rem] text-start"
     >
-      {[product, sales].map((line) => (
-        <div
-          key={line.labelKey}
-          className="grid grid-cols-[auto_3.2rem_minmax(0,1fr)] items-center gap-1.5 leading-none"
+      <div className="flex items-center gap-2">
+        <span
+          aria-hidden="true"
+          className={`h-2 w-2 shrink-0 rounded-full ${dotTones[status.tone]}`}
+        />
+        <span
+          className={`text-[11px] font-black ${valueTones[status.tone]}`}
         >
-          <span
-            aria-hidden="true"
-            className={`h-1.5 w-1.5 rounded-full ${dotTones[line.tone]}`}
-          />
-          <span className="text-[9px] font-bold text-slate-400">
-            {t(line.labelKey)}
-          </span>
-          <span
-            className={`truncate text-[10px] font-black ${valueTones[line.tone]}`}
-          >
-            {t(line.valueKey)}
-          </span>
-        </div>
-      ))}
+          {t(status.valueKey)}
+        </span>
+      </div>
+      {reason ? (
+        <p className="mt-1 ps-4 text-[9px] font-semibold leading-4 text-slate-500">
+          {t(reason.valueKey)}
+        </p>
+      ) : null}
     </div>
   );
 }
