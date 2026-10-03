@@ -80,7 +80,7 @@ describe("Products lifecycle, focus, and barcode UX", () => {
     );
   });
 
-  it("uses a simple commercial lifecycle surface without exposing the internal version", () => {
+  it("uses one commercial lifecycle status without exposing the backend state machine", () => {
     const manager = read(
       "../pages/products/lifecycle/ProductLifecycleManager.tsx",
     );
@@ -101,13 +101,23 @@ describe("Products lifecycle, focus, and barcode UX", () => {
       "<CatalogLifecycleSimplePanel",
     );
     expect(simplePanel).toContain(
-      "catalogLifecycle.simple.productStatusTitle",
+      "productCommercialStatus",
     );
     expect(simplePanel).toContain(
+      "products.commercialStatus.label",
+    );
+    expect(simplePanel).not.toContain(
+      "catalogLifecycle.simple.productStatusTitle",
+    );
+    expect(simplePanel).not.toContain(
       "catalogLifecycle.simple.salesStatusTitle",
     );
-    expect(simplePanel).toContain("products.details.lifecycleModes.");
-    expect(simplePanel).toContain("products.details.holdModes.");
+    expect(simplePanel).not.toContain(
+      "products.details.lifecycleModes.",
+    );
+    expect(simplePanel).not.toContain(
+      "products.details.holdModes.",
+    );
     expect(simplePanel).toContain(
       "selectedCommand",
     );
