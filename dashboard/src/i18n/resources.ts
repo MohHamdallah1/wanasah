@@ -229,21 +229,19 @@ export const resources = {
         },
         tableStatus: {
           column: "الحالة",
-          ACTIVE: "متاح",
-          RETIRING: "قيد الإيقاف",
-          ARCHIVED: "مؤرشف",
-          activeLifecycle: "نشط",
-          SALES_HOLD: "البيع موقوف",
-          RECALL: "مسحوب من التداول",
+          productLabel: "المنتج",
+          salesLabel: "البيع",
+          lifecycle: { ACTIVE: "نشط", RETIRING: "موقوف", ARCHIVED: "مؤرشف" },
+          sales: { NONE: "متاح للبيع", SALES_HOLD: "موقوف مؤقتًا", RECALL: "موقوف لحين المعالجة" },
         },
         summary: {
           title: "ملخص الكتالوج",
           scope: "إجماليات الشركة",
           total: "كل المنتجات",
-          available: "متاح",
-          retiring: "قيد الإيقاف",
+          available: "متاح للبيع",
+          retiring: "منتجات موقوفة",
           archived: "مؤرشف",
-          sales_restricted: "قيود البيع",
+          sales_restricted: "البيع الموقوف",
           families: "العائلات",
           error: "تعذر تحميل ملخص الكتالوج.",
         },
@@ -331,7 +329,7 @@ export const resources = {
           retry: "إعادة إرسال نفس النقل",
           saved: "تم تحديث عائلة المنتج.",
           historyHint:
-            "يمكن تغيير العائلة للمنتج النشط أو المنتج قيد الإيقاف فقط، بشرط ألا يكون قد تم تسجيل أي دفعة مخزون له.",
+            "يمكن تغيير العائلة للمنتج النشط أو المنتج الموقوف فقط، بشرط ألا يكون قد تم تسجيل أي دفعة مخزون له.",
           pendingRetry:
             "نتيجة المحاولة السابقة غير مؤكدة. تم قفل الاختيار لحماية العملية؛ أعد إرسال نفس النقل.",
           pendingBlocked:
@@ -365,14 +363,14 @@ export const resources = {
             "حالة البيع",
           lifecycleModes: {
             DRAFT: "مسودة",
-            ACTIVE: "متاح",
-            RETIRING: "قيد الإيقاف",
+            ACTIVE: "نشط",
+            RETIRING: "موقوف",
             ARCHIVED: "مؤرشف",
           },
           holdModes: {
-            NONE: "البيع متاح",
-            SALES_HOLD: "البيع موقوف مؤقتًا",
-            RECALL: "مسحوب من التداول",
+            NONE: "متاح للبيع",
+            SALES_HOLD: "موقوف مؤقتًا",
+            RECALL: "موقوف لحين المعالجة",
           },
           package: "العبوة",
           structure: "بنية المنتج",
@@ -959,9 +957,9 @@ export const resources = {
           checkArchive: "التحقق من إمكانية الأرشفة",
           archive: "أرشفة المنتج",
           salesHold: "إيقاف البيع مؤقتًا",
-          releaseSalesHold: "استئناف البيع",
-          recall: "سحب المنتج من التداول",
-          closeRecall: "إعادة المنتج للتداول",
+          releaseSalesHold: "إعادة إتاحة البيع",
+          recall: "إيقاف البيع بسبب مشكلة",
+          closeRecall: "إعادة إتاحة البيع",
         },
         success: {
           publish: "تم تفعيل المنتج.",
@@ -978,35 +976,38 @@ export const resources = {
           releaseSalesHold:
             "تم استئناف بيع المنتج.",
           recall:
-            "تم سحب المنتج من التداول.",
+            "تم إيقاف بيع المنتج لحين معالجة المشكلة.",
           closeRecall:
-            "تمت إعادة المنتج للتداول.",
+            "تمت إعادة إتاحة البيع.",
         },
         simple: {
           productStatusTitle: "حالة المنتج",
           productStatusHint:
             "تحكم في بقاء المنتج ضمن الكتالوج التشغيلي بدون حذف تاريخه.",
-          salesStatusTitle: "البيع والتداول",
+          salesStatusTitle: "حالة البيع",
           confirm: "تنفيذ الإجراء",
           salesHints: {
-            NONE: "المنتج متاح للبيع حاليًا.",
-            SALES_HOLD: "بيع المنتج موقوف مؤقتًا بدون أرشفته.",
-            RECALL: "المنتج مسحوب من التداول حتى تتم معالجة الحالة وإنهاؤها بأمان.",
+            NONE: "يمكن بيع المنتج وتحميله بشكل طبيعي.",
+            SALES_HOLD: "البيع متوقف مؤقتًا ويمكن إعادته مباشرة من هذه الشاشة.",
+            RECALL: "البيع متوقف بسبب مشكلة، ولا يعود قبل إنهاء المتطلبات المرتبطة بالمنتج.",
           },
           salesHoldDifference:
-            "يوقف البيع والتحميل فقط. المنتج يبقى في الكتالوج ويمكن استئناف البيع مباشرة من هذه الشاشة.",
+            "توقف مؤقت يمكنك التراجع عنه مباشرة. مناسب لقرار إداري أو توقف قصير.",
           recallDifference:
-            "حالة أقوى لمشكلة جودة أو سلامة أو قرار تشغيلي مهم. تمنع التداول، ولا يمكن إنهاؤها حتى تتم معالجة مخزون المنتج والحوالات والحمولات والعهد وطلبات النقص المفتوحة.",
+            "استخدمه عند مشكلة جودة أو سلامة أو سبب تشغيلي يتطلب معالجة. إعادة البيع قد تتطلب تصفية مخزون أو عمليات مفتوحة.",
+          problemSaleStopTitle: "لماذا البيع موقوف؟",
+          problemSaleStopHint:
+            "البيع موقوف بسبب مشكلة تتطلب معالجة. المنتج نفسه لم يُحذف ولم يُؤرشف؛ حالة المنتج وحالة البيع منفصلتان.",
           recallCompletionTitle:
-            "لا يمكن إعادة المنتج للتداول الآن",
+            "لا يمكن إعادة إتاحة البيع بعد",
           recallCompletionHint:
-            "هذه ليست مشكلة في الزر. ما زال للمنتج مخزون أو عمليات مرتبطة به. نفّذ المطلوب تحت كل بند، ثم أعد محاولة «إعادة المنتج للتداول». الرقم هو عدد السجلات المفتوحة وليس عدد الوحدات.",
-          recallCurrentTitle: "المنتج مسحوب من التداول حاليًا",
+            "هذه ليست مشكلة في الزر. ما زال للمنتج مخزون أو عمليات مرتبطة به. نفّذ المطلوب تحت كل بند، ثم أعد محاولة «إعادة إتاحة البيع». الرقم هو عدد السجلات المفتوحة وليس عدد الوحدات.",
+          recallCurrentTitle: "البيع موقوف لحين المعالجة",
           recallCurrentHint:
             "السحب يمنع بيع وتداول المنتج بسبب حالة مهمة. عند محاولة إعادته، يفحص النظام تلقائيًا ما إذا بقي مخزون أو عمليات مفتوحة مرتبطة به.",
-          recallRecoveryTitle: "كيف أعيد المنتج للتداول؟",
+          recallRecoveryTitle: "كيف أعيد إتاحة البيع؟",
           recallRecoverySteps: {
-            first: "اضغط «إعادة المنتج للتداول» واكتب سبب الرجوع.",
+            first: "اضغط «إعادة إتاحة البيع» واكتب سبب الرجوع.",
             second: "إذا ظهرت موانع، نفّذ الإجراء المكتوب تحت كل مانع في الشاشة.",
             third: "بعد تصفية الموانع، أعد المحاولة وسيعود المنتج للتداول إذا أصبحت الشروط سليمة.",
           },
@@ -1037,7 +1038,7 @@ export const resources = {
             releaseSalesHold:
               "يعيد السماح ببيع المنتج بعد الإيقاف المؤقت.",
             recall:
-              "استخدمه عند الحاجة لسحب المنتج من التداول بسبب مشكلة جودة أو سلامة أو قرار تشغيلي مهم.",
+              "يوقف البيع بسبب مشكلة جودة أو سلامة أو سبب تشغيلي يتطلب معالجة قبل إعادة البيع.",
             closeRecall:
               "يعيد المنتج للبيع والتداول. قبل التنفيذ يفحص النظام تلقائيًا أن المنتج لم يعد له مخزون أو عمليات مفتوحة تمنع الرجوع.",
           },
@@ -1684,10 +1685,10 @@ export const resources = {
           PRODUCT_ARCHIVE_TRANSITION_INVALID: "لا يمكن أرشفة المنتج من حالته الحالية.",
           PRODUCT_ARCHIVE_BLOCKED: "لا يمكن أرشفة المنتج قبل معالجة الموانع الحالية.",
           PRODUCT_HOLD_OPEN: "يوجد إيقاف تشغيلي مفتوح يجب معالجته أولاً.",
-          PRODUCT_RECALL_OPEN: "المنتج مسحوب من التداول حالياً. أنهِ حالة السحب أولاً.",
-          PRODUCT_RECALL_COMPLETION_REQUIRED: "لا يمكن إنهاء سحب المنتج قبل معالجة المخزون والعمليات المفتوحة الموضحة.",
-          PRODUCT_RECALL_TRANSITION_INVALID: "لا يمكن سحب المنتج من التداول من حالته الحالية.",
-          PRODUCT_RECALL_CLOSE_INVALID: "لا توجد حالة سحب مفتوحة يمكن إنهاؤها.",
+          PRODUCT_RECALL_OPEN: "بيع المنتج موقوف بسبب مشكلة حاليًا. عالج الحالة أو أعد إتاحة البيع أولًا.",
+          PRODUCT_RECALL_COMPLETION_REQUIRED: "لا يمكن إعادة إتاحة البيع قبل تنفيذ المتطلبات الموضحة في حالة البيع.",
+          PRODUCT_RECALL_TRANSITION_INVALID: "حالة المنتج الحالية لا تسمح بإيقاف البيع بسبب مشكلة.",
+          PRODUCT_RECALL_CLOSE_INVALID: "البيع ليس في حالة «موقوف لحين المعالجة».",
           PRODUCT_SALES_HOLD_TRANSITION_INVALID: "لا يمكن إيقاف بيع المنتج من حالته الحالية.",
           PRODUCT_SALES_HOLD_RELEASE_INVALID: "لا يوجد إيقاف بيع يمكن تحريره.",
           PRODUCT_DRAFT_DELETE_BLOCKED: "لا يمكن حذف المسودة قبل معالجة الارتباطات أو الموانع الحالية.",
@@ -2092,21 +2093,19 @@ export const resources = {
         },
         tableStatus: {
           column: "Status",
-          ACTIVE: "Available",
-          RETIRING: "Retiring",
-          ARCHIVED: "Archived",
-          activeLifecycle: "Active",
-          SALES_HOLD: "Sales on hold",
-          RECALL: "Recalled",
+          productLabel: "Product",
+          salesLabel: "Sales",
+          lifecycle: { ACTIVE: "Active", RETIRING: "Stopped", ARCHIVED: "Archived" },
+          sales: { NONE: "Available for sale", SALES_HOLD: "Temporarily paused", RECALL: "Paused pending resolution" },
         },
         summary: {
           title: "Catalog summary",
           scope: "Company totals",
           total: "All products",
-          available: "Available",
-          retiring: "Retiring",
+          available: "Available for sale",
+          retiring: "Stopped products",
           archived: "Archived",
-          sales_restricted: "Sales restrictions",
+          sales_restricted: "Sales paused",
           families: "Families",
           error: "Could not load catalog summary.",
         },
@@ -2195,7 +2194,7 @@ export const resources = {
           retry: "Retry the same move",
           saved: "Product family updated.",
           historyHint:
-            "The family can be changed only while the product is Active or Retiring and before any inventory batch has ever been recorded for it.",
+            "The family can be changed only while the product is Active or Stopped and before any inventory batch has ever been recorded for it.",
           pendingRetry:
             "The previous result is uncertain. The family selection is locked for safety; retry the exact same move.",
           pendingBlocked:
@@ -2229,14 +2228,14 @@ export const resources = {
             "Sales status",
           lifecycleModes: {
             DRAFT: "Draft",
-            ACTIVE: "Available",
-            RETIRING: "Being discontinued",
+            ACTIVE: "Active",
+            RETIRING: "Stopped",
             ARCHIVED: "Archived",
           },
           holdModes: {
-            NONE: "Sales available",
-            SALES_HOLD: "Sales temporarily paused",
-            RECALL: "Withdrawn from circulation",
+            NONE: "Available for sale",
+            SALES_HOLD: "Temporarily paused",
+            RECALL: "Paused pending resolution",
           },
           package: "Packaging",
           structure: "Product structure",
@@ -2823,9 +2822,9 @@ export const resources = {
           checkArchive: "Check archive readiness",
           archive: "Archive product",
           salesHold: "Temporarily pause sales",
-          releaseSalesHold: "Resume sales",
-          recall: "Withdraw product from circulation",
-          closeRecall: "Return product to circulation",
+          releaseSalesHold: "Make available for sale",
+          recall: "Pause sales for an issue",
+          closeRecall: "Make available for sale",
         },
         success: {
           publish: "Product activated.",
@@ -2842,7 +2841,7 @@ export const resources = {
           releaseSalesHold:
             "Product sales resumed.",
           recall:
-            "Product withdrawn from circulation.",
+            "Product sales paused pending issue resolution.",
           closeRecall:
             "Product returned to circulation.",
         },
@@ -2850,27 +2849,30 @@ export const resources = {
           productStatusTitle: "Product status",
           productStatusHint:
             "Control whether the product remains in the operational catalog without deleting its history.",
-          salesStatusTitle: "Sales & circulation",
+          salesStatusTitle: "Sales status",
           confirm: "Apply change",
           salesHints: {
-            NONE: "The product is currently available for sale.",
-            SALES_HOLD: "Sales are temporarily paused without archiving the product.",
-            RECALL: "The product is withdrawn from circulation until the issue is safely resolved.",
+            NONE: "The product can be sold and loaded normally.",
+            SALES_HOLD: "Sales are temporarily paused and can be restored directly from this screen.",
+            RECALL: "Sales are paused for an issue and remain unavailable until the required conditions are resolved.",
           },
           salesHoldDifference:
-            "Stops sales and loading only. The product stays in the catalog and sales can be resumed directly from this screen.",
+            "A temporary stop you can reverse directly. Use it for a short administrative or operational pause.",
           recallDifference:
-            "A stronger state for quality, safety, or a major operational issue. It blocks circulation and cannot be ended while product stock, transfers, route loads, custody, or shortage requests remain open.",
+            "Use this for a quality, safety, or operational issue that requires resolution. Restoring sales may require clearing stock or open operations.",
+          problemSaleStopTitle: "Why are sales paused?",
+          problemSaleStopHint:
+            "Sales are paused for an issue that requires resolution. The product itself is not deleted or archived; product status and sales status are separate.",
           recallCompletionTitle:
-            "Product cannot return to circulation yet",
+            "Sales cannot be restored yet",
           recallCompletionHint:
-            "The button is not the problem. Stock or open operations still reference this product. Follow the action under each item, then try “Return product to circulation” again. The number is open records, not units.",
-          recallCurrentTitle: "Product is currently withdrawn from circulation",
+            "The button is not the problem. Stock or open operations still reference this product. Follow the action under each item, then try “Make available for sale” again. The number is open records, not units.",
+          recallCurrentTitle: "Sales are paused pending resolution",
           recallCurrentHint:
             "Withdrawal blocks normal sale and circulation because of an important issue. When returning it, the system automatically checks for remaining stock and open operations.",
-          recallRecoveryTitle: "How do I return it to circulation?",
+          recallRecoveryTitle: "How do I make it available for sale again?",
           recallRecoverySteps: {
-            first: "Choose “Return product to circulation” and enter the reason for returning it.",
+            first: "Choose “Make available for sale” and enter the reason for returning it.",
             second: "If blockers appear, follow the action shown under each blocker.",
             third: "After clearing the blockers, retry; the product returns to circulation when the conditions are clean.",
           },
@@ -3548,10 +3550,10 @@ export const resources = {
           PRODUCT_ARCHIVE_TRANSITION_INVALID: "The product cannot be archived from its current state.",
           PRODUCT_ARCHIVE_BLOCKED: "The product cannot be archived until the current blockers are resolved.",
           PRODUCT_HOLD_OPEN: "An operational hold is still open and must be resolved first.",
-          PRODUCT_RECALL_OPEN: "The product is currently withdrawn from circulation. End the withdrawal first.",
-          PRODUCT_RECALL_COMPLETION_REQUIRED: "The product withdrawal cannot end until the listed stock and open operations are resolved.",
-          PRODUCT_RECALL_TRANSITION_INVALID: "The product cannot be withdrawn from circulation from its current state.",
-          PRODUCT_RECALL_CLOSE_INVALID: "There is no active product withdrawal to end.",
+          PRODUCT_RECALL_OPEN: "Product sales are paused for an issue. Resolve the state or make it available for sale first.",
+          PRODUCT_RECALL_COMPLETION_REQUIRED: "Sales cannot be restored until the requirements shown in Sales status are completed.",
+          PRODUCT_RECALL_TRANSITION_INVALID: "The current product state does not allow sales to be paused for an issue.",
+          PRODUCT_RECALL_CLOSE_INVALID: "Sales are not currently in the “Paused pending resolution” state.",
           PRODUCT_SALES_HOLD_TRANSITION_INVALID: "Sales cannot be put on hold from the product's current state.",
           PRODUCT_SALES_HOLD_RELEASE_INVALID: "There is no sales hold to release.",
           PRODUCT_DRAFT_DELETE_BLOCKED: "The draft cannot be deleted until its current links or blockers are resolved.",

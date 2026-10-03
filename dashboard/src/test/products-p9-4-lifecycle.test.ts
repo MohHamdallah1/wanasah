@@ -53,51 +53,13 @@ describe("Products P9.4 lifecycle workspace", () => {
     }
   });
 
-  it("shows current lifecycle hold and version before actions", () => {
-    const manager = read(
-      "../pages/products/lifecycle/ProductLifecycleManager.tsx",
-    );
-    const rail = read(
-      "../pages/products/lifecycle/ProductLifecycleStatusRail.tsx",
-    );
-
-    expect(manager).toContain(
-      "<ProductLifecycleStatusRail",
-    );
-    expect(rail).toContain(
-      '"products.details.lifecycle"',
-    );
-    expect(rail).toContain(
-      '"products.details.operationalHold"',
-    );
-    expect(rail).toContain(
-      "products.details.lifecycleModes.",
-    );
-    expect(rail).toContain(
-      "products.details.holdModes.",
-    );
-    expect(rail).toContain(
-      "v{variant.version}",
-    );
-  });
-
-  it("keeps lifecycle status understandable without depending on color alone", () => {
-    const rail = read(
-      "../pages/products/lifecycle/ProductLifecycleStatusRail.tsx",
-    );
-
-    expect(rail).toContain(
-      "variant.lifecycle_status",
-    );
-    expect(rail).toContain(
-      "variant.operational_hold",
-    );
-    expect(rail).toContain(
-      "bg-emerald-50",
-    );
-    expect(rail).toContain(
-      "bg-rose-50",
-    );
+  it("shows product status and sales status inside the simple action surface", () => {
+    const manager = read("../pages/products/lifecycle/ProductLifecycleManager.tsx");
+    const panel = read("../pages/inventory/catalog/CatalogLifecycleSimplePanel.tsx");
+    expect(manager).not.toContain("ProductLifecycleStatusRail");
+    expect(panel).toContain("products.details.lifecycleModes.");
+    expect(panel).toContain("products.details.holdModes.");
+    expect(panel).not.toContain("variant.version");
   });
 
   it("keeps load failure local and retryable inside the Product lifecycle modal", () => {

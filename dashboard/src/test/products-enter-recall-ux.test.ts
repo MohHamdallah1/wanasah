@@ -16,7 +16,7 @@ const read = (relativePath: string) =>
     "utf8",
   );
 
-describe("Products fast Enter and withdrawal UX", () => {
+describe("Products fast Enter and sales-status UX", () => {
   it("keeps Enter-to-save across text-entry product actions", () => {
     const price = read(
       "../pages/products/pricing/PriceEditModal.tsx",
@@ -126,4 +126,10 @@ describe("Products fast Enter and withdrawal UX", () => {
       "catalogLifecycle.blockers.",
     );
   });
+  it("keeps user-facing wording commercial", () => {
+    const resources = read("../i18n/resources.ts");
+    for (const oldTerm of ["سحب المنتج من التداول", "مسحوب من التداول", "إعادة المنتج للتداول", "Withdraw product from circulation", "Withdrawn from circulation", "Return product to circulation"]) expect(resources).not.toContain(oldTerm);
+    for (const term of ["إيقاف البيع بسبب مشكلة", "موقوف لحين المعالجة", "إعادة إتاحة البيع", "حالة المنتج", "حالة البيع"]) expect(resources).toContain(term);
+  });
+
 });
