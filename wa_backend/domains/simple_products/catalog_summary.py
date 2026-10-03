@@ -2,7 +2,7 @@
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Product, ProductVariant
@@ -11,14 +11,13 @@ from models import Product, ProductVariant
 class CatalogSummaryResponse(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     company_id: int = Field(gt=0)
     total: int = Field(ge=0)
     families: int = Field(ge=0)
     available: int = Field(ge=0)
-    retiring: int = Field(ge=0)
+    stopped: int = Field(ge=0)
     archived: int = Field(ge=0)
-    sales_restricted: int = Field(ge=0)
 
 
 async def load_catalog_summary(
@@ -26,15 +25,23 @@ async def load_catalog_summary(
 ) -> CatalogSummaryResponse:
     """One aggregate snapshot, independent of list search, filters or pagination.
 
-    Total includes every SKU, including drafts. Hold counts may overlap lifecycle
-    counts; availability means exactly ACTIVE + NONE, not inventory or pricing
-    readiness. The caller retains catalog.read and the existing tenant/RLS scope.
+    The summary mirrors the three-state commercial presentation only. Backend
+    lifecycle/hold authority stays independent and unchanged. ``stopped`` means
+    any non-archived SKU that is not exactly ACTIVE + NONE, including drafts,
+    temporary sales holds, problem holds and retiring products.
     """
     family_count = (
         select(func.count())
         .select_from(Product)
         .where(Product.company_id == company_id)
         .scalar_subquery()
+    )
+    stopped_predicate = and_(
+        ProductVariant.lifecycle_status != "ARCHIVED",
+        or_(
+            ProductVariant.lifecycle_status != "ACTIVE",
+            ProductVariant.operational_hold != "NONE",
+        ),
     )
     row = (await db.execute(
         select(
@@ -44,15 +51,10 @@ async def load_catalog_summary(
                 ProductVariant.lifecycle_status == "ACTIVE",
                 ProductVariant.operational_hold == "NONE",
             )).label("available"),
-            func.count().filter(
-                ProductVariant.lifecycle_status == "RETIRING",
-            ).label("retiring"),
+            func.count().filter(stopped_predicate).label("stopped"),
             func.count().filter(
                 ProductVariant.lifecycle_status == "ARCHIVED",
             ).label("archived"),
-            func.count().filter(
-                ProductVariant.operational_hold.in_(("SALES_HOLD", "RECALL")),
-            ).label("sales_restricted"),
         ).select_from(ProductVariant).where(
             ProductVariant.company_id == company_id,
         )
