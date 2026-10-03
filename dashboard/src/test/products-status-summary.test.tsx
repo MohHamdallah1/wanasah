@@ -13,10 +13,16 @@ import { parseCatalogSummary } from "@/pages/products/list/catalogSummaryContrac
 import { productTableStatus } from "@/pages/products/list/productTableStatus";
 import { useProductCatalogSummary } from "@/pages/products/list/useProductCatalogSummary";
 import { useProductsListWorkflow } from "@/pages/products/list/useProductsListWorkflow";
+import { productCommercialStatus } from "@/pages/products/status/productCommercialStatus";
 
 const summary = {
-  schema_version: 1 as const, company_id: 38, total: 1234, families: 82,
-  available: 1000, retiring: 120, archived: 100, sales_restricted: 14,
+  schema_version: 2 as const,
+  company_id: 38,
+  total: 1234,
+  families: 82,
+  available: 1000,
+  stopped: 134,
+  archived: 100,
 };
 const clients: QueryClient[] = [];
 afterEach(() => { cleanup(); clients.splice(0).forEach((client) => client.clear()); });
@@ -31,64 +37,100 @@ function wrapper(language = "en") {
   ) };
 }
 
-describe("Product status: explicit product and sales dimensions", () => {
-  for (const lifecycle_status of ["ACTIVE", "RETIRING", "ARCHIVED"] as const) {
-    for (const operational_hold of ["NONE", "SALES_HOLD", "RECALL"] as const) {
-      it(`${lifecycle_status} / ${operational_hold} keeps product and sales states separate`, () => {
-        const status = productTableStatus({ lifecycle_status, operational_hold });
-        expect(status.product.labelKey).toBe("products.tableStatus.productLabel");
-        expect(status.product.valueKey).toBe(`products.tableStatus.lifecycle.${lifecycle_status}`);
-        expect(status.sales.labelKey).toBe("products.tableStatus.salesLabel");
-        expect(status.sales.valueKey).toBe(`products.tableStatus.sales.${operational_hold}`);
-        if (operational_hold === "RECALL") expect(status.sales.tone).toBe("blocked");
-      });
-    }
-  }
-  it.each([["ar", "rtl", "المنتج", "البيع", "نشط", "موقوف لحين المعالجة"], ["en", "ltr", "Product", "Sales", "Active", "Paused pending resolution"]])("%s renders product and sales as two explicit lines", (language, dir, productLabel, salesLabel, active, stopped) => {
+describe("Product status: one commercial state over the internal state machine", () => {
+  it.each([
+    ["ACTIVE", "NONE", "available", null],
+    ["ACTIVE", "SALES_HOLD", "stopped", "temporary"],
+    ["ACTIVE", "RECALL", "stopped", "requiresAction"],
+    ["RETIRING", "NONE", "stopped", "pendingArchive"],
+    ["RETIRING", "SALES_HOLD", "stopped", "temporary"],
+    ["RETIRING", "RECALL", "stopped", "requiresAction"],
+    ["ARCHIVED", "NONE", "archived", null],
+    ["DRAFT", "NONE", "stopped", "draft"],
+  ] as const)("%s / %s -> %s (%s)", (lifecycle_status, operational_hold, state, reason) => {
+    const status = productCommercialStatus({ lifecycle_status, operational_hold });
+    expect(status.state).toBe(state);
+    expect(status.reason).toBe(reason);
+  });
+
+  it("keeps retiring as a secondary backend concern when a sales hold is active", () => {
+    const status = productCommercialStatus({ lifecycle_status: "RETIRING", operational_hold: "RECALL" });
+    expect(status.state).toBe("stopped");
+    expect(status.reason).toBe("requiresAction");
+    expect(status.secondaryReasonKey).toBe("products.commercialStatus.secondary.pendingArchive");
+  });
+
+  it.each([
+    ["ar", "rtl", "موقوف", "يتطلب معالجة"],
+    ["en", "ltr", "Stopped", "Requires resolution"],
+  ])("%s renders one status with an optional reason", (language, dir, stopped, reason) => {
     const { Wrapper } = wrapper(language);
-    const { container } = render(<ProductStatusBadges item={{ lifecycle_status: "ACTIVE", operational_hold: "RECALL" }} />, { wrapper: Wrapper });
-    for (const label of [productLabel, salesLabel, active, stopped]) expect(screen.getByText(label)).toBeInTheDocument();
+    const { container } = render(
+      <ProductStatusBadges item={{ lifecycle_status: "ACTIVE", operational_hold: "RECALL" }} />,
+      { wrapper: Wrapper },
+    );
+    expect(screen.getByText(stopped)).toBeInTheDocument();
+    expect(screen.getByText(reason)).toBeInTheDocument();
     expect(container.firstElementChild).toHaveAttribute("dir", dir);
+    expect(screen.queryByText(language === "ar" ? "المنتج" : "Product")).not.toBeInTheDocument();
+    expect(screen.queryByText(language === "ar" ? "البيع" : "Sales")).not.toBeInTheDocument();
+  });
+
+  it("table presentation delegates to the same commercial mapping", () => {
+    expect(productTableStatus({ lifecycle_status: "ACTIVE", operational_hold: "NONE" })).toEqual({
+      status: { valueKey: "products.commercialStatus.available", tone: "good" },
+      reason: null,
+    });
   });
 });
 
 describe("Company catalog summary contract and compact presentation", () => {
-  it("accepts company-wide counts, zero catalogs and overlapping hold counts", () => {
+  it("accepts one company-wide partition across the three visible commercial states", () => {
     expect(parseCatalogSummary(summary, 38)).toEqual(summary);
-    expect(parseCatalogSummary({ ...summary, total: 0, families: 0, available: 0, retiring: 0, archived: 0, sales_restricted: 0 }, 38).total).toBe(0);
-    expect(parseCatalogSummary({ ...summary, sales_restricted: 1234 }, 38).sales_restricted).toBe(1234);
+    expect(parseCatalogSummary({ ...summary, total: 0, families: 0, available: 0, stopped: 0, archived: 0 }, 38).total).toBe(0);
   });
+
   it.each([
-    { company_id: 39 }, { schema_version: 2 }, { total: -1 }, { total: "1234" },
-    { available: null }, { families: -1 }, { retiring: 0.5 }, { total: Number.MAX_SAFE_INTEGER + 1 },
-    { available: 1234, retiring: 1 }, { sales_restricted: 1235 },
+    { company_id: 39 },
+    { schema_version: 1 },
+    { total: -1 },
+    { total: "1234" },
+    { available: null },
+    { families: -1 },
+    { stopped: 0.5 },
+    { total: Number.MAX_SAFE_INTEGER + 1 },
+    { stopped: 135 },
   ])("rejects invalid/foreign-company summary data: %j", (invalid) => {
     expect(() => parseCatalogSummary({ ...summary, ...invalid }, 38)).toThrow("SIMPLE_PRODUCT_SUMMARY_CONTRACT_INVALID");
   });
-  it.each([ ["ar", "rtl", "ملخص الكتالوج", "منتجات موقوفة"], ["en", "ltr", "Catalog summary", "Stopped products"] ])(
-    "%s keeps Western digits and exposes only supported native filter buttons", (language, dir, title, retiring) => {
-      const { Wrapper } = wrapper(language);
-      const onChange = vi.fn();
-      const { container, rerender } = render(<ProductsCatalogSummary data={summary} isFetching={false} error={null}
-        lifecycleFilter="" onLifecycleFilterChange={onChange} onRetry={vi.fn()} />, { wrapper: Wrapper });
-      expect(screen.getByRole("group", { name: title })).toHaveAttribute("dir", dir);
-      expect(screen.getAllByRole("button")).toHaveLength(2);
-      expect(container.textContent).toContain("1,234");
-      expect(container.textContent).not.toMatch(/[٠-٩۰-۹]/);
-      const button = screen.getByRole("button", { name: new RegExp(retiring) });
-      button.focus();
-      expect(button).toHaveFocus();
-      expect(button.tabIndex).toBe(0);
-      expect(button).toHaveAttribute("aria-pressed", "false");
-      fireEvent.click(button);
-      expect(onChange).toHaveBeenLastCalledWith("RETIRING");
-      rerender(<ProductsCatalogSummary data={summary} isFetching={false} error={null} lifecycleFilter="RETIRING"
-        onLifecycleFilterChange={onChange} onRetry={vi.fn()} />);
-      expect(button).toHaveAttribute("aria-pressed", "true");
-      fireEvent.click(button);
-      expect(onChange).toHaveBeenLastCalledWith("");
-    },
-  );
+
+  it.each([
+    ["ar", "rtl", "ملخص الكتالوج", "موقوف"],
+    ["en", "ltr", "Catalog summary", "Stopped"],
+  ])("%s keeps Western digits and exposes only exactly supported filter buttons", (language, dir, title, stopped) => {
+    const { Wrapper } = wrapper(language);
+    const onChange = vi.fn();
+    const { container, rerender } = render(
+      <ProductsCatalogSummary data={summary} isFetching={false} error={null}
+        lifecycleFilter="" onLifecycleFilterChange={onChange} onRetry={vi.fn()} />,
+      { wrapper: Wrapper },
+    );
+    expect(screen.getByRole("group", { name: title })).toHaveAttribute("dir", dir);
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(container.textContent).toContain("1,234");
+    expect(container.textContent).toContain(stopped);
+    expect(container.textContent).not.toMatch(/[٠-٩۰-۹]/);
+    const archivedButton = screen.getByRole("button", { name: new RegExp(language === "ar" ? "مؤرشف" : "Archived") });
+    archivedButton.focus();
+    expect(archivedButton).toHaveFocus();
+    expect(archivedButton).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(archivedButton);
+    expect(onChange).toHaveBeenLastCalledWith("ARCHIVED");
+    rerender(<ProductsCatalogSummary data={summary} isFetching={false} error={null} lifecycleFilter="ARCHIVED"
+      onLifecycleFilterChange={onChange} onRetry={vi.fn()} />);
+    expect(screen.getByRole("button", { name: new RegExp(language === "ar" ? "مؤرشف" : "Archived") })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("does not present failed counters as zero or keep stale totals after an error", () => {
     const { Wrapper } = wrapper();
     const retry = vi.fn();
@@ -101,8 +143,8 @@ describe("Company catalog summary contract and compact presentation", () => {
   });
 });
 
-describe("Summary shares catalog filters and identity/invalidation boundaries", () => {
-  it("uses the existing lifecycle action, preserves other filters, resets cursors and keeps company totals independent of pages", async () => {
+describe("Summary shares catalog identity/invalidation boundaries", () => {
+  it("keeps company totals independent of pages and preserves existing filters", async () => {
     const authFetch = vi.fn(async (path: string) => path === "/simple-products/summary" ? summary : {
       currency_code: "JOD", pricing_visible: false, items: [], next_cursor: "next", has_more: true,
     });
@@ -115,22 +157,23 @@ describe("Summary shares catalog filters and identity/invalidation boundaries", 
     act(() => result.current.section.results.onLoadMore());
     await waitFor(() => expect(authFetch.mock.calls.some(([path]) => path.includes("cursor=next"))).toBe(true));
     const view = render(<ProductsCatalogSummary {...result.current.section.summary} />, { wrapper: Wrapper });
-    fireEvent.click(screen.getByRole("button", { name: /Stopped products/ }));
-    await waitFor(() => expect(result.current.section.filters.lifecycleFilter).toBe("RETIRING"));
+    fireEvent.click(screen.getByRole("button", { name: /Archived/ }));
+    await waitFor(() => expect(result.current.section.filters.lifecycleFilter).toBe("ARCHIVED"));
     await waitFor(() => {
       const calls = authFetch.mock.calls.filter(([path]) => path.startsWith("/simple-products?"));
       const params = new URLSearchParams(calls[calls.length - 1][0].split("?")[1]);
-      expect(params.get("lifecycle")).toBe("RETIRING");
+      expect(params.get("lifecycle")).toBe("ARCHIVED");
       expect(params.get("has_barcode")).toBe("false");
       expect(params.has("cursor")).toBe(false);
     });
     view.rerender(<ProductsCatalogSummary {...result.current.section.summary} />);
-    expect(screen.getByRole("button", { name: /Stopped products/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /Archived/ })).toHaveAttribute("aria-pressed", "true");
     expect(result.current.section.summary.data.total).toBe(1234);
     expect(authFetch.mock.calls.filter(([path]) => path === "/simple-products/summary")).toHaveLength(1);
     await act(async () => { await client.invalidateQueries({ queryKey: ["simple-products"] }); });
     expect(authFetch.mock.calls.filter(([path]) => path === "/simple-products/summary")).toHaveLength(2);
   });
+
   it("does not fetch without an identity or show another company's summary while switching identity", async () => {
     const authFetch = vi.fn(async (_path: string, _opts?: RequestInit) => summary);
     const { Wrapper } = wrapper();
