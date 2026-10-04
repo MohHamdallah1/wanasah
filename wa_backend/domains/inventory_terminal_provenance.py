@@ -25,6 +25,22 @@ class TerminalOriginAllocation:
     quantity: Decimal
 
 
+async def _read_terminal_origins_bounded(db, statement, *, max_rows: int, limit_message: str):
+    # Enforce capacity in SQL before materializing history. The overflow-only
+    # aggregate retains the existing exact error count without loading its rows.
+    rows = (await db.execute(statement.limit(max_rows + 1))).all()
+    if len(rows) > max_rows:
+        total = await db.scalar(
+            select(func.count()).select_from(statement.order_by(None).subquery())
+        )
+        raise InventoryRuleError(
+            "TERMINAL_ORIGIN_EVIDENCE_LIMIT",
+            limit_message,
+            context={"origin_document_count": int(total)},
+        )
+    return rows
+
+
 async def allocate_terminal_origin_quantity(
     db: AsyncSession,
     *,
@@ -56,7 +72,8 @@ async def allocate_terminal_origin_quantity(
     )
 
     origin_rows = (
-        await db.execute(
+        await _read_terminal_origins_bounded(
+            db,
             select(
                 InventoryTransferHeader.id.label("header_id"),
                 InventoryTransferHeader.reference_number,
@@ -78,9 +95,11 @@ async def allocate_terminal_origin_quantity(
                 InventoryTransferLine.product_variant_id == product_variant_id,
                 InventoryTransferLine.batch_id == batch_id,
             )
-            .order_by(InventoryTransferHeader.id.asc())
+            .order_by(InventoryTransferHeader.id.asc()),
+            max_rows=500,
+            limit_message="Too many staging documents exist for one product batch at this location.",
         )
-    ).all()
+    )
     if not origin_rows:
         raise InventoryRuleError(
             "TERMINAL_ORIGIN_EVIDENCE_MISSING",
@@ -92,13 +111,6 @@ async def allocate_terminal_origin_quantity(
                 "batch_id": batch_id,
             },
         )
-    if len(origin_rows) > 500:
-        raise InventoryRuleError(
-            "TERMINAL_ORIGIN_EVIDENCE_LIMIT",
-            "Too many staging documents exist for one product batch at this location.",
-            context={"origin_document_count": len(origin_rows)},
-        )
-
     header_ids = [int(row.header_id) for row in origin_rows]
     consumed_rows = (
         await db.execute(
@@ -196,7 +208,8 @@ async def read_terminal_origin_availability_for_batches(
 
     purposes = tuple(TERMINAL_REFERENCE_TYPE_BY_PURPOSE)
     origin_rows = (
-        await db.execute(
+        await _read_terminal_origins_bounded(
+            db,
             select(
                 InventoryTransferHeader.id.label("header_id"),
                 InventoryTransferHeader.destination_location_id,
@@ -223,18 +236,13 @@ async def read_terminal_origin_availability_for_batches(
             .order_by(
                 InventoryTransferHeader.id.asc(),
                 InventoryTransferLine.batch_id.asc(),
-            )
+            ),
+            max_rows=10_000,
+            limit_message="Too many terminal staging documents exist for this batch page.",
         )
-    ).all()
+    )
     if not origin_rows:
         return {}
-    if len(origin_rows) > 10_000:
-        raise InventoryRuleError(
-            "TERMINAL_ORIGIN_EVIDENCE_LIMIT",
-            "Too many terminal staging documents exist for this batch page.",
-            context={"origin_document_count": len(origin_rows)},
-        )
-
     origin_meta: dict[tuple[int, int], tuple[str, int, Decimal]] = {}
     for row in origin_rows:
         header_id = int(row.header_id)
