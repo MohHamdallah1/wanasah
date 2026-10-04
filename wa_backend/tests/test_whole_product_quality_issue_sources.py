@@ -37,6 +37,10 @@ async def no_special_transfer_destinations(_db, *, company_id):
     return {}
 
 
+async def no_quality_source_limit(*_args, **_kwargs):
+    return None
+
+
 def action_matrix(**kwargs):
     purposes = ("QUARANTINE", "RECALL_RETURN", "RETURN_TO_VENDOR", "DISPOSAL")
     return {
@@ -117,6 +121,7 @@ def endpoint(blocker_reader=no_completion_blockers):
         read_terminal_origin_availability_for_batches=no_terminal_page_availability,
         SPECIAL_TRANSFER_PERMISSION=SPECIAL_TRANSFER_PERMISSION,
         read_special_transfer_destinations=no_special_transfer_destinations,
+        first_quality_source_limit_excess=no_quality_source_limit,
                 inventory_business_error=lambda code, message, context=None: {
             "code": code,
             "message": message,

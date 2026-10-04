@@ -43,6 +43,10 @@ async def no_special_transfer_destinations(_db, *, company_id):
     return {}
 
 
+async def no_quality_source_limit(*_args, **_kwargs):
+    return None
+
+
 async def no_terminal_origin_availability(_db, **_kwargs):
     return {}
 
@@ -105,6 +109,7 @@ def endpoint():
         allowed_special_transfer_purposes=no_special_purposes,
         SPECIAL_TRANSFER_PERMISSION=SPECIAL_TRANSFER_PERMISSION,
         read_special_transfer_destinations=no_special_transfer_destinations,
+        first_quality_source_limit_excess=no_quality_source_limit,
         read_terminal_origin_availability=no_terminal_origin_availability,
         inventory_quality_action_availability=no_quality_action_availability,
         inventory_business_error=lambda code, message: {"code": code, "message": message},

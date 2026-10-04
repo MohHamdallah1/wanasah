@@ -40,7 +40,9 @@ from models import (
 from quantity import canonical_quantity
 from product_lifecycle import recall_completion_blockers
 from domains.inventory_rules import batch_metadata_is_sellable
+from domains.inventory_quality_source_bounds import first_quality_source_limit_excess
 from services import (
+    InventoryRuleError,
     SPECIAL_TRANSFER_PERMISSION,
     allowed_special_transfer_purposes,
     inventory_quality_action_availability,
@@ -2518,6 +2520,28 @@ async def get_whole_product_quality_issue_sources(
     selected_batch_ids = page_ids[:limit]
     next_cursor = selected_batch_ids[-1] if has_more and selected_batch_ids else None
 
+    if selected_batch_ids:
+        overflow = await first_quality_source_limit_excess(
+            db,
+            company_id=company_id,
+            product_variant_id=product_variant_id,
+            batch_ids=selected_batch_ids,
+            readable_location_filter=access.location_filter("inventory.read", InventoryLocation.id),
+        )
+        if overflow is not None:
+            overflow_batch_id, overflow_source_count = overflow
+            raise HTTPException(
+                status_code=409,
+                detail=inventory_business_error(
+                    "PRODUCT_ISSUE_SOURCE_LIMIT_EXCEEDED",
+                    "One affected batch exists in too many stock sources to manage safely from this screen.",
+                    context={
+                        "batch_id": overflow_batch_id,
+                        "source_count": overflow_source_count,
+                    },
+                ),
+            )
+
     special_destinations = await read_special_transfer_destinations(
         db, company_id=company_id
     )
@@ -2628,13 +2652,16 @@ async def get_whole_product_quality_issue_sources(
             )
         ).all()
 
-        terminal_availability = await read_terminal_origin_availability_for_batches(
-            db,
-            company_id=company_id,
-            destination_location_ids={int(row.location_id) for row in rows},
-            product_variant_id=product_variant_id,
-            batch_ids=selected_batch_ids,
-        )
+        try:
+            terminal_availability = await read_terminal_origin_availability_for_batches(
+                db,
+                company_id=company_id,
+                destination_location_ids={int(row.location_id) for row in rows},
+                product_variant_id=product_variant_id,
+                batch_ids=selected_batch_ids,
+            )
+        except InventoryRuleError as exc:
+            raise HTTPException(status_code=409, detail=exc.as_detail()) from exc
 
         source_maps: dict[int, dict[int, dict]] = {}
         statuses_by_key: dict[tuple[int, int, str], dict] = {}
@@ -2739,16 +2766,6 @@ async def get_whole_product_quality_issue_sources(
             statuses_by_key[key] = status
             source["statuses"].append(status)
 
-        for batch_id, source_map in source_maps.items():
-            if len(source_map) > 500:
-                raise HTTPException(
-                    status_code=409,
-                    detail=inventory_business_error(
-                        "PRODUCT_ISSUE_SOURCE_LIMIT_EXCEEDED",
-                        "One affected batch exists in too many stock sources to manage safely from this screen.",
-                        context={"batch_id": batch_id},
-                    ),
-                )
         for key, status in statuses_by_key.items():
             status["reservation_evidence"] = reservation_evidence(
                 status["reserved_quantity"], owner_rows_by_key.get(key, []),
@@ -2842,6 +2859,24 @@ async def get_batch_stock_sources(
             detail=inventory_business_error(
                 "BATCH_NOT_FOUND",
                 "The batch is unavailable.",
+            ),
+        )
+
+    overflow = await first_quality_source_limit_excess(
+        db,
+        company_id=company_id,
+        product_variant_id=int(batch_row.product_variant_id),
+        batch_ids=[batch_id],
+        readable_location_filter=access.location_filter("inventory.read", InventoryLocation.id),
+    )
+    if overflow is not None:
+        _overflow_batch_id, overflow_source_count = overflow
+        raise HTTPException(
+            status_code=409,
+            detail=inventory_business_error(
+                "BATCH_STOCK_SOURCE_LIMIT_EXCEEDED",
+                "The batch exists in too many stock sources to manage safely from this screen.",
+                context={"source_count": overflow_source_count},
             ),
         )
 
@@ -2944,13 +2979,16 @@ async def get_batch_stock_sources(
             ),
         )
 
-    terminal_availability = await read_terminal_origin_availability(
-        db,
-        company_id=company_id,
-        destination_location_ids={int(row.location_id) for row in rows},
-        product_variant_id=int(batch_row.product_variant_id),
-        batch_id=batch_id,
-    )
+    try:
+        terminal_availability = await read_terminal_origin_availability(
+            db,
+            company_id=company_id,
+            destination_location_ids={int(row.location_id) for row in rows},
+            product_variant_id=int(batch_row.product_variant_id),
+            batch_id=batch_id,
+        )
+    except InventoryRuleError as exc:
+        raise HTTPException(status_code=409, detail=exc.as_detail()) from exc
 
     sources_by_id: dict[int, dict] = {}
     statuses_by_key: dict[tuple[int, str], dict] = {}
@@ -3023,15 +3061,6 @@ async def get_batch_stock_sources(
         }
         statuses_by_key[key] = status
         source["statuses"].append(status)
-
-    if len(sources_by_id) > 500:
-        raise HTTPException(
-            status_code=409,
-            detail=inventory_business_error(
-                "BATCH_STOCK_SOURCE_LIMIT_EXCEEDED",
-                "The batch exists in too many stock sources to manage safely from this screen.",
-            ),
-        )
 
     for key, status in statuses_by_key.items():
         status["reservation_evidence"] = reservation_evidence(
