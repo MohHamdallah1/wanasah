@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.dependencies import get_current_driver
 from config import Config
 from database import get_db
+from domains.inventory_batch_restrictions import load_batch_restrictions
 from domains.pricing.core import PricingError
 from domains.simple_products.catalog_summary import (
     CatalogSummaryResponse,
@@ -1804,6 +1805,10 @@ async def list_simple_products(
             in page
         ]
 
+        batch_restrictions = await load_batch_restrictions(
+            db, actor=actor, variant_ids=[int(variant.id) for variant in variants],
+        )
+
         shapes = await load_sale_shapes(
             db,
             company_id=company_id,
@@ -1920,6 +1925,10 @@ async def list_simple_products(
                     ),
                     "operational_hold": str(
                         variant.operational_hold
+                    ),
+                    "batch_restrictions": (
+                        batch_restrictions[int(variant.id)].model_dump(mode="json")
+                        if batch_restrictions[int(variant.id)] is not None else None
                     ),
                     "simple_compatible": bool(
                         compatible.get(
