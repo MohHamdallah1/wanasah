@@ -161,8 +161,9 @@ A workflow is not complete because a button or endpoint exists. It is complete o
   Products has no Inventory mutation authority; Inventory does not redefine Catalog identity/lifecycle; no sibling-page business imports; no localStorage business-command bus; no new mega-files/god hooks; no N+1 source/action discovery; read contracts remain bounded/paginated.
   - **Closure evidence — 2026-10-04:** the audit confirmed Catalog/Inventory authority separation and typed navigation, then closed every demonstrated performance/authority gap: terminal provenance reads are SQL-bounded before materialization, quality-source limits are checked set-wise before source/owner detail loading, terminal read-capacity errors remain explicit business `409`s, Live Stock warehouse-summary deltas use one set-based update, the TRANSIT company guard is restricted to singleton provisioning/recheck rather than the normal path, and batch-disposition targets now come from the backend authority instead of a React transition matrix. Focused closure gates are **90/90 backend PASS**, **41/41 frontend PASS**, production build PASS, and **12/12 browser PASS**.
 
-- [ ] **4.4 Stable merge/cleanup**
+- [x] **4.4 Stable merge/cleanup**
   Merge completed branches to `main`, delete temporary branches/worktrees, confirm local `main == origin/main`, preserve local `RUN.txt`, and remove this plan only after every item is `[x]`.
+  - **Closure evidence — 2026-10-04:** the completed gate fast-forwarded into `main`; `RUN.txt` and the local handoff file were hash-verified unchanged across the merge; all workflow worktrees and temporary local/remote branches were removed; only the `main` worktree remains; and local `main == origin/main`. One non-Git leftover temp directory may remain because Windows denied filesystem deletion, but it is no longer a Git worktree and holds no branch authority.
 
 ---
 
