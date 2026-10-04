@@ -30,6 +30,14 @@ def payload():
                         "on_hand_quantity": "12.000000",
                         "reserved_quantity": "2.000000",
                         "movable_quantity": "10.000000",
+                        "special_actions": [
+                            {
+                                "purpose": "DISPOSAL",
+                                "allowed": False,
+                                "eligible_quantity": "0",
+                                "reason_code": "PERMISSION_REQUIRED",
+                            }
+                        ],
                         "terminal_actions": [
                             {
                                 "action": "CONFIRM_VENDOR_HANDOVER",
@@ -62,6 +70,10 @@ def test_stock_sources_contract_supports_vehicle_only_batch_action_context():
     assert result.base_uom_code == "EA"
     assert len(result.sources) == 1
     assert result.sources[0].location_type == "VEHICLE"
+    special = result.sources[0].statuses[0].special_actions[0]
+    assert special.purpose == "DISPOSAL"
+    assert special.allowed is False
+    assert special.reason_code == "PERMISSION_REQUIRED"
     action = result.sources[0].statuses[0].terminal_actions[0]
     assert action.action == "CONFIRM_VENDOR_HANDOVER"
     assert action.allowed is True

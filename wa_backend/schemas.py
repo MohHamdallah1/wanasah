@@ -1514,6 +1514,23 @@ class WarehouseInventoryBatchDetailResponse(BaseModel):
     has_more: bool
 
 
+class WarehouseBatchSpecialActionItem(BaseModel):
+    purpose: Literal[
+        "RETURN_TO_VENDOR", "QUARANTINE", "RECALL_RETURN", "DISPOSAL"
+    ]
+    allowed: bool
+    eligible_quantity: NonNegativeQuantity
+    reason_code: Literal[
+        "ALLOWED",
+        "NO_CONFIGURED_DESTINATION",
+        "PERMISSION_REQUIRED",
+        "SOURCE_CANNOT_SEND",
+        "NO_MOVABLE_QUANTITY",
+        "ALREADY_AT_DESTINATION",
+        "STATE_RESTRICTION",
+    ]
+
+
 class WarehouseBatchTerminalActionItem(BaseModel):
     action: Literal["CONFIRM_DISPOSAL", "CONFIRM_VENDOR_HANDOVER"]
     allowed: bool
@@ -1545,6 +1562,9 @@ class WarehouseBatchStockStatusItem(BaseModel):
         "RECALL_RETURN",
         "DISPOSAL",
     ]] = Field(default_factory=list, max_length=4)
+    special_actions: List[WarehouseBatchSpecialActionItem] = Field(
+        default_factory=list, max_length=4
+    )
     reservation_evidence: ReservationEvidence
     terminal_actions: List[WarehouseBatchTerminalActionItem] = Field(
         default_factory=list, max_length=2

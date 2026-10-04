@@ -2966,20 +2966,50 @@ async def get_batch_stock_sources(
             is_active=bool(batch_row.batch_is_active),
             disposition=str(batch_row.disposition),
         )
-        allowed = allowed_special_transfer_purposes(
+        state_allowed = allowed_special_transfer_purposes(
             lifecycle_status=str(batch_row.lifecycle_status),
             operational_hold=str(batch_row.operational_hold),
             batch_disposition=str(batch_row.disposition),
             source_status=str(row.stock_status),
             metadata_sellable=metadata_sellable,
         )
+        special_actions = []
+        for purpose in (
+            "QUARANTINE", "RECALL_RETURN", "RETURN_TO_VENDOR", "DISPOSAL"
+        ):
+            destination_id = special_destinations.get(purpose)
+            if purpose not in state_allowed:
+                action_allowed = False
+                action_reason = "STATE_RESTRICTION"
+            elif destination_id is None:
+                action_allowed = False
+                action_reason = "NO_CONFIGURED_DESTINATION"
+            elif int(destination_id) == location_id:
+                action_allowed = False
+                action_reason = "ALREADY_AT_DESTINATION"
+            elif not bool(row.can_send):
+                action_allowed = False
+                action_reason = "SOURCE_CANNOT_SEND"
+            elif not purpose_access.get(purpose, False):
+                action_allowed = False
+                action_reason = "PERMISSION_REQUIRED"
+            elif movable <= 0:
+                action_allowed = False
+                action_reason = "NO_MOVABLE_QUANTITY"
+            else:
+                action_allowed = True
+                action_reason = "ALLOWED"
+            special_actions.append({
+                "purpose": purpose,
+                "allowed": action_allowed,
+                "eligible_quantity": canonical_quantity(
+                    movable if action_allowed else Decimal("0")
+                ),
+                "reason_code": action_reason,
+            })
         allowed = tuple(
-            purpose
-            for purpose in allowed
-            if bool(row.can_send)
-            and purpose_access.get(purpose, False)
-            and special_destinations.get(purpose) != location_id
-        ) if movable > 0 else ()
+            item["purpose"] for item in special_actions if item["allowed"]
+        )
         stock_status = str(row.stock_status).upper()
         terminal_actions = []
 
@@ -3050,6 +3080,7 @@ async def get_batch_stock_sources(
             "reserved_quantity": canonical_quantity(reserved),
             "movable_quantity": canonical_quantity(movable),
             "allowed_purposes": list(allowed),
+            "special_actions": special_actions,
             "terminal_actions": terminal_actions,
         }
         statuses_by_key[key] = status
