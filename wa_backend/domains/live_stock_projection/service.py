@@ -6,7 +6,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Iterable, Mapping, Sequence
 
-from sqlalchemy import Date, Integer, and_, any_, bindparam, case, cast, delete, func, or_, select, text, union, update
+from sqlalchemy import Date, Integer, and_, any_, bindparam, case, cast, column, delete, func, or_, select, text, union, update, values
 from sqlalchemy.dialects.postgresql import ARRAY, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -453,34 +453,45 @@ async def _apply_warehouse_summary_deltas(
     company_id: int,
     summary_deltas: Mapping[int, Sequence[int]],
 ) -> None:
-    for warehouse_id in sorted(summary_deltas):
-        alert_delta, nonactive_delta, row_delta = summary_deltas[warehouse_id]
-        if not (alert_delta or nonactive_delta or row_delta):
-            continue
+    delta_rows = [
+        (warehouse_id, alert_delta, nonactive_delta, row_delta)
+        for warehouse_id in sorted(summary_deltas)
+        for alert_delta, nonactive_delta, row_delta in [summary_deltas[warehouse_id]]
+        if alert_delta or nonactive_delta or row_delta
+    ]
+    if delta_rows:
+        delta_scope = values(
+            column("warehouse_location_id", Integer),
+            column("alert_delta", Integer),
+            column("nonactive_delta", Integer),
+            column("row_delta", Integer),
+            name="live_stock_summary_delta",
+        ).data(delta_rows)
         result = await db.execute(
             update(InventoryLiveStockWarehouseSummary)
             .where(
                 InventoryLiveStockWarehouseSummary.company_id == company_id,
                 InventoryLiveStockWarehouseSummary.warehouse_location_id
-                == warehouse_id,
+                == delta_scope.c.warehouse_location_id,
             )
             .values(
                 alert_count=(
-                    InventoryLiveStockWarehouseSummary.alert_count + alert_delta
+                    InventoryLiveStockWarehouseSummary.alert_count
+                    + delta_scope.c.alert_delta
                 ),
                 nonactive_visible_count=(
                     InventoryLiveStockWarehouseSummary.nonactive_visible_count
-                    + nonactive_delta
+                    + delta_scope.c.nonactive_delta
                 ),
                 projected_row_count=(
                     InventoryLiveStockWarehouseSummary.projected_row_count
-                    + row_delta
+                    + delta_scope.c.row_delta
                 ),
                 revision=InventoryLiveStockWarehouseSummary.revision + 1,
                 updated_at=utc_now(),
             )
         )
-        if result.rowcount != 1:
+        if result.rowcount != len(delta_rows):
             raise LiveStockProjectionError(
                 "Live Stock warehouse summary is missing during projection update."
             )
