@@ -8,18 +8,19 @@ describe("Products guided sales recovery", () => {
     const panel = read("../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx");
     const actions = read("../features/catalog/lifecycle/CatalogLifecycleActions.tsx");
     const i18n = read("../i18n/resources.ts");
-    expect(i18n).toContain('closeRecall: "إعادة إتاحة البيع"');
+    expect(i18n).toContain('closeRecall: "السماح ببيع المنتج من جديد"');
     expect(i18n).toContain("recallBlockerActions");
-    expect(panel).toContain("problemSaleStopTitle");
     expect(panel).toContain("recallCompletionTitle");
     expect(panel).toContain("recallBlockerActions.${item.code}");
     expect(actions).toContain("recallCompletionRequired");
     expect(actions).toContain("setSelectedCommand(null)");
   });
 
-  it("explains both product and sales status axes in one simple panel", () => {
+  it("uses one commercial status instead of exposing backend lifecycle axes", () => {
     const panel = read("../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx");
-    expect(panel).toContain("products.details.lifecycleModes.${variant.lifecycle_status}");
-    expect(panel).toContain("products.details.holdModes.${variant.operational_hold}");
+    expect(panel).toContain("productCommercialStatus(");
+    expect(panel).toContain("products.commercialStatus.label");
+    expect(panel).not.toContain("products.details.lifecycleModes.${variant.lifecycle_status}");
+    expect(panel).not.toContain("products.details.holdModes.${variant.operational_hold}");
   });
 });

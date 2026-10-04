@@ -233,7 +233,7 @@ export const resources = {
           productLabel: "المنتج",
           salesLabel: "البيع",
           lifecycle: { ACTIVE: "نشط", RETIRING: "موقوف", ARCHIVED: "مؤرشف" },
-          sales: { NONE: "متاح للبيع", SALES_HOLD: "موقوف مؤقتًا", RECALL: "موقوف لحين المعالجة" },
+          sales: { NONE: "متاح للبيع", SALES_HOLD: "موقوف مؤقتًا", RECALL: "موقوف بسبب مشكلة" },
         },
         commercialStatus: {
           label: "الحالة",
@@ -268,7 +268,7 @@ export const resources = {
           batchRestrictionStates: {
             QUARANTINED: "معزولة للفحص",
             BLOCKED: "محظورة",
-            RECALLED: "مسحوبة",
+            RECALLED: "مستبعدة نهائيًا من البيع",
           },
           stopOptionsTitle: "خيارات الإيقاف",
           availableActionsTitle: "ماذا تريد أن تفعل؟",
@@ -998,9 +998,9 @@ export const resources = {
           archive: "أرشفة السجل",
           salesHold: "إيقاف البيع مؤقتًا",
           releaseSalesHold: "إعادة البيع",
-          recall: "سحب المنتج بالكامل بسبب مشكلة",
+          recall: "المشكلة مؤكدة — التعامل مع الكميات الحالية",
           cancelRecall: "تبين أن المنتج سليم",
-          closeRecall: "إنهاء السحب بعد إرجاع الكميات",
+          closeRecall: "السماح ببيع المنتج من جديد",
         },
         success: {
           publish: "تم تفعيل المنتج.",
@@ -1017,11 +1017,11 @@ export const resources = {
           releaseSalesHold:
             "تم استئناف بيع المنتج.",
           recall:
-            "تم سحب المنتج بالكامل وإيقاف بيعه بسبب المشكلة.",
+            "تم إيقاف بيع المنتج بالكامل بسبب المشكلة، وتبقى الكميات الحالية تحت الحماية حتى يتم التعامل معها.",
           cancelRecall:
-            "تم إلغاء السحب وإعادة المنتج للبيع بعد التأكد أن المشكلة لا تشمل المنتج بالكامل.",
+            "تمت إزالة الإيقاف وإعادة المنتج للبيع بعد التأكد أن المشكلة لا تشمل المنتج بالكامل.",
           closeRecall:
-            "تم إنهاء السحب بعد التحقق من إرجاع الكميات وإغلاق العمليات المرتبطة.",
+            "أصبح المنتج متاحًا للبيع من جديد بعد اكتمال التعامل مع الكميات وإغلاق العمليات المرتبطة.",
         },
         simple: {
           productStatusTitle: "حالة المنتج",
@@ -1051,15 +1051,15 @@ export const resources = {
             qualityIssue: "مشكلة جودة تشمل المنتج",
             safetyIssue: "مشكلة سلامة تشمل المنتج",
             labelingIssue: "مشكلة في الملصق أو بيانات المنتج",
-            supplierRequest: "طلب المورد سحب المنتج",
-            regulatoryRequest: "طلب جهة رقابية سحب المنتج",
+            supplierRequest: "طلب المورد إيقاف بيع المنتج",
+            regulatoryRequest: "طلب جهة رقابية إيقاف بيع المنتج",
             issueNotConfirmed: "لم تتأكد المشكلة بعد الفحص",
             falseAlarm: "كان إنذارًا خاطئًا",
             scopeLimitedToBatch: "تبين أن المشكلة تخص دفعة محددة فقط",
             inspectionPassed: "تم الفحص وتأكدت سلامة المنتج",
-            recallCompleted: "اكتملت عملية سحب المنتج",
+            recallCompleted: "اكتمل التعامل مع المشكلة",
             stockRecovered: "تم إرجاع الكميات المتأثرة",
-            recallOperationsClosed: "تم إغلاق العمليات المرتبطة بالسحب",
+            recallOperationsClosed: "تم إغلاق العمليات المرتبطة بالمشكلة",
           },
           qualityIssueTitle: "مشكلة جودة أو سلامة",
           qualityIssueHint:
@@ -1070,45 +1070,45 @@ export const resources = {
           issueScopes: {
             batch: {
               label: "دفعة محددة",
-              hint: "افتح إدارة الدفعات واعزل أو احظر أو اسحب الدفعة المتأثرة فقط. بقية الدفعات السليمة تبقى قابلة للبيع.",
+              hint: "افتح إدارة الدفعات واعزل الدفعة أو امنع بيعها أو استبعدها نهائيًا حسب نتيجة الفحص. بقية الدفعات السليمة تبقى قابلة للبيع.",
               unavailableHint: "هذا المنتج لا يستخدم تتبع الدفعات أو الصلاحية، لذلك لا توجد دفعة محددة يمكن إيقافها بهذا المسار.",
             },
             product: {
               label: "المنتج بالكامل",
-              hint: "استخدم سحب المنتج بالكامل عندما ثبت أن المشكلة تشمل المنتج كله، وليس دفعة واحدة فقط.",
+              hint: "استخدم هذا الخيار فقط عندما ثبت أن المشكلة تشمل المنتج كله، وليس دفعة واحدة فقط. سيتم إيقاف البيع على مستوى الشركة.",
             },
           },
           salesHints: {
             NONE: "يمكن بيع المنتج وتحميله بشكل طبيعي.",
             SALES_HOLD: "البيع متوقف مؤقتًا ويمكن إعادته مباشرة من هذه الشاشة.",
-            RECALL: "البيع متوقف بسبب مشكلة، ولا يعود قبل إنهاء المتطلبات المرتبطة بالمنتج.",
+            RECALL: "البيع موقوف بسبب مشكلة جودة أو سلامة مؤكدة، ويبقى موقوفًا حتى تكتمل المتطلبات المرتبطة بالمنتج.",
           },
           salesHoldDifference:
             "توقف مؤقت يمكنك التراجع عنه مباشرة. مناسب لقرار إداري أو توقف قصير.",
           recallDifference:
-            "استخدم سحب المنتج بالكامل فقط عندما تشمل المشكلة المنتج كله. إذا كان الشك مؤقتًا أو يخص دفعة واحدة فاختر المسار الأبسط المناسب.",
+            "استخدم إيقاف المنتج بالكامل فقط عندما ثبت أن المشكلة تشمل المنتج كله. إذا كان الشك مؤقتًا أو يخص دفعة واحدة فاختر المسار الأبسط المناسب.",
           problemSaleStopTitle: "لماذا البيع موقوف؟",
           problemSaleStopHint:
-            "تم سحب المنتج بالكامل بسبب مشكلة جودة أو سلامة. اختر الإجراء التالي حسب نتيجة التحقيق.",
+            "تم إيقاف بيع المنتج بالكامل بسبب مشكلة جودة أو سلامة. اختر الإجراء التالي حسب نتيجة التحقيق.",
           recallCompletionTitle:
-            "عملية السحب الحقيقية لم تكتمل بعد",
+            "التعامل مع المشكلة لم يكتمل بعد",
           recallCompletionHint:
-            "إذا ثبت أن المشكلة حقيقية، أنهِ البنود الظاهرة أدناه ثم أكمل السحب. إذا تبين أن الإنذار خاطئ، استخدم «تبين أن المنتج سليم» بدل تصفير مخزون سليم.",
-          recallCurrentTitle: "المنتج مسحوب مؤقتًا من البيع",
+            "إذا ثبتت المشكلة، أكمل البنود الظاهرة أدناه قبل السماح بالبيع من جديد. إذا تبين أن الإنذار خاطئ، استخدم «تبين أن المنتج سليم» بدل التعامل مع مخزون سليم بلا حاجة.",
+          recallCurrentTitle: "بيع المنتج موقوف بسبب مشكلة مؤكدة",
           recallCurrentHint:
-            "إذا تبين أن المشكلة لا تشمل المنتج بالكامل يمكنك إلغاء السحب بسبب واضح. أما إذا كانت المشكلة حقيقية فتبقى حماية السحب الصارمة حتى ترجع الكميات وتنهي العمليات المرتبطة.",
+            "إذا تبين أن المشكلة لا تشمل المنتج بالكامل يمكنك إزالة الإيقاف بسبب واضح. أما إذا كانت المشكلة مؤكدة فيبقى البيع موقوفًا حتى تتعامل مع الكميات وتنهي العمليات المرتبطة.",
           recallRecoveryTitle: "ماذا أفعل الآن؟",
           recallRecoverySteps: {
             first: "إذا كان الإنذار خاطئًا اختر «تبين أن المنتج سليم».",
             second: "إذا كانت المشكلة حقيقية، ارجع الكميات المتأثرة وأغلق العمليات المفتوحة الظاهرة أدناه.",
-            third: "بعد اكتمال السحب اختر «إنهاء السحب بعد إرجاع الكميات».",
+            third: "بعد اكتمال البنود اختر «السماح ببيع المنتج من جديد».",
           },
           recallBlockerActions: {
-            INVENTORY_BALANCE: "ما زالت هناك كمية أو حجز لهذا المنتج. افتح الرصيد وحدد مكان الكمية ثم أرجعها عبر مسار السحب، أو ألغِ الحجز إذا لم يعد مطلوبًا.",
-            OPEN_TRANSFER: "هناك حوالة مفتوحة تحتوي المنتج. أكمل الحوالة أو ألغها قبل إنهاء السحب.",
+            INVENTORY_BALANCE: "ما زالت هناك كمية أو حجز لهذا المنتج. يجب التعامل مع الكمية أو الحجز قبل السماح ببيع المنتج من جديد.",
+            OPEN_TRANSFER: "هناك حوالة مفتوحة تحتوي المنتج. أكمل الحوالة أو ألغها قبل السماح ببيع المنتج من جديد.",
             ACTIVE_ROUTE_LOAD: "المنتج موجود ضمن حمولة مسار نشطة. أعد الكمية من الحمولة أو أغلق المسار حسب حالته.",
             OPEN_CUSTODY: "المنتج ما زال ضمن عهدة مندوب مفتوحة. أرجع الكمية من المندوب ثم سوِّ العهدة.",
-            OPEN_SHORTAGE: "يوجد طلب نقص مفتوح لهذا المنتج. أغلق الطلب أو أكمل قراره قبل إنهاء السحب.",
+            OPEN_SHORTAGE: "يوجد طلب نقص مفتوح لهذا المنتج. أغلق الطلب أو أكمل قراره قبل السماح ببيع المنتج من جديد.",
           },
           openRequiredAction: "فتح الإجراء",
           archiveBlockersHint:
@@ -1157,11 +1157,11 @@ export const resources = {
             releaseSalesHold:
               "يعيد المنتج للبيع مباشرة بعد الإيقاف المؤقت.",
             recall:
-              "يسحب المنتج بالكامل من البيع عندما ثبت أن المشكلة تشمل المنتج كله، مع إبقاء قواعد الحماية الصارمة في الخلفية.",
+              "يوقف بيع المنتج بالكامل عندما ثبت أن المشكلة تشمل المنتج كله، مع إبقاء قواعد الحماية الصارمة في الخلفية.",
             cancelRecall:
-              "استخدمه فقط إذا تحققتم أن المشكلة لا تشمل المنتج بالكامل. يعيد البيع فورًا ولا يغيّر أي دفعة محظورة أو مسحوبة بشكل مستقل.",
+              "استخدمه فقط إذا تحققتم أن المشكلة لا تشمل المنتج بالكامل. يعيد البيع فورًا ولا يغيّر أي دفعة مقيدة بشكل مستقل.",
             closeRecall:
-              "للسحب الحقيقي فقط: لا ينهيه النظام حتى ترجع الكميات المتأثرة وتُغلق العمليات المفتوحة المرتبطة بالمنتج.",
+              "للمشكلة المؤكدة فقط: لا يسمح النظام بإعادة البيع حتى يتم التعامل مع الكميات المتأثرة وتُغلق العمليات المفتوحة المرتبطة بالمنتج.",
           },
         },
         assignments: {
@@ -1406,21 +1406,21 @@ export const resources = {
             regulatoryHold: "إيقاف بطلب جهة رقابية",
             operationalBlock: "قرار تشغيلي بمنع استخدام الدفعة",
             confirmedSafetyIssue: "مشكلة سلامة مؤكدة",
-            supplierRecall: "طلب المورد سحب الدفعة",
-            regulatoryRecall: "طلب جهة رقابية سحب الدفعة",
+            supplierRecall: "طلب المورد استبعاد الدفعة من البيع",
+            regulatoryRecall: "طلب جهة رقابية استبعاد الدفعة من البيع",
           },
           restrictionLabels: {
             RELEASED: "غير متاح للبيع حسب سياسة المخزون",
             QUARANTINED: "معزولة للفحص",
             BLOCKED: "محظورة من البيع والاستخدام",
-            RECALLED: "مسحوبة من جميع المواقع",
+            RECALLED: "مستبعدة نهائيًا من البيع",
           },
           apply: "تنفيذ الإجراء",
           retry: "إعادة إرسال نفس الإجراء",
           pending: "نتيجة المحاولة السابقة غير مؤكدة. تم قفل البيانات؛ أعد إرسال نفس الإجراء بدل إنشاء إجراء جديد.",
           pendingBlocked: "تعذر قراءة الإجراء المحفوظ بأمان. تم إيقاف التعديل لحماية الدفعة من تنفيذ مكرر.",
           noPermission: "لا يملك حسابك صلاحية تغيير حالة الدفعات.",
-          recalledTerminal: "تم سحب هذه الدفعة من البيع في جميع المواقع. لا تعاد للبيع من هذا المسار؛ استخدم إجراءات الكمية لإرجاعها أو إعادتها للمورد أو إتلافها حسب القرار.",
+          recalledTerminal: "تم استبعاد هذه الدفعة نهائيًا من البيع. هذا القرار يحدد أنها لا تعود للبيع؛ أما الكميات الموجودة فتُعالج بشكل منفصل عبر إجراءات الكمية المناسبة.",
           success: "تم تحديث حالة الدفعة.",
           targets: {
             RELEASED: {
@@ -1432,12 +1432,12 @@ export const resources = {
               hint: "يوقف بيع هذه الدفعة مؤقتًا ويمكن إعادتها للبيع بعد الفحص إذا كانت سليمة.",
             },
             BLOCKED: {
-              label: "حظر الدفعة من الاستخدام",
-              hint: "يمنع بيع الدفعة واستخدامها داخل النظام. استخدمه عندما تقرر منع استخدامها تشغيليًا؛ لا يمكن إعادتها للبيع مباشرة من هذه الحالة.",
+              label: "منع بيع الدفعة",
+              hint: "يمنع بيع الدفعة واستخدامها تشغيليًا. استخدمه عندما يكون قرار المنع مؤكدًا؛ لا يمكن إعادتها للبيع مباشرة من هذه الحالة.",
             },
             RECALLED: {
-              label: "سحب الدفعة من جميع المواقع",
-              hint: "استخدمه عندما تأكدت أن الدفعة غير صالحة للبيع وتريد منع بيعها وتتبع إعادة كمياتها من المستودعات والمندوبين للتعامل معها.",
+              label: "استبعاد الدفعة من البيع نهائيًا",
+              hint: "استخدمه عندما تأكدت أن الدفعة يجب ألا تباع مرة أخرى. هذا القرار يخص قابلية البيع نهائيًا؛ أما الكميات الموجودة فتُعالج بشكل منفصل من إجراءات الكمية أدناه.",
             },
           },
           errors: {
@@ -1458,7 +1458,7 @@ export const resources = {
           defaultReason: "تنفيذ إجراء على كمية دفعة مقيّدة",
           notes: {
             QUARANTINE: "نقل كمية الدفعة {{batch}} للعزل. السبب: {{reason}}",
-            RECALL_RETURN: "إرجاع كمية الدفعة {{batch}} ضمن عملية السحب. السبب: {{reason}}",
+            RECALL_RETURN: "إرجاع كمية الدفعة {{batch}} للتعامل مع المشكلة. السبب: {{reason}}",
             RETURN_TO_VENDOR: "إعادة كمية الدفعة {{batch}} للمورد. السبب: {{reason}}",
             DISPOSAL: "إرسال كمية الدفعة {{batch}} للإتلاف. السبب: {{reason}}",
           },
@@ -1473,7 +1473,7 @@ export const resources = {
             AVAILABLE: "متاح",
             QUARANTINED: "معزول",
             BLOCKED: "محظور",
-            RECALLED: "مسحوب",
+            RECALLED: "مستبعد من البيع",
             DAMAGED: "تالف",
             DISPOSAL_PENDING: "بانتظار الإتلاف",
           },
@@ -1484,9 +1484,9 @@ export const resources = {
               confirmHint: "سيُنقل {{quantity}} {{unit}} من {{source}} إلى موقع العزل المعتمد في سياسة الشركة.",
             },
             RECALL_RETURN: {
-              label: "إرجاع الكمية ضمن السحب",
-              confirmTitle: "إرجاع هذه الكمية ضمن عملية السحب؟",
-              confirmHint: "سيُنقل {{quantity}} {{unit}} من {{source}} عبر مسار السحب المعتمد حتى يمكن استكمال معالجة السحب.",
+              label: "إرجاع الكمية للتعامل معها",
+              confirmTitle: "إرجاع هذه الكمية للتعامل معها؟",
+              confirmHint: "سيُنقل {{quantity}} {{unit}} من {{source}} عبر المسار المحمي المخصص للكميات المتأثرة بالمشكلة.",
             },
             RETURN_TO_VENDOR: {
               label: "إعادة الكمية للمورد",
@@ -1587,7 +1587,7 @@ export const resources = {
           "متوسط التكلفة المالي الحالي للمنتج على مستوى الشركة. يظهر هنا فقط عندما توجد بضاعة مرتبطة بالمستودع المحدد.",
         unavailable: "غير متاح للبيع",
         unavailableHint:
-          "بضاعة موجودة داخل المستودع لكنها غير متاحة للبيع الآن بسبب الصلاحية أو الحجر أو الإيقاف أو السحب أو التلف أو انتظار الإتلاف.",
+          "بضاعة موجودة داخل المستودع لكنها غير متاحة للبيع الآن بسبب الصلاحية أو العزل أو منع البيع أو الاستبعاد النهائي من البيع أو التلف أو انتظار الإتلاف.",
         perUnit: "لكل {{unit}}",
         results: "النتائج: {{count}}",
         page: "صفحة {{page}}",
@@ -1626,7 +1626,7 @@ export const resources = {
         indicatorReserved: "عليه حجز",
         indicatorUnavailable: "فيه غير متاح للبيع",
         indicatorDamaged: "فيه تالف",
-        indicatorRecalled: "فيه مسحوب",
+        indicatorRecalled: "فيه كمية مستبعدة من البيع",
         indicatorVehicle: "له رصيد مع المركبات",
         indicatorMinimumUnset: "الحد الأدنى غير محدد",
         familyTitle: "عائلة المنتج",
@@ -1666,16 +1666,16 @@ export const resources = {
         expiryUnavailable: "غير متاح للبيع بسبب الصلاحية",
         quarantined: "محجور",
         blocked: "موقوف",
-        recalled: "مسحوب",
+        recalled: "مستبعد من البيع",
         damaged: "تالف",
         disposalPending: "بانتظار الإتلاف",
-        recalledShort: "مسحوب",
+        recalledShort: "مستبعد",
         damagedShort: "تالف",
         batchDisposition: {
           RELEASED: "مفرج عنها",
           QUARANTINED: "محجورة",
           BLOCKED: "موقوفة",
-          RECALLED: "مسحوبة",
+          RECALLED: "مستبعدة نهائيًا من البيع",
         },
         errors: {
           loadFailed: "تعذر تحميل الرصيد الحي.",
@@ -2342,7 +2342,7 @@ export const resources = {
           productLabel: "Product",
           salesLabel: "Sales",
           lifecycle: { ACTIVE: "Active", RETIRING: "Stopped", ARCHIVED: "Archived" },
-          sales: { NONE: "Available for sale", SALES_HOLD: "Temporarily paused", RECALL: "Paused pending resolution" },
+          sales: { NONE: "Available for sale", SALES_HOLD: "Temporarily paused", RECALL: "Stopped for an issue" },
         },
         commercialStatus: {
           label: "Status",
@@ -2377,7 +2377,7 @@ export const resources = {
           batchRestrictionStates: {
             QUARANTINED: "Quarantined for inspection",
             BLOCKED: "Blocked",
-            RECALLED: "Withdrawn",
+            RECALLED: "Permanently excluded from sale",
           },
           stopOptionsTitle: "Stop options",
           availableActionsTitle: "What do you want to do?",
@@ -3108,9 +3108,9 @@ export const resources = {
           archive: "Archive record",
           salesHold: "Pause sales temporarily",
           releaseSalesHold: "Resume sales",
-          recall: "Withdraw the whole product for an issue",
+          recall: "Issue confirmed — handle current quantities",
           cancelRecall: "Product confirmed safe",
-          closeRecall: "Complete withdrawal after quantities return",
+          closeRecall: "Allow product sales again",
         },
         success: {
           publish: "Product activated.",
@@ -3127,11 +3127,11 @@ export const resources = {
           releaseSalesHold:
             "Product sales resumed.",
           recall:
-            "The whole product was withdrawn from sale because of the issue.",
+            "Sales for the whole product were stopped because of the issue; current quantities remain protected until they are handled.",
           cancelRecall:
-            "The withdrawal was cancelled and the product returned to sale after confirming the issue does not affect the whole product.",
+            "The stop was removed and the product returned to sale after confirming the issue does not affect the whole product.",
           closeRecall:
-            "The withdrawal was completed after quantities and related operations were closed.",
+            "The product can be sold again after affected quantities and related operations were fully handled.",
         },
         simple: {
           productStatusTitle: "Product status",
@@ -3161,15 +3161,15 @@ export const resources = {
             qualityIssue: "Quality issue affecting the whole product",
             safetyIssue: "Safety issue affecting the whole product",
             labelingIssue: "Label or product-information issue",
-            supplierRequest: "Supplier requested product withdrawal",
-            regulatoryRequest: "Regulator requested product withdrawal",
+            supplierRequest: "Supplier requested a product sales stop",
+            regulatoryRequest: "Regulator requested a product sales stop",
             issueNotConfirmed: "The issue was not confirmed after inspection",
             falseAlarm: "It was a false alarm",
             scopeLimitedToBatch: "The issue affects only a specific batch",
             inspectionPassed: "Inspection confirmed the product is safe",
-            recallCompleted: "Product withdrawal is complete",
+            recallCompleted: "Issue handling is complete",
             stockRecovered: "Affected quantities were returned",
-            recallOperationsClosed: "Withdrawal-related operations were closed",
+            recallOperationsClosed: "Issue-related operations were closed",
           },
           qualityIssueTitle: "Quality or safety issue",
           qualityIssueHint:
@@ -3180,45 +3180,45 @@ export const resources = {
           issueScopes: {
             batch: {
               label: "A specific batch",
-              hint: "Open batch management and quarantine, block, or withdraw only the affected batch. Other healthy batches can remain sellable.",
+              hint: "Open batch management and quarantine the batch, block its sale, or permanently exclude it based on the inspection result. Other healthy batches can remain sellable.",
               unavailableHint: "This product does not use batch or expiry tracking, so there is no specific batch to stop through this flow.",
             },
             product: {
               label: "The whole product",
-              hint: "Withdraw the whole product only when the issue has been confirmed to affect the product as a whole, not just one batch.",
+              hint: "Use this only when the issue is confirmed to affect the whole product, not just one batch. Sales will stop company-wide.",
             },
           },
           salesHints: {
             NONE: "The product can be sold and loaded normally.",
             SALES_HOLD: "Sales are temporarily paused and can be restored directly from this screen.",
-            RECALL: "Sales are paused for an issue and remain unavailable until the required conditions are resolved.",
+            RECALL: "Sales are stopped because of a confirmed quality or safety issue and remain stopped until the required conditions are resolved.",
           },
           salesHoldDifference:
             "A temporary stop you can reverse directly. Use it for a short administrative or operational pause.",
           recallDifference:
-            "Withdraw the whole product only when the issue affects the whole product. For a temporary concern or one batch, use the simpler scope-specific path instead.",
+            "Stop the whole product only when the issue is confirmed to affect the whole product. For a temporary concern or one batch, use the simpler scope-specific path instead.",
           problemSaleStopTitle: "Why are sales stopped?",
           problemSaleStopHint:
-            "The whole product was withdrawn because of a quality or safety issue. Choose the next action based on the investigation result.",
+            "Sales for the whole product were stopped because of a quality or safety issue. Choose the next action based on the investigation result.",
           recallCompletionTitle:
-            "The real withdrawal is not complete yet",
+            "Issue handling is not complete yet",
           recallCompletionHint:
-            "If the issue is real, complete the items below before closing the withdrawal. If it was a false alarm, use “Product confirmed safe” instead of forcing healthy stock to zero.",
-          recallCurrentTitle: "Product temporarily withdrawn from sale",
+            "If the issue is confirmed, complete the items below before allowing sales again. If it was a false alarm, use “Product confirmed safe” instead of acting on healthy stock unnecessarily.",
+          recallCurrentTitle: "Product sales are stopped for a confirmed issue",
           recallCurrentHint:
-            "If the issue does not affect the whole product, cancel the withdrawal with a clear reason. If it is real, strict withdrawal protection remains until quantities return and related operations are closed.",
+            "If the issue does not affect the whole product, remove the stop with a clear reason. If it is confirmed, sales remain stopped until affected quantities and related operations are handled.",
           recallRecoveryTitle: "What should I do now?",
           recallRecoverySteps: {
             first: "If it was a false alarm, choose “Product confirmed safe”.",
             second: "If the issue is real, return affected quantities and close the open operations shown below.",
-            third: "When the withdrawal is complete, choose “Complete withdrawal after quantities return”.",
+            third: "When all items are complete, choose “Allow product sales again”.",
           },
           recallBlockerActions: {
-            INVENTORY_BALANCE: "There is still stock or a reservation for this product. Open stock, identify where it is, then return it through the withdrawal path or release the reservation if it is no longer needed.",
-            OPEN_TRANSFER: "An open transfer still contains this product. Complete or cancel that transfer before closing the withdrawal.",
+            INVENTORY_BALANCE: "Stock or a reservation still exists for this product. The quantity or reservation must be handled before sales can be allowed again.",
+            OPEN_TRANSFER: "An open transfer still contains this product. Complete or cancel that transfer before sales can be allowed again.",
             ACTIVE_ROUTE_LOAD: "The product is on an active route load. Return the quantity from the load or close the route as appropriate.",
             OPEN_CUSTODY: "The product remains in an open representative custody. Return the quantity from the representative and settle the custody.",
-            OPEN_SHORTAGE: "An open shortage request exists for this product. Close the request or complete its decision before closing the withdrawal.",
+            OPEN_SHORTAGE: "An open shortage request exists for this product. Close the request or complete its decision before sales can be allowed again.",
           },
           openRequiredAction: "Open action",
           archiveBlockersHint:
@@ -3267,11 +3267,11 @@ export const resources = {
             releaseSalesHold:
               "Returns the product to sale after a temporary stop.",
             recall:
-              "Withdraws the whole product from sale when the issue is confirmed to affect the whole product, while keeping strict backend protections in place.",
+              "Stops sales for the whole product when the issue is confirmed to affect the whole product, while keeping strict backend protections in place.",
             cancelRecall:
-              "Use only after confirming the issue does not affect the whole product. Sales resume immediately, while independently blocked or withdrawn batches remain restricted.",
+              "Use only after confirming the issue does not affect the whole product. Sales resume immediately, while independently restricted batches remain restricted.",
             closeRecall:
-              "For a real withdrawal only: the system will not close it until affected quantities return and related open operations are closed.",
+              "For a confirmed issue only: the system will not allow sales again until affected quantities are handled and related open operations are closed.",
           },
         },
         assignments: {
@@ -3516,21 +3516,21 @@ export const resources = {
             regulatoryHold: "Hold requested by a regulator",
             operationalBlock: "Operational decision to prevent use",
             confirmedSafetyIssue: "Confirmed safety issue",
-            supplierRecall: "Supplier requested withdrawal of the batch",
-            regulatoryRecall: "Regulator requested withdrawal of the batch",
+            supplierRecall: "Supplier requested permanent exclusion of the batch from sale",
+            regulatoryRecall: "Regulator requested permanent exclusion of the batch from sale",
           },
           restrictionLabels: {
             RELEASED: "Unavailable under inventory policy",
             QUARANTINED: "Quarantined for inspection",
             BLOCKED: "Blocked from sale and use",
-            RECALLED: "Withdrawn from all locations",
+            RECALLED: "Permanently excluded from sale",
           },
           apply: "Apply action",
           retry: "Retry the same action",
           pending: "The previous attempt has an unknown outcome. The data is locked; retry the same action instead of creating a different one.",
           pendingBlocked: "The saved action could not be read safely. Changes are blocked to protect the batch from duplicate execution.",
           noPermission: "Your account does not have permission to change batch status.",
-          recalledTerminal: "This batch has been withdrawn from sale across all locations. It cannot be returned to sale through this status flow; use quantity actions to return it, send it back to the supplier, or dispose of it as appropriate.",
+          recalledTerminal: "This batch has been permanently excluded from sale. That decision defines whether it can ever be sold again; existing quantities are handled separately through the appropriate quantity actions.",
           success: "Batch status updated.",
           targets: {
             RELEASED: {
@@ -3542,12 +3542,12 @@ export const resources = {
               hint: "Temporarily stops this batch from sale and allows it to be released again after inspection if safe.",
             },
             BLOCKED: {
-              label: "Block batch from use",
-              hint: "Prevents this batch from being sold or used in the system. Use it for a firm operational block; it cannot return directly to sale from this state.",
+              label: "Block batch from sale",
+              hint: "Prevents this batch from being sold or used operationally. Use it for a confirmed block; it cannot return directly to sale from this state.",
             },
             RECALLED: {
-              label: "Withdraw batch from all locations",
-              hint: "Use this when the batch is confirmed unfit for sale and its quantities must be prevented from sale and returned from warehouses and representatives for handling.",
+              label: "Permanently exclude batch from sale",
+              hint: "Use this when the batch must never be sold again. This decision is about permanent sellability; existing quantities are handled separately through the quantity actions below.",
             },
           },
           errors: {
@@ -3568,7 +3568,7 @@ export const resources = {
           defaultReason: "Handle quantity for a restricted batch",
           notes: {
             QUARANTINE: "Move batch {{batch}} quantity to quarantine. Reason: {{reason}}",
-            RECALL_RETURN: "Return batch {{batch}} quantity through the withdrawal workflow. Reason: {{reason}}",
+            RECALL_RETURN: "Return batch {{batch}} quantity for issue handling. Reason: {{reason}}",
             RETURN_TO_VENDOR: "Return batch {{batch}} quantity to the supplier. Reason: {{reason}}",
             DISPOSAL: "Send batch {{batch}} quantity for disposal. Reason: {{reason}}",
           },
@@ -3583,7 +3583,7 @@ export const resources = {
             AVAILABLE: "Available",
             QUARANTINED: "Quarantined",
             BLOCKED: "Blocked",
-            RECALLED: "Withdrawn",
+            RECALLED: "Permanently excluded from sale",
             DAMAGED: "Damaged",
             DISPOSAL_PENDING: "Pending disposal",
           },
@@ -3594,9 +3594,9 @@ export const resources = {
               confirmHint: "{{quantity}} {{unit}} will move from {{source}} to the quarantine location configured by company policy.",
             },
             RECALL_RETURN: {
-              label: "Return quantity through withdrawal",
-              confirmTitle: "Return this quantity through the withdrawal workflow?",
-              confirmHint: "{{quantity}} {{unit}} will move from {{source}} through the protected withdrawal-return path so the withdrawal can be completed.",
+              label: "Return quantity for handling",
+              confirmTitle: "Return this quantity for issue handling?",
+              confirmHint: "{{quantity}} {{unit}} will move from {{source}} through the protected path for quantities affected by this issue.",
             },
             RETURN_TO_VENDOR: {
               label: "Return quantity to supplier",
@@ -3697,7 +3697,7 @@ export const resources = {
           "The current company-wide financial average cost for this product. It is shown here only when inventory is associated with the selected warehouse.",
         unavailable: "Unavailable for sale",
         unavailableHint:
-          "Stock physically inside the warehouse but not available for sale now because of expiry, quarantine, blocking, recall, damage, or pending disposal.",
+          "Stock physically inside the warehouse but not available for sale now because of expiry, quarantine, a sales block, permanent exclusion from sale, damage, or pending disposal.",
         perUnit: "per {{unit}}",
         results: "Results: {{count}}",
         page: "Page {{page}}",
@@ -3736,7 +3736,7 @@ export const resources = {
         indicatorReserved: "Has reservations",
         indicatorUnavailable: "Has unavailable stock",
         indicatorDamaged: "Has damaged stock",
-        indicatorRecalled: "Has recalled stock",
+        indicatorRecalled: "Has stock excluded from sale",
         indicatorVehicle: "Stock with vehicles",
         indicatorMinimumUnset: "Minimum not set",
         familyTitle: "Product family",
@@ -3776,10 +3776,10 @@ export const resources = {
         expiryUnavailable: "Not sellable due to expiry policy",
         quarantined: "Quarantined",
         blocked: "Blocked",
-        recalled: "Recalled",
+        recalled: "Excluded from sale",
         damaged: "Damaged",
         disposalPending: "Pending disposal",
-        recalledShort: "Recalled",
+        recalledShort: "Excluded",
         damagedShort: "Damaged",
         batchDisposition: {
           RELEASED: "Released",

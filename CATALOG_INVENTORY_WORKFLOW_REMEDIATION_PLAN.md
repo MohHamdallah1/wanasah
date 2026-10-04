@@ -206,29 +206,37 @@ Purpose: user decisions must be understandable without knowing backend state mac
 
 ## 2.1 Whole-product issue
 
-- [ ] Keep entry action `مشكلة جودة أو سلامة`.
-- [ ] Keep scope question `أين توجد المشكلة؟` → `دفعة محددة` / `المنتج بالكامل`.
-- [ ] Replace any user-facing `استدعاء المنتج`, `سحب`, `إغلاق السحب`, `إنهاء السحب`, `close recall`, or `إرجاع ضمن السحب` wording.
-- [ ] False alarm action remains `تبين أن المنتج سليم`.
-- [ ] Confirmed issue action becomes `المشكلة مؤكدة — التعامل مع الكميات الحالية`.
-- [ ] After quantities/open operations are resolved, present a business choice such as `السماح ببيع المنتج من جديد` or `التوقف عن استخدام المنتج` according to actual backend state.
+- [x] Keep entry action `مشكلة جودة أو سلامة`.
+- [x] Keep scope question `أين توجد المشكلة؟` → `دفعة محددة` / `المنتج بالكامل`.
+- [x] Replace user-facing recall/withdrawal terminology in the active Product, Batch, quantity-action, and Live Stock surfaces while preserving canonical backend codes and command names.
+- [x] False alarm action remains `تبين أن المنتج سليم`.
+- [x] Confirmed issue action becomes `المشكلة مؤكدة — التعامل مع الكميات الحالية`.
+- [x] After blockers are resolved, `close-recall` is presented as `السماح ببيع المنتج من جديد`; once the hold is cleared, the existing `التوقف عن استخدام المنتج` lifecycle choice remains available according to the backend state.
 
 ## 2.2 Batch issue
 
-- [ ] `QUARANTINED` user action/label: `عزل الدفعة للفحص`.
-- [ ] `BLOCKED` user action/label: `منع بيع الدفعة`, with explicit consequence text.
-- [ ] `RECALLED` user action/label: `استبعاد الدفعة من البيع نهائيًا`.
-- [ ] Explain that final batch exclusion concerns whether it can ever be sold again; physical quantities are handled separately by Inventory actions.
-- [ ] Keep canonical backend codes unchanged.
+- [x] `QUARANTINED` user action/label: `عزل الدفعة للفحص`.
+- [x] `BLOCKED` user action/label: `منع بيع الدفعة`, with explicit consequence text.
+- [x] `RECALLED` user action/label: `استبعاد الدفعة من البيع نهائيًا`.
+- [x] Explain that final batch exclusion concerns whether it can ever be sold again; physical quantities are handled separately by Inventory actions.
+- [x] Keep canonical backend codes unchanged (`RECALL`, `RECALLED`, `RECALL_RETURN` remain internal contracts only).
 
 ## 2.3 Reason UX
 
-- [ ] Keep preset reason lists + `سبب آخر` for Product lifecycle actions where useful.
-- [ ] Keep preset reason lists + `سبب آخر` for batch disposition actions.
-- [ ] Use the actual saved human reason in warnings/details.
-- [ ] Avoid vague fallback text when authoritative reason/status exists.
+- [x] Keep preset reason lists + `سبب آخر` for Product lifecycle actions where useful.
+- [x] Keep preset reason lists + `سبب آخر` for batch disposition actions.
+- [x] Use the actual saved human reason in warnings/details (`disposition_reason` and Products `representative_reason`).
+- [x] Avoid vague fallback text when authoritative reason/status exists; active batch/product warnings prefer saved reason + business-language disposition labels.
 
 **Exit gate:** a normal warehouse/product manager can understand every action without knowledge of backend terms.
+
+**Phase 2 implementation evidence (2026-10-04):**
+- Product quality/safety entry and scope remain business-first; the technical `recall` command is not exposed as user language.
+- Whole-product recovery now says `تبين أن المنتج سليم` / `السماح ببيع المنتج من جديد`; batch actions say `عزل الدفعة للفحص`, `منع بيع الدفعة`, and `استبعاد الدفعة من البيع نهائيًا`.
+- `RECALL_RETURN` remains the backend purpose while the UI says `إرجاع الكمية للتعامل معها`. Live Stock uses the same exclusion language.
+- Product and batch reason presets still support `سبب آخر`, and saved disposition reasons are shown in Batch details and Products restriction warnings.
+- Focused language/lifecycle gate: 4 test files / 37 tests PASS; TypeScript PASS; ESLint PASS; production build PASS (2786 modules).
+
 
 ---
 

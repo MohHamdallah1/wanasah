@@ -33,6 +33,9 @@ describe("Products fast Enter and commercial-status UX", () => {
     const lifecycle = read(
       "../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx",
     );
+    const reasonField = read(
+      "../components/forms/ReasonPresetField.tsx",
+    );
 
     expect(price).toContain(
       'event.key === "Enter"',
@@ -62,11 +65,14 @@ describe("Products fast Enter and commercial-status UX", () => {
       "void save();",
     );
 
-    expect(lifecycle).toContain(
-      '"Enter"',
+    expect(reasonField).toContain(
+      'event.key === "Enter"',
+    );
+    expect(reasonField).toContain(
+      "onSubmit();",
     );
     expect(lifecycle).toContain(
-      "onConfirm();",
+      "onSubmit={onConfirm}",
     );
   });
 
@@ -152,6 +158,18 @@ describe("Products fast Enter and commercial-status UX", () => {
     ]) {
       expect(resources).not.toContain(oldTerm);
     }
+    for (const oldTerm of [
+      "سحب المنتج بالكامل بسبب مشكلة",
+      "إنهاء السحب بعد إرجاع الكميات",
+      "سحب الدفعة من جميع المواقع",
+      "إرجاع الكمية ضمن السحب",
+      "Withdraw the whole product for an issue",
+      "Complete withdrawal after quantities return",
+      "Withdraw batch from all locations",
+      "Return quantity through withdrawal",
+    ]) {
+      expect(resources).not.toContain(oldTerm);
+    }
     for (const term of [
       "متاح للبيع",
       "موقوف",
@@ -162,8 +180,14 @@ describe("Products fast Enter and commercial-status UX", () => {
       "أين توجد المشكلة؟",
       "دفعة محددة",
       "المنتج بالكامل",
-      "استدعاء المنتج بالكامل",
-      "إعادة البيع",
+      "المشكلة مؤكدة — التعامل مع الكميات الحالية",
+      "السماح ببيع المنتج من جديد",
+      "منع بيع الدفعة",
+      "استبعاد الدفعة من البيع نهائيًا",
+      "إرجاع الكمية للتعامل معها",
+      "Issue confirmed — handle current quantities",
+      "Allow product sales again",
+      "Permanently exclude batch from sale",
     ]) {
       expect(resources).toContain(term);
     }
