@@ -6,13 +6,15 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_stock_sources_terminal_actions_are_backend_derived_and_bounded():
     api = (ROOT / "api" / "warehouse" / "live_stock.py").read_text(encoding="utf-8")
     provenance = (ROOT / "domains" / "inventory_terminal_provenance.py").read_text(encoding="utf-8")
+    services = (ROOT / "services.py").read_text(encoding="utf-8")
     assert "read_terminal_origin_availability(" in api
     assert '"inventory.disposal.confirm", InventoryLocation.id' in api
     assert '"inventory.vendor_return.confirm", InventoryLocation.id' in api
-    assert '"CONFIRM_DISPOSAL"' in api
-    assert '"CONFIRM_VENDOR_HANDOVER"' in api
-    assert 'min(movable, disposal_evidence)' in api
-    assert 'min(movable, vendor_evidence)' in api
+    assert '"CONFIRM_DISPOSAL"' in services
+    assert '"CONFIRM_VENDOR_HANDOVER"' in services
+    assert 'min(movable, disposal_evidence)' in services
+    assert 'min(movable, vendor_evidence)' in services
+    assert api.count("inventory_quality_action_availability(") == 2
     assert 'len(location_ids) > 500' in provenance
     assert 'InventoryTransferHeader.status == "POSTED"' in provenance
     assert 'InventoryMovement.reference_type.in_(' in provenance

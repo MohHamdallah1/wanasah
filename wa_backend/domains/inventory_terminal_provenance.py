@@ -164,27 +164,34 @@ async def allocate_terminal_origin_quantity(
     return allocations
 
 
-async def read_terminal_origin_availability(
+async def read_terminal_origin_availability_for_batches(
     db: AsyncSession,
     *,
     company_id: int,
     destination_location_ids: Iterable[int],
     product_variant_id: int,
-    batch_id: int,
-) -> dict[tuple[str, int], Decimal]:
-    """Read unconsumed terminal staging evidence with constant query count.
+    batch_ids: Iterable[int],
+) -> dict[tuple[str, int, int], Decimal]:
+    """Read terminal staging evidence for one bounded batch page in two queries.
 
-    This is advisory read evidence only. Terminal mutations re-run the
-    provenance allocator under its transaction advisory guard and the unified
-    movement engine revalidates current stock under row locks.
+    Keys are ``(purpose, batch_id, destination_location_id)``. This is advisory
+    read evidence only; terminal mutations re-run exact provenance allocation
+    under an advisory transaction guard and the unified movement engine owns the
+    authoritative stock locks.
     """
     location_ids = sorted({int(value) for value in destination_location_ids})
-    if not location_ids:
+    normalized_batch_ids = sorted({int(value) for value in batch_ids})
+    if not location_ids or not normalized_batch_ids:
         return {}
     if len(location_ids) > 500:
         raise InventoryRuleError(
             "TERMINAL_SOURCE_LIMIT_EXCEEDED",
             "Too many readable stock sources for terminal-action discovery.",
+        )
+    if len(normalized_batch_ids) > 50:
+        raise InventoryRuleError(
+            "TERMINAL_BATCH_PAGE_LIMIT_EXCEEDED",
+            "Too many batches were requested for terminal-action discovery.",
         )
 
     purposes = tuple(TERMINAL_REFERENCE_TYPE_BY_PURPOSE)
@@ -194,6 +201,7 @@ async def read_terminal_origin_availability(
                 InventoryTransferHeader.id.label("header_id"),
                 InventoryTransferHeader.destination_location_id,
                 InventoryTransferHeader.transfer_purpose,
+                InventoryTransferLine.batch_id,
                 InventoryTransferLine.quantity,
             )
             .join(
@@ -210,48 +218,57 @@ async def read_terminal_origin_availability(
                 InventoryTransferHeader.status == "POSTED",
                 InventoryTransferHeader.destination_location_id.in_(location_ids),
                 InventoryTransferLine.product_variant_id == product_variant_id,
-                InventoryTransferLine.batch_id == batch_id,
+                InventoryTransferLine.batch_id.in_(normalized_batch_ids),
             )
-            .order_by(InventoryTransferHeader.id.asc())
+            .order_by(
+                InventoryTransferHeader.id.asc(),
+                InventoryTransferLine.batch_id.asc(),
+            )
         )
     ).all()
     if not origin_rows:
         return {}
-    if len(origin_rows) > 1000:
+    if len(origin_rows) > 10_000:
         raise InventoryRuleError(
             "TERMINAL_ORIGIN_EVIDENCE_LIMIT",
-            "Too many terminal staging documents exist for this batch.",
+            "Too many terminal staging documents exist for this batch page.",
             context={"origin_document_count": len(origin_rows)},
         )
 
-    header_meta: dict[int, tuple[str, int, Decimal]] = {}
+    origin_meta: dict[tuple[int, int], tuple[str, int, Decimal]] = {}
     for row in origin_rows:
         header_id = int(row.header_id)
-        purpose = str(row.transfer_purpose).upper()
-        location_id = int(row.destination_location_id)
-        quantity = Decimal(row.quantity or 0)
-        previous = header_meta.get(header_id)
-        if previous is not None:
-            # Transfer-line identity guarantees one line for product+batch.
+        batch_id = int(row.batch_id)
+        key = (header_id, batch_id)
+        if key in origin_meta:
+            # DB uniqueness should prevent this for one product+batch per transfer.
             raise InventoryRuleError(
                 "TERMINAL_ORIGIN_EVIDENCE_INCONSISTENT",
-                "Duplicate terminal staging evidence exists for one transfer.",
-                context={"transfer_header_id": header_id},
+                "Duplicate terminal staging evidence exists for one transfer batch.",
+                context={"transfer_header_id": header_id, "batch_id": batch_id},
             )
-        header_meta[header_id] = (purpose, location_id, quantity)
+        origin_meta[key] = (
+            str(row.transfer_purpose).upper(),
+            int(row.destination_location_id),
+            Decimal(row.quantity or 0),
+        )
 
+    header_ids = sorted({header_id for header_id, _batch_id in origin_meta})
     consumed_rows = (
         await db.execute(
             select(
                 InventoryMovement.transfer_header_id,
+                InventoryMovement.batch_id,
+                InventoryMovement.source_location_id,
                 InventoryMovement.reference_type,
                 func.coalesce(func.sum(InventoryMovement.quantity), 0).label("quantity"),
             )
             .where(
                 InventoryMovement.company_id == company_id,
-                InventoryMovement.transfer_header_id.in_(list(header_meta)),
+                InventoryMovement.transfer_header_id.in_(header_ids),
                 InventoryMovement.product_variant_id == product_variant_id,
-                InventoryMovement.batch_id == batch_id,
+                InventoryMovement.batch_id.in_(normalized_batch_ids),
+                InventoryMovement.source_location_id.in_(location_ids),
                 InventoryMovement.destination_location_id.is_(None),
                 InventoryMovement.reference_type.in_(
                     tuple(TERMINAL_REFERENCE_TYPE_BY_PURPOSE.values())
@@ -259,34 +276,73 @@ async def read_terminal_origin_availability(
             )
             .group_by(
                 InventoryMovement.transfer_header_id,
+                InventoryMovement.batch_id,
+                InventoryMovement.source_location_id,
                 InventoryMovement.reference_type,
             )
         )
     ).all()
-    consumed_by_header: dict[int, Decimal] = {}
+
+    consumed_by_origin: dict[tuple[int, int], Decimal] = {}
     for row in consumed_rows:
-        header_id = int(row.transfer_header_id)
-        meta = header_meta.get(header_id)
+        key = (int(row.transfer_header_id), int(row.batch_id))
+        meta = origin_meta.get(key)
         if meta is None:
             continue
-        expected_reference = TERMINAL_REFERENCE_TYPE_BY_PURPOSE[meta[0]]
-        if str(row.reference_type) != expected_reference:
-            continue
-        consumed_by_header[header_id] = Decimal(row.quantity or 0)
+        purpose, expected_location_id, _staged = meta
+        expected_reference = TERMINAL_REFERENCE_TYPE_BY_PURPOSE[purpose]
+        if (
+            int(row.source_location_id) != expected_location_id
+            or str(row.reference_type) != expected_reference
+        ):
+            raise InventoryRuleError(
+                "TERMINAL_ORIGIN_EVIDENCE_INCONSISTENT",
+                "Terminal movement evidence does not match its staging origin.",
+                context={
+                    "transfer_header_id": key[0],
+                    "batch_id": key[1],
+                },
+            )
+        consumed_by_origin[key] = consumed_by_origin.get(key, Decimal("0")) + Decimal(
+            row.quantity or 0
+        )
 
-    available: dict[tuple[str, int], Decimal] = {}
-    for header_id, (purpose, location_id, staged) in header_meta.items():
-        consumed = consumed_by_header.get(header_id, Decimal("0"))
+    available: dict[tuple[str, int, int], Decimal] = {}
+    for (header_id, batch_id), (purpose, location_id, staged) in origin_meta.items():
+        consumed = consumed_by_origin.get((header_id, batch_id), Decimal("0"))
         if consumed < 0 or consumed > staged:
             raise InventoryRuleError(
                 "TERMINAL_ORIGIN_EVIDENCE_INCONSISTENT",
                 "Terminal consumption exceeds immutable staging evidence.",
                 context={
                     "transfer_header_id": header_id,
+                    "batch_id": batch_id,
                     "staged_quantity": canonical_quantity(staged),
                     "consumed_quantity": canonical_quantity(consumed),
                 },
             )
-        key = (purpose, location_id)
+        key = (purpose, batch_id, location_id)
         available[key] = available.get(key, Decimal("0")) + (staged - consumed)
     return available
+
+
+async def read_terminal_origin_availability(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    destination_location_ids: Iterable[int],
+    product_variant_id: int,
+    batch_id: int,
+) -> dict[tuple[str, int], Decimal]:
+    """Compatibility wrapper for the single-batch stock-source read."""
+    page = await read_terminal_origin_availability_for_batches(
+        db,
+        company_id=company_id,
+        destination_location_ids=destination_location_ids,
+        product_variant_id=product_variant_id,
+        batch_ids=[batch_id],
+    )
+    return {
+        (purpose, location_id): quantity
+        for (purpose, _batch_id, location_id), quantity in page.items()
+    }

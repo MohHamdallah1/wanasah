@@ -17,7 +17,10 @@ from domains.dispatch_reservations import (
     reservation_owner_projection,
     variant_reservation_owner_projection,
 )
-from domains.inventory_terminal_provenance import read_terminal_origin_availability
+from domains.inventory_terminal_provenance import (
+    read_terminal_origin_availability,
+    read_terminal_origin_availability_for_batches,
+)
 from models import (
     Company,
     DispatchRoute,
@@ -40,6 +43,7 @@ from domains.inventory_rules import batch_metadata_is_sellable
 from services import (
     SPECIAL_TRANSFER_PERMISSION,
     allowed_special_transfer_purposes,
+    inventory_quality_action_availability,
     batch_expiry_policy_predicate,
     batch_sellability_predicate,
     inventory_business_error,
@@ -2555,6 +2559,12 @@ async def get_whole_product_quality_issue_sources(
                     InventoryLocation.name.label("location_name"),
                     InventoryLocation.location_type,
                     can_send.label("can_send"),
+                    access.allows(
+                        "inventory.disposal.confirm", InventoryLocation.id
+                    ).label("can_confirm_disposal"),
+                    access.allows(
+                        "inventory.vendor_return.confirm", InventoryLocation.id
+                    ).label("can_confirm_vendor_return"),
                     InventoryBalance.stock_status,
                     InventoryBalance.on_hand_quantity,
                     InventoryBalance.reserved_quantity,
@@ -2617,6 +2627,14 @@ async def get_whole_product_quality_issue_sources(
                 )
             )
         ).all()
+
+        terminal_availability = await read_terminal_origin_availability_for_batches(
+            db,
+            company_id=company_id,
+            destination_location_ids={int(row.location_id) for row in rows},
+            product_variant_id=product_variant_id,
+            batch_ids=selected_batch_ids,
+        )
 
         source_maps: dict[int, dict[int, dict]] = {}
         statuses_by_key: dict[tuple[int, int, str], dict] = {}
@@ -2689,26 +2707,34 @@ async def get_whole_product_quality_issue_sources(
                 is_active=bool(row.batch_is_active),
                 disposition=str(row.disposition),
             )
-            allowed = allowed_special_transfer_purposes(
+            actions = inventory_quality_action_availability(
                 lifecycle_status=str(variant_row.lifecycle_status),
                 operational_hold="RECALL",
                 batch_disposition=str(row.disposition),
                 source_status=str(row.stock_status),
                 metadata_sellable=metadata_sellable,
+                movable_quantity=movable,
+                source_location_id=location_id,
+                can_send=bool(row.can_send),
+                can_confirm_disposal=bool(row.can_confirm_disposal),
+                can_confirm_vendor_return=bool(row.can_confirm_vendor_return),
+                special_destinations=special_destinations,
+                purpose_access=purpose_access,
+                terminal_evidence={
+                    "DISPOSAL": terminal_availability.get(
+                        ("DISPOSAL", batch_id, location_id), Decimal("0")
+                    ),
+                    "RETURN_TO_VENDOR": terminal_availability.get(
+                        ("RETURN_TO_VENDOR", batch_id, location_id), Decimal("0")
+                    ),
+                },
             )
-            allowed = tuple(
-                purpose
-                for purpose in allowed
-                if bool(row.can_send)
-                and purpose_access.get(purpose, False)
-                and special_destinations.get(purpose) != location_id
-            ) if movable > 0 else ()
             status = {
                 "stock_status": str(row.stock_status).upper(),
                 "on_hand_quantity": canonical_quantity(on_hand),
                 "reserved_quantity": canonical_quantity(reserved),
                 "movable_quantity": canonical_quantity(movable),
-                "allowed_purposes": list(allowed),
+                **actions,
             }
             statuses_by_key[key] = status
             source["statuses"].append(status)
@@ -2966,122 +2992,34 @@ async def get_batch_stock_sources(
             is_active=bool(batch_row.batch_is_active),
             disposition=str(batch_row.disposition),
         )
-        state_allowed = allowed_special_transfer_purposes(
+        actions = inventory_quality_action_availability(
             lifecycle_status=str(batch_row.lifecycle_status),
             operational_hold=str(batch_row.operational_hold),
             batch_disposition=str(batch_row.disposition),
             source_status=str(row.stock_status),
             metadata_sellable=metadata_sellable,
-        )
-        special_actions = []
-        for purpose in (
-            "QUARANTINE", "RECALL_RETURN", "RETURN_TO_VENDOR", "DISPOSAL"
-        ):
-            destination_id = special_destinations.get(purpose)
-            if purpose not in state_allowed:
-                action_allowed = False
-                action_reason = "STATE_RESTRICTION"
-            elif destination_id is None:
-                action_allowed = False
-                action_reason = "NO_CONFIGURED_DESTINATION"
-            elif int(destination_id) == location_id:
-                action_allowed = False
-                action_reason = "ALREADY_AT_DESTINATION"
-            elif not bool(row.can_send):
-                action_allowed = False
-                action_reason = "SOURCE_CANNOT_SEND"
-            elif not purpose_access.get(purpose, False):
-                action_allowed = False
-                action_reason = "PERMISSION_REQUIRED"
-            elif movable <= 0:
-                action_allowed = False
-                action_reason = "NO_MOVABLE_QUANTITY"
-            else:
-                action_allowed = True
-                action_reason = "ALLOWED"
-            special_actions.append({
-                "purpose": purpose,
-                "allowed": action_allowed,
-                "eligible_quantity": canonical_quantity(
-                    movable if action_allowed else Decimal("0")
+            movable_quantity=movable,
+            source_location_id=location_id,
+            can_send=bool(row.can_send),
+            can_confirm_disposal=bool(row.can_confirm_disposal),
+            can_confirm_vendor_return=bool(row.can_confirm_vendor_return),
+            special_destinations=special_destinations,
+            purpose_access=purpose_access,
+            terminal_evidence={
+                "DISPOSAL": terminal_availability.get(
+                    ("DISPOSAL", location_id), Decimal("0")
                 ),
-                "reason_code": action_reason,
-            })
-        allowed = tuple(
-            item["purpose"] for item in special_actions if item["allowed"]
+                "RETURN_TO_VENDOR": terminal_availability.get(
+                    ("RETURN_TO_VENDOR", location_id), Decimal("0")
+                ),
+            },
         )
-        stock_status = str(row.stock_status).upper()
-        terminal_actions = []
-
-        disposal_evidence = terminal_availability.get(
-            ("DISPOSAL", location_id), Decimal("0")
-        )
-        if stock_status == "DISPOSAL_PENDING" or disposal_evidence > 0:
-            if stock_status != "DISPOSAL_PENDING":
-                disposal_allowed = False
-                disposal_reason = "STATE_RESTRICTION"
-                disposal_eligible = Decimal("0")
-            elif not bool(row.can_confirm_disposal):
-                disposal_allowed = False
-                disposal_reason = "PERMISSION_REQUIRED"
-                disposal_eligible = Decimal("0")
-            elif movable <= 0:
-                disposal_allowed = False
-                disposal_reason = "NO_MOVABLE_QUANTITY"
-                disposal_eligible = Decimal("0")
-            elif disposal_evidence <= 0:
-                disposal_allowed = False
-                disposal_reason = "ORIGIN_EVIDENCE_MISSING"
-                disposal_eligible = Decimal("0")
-            else:
-                disposal_allowed = True
-                disposal_reason = "ALLOWED"
-                disposal_eligible = min(movable, disposal_evidence)
-            terminal_actions.append({
-                "action": "CONFIRM_DISPOSAL",
-                "allowed": disposal_allowed,
-                "eligible_quantity": canonical_quantity(disposal_eligible),
-                "reason_code": disposal_reason,
-            })
-
-        vendor_evidence = terminal_availability.get(
-            ("RETURN_TO_VENDOR", location_id), Decimal("0")
-        )
-        if vendor_evidence > 0:
-            vendor_status_allowed = stock_status in {
-                "QUARANTINED", "BLOCKED", "RECALLED", "DAMAGED"
-            }
-            if not vendor_status_allowed:
-                vendor_allowed = False
-                vendor_reason = "STATE_RESTRICTION"
-                vendor_eligible = Decimal("0")
-            elif not bool(row.can_confirm_vendor_return):
-                vendor_allowed = False
-                vendor_reason = "PERMISSION_REQUIRED"
-                vendor_eligible = Decimal("0")
-            elif movable <= 0:
-                vendor_allowed = False
-                vendor_reason = "NO_MOVABLE_QUANTITY"
-                vendor_eligible = Decimal("0")
-            else:
-                vendor_allowed = True
-                vendor_reason = "ALLOWED"
-                vendor_eligible = min(movable, vendor_evidence)
-            terminal_actions.append({
-                "action": "CONFIRM_VENDOR_HANDOVER",
-                "allowed": vendor_allowed,
-                "eligible_quantity": canonical_quantity(vendor_eligible),
-                "reason_code": vendor_reason,
-            })
-
         status = {
-            "stock_status": stock_status,
+            "stock_status": str(row.stock_status).upper(),
             "on_hand_quantity": canonical_quantity(on_hand),
             "reserved_quantity": canonical_quantity(reserved),
             "movable_quantity": canonical_quantity(movable),
-            "allowed_purposes": list(allowed),
-            "special_actions": special_actions,
-            "terminal_actions": terminal_actions,
+            **actions,
         }
         statuses_by_key[key] = status
         source["statuses"].append(status)

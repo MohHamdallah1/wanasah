@@ -7,7 +7,10 @@ os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/
 
 import pytest
 
-from domains.inventory_terminal_provenance import allocate_terminal_origin_quantity
+from domains.inventory_terminal_provenance import (
+    allocate_terminal_origin_quantity,
+    read_terminal_origin_availability_for_batches,
+)
 from services import InventoryRuleError
 
 
@@ -17,8 +20,11 @@ class _Rows:
 
 
 class _Db:
-    def __init__(self, rows): self.rows=list(rows)
+    def __init__(self, rows):
+        self.rows=list(rows)
+        self.execute_count = 0
     async def execute(self, _stmt):
+        self.execute_count += 1
         if not self.rows: raise AssertionError("unexpected execute")
         return _Rows(self.rows.pop(0))
 
@@ -53,3 +59,29 @@ async def test_provenance_rejects_quantity_beyond_remaining_staging_evidence():
             terminal_reference_type="FINAL_DISPOSAL", requested_quantity=Decimal("2"),
         )
     assert exc.value.code == "TERMINAL_STAGING_EVIDENCE_SHORTAGE"
+
+
+@pytest.mark.asyncio
+async def test_page_availability_is_set_based_for_multiple_batches_and_sources():
+    origins = [
+        SimpleNamespace(header_id=10, destination_location_id=7, transfer_purpose="DISPOSAL", batch_id=9, quantity=Decimal("5")),
+        SimpleNamespace(header_id=11, destination_location_id=7, transfer_purpose="DISPOSAL", batch_id=10, quantity=Decimal("4")),
+        SimpleNamespace(header_id=12, destination_location_id=8, transfer_purpose="RETURN_TO_VENDOR", batch_id=9, quantity=Decimal("3")),
+    ]
+    consumed = [
+        SimpleNamespace(transfer_header_id=10, batch_id=9, source_location_id=7, reference_type="FINAL_DISPOSAL", quantity=Decimal("2")),
+    ]
+    db = _Db([origins, consumed])
+    result = await read_terminal_origin_availability_for_batches(
+        db,
+        company_id=2,
+        destination_location_ids=[7, 8],
+        product_variant_id=8,
+        batch_ids=[9, 10],
+    )
+    assert db.execute_count == 2
+    assert result == {
+        ("DISPOSAL", 9, 7): Decimal("3"),
+        ("DISPOSAL", 10, 7): Decimal("4"),
+        ("RETURN_TO_VENDOR", 9, 8): Decimal("3"),
+    }

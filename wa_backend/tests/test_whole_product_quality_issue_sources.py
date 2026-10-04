@@ -1,4 +1,4 @@
-﻿import ast
+import ast
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -34,6 +34,22 @@ def no_special_purposes(**_kwargs):
 
 
 async def no_special_transfer_destinations(_db, *, company_id):
+    return {}
+
+
+def action_matrix(**kwargs):
+    purposes = ("QUARANTINE", "RECALL_RETURN", "RETURN_TO_VENDOR", "DISPOSAL")
+    return {
+        "allowed_purposes": [],
+        "special_actions": [
+            {"purpose": purpose, "allowed": False, "eligible_quantity": "0", "reason_code": "STATE_RESTRICTION"}
+            for purpose in purposes
+        ],
+        "terminal_actions": [],
+    }
+
+
+async def no_terminal_page_availability(_db, **_kwargs):
     return {}
 
 
@@ -97,6 +113,8 @@ def endpoint(blocker_reader=no_completion_blockers):
         recall_completion_blockers=blocker_reader,
         batch_metadata_is_sellable=batch_metadata_is_sellable,
         allowed_special_transfer_purposes=no_special_purposes,
+        inventory_quality_action_availability=action_matrix,
+        read_terminal_origin_availability_for_batches=no_terminal_page_availability,
         SPECIAL_TRANSFER_PERMISSION=SPECIAL_TRANSFER_PERMISSION,
         read_special_transfer_destinations=no_special_transfer_destinations,
                 inventory_business_error=lambda code, message, context=None: {
@@ -221,6 +239,10 @@ async def test_whole_product_issue_lists_warehouse_and_vehicle_separately(store)
         (2, "VEHICLE"),
         (1, "WAREHOUSE"),
     ]
+    first_status = sources[0]["statuses"][0]
+    assert first_status["allowed_purposes"] == []
+    assert len(first_status["special_actions"]) == 4
+    assert first_status["terminal_actions"] == []
 
 
 @pytest.mark.asyncio

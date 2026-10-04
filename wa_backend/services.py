@@ -38,7 +38,7 @@ from models import (
 )
 
 from typing import Any, Type, Optional, List, Dict, Tuple
-from quantity import QUANTITY_MAX, QuantityError, parse_quantity, validate_variant_quantity
+from quantity import QUANTITY_MAX, QuantityError, canonical_quantity, parse_quantity, validate_variant_quantity
 from product_lifecycle import (
     RETURN_DISPOSAL,
     acquire_product_lifecycle_guards,
@@ -1424,6 +1424,117 @@ def allowed_special_transfer_purposes(
         allowed.append("DISPOSAL")
 
     return tuple(allowed)
+
+
+def inventory_quality_action_availability(
+    *,
+    lifecycle_status: str,
+    operational_hold: str,
+    batch_disposition: str,
+    source_status: str,
+    metadata_sellable: bool,
+    movable_quantity: Decimal,
+    source_location_id: int,
+    can_send: bool,
+    can_confirm_disposal: bool,
+    can_confirm_vendor_return: bool,
+    special_destinations: Dict[str, int],
+    purpose_access: Dict[str, bool],
+    terminal_evidence: Optional[Dict[str, Decimal]] = None,
+) -> Dict[str, Any]:
+    """Return one server-derived action matrix for a physical stock portion.
+
+    Read contracts use this only as advisory UI evidence. Every mutation endpoint
+    revalidates permissions, policy, provenance, locks, quantity and lifecycle.
+    Keeping this matrix here prevents the batch and whole-product read surfaces
+    from drifting into different business rules.
+    """
+    status = str(source_status or "").upper()
+    movable = Decimal(movable_quantity or 0)
+    if movable < 0:
+        raise InventoryMutationError("movable_quantity cannot be negative.")
+    location_id = _strict_int(source_location_id, "source_location_id", minimum=1)
+    state_allowed = set(allowed_special_transfer_purposes(
+        lifecycle_status=lifecycle_status,
+        operational_hold=operational_hold,
+        batch_disposition=batch_disposition,
+        source_status=status,
+        metadata_sellable=metadata_sellable,
+    ))
+    special_actions: List[Dict[str, Any]] = []
+    for purpose in ("QUARANTINE", "RECALL_RETURN", "RETURN_TO_VENDOR", "DISPOSAL"):
+        destination_id = special_destinations.get(purpose)
+        if purpose not in state_allowed:
+            allowed = False
+            reason = "STATE_RESTRICTION"
+        elif destination_id is None:
+            allowed = False
+            reason = "NO_CONFIGURED_DESTINATION"
+        elif int(destination_id) == location_id:
+            allowed = False
+            reason = "ALREADY_AT_DESTINATION"
+        elif not bool(can_send):
+            allowed = False
+            reason = "SOURCE_CANNOT_SEND"
+        elif not bool(purpose_access.get(purpose, False)):
+            allowed = False
+            reason = "PERMISSION_REQUIRED"
+        elif movable <= 0:
+            allowed = False
+            reason = "NO_MOVABLE_QUANTITY"
+        else:
+            allowed = True
+            reason = "ALLOWED"
+        special_actions.append({
+            "purpose": purpose,
+            "allowed": allowed,
+            "eligible_quantity": canonical_quantity(movable if allowed else Decimal("0")),
+            "reason_code": reason,
+        })
+
+    evidence = terminal_evidence or {}
+    terminal_actions: List[Dict[str, Any]] = []
+    disposal_evidence = Decimal(evidence.get("DISPOSAL", Decimal("0")) or 0)
+    if status == "DISPOSAL_PENDING" or disposal_evidence > 0:
+        if status != "DISPOSAL_PENDING":
+            allowed = False; reason = "STATE_RESTRICTION"; eligible = Decimal("0")
+        elif not bool(can_confirm_disposal):
+            allowed = False; reason = "PERMISSION_REQUIRED"; eligible = Decimal("0")
+        elif movable <= 0:
+            allowed = False; reason = "NO_MOVABLE_QUANTITY"; eligible = Decimal("0")
+        elif disposal_evidence <= 0:
+            allowed = False; reason = "ORIGIN_EVIDENCE_MISSING"; eligible = Decimal("0")
+        else:
+            allowed = True; reason = "ALLOWED"; eligible = min(movable, disposal_evidence)
+        terminal_actions.append({
+            "action": "CONFIRM_DISPOSAL",
+            "allowed": allowed,
+            "eligible_quantity": canonical_quantity(eligible),
+            "reason_code": reason,
+        })
+
+    vendor_evidence = Decimal(evidence.get("RETURN_TO_VENDOR", Decimal("0")) or 0)
+    if vendor_evidence > 0:
+        if status not in {"QUARANTINED", "BLOCKED", "RECALLED", "DAMAGED"}:
+            allowed = False; reason = "STATE_RESTRICTION"; eligible = Decimal("0")
+        elif not bool(can_confirm_vendor_return):
+            allowed = False; reason = "PERMISSION_REQUIRED"; eligible = Decimal("0")
+        elif movable <= 0:
+            allowed = False; reason = "NO_MOVABLE_QUANTITY"; eligible = Decimal("0")
+        else:
+            allowed = True; reason = "ALLOWED"; eligible = min(movable, vendor_evidence)
+        terminal_actions.append({
+            "action": "CONFIRM_VENDOR_HANDOVER",
+            "allowed": allowed,
+            "eligible_quantity": canonical_quantity(eligible),
+            "reason_code": reason,
+        })
+
+    return {
+        "allowed_purposes": [item["purpose"] for item in special_actions if item["allowed"]],
+        "special_actions": special_actions,
+        "terminal_actions": terminal_actions,
+    }
 
 
 async def read_special_transfer_destinations(
