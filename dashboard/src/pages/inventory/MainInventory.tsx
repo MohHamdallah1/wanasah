@@ -1238,6 +1238,7 @@ export default function MainInventory() {
           <TabBatches
             key={selectedLocationId}
             locationId={selectedLocationId}
+            onOpenTransfers={() => setActiveTab("transfers")}
           />
         )}
         {!locationAccess.isPending && activeTab === "inbound" && tabAllowed("inbound") && selectedLocationId !== null && locationAccess.data && (

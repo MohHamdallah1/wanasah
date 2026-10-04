@@ -1,6 +1,9 @@
 import { useTranslation } from "react-i18next";
 
-import type { SimpleProduct } from "@/pages/products/contracts";
+import type {
+  ProductBatchRestrictionDisposition,
+  SimpleProduct,
+} from "@/pages/products/contracts";
 import { productTableStatus } from "@/pages/products/list/productTableStatus";
 
 const dotTones = {
@@ -17,17 +20,43 @@ const valueTones = {
   blocked: "text-rose-900",
 };
 
+const restrictionOrder: ProductBatchRestrictionDisposition[] = [
+  "QUARANTINED",
+  "BLOCKED",
+  "RECALLED",
+];
+
 export function ProductStatusBadges({
   item,
 }: {
   item: Pick<
     SimpleProduct,
     "lifecycle_status" | "operational_hold"
-  >;
+  > &
+    Partial<Pick<SimpleProduct, "batch_restrictions">>;
 }) {
   const { t, i18n } = useTranslation();
-  const { status, reason } =
-    productTableStatus(item);
+  const { status, reason } = productTableStatus(item);
+  const restrictions = item.batch_restrictions ?? null;
+  const showBatchWarning =
+    item.lifecycle_status === "ACTIVE" &&
+    item.operational_hold === "NONE" &&
+    restrictions !== null &&
+    restrictions.affected_batch_count > 0;
+  const restrictionSummary = showBatchWarning
+    ? restrictionOrder
+        .filter(
+          (disposition) =>
+            restrictions.counts_by_disposition[disposition] > 0,
+        )
+        .map(
+          (disposition) =>
+            `${t(
+              `products.commercialStatus.batchRestrictionStates.${disposition}`,
+            )}: ${restrictions.counts_by_disposition[disposition]}`,
+        )
+        .join(" · ")
+    : "";
 
   return (
     <div
@@ -49,6 +78,31 @@ export function ProductStatusBadges({
         <p className="mt-1 ps-4 text-[9px] font-semibold leading-4 text-slate-500">
           {t(reason.valueKey)}
         </p>
+      ) : null}
+
+      {showBatchWarning && restrictions ? (
+        <div className="mt-1.5 border-s-2 border-amber-300 ps-3">
+          <p className="text-[9px] font-black leading-4 text-amber-900">
+            {t(
+              "products.commercialStatus.batchRestrictionWarning",
+              { count: restrictions.affected_batch_count },
+            )}
+          </p>
+          <p className="text-[8px] font-semibold leading-4 text-slate-500">
+            {restrictionSummary}
+          </p>
+          {restrictions.representative_reason ? (
+            <p className="text-[8px] font-semibold leading-4 text-slate-600">
+              {t(
+                "products.commercialStatus.batchRestrictionReason",
+                {
+                  reason:
+                    restrictions.representative_reason.disposition_reason,
+                },
+              )}
+            </p>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

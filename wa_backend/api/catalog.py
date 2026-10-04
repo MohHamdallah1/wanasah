@@ -12,7 +12,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +28,8 @@ from models import (
     ProductBatch,
     ProductUomConversion,
     ProductVariant,
+    InventoryTransferHeader,
+    InventoryTransferLine,
     SystemAuditLog,
     UOM,
 )
@@ -1389,6 +1391,44 @@ async def parse_gs1_endpoint(payload: Gs1Request, db: AsyncSession = Depends(get
     return {"gtin": parsed.gtin, "lot": parsed.lot, "expiry_date": parsed.expiry_date, "serial": parsed.serial}
 
 
+async def _assert_recall_cancel_has_no_return_activity(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    variant_id: int,
+    lifecycle_revision: int,
+) -> None:
+    active_recall_transfer = await db.scalar(
+        select(InventoryTransferLine.id)
+        .join(
+            InventoryTransferHeader,
+            and_(
+                InventoryTransferHeader.company_id
+                == InventoryTransferLine.company_id,
+                InventoryTransferHeader.id
+                == InventoryTransferLine.transfer_header_id,
+            ),
+        )
+        .where(
+            InventoryTransferLine.company_id == company_id,
+            InventoryTransferLine.product_variant_id == variant_id,
+            InventoryTransferLine.lifecycle_revision_snapshot
+            == lifecycle_revision,
+            InventoryTransferLine.operational_hold_snapshot == "RECALL",
+            InventoryTransferHeader.transfer_purpose == "RECALL_RETURN",
+            InventoryTransferHeader.status.not_in(("CANCELLED", "REJECTED")),
+        )
+        .limit(1)
+    )
+    if active_recall_transfer is not None:
+        raise _error(
+            409,
+            "PRODUCT_RECALL_CANCEL_AFTER_ACTIVITY",
+            "لا يمكن اعتبار السحب إنذارًا خاطئًا بعد بدء إرجاع كميات ضمن السحب. أكمل السحب، أو ألغِ عمليات الإرجاع المفتوحة أولًا إذا لم تتحرك الكمية فعليًا.",
+            variant_id=variant_id,
+        )
+
+
 async def _run_variant_state_command(
     *,
     variant_id: int,
@@ -1499,6 +1539,20 @@ async def _run_variant_state_command(
                 raise _error(409, "PRODUCT_RECALL_TRANSITION_INVALID", "لا يمكن إصدار الاستدعاء من الحالة الحالية.")
             row.operational_hold = "RECALL"
             event_type, message = "ProductRecallIssued", "تم إصدار استدعاء الصنف."
+        elif command == "cancel-recall":
+            if row.operational_hold != "RECALL":
+                raise _error(409, "PRODUCT_RECALL_CANCEL_INVALID", "لا يوجد استدعاء مفتوح يمكن إلغاؤه.")
+            await _assert_recall_cancel_has_no_return_activity(
+                db,
+                company_id=actor.company_id,
+                variant_id=variant_id,
+                lifecycle_revision=int(row.lifecycle_revision),
+            )
+            row.operational_hold = "NONE"
+            event_type, message = (
+                "ProductRecallCancelled",
+                "تم إلغاء الاستدعاء بعد التحقق من أن المشكلة لا تشمل المنتج بالكامل.",
+            )
         elif command == "close-recall":
             if row.operational_hold != "RECALL":
                 raise _error(409, "PRODUCT_RECALL_CLOSE_INVALID", "لا يوجد استدعاء مفتوح.")
@@ -1791,6 +1845,11 @@ async def release_variant_sales_hold(variant_id: int, payload: LifecycleCommand,
 @router.post("/variants/{variant_id}/recall")
 async def recall_variant(variant_id: int, payload: LifecycleCommand, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver)):
     return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="recall", permission="catalog.hold", db=db, actor=actor)
+
+
+@router.post("/variants/{variant_id}/cancel-recall")
+async def cancel_variant_recall(variant_id: int, payload: LifecycleCommand, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver)):
+    return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="cancel-recall", permission="catalog.hold", db=db, actor=actor)
 
 
 @router.post("/variants/{variant_id}/close-recall")

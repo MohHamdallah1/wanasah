@@ -65,6 +65,48 @@ describe("products P2 read contract", () => {
     expect(page.items[0].operational_hold).toBe("NONE");
     expect(page.items[0].package_price).toBeNull();
     expect(page.items[0].unit_price).toBeNull();
+    expect(page.items[0].batch_restrictions).toBeNull();
+  });
+
+  it("parses company-wide batch restriction evidence without changing product status", () => {
+    const page = parseSimpleProductPage({
+      currency_code: "JOD",
+      pricing_visible: false,
+      items: [
+        {
+          ...baseItem,
+          batch_restrictions: {
+            schema_version: 1,
+            scope: "COMPANY",
+            affected_batch_count: 2,
+            affected_on_hand_quantity: "15.000000",
+            quantity_unit: "BASE_STOCK_UNIT",
+            counts_by_disposition: {
+              QUARANTINED: 1,
+              BLOCKED: 1,
+              RECALLED: 0,
+            },
+            representative_reason: {
+              selection: "LOWEST_BATCH_ID_WITH_CURRENT_REASON",
+              batch_id: 41,
+              disposition: "QUARANTINED",
+              disposition_revision: 2,
+              disposition_reason: "اشتباه في جودة المنتج",
+            },
+          },
+        },
+      ],
+      next_cursor: null,
+      has_more: false,
+    });
+
+    expect(page.items[0].lifecycle_status).toBe("ACTIVE");
+    expect(page.items[0].operational_hold).toBe("NONE");
+    expect(page.items[0].batch_restrictions?.affected_batch_count).toBe(2);
+    expect(
+      page.items[0].batch_restrictions?.representative_reason
+        ?.disposition_reason,
+    ).toBe("اشتباه في جودة المنتج");
   });
 
   it("fails closed on an invalid operational hold", () => {

@@ -9,6 +9,7 @@ const batch = (id: number) => ({
   expiry_date: "2030-01-01",
   disposition: "RELEASED",
   disposition_revision: 1,
+  disposition_reason: null,
   days_to_expiry: 100,
   on_hand_quantity: "1",
   reserved_quantity: "0",

@@ -65,6 +65,45 @@ export function ProductLifecycleManager({
   const productId =
     product?.id ?? null;
 
+  const openBlocker = (code: string) => {
+    const companyId = localStorage.getItem("company_id");
+    const inventoryTab = (() => {
+      if (code === "OPEN_TRANSFER") return "transfers";
+      if (
+        code === "OPEN_STOCKTAKE" ||
+        code === "ACTIVE_INVENTORY_LOCK"
+      ) {
+        return "stocktake";
+      }
+      if (code === "PRODUCT_LOCATION") return "warehouses";
+      return "live";
+    })();
+
+    if (
+      code === "ACTIVE_ROUTE_LOAD" ||
+      code === "OPEN_CUSTODY" ||
+      code === "OPEN_SHORTAGE"
+    ) {
+      onClose();
+      navigate("/dispatch");
+      return;
+    }
+    if (code === "ACTIVE_OFFER") {
+      onClose();
+      navigate("/commercial-rules");
+      return;
+    }
+
+    if (companyId) {
+      localStorage.setItem(
+        `inventory_active_tab:${companyId}`,
+        inventoryTab,
+      );
+    }
+    onClose();
+    navigate("/inventory");
+  };
+
   useEffect(() => {
     const sequence =
       ++sequenceRef.current;
@@ -242,6 +281,7 @@ export function ProductLifecycleManager({
               onClose();
               navigate("/inventory");
             }}
+            onOpenBlocker={openBlocker}
             onVariantChanged={async (
               updated,
             ) => {

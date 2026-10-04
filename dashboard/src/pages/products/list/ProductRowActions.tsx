@@ -242,10 +242,7 @@ export function ProductRowActions({
           <DropdownMenuItem
             onSelect={() =>
               queueAfterMenuClose(
-                () =>
-                  onEditTracking(
-                    item,
-                  ),
+                () => onEditTracking(item),
               )
             }
             className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"

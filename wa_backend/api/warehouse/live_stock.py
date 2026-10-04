@@ -41,6 +41,7 @@ from domains.live_stock_projection.service import (
 )
 from schemas import (
     WarehouseInventoryAlertSummaryResponse,
+    WarehouseBatchStockSourcesResponse,
     WarehouseInventoryBatchDetailResponse,
     WarehouseInventoryBatchProductCursorPage,
     WarehouseInventoryCursorPage,
@@ -1998,6 +1999,7 @@ async def get_warehouse_inventory_batches(
                     ProductBatch.expiry_date,
                     ProductBatch.disposition,
                     ProductBatch.disposition_revision,
+                    ProductBatch.disposition_reason,
                     func.sum(
                         InventoryBalance.on_hand_quantity
                     ).label("on_hand_total"),
@@ -2137,6 +2139,7 @@ async def get_warehouse_inventory_batches(
                     ProductBatch.expiry_date,
                     ProductBatch.disposition,
                     ProductBatch.disposition_revision,
+                    ProductBatch.disposition_reason,
                 )
                 .order_by(
                     ProductBatch.expiry_date.asc().nulls_last(),
@@ -2317,6 +2320,11 @@ async def get_warehouse_inventory_batches(
                     "expiry_date": row.expiry_date,
                     "disposition": str(row.disposition),
                     "disposition_revision": int(row.disposition_revision),
+                    "disposition_reason": (
+                        str(row.disposition_reason)
+                        if row.disposition_reason is not None
+                        else None
+                    ),
                     "days_to_expiry": (
                         (row.expiry_date - as_of_date).days
                         if row.expiry_date is not None
@@ -2396,3 +2404,155 @@ async def get_warehouse_inventory_batches(
         ) from exc
 
 
+
+
+@router.get(
+    "/warehouse/batches/{batch_id}/stock-sources",
+    response_model=WarehouseBatchStockSourcesResponse,
+    status_code=200,
+)
+async def get_batch_stock_sources(
+    batch_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    """Return readable physical sources for one batch, including vehicles.
+
+    This is read-only guidance for the batch action UI. Special-transfer
+    endpoints remain the mutation authority and re-check every permission,
+    source status, quantity, destination policy and lifecycle invariant.
+    """
+    if batch_id <= 0:
+        raise HTTPException(status_code=422, detail="Invalid batch id.")
+
+    access = InventoryAccess(db, current_admin)
+    company_id = current_admin.company_id
+    await access.require("inventory.read", any_location=True)
+
+    batch_row = (
+        await db.execute(
+            select(
+                ProductBatch.id,
+                ProductBatch.product_variant_id,
+                ProductVariant.base_uom_id,
+                ProductVariant.operational_hold,
+            )
+            .join(
+                ProductVariant,
+                and_(
+                    ProductVariant.company_id == ProductBatch.company_id,
+                    ProductVariant.id == ProductBatch.product_variant_id,
+                ),
+            )
+            .where(
+                ProductBatch.company_id == company_id,
+                ProductBatch.id == batch_id,
+            )
+        )
+    ).one_or_none()
+    if batch_row is None:
+        raise HTTPException(
+            status_code=404,
+            detail=inventory_business_error(
+                "BATCH_NOT_FOUND",
+                "The batch is unavailable.",
+            ),
+        )
+
+    company_wide_inventory_read = bool(
+        await db.scalar(select(access.allows("inventory.read")))
+    )
+    can_send = access.allows("transfer.send", InventoryLocation.id)
+    rows = (
+        await db.execute(
+            select(
+                InventoryLocation.id.label("location_id"),
+                InventoryLocation.name.label("location_name"),
+                InventoryLocation.location_type,
+                can_send.label("can_send"),
+                InventoryBalance.stock_status,
+                InventoryBalance.on_hand_quantity,
+                InventoryBalance.reserved_quantity,
+            )
+            .select_from(InventoryBalance)
+            .join(
+                InventoryLocation,
+                and_(
+                    InventoryLocation.company_id == InventoryBalance.company_id,
+                    InventoryLocation.id == InventoryBalance.location_id,
+                ),
+            )
+            .where(
+                InventoryBalance.company_id == company_id,
+                InventoryBalance.product_variant_id
+                == int(batch_row.product_variant_id),
+                InventoryBalance.batch_id == batch_id,
+                InventoryBalance.on_hand_quantity > 0,
+                InventoryLocation.is_active.is_(True),
+                InventoryLocation.location_type.in_(["WAREHOUSE", "VEHICLE"]),
+                access.location_filter("inventory.read", InventoryLocation.id),
+            )
+            .order_by(
+                InventoryLocation.location_type.asc(),
+                InventoryLocation.name.asc(),
+                InventoryLocation.id.asc(),
+                InventoryBalance.stock_status.asc(),
+            )
+        )
+    ).all()
+
+    if not rows and not company_wide_inventory_read:
+        raise HTTPException(
+            status_code=404,
+            detail=inventory_business_error(
+                "BATCH_NOT_FOUND",
+                "The batch is unavailable.",
+            ),
+        )
+
+    sources_by_id: dict[int, dict] = {}
+    for row in rows:
+        location_id = int(row.location_id)
+        source = sources_by_id.setdefault(
+            location_id,
+            {
+                "location_id": location_id,
+                "location_name": str(row.location_name),
+                "location_type": str(row.location_type).upper(),
+                "can_send": bool(row.can_send),
+                "statuses": [],
+            },
+        )
+        on_hand = Decimal(row.on_hand_quantity or 0)
+        reserved = Decimal(row.reserved_quantity or 0)
+        movable = on_hand - reserved
+        if movable < 0:
+            raise RuntimeError(
+                "Inventory reservation exceeds on-hand quantity for "
+                f"batch_id={batch_id}, location_id={location_id}."
+            )
+        source["statuses"].append(
+            {
+                "stock_status": str(row.stock_status).upper(),
+                "on_hand_quantity": canonical_quantity(on_hand),
+                "reserved_quantity": canonical_quantity(reserved),
+                "movable_quantity": canonical_quantity(movable),
+            }
+        )
+
+    if len(sources_by_id) > 500:
+        raise HTTPException(
+            status_code=409,
+            detail=inventory_business_error(
+                "BATCH_STOCK_SOURCE_LIMIT_EXCEEDED",
+                "The batch exists in too many stock sources to manage safely from this screen.",
+            ),
+        )
+
+    return {
+        "batch_id": int(batch_row.id),
+        "product_variant_id": int(batch_row.product_variant_id),
+        "base_uom_id": int(batch_row.base_uom_id),
+        "operational_hold": str(batch_row.operational_hold),
+        "sources": list(sources_by_id.values()),
+    }

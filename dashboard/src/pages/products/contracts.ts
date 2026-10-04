@@ -89,6 +89,32 @@ export type ProductOperationalHold =
   | "SALES_HOLD"
   | "RECALL";
 
+export type ProductBatchRestrictionDisposition =
+  | "QUARANTINED"
+  | "BLOCKED"
+  | "RECALLED";
+
+export interface ProductBatchRestrictionReason {
+  selection: "LOWEST_BATCH_ID_WITH_CURRENT_REASON";
+  batch_id: number;
+  disposition: ProductBatchRestrictionDisposition;
+  disposition_revision: number;
+  disposition_reason: string;
+}
+
+export interface ProductBatchRestrictions {
+  schema_version: 1;
+  scope: "COMPANY";
+  affected_batch_count: number;
+  affected_on_hand_quantity: string;
+  quantity_unit: "BASE_STOCK_UNIT";
+  counts_by_disposition: Record<
+    ProductBatchRestrictionDisposition,
+    number
+  >;
+  representative_reason: ProductBatchRestrictionReason | null;
+}
+
 const operationalHold = (
   value: unknown,
   code: string,
@@ -101,6 +127,114 @@ const operationalHold = (
     return contractError(code);
   }
   return value;
+};
+
+const batchRestrictionDisposition = (
+  value: unknown,
+  code: string,
+): ProductBatchRestrictionDisposition => {
+  if (
+    value !== "QUARANTINED" &&
+    value !== "BLOCKED" &&
+    value !== "RECALLED"
+  ) {
+    return contractError(code);
+  }
+  return value;
+};
+
+const batchRestrictions = (
+  value: unknown,
+  code: string,
+): ProductBatchRestrictions | null => {
+  if (value === null || value === undefined) return null;
+
+  const row = record(value, code);
+  if (
+    row.schema_version !== 1 ||
+    row.scope !== "COMPANY" ||
+    row.quantity_unit !== "BASE_STOCK_UNIT"
+  ) {
+    return contractError(code);
+  }
+
+  const countsRow = record(
+    row.counts_by_disposition,
+    code,
+  );
+  const counts = {
+    QUARANTINED: int(
+      countsRow.QUARANTINED,
+      code,
+    ),
+    BLOCKED: int(countsRow.BLOCKED, code),
+    RECALLED: int(countsRow.RECALLED, code),
+  };
+  const affectedBatchCount = int(
+    row.affected_batch_count,
+    code,
+  );
+  if (
+    affectedBatchCount !==
+    counts.QUARANTINED +
+      counts.BLOCKED +
+      counts.RECALLED
+  ) {
+    return contractError(code);
+  }
+
+  const quantity = str(
+    row.affected_on_hand_quantity,
+    code,
+    64,
+  );
+  if (!/^\d+\.\d{6}$/.test(quantity)) {
+    return contractError(code);
+  }
+
+  let representativeReason:
+    ProductBatchRestrictionReason | null = null;
+  if (row.representative_reason !== null) {
+    const reason = record(
+      row.representative_reason,
+      code,
+    );
+    if (
+      reason.selection !==
+      "LOWEST_BATCH_ID_WITH_CURRENT_REASON"
+    ) {
+      return contractError(code);
+    }
+    representativeReason = {
+      selection:
+        "LOWEST_BATCH_ID_WITH_CURRENT_REASON",
+      batch_id: int(reason.batch_id, code, 1),
+      disposition: batchRestrictionDisposition(
+        reason.disposition,
+        code,
+      ),
+      disposition_revision: int(
+        reason.disposition_revision,
+        code,
+        1,
+      ),
+      disposition_reason: str(
+        reason.disposition_reason,
+        code,
+        2000,
+      ),
+    };
+  }
+
+  return {
+    schema_version: 1,
+    scope: "COMPANY",
+    affected_batch_count: affectedBatchCount,
+    affected_on_hand_quantity: quantity,
+    quantity_unit: "BASE_STOCK_UNIT",
+    counts_by_disposition: counts,
+    representative_reason: representativeReason,
+  };
 };
 
 const trackingMode = (
@@ -246,6 +380,7 @@ export interface SimpleProduct {
     | "RETIRING"
     | "ARCHIVED";
   operational_hold: ProductOperationalHold;
+  batch_restrictions: ProductBatchRestrictions | null;
   simple_compatible: boolean;
 }
 
@@ -572,6 +707,10 @@ export function parseSimpleProductPage(
         | "ARCHIVED",
       operational_hold: operationalHold(
         row.operational_hold,
+        code,
+      ),
+      batch_restrictions: batchRestrictions(
+        row.batch_restrictions,
         code,
       ),
       simple_compatible:

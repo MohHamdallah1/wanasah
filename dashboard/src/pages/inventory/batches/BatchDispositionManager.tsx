@@ -9,18 +9,23 @@ import {
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
+import { ReasonPresetField } from "@/components/forms/ReasonPresetField";
 import { Modal } from "@/components/ui/modal";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import type { WarehouseBatchInventoryItem } from "@/pages/inventory/liveStock/contracts";
 
+import { BatchQuantityActions } from "./BatchQuantityActions";
 import { allowedBatchDispositionTargets } from "./batchDispositionRules";
 import type { BatchDisposition } from "./contracts";
 import { useBatchDispositionCommand } from "./useBatchDispositionCommand";
 
 type Props = {
   batch: WarehouseBatchInventoryItem | null;
+  productVariantId: number | null;
+  baseUomCode: string;
   onClose: () => void;
   onChanged: () => void | Promise<void>;
+  onOpenTransfers: () => void;
 };
 
 const targetIcon = (
@@ -38,10 +43,42 @@ const targetIcon = (
   return <RotateCcw className="h-4 w-4" />;
 };
 
+const reasonPresetKeys: Record<
+  BatchDisposition,
+  readonly string[]
+> = {
+  RELEASED: [
+    "inspectionPassed",
+    "issueNotConfirmed",
+    "dataCorrected",
+  ],
+  QUARANTINED: [
+    "expiryConcern",
+    "qualityConcern",
+    "packagingDamage",
+    "verificationRequired",
+  ],
+  BLOCKED: [
+    "confirmedQualityIssue",
+    "supplierInstruction",
+    "regulatoryHold",
+    "operationalBlock",
+  ],
+  RECALLED: [
+    "confirmedSafetyIssue",
+    "confirmedQualityIssue",
+    "supplierRecall",
+    "regulatoryRecall",
+  ],
+};
+
 export function BatchDispositionManager({
   batch,
+  productVariantId,
+  baseUomCode,
   onClose,
   onChanged,
+  onOpenTransfers,
 }: Props) {
   const { t } = useTranslation();
   const access = useInventoryAccess();
@@ -63,6 +100,19 @@ export function BatchDispositionManager({
       onClose();
     },
   });
+  const activeTarget =
+    command.target ??
+    command.pending?.payload.disposition ??
+    null;
+  const reasonPresets = useMemo(
+    () =>
+      activeTarget
+        ? reasonPresetKeys[activeTarget].map((key) =>
+            t(`inventoryBatches.disposition.reasonPresets.${key}`),
+          )
+        : [],
+    [activeTarget, t],
+  );
 
   if (!batch) return null;
 
@@ -157,32 +207,28 @@ export function BatchDispositionManager({
         {targets.length > 0 &&
         (command.target !== null ||
           command.pending !== null) ? (
-          <label className="block text-[11px] font-black text-slate-700">
-            {t("inventoryBatches.disposition.reason")}
-            <textarea
-              autoFocus={command.target !== null}
-              value={command.reason}
-              maxLength={2000}
-              disabled={locked || !canChange}
-              onChange={(event) =>
-                command.setReason(event.target.value)
-              }
-              onKeyDown={(event) => {
-                if (
-                  event.key === "Enter" &&
-                  !event.shiftKey &&
-                  canSubmit
-                ) {
-                  event.preventDefault();
-                  void command.submit();
-                }
-              }}
-              placeholder={t(
-                "inventoryBatches.disposition.reasonPlaceholder",
-              )}
-              className="mt-1.5 min-h-20 w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100 disabled:opacity-50"
-            />
-          </label>
+          <ReasonPresetField
+            label={t("inventoryBatches.disposition.reason")}
+            chooseLabel={t(
+              "inventoryBatches.disposition.reasonChoose",
+            )}
+            otherLabel={t(
+              "inventoryBatches.disposition.reasonOther",
+            )}
+            customPlaceholder={t(
+              "inventoryBatches.disposition.reasonPlaceholder",
+            )}
+            presets={reasonPresets}
+            value={command.reason}
+            onChange={command.setReason}
+            disabled={locked || !canChange}
+            maxLength={2000}
+            multiline
+            autoFocus={command.target !== null}
+            canSubmit={canSubmit}
+            onSubmit={() => void command.submit()}
+            onCancel={onClose}
+          />
         ) : null}
 
         {command.pending ? (
@@ -201,6 +247,16 @@ export function BatchDispositionManager({
           <p className="text-[10px] font-bold text-slate-500">
             {t("inventoryBatches.disposition.noPermission")}
           </p>
+        ) : null}
+
+        {productVariantId !== null ? (
+          <BatchQuantityActions
+            batch={batch}
+            productVariantId={productVariantId}
+            baseUomCode={baseUomCode}
+            onChanged={onChanged}
+            onOpenTransfers={onOpenTransfers}
+          />
         ) : null}
 
         {targets.length > 0 ? (

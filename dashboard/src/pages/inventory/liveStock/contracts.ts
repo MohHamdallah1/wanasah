@@ -283,6 +283,7 @@ export interface WarehouseBatchInventoryItem {
   expiry_date: string | null;
   disposition: "RELEASED" | "QUARANTINED" | "BLOCKED" | "RECALLED";
   disposition_revision: number;
+  disposition_reason: string | null;
   days_to_expiry: number | null;
 
   on_hand_quantity: Quantity;
@@ -650,6 +651,11 @@ export function parseBatchDetailResponse(
       expiry_date: isoDateOrNull(row.expiry_date, code),
       disposition: disposition as WarehouseBatchInventoryItem["disposition"],
       disposition_revision: int(row.disposition_revision, code, 1),
+      disposition_reason: nullableStr(
+        row.disposition_reason,
+        code,
+        2000,
+      ),
       days_to_expiry: daysToExpiry,
       on_hand_quantity: parseQuantity(
         row.on_hand_quantity,

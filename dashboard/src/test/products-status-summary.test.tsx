@@ -84,6 +84,46 @@ describe("Product status: one commercial state over the internal state machine",
     expect(screen.queryByText(language === "ar" ? "البيع" : "Sales")).not.toBeInTheDocument();
   });
 
+  it("keeps the product available while warning about restricted batches and their real reason", () => {
+    const { Wrapper } = wrapper("ar");
+    render(
+      <ProductStatusBadges
+        item={{
+          lifecycle_status: "ACTIVE",
+          operational_hold: "NONE",
+          batch_restrictions: {
+            schema_version: 1,
+            scope: "COMPANY",
+            affected_batch_count: 2,
+            affected_on_hand_quantity: "15.000000",
+            quantity_unit: "BASE_STOCK_UNIT",
+            counts_by_disposition: {
+              QUARANTINED: 1,
+              BLOCKED: 1,
+              RECALLED: 0,
+            },
+            representative_reason: {
+              selection: "LOWEST_BATCH_ID_WITH_CURRENT_REASON",
+              batch_id: 41,
+              disposition: "QUARANTINED",
+              disposition_revision: 2,
+              disposition_reason: "اشتباه في جودة المنتج",
+            },
+          },
+        }}
+      />,
+      { wrapper: Wrapper },
+    );
+
+    expect(screen.getByText("متاح للبيع")).toBeInTheDocument();
+    expect(
+      screen.getByText("المنتج نشط، لكن 2 دفعة غير متاحة للبيع."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("السبب: اشتباه في جودة المنتج"),
+    ).toBeInTheDocument();
+  });
+
   it("table presentation delegates to the same commercial mapping", () => {
     expect(productTableStatus({ lifecycle_status: "ACTIVE", operational_hold: "NONE" })).toEqual({
       status: { valueKey: "products.commercialStatus.available", tone: "good" },

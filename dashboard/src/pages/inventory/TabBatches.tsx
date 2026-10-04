@@ -32,6 +32,7 @@ import {
 
 interface Props {
   locationId: number;
+  onOpenTransfers: () => void;
 }
 
 const PAGE_SIZE = 50;
@@ -58,7 +59,10 @@ const dispositionTone = (
   }
 };
 
-export function TabBatches({ locationId }: Props) {
+export function TabBatches({
+  locationId,
+  onOpenTransfers,
+}: Props) {
   const authFetch = useAuthFetch();
   const access = useInventoryAccess();
   const { t, i18n } = useTranslation();
@@ -498,9 +502,15 @@ export function TabBatches({ locationId }: Props) {
                           batch.restricted_quantity,
                           batch.expiry_unavailable_quantity,
                         );
+                        const dispositionRestrictionLabel =
+                          batch.disposition === "RELEASED"
+                            ? t("inventoryLive.restricted")
+                            : t(
+                                `inventoryBatches.disposition.restrictionLabels.${batch.disposition}`,
+                              );
                         const restricted = [
                           ["expiry", batch.expiry_unavailable_quantity, t("inventoryLive.expiryUnavailable")],
-                          ["restricted", otherRestricted, t("inventoryLive.restricted")],
+                          ["restricted", otherRestricted, dispositionRestrictionLabel],
                           ["quarantine", batch.quarantined_quantity, t("inventoryLive.quarantined")],
                           ["blocked", batch.blocked_quantity, t("inventoryLive.blocked")],
                           ["recalled", batch.recalled_quantity, t("inventoryLive.recalled")],
@@ -576,6 +586,14 @@ export function TabBatches({ locationId }: Props) {
                                       {label}: {renderQuantity(String(value)).primary}
                                     </span>
                                   ))}
+                                  {batch.disposition !== "RELEASED" &&
+                                  batch.disposition_reason ? (
+                                    <small className="mt-0.5 block text-[9px] font-semibold text-slate-500">
+                                      {t("inventoryBatches.disposition.reasonDisplay", {
+                                        reason: batch.disposition_reason,
+                                      })}
+                                    </small>
+                                  ) : null}
                                 </div>
                               ) : (
                                 <span className="inventory-batches-ok">
@@ -653,9 +671,11 @@ export function TabBatches({ locationId }: Props) {
 
       <BatchDispositionManager
         batch={selectedBatch}
+        productVariantId={selectedProduct?.id ?? null}
+        baseUomCode={selectedProduct?.base_uom_code ?? ""}
+        onOpenTransfers={onOpenTransfers}
         onClose={() => setSelectedBatch(null)}
         onChanged={async () => {
-          setSelectedBatch(null);
           await fetchDetails(null);
         }}
       />

@@ -1482,6 +1482,7 @@ class WarehouseInventoryBatchItem(BaseModel):
     expiry_date: Optional[date] = None
     disposition: Literal["RELEASED", "QUARANTINED", "BLOCKED", "RECALLED"]
     disposition_revision: PositiveDbInt
+    disposition_reason: Optional[str] = Field(None, max_length=2000)
     days_to_expiry: Optional[int] = None
     on_hand_quantity: NonNegativeQuantity
     reserved_quantity: NonNegativeQuantity
@@ -1510,6 +1511,42 @@ class WarehouseInventoryBatchDetailResponse(BaseModel):
     )
     next_cursor: Optional[str] = Field(None, max_length=1024)
     has_more: bool
+
+
+class WarehouseBatchStockStatusItem(BaseModel):
+    stock_status: Literal[
+        "AVAILABLE",
+        "QUARANTINED",
+        "BLOCKED",
+        "RECALLED",
+        "DAMAGED",
+        "DISPOSAL_PENDING",
+    ]
+    on_hand_quantity: NonNegativeQuantity
+    reserved_quantity: NonNegativeQuantity
+    movable_quantity: NonNegativeQuantity
+
+
+class WarehouseBatchStockSourceItem(BaseModel):
+    location_id: PositiveDbInt
+    location_name: str = Field(..., min_length=1, max_length=200)
+    location_type: Literal["WAREHOUSE", "VEHICLE"]
+    can_send: bool
+    statuses: List[WarehouseBatchStockStatusItem] = Field(
+        default_factory=list,
+        max_length=6,
+    )
+
+
+class WarehouseBatchStockSourcesResponse(BaseModel):
+    batch_id: PositiveDbInt
+    product_variant_id: PositiveDbInt
+    base_uom_id: PositiveDbInt
+    operational_hold: Literal["NONE", "SALES_HOLD", "RECALL"]
+    sources: List[WarehouseBatchStockSourceItem] = Field(
+        default_factory=list,
+        max_length=500,
+    )
 
 
 class WarehouseLedgerItem(BaseModel):

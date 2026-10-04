@@ -54,6 +54,7 @@ type LifecycleCommandName =
   | "sales-hold"
   | "release-sales-hold"
   | "recall"
+  | "cancel-recall"
   | "close-recall";
 
 const lifecycleActionKey = (
@@ -70,6 +71,9 @@ const lifecycleActionKey = (
     "release-sales-hold"
   ) {
     return "releaseSalesHold";
+  }
+  if (command === "cancel-recall") {
+    return "cancelRecall";
   }
   if (command === "close-recall") {
     return "closeRecall";
@@ -93,6 +97,7 @@ type Props = {
     variantId: number,
   ) => void | Promise<void>;
   onManageBatchIssue?: () => void;
+  onOpenBlocker?: (code: string) => void;
   simpleMode?: boolean;
 };
 
@@ -105,6 +110,7 @@ const COMMANDS: LifecycleCommandName[] = [
   "sales-hold",
   "release-sales-hold",
   "recall",
+  "cancel-recall",
   "close-recall",
 ];
 
@@ -206,6 +212,7 @@ export function CatalogLifecycleActions({
   onVariantChanged,
   onVariantDeleted,
   onManageBatchIssue,
+  onOpenBlocker,
   simpleMode = false,
 }: Props) {
   const { t } = useTranslation();
@@ -844,6 +851,9 @@ export function CatalogLifecycleActions({
         }}
         onManageBatchIssue={() => {
           onManageBatchIssue?.();
+        }}
+        onOpenBlocker={(code) => {
+          onOpenBlocker?.(code);
         }}
         onReasonChange={setReason}
         onConfirm={() => {

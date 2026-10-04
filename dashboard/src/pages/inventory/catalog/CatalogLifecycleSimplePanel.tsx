@@ -6,9 +6,10 @@ import {
   RotateCcw,
   ShieldCheck,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
+import { ReasonPresetField } from "@/components/forms/ReasonPresetField";
 import {
   type ArchivePreflight,
   type CatalogVariant,
@@ -30,7 +31,56 @@ type SimpleLifecycleCommand =
   | "sales-hold"
   | "release-sales-hold"
   | "recall"
+  | "cancel-recall"
   | "close-recall";
+
+const lifecycleReasonPresetKeys: Record<
+  SimpleLifecycleCommand,
+  readonly string[]
+> = {
+  publish: ["initialActivation"],
+  retire: [
+    "productDiscontinued",
+    "productReplaced",
+    "supplierStopped",
+    "noLongerUsed",
+  ],
+  restore: [
+    "resumeUse",
+    "decisionReversed",
+    "supplyRestored",
+  ],
+  archive: ["recordCleanup", "endOfUse"],
+  "sales-hold": [
+    "temporarySupplyPause",
+    "temporaryReview",
+    "pricingReview",
+    "administrativePause",
+  ],
+  "release-sales-hold": [
+    "temporaryIssueResolved",
+    "reviewCompleted",
+    "supplyRestored",
+  ],
+  recall: [
+    "qualityIssue",
+    "safetyIssue",
+    "labelingIssue",
+    "supplierRequest",
+    "regulatoryRequest",
+  ],
+  "cancel-recall": [
+    "issueNotConfirmed",
+    "falseAlarm",
+    "scopeLimitedToBatch",
+    "inspectionPassed",
+  ],
+  "close-recall": [
+    "recallCompleted",
+    "stockRecovered",
+    "recallOperationsClosed",
+  ],
+};
 
 type Props = {
   variant: CatalogVariant;
@@ -55,6 +105,7 @@ type Props = {
     command: SimpleLifecycleCommand,
   ) => void;
   onManageBatchIssue: () => void;
+  onOpenBlocker: (code: string) => void;
   onReasonChange: (
     value: string,
   ) => void;
@@ -146,6 +197,7 @@ export function CatalogLifecycleSimplePanel({
   recallCompletionBlockers,
   onChooseCommand,
   onManageBatchIssue,
+  onOpenBlocker,
   onReasonChange,
   onConfirm,
   onCancel,
@@ -156,6 +208,15 @@ export function CatalogLifecycleSimplePanel({
     productCommercialStatus(variant);
   const [issueScopeOpen, setIssueScopeOpen] =
     useState(false);
+  const reasonPresets = useMemo(
+    () =>
+      selectedCommand
+        ? lifecycleReasonPresetKeys[selectedCommand].map((key) =>
+            t(`catalogLifecycle.simple.reasonPresets.${key}`),
+          )
+        : [],
+    [selectedCommand, t],
+  );
 
   const showAvailableStopOptions =
     commercial.state === "available";
@@ -296,22 +357,39 @@ export function CatalogLifecycleSimplePanel({
 
           {showProblemRecovery &&
           canHold ? (
-            <ActionItem
-              icon={<ShieldCheck className="h-3.5 w-3.5" />}
-              label={t(
-                "catalogLifecycle.actions.closeRecall",
-              )}
-              hint={t(
-                "catalogLifecycle.simple.actionHints.closeRecall",
-              )}
-              disabled={actionsDisabled}
-              onClick={() =>
-                onChooseCommand(
-                  "close-recall",
-                )
-              }
-              emphasis="warning"
-            />
+            <>
+              <ActionItem
+                icon={<Play className="h-3.5 w-3.5" />}
+                label={t(
+                  "catalogLifecycle.actions.cancelRecall",
+                )}
+                hint={t(
+                  "catalogLifecycle.simple.actionHints.cancelRecall",
+                )}
+                disabled={actionsDisabled}
+                onClick={() =>
+                  onChooseCommand(
+                    "cancel-recall",
+                  )
+                }
+              />
+              <ActionItem
+                icon={<ShieldCheck className="h-3.5 w-3.5" />}
+                label={t(
+                  "catalogLifecycle.actions.closeRecall",
+                )}
+                hint={t(
+                  "catalogLifecycle.simple.actionHints.closeRecall",
+                )}
+                disabled={actionsDisabled}
+                onClick={() =>
+                  onChooseCommand(
+                    "close-recall",
+                  )
+                }
+                emphasis="warning"
+              />
+            </>
           ) : null}
 
           {showDraftActivation &&
@@ -479,47 +557,33 @@ export function CatalogLifecycleSimplePanel({
             )}
           </p>
 
-          <label className="mt-3 block text-[10px] font-black text-slate-600">
-            {t(
-              "catalogLifecycle.reason",
-            )}
-            <input
-              autoFocus
+          <div className="mt-3">
+            <ReasonPresetField
+              label={t("catalogLifecycle.reason")}
+              chooseLabel={t(
+                "catalogLifecycle.simple.reasonChoose",
+              )}
+              otherLabel={t(
+                "catalogLifecycle.simple.reasonOther",
+              )}
+              customPlaceholder={t(
+                "catalogLifecycle.reasonPlaceholder",
+              )}
+              presets={reasonPresets}
               value={reason}
-              maxLength={1000}
+              onChange={onReasonChange}
               disabled={
                 busy ||
                 pendingActionKey !== null ||
                 pendingBlocked
               }
-              onChange={(event) =>
-                onReasonChange(
-                  event.target.value,
-                )
-              }
-              onKeyDown={(event) => {
-                if (
-                  event.key ===
-                    "Enter" &&
-                  reason.trim().length >=
-                    3
-                ) {
-                  event.preventDefault();
-                  onConfirm();
-                }
-                if (
-                  event.key === "Escape"
-                ) {
-                  event.preventDefault();
-                  onCancel();
-                }
-              }}
-              placeholder={t(
-                "catalogLifecycle.reasonPlaceholder",
-              )}
-              className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100 disabled:opacity-50"
+              maxLength={1000}
+              autoFocus
+              canSubmit={reason.trim().length >= 3}
+              onSubmit={onConfirm}
+              onCancel={onCancel}
             />
-          </label>
+          </div>
 
           <div className="mt-3 flex flex-wrap gap-2">
             <button
@@ -593,9 +657,25 @@ export function CatalogLifecycleSimplePanel({
                       )}
                     </p>
                   </div>
-                  <span className="text-xs font-black tabular-nums text-rose-700">
-                    {item.count}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black tabular-nums text-rose-700">
+                      {item.count}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onOpenBlocker(item.code)}
+                      className="rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-[9px] font-black text-rose-800 transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
+                    >
+                      {t(
+                        `catalogLifecycle.simple.blockerActionLabels.${item.code}`,
+                        {
+                          defaultValue: t(
+                            "catalogLifecycle.simple.openRequiredAction",
+                          ),
+                        },
+                      )}
+                    </button>
+                  </div>
                 </div>
               ),
             )}
@@ -641,28 +721,61 @@ export function CatalogLifecycleSimplePanel({
 
       {preflight &&
       !preflight.can_archive ? (
-        <div className="border-t border-slate-100 bg-amber-50/50 px-5 py-4 text-[10px] font-bold text-amber-900">
-          <p>
+        <div className="border-t border-slate-100 bg-amber-50/50 px-5 py-4 text-[10px] font-bold text-amber-950">
+          <p className="text-xs font-black">
             {t(
               "catalogLifecycle.blockersTitle",
             )}
           </p>
-          <ul className="mt-2 space-y-1">
-            {preflight.blockers.map(
-              (item) => (
-                <li key={item.code}>
-                  {t(
-                    `catalogLifecycle.blockers.${item.code}`,
-                    {
-                      defaultValue:
-                        item.code,
-                    },
-                  )}
-                  : {item.count}
-                </li>
-              ),
-            )}
-          </ul>
+          <p className="mt-1 text-[9px] font-semibold leading-4 text-amber-900/80">
+            {t("catalogLifecycle.simple.archiveBlockersHint")}
+          </p>
+          <div className="mt-3 divide-y divide-amber-100">
+            {preflight.blockers.map((item) => (
+              <div
+                key={item.code}
+                className="grid gap-2 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+              >
+                <div>
+                  <p className="text-[10px] font-black text-slate-900">
+                    {t(
+                      `catalogLifecycle.blockers.${item.code}`,
+                      { defaultValue: item.code },
+                    )}
+                  </p>
+                  <p className="mt-0.5 text-[9px] font-semibold leading-4 text-slate-600">
+                    {t(
+                      `catalogLifecycle.simple.archiveBlockerActions.${item.code}`,
+                      {
+                        defaultValue: t(
+                          "catalogLifecycle.simple.archiveBlockersHint",
+                        ),
+                      },
+                    )}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-black tabular-nums text-amber-800">
+                    {item.count}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onOpenBlocker(item.code)}
+                    className="rounded-lg border border-amber-200 bg-white px-2.5 py-1.5 text-[9px] font-black text-amber-900 transition hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200"
+                  >
+                    {t(
+                      `catalogLifecycle.simple.blockerActionLabels.${item.code}`,
+                      {
+                        defaultValue: t(
+                          "catalogLifecycle.simple.openRequiredAction",
+                        ),
+                      },
+                    )}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       ) : null}
     </section>
