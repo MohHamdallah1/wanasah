@@ -131,7 +131,7 @@ describe("terminal inventory actions", () => {
     expect(dialog).toHaveTextContent("8");
     expect(dialog.textContent).not.toMatch(/[٠-٩]/);
     expect(dialog.textContent).not.toMatch(/\?{2,}|CONFIRM_DISPOSAL|DISPOSAL_PENDING|RECALL_RETURN|terminal operation|durable operation/i);
-    expect(screen.getByDisplayValue("8")).toHaveFocus();
+    await waitFor(() => expect(screen.getByDisplayValue("8")).toHaveFocus());
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     await waitFor(() => expect(trigger).toHaveFocus());
