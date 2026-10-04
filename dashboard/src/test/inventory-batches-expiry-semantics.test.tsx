@@ -1,9 +1,10 @@
-﻿
+
 import {
   render,
   screen,
   waitFor,
 } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   beforeEach,
   describe,
@@ -57,6 +58,18 @@ describe("Inventory batch expiry semantics", () => {
 
     mocks.authFetch.mockImplementation(
       async (path: string) => {
+        if (path === "/inventory/access/me") {
+          return {
+            company_id: 1,
+            driver_id: 7,
+            is_company_admin: true,
+            location_id: null,
+            permissions: [],
+            any_permissions: [],
+            location_permissions: [],
+          };
+        }
+
         if (
           path.startsWith(
             "/warehouse/inventory/batch-products?",
@@ -96,6 +109,8 @@ describe("Inventory batch expiry semantics", () => {
                 production_date: "2026-01-01",
                 expiry_date: "2026-09-24",
                 disposition: "RELEASED",
+                disposition_reason: null,
+                disposition_revision: 1,
                 days_to_expiry: -1,
                 on_hand_quantity: "10",
                 reserved_quantity: "0",
@@ -127,7 +142,17 @@ describe("Inventory batch expiry semantics", () => {
   });
 
   it("shows expiry unavailability while keeping RELEASED as the operational batch status", async () => {
-    render(<TabBatches locationId={119} />);
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TabBatches locationId={119} />
+      </QueryClientProvider>,
+    );
 
     await waitFor(() => {
       expect(

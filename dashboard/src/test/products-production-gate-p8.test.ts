@@ -288,9 +288,9 @@ describe("Products P8 production frontend gate", () => {
         "../features/catalog/lifecycle/CatalogLifecycleActions.tsx",
       ),
     );
-    const catalogPanel = compact(
+    const productLocations = compact(
       readSource(
-        "../pages/inventory/catalog/CatalogLifecyclePanel.tsx",
+        "../features/inventory/productLocations/ProductLocationManager.tsx",
       ),
     );
     const backend = compact(
@@ -332,31 +332,21 @@ describe("Products P8 production frontend gate", () => {
     expect(actions).not.toContain(
       "crypto.randomUUID()",
     );
-    expect(catalogPanel).toContain(
-      "<CatalogLifecycleActions",
-    );
-    expect(catalogPanel).toContain(
+    expect(productLocations).toContain(
       "getOrCreateDurableCommand(",
     );
-    expect(catalogPanel).toContain(
+    expect(productLocations).toContain(
       "readDurableCommand<unknown>(",
     );
-    expect(catalogPanel).toContain(
+    expect(productLocations).toContain(
       '"catalog-product-location-command-v1"',
     );
-    expect(catalogPanel).toContain(
+    expect(productLocations).toContain(
       "isAmbiguousRequestError(",
     );
-    expect(catalogPanel).not.toContain(
+    expect(productLocations).not.toContain(
       "crypto.randomUUID()",
     );
-    expect(
-      /[\u0600-\u06FF]/.test(
-        readSource(
-          "../pages/inventory/catalog/CatalogLifecyclePanel.tsx",
-        ),
-      ),
-    ).toBe(false);
     expect(actions).not.toContain(
       "toast.success( result.message",
     );

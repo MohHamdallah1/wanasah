@@ -415,7 +415,7 @@ Purpose: validate the architecture for future operational growth before adding t
 
 Use one consolidated acceptance gate after source analysis and implementation.
 
-- [ ] Run and record one consolidated acceptance gate covering all scenarios below:
+- [x] Run and record one consolidated acceptance gate covering all scenarios below:
   - Active product + all normal batches.
   - Active product + one quarantined batch → product remains available + warning shown.
   - Quarantined batch passes inspection → allowed return-to-sale path.
@@ -433,16 +433,20 @@ Use one consolidated acceptance gate after source analysis and implementation.
   - Keyboard-only completion of every critical workflow.
   - TypeScript, ESLint, focused frontend tests, backend tests, production build, and diff audit.
 
+**Phase 7 acceptance evidence ? 2026-10-04:** focused backend acceptance: **89/89 PASS** across whole-product false-alarm/readiness, affected-source discovery, reservation ownership, batch restrictions, multi-location authority, special-transfer eligibility and archive owner navigation. Focused frontend acceptance: **151/151 PASS** across commercial status, batch disposition/expiry/source actions, whole-product flow, archive owner receivers, Catalog/Inventory boundaries, Live Stock read-only ownership, RTL/LTR, accessibility/keyboard quick actions, durable workflow gates and access contracts; the final legacy expiry test fixture was updated only to provide the current React Query provider and required disposition revision/reason contract. TypeScript, targeted ESLint, production Vite build and diff audit PASS. This is the focused automated V1 acceptance gate; it does not claim a separate manual-browser certification beyond the component/contract coverage recorded here.
+
 ---
 
 # Phase 8 — Cleanup and stable merge
 
 - [x] Remove obsolete cross-page navigation hacks after replacement is proven.
 - [x] Remove obsolete user-facing recall/sweep terminology.
-- [ ] Remove/retire dead legacy UI together: `TabProductCatalog.tsx` test-only legacy surface plus duplicate lifecycle/batch action UI after consumers are migrated safely.
-- [ ] Perform final architecture/code-size review: page folders remain responsibility-driven, no mega-file/god hook, and update the architecture companion only if implementation revealed a missing permanent rule.
-- [ ] Finalize this plan from actual evidence and close only proven items; Phase 7 owns the consolidated technical/UX acceptance gate.
+- [x] Remove/retire dead legacy UI together: `TabProductCatalog.tsx` test-only legacy surface plus duplicate lifecycle/batch action UI after consumers are migrated safely.
+- [x] Perform final architecture/code-size review: page folders remain responsibility-driven, no mega-file/god hook, and update the architecture companion only if implementation revealed a missing permanent rule.
+- [x] Finalize this plan from actual evidence and close only proven items; Phase 7 owns the consolidated technical/UX acceptance gate.
 - [ ] Stable merge/cleanup: merge completed branches to `main`, delete merged temporary branches/worktrees, confirm local `main == origin/main`, and preserve local `RUN.txt` user changes.
+
+**Phase 8 cleanup evidence ? 2026-10-04:** removed the unmounted `TabProductCatalog.tsx`, its obsolete identity-race test, dead `pages/inventory/catalog/*` compatibility UI and dead `batchIssueNavigation.ts` bridge. The active Products barcode path retains request-sequence/abort/scope guards and its current test coverage. Production gate coverage now reads the canonical `CatalogLifecycleActions` and `ProductLocationManager` owners directly. Architecture review found the existing `CATALOG_INVENTORY_WORKFLOW_BOUNDARIES.md` already states the permanent final rules (Live Stock read-only, Warehouse Management owns location policy, Products never processes physical stock, navigation is not authority), so no constitution update was required. New owner-side files remain responsibility-sized; the largest new archive-navigation implementation is 144 lines, with no new mega-file or god hook.
 
 ---
 
@@ -490,7 +494,7 @@ This section is **non-authoritative** and must not create duplicate open checkli
 - [x] Batch actions use the approved business language and server-derived allowed actions.
 - [x] Archive blockers now expose an exact owner action where V1 has one, or an explicit capability gap where it does not.
 - [x] Multi-warehouse/vehicle authority and module boundaries are covered by Phase 6 gates.
-- Open ? Live Stock/action-owner cleanup is tracked only in **Phase 4.3**.
+- [x] Live Stock is read-only and blocker/quality actions route to their actual owner workflows.
 
 This file stays ACTIVE until the authoritative numbered-phase items are closed or explicitly deferred with owner approval.
 
