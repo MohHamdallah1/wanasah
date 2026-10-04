@@ -42,6 +42,7 @@ type Props = {
   onOpenReservationOwner: (owner: ReservationOwner) => void;
   stockSources?: BatchStockSources;
   onRefreshStockSources?: () => Promise<void>;
+  showTransferListLink?: boolean;
 };
 
 type Choice = {
@@ -91,6 +92,7 @@ export function BatchQuantityActions({
   onOpenReservationOwner,
   stockSources,
   onRefreshStockSources,
+  showTransferListLink = true,
 }: Props) {
   const { t } = useTranslation();
   const access = useInventoryAccess();
@@ -416,14 +418,14 @@ export function BatchQuantityActions({
         </div>
       ) : null}
 
-      <button
+      {showTransferListLink && <button
         type="button"
         onClick={() => onOpenTransfers()}
         className="inline-flex items-center gap-1.5 text-[9px] font-black text-slate-600 underline underline-offset-4 hover:text-slate-950"
       >
         <ArrowRightLeft className="h-3.5 w-3.5" />
         {t("inventoryBatches.quantityActions.openTransfers")}
-      </button>
+      </button>}
     </div>
   );
 }

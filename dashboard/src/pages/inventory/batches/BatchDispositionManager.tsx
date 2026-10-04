@@ -30,6 +30,7 @@ type Props = {
     transfer?: BatchSpecialTransferResult,
   ) => void | Promise<void>;
   onOpenReservationOwner: (owner: ReservationOwner) => void;
+  showQuantityActions?: boolean;
 };
 
 const targetIcon = (
@@ -84,6 +85,7 @@ export function BatchDispositionManager({
   onChanged,
   onOpenTransfers,
   onOpenReservationOwner,
+  showQuantityActions = true,
 }: Props) {
   const { t } = useTranslation();
   const access = useInventoryAccess();
@@ -279,7 +281,7 @@ export function BatchDispositionManager({
           </p>
         ) : null}
 
-        {productVariantId !== null ? (
+        {showQuantityActions && productVariantId !== null ? (
           <BatchQuantityActions
             batch={batch}
             productVariantId={productVariantId}

@@ -12,7 +12,7 @@ import { loadProductsPage } from "@/routes/routePreloaders";
 const DashboardLayout = lazy(() => import("@/components/operations/DashboardLayout"));
 const OperationsDashboard = lazy(() => import("./pages/OperationsDashboard"));
 const DispatchBoard = lazy(() => import("./pages/DispatchBoard"));
-const MainInventory = lazy(() => import("./pages/inventory/MainInventory"));
+const MainInventory = lazy(() => import("./pages/inventory/InventoryPage"));
 const ProductsPage = lazy(loadProductsPage);
 const AdvancedUomDashboard = lazy(() => import("./pages/products/advanced-uom/AdvancedUomDashboard"));
 const CommercialRulesDashboard = lazy(() => import("./pages/CommercialRulesDashboard"));

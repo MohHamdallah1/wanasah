@@ -45,19 +45,35 @@ A workflow is not complete because a button or endpoint exists. It is complete o
 
 **Goal:** Opening an affected batch must work correctly regardless of the warehouse currently selected in Inventory.
 
-- [ ] **1.1 Batch-first focus and source resolution**  
+- [x] **1.1 Batch-first focus and source resolution**
   Treat `batchId` as the primary focus identity. Resolve the batch from authoritative `stock-sources` before relying on the selected warehouse. If exactly one readable source exists, Inventory may select it for context; if multiple sources exist, do not silently choose one.
 
-- [ ] **1.2 Multi-source batch workspace**  
+- [x] **1.2 Multi-source batch workspace**
   Show every readable warehouse/vehicle source with quantity, stock status, reservation, and allowed actions. Do not leak unauthorized source identities/counts/quantities. Remove contradictory background states such as “no matching products” while the focused batch is open.
 
-- [ ] **1.3 Permission-safe navigation contract**  
+- [x] **1.3 Permission-safe navigation contract**
   Route state remains a hint only. Destination must re-fetch the batch and exact-location permissions. Hidden company blockers may be reported only through non-leaking signals.
 
-- [ ] **1.4 Automated Phase 1 acceptance**  
+- [x] **1.4 Automated Phase 1 acceptance**
   Cover one warehouse, two warehouses, warehouse + vehicle, vehicle-only, wrong-last-selected-warehouse, and no-access-to-second-location cases.
 
 **Phase 1 done when:** A Products warning opens the exact batch correctly from any prior warehouse context and multi-location stock is explicit without implicit authority.
+
+### Phase 1 implementation and acceptance evidence — Lane B, 2026-10-04
+
+- Starting point: latest `origin/main` at `b2bb6c1fcb3176921aca1f7d0110a27139fb9bd6`; isolated temporary worktree, branch `feat/batch-multilocation-quality-workflow-20261004`. The desktop checkout and `RUN.txt` were not edited or switched.
+- Root cause: the previous Inventory entry mounted the warehouse shell before its Batches focus resolver. Warehouse setup/access and the saved warehouse could therefore prevent the batch resolver from mounting or leave a contradictory warehouse table behind it. The existing Products warning already passes typed `batchId + variantId`; it needs no Products change.
+- `dashboard/src/pages/inventory/InventoryPage.tsx` intercepts only exact batch focus (including the existing batch owner-focus intent). `dashboard/src/features/inventory/batchFocusNavigation.ts` retains identity only, discarding warehouse/name hints. Other valid Inventory intents still enter the existing shell. Whole-product workspace internals are unchanged.
+- `dashboard/src/pages/inventory/batches/BatchFocusWorkspace.tsx` waits for fresh destination capabilities **and** fresh batch stock-sources. Warm cached evidence is not shown as authorization. Mismatched batch/variant fails closed; structured read failures preserve the request id. The route hint is consumed once on resolution/failure; closing while loading aborts the read. No localStorage workflow signaling is added.
+- **One readable source:** show that source as context without changing the saved warehouse preference. **Multiple readable sources:** show all of them together, including vehicles, without choosing an implicit warehouse. The warehouse shell/table is not mounted while exact batch focus is active. Counts refer only to the returned readable sources, never to company-wide hidden sources.
+- Reuse the existing `BatchQuantityActions` and batch disposition manager: current batch state/reason/expiry, source status/on-hand/reserved/movable quantities, reservation owners, and server-derived actions. No duplicated sellability, disposition, lifecycle, destination or permission rules. Quantity actions receive the same snapshot rather than starting another stock-sources request. A presentation-only option hides duplicate quantity controls in the disposition dialog; all existing callers retain their defaults.
+- Existing backend authority is sufficient: `wa_backend/api/warehouse/live_stock.py:2756` owns `/warehouse/batches/{batch_id}/stock-sources`; company-scoped batch lookup at line 2806, set-based source query at line 2886, exact readable-location predicate at line 2893, server-derived purposes at line 2973. No backend runtime code/endpoint or schema change was needed. Hidden source identity/name/count/quantity stays absent from the response. Mutations still use the existing exact source/destination authority, durable request identity and audit/ledger semantics.
+- Generic transfer-list navigation is hidden only in this new workspace. Following an actual created transfer reads both endpoint locations' capabilities in one bounded request, then sends typed operation/location identity to the existing owner workflow. Reservation links use existing typed Dispatch navigation; Inventory does not cancel owner operations.
+- **Focused frontend acceptance:** `dashboard/src/test/batch-focus-workspace.test.tsx` has 14 passing cases exercising the real Products warning, Inventory entry, read/access hooks, parser and quantity panel. Includes one/two warehouses, warehouse + vehicle, vehicle-only, unrelated saved warehouse, hidden source, per-source action permissions, consumed/malformed/mismatched intent, delayed fresh capabilities, stale-cache revocation, pending-read abort, reservation owner navigation, Arabic RTL/English LTR and keyboard entry. With existing boundary/disposition/source-parser suites: **29 passed**.
+- **Focused backend read acceptance:** `wa_backend/tests/test_batch_multilocation_read_acceptance.py` uses the actual existing endpoint and synthetic fixture. Proves all source combinations, constant four statement calls independent of source count, hidden-source redaction and existing inaccessible/foreign-company 404s. With existing stock-sources/reservation-owner suites: **34 passed**. Synthetic SQLite tests do not claim PostgreSQL RLS runtime verification.
+- **Browser scaffolding and acceptance:** `dashboard/e2e/batch-focus.config.ts`, `batch-focus.spec.ts`, `README.md`, and shared read fixtures. Installed Edge against the production build: **10 passed**, covering five source configurations in both locales, wrong saved warehouse, one batch read, consumed typed history state and keyboard entry. All API requests are intercepted; unexpected reads and all mutations fail. The React suite proves the actual Products-warning click; browser coverage here proves the destination, not terminal disposal/vendor handover or live-backend E2E.
+- **Gates:** ESLint passes for every changed frontend/test/scaffold file; production build passes; `tsc --project tsconfig.app.json --noEmit` remains blocked by **27 pre-existing diagnostics**, reproduced from the unchanged starting `main` via a read-only compiler-source overlay, with no new diagnostic in this branch's files. These baseline errors are not silently repaired in another lane's files.
+- **Remaining verification boundary:** no known missing Phase 1 functional step in the tested contract. Live authenticated PostgreSQL/RLS browser acceptance and the repository-wide TypeScript baseline remain integration gates; neither is claimed complete. Phase 2/3 internals and all other phase checkboxes remain untouched.
 
 ---
 

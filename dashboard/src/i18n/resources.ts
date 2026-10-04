@@ -1,4 +1,5 @@
 import { archiveOwners } from "./archiveOwners";
+import { batchFocus } from "./batchFocus";
 
 export const supportedLanguages = [
   "ar",
@@ -12,6 +13,7 @@ export const resources = {
   ar: {
     translation: {
       archiveOwners: archiveOwners.ar,
+      batchFocus: batchFocus.ar,
       common: {
         save: "حفظ",
         cancel: "إلغاء",
@@ -2173,6 +2175,7 @@ export const resources = {
   en: {
     translation: {
       archiveOwners: archiveOwners.en,
+      batchFocus: batchFocus.en,
       common: {
         save: "Save",
         cancel: "Cancel",
