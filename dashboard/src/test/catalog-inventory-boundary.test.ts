@@ -192,6 +192,18 @@ describe("Catalog / Inventory frontend boundary", () => {
     );
   });
 
+  it("keeps future fleet and representative internals out of Products ownership", () => {
+    const productSources = sourceFiles("../pages/products");
+
+    for (const path of productSources) {
+      const source = readFileSync(path, "utf8");
+      expect(source, path).not.toContain("@/pages/dispatch/");
+      expect(source, path).not.toContain("@/components/dispatch/");
+      expect(source, path).not.toContain("vehicle_id");
+      expect(source, path).not.toContain("expected_receiver_id");
+    }
+  });
+
   it("prevents direct Products and Inventory page-internal imports in both directions", () => {
     const productSources = sourceFiles("../pages/products");
     const inventorySources = sourceFiles("../pages/inventory");
