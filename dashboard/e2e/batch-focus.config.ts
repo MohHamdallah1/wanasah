@@ -3,7 +3,7 @@ import { defineConfig } from "playwright/test";
 /** Opt-in, read-only acceptance against a separately started local preview. */
 export default defineConfig({
   testDir: ".",
-  testMatch: "batch-focus.spec.ts",
+  testMatch: ["batch-focus.spec.ts", "batch-focus-cross-page.spec.ts"],
   workers: 1,
   retries: 0,
   reporter: "list",
