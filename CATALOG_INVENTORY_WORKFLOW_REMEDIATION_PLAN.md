@@ -1,6 +1,6 @@
 # Catalog / Inventory Workflow Remediation Plan
 
-**Status:** ACTIVE — current execution plan  
+**Status:** CLOSED — completed 2026-10-04
 **Created:** 2026-10-04  
 **Architecture reference:** `docs/architecture/CATALOG_INVENTORY_WORKFLOW_BOUNDARIES.md`  
 **Repository baseline before this plan:** `main` at `e780538743c134d0d5a0931b70d4ba7d63b51a30`
@@ -444,7 +444,7 @@ Use one consolidated acceptance gate after source analysis and implementation.
 - [x] Remove/retire dead legacy UI together: `TabProductCatalog.tsx` test-only legacy surface plus duplicate lifecycle/batch action UI after consumers are migrated safely.
 - [x] Perform final architecture/code-size review: page folders remain responsibility-driven, no mega-file/god hook, and update the architecture companion only if implementation revealed a missing permanent rule.
 - [x] Finalize this plan from actual evidence and close only proven items; Phase 7 owns the consolidated technical/UX acceptance gate.
-- [ ] Stable merge/cleanup: merge completed branches to `main`, delete merged temporary branches/worktrees, confirm local `main == origin/main`, and preserve local `RUN.txt` user changes.
+- [x] Stable merge/cleanup: merge completed branches to `main`, delete merged temporary branches/worktrees, confirm local `main == origin/main`, and preserve local `RUN.txt` user changes.
 
 **Phase 8 cleanup evidence ? 2026-10-04:** removed the unmounted `TabProductCatalog.tsx`, its obsolete identity-race test, dead `pages/inventory/catalog/*` compatibility UI and dead `batchIssueNavigation.ts` bridge. The active Products barcode path retains request-sequence/abort/scope guards and its current test coverage. Production gate coverage now reads the canonical `CatalogLifecycleActions` and `ProductLocationManager` owners directly. Architecture review found the existing `CATALOG_INVENTORY_WORKFLOW_BOUNDARIES.md` already states the permanent final rules (Live Stock read-only, Warehouse Management owns location policy, Products never processes physical stock, navigation is not authority), so no constitution update was required. New owner-side files remain responsibility-sized; the largest new archive-navigation implementation is 144 lines, with no new mega-file or god hook.
 
