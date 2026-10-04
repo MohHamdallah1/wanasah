@@ -696,14 +696,12 @@ export function CatalogLifecycleSimplePanel({
                         }
                         className="rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-[9px] font-black text-rose-800 transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
                       >
-                        {t(
-                          `catalogLifecycle.simple.blockerActionLabels.${item.code}`,
-                          {
-                            defaultValue: t(
-                              "catalogLifecycle.simple.openRequiredAction",
-                            ),
-                          },
-                        )}
+                        {item.code === "INVENTORY_BALANCE"
+                          ? t("catalogLifecycle.simple.manageConfirmedIssue")
+                          : t(
+                              `catalogLifecycle.simple.blockerActionLabels.${item.code}`,
+                              { defaultValue: t("catalogLifecycle.simple.openRequiredAction") },
+                            )}
                       </button>
                     ) : null}
                   </div>

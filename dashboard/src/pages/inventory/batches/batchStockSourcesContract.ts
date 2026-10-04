@@ -47,13 +47,45 @@ export type BatchSpecialPurpose =
   | "RECALL_RETURN"
   | "DISPOSAL";
 
+export type BatchSpecialActionReason =
+  | "ALLOWED"
+  | "NO_CONFIGURED_DESTINATION"
+  | "PERMISSION_REQUIRED"
+  | "SOURCE_CANNOT_SEND"
+  | "NO_MOVABLE_QUANTITY"
+  | "ALREADY_AT_DESTINATION"
+  | "STATE_RESTRICTION";
+
+export type BatchSpecialActionAvailability = {
+  purpose: BatchSpecialPurpose;
+  allowed: boolean;
+  eligible_quantity: Quantity;
+  reason_code: BatchSpecialActionReason;
+};
+
+export type BatchTerminalAction = "CONFIRM_DISPOSAL" | "CONFIRM_VENDOR_HANDOVER";
+export type BatchTerminalActionReason =
+  | "ALLOWED"
+  | "PERMISSION_REQUIRED"
+  | "NO_MOVABLE_QUANTITY"
+  | "ORIGIN_EVIDENCE_MISSING"
+  | "STATE_RESTRICTION";
+export type BatchTerminalActionAvailability = {
+  action: BatchTerminalAction;
+  allowed: boolean;
+  eligible_quantity: Quantity;
+  reason_code: BatchTerminalActionReason;
+};
+
 export type BatchStockSourceStatus = {
   stock_status: BatchStockStatus;
   on_hand_quantity: Quantity;
   reserved_quantity: Quantity;
   movable_quantity: Quantity;
   allowed_purposes: BatchSpecialPurpose[];
+  special_actions: BatchSpecialActionAvailability[];
   reservation_evidence: ReservationEvidence;
+  terminal_actions: BatchTerminalActionAvailability[];
 };
 
 export type BatchStockSource = {
@@ -174,7 +206,7 @@ const parseReservationEvidence = (
       module: "DISPATCH" as const,
       transfer_id: transferId,
       reference_number: owner.reference_number.trim(),
-      transfer_purpose: owner.transfer_purpose,
+      transfer_purpose: owner.transfer_purpose as ReservationOwner["transfer_purpose"],
       work_session_id: positiveInt(owner.work_session_id),
       route_id: positiveInt(owner.route_id),
       expected_receiver_id: positiveInt(owner.expected_receiver_id),
@@ -182,7 +214,7 @@ const parseReservationEvidence = (
       quantity,
       operation_status: "PENDING" as const,
       navigation_target: "DISPATCH_ROUTE_TRANSFERS" as const,
-      action: owner.action,
+      action: owner.action as ReservationOwner["action"],
     };
   });
 
@@ -304,40 +336,80 @@ export function parseBatchStockSources(
       ) {
         return invalid();
       }
+      const validPurposes: BatchSpecialPurpose[] = [
+        "RETURN_TO_VENDOR", "QUARANTINE", "RECALL_RETURN", "DISPOSAL",
+      ];
       if (
         !Array.isArray(statusRow.allowed_purposes) ||
         statusRow.allowed_purposes.length > 4 ||
-        statusRow.allowed_purposes.some(
-          (value) =>
-            ![
-              "RETURN_TO_VENDOR",
-              "QUARANTINE",
-              "RECALL_RETURN",
-              "DISPOSAL",
-            ].includes(String(value)),
-        )
-      ) {
-        return invalid();
-      }
+        statusRow.allowed_purposes.some((value) => !validPurposes.includes(value as BatchSpecialPurpose)) ||
+        !Array.isArray(statusRow.special_actions) ||
+        statusRow.special_actions.length > 4 ||
+        !Array.isArray(statusRow.terminal_actions) ||
+        statusRow.terminal_actions.length > 2
+      ) return invalid();
+
+      const specialReasonCodes: BatchSpecialActionReason[] = [
+        "ALLOWED", "NO_CONFIGURED_DESTINATION", "PERMISSION_REQUIRED",
+        "SOURCE_CANNOT_SEND", "NO_MOVABLE_QUANTITY",
+        "ALREADY_AT_DESTINATION", "STATE_RESTRICTION",
+      ];
+      const specialPurposes = new Set<BatchSpecialPurpose>();
+      const specialActions = statusRow.special_actions.map((rawAction) => {
+        if (!rawAction || typeof rawAction !== "object" || Array.isArray(rawAction)) return invalid();
+        const action = rawAction as Record<string, unknown>;
+        const purpose = action.purpose as BatchSpecialPurpose;
+        const reason = action.reason_code as BatchSpecialActionReason;
+        if (!validPurposes.includes(purpose) || specialPurposes.has(purpose) ||
+            typeof action.allowed !== "boolean" || !specialReasonCodes.includes(reason)) return invalid();
+        specialPurposes.add(purpose);
+        let eligible: Quantity;
+        try { eligible = parseQuantity(action.eligible_quantity, "eligible_quantity", { allowZero: true }); } catch { return invalid(); }
+        if (compareQuantity(eligible, movable) > 0 || action.allowed !== (reason === "ALLOWED") ||
+            (action.allowed && compareQuantity(eligible, "0") <= 0)) return invalid();
+        return { purpose, allowed: action.allowed, eligible_quantity: eligible, reason_code: reason };
+      });
+      const allowedPurposes = statusRow.allowed_purposes as BatchSpecialPurpose[];
+      const serverAllowed = specialActions.filter((item) => item.allowed).map((item) => item.purpose).sort();
+      if ([...allowedPurposes].sort().join("|") !== serverAllowed.join("|")) return invalid();
+
+      const terminalReasonCodes: BatchTerminalActionReason[] = [
+        "ALLOWED", "PERMISSION_REQUIRED", "NO_MOVABLE_QUANTITY",
+        "ORIGIN_EVIDENCE_MISSING", "STATE_RESTRICTION",
+      ];
+      const terminalNames: BatchTerminalAction[] = ["CONFIRM_DISPOSAL", "CONFIRM_VENDOR_HANDOVER"];
+      const seenTerminal = new Set<BatchTerminalAction>();
+      const terminalActions = statusRow.terminal_actions.map((rawAction) => {
+        if (!rawAction || typeof rawAction !== "object" || Array.isArray(rawAction)) return invalid();
+        const action = rawAction as Record<string, unknown>;
+        const name = action.action as BatchTerminalAction;
+        const reason = action.reason_code as BatchTerminalActionReason;
+        if (!terminalNames.includes(name) || seenTerminal.has(name) ||
+            typeof action.allowed !== "boolean" || !terminalReasonCodes.includes(reason)) return invalid();
+        seenTerminal.add(name);
+        let eligible: Quantity;
+        try { eligible = parseQuantity(action.eligible_quantity, "terminal_eligible_quantity", { allowZero: true }); } catch { return invalid(); }
+        if (compareQuantity(eligible, movable) > 0 || action.allowed !== (reason === "ALLOWED") ||
+            (action.allowed && compareQuantity(eligible, "0") <= 0)) return invalid();
+        return { action: name, allowed: action.allowed, eligible_quantity: eligible, reason_code: reason };
+      });
       return {
         stock_status: stockStatus,
         on_hand_quantity: onHand,
         reserved_quantity: reserved,
         movable_quantity: movable,
-        allowed_purposes:
-          statusRow.allowed_purposes as BatchSpecialPurpose[],
-        reservation_evidence: parseReservationEvidence(
-          statusRow.reservation_evidence,
-          reserved,
-        ),
+        allowed_purposes: allowedPurposes,
+        special_actions: specialActions,
+        reservation_evidence: parseReservationEvidence(statusRow.reservation_evidence, reserved),
+        terminal_actions: terminalActions,
       };
     });
 
     return {
       location_id: locationId,
-      location_name: source.location_name,
-      location_type: source.location_type,
-      can_send: source.can_send,
+      location_name: source.location_name as string,
+      location_type: source.location_type as BatchStockSource["location_type"],
+      can_send: source.can_send as boolean,
       statuses: parsedStatuses,
     };
   });
@@ -380,16 +452,16 @@ export function parseBatchStockSources(
     batch: {
       batch_id: batchId,
       batch_number: batchNumber.trim(),
-      production_date: productionDate,
-      expiry_date: expiryDate,
+      production_date: productionDate as string | null,
+      expiry_date: expiryDate as string | null,
       disposition,
-      disposition_reason: reason,
+      disposition_reason: reason as string | null,
       disposition_revision: positiveInt(row.disposition_revision),
-      days_to_expiry: daysToExpiry,
+      days_to_expiry: daysToExpiry as number | null,
     },
     base_uom_id: positiveInt(row.base_uom_id),
     base_uom_code: baseUomCode.trim(),
-    operational_hold: row.operational_hold,
+    operational_hold: row.operational_hold as BatchStockSources["operational_hold"],
     sources: parsedSources,
   };
 }

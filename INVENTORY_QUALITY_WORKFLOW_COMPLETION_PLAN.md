@@ -84,16 +84,24 @@ A workflow is not complete because a button or endpoint exists. It is complete o
 - [x] **2.1 Dedicated workspace and clear hierarchy**
   `quality-issue` opens a distinct Inventory workspace/state. Present `Product → affected batches → physical sources → reserved/movable quantities → available actions`. Keep the company-wide product hold visible without letting Inventory silently redefine Catalog lifecycle.
 
-- [ ] **2.2 Backend action-availability reasons**  
+- [x] **2.2 Backend action-availability reasons**
   Replace “empty allowed list” UX with a backend availability contract that returns safe reason codes such as: no configured destination, insufficient permission, fully reserved, source cannot send, already at destination, lifecycle/state restriction, or no movable quantity. Frontend only translates these reasons.
 
-- [ ] **2.3 Remove dead-end and duplicate controls**  
+- [x] **2.3 Remove dead-end and duplicate controls**
   Do not show generic “open transfers” unless there is an actual transfer or owner workflow to follow. `عرض الرصيد` remains read-only context if retained; `المشكلة مؤكدة — التعامل مع الكميات الحالية` opens the executable workspace. Different labels must not open the same workflow while implying different meanings.
 
 - [ ] **2.4 Readiness and automated Phase 2 acceptance**  
   Backend remains the only authority for `ready_to_resume_sales`. Cover multiple batches, multiple warehouses, vehicle source, partial permissions, reservations, no-action reasons, hidden blockers, and readiness remaining false until company-level requirements are truly complete.
 
 **Phase 2 done when:** A manager can understand exactly what remains for a whole-product issue without knowing backend terminology, and every visible action/reason is server-derived.
+
+### Phase 2.2–2.3 evidence — integrated lane, 2026-10-04
+
+- `stock-sources` returns bounded `special_actions` with server-derived `reason_code` and `eligible_quantity`; React validates the contract and only translates the reason.
+- Empty action sets now explain the denied operations instead of showing a generic no-action sentence.
+- Generic transfer-list navigation is hidden by default; only a concrete newly created transfer exposes a follow-up link.
+- Recall completion `INVENTORY_BALANCE` opens the executable whole-product workflow and uses the same human action label rather than the misleading read-only `View stock` wording.
+- Focused frontend gate: 34/34 passed. ESLint and production build passed. Repository TypeScript remains at 21 pre-existing diagnostics, with none in the changed files.
 
 ### Phase 2.1 implementation evidence — bounded checkpoint, 2026-10-04
 

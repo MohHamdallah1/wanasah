@@ -1,6 +1,7 @@
 import { archiveOwners } from "./archiveOwners";
 import { batchFocus } from "./batchFocus";
 import { productQualityWorkspace } from "./productQualityWorkspace";
+import { qualityActionReasons } from "./qualityActionReasons";
 
 export const supportedLanguages = [
   "ar",
@@ -16,6 +17,7 @@ export const resources = {
       archiveOwners: archiveOwners.ar,
       batchFocus: batchFocus.ar,
       productQualityWorkspace: productQualityWorkspace.ar,
+      qualityActionReasons: qualityActionReasons.ar,
       common: {
         save: "حفظ",
         cancel: "إلغاء",
@@ -2179,6 +2181,7 @@ export const resources = {
       archiveOwners: archiveOwners.en,
       batchFocus: batchFocus.en,
       productQualityWorkspace: productQualityWorkspace.en,
+      qualityActionReasons: qualityActionReasons.en,
       common: {
         save: "Save",
         cancel: "Cancel",

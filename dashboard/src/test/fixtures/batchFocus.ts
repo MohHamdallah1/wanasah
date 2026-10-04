@@ -3,6 +3,16 @@ export const batchSource = (id: number, name: string, type: "WAREHOUSE" | "VEHIC
   location_id: id, location_name: name, location_type: type, can_send: canSend,
   statuses: [{ stock_status: "QUARANTINED", on_hand_quantity: "10", reserved_quantity: "2", movable_quantity: "8",
     allowed_purposes: canSend ? ["QUARANTINE"] : [],
+    special_actions: [
+      { purpose: "QUARANTINE", allowed: canSend, eligible_quantity: canSend ? "8" : "0", reason_code: canSend ? "ALLOWED" : "SOURCE_CANNOT_SEND" },
+      { purpose: "RECALL_RETURN", allowed: false, eligible_quantity: "0", reason_code: canSend ? "STATE_RESTRICTION" : "SOURCE_CANNOT_SEND" },
+      { purpose: "RETURN_TO_VENDOR", allowed: false, eligible_quantity: "0", reason_code: canSend ? "STATE_RESTRICTION" : "SOURCE_CANNOT_SEND" },
+      { purpose: "DISPOSAL", allowed: false, eligible_quantity: "0", reason_code: canSend ? "STATE_RESTRICTION" : "SOURCE_CANNOT_SEND" },
+    ],
+    terminal_actions: [
+      { action: "CONFIRM_DISPOSAL", allowed: false, eligible_quantity: "0", reason_code: "STATE_RESTRICTION" },
+      { action: "CONFIRM_VENDOR_HANDOVER", allowed: false, eligible_quantity: "0", reason_code: "STATE_RESTRICTION" },
+    ],
     reservation_evidence: { coverage: "COMPLETE", reason: null, unattributed_quantity: "0", owners_truncated: false,
       owners: [{ owner_type: "DISPATCH_HANDSHAKE", module: "DISPATCH", transfer_id: id + 100, reference_number: `HS-${id}`,
         transfer_purpose: "ROUTE_LOAD", work_session_id: 80, route_id: 70, expected_receiver_id: 4, created_by: 7,

@@ -183,7 +183,7 @@ describe("batch-first Phase 1 acceptance", () => {
     expect(screen.getAllByText(i18n.t("inventoryBatches.quantityActions.reserved", { quantity: "2", unit: "EACH" }))).toHaveLength(2);
     expect(screen.getAllByText(i18n.t("inventoryBatches.quantityActions.stockStatuses.QUARANTINED"), { exact: false }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: i18n.t("inventoryBatches.quantityActions.purposes.QUARANTINE.label") })).toHaveLength(1);
-    expect(screen.getByText(i18n.t("inventoryBatches.quantityActions.noSendPermission"))).toBeVisible();
+    expect(screen.getAllByText(i18n.t("qualityActionReasons.reasons.SOURCE_CANNOT_SEND")).length).toBeGreaterThan(0);
   });
 
   it("aborts a pending focus read when the user leaves and does not reopen it", async () => {

@@ -140,6 +140,8 @@ describe("Products fast Enter and commercial-status UX", () => {
     expect(panel).toContain(
       "catalogLifecycle.blockers.",
     );
+    expect(panel).toContain('item.code === "INVENTORY_BALANCE"');
+    expect(panel).toContain('catalogLifecycle.simple.manageConfirmedIssue');
   });
 
   it("keeps user-facing wording commercial and unified", () => {

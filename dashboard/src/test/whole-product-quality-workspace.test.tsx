@@ -88,6 +88,7 @@ describe("Phase 2.1 dedicated product quality workspace", () => {
     expect(screen.queryByText(/Hidden B|Vehicle 13|9184/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: i18n.t("inventoryBatches.quantityActions.purposes.QUARANTINE.label") })).not.toBeInTheDocument();
     expect(screen.queryByText(i18n.t("inventoryQualityIssue.readiness.readyTitle"))).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: i18n.t("inventoryBatches.quantityActions.openTransfers") })).not.toBeInTheDocument();
   });
 
   it("keeps a released batch distinct from the still-active company-wide Catalog hold", async () => {

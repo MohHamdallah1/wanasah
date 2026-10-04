@@ -93,7 +93,7 @@ export function BatchQuantityActions({
   onOpenReservationOwner,
   stockSources,
   onRefreshStockSources,
-  showTransferListLink = true,
+  showTransferListLink = false,
   header,
 }: Props) {
   const { t } = useTranslation();
@@ -295,15 +295,7 @@ export function BatchQuantityActions({
                   </div>
                 ) : null}
 
-                {compareQuantity(status.movable_quantity, "0") <= 0 ? (
-                  <p className="mt-2 text-[9px] font-semibold leading-4 text-amber-700">
-                    {t("inventoryBatches.quantityActions.fullyReserved")}
-                  </p>
-                ) : !source.can_send ? (
-                  <p className="mt-2 text-[9px] font-semibold leading-4 text-slate-500">
-                    {t("inventoryBatches.quantityActions.noSendPermission")}
-                  </p>
-                ) : purposes.length > 0 ? (
+                {purposes.length > 0 ? (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {purposes.map((purpose) => {
                       const permitted =
@@ -336,9 +328,21 @@ export function BatchQuantityActions({
                     })}
                   </div>
                 ) : (
-                  <p className="mt-2 text-[9px] font-semibold leading-4 text-slate-500">
-                    {t("inventoryBatches.quantityActions.noActionForStatus")}
-                  </p>
+                  <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50/70 p-2.5">
+                    <p className="text-[9px] font-black text-slate-700">
+                      {t("qualityActionReasons.title")}
+                    </p>
+                    <div className="mt-1.5 space-y-1">
+                      {status.special_actions.map((action) => (
+                        <p key={action.purpose} className="text-[9px] font-semibold leading-4 text-slate-600">
+                          <span className="font-black text-slate-800">
+                            {t(`inventoryBatches.quantityActions.purposes.${action.purpose}.label`)}:
+                          </span>{" "}
+                          {t(`qualityActionReasons.reasons.${action.reason_code}`)}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
             );
