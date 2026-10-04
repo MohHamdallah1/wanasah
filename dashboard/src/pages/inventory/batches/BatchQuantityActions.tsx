@@ -25,6 +25,7 @@ import type {
   BatchStockSource,
   BatchStockSourceStatus,
   BatchStockStatus,
+  ReservationOwner,
 } from "./batchStockSourcesContract";
 import { useBatchSpecialTransfer } from "./useBatchSpecialTransfer";
 import { useBatchStockSources } from "./useBatchStockSources";
@@ -37,6 +38,7 @@ type Props = {
   onOpenTransfers: (
     transfer?: BatchSpecialTransferResult,
   ) => void | Promise<void>;
+  onOpenReservationOwner: (owner: ReservationOwner) => void;
 };
 
 type Choice = {
@@ -138,6 +140,7 @@ export function BatchQuantityActions({
   baseUomCode,
   onChanged,
   onOpenTransfers,
+  onOpenReservationOwner,
 }: Props) {
   const { t } = useTranslation();
   const access = useInventoryAccess();
@@ -272,6 +275,66 @@ export function BatchQuantityActions({
                     ) : null}
                   </div>
                 </div>
+
+                {compareQuantity(status.reserved_quantity, "0") > 0 ? (
+                  <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/60 p-2.5">
+                    <p className="text-[9px] font-black text-amber-950">
+                      {t("inventoryBatches.quantityActions.reservationEvidence.title")}
+                    </p>
+                    {status.reservation_evidence.owners.length > 0 ? (
+                      <div className="mt-1.5 space-y-1.5">
+                        {status.reservation_evidence.owners.map((owner) => (
+                          <div
+                            key={owner.transfer_id}
+                            className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-white/80 px-2 py-1.5 ring-1 ring-amber-100"
+                          >
+                            <div className="min-w-0 text-[9px] font-semibold leading-4 text-slate-700">
+                              <p className="font-black text-slate-900">
+                                {t(
+                                  `inventoryBatches.quantityActions.reservationEvidence.purposes.${owner.transfer_purpose}`,
+                                  { reference: owner.reference_number },
+                                )}
+                              </p>
+                              <p>
+                                {t("inventoryBatches.quantityActions.reservationEvidence.ownerQuantity", {
+                                  quantity: owner.quantity,
+                                  unit: baseUomCode,
+                                })}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => onOpenReservationOwner(owner)}
+                              className="shrink-0 rounded-md border border-amber-200 bg-white px-2 py-1 text-[9px] font-black text-amber-900 hover:bg-amber-100"
+                            >
+                              {t(
+                                owner.action === "FORCE_CANCEL_HANDSHAKE"
+                                  ? "inventoryBatches.quantityActions.reservationEvidence.openAndRelease"
+                                  : "inventoryBatches.quantityActions.reservationEvidence.openOwner",
+                              )}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    {compareQuantity(
+                      status.reservation_evidence.unattributed_quantity,
+                      "0",
+                    ) > 0 ? (
+                      <p className="mt-1.5 text-[9px] font-semibold leading-4 text-amber-800">
+                        {t("inventoryBatches.quantityActions.reservationEvidence.unattributed", {
+                          quantity: status.reservation_evidence.unattributed_quantity,
+                          unit: baseUomCode,
+                        })}
+                      </p>
+                    ) : null}
+                    {status.reservation_evidence.owners_truncated ? (
+                      <p className="mt-1 text-[9px] font-semibold leading-4 text-slate-500">
+                        {t("inventoryBatches.quantityActions.reservationEvidence.previewLimited")}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 {compareQuantity(status.movable_quantity, "0") <= 0 ? (
                   <p className="mt-2 text-[9px] font-semibold leading-4 text-amber-700">

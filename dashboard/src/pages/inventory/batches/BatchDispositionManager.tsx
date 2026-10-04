@@ -17,6 +17,7 @@ import { BatchQuantityActions } from "./BatchQuantityActions";
 import { allowedBatchDispositionTargets } from "./batchDispositionRules";
 import type { BatchActionSnapshot, BatchDisposition } from "./contracts";
 import type { BatchSpecialTransferResult } from "./batchSpecialTransferContract";
+import type { ReservationOwner } from "./batchStockSourcesContract";
 import { useBatchDispositionCommand } from "./useBatchDispositionCommand";
 
 type Props = {
@@ -28,6 +29,7 @@ type Props = {
   onOpenTransfers: (
     transfer?: BatchSpecialTransferResult,
   ) => void | Promise<void>;
+  onOpenReservationOwner: (owner: ReservationOwner) => void;
 };
 
 const targetIcon = (
@@ -81,6 +83,7 @@ export function BatchDispositionManager({
   onClose,
   onChanged,
   onOpenTransfers,
+  onOpenReservationOwner,
 }: Props) {
   const { t } = useTranslation();
   const access = useInventoryAccess();
@@ -283,6 +286,7 @@ export function BatchDispositionManager({
             baseUomCode={baseUomCode}
             onChanged={onChanged}
             onOpenTransfers={onOpenTransfers}
+            onOpenReservationOwner={onOpenReservationOwner}
           />
         ) : null}
 

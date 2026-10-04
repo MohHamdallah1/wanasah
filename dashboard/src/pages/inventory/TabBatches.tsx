@@ -19,7 +19,10 @@ import type { InventoryBatchFocusIntent } from "@/features/inventory/navigation"
 import { BatchDispositionManager } from "./batches/BatchDispositionManager";
 import type { BatchActionSnapshot } from "./batches/contracts";
 import type { BatchSpecialTransferResult } from "./batches/batchSpecialTransferContract";
-import { parseBatchStockSources } from "./batches/batchStockSourcesContract";
+import {
+  parseBatchStockSources,
+  type ReservationOwner,
+} from "./batches/batchStockSourcesContract";
 import {
   parseBatchDetailResponse,
   parseBatchProductPage,
@@ -40,6 +43,7 @@ interface Props {
   onOpenTransfers: (
     transfer?: BatchSpecialTransferResult,
   ) => void | Promise<void>;
+  onOpenReservationOwner: (owner: ReservationOwner) => void;
 }
 
 const PAGE_SIZE = 50;
@@ -71,6 +75,7 @@ export function TabBatches({
   focus = null,
   onFocusConsumed,
   onOpenTransfers,
+  onOpenReservationOwner,
 }: Props) {
   const authFetch = useAuthFetch();
   const access = useInventoryAccess();
@@ -725,6 +730,7 @@ export function TabBatches({
         }
         baseUomCode={selectedBatchContext?.baseUomCode ?? ""}
         onOpenTransfers={onOpenTransfers}
+        onOpenReservationOwner={onOpenReservationOwner}
         onClose={() => setSelectedBatchContext(null)}
         onChanged={async () => {
           if (selectedProduct) {

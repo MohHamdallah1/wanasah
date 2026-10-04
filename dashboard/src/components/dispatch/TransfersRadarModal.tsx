@@ -55,6 +55,8 @@ interface TransfersRadarModalProps {
   isOpen: boolean;
   onClose: () => void;
   route: PendingRoute | null;
+  focusTransferId?: number | null;
+  openCancelForFocus?: boolean;
 }
 
 const parseTransferTime = (
@@ -142,11 +144,15 @@ export function TransfersRadarModal({
   isOpen,
   onClose,
   route,
+  focusTransferId = null,
+  openCancelForFocus = false,
 }: TransfersRadarModalProps) {
   const authenticatedFetch = useAuthFetch();
   const [transfers, setTransfers] = useState<RouteTransfer[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const requestControllerRef = useRef<AbortController | null>(null);
+  const focusedTransferRef = useRef<HTMLDivElement | null>(null);
+  const autoCancelHandledRef = useRef<number | null>(null);
   const [cancelTarget, setCancelTarget] = useState<RouteTransfer | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelRequestId, setCancelRequestId] = useState(() =>
@@ -186,6 +192,34 @@ export function TransfersRadarModal({
     setCancelReason("");
     setCancelRequestId(crypto.randomUUID());
   }, []);
+
+  useEffect(() => {
+    autoCancelHandledRef.current = null;
+  }, [focusTransferId]);
+
+  useEffect(() => {
+    if (!isOpen || focusTransferId === null || transfers.length === 0) return;
+    const target = transfers.find(
+      (transfer) => transfer.transfer_id === focusTransferId,
+    );
+    if (!target) return;
+    focusedTransferRef.current?.scrollIntoView({ block: "center" });
+    if (
+      openCancelForFocus &&
+      target.status === "pending" &&
+      target.can_force_cancel &&
+      autoCancelHandledRef.current !== target.transfer_id
+    ) {
+      autoCancelHandledRef.current = target.transfer_id;
+      openForceCancel(target);
+    }
+  }, [
+    focusTransferId,
+    isOpen,
+    openCancelForFocus,
+    openForceCancel,
+    transfers,
+  ]);
 
   const closeForceCancel = useCallback(() => {
     if (isCancelling) return;
@@ -394,10 +428,16 @@ export function TransfersRadarModal({
                         transfer.delta_cartons > 0 ||
                         (transfer.delta_cartons === 0 &&
                           transfer.delta_packs > 0);
+                      const focused = transfer.transfer_id === focusTransferId;
                       return (
                         <div
                           key={transfer.transfer_id}
-                          className="flex items-center justify-between py-2.5 first:pt-0 last:pb-0"
+                          ref={focused ? focusedTransferRef : undefined}
+                          className={`flex items-center justify-between rounded-lg py-2.5 first:pt-0 last:pb-0 ${
+                            focused
+                              ? "bg-amber-50 px-2 ring-2 ring-amber-300"
+                              : ""
+                          }`}
                         >
                           <div className="flex items-center gap-3">
                             <div

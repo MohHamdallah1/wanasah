@@ -30,6 +30,13 @@ def payload():
                         "on_hand_quantity": "12.000000",
                         "reserved_quantity": "2.000000",
                         "movable_quantity": "10.000000",
+                        "reservation_evidence": {
+                            "coverage": "UNRESOLVED",
+                            "reason": "OWNER_EVIDENCE_UNAVAILABLE",
+                            "owners": [],
+                            "unattributed_quantity": "2.000000",
+                            "owners_truncated": False,
+                        },
                     }
                 ],
             }

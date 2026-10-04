@@ -13,11 +13,40 @@ export type BatchStockStatus =
   | "DAMAGED"
   | "DISPOSAL_PENDING";
 
+export type ReservationOwner = {
+  owner_type: "DISPATCH_HANDSHAKE";
+  module: "DISPATCH";
+  transfer_id: number;
+  reference_number: string;
+  transfer_purpose: "ROUTE_LOAD" | "ROUTE_RETURN";
+  work_session_id: number;
+  route_id: number;
+  expected_receiver_id: number;
+  created_by: number;
+  quantity: Quantity;
+  operation_status: "PENDING";
+  navigation_target: "DISPATCH_ROUTE_TRANSFERS";
+  action: "FORCE_CANCEL_HANDSHAKE" | null;
+};
+
+export type ReservationEvidence = {
+  coverage: "NONE" | "COMPLETE" | "PARTIAL" | "UNRESOLVED";
+  reason:
+    | "OWNER_EVIDENCE_UNAVAILABLE"
+    | "OWNER_EVIDENCE_MISMATCH"
+    | "OWNER_PREVIEW_LIMIT"
+    | null;
+  owners: ReservationOwner[];
+  unattributed_quantity: Quantity;
+  owners_truncated: boolean;
+};
+
 export type BatchStockSourceStatus = {
   stock_status: BatchStockStatus;
   on_hand_quantity: Quantity;
   reserved_quantity: Quantity;
   movable_quantity: Quantity;
+  reservation_evidence: ReservationEvidence;
 };
 
 export type BatchStockSource = {
@@ -61,6 +90,118 @@ const statuses = new Set<BatchStockStatus>([
   "DAMAGED",
   "DISPOSAL_PENDING",
 ]);
+
+const reservationCoverages = new Set<ReservationEvidence["coverage"]>([
+  "NONE",
+  "COMPLETE",
+  "PARTIAL",
+  "UNRESOLVED",
+]);
+const reservationReasons = new Set<Exclude<ReservationEvidence["reason"], null>>([
+  "OWNER_EVIDENCE_UNAVAILABLE",
+  "OWNER_EVIDENCE_MISMATCH",
+  "OWNER_PREVIEW_LIMIT",
+]);
+
+const parseReservationEvidence = (
+  raw: unknown,
+  reservedQuantity: Quantity,
+): ReservationEvidence => {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return invalid();
+  const row = raw as Record<string, unknown>;
+  const coverage = row.coverage as ReservationEvidence["coverage"];
+  const reason = row.reason as ReservationEvidence["reason"];
+  if (
+    !reservationCoverages.has(coverage) ||
+    (reason !== null && !reservationReasons.has(reason)) ||
+    !Array.isArray(row.owners) ||
+    row.owners.length > 20 ||
+    typeof row.owners_truncated !== "boolean"
+  ) {
+    return invalid();
+  }
+
+  let unattributedQuantity: Quantity;
+  try {
+    unattributedQuantity = parseQuantity(
+      row.unattributed_quantity,
+      "unattributed_quantity",
+      { allowZero: true },
+    );
+  } catch {
+    return invalid();
+  }
+  if (compareQuantity(unattributedQuantity, reservedQuantity) > 0) return invalid();
+
+  const ownerIds = new Set<number>();
+  const owners = row.owners.map((rawOwner) => {
+    if (!rawOwner || typeof rawOwner !== "object" || Array.isArray(rawOwner)) {
+      return invalid();
+    }
+    const owner = rawOwner as Record<string, unknown>;
+    const transferId = positiveInt(owner.transfer_id);
+    if (ownerIds.has(transferId)) return invalid();
+    ownerIds.add(transferId);
+    let quantity: Quantity;
+    try {
+      quantity = parseQuantity(owner.quantity, "reservation_owner_quantity");
+    } catch {
+      return invalid();
+    }
+    if (
+      owner.owner_type !== "DISPATCH_HANDSHAKE" ||
+      owner.module !== "DISPATCH" ||
+      typeof owner.reference_number !== "string" ||
+      !owner.reference_number.trim() ||
+      owner.reference_number.length > 100 ||
+      (owner.transfer_purpose !== "ROUTE_LOAD" &&
+        owner.transfer_purpose !== "ROUTE_RETURN") ||
+      owner.operation_status !== "PENDING" ||
+      owner.navigation_target !== "DISPATCH_ROUTE_TRANSFERS" ||
+      (owner.action !== null && owner.action !== "FORCE_CANCEL_HANDSHAKE")
+    ) {
+      return invalid();
+    }
+    return {
+      owner_type: "DISPATCH_HANDSHAKE" as const,
+      module: "DISPATCH" as const,
+      transfer_id: transferId,
+      reference_number: owner.reference_number.trim(),
+      transfer_purpose: owner.transfer_purpose,
+      work_session_id: positiveInt(owner.work_session_id),
+      route_id: positiveInt(owner.route_id),
+      expected_receiver_id: positiveInt(owner.expected_receiver_id),
+      created_by: positiveInt(owner.created_by),
+      quantity,
+      operation_status: "PENDING" as const,
+      navigation_target: "DISPATCH_ROUTE_TRANSFERS" as const,
+      action: owner.action,
+    };
+  });
+
+  const reservedIsZero = compareQuantity(reservedQuantity, "0") === 0;
+  if (
+    (reservedIsZero &&
+      (coverage !== "NONE" || owners.length !== 0 ||
+        compareQuantity(unattributedQuantity, "0") !== 0 || reason !== null)) ||
+    (!reservedIsZero && coverage === "NONE") ||
+    (coverage === "COMPLETE" &&
+      (owners.length === 0 || compareQuantity(unattributedQuantity, "0") !== 0 ||
+        reason !== null || row.owners_truncated)) ||
+    (row.owners_truncated && reason !== "OWNER_PREVIEW_LIMIT") ||
+    (reason === "OWNER_EVIDENCE_MISMATCH" && owners.length !== 0)
+  ) {
+    return invalid();
+  }
+
+  return {
+    coverage,
+    reason,
+    owners,
+    unattributed_quantity: unattributedQuantity,
+    owners_truncated: row.owners_truncated,
+  };
+};
 
 export function parseBatchStockSources(
   raw: unknown,
@@ -161,6 +302,10 @@ export function parseBatchStockSources(
         on_hand_quantity: onHand,
         reserved_quantity: reserved,
         movable_quantity: movable,
+        reservation_evidence: parseReservationEvidence(
+          statusRow.reservation_evidence,
+          reserved,
+        ),
       };
     });
 

@@ -124,6 +124,26 @@ describe("Catalog / Inventory frontend boundary", () => {
     expect(mainInventory).not.toContain("localStorage.setItem(\"transfer");
   });
 
+  it("routes reservation-owner handling back to Dispatch authority", () => {
+    const quantityActions = read(
+      "../pages/inventory/batches/BatchQuantityActions.tsx",
+    );
+    const mainInventory = read("../pages/inventory/MainInventory.tsx");
+    const dispatchBoard = read("../pages/DispatchBoard.tsx");
+    const radar = read("../components/dispatch/TransfersRadarModal.tsx");
+
+    expect(quantityActions).toContain("onOpenReservationOwner(owner)");
+    expect(mainInventory).toContain("createDispatchReservationFocusState");
+    expect(dispatchBoard).toContain("parseDispatchNavigationState");
+    expect(dispatchBoard).toContain("setRadarFocusTransferId(dispatchFocus.transferId)");
+    expect(radar).toContain("focusTransferId");
+    expect(radar).toContain("openForceCancel(target)");
+    expect(radar).toContain(
+      "`/dispatch/transfers/${cancelTarget.transfer_id}/force_cancel`",
+    );
+    expect(quantityActions).not.toContain("/force_cancel");
+  });
+
   it("keeps Product lifecycle independent from Inventory page internals", () => {
     const lifecycle = read(
       "../pages/products/lifecycle/ProductLifecycleManager.tsx",

@@ -1,5 +1,6 @@
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Truck, LayoutGrid, ClipboardList, Calendar, Search, Pencil, Trash2, Plus, RotateCcw, X, Upload, Eye, Eraser, Save, XCircle, Loader2, AlertCircle, Archive, Rocket } from "lucide-react";
 import { toast } from "sonner";
@@ -21,6 +22,7 @@ import { ZoneRecycleBinModal } from "@/components/dispatch/ZoneRecycleBinModal";
 import { ShopBulkImportModal } from "@/components/dispatch/ShopBulkImportModal";
 import { AdjustInventoryModal } from "@/components/dispatch/AdjustInventoryModal";
 import { TransfersRadarModal } from "@/components/dispatch/TransfersRadarModal";
+import { parseDispatchNavigationState } from "@/features/dispatch/navigation";
 // Types
 import { TabId, Zone, PendingRoute, Shortage, Shop } from "@/types/dispatch";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
@@ -204,6 +206,14 @@ const sortZones = (zones: Zone[]) => {
 };
 
 export default function DispatchBoard() {
+  const routeLocation = useLocation();
+  const routeNavigate = useNavigate();
+  const initialDispatchFocusRef = useRef(
+    parseDispatchNavigationState(routeLocation.state),
+  );
+  const [dispatchFocus, setDispatchFocus] = useState(
+    initialDispatchFocusRef.current,
+  );
   const [activeTab, setActiveTab] = useState<TabId>(() => {
     const stored = localStorage.getItem("activeTab");
     return isTabId(stored) ? stored : "routes";
@@ -218,6 +228,16 @@ export default function DispatchBoard() {
   // +++ حالات رادار الحوالات +++
   const [isRadarModalOpen, setIsRadarModalOpen] = useState(false);
   const [radarRoute, setRadarRoute] = useState<PendingRoute | null>(null);
+  const [radarFocusTransferId, setRadarFocusTransferId] = useState<number | null>(null);
+  const [radarOpenCancel, setRadarOpenCancel] = useState(false);
+
+  useEffect(() => {
+    if (!initialDispatchFocusRef.current) return;
+    routeNavigate(`${routeLocation.pathname}${routeLocation.search}`, {
+      replace: true,
+      state: null,
+    });
+  }, [routeLocation.pathname, routeLocation.search, routeNavigate]);
 
   useEffect(() => { localStorage.setItem("activeTab", activeTab); }, [activeTab]);
 
@@ -234,6 +254,19 @@ export default function DispatchBoard() {
   const [warehouses, setWarehouses] = useState<Array<WarehouseOption & { can_execute: boolean }>>([]);
   const [selectedSourceWarehouseId, setSelectedSourceWarehouseId] = useState("");
   const [pendingRoutes, setPendingRoutes] = useState<PendingRoute[]>([]);
+  useEffect(() => {
+    if (!dispatchFocus) return;
+    const route = pendingRoutes.find(
+      (item) => String(item.id) === String(dispatchFocus.routeId),
+    );
+    if (!route) return;
+    setActiveTab("routes");
+    setRadarRoute(route);
+    setRadarFocusTransferId(dispatchFocus.transferId);
+    setRadarOpenCancel(dispatchFocus.openCancel);
+    setIsRadarModalOpen(true);
+    setDispatchFocus(null);
+  }, [dispatchFocus, pendingRoutes]);
   const [shortages, setShortages] = useState<Shortage[]>([]);
   const [shops, setShops] = useState<Shop[]>([]);
 
@@ -1410,6 +1443,8 @@ export default function DispatchBoard() {
                       setIsInventoryModalOpen(true);
                     }}
                     onOpenRadar={(route) => {
+                      setRadarFocusTransferId(null);
+                      setRadarOpenCancel(false);
                       setRadarRoute(route);
                       setIsRadarModalOpen(true);
                     }}
@@ -1793,8 +1828,14 @@ export default function DispatchBoard() {
       {/* +++ رادار الحوالات المصفح +++ */}
       <TransfersRadarModal
         isOpen={isRadarModalOpen}
-        onClose={() => setIsRadarModalOpen(false)}
+        onClose={() => {
+          setIsRadarModalOpen(false);
+          setRadarFocusTransferId(null);
+          setRadarOpenCancel(false);
+        }}
         route={radarRoute}
+        focusTransferId={radarFocusTransferId}
+        openCancelForFocus={radarOpenCancel}
       />
 
       <ZoneModal isOpen={isZoneModalOpen} onClose={() => { setIsZoneModalOpen(false); setZoneFormName(""); setEditingZoneId(null); }} editingZoneId={editingZoneId} zoneFormName={zoneFormName} onZoneFormNameChange={setZoneFormName} onSave={handleSaveZone} />

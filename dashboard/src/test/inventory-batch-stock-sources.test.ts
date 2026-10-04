@@ -27,6 +27,29 @@ const response = {
           on_hand_quantity: "12.000000",
           reserved_quantity: "2.000000",
           movable_quantity: "10.000000",
+          reservation_evidence: {
+            coverage: "COMPLETE",
+            reason: null,
+            unattributed_quantity: "0",
+            owners_truncated: false,
+            owners: [
+              {
+                owner_type: "DISPATCH_HANDSHAKE",
+                module: "DISPATCH",
+                transfer_id: 77,
+                reference_number: "HS-77",
+                transfer_purpose: "ROUTE_RETURN",
+                work_session_id: 18,
+                route_id: 9,
+                expected_receiver_id: 5,
+                created_by: 3,
+                quantity: "2.000000",
+                operation_status: "PENDING",
+                navigation_target: "DISPATCH_ROUTE_TRANSFERS",
+                action: "FORCE_CANCEL_HANDSHAKE",
+              },
+            ],
+          },
         },
       ],
     },
@@ -54,6 +77,21 @@ describe("batch stock-source action contract", () => {
       on_hand_quantity: "12",
       reserved_quantity: "2",
       movable_quantity: "10",
+      reservation_evidence: {
+        coverage: "COMPLETE",
+        unattributed_quantity: "0",
+        owners_truncated: false,
+        owners: [
+          {
+            transfer_id: 77,
+            reference_number: "HS-77",
+            transfer_purpose: "ROUTE_RETURN",
+            route_id: 9,
+            quantity: "2",
+            action: "FORCE_CANCEL_HANDSHAKE",
+          },
+        ],
+      },
     });
   });
 
@@ -67,5 +105,19 @@ describe("batch stock-source action contract", () => {
     expect(() =>
       parseBatchStockSources({ ...response, base_uom_code: "" }),
     ).toThrow("BATCH_STOCK_SOURCES_RESPONSE_INVALID");
+  });
+
+  it("fails closed when reservation-owner evidence is malformed or contradictory", () => {
+    const badRoute = structuredClone(response);
+    badRoute.sources[0].statuses[0].reservation_evidence.owners[0].route_id = 0;
+    expect(() => parseBatchStockSources(badRoute)).toThrow(
+      "BATCH_STOCK_SOURCES_RESPONSE_INVALID",
+    );
+
+    const contradictory = structuredClone(response);
+    contradictory.sources[0].statuses[0].reservation_evidence.unattributed_quantity = "1";
+    expect(() => parseBatchStockSources(contradictory)).toThrow(
+      "BATCH_STOCK_SOURCES_RESPONSE_INVALID",
+    );
   });
 });

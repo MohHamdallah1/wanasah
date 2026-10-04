@@ -11,6 +11,9 @@ from sqlalchemy import Date, Integer, String, and_, bindparam, case, func, or_, 
 from api.dependencies import get_current_driver
 from database import get_db
 from inventory_access import InventoryAccess
+from domains.batch_reservation_contracts import OWNER_PREVIEW_LIMIT
+from domains.batch_reservation_evidence import reservation_evidence
+from domains.dispatch_reservations import reservation_owner_projection
 from models import (
     Company,
     DispatchRoute,
@@ -2477,6 +2480,10 @@ async def get_batch_stock_sources(
         await db.scalar(select(access.allows("inventory.read")))
     )
     can_send = access.allows("transfer.send", InventoryLocation.id)
+    owners = reservation_owner_projection(
+        access, batch_id=batch_id, variant_id=int(batch_row.product_variant_id),
+        preview_limit=OWNER_PREVIEW_LIMIT,
+    )
     rows = (
         await db.execute(
             select(
@@ -2487,6 +2494,7 @@ async def get_batch_stock_sources(
                 InventoryBalance.stock_status,
                 InventoryBalance.on_hand_quantity,
                 InventoryBalance.reserved_quantity,
+                *owners.c,
             )
             .select_from(InventoryBalance)
             .join(
@@ -2494,6 +2502,14 @@ async def get_batch_stock_sources(
                 and_(
                     InventoryLocation.company_id == InventoryBalance.company_id,
                     InventoryLocation.id == InventoryBalance.location_id,
+                ),
+            )
+            .outerjoin(
+                owners,
+                and_(
+                    owners.c.owner_location_id == InventoryBalance.location_id,
+                    owners.c.owner_stock_status == InventoryBalance.stock_status,
+                    InventoryBalance.reserved_quantity > 0,
                 ),
             )
             .where(
@@ -2511,6 +2527,7 @@ async def get_batch_stock_sources(
                 InventoryLocation.name.asc(),
                 InventoryLocation.id.asc(),
                 InventoryBalance.stock_status.asc(),
+                owners.c.transfer_id.asc(),
             )
         )
     ).all()
@@ -2525,6 +2542,8 @@ async def get_batch_stock_sources(
         )
 
     sources_by_id: dict[int, dict] = {}
+    statuses_by_key: dict[tuple[int, str], dict] = {}
+    owner_rows_by_key: dict[tuple[int, str], list] = {}
     for row in rows:
         location_id = int(row.location_id)
         source = sources_by_id.setdefault(
@@ -2537,6 +2556,12 @@ async def get_batch_stock_sources(
                 "statuses": [],
             },
         )
+        key = (location_id, str(row.stock_status).upper())
+        if row.transfer_id is not None:
+            owner_rows_by_key.setdefault(key, []).append(row._mapping)
+        # Joining a bounded owner preview repeats balance columns, never stock.
+        if key in statuses_by_key:
+            continue
         on_hand = Decimal(row.on_hand_quantity or 0)
         reserved = Decimal(row.reserved_quantity or 0)
         movable = on_hand - reserved
@@ -2545,14 +2570,14 @@ async def get_batch_stock_sources(
                 "Inventory reservation exceeds on-hand quantity for "
                 f"batch_id={batch_id}, location_id={location_id}."
             )
-        source["statuses"].append(
-            {
-                "stock_status": str(row.stock_status).upper(),
-                "on_hand_quantity": canonical_quantity(on_hand),
-                "reserved_quantity": canonical_quantity(reserved),
-                "movable_quantity": canonical_quantity(movable),
-            }
-        )
+        status = {
+            "stock_status": str(row.stock_status).upper(),
+            "on_hand_quantity": canonical_quantity(on_hand),
+            "reserved_quantity": canonical_quantity(reserved),
+            "movable_quantity": canonical_quantity(movable),
+        }
+        statuses_by_key[key] = status
+        source["statuses"].append(status)
 
     if len(sources_by_id) > 500:
         raise HTTPException(
@@ -2563,6 +2588,10 @@ async def get_batch_stock_sources(
             ),
         )
 
+    for key, status in statuses_by_key.items():
+        status["reservation_evidence"] = reservation_evidence(
+            status["reserved_quantity"], owner_rows_by_key.get(key, []),
+        )
     return {
         "batch_id": int(batch_row.id),
         "product_variant_id": int(batch_row.product_variant_id),

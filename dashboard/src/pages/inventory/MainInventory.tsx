@@ -10,6 +10,7 @@ import { Package, History, Lock, RefreshCcw, FilePlus, Building2, ArrowRightLeft
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { parseInventoryNavigationState } from "@/features/inventory/navigation";
+import { createDispatchReservationFocusState } from "@/features/dispatch/navigation";
 import { resolveI18nLocale } from "@/lib/locale";
 import { Tab1LiveStock } from "./Tab1LiveStock";
 import { TabBatches } from "./TabBatches";
@@ -20,6 +21,7 @@ import { TabWarehouseLocations } from "./TabWarehouseLocations";
 import { TabTransfers } from "./TabTransfers";
 import type { TransferFocus } from "./transfers/types";
 import type { BatchSpecialTransferResult } from "./batches/batchSpecialTransferContract";
+import type { ReservationOwner } from "./batches/batchStockSourcesContract";
 import { InventoryTopDock } from "./InventoryTopDock";
 import "./inventory.css";
 import {
@@ -716,6 +718,18 @@ export default function MainInventory() {
     },
     [authFetch, handleLocationChange, locations, selectedLocationId, t],
   );
+  const handleOpenReservationOwner = useCallback(
+    (owner: ReservationOwner) => {
+      routeNavigate("/dispatch", {
+        state: createDispatchReservationFocusState({
+          routeId: owner.route_id,
+          transferId: owner.transfer_id,
+          openCancel: owner.action === "FORCE_CANCEL_HANDSHAKE",
+        }),
+      });
+    },
+    [routeNavigate],
+  );
   // ── fetchers ────────────────────────────────────────────────────────────────
   const fetchStock = useCallback(async () => {
     if (selectedLocationId === null || !canReadStock) return;
@@ -1333,6 +1347,7 @@ export default function MainInventory() {
             focus={batchNavigationFocus}
             onFocusConsumed={() => setBatchNavigationFocus(null)}
             onOpenTransfers={handleOpenTransfers}
+            onOpenReservationOwner={handleOpenReservationOwner}
           />
         )}
         {!locationAccess.isPending && activeTab === "inbound" && tabAllowed("inbound") && selectedLocationId !== null && locationAccess.data && (

@@ -7,6 +7,7 @@ from uuid import UUID
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import re
 from quantity import canonical_quantity, parse_quantity
+from domains.batch_reservation_contracts import ReservationEvidence
 
 # ==========================================
 # 0. Boundary primitives — fail closed, preserve DB precision, and reject lossy coercion.
@@ -1525,6 +1526,7 @@ class WarehouseBatchStockStatusItem(BaseModel):
     on_hand_quantity: NonNegativeQuantity
     reserved_quantity: NonNegativeQuantity
     movable_quantity: NonNegativeQuantity
+    reservation_evidence: ReservationEvidence
 
 
 class WarehouseBatchStockSourceItem(BaseModel):
