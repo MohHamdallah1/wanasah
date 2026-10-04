@@ -2088,6 +2088,39 @@ class SpecialTransferDispatchRequest(RequestModel):
         return self
 
 
+class TerminalDisposalConfirmRequest(RequestModel):
+    request_id: UUID
+    source_location_id: PositiveDbInt
+    product_variant_id: PositiveDbInt
+    batch_id: PositiveDbInt
+    quantity: PositiveQuantity
+    reason: str = Field(..., min_length=1, max_length=2000)
+    method: Optional[str] = Field(None, max_length=100)
+    evidence_reference: Optional[str] = Field(None, max_length=200)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def normalize_disposal_reason(cls, v: Any) -> str:
+        return _required_text(v)
+
+    @field_validator("method", "evidence_reference", mode="before")
+    @classmethod
+    def normalize_disposal_optional_text(cls, v: Any) -> Optional[str]:
+        return _optional_text(v)
+
+
+class TerminalDisposalConfirmResponse(BaseModel):
+    message: str
+    movement_id: PositiveDbInt
+    product_variant_id: PositiveDbInt
+    batch_id: PositiveDbInt
+    source_location_id: PositiveDbInt
+    disposed_quantity: PositiveQuantity
+    remaining_quantity: NonNegativeQuantity
+    origin_transfer_header_ids: List[PositiveDbInt] = Field(default_factory=list, max_length=100)
+    event_type: Literal["INVENTORY_FINAL_DISPOSAL_CONFIRMED"]
+
+
 class SpecialTransferDispatchResponse(BaseModel):
     message: str
     transfer_reference: str

@@ -111,7 +111,7 @@ A workflow is not complete because a button or endpoint exists. It is complete o
 
 **Goal:** Complete the missing final step after staging stock for disposal or vendor return.
 
-- [ ] **3.1 Terminal disposal backend contract**  
+- [x] **3.1 Terminal disposal backend contract**  
   Define the final disposal command and evidence contract. Final disposal must be allowed only for the exact eligible company/location/product/batch/status/quantity, normally at the approved disposal destination with `DISPOSAL_PENDING` stock. Reuse the unified inventory movement/ledger authority; never simulate destruction by moving to another fake location. Revalidate locks/revisions, reservations, permissions, idempotency, and current policy/state.
 
 - [ ] **3.2 Final disposal inventory effect and evidence**  

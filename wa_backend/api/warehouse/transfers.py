@@ -42,6 +42,8 @@ from schemas import (
     WarehouseTransferDetail,
     SpecialTransferDispatchRequest,
     SpecialTransferDispatchResponse,
+    TerminalDisposalConfirmRequest,
+    TerminalDisposalConfirmResponse,
     UnifiedDispatchRequest,
     UnifiedReceiveRequest,
     UnifiedTransferDecisionRequest,
@@ -82,6 +84,8 @@ from services import (
     validate_special_transfer_source_items_locked,
 )
 
+
+from domains.inventory_terminal_quality import confirm_final_disposal
 
 from ._shared import (
     _decode_variant_cursor,
@@ -1694,6 +1698,95 @@ async def special_transfer_dispatch(
                 "خطأ داخلي أثناء إنشاء التحويل الخاص.",
             ),
         ) from exc
+
+# ====================================================
+# Final physical disposal: remove DISPOSAL_PENDING stock from company ownership
+# ====================================================
+@router.post(
+    "/warehouse/quality/disposal/confirm",
+    response_model=TerminalDisposalConfirmResponse,
+    status_code=200,
+)
+async def confirm_inventory_disposal(
+    payload: TerminalDisposalConfirmRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    access = InventoryAccess(db, current_admin)
+    await access.require("inventory.disposal.confirm", payload.source_location_id)
+    company_id = current_admin.company_id
+
+    try:
+        request_hash = _stable_request_hash(payload)
+        idempotency_record, replay_response = await begin_idempotent_operation(
+            db,
+            company_id=company_id,
+            actor_id=current_admin.id,
+            operation="INVENTORY_FINAL_DISPOSAL",
+            request_id=str(payload.request_id),
+            request_hash=request_hash,
+        )
+        if replay_response is not None:
+            await db.rollback()
+            return replay_response
+
+        result = await confirm_final_disposal(
+            db,
+            company_id=company_id,
+            actor_id=current_admin.id,
+            request_id=payload.request_id,
+            source_location_id=payload.source_location_id,
+            product_variant_id=payload.product_variant_id,
+            batch_id=payload.batch_id,
+            quantity=payload.quantity,
+            reason=payload.reason,
+            method=payload.method,
+            evidence_reference=payload.evidence_reference,
+        )
+        response_payload = {
+            "message": "Final disposal was confirmed and the quantity left company-owned inventory.",
+            **result,
+        }
+        complete_idempotent_operation(idempotency_record, response_payload)
+        await db.commit()
+        return response_payload
+
+    except HTTPException:
+        await db.rollback()
+        raise
+    except InventoryRuleError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=exc.as_detail()) from exc
+    except InventoryMutationError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=inventory_business_error(
+                "FINAL_DISPOSAL_REJECTED",
+                str(exc),
+            ),
+        ) from exc
+    except IntegrityError as exc:
+        await db.rollback()
+        logger.warning("Concurrent final-disposal conflict", exc_info=True)
+        raise HTTPException(
+            status_code=409,
+            detail=inventory_business_error(
+                "FINAL_DISPOSAL_CONFLICT",
+                "A concurrent inventory change prevented final disposal; retry safely.",
+            ),
+        ) from exc
+    except Exception as exc:
+        await db.rollback()
+        logger.error("Unexpected final-disposal failure", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=inventory_business_error(
+                "FINAL_DISPOSAL_INTERNAL_ERROR",
+                "Final disposal could not be completed.",
+            ),
+        ) from exc
+
 
 # Stage 4E generic TRANSIT endpoint owns only REPLENISHMENT and
 # WAREHOUSE_BALANCING. Special purposes use the dedicated policy-bound command.

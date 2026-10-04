@@ -23,6 +23,7 @@ PERMISSIONS = frozenset({
     'transfer.reject', 'transfer.destination', 'inventory.fefo_override',
     'transfer.special.quarantine', 'transfer.special.recall_return',
     'transfer.special.return_to_vendor', 'transfer.special.disposal',
+    'inventory.disposal.confirm',
     'transfer.warehouse_balancing_override',
     'pricing.view', 'pricing.manage', 'pricing.approve',
     'offers.view', 'offers.manage', 'offers.approve',
