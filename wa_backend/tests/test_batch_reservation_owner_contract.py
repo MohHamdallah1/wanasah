@@ -43,6 +43,27 @@ async def no_special_transfer_destinations(_db, *, company_id):
     return {}
 
 
+async def no_terminal_origin_availability(_db, **_kwargs):
+    return {}
+
+
+def no_quality_action_availability(**_kwargs):
+    purposes = ("QUARANTINE", "RECALL_RETURN", "RETURN_TO_VENDOR", "DISPOSAL")
+    return {
+        "allowed_purposes": [],
+        "special_actions": [
+            {
+                "purpose": purpose,
+                "allowed": False,
+                "eligible_quantity": "0",
+                "reason_code": "STATE_RESTRICTION",
+            }
+            for purpose in purposes
+        ],
+        "terminal_actions": [],
+    }
+
+
 class _TimezoneExpression:
     def cast(self, _type):
         return literal(date(2026, 10, 4), type_=Date)
@@ -84,7 +105,9 @@ def endpoint():
         allowed_special_transfer_purposes=no_special_purposes,
         SPECIAL_TRANSFER_PERMISSION=SPECIAL_TRANSFER_PERMISSION,
         read_special_transfer_destinations=no_special_transfer_destinations,
-                inventory_business_error=lambda code, message: {"code": code, "message": message},
+        read_terminal_origin_availability=no_terminal_origin_availability,
+        inventory_quality_action_availability=no_quality_action_availability,
+        inventory_business_error=lambda code, message: {"code": code, "message": message},
     )
     exec(compile(ast.Module(body=[node], type_ignores=[]), str(path), "exec"), namespace)
     return namespace["get_batch_stock_sources"]
