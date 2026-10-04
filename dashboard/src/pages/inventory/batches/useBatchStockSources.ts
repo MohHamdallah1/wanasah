@@ -9,6 +9,7 @@ import {
 
 export function useBatchStockSources(
   batchId: number | null,
+  enabled = true,
 ) {
   const authFetch = useAuthFetch();
   const access = useInventoryAccess();
@@ -23,6 +24,7 @@ export function useBatchStockSources(
       batchId,
     ],
     enabled:
+      enabled &&
       batchId !== null &&
       companyId !== null &&
       driverId !== null,

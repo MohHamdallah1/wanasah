@@ -1559,6 +1559,22 @@ class WarehouseBatchStockSourcesResponse(BaseModel):
     )
 
 
+class WarehouseWholeProductIssueSourcesResponse(BaseModel):
+    product_variant_id: PositiveDbInt
+    variant_version: PositiveDbInt
+    operational_hold: Literal["RECALL"]
+    base_uom_id: PositiveDbInt
+    base_uom_code: str = Field(..., min_length=1, max_length=20)
+    batches: List[WarehouseBatchStockSourcesResponse] = Field(
+        default_factory=list,
+        max_length=50,
+    )
+    next_cursor: OptionalPositiveDbInt = None
+    has_more: bool
+    ready_to_resume_sales: bool
+    company_requirements_remaining: bool
+
+
 class WarehouseLedgerItem(BaseModel):
     id: PositiveDbInt
     product_variant_id: PositiveDbInt

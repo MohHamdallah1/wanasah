@@ -39,6 +39,7 @@ from product_lifecycle import (
     acquire_product_lifecycle_guards,
     apply_variant_publish_transition,
     archive_blockers,
+    recall_completion_blockers,
     draft_delete_blockers,
     record_domain_event,
     variant_snapshot,
@@ -1556,13 +1557,9 @@ async def _run_variant_state_command(
         elif command == "close-recall":
             if row.operational_hold != "RECALL":
                 raise _error(409, "PRODUCT_RECALL_CLOSE_INVALID", "لا يوجد استدعاء مفتوح.")
-            completion_blockers = [
-                item for item in await archive_blockers(db, actor.company_id, variant_id)
-                if item["code"] in {
-                    "INVENTORY_BALANCE", "OPEN_TRANSFER", "ACTIVE_ROUTE_LOAD",
-                    "OPEN_CUSTODY", "OPEN_SHORTAGE",
-                }
-            ]
+            completion_blockers = await recall_completion_blockers(
+                db, actor.company_id, variant_id
+            )
             if completion_blockers:
                 raise _error(
                     409,
@@ -1809,6 +1806,37 @@ async def retire_variant(variant_id: int, payload: LifecycleCommand, db: AsyncSe
 @router.post("/variants/{variant_id}/restore")
 async def restore_variant(variant_id: int, payload: LifecycleCommand, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver)):
     return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="restore", permission="catalog.restore", db=db, actor=actor)
+
+
+@router.get("/variants/{variant_id}/recall-readiness")
+async def variant_recall_readiness(
+    variant_id: int,
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require(db, actor, "catalog.hold")
+    row = await db.scalar(
+        select(ProductVariant).where(
+            ProductVariant.company_id == actor.company_id,
+            ProductVariant.id == variant_id,
+        )
+    )
+    if row is None:
+        raise _error(404, "VARIANT_NOT_FOUND", "الصنف غير موجود.")
+    blockers = (
+        await recall_completion_blockers(db, actor.company_id, variant_id)
+        if row.operational_hold == "RECALL"
+        else []
+    )
+    return {
+        "variant_id": variant_id,
+        "version": int(row.version),
+        "operational_hold": str(row.operational_hold),
+        "ready_to_resume_sales": (
+            row.operational_hold == "RECALL" and not blockers
+        ),
+        "blockers": blockers,
+    }
 
 
 @router.get("/variants/{variant_id}/archive-preflight")

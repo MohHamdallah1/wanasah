@@ -17,6 +17,7 @@ import {
 import {
   createInventoryBatchFocusNavigationState,
   createInventoryTabNavigationState,
+  createInventoryWholeProductIssueNavigationState,
 } from "@/features/inventory/navigation";
 import { CatalogLifecycleActions } from "@/features/catalog/lifecycle/CatalogLifecycleActions";
 import {
@@ -268,6 +269,15 @@ export function ProductLifecycleManager({
               onClose();
               navigate("/inventory", {
                 state: createInventoryBatchFocusNavigationState({
+                  variantId: variant.id,
+                  productName: product.name,
+                }),
+              });
+            }}
+            onManageWholeProductIssue={() => {
+              onClose();
+              navigate("/inventory", {
+                state: createInventoryWholeProductIssueNavigationState({
                   variantId: variant.id,
                   productName: product.name,
                 }),

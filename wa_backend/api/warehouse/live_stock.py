@@ -13,7 +13,10 @@ from database import get_db
 from inventory_access import InventoryAccess
 from domains.batch_reservation_contracts import OWNER_PREVIEW_LIMIT
 from domains.batch_reservation_evidence import reservation_evidence
-from domains.dispatch_reservations import reservation_owner_projection
+from domains.dispatch_reservations import (
+    reservation_owner_projection,
+    variant_reservation_owner_projection,
+)
 from models import (
     Company,
     DispatchRoute,
@@ -31,6 +34,7 @@ from models import (
     UOM,
 )
 from quantity import canonical_quantity
+from product_lifecycle import recall_completion_blockers
 from services import (
     batch_expiry_policy_predicate,
     batch_sellability_predicate,
@@ -45,6 +49,7 @@ from domains.live_stock_projection.service import (
 from schemas import (
     WarehouseInventoryAlertSummaryResponse,
     WarehouseBatchStockSourcesResponse,
+    WarehouseWholeProductIssueSourcesResponse,
     WarehouseInventoryBatchDetailResponse,
     WarehouseInventoryBatchProductCursorPage,
     WarehouseInventoryCursorPage,
@@ -2407,6 +2412,278 @@ async def get_warehouse_inventory_batches(
         ) from exc
 
 
+
+
+@router.get(
+    "/warehouse/variants/{product_variant_id}/quality-issue-sources",
+    response_model=WarehouseWholeProductIssueSourcesResponse,
+    status_code=200,
+)
+async def get_whole_product_quality_issue_sources(
+    product_variant_id: int,
+    cursor: Optional[int] = Query(default=None, ge=1),
+    limit: int = Query(default=25, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    """Return one bounded page of readable physical sources for a product-wide issue.
+
+    This is an Inventory-owned read workflow. It never clears the company-wide
+    product hold and never combines locations into a mutation. Every physical
+    action remains a separate source-scoped command with backend revalidation.
+    """
+    if product_variant_id <= 0:
+        raise HTTPException(status_code=422, detail="Invalid product variant id.")
+
+    access = InventoryAccess(db, current_admin)
+    company_id = current_admin.company_id
+    await access.require("inventory.read", any_location=True)
+
+    variant_row = (
+        await db.execute(
+            select(
+                ProductVariant.id,
+                ProductVariant.version,
+                ProductVariant.operational_hold,
+                ProductVariant.base_uom_id,
+                UOM.code.label("base_uom_code"),
+                func.timezone(
+                    Company.timezone,
+                    func.current_timestamp(),
+                ).cast(Date).label("as_of_date"),
+            )
+            .join(UOM, UOM.id == ProductVariant.base_uom_id)
+            .join(Company, Company.id == ProductVariant.company_id)
+            .where(
+                ProductVariant.company_id == company_id,
+                ProductVariant.id == product_variant_id,
+                Company.id == company_id,
+            )
+        )
+    ).one_or_none()
+    if variant_row is None:
+        raise HTTPException(
+            status_code=404,
+            detail=inventory_business_error(
+                "PRODUCT_VARIANT_NOT_FOUND",
+                "The product is unavailable.",
+            ),
+        )
+    if str(variant_row.operational_hold).upper() != "RECALL":
+        raise HTTPException(
+            status_code=409,
+            detail=inventory_business_error(
+                "PRODUCT_QUALITY_ISSUE_NOT_ACTIVE",
+                "The product does not have an active whole-product quality issue.",
+            ),
+        )
+
+    batch_id_query = (
+        select(InventoryBalance.batch_id)
+        .select_from(InventoryBalance)
+        .join(
+            InventoryLocation,
+            and_(
+                InventoryLocation.company_id == InventoryBalance.company_id,
+                InventoryLocation.id == InventoryBalance.location_id,
+            ),
+        )
+        .where(
+            InventoryBalance.company_id == company_id,
+            InventoryBalance.product_variant_id == product_variant_id,
+            InventoryBalance.on_hand_quantity > 0,
+            InventoryLocation.is_active.is_(True),
+            InventoryLocation.location_type.in_(["WAREHOUSE", "VEHICLE"]),
+            access.location_filter("inventory.read", InventoryLocation.id),
+        )
+        .distinct()
+        .order_by(InventoryBalance.batch_id.asc())
+        .limit(limit + 1)
+    )
+    if cursor is not None:
+        batch_id_query = batch_id_query.where(InventoryBalance.batch_id > cursor)
+    page_ids = [int(value) for value in (await db.scalars(batch_id_query)).all()]
+    has_more = len(page_ids) > limit
+    selected_batch_ids = page_ids[:limit]
+    next_cursor = selected_batch_ids[-1] if has_more and selected_batch_ids else None
+
+    batches_by_id: dict[int, dict] = {}
+    if selected_batch_ids:
+        can_send = access.allows("transfer.send", InventoryLocation.id)
+        owners = variant_reservation_owner_projection(
+            access,
+            variant_id=product_variant_id,
+            batch_ids=selected_batch_ids,
+            preview_limit=OWNER_PREVIEW_LIMIT,
+        )
+        rows = (
+            await db.execute(
+                select(
+                    ProductBatch.id.label("batch_id"),
+                    ProductBatch.batch_number,
+                    ProductBatch.production_date,
+                    ProductBatch.expiry_date,
+                    ProductBatch.disposition,
+                    ProductBatch.disposition_reason,
+                    ProductBatch.disposition_revision,
+                    InventoryLocation.id.label("location_id"),
+                    InventoryLocation.name.label("location_name"),
+                    InventoryLocation.location_type,
+                    can_send.label("can_send"),
+                    InventoryBalance.stock_status,
+                    InventoryBalance.on_hand_quantity,
+                    InventoryBalance.reserved_quantity,
+                    *owners.c,
+                )
+                .select_from(InventoryBalance)
+                .join(
+                    ProductBatch,
+                    and_(
+                        ProductBatch.company_id == InventoryBalance.company_id,
+                        ProductBatch.product_variant_id
+                        == InventoryBalance.product_variant_id,
+                        ProductBatch.id == InventoryBalance.batch_id,
+                    ),
+                )
+                .join(
+                    InventoryLocation,
+                    and_(
+                        InventoryLocation.company_id == InventoryBalance.company_id,
+                        InventoryLocation.id == InventoryBalance.location_id,
+                    ),
+                )
+                .outerjoin(
+                    owners,
+                    and_(
+                        owners.c.owner_batch_id == InventoryBalance.batch_id,
+                        owners.c.owner_location_id == InventoryBalance.location_id,
+                        owners.c.owner_stock_status == InventoryBalance.stock_status,
+                        InventoryBalance.reserved_quantity > 0,
+                    ),
+                )
+                .where(
+                    InventoryBalance.company_id == company_id,
+                    InventoryBalance.product_variant_id == product_variant_id,
+                    InventoryBalance.batch_id.in_(selected_batch_ids),
+                    InventoryBalance.on_hand_quantity > 0,
+                    InventoryLocation.is_active.is_(True),
+                    InventoryLocation.location_type.in_(["WAREHOUSE", "VEHICLE"]),
+                    access.location_filter("inventory.read", InventoryLocation.id),
+                )
+                .order_by(
+                    ProductBatch.id.asc(),
+                    InventoryLocation.location_type.asc(),
+                    InventoryLocation.name.asc(),
+                    InventoryLocation.id.asc(),
+                    InventoryBalance.stock_status.asc(),
+                    owners.c.transfer_id.asc(),
+                )
+            )
+        ).all()
+
+        source_maps: dict[int, dict[int, dict]] = {}
+        statuses_by_key: dict[tuple[int, int, str], dict] = {}
+        owner_rows_by_key: dict[tuple[int, int, str], list] = {}
+        for row in rows:
+            batch_id = int(row.batch_id)
+            batch = batches_by_id.setdefault(
+                batch_id,
+                {
+                    "batch_id": batch_id,
+                    "product_variant_id": product_variant_id,
+                    "batch_number": str(row.batch_number),
+                    "production_date": row.production_date,
+                    "expiry_date": row.expiry_date,
+                    "disposition": str(row.disposition),
+                    "disposition_reason": (
+                        str(row.disposition_reason)
+                        if row.disposition_reason is not None
+                        else None
+                    ),
+                    "disposition_revision": int(row.disposition_revision),
+                    "days_to_expiry": (
+                        (row.expiry_date - variant_row.as_of_date).days
+                        if row.expiry_date is not None
+                        and variant_row.as_of_date is not None
+                        else None
+                    ),
+                    "base_uom_id": int(variant_row.base_uom_id),
+                    "base_uom_code": str(variant_row.base_uom_code),
+                    "operational_hold": "RECALL",
+                    "sources": [],
+                },
+            )
+            location_id = int(row.location_id)
+            source_map = source_maps.setdefault(batch_id, {})
+            source = source_map.setdefault(
+                location_id,
+                {
+                    "location_id": location_id,
+                    "location_name": str(row.location_name),
+                    "location_type": str(row.location_type).upper(),
+                    "can_send": bool(row.can_send),
+                    "statuses": [],
+                },
+            )
+            if source not in batch["sources"]:
+                batch["sources"].append(source)
+            key = (batch_id, location_id, str(row.stock_status).upper())
+            if row.transfer_id is not None:
+                owner_rows_by_key.setdefault(key, []).append(row._mapping)
+            if key in statuses_by_key:
+                continue
+            on_hand = Decimal(row.on_hand_quantity or 0)
+            reserved = Decimal(row.reserved_quantity or 0)
+            movable = on_hand - reserved
+            if movable < 0:
+                raise RuntimeError(
+                    "Inventory reservation exceeds on-hand quantity for "
+                    f"variant_id={product_variant_id}, batch_id={batch_id}, "
+                    f"location_id={location_id}."
+                )
+            status = {
+                "stock_status": str(row.stock_status).upper(),
+                "on_hand_quantity": canonical_quantity(on_hand),
+                "reserved_quantity": canonical_quantity(reserved),
+                "movable_quantity": canonical_quantity(movable),
+            }
+            statuses_by_key[key] = status
+            source["statuses"].append(status)
+
+        for batch_id, source_map in source_maps.items():
+            if len(source_map) > 500:
+                raise HTTPException(
+                    status_code=409,
+                    detail=inventory_business_error(
+                        "PRODUCT_ISSUE_SOURCE_LIMIT_EXCEEDED",
+                        "One affected batch exists in too many stock sources to manage safely from this screen.",
+                        context={"batch_id": batch_id},
+                    ),
+                )
+        for key, status in statuses_by_key.items():
+            status["reservation_evidence"] = reservation_evidence(
+                status["reserved_quantity"], owner_rows_by_key.get(key, []),
+            )
+
+    blockers = await recall_completion_blockers(
+        db, company_id, product_variant_id
+    )
+    return {
+        "product_variant_id": product_variant_id,
+        "variant_version": int(variant_row.version),
+        "operational_hold": "RECALL",
+        "base_uom_id": int(variant_row.base_uom_id),
+        "base_uom_code": str(variant_row.base_uom_code),
+        "batches": [
+            batches_by_id[batch_id]
+            for batch_id in selected_batch_ids
+            if batch_id in batches_by_id
+        ],
+        "next_cursor": next_cursor,
+        "has_more": has_more,
+        "ready_to_resume_sales": not blockers,
+        "company_requirements_remaining": bool(blockers),
+    }
 
 
 @router.get(

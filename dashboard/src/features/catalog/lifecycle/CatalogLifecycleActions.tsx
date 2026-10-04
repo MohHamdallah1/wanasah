@@ -97,6 +97,7 @@ type Props = {
     variantId: number,
   ) => void | Promise<void>;
   onManageBatchIssue?: () => void;
+  onManageWholeProductIssue?: () => void;
   onOpenBlocker?: (code: string) => void;
   simpleMode?: boolean;
 };
@@ -158,6 +159,56 @@ const readRecallCompletionBlockers = (
   return result;
 };
 
+type RecallReadiness = {
+  ready_to_resume_sales: boolean;
+  blockers: RecallCompletionBlocker[];
+};
+
+const parseRecallReadiness = (
+  raw: unknown,
+  expectedVariantId: number,
+): RecallReadiness => {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("CATALOG_RECALL_READINESS_INVALID");
+  }
+  const row = raw as Record<string, unknown>;
+  if (
+    row.variant_id !== expectedVariantId ||
+    typeof row.version !== "number" ||
+    !Number.isSafeInteger(row.version) ||
+    row.version <= 0 ||
+    row.operational_hold !== "RECALL" ||
+    typeof row.ready_to_resume_sales !== "boolean" ||
+    !Array.isArray(row.blockers)
+  ) {
+    throw new Error("CATALOG_RECALL_READINESS_INVALID");
+  }
+  const blockers: RecallCompletionBlocker[] = [];
+  for (const item of row.blockers) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error("CATALOG_RECALL_READINESS_INVALID");
+    }
+    const blocker = item as Record<string, unknown>;
+    if (
+      typeof blocker.code !== "string" ||
+      !blocker.code.trim() ||
+      typeof blocker.count !== "number" ||
+      !Number.isSafeInteger(blocker.count) ||
+      blocker.count <= 0
+    ) {
+      throw new Error("CATALOG_RECALL_READINESS_INVALID");
+    }
+    blockers.push({ code: blocker.code.trim(), count: blocker.count });
+  }
+  if (row.ready_to_resume_sales === (blockers.length > 0)) {
+    throw new Error("CATALOG_RECALL_READINESS_INVALID");
+  }
+  return {
+    ready_to_resume_sales: row.ready_to_resume_sales,
+    blockers,
+  };
+};
+
 const isLifecyclePayload = (
   value: unknown,
 ): value is LifecyclePayload => {
@@ -212,6 +263,7 @@ export function CatalogLifecycleActions({
   onVariantChanged,
   onVariantDeleted,
   onManageBatchIssue,
+  onManageWholeProductIssue,
   onOpenBlocker,
   simpleMode = false,
 }: Props) {
@@ -261,6 +313,8 @@ export function CatalogLifecycleActions({
   ] = useState<
     RecallCompletionBlocker[]
   >([]);
+  const [recallReadiness, setRecallReadiness] =
+    useState<RecallReadiness | null>(null);
 
   const companyId =
     access.data?.company_id ??
@@ -284,15 +338,60 @@ export function CatalogLifecycleActions({
   ) =>
     access.isCompanyAdmin ||
     access.can(permission);
+  const canHoldPermission = can("catalog.hold");
 
   useEffect(() => {
     setPreflight(null);
     setDeletePreflight(null);
     setSelectedCommand(null);
     setRecallCompletionBlockers([]);
+    setRecallReadiness(null);
     setReason("");
   }, [
     variant.id,
+    variant.version,
+  ]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let cancelled = false;
+    if (variant.operational_hold !== "RECALL" || !canHoldPermission) {
+      setRecallReadiness(null);
+      return () => controller.abort();
+    }
+
+    void (async () => {
+      try {
+        const parsed = parseRecallReadiness(
+          await authFetch(
+            `/catalog/variants/${variant.id}/recall-readiness`,
+            { signal: controller.signal },
+          ),
+          variant.id,
+        );
+        if (!cancelled && !controller.signal.aborted) {
+          setRecallReadiness(parsed);
+        }
+      } catch (error) {
+        if (
+          !cancelled &&
+          !controller.signal.aborted &&
+          !(error instanceof Error && error.name === "AbortError")
+        ) {
+          setRecallReadiness(null);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [
+    authFetch,
+    canHoldPermission,
+    variant.id,
+    variant.operational_hold,
     variant.version,
   ]);
 
@@ -589,6 +688,9 @@ export function CatalogLifecycleActions({
       await onVariantChanged(
         result.variant,
       );
+      if (payload.command === "recall") {
+        onManageWholeProductIssue?.();
+      }
     } catch (error) {
       const code =
         apiErrorCode(error);
@@ -821,9 +923,7 @@ export function CatalogLifecycleActions({
         canArchive={can(
           "catalog.archive",
         )}
-        canHold={can(
-          "catalog.hold",
-        )}
+        canHold={canHoldPermission}
         selectedCommand={
           simpleSelectedCommand
         }
@@ -840,7 +940,10 @@ export function CatalogLifecycleActions({
         }
         preflight={preflight}
         recallCompletionBlockers={
-          recallCompletionBlockers
+          recallReadiness?.blockers ?? recallCompletionBlockers
+        }
+        recallReadyToClose={
+          recallReadiness?.ready_to_resume_sales === true
         }
         onChooseCommand={(
           command,
@@ -851,6 +954,9 @@ export function CatalogLifecycleActions({
         }}
         onManageBatchIssue={() => {
           onManageBatchIssue?.();
+        }}
+        onManageWholeProductIssue={() => {
+          onManageWholeProductIssue?.();
         }}
         onOpenBlocker={(code) => {
           onOpenBlocker?.(code);

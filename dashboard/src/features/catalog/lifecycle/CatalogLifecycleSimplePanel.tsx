@@ -101,10 +101,12 @@ type Props = {
   pendingActionKey: string | null;
   preflight: ArchivePreflight | null;
   recallCompletionBlockers: RecallCompletionBlocker[];
+  recallReadyToClose: boolean;
   onChooseCommand: (
     command: SimpleLifecycleCommand,
   ) => void;
   onManageBatchIssue: () => void;
+  onManageWholeProductIssue: () => void;
   onOpenBlocker: (code: string) => void;
   onReasonChange: (
     value: string,
@@ -195,8 +197,10 @@ export function CatalogLifecycleSimplePanel({
   pendingActionKey,
   preflight,
   recallCompletionBlockers,
+  recallReadyToClose,
   onChooseCommand,
   onManageBatchIssue,
+  onManageWholeProductIssue,
   onOpenBlocker,
   onReasonChange,
   onConfirm,
@@ -376,19 +380,32 @@ export function CatalogLifecycleSimplePanel({
               <ActionItem
                 icon={<ShieldCheck className="h-3.5 w-3.5" />}
                 label={t(
-                  "catalogLifecycle.actions.closeRecall",
+                  "catalogLifecycle.simple.manageConfirmedIssue",
                 )}
                 hint={t(
-                  "catalogLifecycle.simple.actionHints.closeRecall",
+                  "catalogLifecycle.simple.manageConfirmedIssueHint",
                 )}
                 disabled={actionsDisabled}
-                onClick={() =>
-                  onChooseCommand(
-                    "close-recall",
-                  )
-                }
+                onClick={onManageWholeProductIssue}
                 emphasis="warning"
               />
+              {recallReadyToClose ? (
+                <ActionItem
+                  icon={<Play className="h-3.5 w-3.5" />}
+                  label={t(
+                    "catalogLifecycle.actions.closeRecall",
+                  )}
+                  hint={t(
+                    "catalogLifecycle.simple.actionHints.closeRecall",
+                  )}
+                  disabled={actionsDisabled}
+                  onClick={() =>
+                    onChooseCommand(
+                      "close-recall",
+                    )
+                  }
+                />
+              ) : null}
             </>
           ) : null}
 
@@ -663,7 +680,11 @@ export function CatalogLifecycleSimplePanel({
                     </span>
                     <button
                       type="button"
-                      onClick={() => onOpenBlocker(item.code)}
+                      onClick={() =>
+                        item.code === "INVENTORY_BALANCE"
+                          ? onManageWholeProductIssue()
+                          : onOpenBlocker(item.code)
+                      }
                       className="rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-[9px] font-black text-rose-800 transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
                     >
                       {t(

@@ -23,6 +23,7 @@ import type { TransferFocus } from "./transfers/types";
 import type { BatchSpecialTransferResult } from "./batches/batchSpecialTransferContract";
 import type { ReservationOwner } from "./batches/batchStockSourcesContract";
 import { InventoryTopDock } from "./InventoryTopDock";
+import { WholeProductIssueManager } from "./quality/WholeProductIssueManager";
 import "./inventory.css";
 import {
   parseLiveStockSummary,
@@ -271,6 +272,11 @@ export default function MainInventory() {
   );
   const [transferFocus, setTransferFocus] =
     useState<TransferFocus | null>(null);
+  const [qualityIssueFocus, setQualityIssueFocus] = useState(
+    initialNavigationIntent?.kind === "quality-issue"
+      ? initialNavigationIntent
+      : null,
+  );
 
   useEffect(() => {
     if (!initialNavigationIntentRef.current) return;
@@ -1402,6 +1408,15 @@ export default function MainInventory() {
             }}
           />
         )}
+
+        <WholeProductIssueManager
+          isOpen={qualityIssueFocus !== null}
+          productVariantId={qualityIssueFocus?.variantId ?? null}
+          productName={qualityIssueFocus?.productName ?? ""}
+          onClose={() => setQualityIssueFocus(null)}
+          onOpenTransfers={handleOpenTransfers}
+          onOpenReservationOwner={handleOpenReservationOwner}
+        />
 
         {activeTab === "permissions" && access.isCompanyAdmin && <TabInventoryAccess />}
         {activeTab === "warehouses" && tabAllowed("warehouses") && (

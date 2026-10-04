@@ -25,9 +25,19 @@ export type InventoryBatchFocusIntent = {
   locationId: number | null;
 };
 
+export type InventoryWholeProductIssueIntent = {
+  version: 1;
+  kind: "quality-issue";
+  tab: "batches";
+  variantId: number;
+  productName: string;
+  locationId: number | null;
+};
+
 export type InventoryNavigationIntent =
   | InventoryTabIntent
-  | InventoryBatchFocusIntent;
+  | InventoryBatchFocusIntent
+  | InventoryWholeProductIssueIntent;
 
 export type InventoryNavigationState = {
   inventoryNavigation: InventoryNavigationIntent;
@@ -88,6 +98,27 @@ export function createInventoryBatchFocusNavigationState({
   };
 }
 
+export function createInventoryWholeProductIssueNavigationState({
+  variantId,
+  productName,
+  locationId = null,
+}: {
+  variantId: number;
+  productName: string;
+  locationId?: number | null;
+}): InventoryNavigationState {
+  return {
+    inventoryNavigation: {
+      version: 1,
+      kind: "quality-issue",
+      tab: "batches",
+      variantId,
+      productName,
+      locationId,
+    },
+  };
+}
+
 export function parseInventoryNavigationState(
   value: unknown,
 ): InventoryNavigationIntent | null {
@@ -119,16 +150,26 @@ export function parseInventoryNavigationState(
   }
 
   if (
-    row.kind === "batch-focus" &&
+    (row.kind === "batch-focus" || row.kind === "quality-issue") &&
     row.tab === "batches" &&
     typeof row.variantId === "number" &&
     Number.isSafeInteger(row.variantId) &&
     row.variantId > 0 &&
-    validLocationId(row.batchId) &&
     typeof row.productName === "string" &&
     row.productName.trim().length > 0 &&
     row.productName.length <= 200
   ) {
+    if (row.kind === "quality-issue") {
+      return {
+        version: 1,
+        kind: "quality-issue",
+        tab: "batches",
+        variantId: row.variantId,
+        productName: row.productName.trim(),
+        locationId: row.locationId as number | null,
+      };
+    }
+    if (!validLocationId(row.batchId)) return null;
     return {
       version: 1,
       kind: "batch-focus",

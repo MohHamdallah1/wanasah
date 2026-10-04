@@ -480,6 +480,28 @@ async def archive_blockers(db: AsyncSession, company_id: int, variant_id: int) -
     ]
 
 
+RECALL_COMPLETION_BLOCKER_CODES = frozenset({
+    "INVENTORY_BALANCE",
+    "OPEN_TRANSFER",
+    "ACTIVE_ROUTE_LOAD",
+    "OPEN_CUSTODY",
+    "OPEN_SHORTAGE",
+})
+
+
+async def recall_completion_blockers(
+    db: AsyncSession,
+    company_id: int,
+    variant_id: int,
+) -> list[dict[str, Any]]:
+    """Return the exact blockers enforced by the close-recall command."""
+    return [
+        item
+        for item in await archive_blockers(db, company_id, variant_id)
+        if item["code"] in RECALL_COMPLETION_BLOCKER_CODES
+    ]
+
+
 async def product_location_delete_blockers(
     db: AsyncSession,
     company_id: int,

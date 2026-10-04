@@ -1092,6 +1092,9 @@ export const resources = {
           problemSaleStopTitle: "لماذا البيع موقوف؟",
           problemSaleStopHint:
             "تم إيقاف بيع المنتج بالكامل بسبب مشكلة جودة أو سلامة. اختر الإجراء التالي حسب نتيجة التحقيق.",
+          manageConfirmedIssue: "المشكلة مؤكدة — التعامل مع الكميات الحالية",
+          manageConfirmedIssueHint:
+            "افتح جميع الكميات التي يمكنك التعامل معها في المستودعات والمركبات، مع بقاء بيع المنتج موقوفًا على مستوى الشركة.",
           recallCompletionTitle:
             "التعامل مع المشكلة لم يكتمل بعد",
           recallCompletionHint:
@@ -1102,7 +1105,7 @@ export const resources = {
           recallRecoveryTitle: "ماذا أفعل الآن؟",
           recallRecoverySteps: {
             first: "إذا كان الإنذار خاطئًا اختر «تبين أن المنتج سليم».",
-            second: "إذا كانت المشكلة حقيقية، ارجع الكميات المتأثرة وأغلق العمليات المفتوحة الظاهرة أدناه.",
+            second: "إذا كانت المشكلة حقيقية، افتح «التعامل مع الكميات الحالية» ونفّذ الإجراء المناسب لكل موقع أو عملية ظاهرة لك.",
             third: "بعد اكتمال البنود اختر «السماح ببيع المنتج من جديد».",
           },
           recallBlockerActions: {
@@ -1370,6 +1373,38 @@ export const resources = {
           stocktake: "جرد وتسوية",
           warehouses: "إدارة المستودعات",
           permissions: "الصلاحيات",
+        },
+      },
+      inventoryQualityIssue: {
+        title: "التعامل مع كميات {{name}}",
+        companyHoldTitle: "بيع المنتج موقوف على مستوى الشركة",
+        companyHoldHint:
+          "يبقى إيقاف البيع فعالًا أثناء التعامل مع الكميات. كل مستودع أو مركبة يُعالج بشكل مستقل، وهذه الشاشة لا تغيّر حالة المنتج نفسها.",
+        readiness: {
+          readyTitle: "اكتملت متطلبات المخزون والعمليات",
+          readyHint:
+            "بحسب فحص الخادم لم يعد هناك ما يمنع السماح ببيع المنتج من جديد. قرار إعادة البيع يبقى من صفحة المنتجات.",
+          pendingTitle: "ما زالت هناك كميات أو عمليات يجب إنهاؤها",
+          pendingHint:
+            "تعامل مع الكميات والعمليات الظاهرة. إذا بقيت متطلبات لا تظهر لك، فقد تكون في موقع أو عملية خارج صلاحيتك وتبقى الحماية فعالة.",
+        },
+        loading: "جارٍ جمع الكميات من المواقع المسموح لك بها...",
+        noVisibleQuantityTitle: "لا توجد كمية مرئية لك في المستودعات أو المركبات الحالية",
+        noVisibleQuantityReady:
+          "بحسب فحص الخادم لا توجد متطلبات أخرى تمنع إعادة البيع.",
+        noVisibleQuantityPending:
+          "ما زالت لدى الشركة متطلبات مفتوحة، لكنها ليست ضمن كمية يمكنك التعامل معها من هذه الشاشة.",
+        batchTitle: "الدفعة {{batch}}",
+        expiry: "الصلاحية: {{date}}",
+        dispositions: {
+          RELEASED: "الدفعة نفسها مسموح بيعها، لكن المنتج بالكامل موقوف بسبب المشكلة",
+          QUARANTINED: "الدفعة معزولة للفحص",
+          BLOCKED: "بيع الدفعة ممنوع",
+          RECALLED: "الدفعة مستبعدة من البيع نهائيًا",
+        },
+        loadMore: "عرض دفعات أخرى",
+        errors: {
+          load: "تعذر جمع الكميات المرتبطة بهذه المشكلة.",
         },
       },
       inventoryBatches: {
@@ -3222,6 +3257,9 @@ export const resources = {
           problemSaleStopTitle: "Why are sales stopped?",
           problemSaleStopHint:
             "Sales for the whole product were stopped because of a quality or safety issue. Choose the next action based on the investigation result.",
+          manageConfirmedIssue: "Issue confirmed — handle current quantities",
+          manageConfirmedIssueHint:
+            "Open all quantities you can act on across warehouses and vehicles while the company-wide sales stop remains active.",
           recallCompletionTitle:
             "Issue handling is not complete yet",
           recallCompletionHint:
@@ -3232,7 +3270,7 @@ export const resources = {
           recallRecoveryTitle: "What should I do now?",
           recallRecoverySteps: {
             first: "If it was a false alarm, choose “Product confirmed safe”.",
-            second: "If the issue is real, return affected quantities and close the open operations shown below.",
+            second: "If the issue is real, open “Handle current quantities” and complete the appropriate action for each visible location or operation.",
             third: "When all items are complete, choose “Allow product sales again”.",
           },
           recallBlockerActions: {
@@ -3500,6 +3538,38 @@ export const resources = {
           stocktake: "Stocktake & adjustment",
           warehouses: "Warehouse management",
           permissions: "Permissions",
+        },
+      },
+      inventoryQualityIssue: {
+        title: "Handle quantities for {{name}}",
+        companyHoldTitle: "Product sales are stopped company-wide",
+        companyHoldHint:
+          "The sales stop stays active while quantities are handled. Each warehouse or vehicle is handled independently, and this screen does not change the product state itself.",
+        readiness: {
+          readyTitle: "Inventory and operation requirements are complete",
+          readyHint:
+            "The backend no longer reports anything blocking sales from being allowed again. The decision to resume sales remains on the Products page.",
+          pendingTitle: "Some quantities or operations still need action",
+          pendingHint:
+            "Handle the visible quantities and operations. If requirements remain but are not visible, they may belong to a location or operation outside your permissions and the protection stays active.",
+        },
+        loading: "Collecting quantities from locations you can access...",
+        noVisibleQuantityTitle: "No quantity is visible to you in current warehouses or vehicles",
+        noVisibleQuantityReady:
+          "According to the backend readiness check, no other requirements block resuming sales.",
+        noVisibleQuantityPending:
+          "Company requirements are still open, but they are not quantities you can act on from this screen.",
+        batchTitle: "Batch {{batch}}",
+        expiry: "Expiry: {{date}}",
+        dispositions: {
+          RELEASED: "The batch itself is sellable, but the whole product is stopped for the issue",
+          QUARANTINED: "Batch quarantined for inspection",
+          BLOCKED: "Batch sale is blocked",
+          RECALLED: "Batch permanently excluded from sale",
+        },
+        loadMore: "Show more batches",
+        errors: {
+          load: "Could not collect quantities related to this issue.",
         },
       },
       inventoryBatches: {

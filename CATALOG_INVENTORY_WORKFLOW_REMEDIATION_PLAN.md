@@ -195,7 +195,7 @@ Purpose: remove the accidental coupling before changing UX behavior.
 
 **Residual legacy debt - quarantined, not mounted:**
 - [x] Verify `pages/inventory/TabProductCatalog.tsx` is not mounted by the active Inventory shell and preserve it as legacy/test-only code during this behavior-preserving phase.
-- [ ] Relocate or retire the legacy `TabProductCatalog.tsx` file itself after its test-only consumers and old hardcoded UI are migrated safely. Do not re-enable it in Inventory and do not let it become an excuse for new cross-domain code.
+- Legacy cleanup for `TabProductCatalog.tsx` is tracked only in **Phase 8** together with duplicate/dead UI cleanup; it is not a separate open task here.
 
 
 ---
@@ -277,12 +277,14 @@ Purpose: when physical quantities require action, Inventory provides the complet
 
 ## 4.2 Whole-product confirmed issue
 
-- [ ] `المشكلة مؤكدة — التعامل مع الكميات الحالية` opens an Inventory-owned workflow.
-- [ ] Inventory lists affected accessible locations separately.
-- [ ] Never silently combine independent warehouses into one unauthorized mutation.
-- [ ] For each location/source show quantity, reservation, status, and concrete allowed next actions.
-- [ ] Company-wide product restriction remains active while physical operations are open.
-- [ ] Completion/readiness is computed by backend evidence, not UI guessing.
+- [x] `المشكلة مؤكدة — التعامل مع الكميات الحالية` opens an Inventory-owned workflow.
+- [x] Inventory lists affected accessible locations separately.
+- [x] Never silently combine independent warehouses into one unauthorized mutation.
+- [x] For each location/source show quantity, reservation, status, and concrete allowed next actions.
+- [x] Company-wide product restriction remains active while physical operations are open.
+- [x] Completion/readiness is computed by backend evidence, not UI guessing.
+
+**4.2 implementation evidence (2026-10-04):** the confirmed whole-product path now applies only the company-wide Catalog hold, then opens a typed `quality-issue` navigation intent into an Inventory-owned workflow. Inventory reads a bounded variant-first page of affected batches and permission-filtered WAREHOUSE/VEHICLE sources, including RELEASED batches affected only by the product hold. Each source remains a separate action; the UI never batches independent warehouses into one mutation and all special-transfer commands continue to re-check source permission, destination policy, quantity and state in the backend. Existing reservation-owner evidence is reused without N+1 reads. A shared `recall_completion_blockers` backend authority now drives both the close command and read-only readiness, so `السماح ببيع المنتج من جديد` is offered only when backend evidence is clear; Inventory never clears the product hold. Hidden/inaccessible company evidence can keep readiness blocked without leaking its details. Focused gates recorded with this checkpoint cover the variant-first endpoint, permission filtering, pagination, typed navigation and frontend contract; final gate is recorded below before merge.
 
 ## 4.3 Read-only Live Stock boundary
 
@@ -352,19 +354,18 @@ Preservation gate: retain tenant context (`wa_backend/database.py:48–55`), exp
 
 Purpose: archiving must not show backend nouns and leave the user stranded.
 
-Audit every current archive blocker before creating a link.
-
-- [ ] `INVENTORY_BALANCE` → Inventory-owned quantity/reservation workflow.
-- [ ] `OPEN_TRANSFER` → Transfers, focused on the affected product/operation.
-- [ ] `OPEN_STOCKTAKE` / `ACTIVE_INVENTORY_LOCK` → Stocktake, focused on the affected warehouse/context.
-- [ ] `PRODUCT_LOCATION` → Warehouse/Product-location management owner; verify an actual corrective action exists before linking.
-- [ ] Inventory policy blocker → owning Inventory settings/policy action; verify actual UI capability first.
-- [ ] `ACTIVE_ROUTE_LOAD` → Dispatch/Fleet owning workflow.
-- [ ] `OPEN_CUSTODY` → custody/vehicle/representative owner.
-- [ ] `OPEN_SHORTAGE` → owning shortage/reconciliation workflow.
-- [ ] `ACTIVE_OFFER` → Commercial Rules/Offers owner.
-- [ ] If a blocker has no V1 action surface, do not pretend it is actionable; mark the capability gap explicitly and implement the smallest correct owner-side action.
-- [ ] Product modal presents human explanation + exact owner action, never generic `معالجة`.
+- [ ] Implement owner-specific handling for the current blocker set, using the authoritative owner module and exact identity/context when an executable action exists:
+  - `INVENTORY_BALANCE` → Inventory-owned quantity/reservation workflow.
+  - `OPEN_TRANSFER` → Transfers focused on the affected product/operation.
+  - `OPEN_STOCKTAKE` / `ACTIVE_INVENTORY_LOCK` → Stocktake focused on the affected warehouse/context.
+  - `PRODUCT_LOCATION` → Warehouse/Product-location owner.
+  - Inventory policy blocker → owning Inventory policy/settings action.
+  - `ACTIVE_ROUTE_LOAD` → Dispatch/Fleet owner.
+  - `OPEN_CUSTODY` → custody/vehicle/representative owner.
+  - `OPEN_SHORTAGE` → shortage/reconciliation owner.
+  - `ACTIVE_OFFER` → Commercial Rules/Offers owner.
+- [ ] Where no executable V1 owner action exists, expose an explicit capability gap; do not invent a fake mutation or send the user to a dead-end/read-only screen.
+- [ ] Product modal presents a plain-language explanation plus the exact owner action/capability gap; never generic `معالجة`.
 
 **Exit gate:** every displayed blocker either has a real resolution action or clearly states that the required capability is not yet available; no dead-end links.
 
@@ -374,15 +375,13 @@ Audit every current archive blocker before creating a link.
 
 Purpose: validate the architecture for future operational growth before adding those modules.
 
-- [ ] Test a company with multiple warehouses where the same product/batch exists in several locations.
-- [ ] Product-level decisions remain company-wide.
-- [ ] Quantity actions remain per location.
-- [ ] A user with access to Warehouse A cannot view/mutate Warehouse B details through a company-wide incident.
-- [ ] Company-wide incident summaries may show only authorized detail; counts must follow the approved permission contract.
-- [ ] Vehicle stock is modeled as Inventory/custody truth while vehicle identity remains Fleet-owned.
-- [ ] Representative/driver identity remains outside Catalog/Inventory ownership.
-- [ ] Future transfer to/from vehicle uses Inventory movement authority and exact source/destination permissions.
-- [ ] Products never imports driver/vehicle internals.
+- [ ] Validate multi-warehouse authorization/isolation for product-wide and batch workflows:
+  - Product-level decisions remain company-wide.
+  - Quantity actions remain per location.
+  - A user authorized for Warehouse A cannot view or mutate Warehouse B detail.
+  - Company-wide summaries expose only detail/counts allowed by the approved permission contract.
+- [ ] Validate vehicle/custody extensibility using current Inventory truth: vehicle-only stock remains discoverable/actionable where supported without redefining Catalog ownership.
+- [ ] Preserve module boundaries for future scale: vehicle identity remains Fleet-owned, representative/driver identity stays outside Catalog, transfers use Inventory authority with exact source/destination permissions, and Products never imports driver/vehicle internals.
 
 **Exit gate:** the same flow works for one warehouse or many warehouses and is ready for later fleet/custody expansion without redesigning Catalog.
 
@@ -392,36 +391,34 @@ Purpose: validate the architecture for future operational growth before adding t
 
 Use one consolidated acceptance gate after source analysis and implementation.
 
-- [ ] Active product + all normal batches.
-- [ ] Active product + one quarantined batch → product remains available + warning shown.
-- [ ] Quarantined batch passes inspection → allowed return-to-sale path.
-- [ ] Batch is blocked → UI explains stronger consequence.
-- [ ] Batch permanently excluded from sale → physical actions are offered by Inventory.
-- [ ] Whole-product false alarm → `تبين أن المنتج سليم` restores product hold, independent batch restrictions remain.
-- [ ] Whole-product confirmed issue with stock in one warehouse.
-- [ ] Whole-product confirmed issue with stock in multiple warehouses.
-- [ ] Whole-product issue with vehicle/custody quantity where supported.
-- [ ] Reserved stock shows exact owning blocker/action.
-- [ ] Archive with each supported blocker routes to a real owner action.
-- [ ] Permission-limited user cannot see or mutate unauthorized warehouse detail.
-- [ ] Network lost after mutation preserves durable operation identity.
-- [ ] Arabic RTL + English LTR.
-- [ ] Keyboard-only completion of every critical workflow.
-- [ ] TypeScript, ESLint, focused frontend tests, backend tests, production build, diff audit.
+- [ ] Run and record one consolidated acceptance gate covering all scenarios below:
+  - Active product + all normal batches.
+  - Active product + one quarantined batch → product remains available + warning shown.
+  - Quarantined batch passes inspection → allowed return-to-sale path.
+  - Batch is blocked → UI explains stronger consequence.
+  - Batch permanently excluded from sale → physical actions are offered by Inventory.
+  - Whole-product false alarm → `تبين أن المنتج سليم` restores product hold; independent batch restrictions remain.
+  - Whole-product confirmed issue with stock in one warehouse.
+  - Whole-product confirmed issue with stock in multiple warehouses.
+  - Whole-product issue with vehicle/custody quantity where supported.
+  - Reserved stock shows exact owning blocker/action.
+  - Archive with each supported blocker routes to a real owner action/capability gap.
+  - Permission-limited user cannot see or mutate unauthorized warehouse detail.
+  - Network lost after mutation preserves durable operation identity.
+  - Arabic RTL + English LTR.
+  - Keyboard-only completion of every critical workflow.
+  - TypeScript, ESLint, focused frontend tests, backend tests, production build, and diff audit.
 
 ---
 
 # Phase 8 — Cleanup and stable merge
 
-- [ ] Remove obsolete cross-page navigation hacks after replacement is proven.
-- [ ] Remove obsolete user-facing recall/sweep terminology.
-- [ ] Remove dead duplicate lifecycle/batch action UI.
-- [ ] Confirm page folders remain small and responsibility-driven; no new mega-file or god hook.
-- [ ] Update this plan with final `[x]` states.
-- [ ] Update architecture companion if implementation revealed a missing permanent rule.
-- [ ] Merge completed branches into `main` only at stable checkpoint.
-- [ ] Delete merged temporary branches.
-- [ ] Confirm local `main` == `origin/main`; preserve `RUN.txt` local user changes.
+- [x] Remove obsolete cross-page navigation hacks after replacement is proven.
+- [x] Remove obsolete user-facing recall/sweep terminology.
+- [ ] Remove/retire dead legacy UI together: `TabProductCatalog.tsx` test-only legacy surface plus duplicate lifecycle/batch action UI after consumers are migrated safely.
+- [ ] Perform final architecture/code-size review: page folders remain responsibility-driven, no mega-file/god hook, and update the architecture companion only if implementation revealed a missing permanent rule.
+- [ ] Finalize this plan from actual evidence and close only proven items; Phase 7 owns the consolidated technical/UX acceptance gate.
+- [ ] Stable merge/cleanup: merge completed branches to `main`, delete merged temporary branches/worktrees, confirm local `main == origin/main`, and preserve local `RUN.txt` user changes.
 
 ---
 
@@ -457,16 +454,18 @@ Before merging parallel work:
 
 ---
 
-# Current known defects this plan must close
+# Current known defects status summary
 
-- [ ] Products lifecycle UI currently depends on Inventory/Catalog page internals; refactor ownership.
-- [ ] Product/batch navigation currently relies partly on cross-page localStorage signaling; replace with explicit navigation intent.
-- [ ] Product-wide issue UI exposes confusing recall/sweep language.
-- [ ] Confirmed whole-product issue still sends users toward stock information instead of a complete Inventory action flow.
-- [ ] Live Stock is read-only but has been used as a blocker destination.
-- [ ] Product batch warning is informative but must deep-link directly to the exact owning batch workflow.
-- [ ] Archive blocker links must be audited so every destination can actually resolve the blocker.
-- [ ] Batch actions need final user-language cleanup and consequence explanations.
-- [ ] Multi-warehouse and future vehicle/custody behavior needs explicit acceptance coverage.
+This section is **non-authoritative** and must not create duplicate open checklist items. Open work is tracked only in the numbered phases above.
 
-This file stays ACTIVE until all items are closed or explicitly deferred with owner approval.
+- [x] Products lifecycle UI ownership was separated from Inventory page internals in Phase 1.
+- [x] Product/batch workflow navigation no longer uses localStorage/sessionStorage as a business-command bridge.
+- [x] User-facing product-wide issue language no longer exposes recall/sweep terminology.
+- [x] Confirmed whole-product issues now enter an Inventory-owned quantity workflow with backend readiness evidence.
+- [x] Product batch warnings deep-link to the exact owning batch workflow.
+- [x] Batch actions use the approved business language and explain stronger consequences/staging behavior.
+- Open → Live Stock/action-owner cleanup is tracked only in **Phase 4.3**.
+- Open → Archive blocker owner actions are tracked only in **Phase 5**.
+- Open → Multi-warehouse and future vehicle/custody acceptance is tracked only in **Phase 6**.
+
+This file stays ACTIVE until the authoritative numbered-phase items are closed or explicitly deferred with owner approval.

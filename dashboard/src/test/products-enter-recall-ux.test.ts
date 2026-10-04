@@ -184,7 +184,7 @@ describe("Products fast Enter and commercial-status UX", () => {
       "السماح ببيع المنتج من جديد",
       "منع بيع الدفعة",
       "استبعاد الدفعة من البيع نهائيًا",
-      "إرجاع الكمية للتعامل معها",
+      "نقل الكمية المتأثرة",
       "Issue confirmed — handle current quantities",
       "Allow product sales again",
       "Permanently exclude batch from sale",

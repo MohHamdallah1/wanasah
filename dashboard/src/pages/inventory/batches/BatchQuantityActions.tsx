@@ -23,6 +23,7 @@ import type {
 import type { BatchActionSnapshot } from "./contracts";
 import type {
   BatchStockSource,
+  BatchStockSources,
   BatchStockSourceStatus,
   BatchStockStatus,
   ReservationOwner,
@@ -39,6 +40,8 @@ type Props = {
     transfer?: BatchSpecialTransferResult,
   ) => void | Promise<void>;
   onOpenReservationOwner: (owner: ReservationOwner) => void;
+  stockSources?: BatchStockSources;
+  onRefreshStockSources?: () => Promise<void>;
 };
 
 type Choice = {
@@ -141,22 +144,34 @@ export function BatchQuantityActions({
   onChanged,
   onOpenTransfers,
   onOpenReservationOwner,
+  stockSources,
+  onRefreshStockSources,
 }: Props) {
   const { t } = useTranslation();
   const access = useInventoryAccess();
-  const stockQuery = useBatchStockSources(batch.batch_id);
+  const stockQuery = useBatchStockSources(
+    batch.batch_id,
+    stockSources === undefined,
+  );
+  const refreshStockSources = async () => {
+    if (onRefreshStockSources) {
+      await onRefreshStockSources();
+      return;
+    }
+    await stockQuery.refetch();
+  };
   const transfer = useBatchSpecialTransfer({
     batch,
     productVariantId,
     onSucceeded: async () => {
-      await stockQuery.refetch();
+      await refreshStockSources();
       await onChanged();
     },
   });
   const [choice, setChoice] = useState<Choice | null>(null);
   const [lastTransfer, setLastTransfer] =
     useState<BatchSpecialTransferResult | null>(null);
-  const data = stockQuery.data;
+  const data = stockSources ?? stockQuery.data;
 
   const stockRows = useMemo(
     () =>
@@ -166,7 +181,7 @@ export function BatchQuantityActions({
     [data],
   );
 
-  if (stockQuery.isLoading) {
+  if (stockSources === undefined && stockQuery.isLoading) {
     return (
       <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 text-[10px] font-bold text-slate-500">
         {t("inventoryBatches.quantityActions.loading")}
@@ -174,7 +189,7 @@ export function BatchQuantityActions({
     );
   }
 
-  if (stockQuery.isError || !data) {
+  if ((stockSources === undefined && stockQuery.isError) || !data) {
     return (
       <div className="rounded-xl border border-rose-200 bg-rose-50/60 p-3">
         <p className="text-[10px] font-bold text-rose-800">
@@ -182,7 +197,7 @@ export function BatchQuantityActions({
         </p>
         <button
           type="button"
-          onClick={() => void stockQuery.refetch()}
+          onClick={() => void refreshStockSources()}
           className="mt-2 text-[10px] font-black underline underline-offset-4"
         >
           {t("common.retry")}

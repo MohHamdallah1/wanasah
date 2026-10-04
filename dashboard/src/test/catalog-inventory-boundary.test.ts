@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   createInventoryBatchFocusNavigationState,
   createInventoryTabNavigationState,
+  createInventoryWholeProductIssueNavigationState,
   parseInventoryNavigationState,
 } from "@/features/inventory/navigation";
 import {
@@ -58,6 +59,19 @@ describe("Catalog / Inventory frontend boundary", () => {
       version: 1,
       kind: "tab",
       tab: "transfers",
+      locationId: null,
+    });
+
+    const qualityState = createInventoryWholeProductIssueNavigationState({
+      variantId: 118,
+      productName: "Test product",
+    });
+    expect(parseInventoryNavigationState(qualityState)).toEqual({
+      version: 1,
+      kind: "quality-issue",
+      tab: "batches",
+      variantId: 118,
+      productName: "Test product",
       locationId: null,
     });
 
@@ -142,6 +156,25 @@ describe("Catalog / Inventory frontend boundary", () => {
       "`/dispatch/transfers/${cancelTarget.transfer_id}/force_cancel`",
     );
     expect(quantityActions).not.toContain("/force_cancel");
+  });
+
+  it("keeps whole-product physical handling Inventory-owned and lifecycle closure Catalog-owned", () => {
+    const lifecycle = read(
+      "../pages/products/lifecycle/ProductLifecycleManager.tsx",
+    );
+    const inventory = read("../pages/inventory/MainInventory.tsx");
+    const manager = read(
+      "../pages/inventory/quality/WholeProductIssueManager.tsx",
+    );
+
+    expect(lifecycle).toContain(
+      "createInventoryWholeProductIssueNavigationState",
+    );
+    expect(lifecycle).not.toContain("/warehouse/unified/transfer/special/dispatch");
+    expect(inventory).toContain("<WholeProductIssueManager");
+    expect(manager).toContain("<BatchQuantityActions");
+    expect(manager).not.toContain("close-recall");
+    expect(manager).not.toContain("cancel-recall");
   });
 
   it("keeps Product lifecycle independent from Inventory page internals", () => {
