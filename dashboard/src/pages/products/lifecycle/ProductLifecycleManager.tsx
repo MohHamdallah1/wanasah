@@ -70,17 +70,13 @@ export function ProductLifecycleManager({
     product?.id ?? null;
 
   const openBlocker = (code: string) => {
-    const inventoryTab = (() => {
-      if (code === "OPEN_TRANSFER") return "transfers";
-      if (
-        code === "OPEN_STOCKTAKE" ||
-        code === "ACTIVE_INVENTORY_LOCK"
-      ) {
-        return "stocktake";
-      }
-      if (code === "PRODUCT_LOCATION") return "warehouses";
-      return "live";
-    })();
+    if (code === "OPEN_TRANSFER") {
+      onClose();
+      navigate("/inventory", {
+        state: createInventoryTabNavigationState("transfers"),
+      });
+      return;
+    }
 
     if (
       code === "ACTIVE_ROUTE_LOAD" ||
@@ -89,18 +85,7 @@ export function ProductLifecycleManager({
     ) {
       onClose();
       navigate("/dispatch");
-      return;
     }
-    if (code === "ACTIVE_OFFER") {
-      onClose();
-      navigate("/commercial-rules");
-      return;
-    }
-
-    onClose();
-    navigate("/inventory", {
-      state: createInventoryTabNavigationState(inventoryTab),
-    });
   };
 
   useEffect(() => {

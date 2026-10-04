@@ -1352,7 +1352,6 @@ export default function MainInventory() {
             stockState={stockState}
             indicators={stockIndicators}
             familyId={stockFamilyId}
-            canManageMinimum={isCompanyAdmin}
             onSearchChange={handleStockSearchChange}
             onStockStateChange={handleStockStateChange}
             onIndicatorsChange={handleStockIndicatorsChange}
@@ -1435,7 +1434,9 @@ export default function MainInventory() {
         {activeTab === "permissions" && access.isCompanyAdmin && <TabInventoryAccess />}
         {activeTab === "warehouses" && tabAllowed("warehouses") && (
           <TabWarehouseLocations
+            selectedLocationId={selectedLocationId}
             onLocationsChanged={fetchLocations}
+            onMinimumApplied={refreshStock}
           />
         )}
       </div>

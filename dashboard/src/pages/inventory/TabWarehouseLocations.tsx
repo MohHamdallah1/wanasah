@@ -10,6 +10,7 @@ import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { useInventoryAccess, useLocationCapabilities } from "@/hooks/useInventoryAccess";
 import { BranchManagementModal } from "./warehouse-locations/BranchManagementModal";
 import { BranchSelector } from "./warehouse-locations/BranchSelector";
+import { StockMinimumManager } from "./StockMinimumManager";
 
 interface WarehouseLocationItem {
   id: number;
@@ -42,7 +43,9 @@ interface WarehouseFormState {
 }
 
 interface Props {
+  selectedLocationId: number | null;
   onLocationsChanged: () => void | Promise<void>;
+  onMinimumApplied: () => void;
 }
 
 type FormMode = "create" | "edit";
@@ -186,7 +189,11 @@ const asMutationResponse = (value: unknown): WarehouseLocationMutationResponse =
   return value as WarehouseLocationMutationResponse;
 };
 
-export function TabWarehouseLocations({ onLocationsChanged }: Props) {
+export function TabWarehouseLocations({
+  selectedLocationId,
+  onLocationsChanged,
+  onMinimumApplied,
+}: Props) {
   const authenticatedFetch = useAuthFetch();
   const { t, i18n } = useTranslation();
   const locale = resolveI18nLocale(i18n);
@@ -439,6 +446,12 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {access.isCompanyAdmin && selectedLocationId !== null && (
+            <StockMinimumManager
+              locationId={selectedLocationId}
+              onApplied={onMinimumApplied}
+            />
+          )}
           {access.isCompanyAdmin && (
             <button
               type="button"

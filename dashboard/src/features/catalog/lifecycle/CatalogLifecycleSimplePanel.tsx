@@ -181,6 +181,13 @@ const statusDot = {
   muted: "bg-slate-400",
 } as const;
 
+const recallBlockerHasOwnerAction = (code: string): boolean =>
+  code === "INVENTORY_BALANCE" ||
+  code === "OPEN_TRANSFER" ||
+  code === "ACTIVE_ROUTE_LOAD" ||
+  code === "OPEN_CUSTODY" ||
+  code === "OPEN_SHORTAGE";
+
 export function CatalogLifecycleSimplePanel({
   variant,
   actionsDisabled,
@@ -679,24 +686,26 @@ export function CatalogLifecycleSimplePanel({
                     <span className="text-xs font-black tabular-nums text-rose-700">
                       {item.count}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        item.code === "INVENTORY_BALANCE"
-                          ? onManageWholeProductIssue()
-                          : onOpenBlocker(item.code)
-                      }
-                      className="rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-[9px] font-black text-rose-800 transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
-                    >
-                      {t(
-                        `catalogLifecycle.simple.blockerActionLabels.${item.code}`,
-                        {
-                          defaultValue: t(
-                            "catalogLifecycle.simple.openRequiredAction",
-                          ),
-                        },
-                      )}
-                    </button>
+                    {recallBlockerHasOwnerAction(item.code) ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          item.code === "INVENTORY_BALANCE"
+                            ? onManageWholeProductIssue()
+                            : onOpenBlocker(item.code)
+                        }
+                        className="rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-[9px] font-black text-rose-800 transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
+                      >
+                        {t(
+                          `catalogLifecycle.simple.blockerActionLabels.${item.code}`,
+                          {
+                            defaultValue: t(
+                              "catalogLifecycle.simple.openRequiredAction",
+                            ),
+                          },
+                        )}
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               ),

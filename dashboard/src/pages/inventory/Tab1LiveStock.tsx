@@ -34,7 +34,6 @@ import {
   compareQuantity,
   formatCommercialQuantity,
 } from "@/lib/quantity";
-import { StockMinimumManager } from "./StockMinimumManager";
 
 interface Props {
   locationId: number;
@@ -53,7 +52,6 @@ interface Props {
   stockState: LiveStockStockState;
   indicators: LiveStockIndicator[];
   familyId: number | null;
-  canManageMinimum: boolean;
   onLocationChange: (value: string) => void;
   onRefresh: () => void;
   onSearchChange: (search: string) => void;
@@ -103,7 +101,6 @@ export function Tab1LiveStock({
   stockState,
   indicators,
   familyId,
-  canManageMinimum,
   onLocationChange,
   onRefresh,
   onSearchChange,
@@ -446,12 +443,6 @@ export function Tab1LiveStock({
               </PopoverContent>
             </Popover>
 
-            {canManageMinimum && (
-              <StockMinimumManager
-                locationId={locationId}
-                onApplied={onRefresh}
-              />
-            )}
           </div>
 
           <div className="live-stock-context-panel">

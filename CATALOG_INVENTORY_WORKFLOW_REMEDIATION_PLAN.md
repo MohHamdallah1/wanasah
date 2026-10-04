@@ -288,10 +288,13 @@ Purpose: when physical quantities require action, Inventory provides the complet
 
 ## 4.3 Read-only Live Stock boundary
 
-- [ ] Remove blocker actions that send the user to Live Stock expecting them to fix stock there.
-- [ ] Live Stock may show a `فتح الإجراء` link to Batches/Transfers/etc., but remains read-only.
+- [x] Remove blocker actions that send the user to Live Stock expecting them to fix stock there.
+- [x] Live Stock may show a `فتح الإجراء` link to Batches/Transfers/etc., but remains read-only.
 
 **Exit gate:** any message that says stock action is required provides an actual executable action or an exact link to the action owner.
+
+**4.3 checkpoint evidence (2026-10-04):** recall-completion actions now fail closed to the fixed owner-action set; unknown blocker codes render no dead-end action and `ProductLifecycleManager` has no fallback to Live Stock. `INVENTORY_BALANCE` opens the whole-product Inventory workflow, `OPEN_TRANSFER` opens Transfers, and Dispatch-owned blockers open Dispatch. Archive blockers use the Phase 5 owner-target contract instead of this generic path. `Tab1LiveStock` no longer mounts `StockMinimumManager` or any mutation surface; minimum-stock policy editing is owned by Warehouse management for the selected location. Live Stock remains a read/filter/refresh projection and can be used only as information, not as a fake resolution owner.
+
 
 ---
 
