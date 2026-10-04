@@ -7,7 +7,7 @@ import {
   Truck,
   Warehouse,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
@@ -43,6 +43,7 @@ type Props = {
   stockSources?: BatchStockSources;
   onRefreshStockSources?: () => Promise<void>;
   showTransferListLink?: boolean;
+  header?: ReactNode;
 };
 
 type Choice = {
@@ -93,6 +94,7 @@ export function BatchQuantityActions({
   stockSources,
   onRefreshStockSources,
   showTransferListLink = true,
+  header,
 }: Props) {
   const { t } = useTranslation();
   const access = useInventoryAccess();
@@ -159,14 +161,14 @@ export function BatchQuantityActions({
 
   return (
     <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/40 p-3">
-      <div>
+      {header ?? <div>
         <p className="text-xs font-black text-slate-950">
           {t("inventoryBatches.quantityActions.title")}
         </p>
         <p className="mt-1 text-[9px] font-semibold leading-4 text-slate-500">
           {t("inventoryBatches.quantityActions.hint")}
         </p>
-      </div>
+      </div>}
 
       {stockRows.length === 0 ? (
         <p className="rounded-lg bg-white p-2.5 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200">

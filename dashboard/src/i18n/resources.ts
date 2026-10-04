@@ -1,5 +1,6 @@
 import { archiveOwners } from "./archiveOwners";
 import { batchFocus } from "./batchFocus";
+import { productQualityWorkspace } from "./productQualityWorkspace";
 
 export const supportedLanguages = [
   "ar",
@@ -14,6 +15,7 @@ export const resources = {
     translation: {
       archiveOwners: archiveOwners.ar,
       batchFocus: batchFocus.ar,
+      productQualityWorkspace: productQualityWorkspace.ar,
       common: {
         save: "حفظ",
         cancel: "إلغاء",
@@ -2176,6 +2178,7 @@ export const resources = {
     translation: {
       archiveOwners: archiveOwners.en,
       batchFocus: batchFocus.en,
+      productQualityWorkspace: productQualityWorkspace.en,
       common: {
         save: "Save",
         cancel: "Cancel",

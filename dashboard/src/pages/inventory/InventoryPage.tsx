@@ -3,31 +3,33 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
-import { batchFocusIdentity } from "@/features/inventory/batchFocusNavigation";
+import { inventoryWorkspaceFocus } from "@/features/inventory/workspaceFocusNavigation";
 import { createInventoryOwnerFocusState, parseInventoryNavigationState } from "@/features/inventory/navigation";
 import { createDispatchReservationFocusState } from "@/features/dispatch/navigation";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { parseInventoryLocationCapabilities } from "@/hooks/useInventoryAccess";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { BatchFocusWorkspace } from "./batches/BatchFocusWorkspace";
+import { WholeProductIssueWorkspace } from "./quality/WholeProductIssueWorkspace";
 import type { BatchSpecialTransferResult } from "./batches/batchSpecialTransferContract";
 import type { ReservationOwner } from "./batches/batchStockSourcesContract";
 import MainInventory from "./MainInventory";
 
-/** Batch focus bypasses warehouse-shell initialization, not backend authority. */
+/** Exact quality focus bypasses warehouse-shell initialization, not authority. */
 export default function InventoryPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const authFetch = useAuthFetch();
   const { t } = useTranslation();
-  const [focus, setFocus] = useState(() => batchFocusIdentity(location.state));
+  const [focus, setFocus] = useState(() => inventoryWorkspaceFocus(location.state));
+  const batchId = focus?.kind === "batch" ? focus.batchId : null;
   const followRequest = useRef<AbortController | null>(null);
   useEffect(() => {
-    const next = batchFocusIdentity(location.state);
+    const next = inventoryWorkspaceFocus(location.state);
     if (next) setFocus(next);
     else if (parseInventoryNavigationState(location.state)) setFocus(null);
   }, [location.key, location.state]);
-  useEffect(() => () => followRequest.current?.abort(), [focus?.batchId, focus?.variantId]);
+  useEffect(() => () => followRequest.current?.abort(), [batchId, focus?.kind, focus?.variantId]);
   const consume = useCallback(() => {
     navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
   }, [location.pathname, location.search, navigate]);
@@ -56,7 +58,10 @@ export default function InventoryPage() {
     navigate("/dispatch", { state: createDispatchReservationFocusState({ routeId: owner.route_id,
       transferId: owner.transfer_id, openCancel: owner.action === "FORCE_CANCEL_HANDSHAKE" }) });
   };
-  if (focus) return <BatchFocusWorkspace key={`${focus.batchId}:${focus.variantId}`} identity={focus}
+  if (focus?.kind === "quality") return <WholeProductIssueWorkspace key={`quality:${focus.variantId}`}
+    productVariantId={focus.variantId} productName={focus.productName} onConsumed={consume} onClose={close}
+    onOpenTransfers={openTransfers} onOpenReservationOwner={openReservationOwner} />;
+  if (focus?.kind === "batch") return <BatchFocusWorkspace key={`${focus.batchId}:${focus.variantId}`} identity={focus}
     onConsumed={consume} onClose={close} onOpenTransfers={openTransfers} onOpenReservationOwner={openReservationOwner} />;
   return <MainInventory />;
 }
