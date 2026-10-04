@@ -20,9 +20,9 @@ vi.mock("sonner", () => ({ toast: { success: mocks.success, error: mocks.error }
 beforeEach(() => { mocks.fetch.mockReset(); mocks.success.mockReset(); mocks.error.mockReset(); localStorage.clear(); });
 afterEach(cleanup);
 
-async function i18nInstance() {
+async function i18nInstance(language: "ar" | "en" = "en") {
   const i18n = createInstance();
-  await i18n.init({ resources, lng: "en", fallbackLng: "en", interpolation: { escapeValue: false } });
+  await i18n.init({ resources, lng: language, fallbackLng: "en", interpolation: { escapeValue: false } });
   return i18n;
 }
 
@@ -43,8 +43,8 @@ function terminalPayload(action: "CONFIRM_DISPOSAL" | "CONFIRM_VENDOR_HANDOVER",
   return parseBatchStockSources(batchFocusPayload([source]));
 }
 
-async function mount(data: ReturnType<typeof terminalPayload>) {
-  const i18n = await i18nInstance();
+async function mount(data: ReturnType<typeof terminalPayload>, language: "ar" | "en" = "en") {
+  const i18n = await i18nInstance(language);
   const onChanged = vi.fn();
   const onRefresh = vi.fn();
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -100,6 +100,41 @@ describe("terminal inventory actions", () => {
     const body = JSON.parse(String(mocks.fetch.mock.calls[0][1].body));
     expect(mocks.fetch.mock.calls[0][0]).toBe("/warehouse/quality/vendor-return/confirm");
     expect(body).toMatchObject({ source_status: "QUARANTINED", vendor_name: "Supplier One", vendor_reference: "V-44", handover_reference: "H-55", quantity: "8" });
+  });
+
+  it("uses native form submission for safe Enter confirmation after required evidence", async () => {
+    const data = terminalPayload("CONFIRM_DISPOSAL");
+    mocks.fetch.mockResolvedValue({
+      message: "ok", movement_ids: [501], product_variant_id: 118, batch_id: 41, source_location_id: 11,
+      disposed_quantity: "8", remaining_quantity: "0", origin_transfer_header_ids: [71], event_type: "INVENTORY_FINAL_DISPOSAL_CONFIRMED",
+    });
+    const { i18n } = await mount(data);
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("terminalQualityActions.actions.CONFIRM_DISPOSAL.label") }));
+    fireEvent.change(screen.getByLabelText(i18n.t("terminalQualityActions.disposalReason")), { target: { value: "Confirmed damage" } });
+    const confirm = screen.getByRole("button", { name: i18n.t("terminalQualityActions.confirm") });
+    expect(confirm).toHaveAttribute("type", "submit");
+    const form = confirm.closest("form");
+    expect(form).not.toBeNull();
+    fireEvent.submit(form!);
+    await waitFor(() => expect(mocks.fetch).toHaveBeenCalledOnce());
+  });
+
+  it("keeps Arabic terminal UX readable, RTL, Western-digit and backend-code free", async () => {
+    const data = terminalPayload("CONFIRM_DISPOSAL");
+    const { i18n } = await mount(data, "ar");
+    const trigger = screen.getByRole("button", { name: i18n.t("terminalQualityActions.actions.CONFIRM_DISPOSAL.label") });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.closest(".app-modal")).toHaveAttribute("dir", "rtl");
+    expect(dialog).toHaveTextContent("تأكيد إتلاف الكمية فعليًا");
+    expect(dialog).toHaveTextContent("8");
+    expect(dialog.textContent).not.toMatch(/[٠-٩]/);
+    expect(dialog.textContent).not.toMatch(/\?{2,}|CONFIRM_DISPOSAL|DISPOSAL_PENDING|RECALL_RETURN|terminal operation|durable operation/i);
+    expect(screen.getByDisplayValue("8")).toHaveFocus();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 
   it("does not render a terminal command when the server says it is unavailable", async () => {
