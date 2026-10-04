@@ -28,6 +28,13 @@ const response = {
           reserved_quantity: "2.000000",
           movable_quantity: "10.000000",
           allowed_purposes: ["QUARANTINE", "DISPOSAL"],
+          special_actions: [
+            { purpose: "QUARANTINE", allowed: true, eligible_quantity: "10", reason_code: "ALLOWED" },
+            { purpose: "DISPOSAL", allowed: true, eligible_quantity: "10", reason_code: "ALLOWED" },
+            { purpose: "RECALL_RETURN", allowed: false, eligible_quantity: "0", reason_code: "STATE_RESTRICTION" },
+            { purpose: "RETURN_TO_VENDOR", allowed: false, eligible_quantity: "0", reason_code: "NO_CONFIGURED_DESTINATION" },
+          ],
+          terminal_actions: [],
           reservation_evidence: {
             coverage: "COMPLETE",
             reason: null,
@@ -121,5 +128,16 @@ describe("batch stock-source action contract", () => {
     expect(() => parseBatchStockSources(contradictory)).toThrow(
       "BATCH_STOCK_SOURCES_RESPONSE_INVALID",
     );
+  });
+
+  it("keeps availability/reasons server-derived and rejects contradictory purpose evidence", () => {
+    const parsed = parseBatchStockSources(response);
+    expect(parsed.sources[0].statuses[0].special_actions).toEqual(response.sources[0].statuses[0].special_actions);
+    const contradictory = structuredClone(response);
+    contradictory.sources[0].statuses[0].special_actions[0].allowed = false;
+    expect(() => parseBatchStockSources(contradictory)).toThrow("BATCH_STOCK_SOURCES_RESPONSE_INVALID");
+    const inconsistentList = structuredClone(response);
+    inconsistentList.sources[0].statuses[0].allowed_purposes = [];
+    expect(() => parseBatchStockSources(inconsistentList)).toThrow("BATCH_STOCK_SOURCES_RESPONSE_INVALID");
   });
 });

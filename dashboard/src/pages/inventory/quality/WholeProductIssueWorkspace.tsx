@@ -8,6 +8,7 @@ import type { BatchSpecialTransferResult } from "../batches/batchSpecialTransfer
 import type { ReservationOwner } from "../batches/batchStockSourcesContract";
 import { useWholeProductIssueSources } from "./useWholeProductIssueSources";
 import { WholeProductIssueBatchSection } from "./WholeProductIssueBatchSection";
+import { ProductQualityReadiness } from "./ProductQualityReadiness";
 
 /** Inventory-owned hierarchy; Catalog hold and actions come from fresh reads. */
 export function WholeProductIssueWorkspace({ productVariantId, productName, onConsumed, onClose, onOpenTransfers, onOpenReservationOwner }: {
@@ -58,6 +59,8 @@ export function WholeProductIssueWorkspace({ productVariantId, productName, onCo
         <p className="text-sm font-semibold">{t("inventoryQualityIssue.companyHoldTitle")}</p>
         <p className="text-xs text-muted-foreground">{t("productQualityWorkspace.catalogContext")}</p>
       </div>
+      {/* Each page carries a fresh company-wide check; use the latest response, not row totals. */}
+      <ProductQualityReadiness evidence={pages[pages.length - 1]} checking={query.isFetching || access.isFetching} />
       <section aria-labelledby="product-quality-batches" className="space-y-3">
         <h2 id="product-quality-batches" className="text-sm font-bold">{t("productQualityWorkspace.batches", { count })}</h2>
         {batches.length === 0 && <p className="text-sm text-muted-foreground">{t("productQualityWorkspace.noVisibleStock")}</p>}

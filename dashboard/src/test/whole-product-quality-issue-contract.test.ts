@@ -28,6 +28,13 @@ const batch = (batchId: number) => ({
           reserved_quantity: "0",
           movable_quantity: "10",
           allowed_purposes: ["RECALL_RETURN", "QUARANTINE", "DISPOSAL"],
+          special_actions: [
+            { purpose: "RECALL_RETURN", allowed: true, eligible_quantity: "10", reason_code: "ALLOWED" },
+            { purpose: "QUARANTINE", allowed: true, eligible_quantity: "10", reason_code: "ALLOWED" },
+            { purpose: "DISPOSAL", allowed: true, eligible_quantity: "10", reason_code: "ALLOWED" },
+            { purpose: "RETURN_TO_VENDOR", allowed: false, eligible_quantity: "0", reason_code: "NO_CONFIGURED_DESTINATION" },
+          ],
+          terminal_actions: [],
           reservation_evidence: {
             coverage: "NONE",
             reason: null,
@@ -91,6 +98,12 @@ describe("whole-product quality issue read contract", () => {
         ready_to_resume_sales: true,
         company_requirements_remaining: true,
       }),
+    ).toThrow("WHOLE_PRODUCT_ISSUE_RESPONSE_INVALID");
+    expect(() =>
+      parseWholeProductIssueSourcesPage({ ...page, ready_to_resume_sales: false, company_requirements_remaining: false }),
+    ).toThrow("WHOLE_PRODUCT_ISSUE_RESPONSE_INVALID");
+    expect(() =>
+      parseWholeProductIssueSourcesPage({ ...page, ready_to_resume_sales: undefined }),
     ).toThrow("WHOLE_PRODUCT_ISSUE_RESPONSE_INVALID");
   });
 });
