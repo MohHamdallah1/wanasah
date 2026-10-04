@@ -1,8 +1,8 @@
 # Inventory Quality Workflow Completion Plan
 
-**Status:** ACTIVE — execution plan  
-**Created:** 2026-10-04  
-**Scope:** Complete the inventory quality workflows end-to-end after the Catalog/Inventory boundary remediation.  
+**Status:** ACTIVE — execution plan
+**Created:** 2026-10-04
+**Scope:** Complete the inventory quality workflows end-to-end after the Catalog/Inventory boundary remediation.
 **Canonical architecture:** `.rules`, `AGENTS.md`, `ARCHITECTURE.md`, `docs/architecture/CATALOG_INVENTORY_WORKFLOW_BOUNDARIES.md`.
 
 ## 1. Goal
@@ -90,7 +90,7 @@ A workflow is not complete because a button or endpoint exists. It is complete o
 - [x] **2.3 Remove dead-end and duplicate controls**
   Do not show generic “open transfers” unless there is an actual transfer or owner workflow to follow. `عرض الرصيد` remains read-only context if retained; `المشكلة مؤكدة — التعامل مع الكميات الحالية` opens the executable workspace. Different labels must not open the same workflow while implying different meanings.
 
-- [ ] **2.4 Readiness and automated Phase 2 acceptance**  
+- [ ] **2.4 Readiness and automated Phase 2 acceptance**
   Backend remains the only authority for `ready_to_resume_sales`. Cover multiple batches, multiple warehouses, vehicle source, partial permissions, reservations, no-action reasons, hidden blockers, and readiness remaining false until company-level requirements are truly complete.
 
 **Phase 2 done when:** A manager can understand exactly what remains for a whole-product issue without knowing backend terminology, and every visible action/reason is server-derived.
@@ -119,16 +119,16 @@ A workflow is not complete because a button or endpoint exists. It is complete o
 
 **Goal:** Complete the missing final step after staging stock for disposal or vendor return.
 
-- [x] **3.1 Terminal disposal backend contract**  
+- [x] **3.1 Terminal disposal backend contract**
   Define the final disposal command and evidence contract. Final disposal must be allowed only for the exact eligible company/location/product/batch/status/quantity, normally at the approved disposal destination with `DISPOSAL_PENDING` stock. Reuse the unified inventory movement/ledger authority; never simulate destruction by moving to another fake location. Revalidate locks/revisions, reservations, permissions, idempotency, and current policy/state.
 
-- [x] **3.2 Final disposal inventory effect and evidence**  
+- [x] **3.2 Final disposal inventory effect and evidence**
   Successful disposal removes the disposed quantity from company-owned on-hand inventory through canonical inventory authority and leaves immutable evidence: operator, timestamp, product, batch, source location, quantity/UOM, reason/method/reference as appropriate, request identity, originating transfer/evidence links, ledger, audit, and required outbox events.
 
 - [x] **3.3 Terminal vendor-return backend contract**
   Determine and reuse the authoritative supplier/vendor reference. Add/reuse a terminal handover command distinct from staging. Enforce exact-location authorization, eligible status/quantity, safe reservation state, revision/lock checks, idempotent retries, and immutable original transfer evidence.
 
-- [ ] **3.4 Terminal UI + end-to-end acceptance**  
+- [ ] **3.4 Terminal UI + end-to-end acceptance**
   UI exposes simple human actions such as `تأكيد إتلاف الكمية` and `تأكيد تسليم الكمية للمورد` only when backend says they are eligible. Full automated paths must prove: source stock → staging transfer → staging receipt → terminal action → company total decreases → ledger/audit evidence exists → duplicate request remains harmless/idempotent.
 
 **Phase 3 done when:** “Disposal” and “return to vendor” have real terminal business outcomes, not only staging transfers.
@@ -137,16 +137,16 @@ A workflow is not complete because a button or endpoint exists. It is complete o
 
 # Phase 4 — End-to-end acceptance and closure
 
-- [ ] **4.1 Backend + E2E contract matrix**  
+- [ ] **4.1 Backend + E2E contract matrix**
   Cover state transitions, permissions, tenant/location isolation, multi-warehouse stock, vehicle stock, reservation owners, policy destinations, hidden sources, terminal disposal, terminal vendor return, readiness, retries/idempotency, ledger/audit evidence, and browser-level cross-page navigation.
 
-- [ ] **4.2 UX/accessibility acceptance**  
+- [ ] **4.2 UX/accessibility acceptance**
   Arabic RTL, English LTR, Western digits, keyboard navigation, Enter/Escape where safe, focus entry/return, no dead links, and no ambiguous backend language. A final manual walkthrough must be understandable without knowing `RECALL`, `RECALL_RETURN`, `DISPOSAL_PENDING`, transfer internals, or blocker codes.
 
-- [ ] **4.3 Architecture + performance audit**  
+- [ ] **4.3 Architecture + performance audit**
   Products has no Inventory mutation authority; Inventory does not redefine Catalog identity/lifecycle; no sibling-page business imports; no localStorage business-command bus; no new mega-files/god hooks; no N+1 source/action discovery; read contracts remain bounded/paginated.
 
-- [ ] **4.4 Stable merge/cleanup**  
+- [ ] **4.4 Stable merge/cleanup**
   Merge completed branches to `main`, delete temporary branches/worktrees, confirm local `main == origin/main`, preserve local `RUN.txt`, and remove this plan only after every item is `[x]`.
 
 ---
