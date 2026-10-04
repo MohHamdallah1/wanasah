@@ -10,6 +10,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ReasonPresetField } from "@/components/forms/ReasonPresetField";
+import { ArchiveBlockerList } from "@/features/catalog/archive/ArchiveBlockerList";
 import {
   type ArchivePreflight,
   type CatalogVariant,
@@ -751,52 +752,7 @@ export function CatalogLifecycleSimplePanel({
           <p className="mt-1 text-[9px] font-semibold leading-4 text-amber-900/80">
             {t("catalogLifecycle.simple.archiveBlockersHint")}
           </p>
-          <div className="mt-3 divide-y divide-amber-100">
-            {preflight.blockers.map((item) => (
-              <div
-                key={item.code}
-                className="grid gap-2 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
-              >
-                <div>
-                  <p className="text-[10px] font-black text-slate-900">
-                    {t(
-                      `catalogLifecycle.blockers.${item.code}`,
-                      { defaultValue: item.code },
-                    )}
-                  </p>
-                  <p className="mt-0.5 text-[9px] font-semibold leading-4 text-slate-600">
-                    {t(
-                      `catalogLifecycle.simple.archiveBlockerActions.${item.code}`,
-                      {
-                        defaultValue: t(
-                          "catalogLifecycle.simple.archiveBlockersHint",
-                        ),
-                      },
-                    )}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-black tabular-nums text-amber-800">
-                    {item.count}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => onOpenBlocker(item.code)}
-                    className="rounded-lg border border-amber-200 bg-white px-2.5 py-1.5 text-[9px] font-black text-amber-900 transition hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200"
-                  >
-                    {t(
-                      `catalogLifecycle.simple.blockerActionLabels.${item.code}`,
-                      {
-                        defaultValue: t(
-                          "catalogLifecycle.simple.openRequiredAction",
-                        ),
-                      },
-                    )}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+          <ArchiveBlockerList blockers={preflight.blockers} variantId={variant.id} />
         </div>
       ) : null}
     </section>

@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import { toast } from "sonner";
@@ -17,6 +18,8 @@ import {
 } from "../parsers";
 
 interface UseStocktakeLifecycleArgs {
+  focusSessionId?: number;
+  onFocusUnavailable?: (error: unknown) => void;
   locationId: number;
   sessionKey: string;
   phaseKey: string;
@@ -46,6 +49,8 @@ interface UseStocktakeLifecycleArgs {
 }
 
 export function useStocktakeLifecycle({
+  focusSessionId,
+  onFocusUnavailable,
   locationId,
   sessionKey,
   phaseKey,
@@ -67,6 +72,7 @@ export function useStocktakeLifecycle({
 }: UseStocktakeLifecycleArgs) {
   const [locking, setLocking] =
     useState(false);
+  const handledFocusRef = useRef<number | null>(null);
 
   const fetchSessionContext =
     useCallback(
@@ -176,8 +182,11 @@ export function useStocktakeLifecycle({
   );
 
   useEffect(() => {
+    const requestedFocus = focusSessionId !== undefined && handledFocusRef.current !== focusSessionId;
+    const previousSession = localStorage.getItem(sessionKey);
+    const previousPhase = localStorage.getItem(phaseKey);
     const sid =
-      localStorage.getItem(sessionKey);
+      requestedFocus ? String(focusSessionId) : previousSession;
 
     if (!sid) {
       clearRows();
@@ -196,6 +205,9 @@ export function useStocktakeLifecycle({
           await fetchSessionContext(sid);
 
         if (cancelled) return;
+        if (requestedFocus && (context.session_id !== focusSessionId || !["COUNTING", "PENDING_REVIEW", "RECOUNT_REQUIRED"].includes(context.status))) {
+          throw Object.assign(new Error("ARCHIVE_OWNER_UNAVAILABLE"), { code: "ARCHIVE_OWNER_UNAVAILABLE" });
+        }
 
         setSessionId(sid);
         setSessionLocationId(
@@ -207,9 +219,11 @@ export function useStocktakeLifecycle({
             sid,
             context
           );
+          if (requestedFocus && !cancelled) handledFocusRef.current = focusSessionId ?? null;
           return;
         } catch (error: unknown) {
           if (
+            (!requestedFocus || previousSession === sid) &&
             localStorage.getItem(
               phaseKey
             ) ===
@@ -222,6 +236,7 @@ export function useStocktakeLifecycle({
             setPhase(
               "WAITING_INDEPENDENT"
             );
+            if (requestedFocus && !cancelled) handledFocusRef.current = focusSessionId ?? null;
             return;
           }
           throw error;
@@ -229,19 +244,27 @@ export function useStocktakeLifecycle({
       } catch (error: unknown) {
         if (cancelled) return;
 
-        localStorage.removeItem(
-          sessionKey
-        );
-        localStorage.removeItem(
-          phaseKey
-        );
+        if (requestedFocus) {
+          handledFocusRef.current = focusSessionId ?? null;
+          // Do not discard a different session's saved draft on stale/denied navigation.
+          if (localStorage.getItem(sessionKey) === sid) {
+            if (previousSession === null) localStorage.removeItem(sessionKey);
+            else localStorage.setItem(sessionKey, previousSession);
+            if (previousPhase === null) localStorage.removeItem(phaseKey);
+            else localStorage.setItem(phaseKey, previousPhase);
+          }
+          onFocusUnavailable?.(error);
+        } else {
+          localStorage.removeItem(sessionKey);
+          localStorage.removeItem(phaseKey);
+        }
         setSessionId(null);
         setSessionLocationId(null);
         clearRows();
         clearReview();
         setPhase("COUNTING");
 
-        toast.error(
+        if (!requestedFocus) toast.error(
           getErrorMessage(
             error,
             "تعذر استعادة جلسة الجرد الحالية."
@@ -256,6 +279,8 @@ export function useStocktakeLifecycle({
       cancelled = true;
     };
   }, [
+    focusSessionId,
+    onFocusUnavailable,
     clearReview,
     clearRows,
     fetchSessionContext,

@@ -1,4 +1,8 @@
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
+import { useTranslation } from "react-i18next";
+import { resolveI18nLocale } from "@/lib/locale";
+import { useDispatchOwnerNavigation } from "@/features/dispatch/useOwnerNavigation";
+import type { DispatchNavigationIntent } from "@/features/dispatch/navigation";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
@@ -206,6 +210,7 @@ const sortZones = (zones: Zone[]) => {
 };
 
 export default function DispatchBoard() {
+  const { t, i18n } = useTranslation();
   const routeLocation = useLocation();
   const routeNavigate = useNavigate();
   const initialDispatchFocusRef = useRef(
@@ -254,19 +259,8 @@ export default function DispatchBoard() {
   const [warehouses, setWarehouses] = useState<Array<WarehouseOption & { can_execute: boolean }>>([]);
   const [selectedSourceWarehouseId, setSelectedSourceWarehouseId] = useState("");
   const [pendingRoutes, setPendingRoutes] = useState<PendingRoute[]>([]);
-  useEffect(() => {
-    if (!dispatchFocus) return;
-    const route = pendingRoutes.find(
-      (item) => String(item.id) === String(dispatchFocus.routeId),
-    );
-    if (!route) return;
-    setActiveTab("routes");
-    setRadarRoute(route);
-    setRadarFocusTransferId(dispatchFocus.transferId);
-    setRadarOpenCancel(dispatchFocus.openCancel);
-    setIsRadarModalOpen(true);
-    setDispatchFocus(null);
-  }, [dispatchFocus, pendingRoutes]);
+  const [archiveRouteFocus, setArchiveRouteFocus] = useState<string | null>(null);
+  const [archiveShortageFocus, setArchiveShortageFocus] = useState<string | null>(null);
   const [shortages, setShortages] = useState<Shortage[]>([]);
   const [shops, setShops] = useState<Shop[]>([]);
 
@@ -341,6 +335,26 @@ export default function DispatchBoard() {
   const [isBulkTransferModalOpen, setIsBulkTransferModalOpen] = useState(false);
   const [targetTransferZoneId, setTargetTransferZoneId] = useState("");
   const [isShowPostponedModalOpen, setIsShowPostponedModalOpen] = useState(false);
+  const consumeOwnerFocus = useCallback(() => setDispatchFocus(null), []);
+  const openRouteOwner = useCallback((route: PendingRoute, intent: Exclude<DispatchNavigationIntent, { kind: "shortage-owner" }>) => {
+    setActiveTab("routes");
+    if (intent.kind === "reservation-owner") {
+      setRadarRoute(route);
+      setRadarFocusTransferId(intent.transferId);
+      setRadarOpenCancel(intent.openCancel);
+      setIsRadarModalOpen(true);
+    } else {
+      setArchiveRouteFocus(route.id);
+      setPendingRoutes((rows) => [...rows.filter((row) => row.id !== route.id), route]);
+      if (route.status === "postponed") setIsShowPostponedModalOpen(true);
+    }
+  }, []);
+  const openShortageOwner = useCallback((rows: Shortage[], shortage: Shortage) => {
+    setShortages((previous) => [...rows, ...previous.filter((row) => !rows.some((fresh) => fresh.id === row.id))]);
+    setArchiveShortageFocus(shortage.id);
+    setIsShortageModalOpen(true);
+  }, []);
+  useDispatchOwnerNavigation({ focus: dispatchFocus, onRoute: openRouteOwner, onShortage: openShortageOwner, onConsumed: consumeOwnerFocus });
   // +++ الدرع المعماري: فصل حالة السيرفر عن حالة الواجهة لمنع التلوث +++
   const [duplicateWarning, setDuplicateWarning] = useState<DuplicateWarningState | null>(null);
   const [restorePromptShop, setRestorePromptShop] = useState<Shop | null>(null);
@@ -1386,6 +1400,10 @@ export default function DispatchBoard() {
       </div>
 
       {/* CS-WH-03: Warehouse audit lock warning banner */}
+      {archiveRouteFocus && <div role="status" className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3" dir={i18n.dir()}>
+        {t("archiveOwners.routeFocus", { id: new Intl.NumberFormat(resolveI18nLocale(i18n)).format(Number(archiveRouteFocus)) })}
+        <button type="button" onClick={() => setArchiveRouteFocus(null)} className="ms-3 rounded-lg border px-3 py-2 focus-visible:ring-2">{t("archiveOwners.showAll")}</button>
+      </div>}
       {isWarehouseLocked && (
         <div className="mx-0 mb-4 bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg shadow-sm" dir="rtl">
           <div className="flex items-center gap-3">
@@ -1437,7 +1455,7 @@ export default function DispatchBoard() {
                 {/* +++ الكي الجراحي: نسف الـ vh واستخدام flex-1 min-h-0 ليتمدد الجدول حسب المساحة المتاحة فقط +++ */}
                 <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-white rounded-b-2xl">
                   <PendingRoutesTable
-                    routes={pendingRoutes.filter(r => r.status !== "postponed")}
+                    routes={pendingRoutes.filter(r => r.status !== "postponed" && (!archiveRouteFocus || r.id === archiveRouteFocus))}
                     onAdjustInventory={(route) => {
                       setInventoryRoute(route);
                       setIsInventoryModalOpen(true);
@@ -1732,8 +1750,9 @@ export default function DispatchBoard() {
       </div>
 
       <ShortageModal
+        focusShortageId={archiveShortageFocus}
         isOpen={isShortageModalOpen}
-        onClose={handleCloseShortageModal}
+        onClose={() => { setArchiveShortageFocus(null); handleCloseShortageModal(); }}
         zones={zones}
         activeShops={activeShops}
         shortageZoneId={shortageZoneId}
@@ -1839,7 +1858,7 @@ export default function DispatchBoard() {
       />
 
       <ZoneModal isOpen={isZoneModalOpen} onClose={() => { setIsZoneModalOpen(false); setZoneFormName(""); setEditingZoneId(null); }} editingZoneId={editingZoneId} zoneFormName={zoneFormName} onZoneFormNameChange={setZoneFormName} onSave={handleSaveZone} />
-      <PostponedRoutesModal isOpen={isShowPostponedModalOpen} onClose={() => setIsShowPostponedModalOpen(false)} routes={pendingRoutes.filter(r => r.status === "postponed")} drivers={drivers} onUpdateDriver={(id, drvId) => { const d = drivers.find(drv => drv.id === drvId); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, driverId: drvId, driverName: d?.name || "" } : r)); }} onRestore={async (id) => { try { const route = pendingRoutes.find(r => r.id === id); await authenticatedFetch(`/dispatch/route/${id}/status`, { method: "PUT", body: JSON.stringify(
+      <PostponedRoutesModal isOpen={isShowPostponedModalOpen} onClose={() => setIsShowPostponedModalOpen(false)} routes={pendingRoutes.filter(r => r.status === "postponed" && (!archiveRouteFocus || r.id === archiveRouteFocus))} drivers={drivers} onUpdateDriver={(id, drvId) => { const d = drivers.find(drv => drv.id === drvId); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, driverId: drvId, driverName: d?.name || "" } : r)); }} onRestore={async (id) => { try { const route = pendingRoutes.find(r => r.id === id); await authenticatedFetch(`/dispatch/route/${id}/status`, { method: "PUT", body: JSON.stringify(
           route?.sessionBound
             ? { status: "waiting" }
             : { status: "waiting", driverId: route?.driverId }
@@ -2047,4 +2066,3 @@ export default function DispatchBoard() {
     </div>
   );
 }
-

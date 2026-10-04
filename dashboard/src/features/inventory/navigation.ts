@@ -34,10 +34,42 @@ export type InventoryWholeProductIssueIntent = {
   locationId: number | null;
 };
 
+export type InventoryOwnerFocusIntent = {
+  version: 1;
+  kind: "owner-focus";
+  tab: "batches" | "transfers" | "stocktake" | "warehouses";
+  flow: "batch" | "transfer" | "stocktake" | "product-location";
+  variantId: number;
+  operationId: number;
+  locationId: number;
+  reference: string;
+};
+
 export type InventoryNavigationIntent =
   | InventoryTabIntent
   | InventoryBatchFocusIntent
-  | InventoryWholeProductIssueIntent;
+  | InventoryWholeProductIssueIntent
+  | InventoryOwnerFocusIntent;
+
+const OWNER_TABS = {
+  batch: "batches",
+  transfer: "transfers",
+  stocktake: "stocktake",
+  "product-location": "warehouses",
+} as const;
+
+export function createInventoryOwnerFocusState(
+  input: Omit<InventoryOwnerFocusIntent, "version" | "kind" | "tab">,
+): InventoryNavigationState {
+  return {
+    inventoryNavigation: {
+      ...input,
+      version: 1,
+      kind: "owner-focus",
+      tab: OWNER_TABS[input.flow],
+    },
+  };
+}
 
 export type InventoryNavigationState = {
   inventoryNavigation: InventoryNavigationIntent;
@@ -147,6 +179,16 @@ export function parseInventoryNavigationState(
       tab: row.tab as InventoryTargetTab,
       locationId: row.locationId as number | null,
     };
+  }
+
+  if (row.kind === "owner-focus" && typeof row.flow === "string" && Object.prototype.hasOwnProperty.call(OWNER_TABS, row.flow)) {
+    const flow = row.flow as InventoryOwnerFocusIntent["flow"];
+    if (row.tab !== OWNER_TABS[flow] || row.locationId === null ||
+        !validLocationId(row.variantId) || row.variantId === null ||
+        !validLocationId(row.operationId) || row.operationId === null ||
+        typeof row.reference !== "string" || row.reference.length > 100) return null;
+    return { version: 1, kind: "owner-focus", tab: OWNER_TABS[flow], flow,
+      variantId: row.variantId, operationId: row.operationId, locationId: row.locationId as number, reference: row.reference };
   }
 
   if (

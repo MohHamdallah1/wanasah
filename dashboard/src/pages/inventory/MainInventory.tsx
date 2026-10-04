@@ -19,6 +19,7 @@ import { Tab3Stocktake } from "./Tab3Stocktake";
 import { Tab4Ledger } from "./Tab4Ledger";
 import { TabWarehouseLocations } from "./TabWarehouseLocations";
 import { TabTransfers } from "./TabTransfers";
+import { ArchiveOwnerWorkspace } from "./archive/ArchiveOwnerWorkspace";
 import type { TransferFocus } from "./transfers/types";
 import type { BatchSpecialTransferResult } from "./batches/batchSpecialTransferContract";
 import type { ReservationOwner } from "./batches/batchStockSourcesContract";
@@ -214,6 +215,9 @@ export default function MainInventory() {
     parseInventoryNavigationState(routeLocation.state),
   );
   const initialNavigationIntent = initialNavigationIntentRef.current;
+  const [archiveOwnerFocus, setArchiveOwnerFocus] = useState(
+    initialNavigationIntent?.kind === "owner-focus" ? initialNavigationIntent : null,
+  );
 
   // UI preference only. Server token + RLS remain the security authority.
   const companyId = localStorage.getItem("company_id") || "";
@@ -1121,6 +1125,16 @@ export default function MainInventory() {
     locationAccess.isPending &&
     stockPageReady &&
     !locationAccess.isError;
+
+  if (archiveOwnerFocus) {
+    return <ArchiveOwnerWorkspace intent={archiveOwnerFocus} onClose={() => setArchiveOwnerFocus(null)}
+      onOpenTransfers={handleOpenTransfers} onOpenReservationOwner={handleOpenReservationOwner}
+      onInventoryChanged={async () => {
+        setStockRefreshKey((value) => value + 1);
+        setLedgerRefreshKey((value) => value + 1);
+        await fetchStatus();
+      }} />;
+  }
 
   if (loadingLocations && warehouseSetup === null) {
     return (

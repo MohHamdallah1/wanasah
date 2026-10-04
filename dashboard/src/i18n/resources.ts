@@ -1,3 +1,5 @@
+import { archiveOwners } from "./archiveOwners";
+
 export const supportedLanguages = [
   "ar",
   "en",
@@ -9,6 +11,7 @@ export type SupportedLanguage =
 export const resources = {
   ar: {
     translation: {
+      archiveOwners: archiveOwners.ar,
       common: {
         save: "حفظ",
         cancel: "إلغاء",
@@ -2169,6 +2172,7 @@ export const resources = {
   },
   en: {
     translation: {
+      archiveOwners: archiveOwners.en,
       common: {
         save: "Save",
         cancel: "Cancel",

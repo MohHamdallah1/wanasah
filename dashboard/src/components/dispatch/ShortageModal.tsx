@@ -1,4 +1,6 @@
 import { currentLocale } from "@/i18n";
+import { useTranslation } from "react-i18next";
+import { resolveI18nLocale } from "@/lib/locale";
 import { useState, useMemo } from "react";
 import {
   Minus, Plus, Trash2, Pencil, ChevronDown, ChevronUp,
@@ -10,6 +12,7 @@ import { Zone, Shop, Shortage } from "@/types/dispatch";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 interface ShortageModalProps {
+  focusShortageId?: string | null;
   isOpen: boolean;
   onClose: () => void;
   zones: Zone[];
@@ -171,6 +174,7 @@ function DraftRow({
 
 // ─── Shop Accordion Card ──────────────────────────────────────────────────────
 function ShopCard({
+  focusShortageId,
   group,
   isBeingEdited,
   isEditModeActive,
@@ -178,6 +182,7 @@ function ShopCard({
   onDeleteAll,
   onDeleteOne,
 }: {
+  focusShortageId?: string | null;
   group: ReturnType<typeof groupByShop>[number];
   isBeingEdited: boolean;
   isEditModeActive: boolean;
@@ -185,7 +190,7 @@ function ShopCard({
   onDeleteAll: () => void;
   onDeleteOne: (id: string) => void;
 }) {
-  const [open, setOpen] = useState(false); // collapsed by default (#1)
+  const [open, setOpen] = useState(() => group.items.some((item) => item.id === focusShortageId));
   const urgent = isUrgentGroup(group.createdAt);
 
   const borderCls = isBeingEdited
@@ -280,7 +285,8 @@ function ShopCard({
           {group.items.map((item, idx) => (
             <div
               key={item.id}
-              className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/80 transition-colors group"
+              data-shortage-id={item.id}
+              className={`flex items-center gap-3 px-5 py-3 hover:bg-slate-50/80 transition-colors group ${item.id === focusShortageId ? "bg-amber-50 ring-2 ring-inset ring-amber-300" : ""}`}
             >
               <span className="flex-shrink-0 w-5 h-5 rounded-full bg-slate-100 text-slate-400 text-[10px] font-bold flex items-center justify-center">
                 {idx + 1}
@@ -306,6 +312,7 @@ function ShopCard({
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export function ShortageModal({
+  focusShortageId,
   isOpen,
   onClose,
   zones,
@@ -333,6 +340,7 @@ export function ShortageModal({
   shortageDriverId,
   onDriverChange,
 }: ShortageModalProps) {
+  const { t, i18n } = useTranslation();
   // +++ الكي الجراحي: تغليف الدالة بـ useMemo لمنع إعادة تجميع المصفوفة مع كل رندرة +++
   const grouped = useMemo(() => groupByShop(shortages), [shortages]);
   const isEditMode = editingShortageIds.length > 0;
@@ -520,8 +528,12 @@ export function ShortageModal({
             </div>
           ) : (
             <div className="space-y-3">
+              {focusShortageId && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-bold" dir={i18n.dir()}>
+                {t("archiveOwners.shortageFocus", { id: new Intl.NumberFormat(resolveI18nLocale(i18n)).format(Number(focusShortageId)) })}
+              </p>}
               {grouped.map(group => (
                 <ShopCard
+                  focusShortageId={focusShortageId}
                   key={group.shopId}
                   group={group}
                   isBeingEdited={group.items.some(it => editingShortageIds.includes(it.id))}

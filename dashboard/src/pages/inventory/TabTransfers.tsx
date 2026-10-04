@@ -1,5 +1,5 @@
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Plus,
   RefreshCcw,
@@ -11,7 +11,7 @@ import {
   isTransferStatus,
   STATUS_META,
 } from "./transfers/constants";
-import type { Props } from "./transfers/types";
+import type { Props, WarehouseTransferListItem } from "./transfers/types";
 import { TransferTable } from "./transfers/TransferTable";
 import { TransferDetailModal } from "./transfers/TransferDetailModal";
 import { TransferDecisionModal } from "./transfers/TransferDecisionModal";
@@ -27,6 +27,8 @@ export function TabTransfers({
   onInventoryChanged,
 }: Props) {
   const access = useInventoryAccess(locationId);
+  const focusIdRef = useRef<number | null>(null);
+  const [focusedTransfer, setFocusedTransfer] = useState<WarehouseTransferListItem | null>(null);
   const transferList = useTransferList(locationId);
   const {
     items,
@@ -53,16 +55,28 @@ export function TabTransfers({
   } = transferList;
 
   const handleTransferActionCompleted = useCallback(() => {
+    focusIdRef.current = null;
+    setFocusedTransfer(null);
     resetDetail();
     refreshTransfers();
   }, [refreshTransfers, resetDetail]);
 
   useEffect(() => {
+    focusIdRef.current = null;
+    setFocusedTransfer(null);
+  }, [locationId]);
+
+  useEffect(() => {
     if (!focus) return;
+    focusIdRef.current = focus.headerId;
     setSearchInput(focus.reference);
     onFocusConsumed?.();
     void openDetailById(focus.headerId);
   }, [focus, onFocusConsumed, openDetailById, setSearchInput]);
+
+  useEffect(() => {
+    if (detail?.transfer.id === focusIdRef.current) setFocusedTransfer(detail.transfer);
+  }, [detail]);
 
   const transferActions = useTransferActions({
     locationId,
@@ -173,12 +187,12 @@ export function TabTransfers({
       </div>
 
       <TransferTable
-        items={items}
+        items={focusedTransfer ? [items.find((item) => item.id === focusedTransfer.id) ?? focusedTransfer, ...items.filter((item) => item.id !== focusedTransfer.id)] : items}
         locationId={locationId}
         loading={loading}
         cursorHistoryLength={cursorHistory.length}
         nextCursor={nextCursor}
-        onOpenDetail={openDetail}
+        onOpenDetail={async (transfer) => { await openDetail(transfer); }}
         onOpenAction={openAction}
         onPrevious={handlePrevious}
         onNext={handleNext}

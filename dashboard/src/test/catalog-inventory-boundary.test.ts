@@ -149,7 +149,8 @@ describe("Catalog / Inventory frontend boundary", () => {
     expect(quantityActions).toContain("onOpenReservationOwner(owner)");
     expect(mainInventory).toContain("createDispatchReservationFocusState");
     expect(dispatchBoard).toContain("parseDispatchNavigationState");
-    expect(dispatchBoard).toContain("setRadarFocusTransferId(dispatchFocus.transferId)");
+    expect(dispatchBoard).toContain("useDispatchOwnerNavigation");
+    expect(dispatchBoard).toContain("setRadarFocusTransferId(intent.transferId)");
     expect(radar).toContain("focusTransferId");
     expect(radar).toContain("openForceCancel(target)");
     expect(radar).toContain(

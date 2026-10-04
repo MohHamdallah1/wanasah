@@ -1,4 +1,7 @@
 import { apiErrorMessage, apiErrorStatus } from "@/lib/apiErrors";
+import { useLocation, useNavigate } from "react-router-dom";
+import { parseOperationsNavigationState } from "@/features/operations/navigation";
+import { useSettlementOwnerNavigation } from "@/features/operations/useSettlementOwnerNavigation";
 import type { SettlementCountInput } from "@/components/operations/SettlementModal";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
@@ -110,6 +113,10 @@ const SalesDetailsModal = ({ isOpen, onClose, productSales, totalLogisticsCarton
 };
 
 const Index = () => {
+  const routeLocation = useLocation();
+  const routeNavigate = useNavigate();
+  const initialOwnerIntentRef = useRef(parseOperationsNavigationState(routeLocation.state));
+  const [settlementOwnerIntent, setSettlementOwnerIntent] = useState(initialOwnerIntentRef.current);
   const authFetch = useAuthFetch(); 
   const [drivers, setDrivers] = useState<DriverData[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -236,6 +243,20 @@ const Index = () => {
     setIsSettlementModalOpen(true);
     void loadSettlementReport(selectedDriver.session.session_id);
   }, [loadSettlementReport, selectedDriver]);
+
+  const consumeSettlementOwner = useCallback(() => setSettlementOwnerIntent(null), []);
+  const openSettlementOwner = useCallback((driver: DriverData) => {
+    setSelectedId(driver.session.session_id);
+    setDrivers((rows) => [driver, ...rows.filter((row) => row.session.session_id !== driver.session.session_id)]);
+    setSettlementDriver(driver);
+    setIsSettlementModalOpen(true);
+    void loadSettlementReport(driver.session.session_id);
+  }, [loadSettlementReport]);
+  useSettlementOwnerNavigation({ intent: settlementOwnerIntent, onReady: openSettlementOwner, onConsumed: consumeSettlementOwner });
+  useEffect(() => {
+    if (!initialOwnerIntentRef.current) return;
+    routeNavigate(`${routeLocation.pathname}${routeLocation.search}`, { replace: true, state: null });
+  }, [routeLocation.pathname, routeLocation.search, routeNavigate]);
 
   const closeSettlementModal = useCallback(() => {
     settlementReportAbortRef.current?.abort();

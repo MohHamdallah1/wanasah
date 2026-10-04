@@ -1,5 +1,5 @@
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from ws_manager import dispatch_manager
 from sqlalchemy.future import select
@@ -614,6 +614,7 @@ async def _dispatch_vehicle_location_ids(
 async def get_admin_dashboard_data(
     db: AsyncSession = Depends(get_db),
     current_admin: Driver = Depends(get_current_admin),
+    session_id: int | None = Query(None, gt=0),
 ):
     company_id = current_admin.company_id
     company_local_date = await get_company_local_date(db, company_id)
@@ -626,6 +627,7 @@ async def get_admin_dashboard_data(
             .options(joinedload(WorkSession.driver))
             .filter(
                 WorkSession.company_id == company_id,
+                True if session_id is None else WorkSession.id == session_id,
                 or_(
                     WorkSession.session_date == company_local_date,
                     WorkSession.is_settled.is_(False),
@@ -3390,7 +3392,8 @@ async def admin_add_shop(
 @router.get("/dispatch/active_routes", response_model=List[ActiveRouteResponse], status_code=200)
 async def get_active_routes(
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver)
+    current_admin: Driver = Depends(get_current_driver),
+    route_id: int | None = Query(None, gt=0),
 ):
     
         
@@ -3416,6 +3419,8 @@ async def get_active_routes(
             DispatchRoute.status.in_(['active', 'waiting', 'postponed']),
         )
     )
+    if route_id is not None:
+        stmt_routes = stmt_routes.where(DispatchRoute.id == route_id)
     route_rows = (await db.execute(stmt_routes)).all()
     routes = [row[0] for row in route_rows]
     executable_routes = {row[0].id: bool(row[1]) for row in route_rows}
@@ -4840,7 +4845,8 @@ async def edit_shop_details(
 @router.get("/dispatch/shortages", response_model=List[ShortageResponseItem], status_code=200)
 async def get_shortages(
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    current_admin: Driver = Depends(get_current_admin),
+    shortage_id: int | None = Query(None, gt=0),
 ):
     
 
@@ -4855,6 +4861,8 @@ async def get_shortages(
         status='pending'
     ).order_by(ShortageRequest.created_at.asc())
     
+    if shortage_id is not None:
+        stmt = stmt.where(ShortageRequest.id == shortage_id)
     shortages = (await db.execute(stmt)).scalars().all()
     
     result = [{

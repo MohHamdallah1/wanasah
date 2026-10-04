@@ -1,3 +1,4 @@
+import { ArchiveBlockerList } from "@/features/catalog/archive/ArchiveBlockerList";
 import {
   useEffect,
   useState,
@@ -1453,29 +1454,7 @@ export function CatalogLifecycleActions({
               "catalogLifecycle.blockersTitle",
             )}
           </p>
-          <ul className="mt-2 space-y-1">
-            {preflight.blockers.map(
-              (item) => (
-                <li
-                  key={
-                    item.code
-                  }
-                >
-                  {t(
-                    `catalogLifecycle.blockers.${item.code}`,
-                    {
-                      defaultValue:
-                        item.code,
-                    },
-                  )}
-                  : {item.count}
-                  {item.sample_id
-                    ? ` · #${item.sample_id}`
-                    : ""}
-                </li>
-              ),
-            )}
-          </ul>
+          <ArchiveBlockerList blockers={preflight.blockers} variantId={variant.id} />
         </div>
       ) : null}
     </section>

@@ -31,6 +31,8 @@ import {
 } from "./stocktake/StocktakeDecisionModals";
 
 interface Props {
+  focusSessionId?: number;
+  onFocusUnavailable?: (error: unknown) => void;
   locationId: number;
   companyId: string;
   isAuditLocked: boolean;
@@ -40,6 +42,8 @@ interface Props {
 }
 
 export function Tab3Stocktake({
+  focusSessionId,
+  onFocusUnavailable,
   locationId,
   companyId,
   isAuditLocked,
@@ -206,6 +210,8 @@ export function Tab3Stocktake({
 
   const lifecycle =
     useStocktakeLifecycle({
+      focusSessionId,
+      onFocusUnavailable,
       locationId,
       sessionKey:
         stocktakeState.sessionKey,

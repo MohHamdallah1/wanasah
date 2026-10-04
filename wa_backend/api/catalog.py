@@ -21,6 +21,9 @@ from config import Config
 from database import get_db
 from gs1 import Gs1ParseError, parse_gs1
 from inventory_access import InventoryAccess
+from domains.inventory_archive_navigation import inventory_archive_targets
+from domains.dispatch_archive_navigation import dispatch_archive_targets
+from domains.operations_archive_navigation import operations_archive_targets
 from models import (
     Driver,
     Product,
@@ -1846,12 +1849,15 @@ async def variant_archive_preflight(variant_id: int, db: AsyncSession = Depends(
     if row is None:
         raise _error(404, "VARIANT_NOT_FOUND", "الصنف غير موجود.")
     blockers = await archive_blockers(db, actor.company_id, variant_id)
+    owner_targets = await inventory_archive_targets(db, actor, variant_id, blockers)
+    owner_targets.update(await dispatch_archive_targets(db, actor, variant_id, blockers))
+    owner_targets.update(await operations_archive_targets(db, actor, variant_id, blockers))
     return {
         "variant_id": variant_id,
         "lifecycle_status": row.lifecycle_status,
         "version": row.version,
         "can_archive": row.lifecycle_status == "RETIRING" and row.operational_hold == "NONE" and not blockers,
-        "blockers": blockers,
+        "blockers": [{**blocker, "owner_target": owner_targets.get(blocker["code"])} for blocker in blockers],
     }
 
 

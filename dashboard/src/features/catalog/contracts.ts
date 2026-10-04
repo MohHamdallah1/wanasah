@@ -3,6 +3,7 @@ import {
   type Quantity,
   validateVariantQuantity as validateInventoryVariantQuantity,
 } from "@/lib/quantity";
+import { parseArchiveOwnerTarget, type ArchiveOwnerTarget } from "./archive/ownerTargets";
 
 const DB_INT_MAX = 2_147_483_647;
 const MAX_CURSOR_LENGTH = 512;
@@ -292,7 +293,7 @@ export const parseConversionMutation = (
   };
 };
 
-export interface ArchiveBlocker { code: string; count: number; sample_id: number | null }
+export interface ArchiveBlocker { code: string; count: number; sample_id: number | null; owner_target?: ArchiveOwnerTarget | null }
 export interface ArchivePreflight {
   variant_id: number;
   lifecycle_status: CatalogVariant["lifecycle_status"];
@@ -332,7 +333,10 @@ export const parseArchivePreflight = (raw: unknown): ArchivePreflight => {
     lifecycle_status: parseLifecycle(row.lifecycle_status),
     version: integer(row.version, "version", 1),
     can_archive: row.can_archive,
-    blockers: row.blockers.map(parseBlocker),
+    blockers: row.blockers.map((raw) => ({
+      ...parseBlocker(raw),
+      owner_target: parseArchiveOwnerTarget(record(raw, "ARCHIVE_BLOCKER_INVALID").owner_target),
+    })),
   };
 };
 

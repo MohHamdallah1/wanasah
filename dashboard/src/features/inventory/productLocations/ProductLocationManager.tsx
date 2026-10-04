@@ -45,6 +45,8 @@ interface LocationOption {
 interface Props {
   variant: CatalogVariant;
   locations: LocationOption[];
+  focusLocationId?: number;
+  focusAssignmentId?: number;
 }
 
 type OperationalFlags = {
@@ -202,6 +204,8 @@ const assignmentFallbackKey = (
 export function ProductLocationManager({
   variant,
   locations,
+  focusLocationId,
+  focusAssignmentId,
 }: Props) {
   const { t } = useTranslation();
   const authFetch = useAuthFetch();
@@ -286,7 +290,7 @@ export function ProductLocationManager({
         const page =
           parseProductLocations(
             await authFetch(
-              `/warehouse/product-locations?product_variant_id=${variant.id}&limit=200`,
+              `/warehouse/product-locations?product_variant_id=${variant.id}&limit=200${focusLocationId ? `&location_id=${focusLocationId}` : ""}`,
             ),
           );
 
@@ -295,13 +299,16 @@ export function ProductLocationManager({
             "CATALOG_PRODUCT_LOCATIONS_LIMIT_EXCEEDED",
           );
         }
+        if (focusAssignmentId && !page.items.some((item) => item.id === focusAssignmentId)) {
+          throw codedError("ARCHIVE_OWNER_UNAVAILABLE");
+        }
         setAssignments(
           page.items,
         );
       } catch (error) {
         setAssignments([]);
         toast.error(
-          apiErrorMessage(
+          apiErrorCode(error) === "ARCHIVE_OWNER_UNAVAILABLE" ? t("archiveOwners.inaccessible") : apiErrorMessage(
             error,
             t(
               "catalogLifecycle.assignments.errors.load",
@@ -318,6 +325,8 @@ export function ProductLocationManager({
       canReadAssignments,
       t,
       variant.id,
+      focusLocationId,
+      focusAssignmentId,
     ]);
 
   useEffect(() => {
