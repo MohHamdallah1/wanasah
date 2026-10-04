@@ -3451,6 +3451,22 @@ async def acquire_inventory_location_guards(
 _SYSTEM_TRANSIT_PROVISION_GUARD = -2147483648
 
 
+def _validated_system_transit_location(
+    location: InventoryLocation,
+) -> InventoryLocation:
+    if not (
+        location.is_system_managed
+        and location.location_type == "IN_TRANSIT"
+        and location.is_active
+        and location.branch_id is None
+        and location.vehicle_id is None
+    ):
+        raise InventoryMutationError(
+            "موقع العبور النظامي للشركة موجود بحالة غير صالحة ويجب إصلاحه إدارياً."
+        )
+    return location
+
+
 async def ensure_system_transit_location(
     db_session: AsyncSession,
     company_id: int,
@@ -3459,6 +3475,20 @@ async def ensure_system_transit_location(
         company_id = _strict_int(company_id, "company_id", minimum=1)
     except ValueError as exc:
         raise InventoryMutationError(str(exc)) from exc
+
+    # Normal path: the singleton already exists. Avoid serializing every TRANSIT
+    # workflow behind the company-wide provisioning guard. The guard below is
+    # retained only for the rare create/recheck path.
+    location = (
+        await db_session.execute(
+            select(InventoryLocation).filter(
+                InventoryLocation.company_id == company_id,
+                InventoryLocation.system_role == "TRANSIT",
+            )
+        )
+    ).scalar_one_or_none()
+    if location is not None:
+        return _validated_system_transit_location(location)
 
     await db_session.execute(
         text(
@@ -3484,17 +3514,7 @@ async def ensure_system_transit_location(
     ).scalar_one_or_none()
 
     if location is not None:
-        if not (
-            location.is_system_managed
-            and location.location_type == "IN_TRANSIT"
-            and location.is_active
-            and location.branch_id is None
-            and location.vehicle_id is None
-        ):
-            raise InventoryMutationError(
-                "موقع العبور النظامي للشركة موجود بحالة غير صالحة ويجب إصلاحه إدارياً."
-            )
-        return location
+        return _validated_system_transit_location(location)
 
     reserved_code_owner = (
         await db_session.execute(
