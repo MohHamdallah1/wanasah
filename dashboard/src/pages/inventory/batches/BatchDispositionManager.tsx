@@ -151,6 +151,31 @@ export function BatchDispositionManager({
               `inventoryLive.batchDisposition.${batch.disposition}`,
             )}
           </p>
+          {batch.disposition_reason ? (
+            <p className="mt-1 text-[10px] font-bold leading-4 text-slate-600">
+              {t("inventoryBatches.disposition.reasonDisplay", {
+                reason: batch.disposition_reason,
+              })}
+            </p>
+          ) : null}
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[9px] font-semibold text-slate-500">
+            <span>
+              {t("inventoryLive.expiryDate")}: {batch.expiry_date ?? "—"}
+            </span>
+            {batch.days_to_expiry !== null ? (
+              <span>
+                {batch.days_to_expiry < 0
+                  ? t("inventoryLive.expiredSince", {
+                      count: Math.abs(batch.days_to_expiry),
+                    })
+                  : batch.days_to_expiry === 0
+                    ? t("inventoryLive.expiresToday")
+                    : t("inventoryLive.daysRemaining", {
+                        count: batch.days_to_expiry,
+                      })}
+              </span>
+            ) : null}
+          </div>
         </div>
 
         {batch.disposition === "RECALLED" ? (

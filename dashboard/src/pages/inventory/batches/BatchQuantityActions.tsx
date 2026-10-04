@@ -209,7 +209,7 @@ export function BatchQuantityActions({
               batch.disposition,
               data.operational_hold,
               status.stock_status,
-              compareQuantity(batch.restricted_quantity, "0") > 0,
+              batch.days_to_expiry !== null && batch.days_to_expiry < 0,
             );
             const key = `${source.location_id}:${status.stock_status}`;
             return (
@@ -241,15 +241,24 @@ export function BatchQuantityActions({
                       </p>
                     </div>
                   </div>
-                  <div className="text-end">
-                    <p className="text-[11px] font-black tabular-nums text-slate-900">
-                      {status.movable_quantity} {baseUomCode}
+                  <div className="text-end text-[9px] font-semibold leading-4 text-slate-500">
+                    <p>
+                      {t("inventoryBatches.quantityActions.onHand", {
+                        quantity: status.on_hand_quantity,
+                        unit: baseUomCode,
+                      })}
+                    </p>
+                    <p className="font-black text-slate-900">
+                      {t("inventoryBatches.quantityActions.movable", {
+                        quantity: status.movable_quantity,
+                        unit: baseUomCode,
+                      })}
                     </p>
                     {compareQuantity(
                       status.reserved_quantity,
                       "0",
                     ) > 0 ? (
-                      <p className="mt-0.5 text-[9px] font-bold text-amber-700">
+                      <p className="font-bold text-amber-700">
                         {t("inventoryBatches.quantityActions.reserved", {
                           quantity: status.reserved_quantity,
                           unit: baseUomCode,
