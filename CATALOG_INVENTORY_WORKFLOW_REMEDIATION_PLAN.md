@@ -39,7 +39,7 @@ Purpose: stop adding new cross-page behavior until ownership is explicit.
 - [x] Define permanent page boundaries in `docs/architecture/CATALOG_INVENTORY_WORKFLOW_BOUNDARIES.md`.
 - [x] Decide that user-facing `RECALL / close-recall / RECALL_RETURN` terminology must disappear from the dashboard.
 - [x] Decide batch user language: `عزل الدفعة للفحص`, `منع بيع الدفعة`, `استبعاد الدفعة من البيع نهائيًا`, and `السماح ببيع الدفعة من جديد` where allowed.
-- [ ] Add the architecture companion reference to `ARCHITECTURE.md` so future work cannot miss it.
+- [x] Add the architecture companion reference to `ARCHITECTURE.md` so future work cannot miss it.
 - [ ] Produce a dependency map of current cross-page imports and navigation bridges involving `pages/products`, `pages/inventory`, lifecycle, batch issue navigation, and blockers.
 - [ ] Record each current violation as either architectural debt or acceptable read-only cross-domain projection.
 

@@ -30,6 +30,10 @@ That is more precise than “Monolith speed + Microservices cleanliness”: we w
 
 The canonical bilingual Product Master / Sellable Variant / Category / UOM vocabulary for code and API reviews is [CATALOG_IDENTITY_GLOSSARY.md](docs/architecture/CATALOG_IDENTITY_GLOSSARY.md). Use it to avoid confusing `products.id` (master) with `product_variants.id` (sellable SKU); this link does not authorize schema/API renames.
 
+## Catalog / Inventory workflow boundaries (canonical companion)
+
+The approved page/domain ownership and cross-module workflow rules for Products, Inventory, warehouses, batches, quality issues, multi-warehouse operation, and future fleet/driver integration are defined in [CATALOG_INVENTORY_WORKFLOW_BOUNDARIES.md](docs/architecture/CATALOG_INVENTORY_WORKFLOW_BOUNDARIES.md). New work touching these surfaces must preserve those ownership boundaries and must not make one page the mutation authority for another domain.
+
 ## Inventory accounting: one official profit/valuation authority
 
 The V1 accounting decision is [INVENTORY_COSTING_FINANCIAL_TRUTH_DECISION.md](docs/architecture/INVENTORY_COSTING_FINANCIAL_TRUTH_DECISION.md): a company chooses one authorized cost formula (FIFO or MOVING_AVERAGE) before its first costed receipt; Inventory Costing is the sole authority for financial inventory value, COGS and accounting profit. Supplier receipt costs and physical FEFO batch evidence are retained independently **without building a second financial profit ledger or official "batch-profit" metric**. Future operational batch contribution analysis is optional and requires independent allocation/variance proof. The previously silent auto-activation of MOVING_AVERAGE has been blocked in C1, with tenant-scoped, actor-attributed explicit selection. Full first-receipt HTTP/retry, cross-domain cost corrections and period-close gates remain OPEN.
