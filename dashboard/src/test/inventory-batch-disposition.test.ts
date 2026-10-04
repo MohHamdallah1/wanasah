@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { parseAllowedBatchDispositionTargets } from "@/pages/inventory/batches/batchStockSourcesContract";
@@ -18,9 +19,9 @@ describe("batch disposition controls", () => {
     ).toThrow("BATCH_STOCK_SOURCES_RESPONSE_INVALID");
 
     const manager = readFileSync(
-      new URL(
-        "../pages/inventory/batches/BatchDispositionManager.tsx",
-        import.meta.url,
+      resolve(
+        process.cwd(),
+        "src/pages/inventory/batches/BatchDispositionManager.tsx",
       ),
       "utf8",
     );
