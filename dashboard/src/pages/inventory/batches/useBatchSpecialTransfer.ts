@@ -127,7 +127,7 @@ export function useBatchSpecialTransfer({
         }),
       );
       await onSucceeded();
-      return true;
+      return result;
     } catch (error) {
       const code = apiErrorCode(error);
       const ambiguous =

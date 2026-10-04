@@ -1,5 +1,5 @@
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import {
   Plus,
   RefreshCcw,
@@ -22,6 +22,8 @@ import { useTransferCreate } from "./transfers/hooks/useTransferCreate";
 
 export function TabTransfers({
   locationId,
+  focus = null,
+  onFocusConsumed,
   onInventoryChanged,
 }: Props) {
   const access = useInventoryAccess(locationId);
@@ -42,6 +44,7 @@ export function TabTransfers({
     detailLoading,
     inTransitCount,
     openDetail,
+    openDetailById,
     closeDetail,
     resetDetail,
     refreshTransfers,
@@ -53,6 +56,13 @@ export function TabTransfers({
     resetDetail();
     refreshTransfers();
   }, [refreshTransfers, resetDetail]);
+
+  useEffect(() => {
+    if (!focus) return;
+    setSearchInput(focus.reference);
+    onFocusConsumed?.();
+    void openDetailById(focus.headerId);
+  }, [focus, onFocusConsumed, openDetailById, setSearchInput]);
 
   const transferActions = useTransferActions({
     locationId,

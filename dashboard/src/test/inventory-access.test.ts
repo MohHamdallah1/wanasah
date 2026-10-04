@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/hooks/useAuthFetch', () => ({useAuthFetch: vi.fn()}));
-import { hasInventoryPermission, parseInventoryCapabilities } from '@/hooks/useInventoryAccess';
+import {
+  hasInventoryPermission,
+  parseInventoryCapabilities,
+  parseInventoryLocationCapabilities,
+} from '@/hooks/useInventoryAccess';
 import { parseCatalogPage } from '@/pages/inventory/catalogParsers';
 import { buildVariantPayload, parseMutationMessage } from '@/features/catalog/contracts';
 import {
@@ -41,6 +45,21 @@ describe('inventory permission contract', () => {
     {...capabilities, location_permissions: [true]},
   ])('rejects malformed authority contracts', raw => {
     expect(() => parseInventoryCapabilities(raw)).toThrow();
+  });
+
+  it('accepts only requested location capability evidence', () => {
+    expect(
+      parseInventoryLocationCapabilities(
+        { locations: { '101': ['transfer.read'], '102': [] } },
+        [101, 102],
+      ),
+    ).toEqual({ 101: ['transfer.read'], 102: [] });
+    expect(() =>
+      parseInventoryLocationCapabilities(
+        { locations: { '999': ['transfer.read'] } },
+        [101, 102],
+      ),
+    ).toThrow('INVENTORY_LOCATION_CAPABILITIES_RESPONSE_INVALID');
   });
 });
 

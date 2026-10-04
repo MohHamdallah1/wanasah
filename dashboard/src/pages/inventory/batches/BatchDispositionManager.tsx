@@ -16,6 +16,7 @@ import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { BatchQuantityActions } from "./BatchQuantityActions";
 import { allowedBatchDispositionTargets } from "./batchDispositionRules";
 import type { BatchActionSnapshot, BatchDisposition } from "./contracts";
+import type { BatchSpecialTransferResult } from "./batchSpecialTransferContract";
 import { useBatchDispositionCommand } from "./useBatchDispositionCommand";
 
 type Props = {
@@ -24,7 +25,9 @@ type Props = {
   baseUomCode: string;
   onClose: () => void;
   onChanged: () => void | Promise<void>;
-  onOpenTransfers: () => void;
+  onOpenTransfers: (
+    transfer?: BatchSpecialTransferResult,
+  ) => void | Promise<void>;
 };
 
 const targetIcon = (

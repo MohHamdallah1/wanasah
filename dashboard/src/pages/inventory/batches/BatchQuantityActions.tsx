@@ -18,6 +18,7 @@ import {
 
 import type {
   BatchSpecialTransferPurpose,
+  BatchSpecialTransferResult,
 } from "./batchSpecialTransferContract";
 import type { BatchActionSnapshot } from "./contracts";
 import type {
@@ -33,7 +34,9 @@ type Props = {
   productVariantId: number;
   baseUomCode: string;
   onChanged: () => void | Promise<void>;
-  onOpenTransfers: () => void;
+  onOpenTransfers: (
+    transfer?: BatchSpecialTransferResult,
+  ) => void | Promise<void>;
 };
 
 type Choice = {
@@ -148,6 +151,8 @@ export function BatchQuantityActions({
     },
   });
   const [choice, setChoice] = useState<Choice | null>(null);
+  const [lastTransfer, setLastTransfer] =
+    useState<BatchSpecialTransferResult | null>(null);
   const data = stockQuery.data;
 
   const stockRows = useMemo(
@@ -346,14 +351,17 @@ export function BatchQuantityActions({
               type="button"
               disabled={transfer.busyKey !== null}
               onClick={async () => {
-                const ok = await transfer.run({
+                const result = await transfer.run({
                   purpose: choice.purpose,
                   sourceLocationId: choice.source.location_id,
                   sourceStatus: choice.status.stock_status,
                   quantity: choice.status.movable_quantity as Quantity,
                   baseUomId: data.base_uom_id,
                 });
-                if (ok === true) setChoice(null);
+                if (result) {
+                  setChoice(null);
+                  setLastTransfer(result);
+                }
               }}
               className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-slate-950 px-4 text-[10px] font-black text-white hover:bg-slate-800 disabled:opacity-40"
             >
@@ -372,9 +380,27 @@ export function BatchQuantityActions({
         </div>
       ) : null}
 
+      {lastTransfer ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-2.5">
+          <p className="text-[9px] font-bold text-emerald-800">
+            {t("inventoryBatches.quantityActions.createdReference", {
+              reference: lastTransfer.transfer_reference,
+            })}
+          </p>
+          <button
+            type="button"
+            onClick={() => onOpenTransfers(lastTransfer)}
+            className="mt-1 inline-flex items-center gap-1.5 text-[9px] font-black text-emerald-900 underline underline-offset-4"
+          >
+            <ArrowRightLeft className="h-3.5 w-3.5" />
+            {t("inventoryBatches.quantityActions.followCreatedTransfer")}
+          </button>
+        </div>
+      ) : null}
+
       <button
         type="button"
-        onClick={onOpenTransfers}
+        onClick={() => onOpenTransfers()}
         className="inline-flex items-center gap-1.5 text-[9px] font-black text-slate-600 underline underline-offset-4 hover:text-slate-950"
       >
         <ArrowRightLeft className="h-3.5 w-3.5" />

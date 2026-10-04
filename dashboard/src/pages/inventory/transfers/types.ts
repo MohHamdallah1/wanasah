@@ -64,8 +64,15 @@ export interface WarehouseTransferDetail {
   lines: WarehouseTransferLine[];
 }
 
+export interface TransferFocus {
+  headerId: number;
+  reference: string;
+}
+
 export interface Props {
   locationId: number;
+  focus?: TransferFocus | null;
+  onFocusConsumed?: () => void;
   onInventoryChanged: () => void | Promise<void>;
 }
 

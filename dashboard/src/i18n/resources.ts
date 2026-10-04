@@ -1459,6 +1459,8 @@ export const resources = {
           noSendPermission: "لديك صلاحية رؤية الكمية، لكن لا تملك صلاحية إرسال حوالة من هذا الموقع.",
           noActionForStatus: "لا يوجد إجراء كمية مناسب لهذه الحالة من هذا الموقع.",
           openTransfers: "فتح الحوالات ومتابعة العمليات",
+          createdReference: "تم إنشاء العملية {{reference}}.",
+          followCreatedTransfer: "متابعة هذه العملية",
           defaultReason: "تنفيذ إجراء على كمية دفعة مقيّدة",
           notes: {
             QUARANTINE: "نقل كمية الدفعة {{batch}} للعزل. السبب: {{reason}}",
@@ -1506,6 +1508,7 @@ export const resources = {
           errors: {
             load: "تعذر تحديد أماكن كمية هذه الدفعة.",
             dispatch: "تعذر إنشاء عملية المخزون المطلوبة.",
+            followUnavailable: "تم إنشاء العملية {{reference}}، لكن لا يوجد مستودع مرتبط بها متاح لحسابك لفتح تفاصيلها من هنا.",
           },
         },
         errors: {
@@ -3574,6 +3577,8 @@ export const resources = {
           noSendPermission: "You can view this quantity, but you do not have permission to send a transfer from this location.",
           noActionForStatus: "No quantity action is valid for this state at this location.",
           openTransfers: "Open transfers and track operations",
+          createdReference: "Operation {{reference}} was created.",
+          followCreatedTransfer: "Follow this operation",
           defaultReason: "Handle quantity for a restricted batch",
           notes: {
             QUARANTINE: "Move batch {{batch}} quantity to quarantine. Reason: {{reason}}",
@@ -3621,6 +3626,7 @@ export const resources = {
           errors: {
             load: "Could not locate this batch's quantities.",
             dispatch: "Could not create the requested inventory operation.",
+            followUnavailable: "Operation {{reference}} was created, but no related warehouse available to your account can open its details here.",
           },
         },
         errors: {

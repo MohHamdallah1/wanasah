@@ -1,4 +1,7 @@
-import { useInventoryAccess } from "@/hooks/useInventoryAccess";
+import {
+  parseInventoryLocationCapabilities,
+  useInventoryAccess,
+} from "@/hooks/useInventoryAccess";
 import { TabInventoryAccess } from "./TabInventoryAccess";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -15,6 +18,8 @@ import { Tab3Stocktake } from "./Tab3Stocktake";
 import { Tab4Ledger } from "./Tab4Ledger";
 import { TabWarehouseLocations } from "./TabWarehouseLocations";
 import { TabTransfers } from "./TabTransfers";
+import type { TransferFocus } from "./transfers/types";
+import type { BatchSpecialTransferResult } from "./batches/batchSpecialTransferContract";
 import { InventoryTopDock } from "./InventoryTopDock";
 import "./inventory.css";
 import {
@@ -262,6 +267,8 @@ export default function MainInventory() {
       ? initialNavigationIntent
       : null,
   );
+  const [transferFocus, setTransferFocus] =
+    useState<TransferFocus | null>(null);
 
   useEffect(() => {
     if (!initialNavigationIntentRef.current) return;
@@ -646,6 +653,68 @@ export default function MainInventory() {
       localStorage.setItem(selectedLocationStorageKey, String(nextId));
     },
     [locations, prepareLocationChange, selectedLocationStorageKey]
+  );
+  const handleOpenTransfers = useCallback(
+    async (transfer?: BatchSpecialTransferResult) => {
+      if (!transfer) {
+        setTransferFocus(null);
+        setActiveTab("transfers");
+        return;
+      }
+
+      const relatedIds = [
+        ...new Set([
+          transfer.source_location_id,
+          transfer.destination_location_id,
+        ]),
+      ].filter((id) => locations.some((location) => location.id === id));
+
+      try {
+        const capabilities = parseInventoryLocationCapabilities(
+          await authFetch('/inventory/access/locations/capabilities', {
+            method: 'POST',
+            body: JSON.stringify({ location_ids: relatedIds }),
+          }),
+          relatedIds,
+        );
+        const canReadTransfer = (id: number) =>
+          capabilities[id]?.includes('transfer.read') === true;
+        const preferredLocationId =
+          selectedLocationId !== null &&
+          relatedIds.includes(selectedLocationId) &&
+          canReadTransfer(selectedLocationId)
+            ? selectedLocationId
+            : relatedIds.find(canReadTransfer) ?? null;
+
+        if (preferredLocationId === null) {
+          toast.error(
+            t("inventoryBatches.quantityActions.errors.followUnavailable", {
+              reference: transfer.transfer_reference,
+            }),
+          );
+          return;
+        }
+
+        if (preferredLocationId !== selectedLocationId) {
+          handleLocationChange(String(preferredLocationId));
+        }
+        setTransferFocus({
+          headerId: transfer.header_id,
+          reference: transfer.transfer_reference,
+        });
+        setActiveTab("transfers");
+      } catch (error: unknown) {
+        toast.error(
+          apiErrorMessage(
+            error,
+            t("inventoryBatches.quantityActions.errors.followUnavailable", {
+              reference: transfer.transfer_reference,
+            }),
+          ),
+        );
+      }
+    },
+    [authFetch, handleLocationChange, locations, selectedLocationId, t],
   );
   // ── fetchers ────────────────────────────────────────────────────────────────
   const fetchStock = useCallback(async () => {
@@ -1263,7 +1332,7 @@ export default function MainInventory() {
             locationId={selectedLocationId}
             focus={batchNavigationFocus}
             onFocusConsumed={() => setBatchNavigationFocus(null)}
-            onOpenTransfers={() => setActiveTab("transfers")}
+            onOpenTransfers={handleOpenTransfers}
           />
         )}
         {!locationAccess.isPending && activeTab === "inbound" && tabAllowed("inbound") && selectedLocationId !== null && locationAccess.data && (
@@ -1309,6 +1378,8 @@ export default function MainInventory() {
         {!locationAccess.isPending && activeTab === "transfers" && tabAllowed("transfers") && selectedLocationId !== null && (
           <TabTransfers
             locationId={selectedLocationId}
+            focus={transferFocus}
+            onFocusConsumed={() => setTransferFocus(null)}
             onInventoryChanged={async () => {
               setStockRefreshKey((value) => value + 1);
               setLedgerRefreshKey((value) => value + 1);

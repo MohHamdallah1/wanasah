@@ -108,30 +108,38 @@ export function useTransferList(locationId: number) {
     void fetchTransfers();
   }, [fetchTransfers, refreshKey]);
 
-  const openDetail = useCallback(
-    async (transfer: WarehouseTransferListItem) => {
+  const openDetailById = useCallback(
+    async (headerId: number) => {
       const seq = ++detailRequestSeq.current;
       setDetailLoading(true);
       setDetail(null);
 
       try {
         const raw = await authenticatedFetch(
-          `/warehouse/unified/transfers/${transfer.id}`
+          `/warehouse/unified/transfers/${headerId}`
         );
 
-        if (seq !== detailRequestSeq.current) return;
+        if (seq !== detailRequestSeq.current) return false;
 
         setDetail(parseTransferDetail(raw, locationId));
+        return true;
       } catch (error: unknown) {
-        if (seq !== detailRequestSeq.current) return;
+        if (seq !== detailRequestSeq.current) return false;
         toast.error(
           "فشل جلب تفاصيل الحوالة: " + getErrorMessage(error)
         );
+        return false;
       } finally {
         if (seq === detailRequestSeq.current) setDetailLoading(false);
       }
     },
     [authenticatedFetch, locationId]
+  );
+
+  const openDetail = useCallback(
+    (transfer: WarehouseTransferListItem) =>
+      openDetailById(transfer.id),
+    [openDetailById]
   );
 
   const closeDetail = useCallback(() => {
@@ -180,6 +188,7 @@ export function useTransferList(locationId: number) {
     detailLoading,
     inTransitCount,
     openDetail,
+    openDetailById,
     closeDetail,
     resetDetail,
     refreshTransfers,

@@ -85,6 +85,33 @@ export function parseInventoryCapabilities(raw: unknown): InventoryCapabilities 
   };
 }
 
+export function parseInventoryLocationCapabilities(
+  raw: unknown,
+  expectedLocationIds: number[],
+): Record<number, string[]> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    inventoryAccessContractError('INVENTORY_LOCATION_CAPABILITIES_RESPONSE_INVALID');
+  }
+  const locations = (raw as Record<string, unknown>).locations;
+  if (!locations || typeof locations !== 'object' || Array.isArray(locations)) {
+    inventoryAccessContractError('INVENTORY_LOCATION_CAPABILITIES_RESPONSE_INVALID');
+  }
+
+  const expected = new Set(expectedLocationIds);
+  const result: Record<number, string[]> = {};
+  for (const [id, codes] of Object.entries(locations)) {
+    const numericId = Number(id);
+    if (!Number.isSafeInteger(numericId) || !expected.has(numericId)) {
+      inventoryAccessContractError('INVENTORY_LOCATION_CAPABILITIES_RESPONSE_INVALID');
+    }
+    result[numericId] = parsePermissionCodes(
+      codes,
+      'INVENTORY_LOCATION_CAPABILITIES_RESPONSE_INVALID',
+    );
+  }
+  return result;
+}
+
 export function useInventoryAccess(locationId: number | null = null) {
   const authFetch = useAuthFetch();
   // Cache partitioning is UX only; the server independently verifies the token.
@@ -123,26 +150,13 @@ export function useLocationCapabilities(locationIds: number[]) {
   const query = useQuery({
     queryKey: ['inventory-access', localStorage.getItem('company_id'), localStorage.getItem('driver_id'), 'batch', ids],
     enabled: ids.length > 0,
-    queryFn: async ({ signal }) => {
-      const raw = await authFetch('/inventory/access/locations/capabilities', {
-        method: 'POST', signal, body: JSON.stringify({ location_ids: ids }),
-      }) as { locations?: Record<string, unknown> };
-      if (!raw?.locations || typeof raw.locations !== 'object' || Array.isArray(raw.locations)) {
-        inventoryAccessContractError('INVENTORY_LOCATION_CAPABILITIES_RESPONSE_INVALID');
-      }
-      const result: Record<number, string[]> = {};
-      for (const [id, codes] of Object.entries(raw.locations)) {
-        const numericId = Number(id);
-        if (!ids.includes(numericId)) {
-          inventoryAccessContractError('INVENTORY_LOCATION_CAPABILITIES_RESPONSE_INVALID');
-        }
-        result[numericId] = parsePermissionCodes(
-          codes,
-          'INVENTORY_LOCATION_CAPABILITIES_RESPONSE_INVALID',
-        );
-      }
-      return result;
-    },
+    queryFn: async ({ signal }) =>
+      parseInventoryLocationCapabilities(
+        await authFetch('/inventory/access/locations/capabilities', {
+          method: 'POST', signal, body: JSON.stringify({ location_ids: ids }),
+        }),
+        ids,
+      ),
     staleTime: 0, retry: false, refetchOnWindowFocus: true,
   });
   const { refetch } = query;

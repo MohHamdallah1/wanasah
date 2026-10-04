@@ -18,6 +18,7 @@ import { formatMoneyExact } from "@/lib/money";
 import type { InventoryBatchFocusIntent } from "@/features/inventory/navigation";
 import { BatchDispositionManager } from "./batches/BatchDispositionManager";
 import type { BatchActionSnapshot } from "./batches/contracts";
+import type { BatchSpecialTransferResult } from "./batches/batchSpecialTransferContract";
 import { parseBatchStockSources } from "./batches/batchStockSourcesContract";
 import {
   parseBatchDetailResponse,
@@ -36,7 +37,9 @@ interface Props {
   locationId: number;
   focus?: InventoryBatchFocusIntent | null;
   onFocusConsumed: () => void;
-  onOpenTransfers: () => void;
+  onOpenTransfers: (
+    transfer?: BatchSpecialTransferResult,
+  ) => void | Promise<void>;
 }
 
 const PAGE_SIZE = 50;

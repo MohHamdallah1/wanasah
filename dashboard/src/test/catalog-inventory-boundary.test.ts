@@ -101,6 +101,29 @@ describe("Catalog / Inventory frontend boundary", () => {
     expect(batches).not.toContain("batchIssueFocus");
   });
 
+  it("follows the exact special-transfer operation inside Inventory without a storage workflow bridge", () => {
+    const quantityActions = read(
+      "../pages/inventory/batches/BatchQuantityActions.tsx",
+    );
+    const mainInventory = read("../pages/inventory/MainInventory.tsx");
+    const transferList = read(
+      "../pages/inventory/transfers/hooks/useTransferList.ts",
+    );
+    const transfersTab = read("../pages/inventory/TabTransfers.tsx");
+
+    expect(quantityActions).toContain("setLastTransfer(result)");
+    expect(mainInventory).toContain("headerId: transfer.header_id");
+    expect(mainInventory).toContain(
+      "parseInventoryLocationCapabilities",
+    );
+    expect(mainInventory).toContain("'transfer.read'");
+    expect(transferList).toContain(
+      "`/warehouse/unified/transfers/${headerId}`",
+    );
+    expect(transfersTab).toContain("setSearchInput(focus.reference)");
+    expect(mainInventory).not.toContain("localStorage.setItem(\"transfer");
+  });
+
   it("keeps Product lifecycle independent from Inventory page internals", () => {
     const lifecycle = read(
       "../pages/products/lifecycle/ProductLifecycleManager.tsx",
