@@ -41,11 +41,24 @@ export function BatchTerminalActionDialog({ choice, baseUomCode, busy, online, o
   const requiredReady = quantity.trim().length > 0 && (disposal
     ? reason.trim().length > 0
     : vendorName.trim().length > 0 && vendorReference.trim().length > 0 && handoverReference.trim().length > 0);
+  const canConfirm = online && !busy && requiredReady;
+  const evidence = (): BatchTerminalEvidence => ({
+    quantity,
+    reason,
+    method,
+    evidenceReference,
+    vendorName,
+    vendorReference,
+    handoverReference,
+  });
 
   const inputClass = "mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100";
   return <Modal isOpen onClose={onClose} title={t(`terminalQualityActions.actions.${action}.title`)}
     subtitle={t(`terminalQualityActions.actions.${action}.hint`)} maxWidth="max-w-lg">
-    <div className="space-y-3">
+    <form className="space-y-3" onSubmit={(event) => {
+      event.preventDefault();
+      if (canConfirm) void onConfirm(evidence());
+    }}>
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
         <p className="font-black text-slate-900">{choice.source.location_name}</p>
         <p className="mt-1 font-semibold text-slate-600">{t("terminalQualityActions.eligible", { quantity: choice.availability.eligible_quantity, unit: baseUomCode })}</p>
@@ -76,9 +89,9 @@ export function BatchTerminalActionDialog({ choice, baseUomCode, busy, online, o
       </>}
       <div className="flex flex-wrap justify-end gap-2 pt-1">
         <button type="button" onClick={onClose} disabled={busy} className="rounded-lg px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-50 disabled:opacity-40">{t("common.cancel")}</button>
-        <button type="button" disabled={!online || busy || !requiredReady} onClick={() => void onConfirm({ quantity, reason, method, evidenceReference, vendorName, vendorReference, handoverReference })}
+        <button type="submit" disabled={!canConfirm}
           className="rounded-lg bg-slate-950 px-4 py-2 text-xs font-black text-white hover:bg-slate-800 disabled:opacity-40">{t("terminalQualityActions.confirm")}</button>
       </div>
-    </div>
+    </form>
   </Modal>;
 }
