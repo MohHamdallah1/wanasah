@@ -30,6 +30,14 @@ def payload():
                         "on_hand_quantity": "12.000000",
                         "reserved_quantity": "2.000000",
                         "movable_quantity": "10.000000",
+                        "terminal_actions": [
+                            {
+                                "action": "CONFIRM_VENDOR_HANDOVER",
+                                "allowed": True,
+                                "eligible_quantity": "4.000000",
+                                "reason_code": "ALLOWED",
+                            }
+                        ],
                         "reservation_evidence": {
                             "coverage": "UNRESOLVED",
                             "reason": "OWNER_EVIDENCE_UNAVAILABLE",
@@ -54,6 +62,10 @@ def test_stock_sources_contract_supports_vehicle_only_batch_action_context():
     assert result.base_uom_code == "EA"
     assert len(result.sources) == 1
     assert result.sources[0].location_type == "VEHICLE"
+    action = result.sources[0].statuses[0].terminal_actions[0]
+    assert action.action == "CONFIRM_VENDOR_HANDOVER"
+    assert action.allowed is True
+    assert action.eligible_quantity == 4
 
 
 def test_stock_sources_contract_rejects_invalid_action_revision():

@@ -1514,6 +1514,19 @@ class WarehouseInventoryBatchDetailResponse(BaseModel):
     has_more: bool
 
 
+class WarehouseBatchTerminalActionItem(BaseModel):
+    action: Literal["CONFIRM_DISPOSAL", "CONFIRM_VENDOR_HANDOVER"]
+    allowed: bool
+    eligible_quantity: NonNegativeQuantity
+    reason_code: Literal[
+        "ALLOWED",
+        "PERMISSION_REQUIRED",
+        "NO_MOVABLE_QUANTITY",
+        "ORIGIN_EVIDENCE_MISSING",
+        "STATE_RESTRICTION",
+    ]
+
+
 class WarehouseBatchStockStatusItem(BaseModel):
     stock_status: Literal[
         "AVAILABLE",
@@ -1533,6 +1546,9 @@ class WarehouseBatchStockStatusItem(BaseModel):
         "DISPOSAL",
     ]] = Field(default_factory=list, max_length=4)
     reservation_evidence: ReservationEvidence
+    terminal_actions: List[WarehouseBatchTerminalActionItem] = Field(
+        default_factory=list, max_length=2
+    )
 
 
 class WarehouseBatchStockSourceItem(BaseModel):

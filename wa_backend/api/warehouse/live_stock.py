@@ -17,6 +17,7 @@ from domains.dispatch_reservations import (
     reservation_owner_projection,
     variant_reservation_owner_projection,
 )
+from domains.inventory_terminal_provenance import read_terminal_origin_availability
 from models import (
     Company,
     DispatchRoute,
@@ -2849,6 +2850,12 @@ async def get_batch_stock_sources(
                 InventoryLocation.name.label("location_name"),
                 InventoryLocation.location_type,
                 can_send.label("can_send"),
+                access.allows(
+                    "inventory.disposal.confirm", InventoryLocation.id
+                ).label("can_confirm_disposal"),
+                access.allows(
+                    "inventory.vendor_return.confirm", InventoryLocation.id
+                ).label("can_confirm_vendor_return"),
                 InventoryBalance.stock_status,
                 InventoryBalance.on_hand_quantity,
                 InventoryBalance.reserved_quantity,
@@ -2911,6 +2918,14 @@ async def get_batch_stock_sources(
             ),
         )
 
+    terminal_availability = await read_terminal_origin_availability(
+        db,
+        company_id=company_id,
+        destination_location_ids={int(row.location_id) for row in rows},
+        product_variant_id=int(batch_row.product_variant_id),
+        batch_id=batch_id,
+    )
+
     sources_by_id: dict[int, dict] = {}
     statuses_by_key: dict[tuple[int, str], dict] = {}
     owner_rows_by_key: dict[tuple[int, str], list] = {}
@@ -2965,12 +2980,77 @@ async def get_batch_stock_sources(
             and purpose_access.get(purpose, False)
             and special_destinations.get(purpose) != location_id
         ) if movable > 0 else ()
+        stock_status = str(row.stock_status).upper()
+        terminal_actions = []
+
+        disposal_evidence = terminal_availability.get(
+            ("DISPOSAL", location_id), Decimal("0")
+        )
+        if stock_status == "DISPOSAL_PENDING" or disposal_evidence > 0:
+            if stock_status != "DISPOSAL_PENDING":
+                disposal_allowed = False
+                disposal_reason = "STATE_RESTRICTION"
+                disposal_eligible = Decimal("0")
+            elif not bool(row.can_confirm_disposal):
+                disposal_allowed = False
+                disposal_reason = "PERMISSION_REQUIRED"
+                disposal_eligible = Decimal("0")
+            elif movable <= 0:
+                disposal_allowed = False
+                disposal_reason = "NO_MOVABLE_QUANTITY"
+                disposal_eligible = Decimal("0")
+            elif disposal_evidence <= 0:
+                disposal_allowed = False
+                disposal_reason = "ORIGIN_EVIDENCE_MISSING"
+                disposal_eligible = Decimal("0")
+            else:
+                disposal_allowed = True
+                disposal_reason = "ALLOWED"
+                disposal_eligible = min(movable, disposal_evidence)
+            terminal_actions.append({
+                "action": "CONFIRM_DISPOSAL",
+                "allowed": disposal_allowed,
+                "eligible_quantity": canonical_quantity(disposal_eligible),
+                "reason_code": disposal_reason,
+            })
+
+        vendor_evidence = terminal_availability.get(
+            ("RETURN_TO_VENDOR", location_id), Decimal("0")
+        )
+        if vendor_evidence > 0:
+            vendor_status_allowed = stock_status in {
+                "QUARANTINED", "BLOCKED", "RECALLED", "DAMAGED"
+            }
+            if not vendor_status_allowed:
+                vendor_allowed = False
+                vendor_reason = "STATE_RESTRICTION"
+                vendor_eligible = Decimal("0")
+            elif not bool(row.can_confirm_vendor_return):
+                vendor_allowed = False
+                vendor_reason = "PERMISSION_REQUIRED"
+                vendor_eligible = Decimal("0")
+            elif movable <= 0:
+                vendor_allowed = False
+                vendor_reason = "NO_MOVABLE_QUANTITY"
+                vendor_eligible = Decimal("0")
+            else:
+                vendor_allowed = True
+                vendor_reason = "ALLOWED"
+                vendor_eligible = min(movable, vendor_evidence)
+            terminal_actions.append({
+                "action": "CONFIRM_VENDOR_HANDOVER",
+                "allowed": vendor_allowed,
+                "eligible_quantity": canonical_quantity(vendor_eligible),
+                "reason_code": vendor_reason,
+            })
+
         status = {
-            "stock_status": str(row.stock_status).upper(),
+            "stock_status": stock_status,
             "on_hand_quantity": canonical_quantity(on_hand),
             "reserved_quantity": canonical_quantity(reserved),
             "movable_quantity": canonical_quantity(movable),
             "allowed_purposes": list(allowed),
+            "terminal_actions": terminal_actions,
         }
         statuses_by_key[key] = status
         source["statuses"].append(status)
