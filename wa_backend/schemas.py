@@ -1541,7 +1541,15 @@ class WarehouseBatchStockSourceItem(BaseModel):
 class WarehouseBatchStockSourcesResponse(BaseModel):
     batch_id: PositiveDbInt
     product_variant_id: PositiveDbInt
+    batch_number: str = Field(..., min_length=1, max_length=100)
+    production_date: Optional[date] = None
+    expiry_date: Optional[date] = None
+    disposition: Literal["RELEASED", "QUARANTINED", "BLOCKED", "RECALLED"]
+    disposition_reason: Optional[str] = Field(None, max_length=2000)
+    disposition_revision: PositiveDbInt
+    days_to_expiry: Optional[int] = None
     base_uom_id: PositiveDbInt
+    base_uom_code: str = Field(..., min_length=1, max_length=20)
     operational_hold: Literal["NONE", "SALES_HOLD", "RECALL"]
     sources: List[WarehouseBatchStockSourceItem] = Field(
         default_factory=list,

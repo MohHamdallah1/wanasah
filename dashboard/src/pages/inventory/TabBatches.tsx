@@ -17,6 +17,7 @@ import { resolveI18nLocale } from "@/lib/locale";
 import { formatMoneyExact } from "@/lib/money";
 import type { InventoryBatchFocusIntent } from "@/features/inventory/navigation";
 import { BatchDispositionManager } from "./batches/BatchDispositionManager";
+import type { BatchActionSnapshot } from "./batches/contracts";
 import { parseBatchStockSources } from "./batches/batchStockSourcesContract";
 import {
   parseBatchDetailResponse,
@@ -35,7 +36,6 @@ interface Props {
   locationId: number;
   focus?: InventoryBatchFocusIntent | null;
   onFocusConsumed: () => void;
-  onFocusLocation: (locationId: number) => void;
   onOpenTransfers: () => void;
 }
 
@@ -67,7 +67,6 @@ export function TabBatches({
   locationId,
   focus = null,
   onFocusConsumed,
-  onFocusLocation,
   onOpenTransfers,
 }: Props) {
   const authFetch = useAuthFetch();
@@ -79,10 +78,6 @@ export function TabBatches({
   const [focusVariantId, setFocusVariantId] = useState<number | null>(
     focus?.variantId ?? null,
   );
-  const [focusBatchId, setFocusBatchId] = useState<number | null>(
-    focus?.batchId ?? null,
-  );
-
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [products, setProducts] = useState<WarehouseBatchProductOption[]>([]);
@@ -91,8 +86,11 @@ export function TabBatches({
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [details, setDetails] = useState<WarehouseBatchDetailResponse | null>(null);
-  const [selectedBatch, setSelectedBatch] =
-    useState<WarehouseBatchInventoryItem | null>(null);
+  const [selectedBatchContext, setSelectedBatchContext] = useState<{
+    batch: BatchActionSnapshot;
+    productVariantId: number;
+    baseUomCode: string;
+  } | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [loadingMoreDetails, setLoadingMoreDetails] = useState(false);
   const [detailsFailed, setDetailsFailed] = useState(false);
@@ -124,15 +122,13 @@ export function TabBatches({
         ) {
           throw codedError("BATCH_STOCK_SOURCES_SCOPE_MISMATCH");
         }
-        const warehouses = sources.sources.filter(
-          (source) => source.location_type === "WAREHOUSE",
-        );
-        if (
-          warehouses.length > 0 &&
-          !warehouses.some((source) => source.location_id === locationId)
-        ) {
-          onFocusLocation(warehouses[0].location_id);
-        }
+        setSelectedBatchContext({
+          batch: sources.batch,
+          productVariantId: sources.product_variant_id,
+          baseUomCode: sources.base_uom_code,
+        });
+        setFocusVariantId(null);
+        onFocusConsumed();
       } catch (error: unknown) {
         if (error instanceof Error && error.name === "AbortError") return;
         toast.error(
@@ -141,7 +137,7 @@ export function TabBatches({
       }
     })();
     return () => controller.abort();
-  }, [authFetch, focus?.batchId, focus?.variantId, locationId, onFocusLocation, t]);
+  }, [authFetch, focus?.batchId, focus?.variantId, onFocusConsumed, t]);
 
   useEffect(() => {
     setSearchInput("");
@@ -151,7 +147,7 @@ export function TabBatches({
     setNextCursor(null);
     setSelectedProductId(null);
     setDetails(null);
-    setSelectedBatch(null);
+    setSelectedBatchContext(null);
     setLoadingMoreDetails(false);
     setDetailsFailed(false);
 
@@ -177,10 +173,8 @@ export function TabBatches({
     }
     setSelectedProductId(focusVariantId);
     setFocusVariantId(null);
-    if (focusBatchId === null) {
-      onFocusConsumed();
-    }
-  }, [focusBatchId, focusVariantId, onFocusConsumed, products]);
+    onFocusConsumed();
+  }, [focusVariantId, onFocusConsumed, products]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -192,7 +186,7 @@ export function TabBatches({
       setNextCursor(null);
       setSelectedProductId(null);
       setDetails(null);
-      setSelectedBatch(null);
+      setSelectedBatchContext(null);
       setLoadingMoreDetails(false);
       setDetailsFailed(false);
       setSearch(next);
@@ -346,39 +340,6 @@ export function TabBatches({
     void fetchDetails(null);
   }, [fetchDetails]);
 
-  useEffect(() => {
-    if (
-      focusBatchId === null ||
-      details === null ||
-      loadingDetails ||
-      loadingMoreDetails
-    ) {
-      return;
-    }
-    const target = details.batches.find(
-      (batch) => batch.batch_id === focusBatchId,
-    );
-    if (target) {
-      setSelectedBatch(target);
-      setFocusBatchId(null);
-      onFocusConsumed();
-      return;
-    }
-    if (details.has_more && details.next_cursor) {
-      void fetchDetails(details.next_cursor);
-      return;
-    }
-    setFocusBatchId(null);
-    onFocusConsumed();
-  }, [
-    details,
-    fetchDetails,
-    focusBatchId,
-    loadingDetails,
-    loadingMoreDetails,
-    onFocusConsumed,
-  ]);
-
   const formatDate = useCallback(
     (value: string | null): string => {
       if (!value) return "—";
@@ -456,7 +417,7 @@ export function TabBatches({
               className="inventory-batches-product"
               data-active={selectedProductId === product.id}
               onClick={() => {
-                setSelectedBatch(null);
+                setSelectedBatchContext(null);
                 setSelectedProductId(product.id);
               }}
             >
@@ -712,7 +673,14 @@ export function TabBatches({
                               <td>
                                 <button
                                   type="button"
-                                  onClick={() => setSelectedBatch(batch)}
+                                  onClick={() => {
+                                    if (!selectedProduct) return;
+                                    setSelectedBatchContext({
+                                      batch,
+                                      productVariantId: selectedProduct.id,
+                                      baseUomCode: selectedProduct.base_uom_code,
+                                    });
+                                  }}
                                   className="whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-black text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
                                 >
                                   {t("inventoryBatches.manageStatus")}
@@ -748,13 +716,17 @@ export function TabBatches({
       </section>
 
       <BatchDispositionManager
-        batch={selectedBatch}
-        productVariantId={selectedProduct?.id ?? null}
-        baseUomCode={selectedProduct?.base_uom_code ?? ""}
+        batch={selectedBatchContext?.batch ?? null}
+        productVariantId={
+          selectedBatchContext?.productVariantId ?? null
+        }
+        baseUomCode={selectedBatchContext?.baseUomCode ?? ""}
         onOpenTransfers={onOpenTransfers}
-        onClose={() => setSelectedBatch(null)}
+        onClose={() => setSelectedBatchContext(null)}
         onChanged={async () => {
-          await fetchDetails(null);
+          if (selectedProduct) {
+            await fetchDetails(null);
+          }
         }}
       />
     </div>

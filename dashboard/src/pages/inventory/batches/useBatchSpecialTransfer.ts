@@ -16,13 +16,13 @@ import {
   durableScope,
   getOrCreateDurableCommand,
 } from "@/lib/durableOperations";
-import type { WarehouseBatchInventoryItem } from "@/pages/inventory/liveStock/contracts";
 import type { Quantity } from "@/lib/quantity";
 
 import {
   parseBatchSpecialTransferResult,
   type BatchSpecialTransferPurpose,
 } from "./batchSpecialTransferContract";
+import type { BatchActionSnapshot } from "./contracts";
 import type {
   BatchStockStatus,
 } from "./batchStockSourcesContract";
@@ -36,7 +36,7 @@ type Choice = {
 };
 
 type Params = {
-  batch: WarehouseBatchInventoryItem | null;
+  batch: BatchActionSnapshot | null;
   productVariantId: number | null;
   onSucceeded: () => void | Promise<void>;
 };

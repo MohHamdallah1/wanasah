@@ -647,11 +647,6 @@ export default function MainInventory() {
     },
     [locations, prepareLocationChange, selectedLocationStorageKey]
   );
-  const handleFocusLocation = useCallback(
-    (locationId: number) => handleLocationChange(String(locationId)),
-    [handleLocationChange],
-  );
-
   // ── fetchers ────────────────────────────────────────────────────────────────
   const fetchStock = useCallback(async () => {
     if (selectedLocationId === null || !canReadStock) return;
@@ -1268,7 +1263,6 @@ export default function MainInventory() {
             locationId={selectedLocationId}
             focus={batchNavigationFocus}
             onFocusConsumed={() => setBatchNavigationFocus(null)}
-            onFocusLocation={handleFocusLocation}
             onOpenTransfers={() => setActiveTab("transfers")}
           />
         )}

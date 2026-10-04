@@ -18,10 +18,10 @@ import {
   readDurableCommand,
   type DurableCommand,
 } from "@/lib/durableOperations";
-import type { WarehouseBatchInventoryItem } from "@/pages/inventory/liveStock/contracts";
 
 import {
   parseBatchDispositionMutation,
+  type BatchActionSnapshot,
   type BatchDisposition,
 } from "./contracts";
 
@@ -33,7 +33,7 @@ type BatchDispositionCommand = {
 };
 
 type Params = {
-  batch: WarehouseBatchInventoryItem | null;
+  batch: BatchActionSnapshot | null;
   canChange: boolean;
   onSucceeded: () => void | Promise<void>;
 };

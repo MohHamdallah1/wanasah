@@ -4,6 +4,17 @@ export type BatchDisposition =
   | "BLOCKED"
   | "RECALLED";
 
+export type BatchActionSnapshot = {
+  batch_id: number;
+  batch_number: string;
+  production_date: string | null;
+  expiry_date: string | null;
+  disposition: BatchDisposition;
+  disposition_reason: string | null;
+  disposition_revision: number;
+  days_to_expiry: number | null;
+};
+
 export type BatchDispositionMutation = {
   batch_id: number;
   product_variant_id: number;

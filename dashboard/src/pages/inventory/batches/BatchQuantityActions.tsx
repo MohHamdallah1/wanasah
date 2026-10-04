@@ -11,7 +11,6 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
-import type { WarehouseBatchInventoryItem } from "@/pages/inventory/liveStock/contracts";
 import {
   compareQuantity,
   type Quantity,
@@ -20,6 +19,7 @@ import {
 import type {
   BatchSpecialTransferPurpose,
 } from "./batchSpecialTransferContract";
+import type { BatchActionSnapshot } from "./contracts";
 import type {
   BatchStockSource,
   BatchStockSourceStatus,
@@ -29,7 +29,7 @@ import { useBatchSpecialTransfer } from "./useBatchSpecialTransfer";
 import { useBatchStockSources } from "./useBatchStockSources";
 
 type Props = {
-  batch: WarehouseBatchInventoryItem;
+  batch: BatchActionSnapshot;
   productVariantId: number;
   baseUomCode: string;
   onChanged: () => void | Promise<void>;
@@ -68,7 +68,7 @@ const purposeIcon = (
 };
 
 const allowedPurposes = (
-  batchDisposition: WarehouseBatchInventoryItem["disposition"],
+  batchDisposition: BatchActionSnapshot["disposition"],
   operationalHold: "NONE" | "SALES_HOLD" | "RECALL",
   sourceStatus: BatchStockStatus,
   metadataRestricted: boolean,

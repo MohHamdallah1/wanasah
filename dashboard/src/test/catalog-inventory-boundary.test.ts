@@ -93,9 +93,11 @@ describe("Catalog / Inventory frontend boundary", () => {
       "`/warehouse/batches/${focus.batchId}/stock-sources`",
     );
     expect(batches).toContain(
-      "batch.batch_id === focusBatchId",
+      "setSelectedBatchContext({",
     );
-    expect(batches).toContain("setSelectedBatch(target)");
+    expect(batches).toContain("batch: sources.batch");
+    expect(batches).toContain("baseUomCode: sources.base_uom_code");
+    expect(batches).not.toContain("focusBatchId");
     expect(batches).not.toContain("batchIssueFocus");
   });
 

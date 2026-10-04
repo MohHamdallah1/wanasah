@@ -12,15 +12,14 @@ import { useTranslation } from "react-i18next";
 import { ReasonPresetField } from "@/components/forms/ReasonPresetField";
 import { Modal } from "@/components/ui/modal";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
-import type { WarehouseBatchInventoryItem } from "@/pages/inventory/liveStock/contracts";
 
 import { BatchQuantityActions } from "./BatchQuantityActions";
 import { allowedBatchDispositionTargets } from "./batchDispositionRules";
-import type { BatchDisposition } from "./contracts";
+import type { BatchActionSnapshot, BatchDisposition } from "./contracts";
 import { useBatchDispositionCommand } from "./useBatchDispositionCommand";
 
 type Props = {
-  batch: WarehouseBatchInventoryItem | null;
+  batch: BatchActionSnapshot | null;
   productVariantId: number | null;
   baseUomCode: string;
   onClose: () => void;

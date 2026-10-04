@@ -1,3 +1,4 @@
+import type { BatchActionSnapshot, BatchDisposition } from "./contracts";
 import {
   compareQuantity,
   parseQuantity,
@@ -30,7 +31,9 @@ export type BatchStockSource = {
 export type BatchStockSources = {
   batch_id: number;
   product_variant_id: number;
+  batch: BatchActionSnapshot;
   base_uom_id: number;
+  base_uom_code: string;
   operational_hold: "NONE" | "SALES_HOLD" | "RECALL";
   sources: BatchStockSource[];
 };
@@ -170,10 +173,53 @@ export function parseBatchStockSources(
     };
   });
 
+  const batchId = positiveInt(row.batch_id);
+  const disposition = row.disposition as BatchDisposition;
+  const batchNumber = row.batch_number;
+  const productionDate = row.production_date;
+  const expiryDate = row.expiry_date;
+  const reason = row.disposition_reason;
+  const daysToExpiry = row.days_to_expiry;
+  const baseUomCode = row.base_uom_code;
+  const isoDate = /^\d{4}-\d{2}-\d{2}$/;
+  if (
+    (disposition !== "RELEASED" &&
+      disposition !== "QUARANTINED" &&
+      disposition !== "BLOCKED" &&
+      disposition !== "RECALLED") ||
+    typeof batchNumber !== "string" ||
+    !batchNumber.trim() ||
+    batchNumber.length > 100 ||
+    (productionDate !== null &&
+      (typeof productionDate !== "string" || !isoDate.test(productionDate))) ||
+    (expiryDate !== null &&
+      (typeof expiryDate !== "string" || !isoDate.test(expiryDate))) ||
+    (reason !== null &&
+      (typeof reason !== "string" || !reason.trim() || reason.length > 2000)) ||
+    (daysToExpiry !== null &&
+      (typeof daysToExpiry !== "number" || !Number.isSafeInteger(daysToExpiry))) ||
+    typeof baseUomCode !== "string" ||
+    !baseUomCode.trim() ||
+    baseUomCode.length > 20
+  ) {
+    return invalid();
+  }
+
   return {
-    batch_id: positiveInt(row.batch_id),
+    batch_id: batchId,
     product_variant_id: positiveInt(row.product_variant_id),
+    batch: {
+      batch_id: batchId,
+      batch_number: batchNumber.trim(),
+      production_date: productionDate,
+      expiry_date: expiryDate,
+      disposition,
+      disposition_reason: reason,
+      disposition_revision: positiveInt(row.disposition_revision),
+      days_to_expiry: daysToExpiry,
+    },
     base_uom_id: positiveInt(row.base_uom_id),
+    base_uom_code: baseUomCode.trim(),
     operational_hold: row.operational_hold,
     sources: parsedSources,
   };

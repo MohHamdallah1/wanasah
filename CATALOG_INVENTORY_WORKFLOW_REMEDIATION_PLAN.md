@@ -266,12 +266,14 @@ Purpose: when physical quantities require action, Inventory provides the complet
 
 ## 4.1 Batch-specific issue
 
-- [ ] Batches & Expiry opens directly on the affected product/batch from a navigation intent.
-- [ ] Show batch state, saved reason, expiry evidence, and affected quantities.
+- [x] Batches & Expiry opens directly on the affected product/batch from a navigation intent.
+- [x] Show batch state, saved reason, expiry evidence, and affected quantities.
 - [ ] Show quantity by exact warehouse/location and vehicle/custody source when supported.
 - [ ] Offer only backend-valid actions for the current quantity/state/permission.
 - [ ] Supported physical actions may include quarantine, return to supplier, disposal, approved transfer, and custody/vehicle collection.
 - [ ] Reserved quantity must show the exact blocker and the owning operation when available; do not say only `عالج الحجز`.
+
+**4.1 checkpoint evidence:** exact-batch navigation now opens from the permission-filtered known-batch `stock-sources` contract itself rather than requiring the batch to exist in the currently selected warehouse. The contract carries authoritative batch number, disposition/revision/reason, production/expiry dates, company-local days-to-expiry and base UOM code, so vehicle-only batches can open the same Inventory-owned manager without fabricating warehouse state. The manager shows current batch decision context and company-readable source quantities; supplier-return/disposal actions are explicitly described as staging, not terminal handoff/destruction. Focused gate: 15 frontend tests PASS, 2 backend contract tests PASS, TypeScript PASS, ESLint PASS. Reservation-owner evidence, complete custody identity and terminal handoff/destruction remain open.
 
 ## 4.2 Whole-product confirmed issue
 

@@ -2434,8 +2434,19 @@ async def get_batch_stock_sources(
             select(
                 ProductBatch.id,
                 ProductBatch.product_variant_id,
+                ProductBatch.batch_number,
+                ProductBatch.production_date,
+                ProductBatch.expiry_date,
+                ProductBatch.disposition,
+                ProductBatch.disposition_reason,
+                ProductBatch.disposition_revision,
                 ProductVariant.base_uom_id,
+                UOM.code.label("base_uom_code"),
                 ProductVariant.operational_hold,
+                func.timezone(
+                    Company.timezone,
+                    func.current_timestamp(),
+                ).cast(Date).label("as_of_date"),
             )
             .join(
                 ProductVariant,
@@ -2444,9 +2455,12 @@ async def get_batch_stock_sources(
                     ProductVariant.id == ProductBatch.product_variant_id,
                 ),
             )
+            .join(UOM, UOM.id == ProductVariant.base_uom_id)
+            .join(Company, Company.id == ProductBatch.company_id)
             .where(
                 ProductBatch.company_id == company_id,
                 ProductBatch.id == batch_id,
+                Company.id == company_id,
             )
         )
     ).one_or_none()
@@ -2552,7 +2566,24 @@ async def get_batch_stock_sources(
     return {
         "batch_id": int(batch_row.id),
         "product_variant_id": int(batch_row.product_variant_id),
+        "batch_number": str(batch_row.batch_number),
+        "production_date": batch_row.production_date,
+        "expiry_date": batch_row.expiry_date,
+        "disposition": str(batch_row.disposition),
+        "disposition_reason": (
+            str(batch_row.disposition_reason)
+            if batch_row.disposition_reason is not None
+            else None
+        ),
+        "disposition_revision": int(batch_row.disposition_revision),
+        "days_to_expiry": (
+            (batch_row.expiry_date - batch_row.as_of_date).days
+            if batch_row.expiry_date is not None
+            and batch_row.as_of_date is not None
+            else None
+        ),
         "base_uom_id": int(batch_row.base_uom_id),
+        "base_uom_code": str(batch_row.base_uom_code),
         "operational_hold": str(batch_row.operational_hold),
         "sources": list(sources_by_id.values()),
     }
