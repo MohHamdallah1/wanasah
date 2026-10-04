@@ -41,6 +41,10 @@ async def no_quality_source_limit(*_args, **_kwargs):
     return None
 
 
+def no_disposition_targets(_current):
+    return ()
+
+
 def action_matrix(**kwargs):
     purposes = ("QUARANTINE", "RECALL_RETURN", "RETURN_TO_VENDOR", "DISPOSAL")
     return {
@@ -122,6 +126,7 @@ def endpoint(blocker_reader=no_completion_blockers):
         SPECIAL_TRANSFER_PERMISSION=SPECIAL_TRANSFER_PERMISSION,
         read_special_transfer_destinations=no_special_transfer_destinations,
         first_quality_source_limit_excess=no_quality_source_limit,
+        allowed_batch_disposition_targets=no_disposition_targets,
                 inventory_business_error=lambda code, message, context=None: {
             "code": code,
             "message": message,

@@ -12,6 +12,7 @@ export type BatchActionSnapshot = {
   disposition: BatchDisposition;
   disposition_reason: string | null;
   disposition_revision: number;
+  allowed_disposition_targets: BatchDisposition[];
   days_to_expiry: number | null;
 };
 

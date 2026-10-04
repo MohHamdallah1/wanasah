@@ -22,7 +22,8 @@ export const batchSource = (id: number, name: string, type: "WAREHOUSE" | "VEHIC
 
 export const batchFocusPayload = (sources = [batchSource(11, "Warehouse A")]) => ({
   batch_id: 41, product_variant_id: 118, batch_number: "LOT-41", production_date: "2026-09-01", expiry_date: "2027-09-01",
-  disposition: "QUARANTINED", disposition_reason: "Saved inspection reason", disposition_revision: 3, days_to_expiry: 332,
+  disposition: "QUARANTINED", disposition_reason: "Saved inspection reason", disposition_revision: 3,
+  allowed_disposition_targets: ["RELEASED", "BLOCKED", "RECALLED"], days_to_expiry: 332,
   base_uom_id: 7, base_uom_code: "EACH", operational_hold: "NONE", sources,
 });
 

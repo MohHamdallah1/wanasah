@@ -14,7 +14,6 @@ import { Modal } from "@/components/ui/modal";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 
 import { BatchQuantityActions } from "./BatchQuantityActions";
-import { allowedBatchDispositionTargets } from "./batchDispositionRules";
 import type { BatchActionSnapshot, BatchDisposition } from "./contracts";
 import type { BatchSpecialTransferResult } from "./batchSpecialTransferContract";
 import type { ReservationOwner } from "./batchStockSourcesContract";
@@ -92,13 +91,7 @@ export function BatchDispositionManager({
   const canChange =
     access.isCompanyAdmin ||
     access.can("batch.disposition");
-  const targets = useMemo(
-    () =>
-      batch
-        ? allowedBatchDispositionTargets(batch.disposition)
-        : [],
-    [batch],
-  );
+  const targets = batch?.allowed_disposition_targets ?? [];
   const command = useBatchDispositionCommand({
     batch,
     canChange,

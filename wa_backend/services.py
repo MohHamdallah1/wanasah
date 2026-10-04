@@ -525,10 +525,10 @@ _BATCH_DISPOSITIONS = frozenset({
 # RECALLED is terminal here; return/quarantine/disposal of recalled physical stock
 # belongs to Stage 4E transfer-purpose workflows, not a generic disposition patch.
 _BATCH_DISPOSITION_TRANSITIONS = {
-    "RELEASED": frozenset({"QUARANTINED", "BLOCKED", "RECALLED"}),
-    "QUARANTINED": frozenset({"RELEASED", "BLOCKED", "RECALLED"}),
-    "BLOCKED": frozenset({"RECALLED"}),
-    "RECALLED": frozenset(),
+    "RELEASED": ("QUARANTINED", "BLOCKED", "RECALLED"),
+    "QUARANTINED": ("RELEASED", "BLOCKED", "RECALLED"),
+    "BLOCKED": ("RECALLED",),
+    "RECALLED": (),
 }
 
 
@@ -550,6 +550,19 @@ class InventoryRuleError(InventoryMutationError):
             str(self),
             context=self.context,
         )
+
+
+def allowed_batch_disposition_targets(
+    current_disposition: str,
+) -> tuple[str, ...]:
+    current = str(current_disposition or "").strip().upper()
+    if current not in _BATCH_DISPOSITIONS:
+        raise InventoryRuleError(
+            "BATCH_DISPOSITION_INVALID",
+            "الدفعة تحمل disposition غير معروف.",
+            context={"current_disposition": current},
+        )
+    return _BATCH_DISPOSITION_TRANSITIONS[current]
 
 
 async def change_product_batch_disposition(
@@ -684,7 +697,7 @@ async def change_product_batch_disposition(
             "الدفعة موجودة بالفعل بالحالة المطلوبة.",
             context={"batch_id": batch_id, "disposition": current},
         )
-    if target not in _BATCH_DISPOSITION_TRANSITIONS[current]:
+    if target not in allowed_batch_disposition_targets(current):
         raise InventoryRuleError(
             "BATCH_DISPOSITION_TRANSITION_BLOCKED",
             "انتقال disposition المطلوب غير مسموح حسب مصفوفة Stage 4.",

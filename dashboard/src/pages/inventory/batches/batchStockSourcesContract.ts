@@ -121,6 +121,27 @@ const positiveInt = (value: unknown) =>
     ? value
     : invalid();
 
+const dispositions = new Set<BatchDisposition>([
+  "RELEASED",
+  "QUARANTINED",
+  "BLOCKED",
+  "RECALLED",
+]);
+
+export const parseAllowedBatchDispositionTargets = (
+  raw: unknown,
+): BatchDisposition[] => {
+  if (!Array.isArray(raw) || raw.length > 3) return invalid();
+  const values = raw as BatchDisposition[];
+  if (
+    values.some((value) => !dispositions.has(value)) ||
+    new Set(values).size !== values.length
+  ) {
+    return invalid();
+  }
+  return [...values];
+};
+
 const statuses = new Set<BatchStockStatus>([
   "AVAILABLE",
   "QUARANTINED",
@@ -416,6 +437,9 @@ export function parseBatchStockSources(
 
   const batchId = positiveInt(row.batch_id);
   const disposition = row.disposition as BatchDisposition;
+  const allowedDispositionTargets = parseAllowedBatchDispositionTargets(
+    row.allowed_disposition_targets,
+  );
   const batchNumber = row.batch_number;
   const productionDate = row.production_date;
   const expiryDate = row.expiry_date;
@@ -457,6 +481,7 @@ export function parseBatchStockSources(
       disposition,
       disposition_reason: reason as string | null,
       disposition_revision: positiveInt(row.disposition_revision),
+      allowed_disposition_targets: allowedDispositionTargets,
       days_to_expiry: daysToExpiry as number | null,
     },
     base_uom_id: positiveInt(row.base_uom_id),

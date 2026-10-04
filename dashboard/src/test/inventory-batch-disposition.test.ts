@@ -1,24 +1,31 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import { allowedBatchDispositionTargets } from "@/pages/inventory/batches/batchDispositionRules";
+import { parseAllowedBatchDispositionTargets } from "@/pages/inventory/batches/batchStockSourcesContract";
 import { parseBatchDispositionMutation } from "@/pages/inventory/batches/contracts";
 
 describe("batch disposition controls", () => {
-  it("mirrors the backend disposition transition matrix", () => {
-    expect(allowedBatchDispositionTargets("RELEASED")).toEqual([
-      "QUARANTINED",
-      "BLOCKED",
-      "RECALLED",
-    ]);
-    expect(allowedBatchDispositionTargets("QUARANTINED")).toEqual([
-      "RELEASED",
-      "BLOCKED",
-      "RECALLED",
-    ]);
-    expect(allowedBatchDispositionTargets("BLOCKED")).toEqual([
-      "RECALLED",
-    ]);
-    expect(allowedBatchDispositionTargets("RECALLED")).toEqual([]);
+  it("renders server-provided disposition targets instead of owning a transition matrix", () => {
+    expect(
+      parseAllowedBatchDispositionTargets([
+        "RELEASED",
+        "BLOCKED",
+        "RECALLED",
+      ]),
+    ).toEqual(["RELEASED", "BLOCKED", "RECALLED"]);
+    expect(() =>
+      parseAllowedBatchDispositionTargets(["RECALLED", "RECALLED"]),
+    ).toThrow("BATCH_STOCK_SOURCES_RESPONSE_INVALID");
+
+    const manager = readFileSync(
+      new URL(
+        "../pages/inventory/batches/BatchDispositionManager.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(manager).toContain("batch?.allowed_disposition_targets ?? []");
+    expect(manager).not.toContain("allowedBatchDispositionTargets");
   });
 
   it("requires the server revision returned by a disposition mutation", () => {

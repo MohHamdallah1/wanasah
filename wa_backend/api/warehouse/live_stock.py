@@ -44,6 +44,7 @@ from domains.inventory_quality_source_bounds import first_quality_source_limit_e
 from services import (
     InventoryRuleError,
     SPECIAL_TRANSFER_PERMISSION,
+    allowed_batch_disposition_targets,
     allowed_special_transfer_purposes,
     inventory_quality_action_availability,
     batch_expiry_policy_predicate,
@@ -2683,6 +2684,9 @@ async def get_whole_product_quality_issue_sources(
                         else None
                     ),
                     "disposition_revision": int(row.disposition_revision),
+                    "allowed_disposition_targets": list(
+                        allowed_batch_disposition_targets(str(row.disposition))
+                    ),
                     "days_to_expiry": (
                         (row.expiry_date - variant_row.as_of_date).days
                         if row.expiry_date is not None
@@ -3079,6 +3083,9 @@ async def get_batch_stock_sources(
             else None
         ),
         "disposition_revision": int(batch_row.disposition_revision),
+        "allowed_disposition_targets": list(
+            allowed_batch_disposition_targets(str(batch_row.disposition))
+        ),
         "days_to_expiry": (
             (batch_row.expiry_date - batch_row.as_of_date).days
             if batch_row.expiry_date is not None

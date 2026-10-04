@@ -1591,6 +1591,9 @@ class WarehouseBatchStockSourcesResponse(BaseModel):
     disposition: Literal["RELEASED", "QUARANTINED", "BLOCKED", "RECALLED"]
     disposition_reason: Optional[str] = Field(None, max_length=2000)
     disposition_revision: PositiveDbInt
+    allowed_disposition_targets: List[Literal["RELEASED", "QUARANTINED", "BLOCKED", "RECALLED"]] = Field(
+        default_factory=list, max_length=3
+    )
     days_to_expiry: Optional[int] = None
     base_uom_id: PositiveDbInt
     base_uom_code: str = Field(..., min_length=1, max_length=20)
