@@ -1,6 +1,7 @@
 import { archiveOwners } from "./archiveOwners";
 import { batchFocus } from "./batchFocus";
 import { productQualityWorkspace } from "./productQualityWorkspace";
+import { terminalQualityActions } from "./terminalQualityActions";
 import { qualityActionReasons } from "./qualityActionReasons";
 
 export const supportedLanguages = [
@@ -17,6 +18,7 @@ export const resources = {
       archiveOwners: archiveOwners.ar,
       batchFocus: batchFocus.ar,
       productQualityWorkspace: productQualityWorkspace.ar,
+      terminalQualityActions: terminalQualityActions.ar,
       qualityActionReasons: qualityActionReasons.ar,
       common: {
         save: "حفظ",
@@ -2181,6 +2183,7 @@ export const resources = {
       archiveOwners: archiveOwners.en,
       batchFocus: batchFocus.en,
       productQualityWorkspace: productQualityWorkspace.en,
+      terminalQualityActions: terminalQualityActions.en,
       qualityActionReasons: qualityActionReasons.en,
       common: {
         save: "Save",

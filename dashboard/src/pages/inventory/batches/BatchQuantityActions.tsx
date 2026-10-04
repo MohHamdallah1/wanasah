@@ -29,6 +29,8 @@ import type {
   ReservationOwner,
 } from "./batchStockSourcesContract";
 import { useBatchSpecialTransfer } from "./useBatchSpecialTransfer";
+import { BatchTerminalActionDialog, type BatchTerminalChoice } from "./BatchTerminalActionDialog";
+import { useBatchTerminalAction } from "./useBatchTerminalAction";
 import { useBatchStockSources } from "./useBatchStockSources";
 
 type Props = {
@@ -118,8 +120,18 @@ export function BatchQuantityActions({
     },
   });
   const [choice, setChoice] = useState<Choice | null>(null);
+  const [terminalChoice, setTerminalChoice] = useState<BatchTerminalChoice | null>(null);
   const [lastTransfer, setLastTransfer] =
     useState<BatchSpecialTransferResult | null>(null);
+  const terminal = useBatchTerminalAction({
+    batch,
+    productVariantId,
+    baseUomCode,
+    onSucceeded: async () => {
+      await refreshStockSources();
+      await onChanged();
+    },
+  });
   const data = stockSources ?? stockQuery.data;
 
   const stockRows = useMemo(
@@ -295,7 +307,7 @@ export function BatchQuantityActions({
                   </div>
                 ) : null}
 
-                {purposes.length > 0 ? (
+                {(purposes.length > 0 || status.terminal_actions.some((action) => action.allowed)) ? (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {purposes.map((purpose) => {
                       const permitted =
@@ -326,6 +338,14 @@ export function BatchQuantityActions({
                         </button>
                       );
                     })}
+                    {status.terminal_actions.filter((action) => action.allowed).map((availability) => (
+                      <button key={availability.action} type="button" disabled={!terminal.isOnline || terminal.busyKey !== null}
+                        onClick={() => setTerminalChoice({ availability, source, status })}
+                        className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 text-[9px] font-black text-emerald-900 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40">
+                        {availability.action === "CONFIRM_DISPOSAL" ? <Trash2 className="h-3.5 w-3.5" /> : <Truck className="h-3.5 w-3.5" />}
+                        {t(`terminalQualityActions.actions.${availability.action}.label`)}
+                      </button>
+                    ))}
                   </div>
                 ) : (
                   <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50/70 p-2.5">
@@ -339,6 +359,12 @@ export function BatchQuantityActions({
                             {t(`inventoryBatches.quantityActions.purposes.${action.purpose}.label`)}:
                           </span>{" "}
                           {t(`qualityActionReasons.reasons.${action.reason_code}`)}
+                        </p>
+                      ))}
+                      {status.terminal_actions.map((action) => (
+                        <p key={action.action} className="text-[9px] font-semibold leading-4 text-slate-600">
+                          <span className="font-black text-slate-800">{t(`terminalQualityActions.actions.${action.action}.label`)}:</span>{" "}
+                          {t(`terminalQualityActions.reasons.${action.reason_code}`)}
                         </p>
                       ))}
                     </div>
@@ -404,6 +430,20 @@ export function BatchQuantityActions({
             </button>
           </div>
         </div>
+      ) : null}
+
+      {terminalChoice ? (
+        <BatchTerminalActionDialog choice={terminalChoice} baseUomCode={baseUomCode}
+          busy={terminal.busyKey !== null} online={terminal.isOnline} onClose={() => setTerminalChoice(null)}
+          onConfirm={async (evidence) => {
+            const result = await terminal.run({
+              action: terminalChoice.availability.action,
+              sourceLocationId: terminalChoice.source.location_id,
+              sourceStatus: terminalChoice.status.stock_status,
+              ...evidence,
+            });
+            if (result) setTerminalChoice(null);
+          }} />
       ) : null}
 
       {lastTransfer ? (
