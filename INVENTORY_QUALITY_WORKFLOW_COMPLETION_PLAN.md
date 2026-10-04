@@ -114,7 +114,7 @@ A workflow is not complete because a button or endpoint exists. It is complete o
 - [x] **3.1 Terminal disposal backend contract**  
   Define the final disposal command and evidence contract. Final disposal must be allowed only for the exact eligible company/location/product/batch/status/quantity, normally at the approved disposal destination with `DISPOSAL_PENDING` stock. Reuse the unified inventory movement/ledger authority; never simulate destruction by moving to another fake location. Revalidate locks/revisions, reservations, permissions, idempotency, and current policy/state.
 
-- [ ] **3.2 Final disposal inventory effect and evidence**  
+- [x] **3.2 Final disposal inventory effect and evidence**  
   Successful disposal removes the disposed quantity from company-owned on-hand inventory through canonical inventory authority and leaves immutable evidence: operator, timestamp, product, batch, source location, quantity/UOM, reason/method/reference as appropriate, request identity, originating transfer/evidence links, ledger, audit, and required outbox events.
 
 - [x] **3.3 Terminal vendor-return backend contract**
