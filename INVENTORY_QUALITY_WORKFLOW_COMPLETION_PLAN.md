@@ -128,7 +128,7 @@ A workflow is not complete because a button or endpoint exists. It is complete o
 - [x] **3.3 Terminal vendor-return backend contract**
   Determine and reuse the authoritative supplier/vendor reference. Add/reuse a terminal handover command distinct from staging. Enforce exact-location authorization, eligible status/quantity, safe reservation state, revision/lock checks, idempotent retries, and immutable original transfer evidence.
 
-- [ ] **3.4 Terminal UI + end-to-end acceptance**
+- [x] **3.4 Terminal UI + end-to-end acceptance**
   UI exposes simple human actions such as `تأكيد إتلاف الكمية` and `تأكيد تسليم الكمية للمورد` only when backend says they are eligible. Full automated paths must prove: source stock → staging transfer → staging receipt → terminal action → company total decreases → ledger/audit evidence exists → duplicate request remains harmless/idempotent.
 
 **Phase 3 done when:** “Disposal” and “return to vendor” have real terminal business outcomes, not only staging transfers.
