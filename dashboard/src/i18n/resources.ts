@@ -265,6 +265,8 @@ export const resources = {
           },
           batchRestrictionWarning: "المنتج نشط، لكن {{count}} دفعة غير متاحة للبيع.",
           batchRestrictionReason: "السبب: {{reason}}",
+          batchRestrictionOpen: "فتح الدفعة المتأثرة",
+          batchRestrictionOpenList: "فتح الدفعات",
           batchRestrictionStates: {
             QUARANTINED: "معزولة للفحص",
             BLOCKED: "محظورة",
@@ -1507,6 +1509,7 @@ export const resources = {
         errors: {
           products: "تعذر تحميل منتجات المستودع.",
           details: "تعذر تحميل تفاصيل الدفعات.",
+          focus: "تعذر تحديد موقع الدفعة المطلوبة تلقائيًا. يمكنك اختيار المستودع ومتابعة البحث يدويًا.",
         },
       },
       inventoryMinimum: {
@@ -2374,6 +2377,8 @@ export const resources = {
           },
           batchRestrictionWarning: "The product is active, but {{count}} batch is not available for sale.",
           batchRestrictionReason: "Reason: {{reason}}",
+          batchRestrictionOpen: "Open affected batch",
+          batchRestrictionOpenList: "Open batches",
           batchRestrictionStates: {
             QUARANTINED: "Quarantined for inspection",
             BLOCKED: "Blocked",
@@ -3617,6 +3622,7 @@ export const resources = {
         errors: {
           products: "Could not load warehouse products.",
           details: "Could not load batch details.",
+          focus: "The target batch location could not be resolved automatically. Choose a warehouse and continue the search manually.",
         },
       },
       inventoryMinimum: {

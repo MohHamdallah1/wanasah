@@ -37,6 +37,7 @@ describe("Catalog / Inventory frontend boundary", () => {
   it("uses typed route state instead of storage as the Product to Inventory workflow bridge", () => {
     const batchState = createInventoryBatchFocusNavigationState({
       variantId: 118,
+      batchId: 41,
       productName: "Test product",
     });
     expect(parseInventoryNavigationState(batchState)).toEqual({
@@ -44,6 +45,7 @@ describe("Catalog / Inventory frontend boundary", () => {
       kind: "batch-focus",
       tab: "batches",
       variantId: 118,
+      batchId: 41,
       productName: "Test product",
       locationId: null,
     });
@@ -65,12 +67,36 @@ describe("Catalog / Inventory frontend boundary", () => {
           version: 1,
           kind: "batch-focus",
           tab: "batches",
-          variantId: -1,
+          variantId: 118,
+          batchId: -1,
           productName: "Bad",
           locationId: null,
         },
       }),
     ).toBeNull();
+  });
+
+  it("keeps exact batch focus as a read-only navigation hint resolved by Inventory", () => {
+    const statusBadges = read(
+      "../pages/products/list/ProductStatusBadges.tsx",
+    );
+    const batches = read("../pages/inventory/TabBatches.tsx");
+
+    expect(statusBadges).toContain(
+      "restrictions.representative_reason?.batch_id",
+    );
+    expect(statusBadges).toContain(
+      "createInventoryBatchFocusNavigationState",
+    );
+    expect(statusBadges).not.toContain("authFetch(");
+    expect(batches).toContain(
+      "`/warehouse/batches/${focus.batchId}/stock-sources`",
+    );
+    expect(batches).toContain(
+      "batch.batch_id === focusBatchId",
+    );
+    expect(batches).toContain("setSelectedBatch(target)");
+    expect(batches).not.toContain("batchIssueFocus");
   });
 
   it("keeps Product lifecycle independent from Inventory page internals", () => {

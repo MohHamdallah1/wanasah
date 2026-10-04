@@ -1,5 +1,7 @@
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 
+import { createInventoryBatchFocusNavigationState } from "@/features/inventory/navigation";
 import type {
   ProductBatchRestrictionDisposition,
   SimpleProduct,
@@ -31,11 +33,12 @@ export function ProductStatusBadges({
 }: {
   item: Pick<
     SimpleProduct,
-    "lifecycle_status" | "operational_hold"
+    "id" | "name" | "lifecycle_status" | "operational_hold"
   > &
     Partial<Pick<SimpleProduct, "batch_restrictions">>;
 }) {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
   const { status, reason } = productTableStatus(item);
   const restrictions = item.batch_restrictions ?? null;
   const showBatchWarning =
@@ -81,7 +84,25 @@ export function ProductStatusBadges({
       ) : null}
 
       {showBatchWarning && restrictions ? (
-        <div className="mt-1.5 border-s-2 border-amber-300 ps-3">
+        <button
+          type="button"
+          onClick={() =>
+            navigate("/inventory", {
+              state: createInventoryBatchFocusNavigationState({
+                variantId: item.id,
+                batchId:
+                  restrictions.representative_reason?.batch_id ?? null,
+                productName: item.name,
+              }),
+            })
+          }
+          aria-label={t(
+            restrictions.representative_reason
+              ? "products.commercialStatus.batchRestrictionOpen"
+              : "products.commercialStatus.batchRestrictionOpenList",
+          )}
+          className="mt-1.5 block w-full border-s-2 border-amber-300 ps-3 text-start transition hover:bg-amber-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+        >
           <p className="text-[9px] font-black leading-4 text-amber-900">
             {t(
               "products.commercialStatus.batchRestrictionWarning",
@@ -102,7 +123,14 @@ export function ProductStatusBadges({
               )}
             </p>
           ) : null}
-        </div>
+          <span className="mt-0.5 block text-[8px] font-black leading-4 text-amber-800 underline underline-offset-2">
+            {t(
+              restrictions.representative_reason
+                ? "products.commercialStatus.batchRestrictionOpen"
+                : "products.commercialStatus.batchRestrictionOpenList",
+            )}
+          </span>
+        </button>
       ) : null}
     </div>
   );

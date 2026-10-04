@@ -20,6 +20,7 @@ export type InventoryBatchFocusIntent = {
   kind: "batch-focus";
   tab: "batches";
   variantId: number;
+  batchId: number | null;
   productName: string;
   locationId: number | null;
 };
@@ -65,10 +66,12 @@ export function createInventoryTabNavigationState(
 
 export function createInventoryBatchFocusNavigationState({
   variantId,
+  batchId = null,
   productName,
   locationId = null,
 }: {
   variantId: number;
+  batchId?: number | null;
   productName: string;
   locationId?: number | null;
 }): InventoryNavigationState {
@@ -78,6 +81,7 @@ export function createInventoryBatchFocusNavigationState({
       kind: "batch-focus",
       tab: "batches",
       variantId,
+      batchId,
       productName,
       locationId,
     },
@@ -120,6 +124,7 @@ export function parseInventoryNavigationState(
     typeof row.variantId === "number" &&
     Number.isSafeInteger(row.variantId) &&
     row.variantId > 0 &&
+    validLocationId(row.batchId) &&
     typeof row.productName === "string" &&
     row.productName.trim().length > 0 &&
     row.productName.length <= 200
@@ -129,6 +134,7 @@ export function parseInventoryNavigationState(
       kind: "batch-focus",
       tab: "batches",
       variantId: row.variantId,
+      batchId: row.batchId as number | null,
       productName: row.productName.trim(),
       locationId: row.locationId as number | null,
     };

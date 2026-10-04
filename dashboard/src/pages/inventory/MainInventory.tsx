@@ -257,10 +257,11 @@ export default function MainInventory() {
     const saved = localStorage.getItem(activeTabStorageKey);
     return isTabId(saved) ? saved : "live";
   });
-  const batchNavigationFocus =
+  const [batchNavigationFocus, setBatchNavigationFocus] = useState(
     initialNavigationIntent?.kind === "batch-focus"
       ? initialNavigationIntent
-      : null;
+      : null,
+  );
 
   useEffect(() => {
     if (!initialNavigationIntentRef.current) return;
@@ -645,6 +646,10 @@ export default function MainInventory() {
       localStorage.setItem(selectedLocationStorageKey, String(nextId));
     },
     [locations, prepareLocationChange, selectedLocationStorageKey]
+  );
+  const handleFocusLocation = useCallback(
+    (locationId: number) => handleLocationChange(String(locationId)),
+    [handleLocationChange],
   );
 
   // ── fetchers ────────────────────────────────────────────────────────────────
@@ -1262,6 +1267,8 @@ export default function MainInventory() {
             key={selectedLocationId}
             locationId={selectedLocationId}
             focus={batchNavigationFocus}
+            onFocusConsumed={() => setBatchNavigationFocus(null)}
+            onFocusLocation={handleFocusLocation}
             onOpenTransfers={() => setActiveTab("transfers")}
           />
         )}

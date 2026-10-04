@@ -17,6 +17,7 @@ import { resolveI18nLocale } from "@/lib/locale";
 import { formatMoneyExact } from "@/lib/money";
 import type { InventoryBatchFocusIntent } from "@/features/inventory/navigation";
 import { BatchDispositionManager } from "./batches/BatchDispositionManager";
+import { parseBatchStockSources } from "./batches/batchStockSourcesContract";
 import {
   parseBatchDetailResponse,
   parseBatchProductPage,
@@ -33,6 +34,8 @@ import {
 interface Props {
   locationId: number;
   focus?: InventoryBatchFocusIntent | null;
+  onFocusConsumed: () => void;
+  onFocusLocation: (locationId: number) => void;
   onOpenTransfers: () => void;
 }
 
@@ -63,6 +66,8 @@ const dispositionTone = (
 export function TabBatches({
   locationId,
   focus = null,
+  onFocusConsumed,
+  onFocusLocation,
   onOpenTransfers,
 }: Props) {
   const authFetch = useAuthFetch();
@@ -73,6 +78,9 @@ export function TabBatches({
     access.isCompanyAdmin || access.can("batch.disposition");
   const [focusVariantId, setFocusVariantId] = useState<number | null>(
     focus?.variantId ?? null,
+  );
+  const [focusBatchId, setFocusBatchId] = useState<number | null>(
+    focus?.batchId ?? null,
   );
 
   const [searchInput, setSearchInput] = useState("");
@@ -98,6 +106,42 @@ export function TabBatches({
     () => products.find((product) => product.id === selectedProductId) ?? null,
     [products, selectedProductId],
   );
+
+  useEffect(() => {
+    if (focus?.batchId === null || focus?.batchId === undefined) return;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const sources = parseBatchStockSources(
+          await authFetch(
+            `/warehouse/batches/${focus.batchId}/stock-sources`,
+            { signal: controller.signal },
+          ),
+        );
+        if (
+          sources.batch_id !== focus.batchId ||
+          sources.product_variant_id !== focus.variantId
+        ) {
+          throw codedError("BATCH_STOCK_SOURCES_SCOPE_MISMATCH");
+        }
+        const warehouses = sources.sources.filter(
+          (source) => source.location_type === "WAREHOUSE",
+        );
+        if (
+          warehouses.length > 0 &&
+          !warehouses.some((source) => source.location_id === locationId)
+        ) {
+          onFocusLocation(warehouses[0].location_id);
+        }
+      } catch (error: unknown) {
+        if (error instanceof Error && error.name === "AbortError") return;
+        toast.error(
+          apiErrorMessage(error, t("inventoryBatches.errors.focus")),
+        );
+      }
+    })();
+    return () => controller.abort();
+  }, [authFetch, focus?.batchId, focus?.variantId, locationId, onFocusLocation, t]);
 
   useEffect(() => {
     setSearchInput("");
@@ -133,7 +177,10 @@ export function TabBatches({
     }
     setSelectedProductId(focusVariantId);
     setFocusVariantId(null);
-  }, [focusVariantId, products]);
+    if (focusBatchId === null) {
+      onFocusConsumed();
+    }
+  }, [focusBatchId, focusVariantId, onFocusConsumed, products]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -299,6 +346,39 @@ export function TabBatches({
     void fetchDetails(null);
   }, [fetchDetails]);
 
+  useEffect(() => {
+    if (
+      focusBatchId === null ||
+      details === null ||
+      loadingDetails ||
+      loadingMoreDetails
+    ) {
+      return;
+    }
+    const target = details.batches.find(
+      (batch) => batch.batch_id === focusBatchId,
+    );
+    if (target) {
+      setSelectedBatch(target);
+      setFocusBatchId(null);
+      onFocusConsumed();
+      return;
+    }
+    if (details.has_more && details.next_cursor) {
+      void fetchDetails(details.next_cursor);
+      return;
+    }
+    setFocusBatchId(null);
+    onFocusConsumed();
+  }, [
+    details,
+    fetchDetails,
+    focusBatchId,
+    loadingDetails,
+    loadingMoreDetails,
+    onFocusConsumed,
+  ]);
+
   const formatDate = useCallback(
     (value: string | null): string => {
       if (!value) return "—";
@@ -405,13 +485,13 @@ export function TabBatches({
       </aside>
 
       <section className="inventory-batches-details">
-        {batchIssueFocus ? (
+        {focus ? (
           <div
             role="status"
             className="mx-3 mt-3 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-[10px] font-bold leading-5 text-amber-950"
           >
             {t("inventoryBatches.issueFocusHint", {
-              product: batchIssueFocus.productName,
+              product: focus.productName,
             })}
           </div>
         ) : null}

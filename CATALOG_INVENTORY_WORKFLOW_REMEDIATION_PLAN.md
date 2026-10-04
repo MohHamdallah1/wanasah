@@ -244,15 +244,17 @@ Purpose: user decisions must be understandable without knowing backend state mac
 
 Purpose: Products controls the catalog and only points to Inventory when physical action is needed.
 
-- [ ] Product lifecycle actions stay company-wide and warehouse-independent.
-- [ ] Products shows batch warning summaries without changing batch state.
-- [ ] Warning such as `المنتج نشط، لكن 1 دفعة غير متاحة للبيع` is clickable/keyboard accessible.
-- [ ] Clicking the warning deep-links directly to the affected batch workflow, not generic Inventory home and not Live Stock.
-- [ ] Preserve product status as `متاح للبيع` when the product is active even if one batch is restricted.
-- [ ] Never infer product stoppage from zero stock or one restricted batch.
-- [ ] `دفعة محددة` from quality issue scope navigates to Batches & Expiry only.
-- [ ] `المنتج بالكامل` applies only the Product/Catalog company-wide hold.
-- [ ] Product blockers are displayed as summaries from the owning domain; Products does not perform inventory mutations.
+- [x] Product lifecycle actions stay company-wide and warehouse-independent.
+- [x] Products shows batch warning summaries without changing batch state.
+- [x] Warning such as `المنتج نشط، لكن 1 دفعة غير متاحة للبيع` is clickable/keyboard accessible.
+- [x] Clicking the warning deep-links directly to the affected batch workflow, not generic Inventory home and not Live Stock.
+- [x] Preserve product status as `متاح للبيع` when the product is active even if one batch is restricted.
+- [x] Never infer product stoppage from zero stock or one restricted batch.
+- [x] `دفعة محددة` from quality issue scope navigates to Batches & Expiry only.
+- [x] `المنتج بالكامل` applies only the Product/Catalog company-wide hold.
+- [x] Product blockers are displayed as summaries from the owning domain; Products does not perform inventory mutations.
+
+**Phase 3 evidence:** Products warnings now use a typed route-state contract carrying the authoritative variant and representative batch id. Inventory revalidates the batch through the read-only `stock-sources` endpoint, selects a readable warehouse when required, paginates until the exact batch is found, opens its Inventory-owned manager, and consumes the navigation intent after use. Products performs no physical-stock or batch mutation. Focused gate: 44 tests PASS; TypeScript PASS; ESLint PASS; production build PASS; post-consumption regression gate 35 tests PASS.
 
 **Exit gate:** Products can add/edit/stop/resume/archive product identity and show operational warnings, but cannot mutate physical stock or batch state.
 

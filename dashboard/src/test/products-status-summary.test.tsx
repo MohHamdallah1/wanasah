@@ -4,6 +4,7 @@ import { createInstance } from "i18next";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
+import { MemoryRouter, useLocation } from "react-router-dom";
 
 import { resources } from "@/i18n/resources";
 import { DEFAULT_PRODUCT_DISPLAY_PREFERENCES } from "@/lib/productDisplayPreferences";
@@ -33,8 +34,19 @@ function wrapper(language = "en") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   clients.push(client);
   return { client, Wrapper: ({ children }: { children: ReactNode }) => (
-    <I18nextProvider i18n={i18n}><QueryClientProvider client={client}>{children}</QueryClientProvider></I18nextProvider>
+    <MemoryRouter initialEntries={["/products"]}>
+      <I18nextProvider i18n={i18n}><QueryClientProvider client={client}>{children}</QueryClientProvider></I18nextProvider>
+    </MemoryRouter>
   ) };
+}
+
+function LocationProbe() {
+  const location = useLocation();
+  return (
+    <output data-testid="route-state">
+      {JSON.stringify({ pathname: location.pathname, state: location.state })}
+    </output>
+  );
 }
 
 describe("Product status: one commercial state over the internal state machine", () => {
@@ -74,7 +86,7 @@ describe("Product status: one commercial state over the internal state machine",
   ])("%s renders one status with an optional reason", (language, dir, stopped, reason) => {
     const { Wrapper } = wrapper(language);
     const { container } = render(
-      <ProductStatusBadges item={{ lifecycle_status: "ACTIVE", operational_hold: "RECALL" }} />,
+      <ProductStatusBadges item={{ id: 118, name: "Product 118", lifecycle_status: "ACTIVE", operational_hold: "RECALL" }} />,
       { wrapper: Wrapper },
     );
     expect(screen.getByText(stopped)).toBeInTheDocument();
@@ -87,8 +99,11 @@ describe("Product status: one commercial state over the internal state machine",
   it("keeps the product available while warning about restricted batches and their real reason", () => {
     const { Wrapper } = wrapper("ar");
     render(
+      <>
       <ProductStatusBadges
         item={{
+          id: 118,
+          name: "منتج اختبار",
           lifecycle_status: "ACTIVE",
           operational_hold: "NONE",
           batch_restrictions: {
@@ -111,7 +126,9 @@ describe("Product status: one commercial state over the internal state machine",
             },
           },
         }}
-      />,
+      />
+      <LocationProbe />
+      </>,
       { wrapper: Wrapper },
     );
 
@@ -122,6 +139,26 @@ describe("Product status: one commercial state over the internal state machine",
     expect(
       screen.getByText("السبب: اشتباه في جودة المنتج"),
     ).toBeInTheDocument();
+    const openBatch = screen.getByRole("button", {
+      name: "فتح الدفعة المتأثرة",
+    });
+    openBatch.focus();
+    expect(openBatch).toHaveFocus();
+    fireEvent.click(openBatch);
+    expect(JSON.parse(screen.getByTestId("route-state").textContent ?? "{}")).toEqual({
+      pathname: "/inventory",
+      state: {
+        inventoryNavigation: {
+          version: 1,
+          kind: "batch-focus",
+          tab: "batches",
+          variantId: 118,
+          batchId: 41,
+          productName: "منتج اختبار",
+          locationId: null,
+        },
+      },
+    });
   });
 
   it("table presentation delegates to the same commercial mapping", () => {
