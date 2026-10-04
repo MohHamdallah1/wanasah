@@ -69,6 +69,9 @@ for (const locale of ["en", "ar"] as const) {
             lot_control_mode: "REQUIRED", expiry_control_mode: "REQUIRED",
             lot_control_source: "COMPANY", expiry_control_source: "COMPANY",
           }
+        : path === "/simple-products/package-uoms" ? {
+            items: [{ id: 8, code: "BOX" }],
+          }
         : path === "/warehouse/batches/41/stock-sources" ? batchFocusPayload([
             batchSource(11, "Warehouse A"),
             batchSource(13, "Vehicle 13", "VEHICLE"),
