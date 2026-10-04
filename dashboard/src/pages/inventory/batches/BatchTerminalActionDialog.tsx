@@ -64,7 +64,7 @@ export function BatchTerminalActionDialog({ choice, baseUomCode, busy, online, o
         <p className="mt-1 font-semibold text-slate-600">{t("terminalQualityActions.eligible", { quantity: choice.availability.eligible_quantity, unit: baseUomCode })}</p>
       </div>
       <label className="block text-xs font-bold text-slate-700">{t("terminalQualityActions.quantity")}
-        <input autoFocus dir="ltr" inputMode="decimal" value={quantity} onChange={(e) => setQuantity(e.target.value)} className={inputClass} />
+        <input dir="ltr" inputMode="decimal" value={quantity} onChange={(e) => setQuantity(e.target.value)} className={inputClass} />
       </label>
       {disposal ? <>
         <label className="block text-xs font-bold text-slate-700">{t("terminalQualityActions.disposalReason")}
