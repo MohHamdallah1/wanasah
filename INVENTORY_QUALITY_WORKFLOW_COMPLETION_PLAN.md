@@ -149,11 +149,13 @@ A workflow is not complete because a button or endpoint exists. It is complete o
 
 # Phase 4 — End-to-end acceptance and closure
 
-- [ ] **4.1 Backend + E2E contract matrix**
+- [x] **4.1 Backend + E2E contract matrix**
   Cover state transitions, permissions, tenant/location isolation, multi-warehouse stock, vehicle stock, reservation owners, policy destinations, hidden sources, terminal disposal, terminal vendor return, readiness, retries/idempotency, ledger/audit evidence, and browser-level cross-page navigation.
+  - **Closure evidence ? 2026-10-04:** the focused backend closure gate is **77/77 PASS**, covering multi-location/vehicle visibility, hidden-source and tenant/location isolation, reservation ownership, server-derived action reasons, whole-product readiness, terminal disposal/vendor handover, provenance, replay/idempotency, and canonical movement/event/evidence contracts. The production frontend build passes. Browser acceptance is **12/12 PASS**, including true Products ? Inventory navigation in Arabic and English plus one/two warehouses, warehouse + vehicle, vehicle-only, hidden-source, wrong-saved-warehouse, consumed route-state, and keyboard-focus cases.
 
-- [ ] **4.2 UX/accessibility acceptance**
+- [x] **4.2 UX/accessibility acceptance**
   Arabic RTL, English LTR, Western digits, keyboard navigation, Enter/Escape where safe, focus entry/return, no dead links, and no ambiguous backend language. A final manual walkthrough must be understandable without knowing `RECALL`, `RECALL_RETURN`, `DISPOSAL_PENDING`, transfer internals, or blocker codes.
+  - **Closure evidence ? 2026-10-04:** restored the corrupt Arabic terminal-action copy, removed backend-oriented terminal wording, made final confirmation safely form-submit capable for Enter, and fixed opener focus restoration by letting the shared modal own initial focus. The focused UX matrix is **45/45 PASS** across six workflow suites; terminal-action UX is **5/5 PASS** for Arabic RTL, Western digits, Enter, Escape, focus entry/return, required human evidence, and raw-backend-code suppression. Production build and the **12/12** browser matrix pass; the final browser/user-visible walkthrough review has no known dead link or required backend-code interpretation in this workflow.
 
 - [ ] **4.3 Architecture + performance audit**
   Products has no Inventory mutation authority; Inventory does not redefine Catalog identity/lifecycle; no sibling-page business imports; no localStorage business-command bus; no new mega-files/god hooks; no N+1 source/action discovery; read contracts remain bounded/paginated.
