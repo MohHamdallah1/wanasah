@@ -2088,6 +2088,41 @@ class SpecialTransferDispatchRequest(RequestModel):
         return self
 
 
+class TerminalVendorHandoverRequest(RequestModel):
+    request_id: UUID
+    source_location_id: PositiveDbInt
+    product_variant_id: PositiveDbInt
+    batch_id: PositiveDbInt
+    source_status: Literal["QUARANTINED", "BLOCKED", "RECALLED", "DAMAGED"]
+    quantity: PositiveQuantity
+    vendor_name: str = Field(..., min_length=1, max_length=200)
+    vendor_reference: str = Field(..., min_length=1, max_length=200)
+    handover_reference: str = Field(..., min_length=1, max_length=200)
+
+    @field_validator(
+        "vendor_name", "vendor_reference", "handover_reference", mode="before"
+    )
+    @classmethod
+    def normalize_vendor_evidence(cls, v: Any) -> str:
+        return _required_text(v)
+
+
+class TerminalVendorHandoverResponse(BaseModel):
+    message: str
+    movement_ids: List[PositiveDbInt] = Field(..., min_length=1, max_length=500)
+    product_variant_id: PositiveDbInt
+    batch_id: PositiveDbInt
+    source_location_id: PositiveDbInt
+    source_status: Literal["QUARANTINED", "BLOCKED", "RECALLED", "DAMAGED"]
+    handed_over_quantity: PositiveQuantity
+    remaining_quantity: NonNegativeQuantity
+    origin_transfer_header_ids: List[PositiveDbInt] = Field(default_factory=list, max_length=100)
+    vendor_name: str
+    vendor_reference: str
+    handover_reference: str
+    event_type: Literal["INVENTORY_VENDOR_HANDOVER_CONFIRMED"]
+
+
 class TerminalDisposalConfirmRequest(RequestModel):
     request_id: UUID
     source_location_id: PositiveDbInt
@@ -2111,7 +2146,7 @@ class TerminalDisposalConfirmRequest(RequestModel):
 
 class TerminalDisposalConfirmResponse(BaseModel):
     message: str
-    movement_id: PositiveDbInt
+    movement_ids: List[PositiveDbInt] = Field(..., min_length=1, max_length=500)
     product_variant_id: PositiveDbInt
     batch_id: PositiveDbInt
     source_location_id: PositiveDbInt

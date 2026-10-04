@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from domains.inventory_terminal_provenance import allocate_terminal_origin_quantity
 from models import InventoryBalance
 from product_lifecycle import record_domain_event
 from quantity import QuantityError, canonical_quantity, parse_quantity
@@ -15,13 +16,13 @@ from services import (
     InventoryRuleError,
     apply_inventory_movements_batch,
 )
-from domains.inventory_terminal_provenance import allocate_terminal_origin_quantity
 
-FINAL_DISPOSAL_EVENT = "INVENTORY_FINAL_DISPOSAL_CONFIRMED"
-FINAL_DISPOSAL_REFERENCE_TYPE = "FINAL_DISPOSAL"
+FINAL_VENDOR_HANDOVER_EVENT = "INVENTORY_VENDOR_HANDOVER_CONFIRMED"
+FINAL_VENDOR_HANDOVER_REFERENCE_TYPE = "FINAL_VENDOR_HANDOVER"
+_VENDOR_HANDOVER_STATUSES = frozenset({"QUARANTINED", "BLOCKED", "RECALLED", "DAMAGED"})
 
 
-async def confirm_final_disposal(
+async def confirm_vendor_handover(
     db: AsyncSession,
     *,
     company_id: int,
@@ -30,60 +31,53 @@ async def confirm_final_disposal(
     source_location_id: int,
     product_variant_id: int,
     batch_id: int,
+    source_status: str,
     quantity: Decimal,
-    reason: str,
-    method: str | None = None,
-    evidence_reference: str | None = None,
+    vendor_name: str,
+    vendor_reference: str,
+    handover_reference: str,
 ) -> dict[str, Any]:
-    """Destroy company-owned stock only after it reached DISPOSAL_PENDING.
-
-    The command intentionally reuses the unified movement engine as a source-only
-    PHYSICAL movement. It never edits InventoryBalance directly. Historical
-    POSTED DISPOSAL transfers prove that this batch legitimately reached the
-    disposal location even if the company's current destination policy changed.
-    """
     try:
         qty = parse_quantity(quantity, "quantity", allow_zero=False)
     except QuantityError as exc:
         raise InventoryMutationError(str(exc)) from exc
-    if not str(reason or "").strip():
-        raise InventoryMutationError("A disposal reason is required.")
+    normalized_status = str(source_status or "").strip().upper()
+    if normalized_status not in _VENDOR_HANDOVER_STATUSES:
+        raise InventoryRuleError(
+            "VENDOR_HANDOVER_STATUS_INVALID",
+            "This stock status is not eligible for vendor handover.",
+            context={"source_status": normalized_status},
+        )
 
-    # Preflight reads intentionally do not acquire lifecycle/location/balance
-    # locks. The unified movement engine owns the canonical lock order
-    # (idempotency -> lifecycle -> locations -> batch/balances) and revalidates
-    # all mutable inventory authority before writing. Posted disposal-transfer
-    # evidence is immutable business history.
     balance = (
         await db.execute(
-            select(InventoryBalance)
-            .where(
+            select(InventoryBalance).where(
                 InventoryBalance.company_id == company_id,
                 InventoryBalance.location_id == source_location_id,
                 InventoryBalance.product_variant_id == product_variant_id,
                 InventoryBalance.batch_id == batch_id,
-                InventoryBalance.stock_status == "DISPOSAL_PENDING",
+                InventoryBalance.stock_status == normalized_status,
             )
         )
     ).scalar_one_or_none()
     if balance is None:
         raise InventoryRuleError(
-            "DISPOSAL_PENDING_STOCK_NOT_FOUND",
-            "No quantity is waiting for final disposal at this location.",
+            "VENDOR_HANDOVER_STOCK_NOT_FOUND",
+            "No staged vendor-return quantity exists in this stock status.",
             context={
                 "source_location_id": source_location_id,
                 "product_variant_id": product_variant_id,
                 "batch_id": batch_id,
+                "source_status": normalized_status,
             },
         )
-
     before_on_hand = Decimal(balance.on_hand_quantity or 0)
     before_reserved = Decimal(balance.reserved_quantity or 0)
     movable_quantity = before_on_hand - before_reserved
     if movable_quantity < qty:
         raise InventoryRuleError(
-            "DISPOSAL_QUANTITY_EXCEEDS_MOVABLE",
-            "The requested disposal quantity exceeds the unreserved pending quantity.",
+            "VENDOR_HANDOVER_QUANTITY_EXCEEDS_MOVABLE",
+            "The requested handover quantity exceeds unreserved staged stock.",
             context={
                 "on_hand_quantity": canonical_quantity(before_on_hand),
                 "reserved_quantity": canonical_quantity(before_reserved),
@@ -95,101 +89,98 @@ async def confirm_final_disposal(
     allocations = await allocate_terminal_origin_quantity(
         db,
         company_id=company_id,
-        transfer_purpose="DISPOSAL",
+        transfer_purpose="RETURN_TO_VENDOR",
         destination_location_id=source_location_id,
         product_variant_id=product_variant_id,
         batch_id=batch_id,
-        terminal_reference_type=FINAL_DISPOSAL_REFERENCE_TYPE,
+        terminal_reference_type=FINAL_VENDOR_HANDOVER_REFERENCE_TYPE,
         requested_quantity=qty,
     )
-
-    movement_specs = [
+    specs = [
         {
             "product_variant_id": product_variant_id,
             "batch_id": batch_id,
             "quantity": allocation.quantity,
             "movement_kind": "PHYSICAL",
-            "reference_type": FINAL_DISPOSAL_REFERENCE_TYPE,
+            "reference_type": FINAL_VENDOR_HANDOVER_REFERENCE_TYPE,
             "reference_id": str(request_id),
             "idempotency_key": (
-                f"FINAL-DISPOSAL-{request_id}-{allocation.transfer_header_id}"
+                f"FINAL-VENDOR-{request_id}-{allocation.transfer_header_id}"
             ),
             "source_location_id": source_location_id,
             "destination_location_id": None,
-            "source_stock_status": "DISPOSAL_PENDING",
+            "source_stock_status": normalized_status,
             "destination_stock_status": None,
             "transfer_header_id": allocation.transfer_header_id,
-            "notes": str(reason).strip(),
+            "notes": f"Vendor handover evidence: {vendor_reference}",
         }
         for allocation in allocations
     ]
     movements = await apply_inventory_movements_batch(
-        db,
-        company_id=company_id,
-        performed_by=actor_id,
-        movements=movement_specs,
+        db, company_id=company_id, performed_by=actor_id, movements=specs
     )
-    if len(movements) != len(movement_specs):
-        raise RuntimeError("Unified movement engine returned an incomplete disposal result.")
+    if len(movements) != len(specs):
+        raise RuntimeError("Unified movement engine returned an incomplete vendor-handover result.")
     movement_ids = [int(movement.id) for movement in movements]
     origin_ids = [allocation.transfer_header_id for allocation in allocations]
 
-    # The unified movement engine refreshes/locks the same identity-mapped balance.
-    # Read the authoritative post-movement value rather than deriving remaining
-    # from a preflight snapshot that could have become stale under concurrency.
-    refreshed_balance = (
+    refreshed = (
         await db.execute(
             select(InventoryBalance).where(
                 InventoryBalance.company_id == company_id,
                 InventoryBalance.location_id == source_location_id,
                 InventoryBalance.product_variant_id == product_variant_id,
                 InventoryBalance.batch_id == batch_id,
-                InventoryBalance.stock_status == "DISPOSAL_PENDING",
+                InventoryBalance.stock_status == normalized_status,
             )
         )
     ).scalar_one_or_none()
-    if refreshed_balance is None:
+    if refreshed is None:
         raise RuntimeError("Unified movement removed the authoritative balance row unexpectedly.")
-    remaining = Decimal(refreshed_balance.on_hand_quantity or 0)
-    exact_before_on_hand = remaining + qty
-    exact_reserved = Decimal(refreshed_balance.reserved_quantity or 0)
+    remaining = Decimal(refreshed.on_hand_quantity or 0)
+    exact_before = remaining + qty
+    exact_reserved = Decimal(refreshed.reserved_quantity or 0)
 
     record_domain_event(
         db,
         company_id=company_id,
         actor_id=actor_id,
         request_id=request_id,
-        event_type=FINAL_DISPOSAL_EVENT,
+        event_type=FINAL_VENDOR_HANDOVER_EVENT,
         entity_type="InventoryMovement",
         entity_id=movement_ids[0],
-        reason=str(reason).strip(),
+        reason=f"Vendor handover: {vendor_reference}",
         before={
             "source_location_id": source_location_id,
             "product_variant_id": product_variant_id,
             "batch_id": batch_id,
-            "stock_status": "DISPOSAL_PENDING",
-            "on_hand_quantity": canonical_quantity(exact_before_on_hand),
+            "stock_status": normalized_status,
+            "on_hand_quantity": canonical_quantity(exact_before),
             "reserved_quantity": canonical_quantity(exact_reserved),
             "origin_transfer_header_ids": origin_ids,
         },
         after={
             "movement_ids": movement_ids,
-            "disposed_quantity": canonical_quantity(qty),
+            "handed_over_quantity": canonical_quantity(qty),
             "remaining_quantity": canonical_quantity(remaining),
-            "method": method,
-            "evidence_reference": evidence_reference,
+            "vendor_name": vendor_name,
+            "vendor_reference": vendor_reference,
+            "handover_reference": handover_reference,
             "origin_transfer_header_ids": origin_ids,
         },
         emit_outbox=True,
     )
-
     return {
         "movement_ids": movement_ids,
         "product_variant_id": product_variant_id,
         "batch_id": batch_id,
         "source_location_id": source_location_id,
-        "disposed_quantity": canonical_quantity(qty),
+        "source_status": normalized_status,
+        "handed_over_quantity": canonical_quantity(qty),
         "remaining_quantity": canonical_quantity(remaining),
         "origin_transfer_header_ids": origin_ids,
-        "event_type": FINAL_DISPOSAL_EVENT,
+        "vendor_name": vendor_name,
+        "vendor_reference": vendor_reference,
+        "handover_reference": handover_reference,
+        "event_type": FINAL_VENDOR_HANDOVER_EVENT,
     }

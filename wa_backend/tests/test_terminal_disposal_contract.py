@@ -27,12 +27,14 @@ def test_disposal_request_requires_positive_quantity_and_reason():
 
 def test_terminal_disposal_uses_unified_source_only_movement_and_evidence():
     source = (ROOT / "domains" / "inventory_terminal_quality.py").read_text(encoding="utf-8")
-    assert 'source_stock_status="DISPOSAL_PENDING"' in source
-    assert 'destination_location_id=None' in source
-    assert 'movement_kind="PHYSICAL"' in source
-    assert 'reference_type=FINAL_DISPOSAL_REFERENCE_TYPE' in source
-    assert 'InventoryTransferHeader.transfer_purpose == "DISPOSAL"' in source
-    assert 'InventoryTransferHeader.status == "POSTED"' in source
+    assert '"source_stock_status": "DISPOSAL_PENDING"' in source
+    assert '"destination_location_id": None' in source
+    assert '"movement_kind": "PHYSICAL"' in source
+    assert '"reference_type": FINAL_DISPOSAL_REFERENCE_TYPE' in source
+    provenance = (ROOT / "domains" / "inventory_terminal_provenance.py").read_text(encoding="utf-8")
+    assert 'InventoryTransferHeader.transfer_purpose == transfer_purpose' in provenance
+    assert 'InventoryTransferHeader.status == "POSTED"' in provenance
+    assert 'InventoryMovement.transfer_header_id.in_(header_ids)' in provenance
     assert 'record_domain_event(' in source
     assert 'emit_outbox=True' in source
     assert 'balance.on_hand_quantity =' not in source

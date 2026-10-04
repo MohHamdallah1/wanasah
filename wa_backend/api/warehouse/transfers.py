@@ -44,6 +44,8 @@ from schemas import (
     SpecialTransferDispatchResponse,
     TerminalDisposalConfirmRequest,
     TerminalDisposalConfirmResponse,
+    TerminalVendorHandoverRequest,
+    TerminalVendorHandoverResponse,
     UnifiedDispatchRequest,
     UnifiedReceiveRequest,
     UnifiedTransferDecisionRequest,
@@ -86,6 +88,7 @@ from services import (
 
 
 from domains.inventory_terminal_quality import confirm_final_disposal
+from domains.inventory_terminal_vendor import confirm_vendor_handover
 
 from ._shared import (
     _decode_variant_cursor,
@@ -1786,6 +1789,69 @@ async def confirm_inventory_disposal(
                 "Final disposal could not be completed.",
             ),
         ) from exc
+
+
+# ====================================================
+# Final vendor handover: remove staged return stock from company ownership
+# ====================================================
+@router.post(
+    "/warehouse/quality/vendor-return/confirm",
+    response_model=TerminalVendorHandoverResponse,
+    status_code=200,
+)
+async def confirm_inventory_vendor_handover(
+    payload: TerminalVendorHandoverRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    access = InventoryAccess(db, current_admin)
+    await access.require("inventory.vendor_return.confirm", payload.source_location_id)
+    company_id = current_admin.company_id
+    try:
+        request_hash = _stable_request_hash(payload)
+        idempotency_record, replay_response = await begin_idempotent_operation(
+            db, company_id=company_id, actor_id=current_admin.id,
+            operation="INVENTORY_FINAL_VENDOR_HANDOVER",
+            request_id=str(payload.request_id), request_hash=request_hash,
+        )
+        if replay_response is not None:
+            await db.rollback()
+            return replay_response
+        result = await confirm_vendor_handover(
+            db, company_id=company_id, actor_id=current_admin.id,
+            request_id=payload.request_id,
+            source_location_id=payload.source_location_id,
+            product_variant_id=payload.product_variant_id,
+            batch_id=payload.batch_id, source_status=payload.source_status,
+            quantity=payload.quantity, vendor_name=payload.vendor_name,
+            vendor_reference=payload.vendor_reference,
+            handover_reference=payload.handover_reference,
+        )
+        response_payload = {
+            "message": "Vendor handover was confirmed and the quantity left company-owned inventory.",
+            **result,
+        }
+        complete_idempotent_operation(idempotency_record, response_payload)
+        await db.commit()
+        return response_payload
+    except HTTPException:
+        await db.rollback(); raise
+    except InventoryRuleError as exc:
+        await db.rollback(); raise HTTPException(status_code=409, detail=exc.as_detail()) from exc
+    except InventoryMutationError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=inventory_business_error(
+            "FINAL_VENDOR_HANDOVER_REJECTED", str(exc))) from exc
+    except IntegrityError as exc:
+        await db.rollback(); logger.warning("Concurrent vendor-handover conflict", exc_info=True)
+        raise HTTPException(status_code=409, detail=inventory_business_error(
+            "FINAL_VENDOR_HANDOVER_CONFLICT",
+            "A concurrent inventory change prevented vendor handover; retry safely.")) from exc
+    except Exception as exc:
+        await db.rollback(); logger.error("Unexpected vendor-handover failure", exc_info=True)
+        raise HTTPException(status_code=500, detail=inventory_business_error(
+            "FINAL_VENDOR_HANDOVER_INTERNAL_ERROR",
+            "Vendor handover could not be completed.")) from exc
 
 
 # Stage 4E generic TRANSIT endpoint owns only REPLENISHMENT and

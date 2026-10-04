@@ -117,7 +117,7 @@ A workflow is not complete because a button or endpoint exists. It is complete o
 - [ ] **3.2 Final disposal inventory effect and evidence**  
   Successful disposal removes the disposed quantity from company-owned on-hand inventory through canonical inventory authority and leaves immutable evidence: operator, timestamp, product, batch, source location, quantity/UOM, reason/method/reference as appropriate, request identity, originating transfer/evidence links, ledger, audit, and required outbox events.
 
-- [ ] **3.3 Terminal vendor-return backend contract**  
+- [x] **3.3 Terminal vendor-return backend contract**
   Determine and reuse the authoritative supplier/vendor reference. Add/reuse a terminal handover command distinct from staging. Enforce exact-location authorization, eligible status/quantity, safe reservation state, revision/lock checks, idempotent retries, and immutable original transfer evidence.
 
 - [ ] **3.4 Terminal UI + end-to-end acceptance**  
