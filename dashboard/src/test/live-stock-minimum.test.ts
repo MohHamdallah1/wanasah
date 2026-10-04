@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   convertBaseQuantityToUom,
   formatCommercialQuantity,
-} from "@/pages/inventory/quantity";
+} from "@/lib/quantity";
 import { parseBulkMinimumStockPlan } from "@/pages/inventory/liveStock/contracts";
 
 describe("live stock quantity and minimum-stock contracts", () => {

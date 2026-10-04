@@ -15,8 +15,8 @@ import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { resolveI18nLocale } from "@/lib/locale";
 import { formatMoneyExact } from "@/lib/money";
+import type { InventoryBatchFocusIntent } from "@/features/inventory/navigation";
 import { BatchDispositionManager } from "./batches/BatchDispositionManager";
-import { takeBatchIssueFocus } from "./batches/batchIssueNavigation";
 import {
   parseBatchDetailResponse,
   parseBatchProductPage,
@@ -28,10 +28,11 @@ import {
   compareQuantity,
   formatCommercialQuantity,
   subtractQuantity,
-} from "./quantity";
+} from "@/lib/quantity";
 
 interface Props {
   locationId: number;
+  focus?: InventoryBatchFocusIntent | null;
   onOpenTransfers: () => void;
 }
 
@@ -61,6 +62,7 @@ const dispositionTone = (
 
 export function TabBatches({
   locationId,
+  focus = null,
   onOpenTransfers,
 }: Props) {
   const authFetch = useAuthFetch();
@@ -69,12 +71,8 @@ export function TabBatches({
   const locale = resolveI18nLocale(i18n);
   const canManageDisposition =
     access.isCompanyAdmin || access.can("batch.disposition");
-  const companyId = localStorage.getItem("company_id") || "";
-  const [batchIssueFocus] = useState(() =>
-    companyId ? takeBatchIssueFocus(companyId) : null,
-  );
   const [focusVariantId, setFocusVariantId] = useState<number | null>(
-    batchIssueFocus?.variantId ?? null,
+    focus?.variantId ?? null,
   );
 
   const [searchInput, setSearchInput] = useState("");
@@ -122,9 +120,9 @@ export function TabBatches({
   }, [locationId]);
 
   useEffect(() => {
-    if (!batchIssueFocus || focusVariantId === null) return;
-    setSearchInput(batchIssueFocus.productName);
-  }, [batchIssueFocus, focusVariantId, locationId]);
+    if (!focus || focusVariantId === null) return;
+    setSearchInput(focus.productName);
+  }, [focus, focusVariantId, locationId]);
 
   useEffect(() => {
     if (

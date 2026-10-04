@@ -1,7 +1,7 @@
 import type { SimpleProduct } from "@/pages/products/contracts";
 import {
   productCommercialStatus,
-} from "@/pages/products/status/productCommercialStatus";
+} from "@/features/catalog/status/productCommercialStatus";
 
 type StatusTone =
   | "good"

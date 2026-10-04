@@ -65,7 +65,7 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
       readSource("../pages/products/lifecycle/ProductLifecycleManager.tsx"),
     );
     const actions = compact(
-      readSource("../pages/inventory/catalog/CatalogLifecycleActions.tsx"),
+      readSource("../features/catalog/lifecycle/CatalogLifecycleActions.tsx"),
     );
 
     expect(detailHero).toContain("products.details.holdModes.");

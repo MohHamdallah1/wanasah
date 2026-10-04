@@ -85,10 +85,10 @@ describe("Products lifecycle, focus, and barcode UX", () => {
       "../pages/products/lifecycle/ProductLifecycleManager.tsx",
     );
     const actions = read(
-      "../pages/inventory/catalog/CatalogLifecycleActions.tsx",
+      "../features/catalog/lifecycle/CatalogLifecycleActions.tsx",
     );
     const simplePanel = read(
-      "../pages/inventory/catalog/CatalogLifecycleSimplePanel.tsx",
+      "../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx",
     );
 
     expect(manager).toContain(

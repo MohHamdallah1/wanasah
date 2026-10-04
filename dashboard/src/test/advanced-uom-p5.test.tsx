@@ -82,7 +82,7 @@ import {
 } from "../lib/durableOperations";
 import {
   parseConversionMutation,
-} from "../pages/inventory/catalog/contracts";
+} from "../features/catalog/contracts";
 import AdvancedUomDashboard from "../pages/products/advanced-uom/AdvancedUomDashboard";
 
 const uom = (

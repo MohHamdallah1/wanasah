@@ -33,7 +33,7 @@ import {
 import {
   compareQuantity,
   formatCommercialQuantity,
-} from "./quantity";
+} from "@/lib/quantity";
 import { StockMinimumManager } from "./StockMinimumManager";
 
 interface Props {

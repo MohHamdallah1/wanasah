@@ -13,7 +13,7 @@ import { parseCatalogSummary } from "@/pages/products/list/catalogSummaryContrac
 import { productTableStatus } from "@/pages/products/list/productTableStatus";
 import { useProductCatalogSummary } from "@/pages/products/list/useProductCatalogSummary";
 import { useProductsListWorkflow } from "@/pages/products/list/useProductsListWorkflow";
-import { productCommercialStatus } from "@/pages/products/status/productCommercialStatus";
+import { productCommercialStatus } from "@/features/catalog/status/productCommercialStatus";
 
 const summary = {
   schema_version: 2 as const,

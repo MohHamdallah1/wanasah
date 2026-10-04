@@ -14,12 +14,15 @@ import { useAuthFetch } from "@/hooks/useAuthFetch";
 import {
   apiErrorMessage,
 } from "@/lib/apiErrors";
-import { prepareBatchIssueNavigation } from "@/pages/inventory/batches/batchIssueNavigation";
-import { CatalogLifecycleActions } from "@/pages/inventory/catalog/CatalogLifecycleActions";
+import {
+  createInventoryBatchFocusNavigationState,
+  createInventoryTabNavigationState,
+} from "@/features/inventory/navigation";
+import { CatalogLifecycleActions } from "@/features/catalog/lifecycle/CatalogLifecycleActions";
 import {
   parseCatalogPage,
   type CatalogVariant,
-} from "@/pages/inventory/catalog/contracts";
+} from "@/features/catalog/contracts";
 import type {
   SimpleProduct,
 } from "@/pages/products/contracts";
@@ -66,7 +69,6 @@ export function ProductLifecycleManager({
     product?.id ?? null;
 
   const openBlocker = (code: string) => {
-    const companyId = localStorage.getItem("company_id");
     const inventoryTab = (() => {
       if (code === "OPEN_TRANSFER") return "transfers";
       if (
@@ -94,14 +96,10 @@ export function ProductLifecycleManager({
       return;
     }
 
-    if (companyId) {
-      localStorage.setItem(
-        `inventory_active_tab:${companyId}`,
-        inventoryTab,
-      );
-    }
     onClose();
-    navigate("/inventory");
+    navigate("/inventory", {
+      state: createInventoryTabNavigationState(inventoryTab),
+    });
   };
 
   useEffect(() => {
@@ -267,19 +265,13 @@ export function ProductLifecycleManager({
             variant={variant}
             simpleMode
             onManageBatchIssue={() => {
-              const companyId =
-                localStorage.getItem("company_id");
-              if (companyId) {
-                prepareBatchIssueNavigation(
-                  companyId,
-                  {
-                    variantId: variant.id,
-                    productName: product.name,
-                  },
-                );
-              }
               onClose();
-              navigate("/inventory");
+              navigate("/inventory", {
+                state: createInventoryBatchFocusNavigationState({
+                  variantId: variant.id,
+                  productName: product.name,
+                }),
+              });
             }}
             onOpenBlocker={openBlocker}
             onVariantChanged={async (

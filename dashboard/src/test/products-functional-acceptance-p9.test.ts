@@ -220,7 +220,7 @@ describe(
       );
       const lifecycle = compact(
         readSource(
-          "../pages/inventory/catalog/CatalogLifecycleActions.tsx",
+          "../features/catalog/lifecycle/CatalogLifecycleActions.tsx",
         ),
       );
 

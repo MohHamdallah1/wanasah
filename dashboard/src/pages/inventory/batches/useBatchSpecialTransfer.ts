@@ -17,7 +17,7 @@ import {
   getOrCreateDurableCommand,
 } from "@/lib/durableOperations";
 import type { WarehouseBatchInventoryItem } from "@/pages/inventory/liveStock/contracts";
-import type { Quantity } from "@/pages/inventory/quantity";
+import type { Quantity } from "@/lib/quantity";
 
 import {
   parseBatchSpecialTransferResult,

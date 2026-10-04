@@ -48,7 +48,7 @@ import {
   type CatalogVariant,
   type UomConversion,
   type UomConversionCommandPayload,
-} from "@/pages/inventory/catalog/contracts";
+} from "@/features/catalog/contracts";
 
 type ConversionField =
   | "from"

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/hooks/useAuthFetch', () => ({useAuthFetch: vi.fn()}));
 import { hasInventoryPermission, parseInventoryCapabilities } from '@/hooks/useInventoryAccess';
 import { parseCatalogPage } from '@/pages/inventory/catalogParsers';
-import { buildVariantPayload, parseMutationMessage } from '@/pages/inventory/catalog/contracts';
+import { buildVariantPayload, parseMutationMessage } from '@/features/catalog/contracts';
 import {
   buildInboundItems,
   inboundStorageKeys,

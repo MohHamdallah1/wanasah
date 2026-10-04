@@ -43,7 +43,7 @@ describe("Products P9 delete/archive policy", () => {
   it("requires a current backend preflight before advanced draft deletion", () => {
     const actions = compact(
       readSource(
-        "../pages/inventory/catalog/CatalogLifecycleActions.tsx",
+        "../features/catalog/lifecycle/CatalogLifecycleActions.tsx",
       ),
     );
 
@@ -64,7 +64,7 @@ describe("Products P9 delete/archive policy", () => {
   it("parses blocker-aware draft-delete preflight responses", () => {
     const contracts = compact(
       readSource(
-        "../pages/inventory/catalog/contracts.ts",
+        "../features/catalog/contracts.ts",
       ),
     );
 
@@ -85,7 +85,7 @@ describe("Products P9 delete/archive policy", () => {
   it("keeps archive as the lifecycle path for used products", () => {
     const actions = compact(
       readSource(
-        "../pages/inventory/catalog/CatalogLifecycleActions.tsx",
+        "../features/catalog/lifecycle/CatalogLifecycleActions.tsx",
       ),
     );
 

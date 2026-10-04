@@ -2,9 +2,11 @@ import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { TabInventoryAccess } from "./TabInventoryAccess";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Package, History, Lock, RefreshCcw, FilePlus, Building2, ArrowRightLeft, Layers3 } from "lucide-react";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/apiErrors";
+import { parseInventoryNavigationState } from "@/features/inventory/navigation";
 import { resolveI18nLocale } from "@/lib/locale";
 import { Tab1LiveStock } from "./Tab1LiveStock";
 import { TabBatches } from "./TabBatches";
@@ -198,6 +200,12 @@ export default function MainInventory() {
   const authFetch = useAuthFetch();
   const { t, i18n } = useTranslation();
   const locale = resolveI18nLocale(i18n);
+  const routeLocation = useLocation();
+  const routeNavigate = useNavigate();
+  const initialNavigationIntentRef = useRef(
+    parseInventoryNavigationState(routeLocation.state),
+  );
+  const initialNavigationIntent = initialNavigationIntentRef.current;
 
   // UI preference only. Server token + RLS remain the security authority.
   const companyId = localStorage.getItem("company_id") || "";
@@ -243,9 +251,24 @@ export default function MainInventory() {
   );
 
   const [activeTab, setActiveTab] = useState<TabId>(() => {
+    if (initialNavigationIntent && isTabId(initialNavigationIntent.tab)) {
+      return initialNavigationIntent.tab;
+    }
     const saved = localStorage.getItem(activeTabStorageKey);
     return isTabId(saved) ? saved : "live";
   });
+  const batchNavigationFocus =
+    initialNavigationIntent?.kind === "batch-focus"
+      ? initialNavigationIntent
+      : null;
+
+  useEffect(() => {
+    if (!initialNavigationIntentRef.current) return;
+    routeNavigate(
+      `${routeLocation.pathname}${routeLocation.search}`,
+      { replace: true, state: null },
+    );
+  }, [routeLocation.pathname, routeLocation.search, routeNavigate]);
 
   useEffect(() => {
     localStorage.removeItem("inventory_active_tab");
@@ -1238,6 +1261,7 @@ export default function MainInventory() {
           <TabBatches
             key={selectedLocationId}
             locationId={selectedLocationId}
+            focus={batchNavigationFocus}
             onOpenTransfers={() => setActiveTab("transfers")}
           />
         )}

@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { History, Search, ChevronRight, ChevronLeft, Eye, FileText, Package, RefreshCcw } from "lucide-react";
 import { getLedgerBadge } from "./inventoryUtils";
-import { absoluteQuantity, addQuantity, compareQuantity, formatCommercialQuantity, formatQuantity } from "./quantity";
+import { absoluteQuantity, addQuantity, compareQuantity, formatCommercialQuantity, formatQuantity } from "@/lib/quantity";
 import {
   buildLedgerAdjustmentPayload,
   formatLedgerDate,

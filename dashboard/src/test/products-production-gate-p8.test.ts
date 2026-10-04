@@ -285,7 +285,7 @@ describe("Products P8 production frontend gate", () => {
     );
     const actions = compact(
       readSource(
-        "../pages/inventory/catalog/CatalogLifecycleActions.tsx",
+        "../features/catalog/lifecycle/CatalogLifecycleActions.tsx",
       ),
     );
     const catalogPanel = compact(

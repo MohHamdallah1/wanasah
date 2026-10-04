@@ -22,7 +22,7 @@ describe("Products P9.4 lifecycle workspace", () => {
       "../pages/products/lifecycle/ProductLifecycleManager.tsx",
     );
     const catalogActions = read(
-      "../pages/inventory/catalog/CatalogLifecycleActions.tsx",
+      "../features/catalog/lifecycle/CatalogLifecycleActions.tsx",
     );
 
     expect(manager).toContain(
@@ -55,7 +55,7 @@ describe("Products P9.4 lifecycle workspace", () => {
 
   it("shows product status and sales status inside the simple action surface", () => {
     const manager = read("../pages/products/lifecycle/ProductLifecycleManager.tsx");
-    const panel = read("../pages/inventory/catalog/CatalogLifecycleSimplePanel.tsx");
+    const panel = read("../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx");
     expect(manager).not.toContain("ProductLifecycleStatusRail");
     expect(panel).toContain("products.details.lifecycleModes.");
     expect(panel).toContain("products.details.holdModes.");

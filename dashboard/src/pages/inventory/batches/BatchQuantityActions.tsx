@@ -15,7 +15,7 @@ import type { WarehouseBatchInventoryItem } from "@/pages/inventory/liveStock/co
 import {
   compareQuantity,
   type Quantity,
-} from "@/pages/inventory/quantity";
+} from "@/lib/quantity";
 
 import type {
   BatchSpecialTransferPurpose,

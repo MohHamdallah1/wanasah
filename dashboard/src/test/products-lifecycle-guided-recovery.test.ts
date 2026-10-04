@@ -5,8 +5,8 @@ const read = (relativePath: string) => readFileSync(new URL(relativePath, import
 
 describe("Products guided sales recovery", () => {
   it("uses clear restore-sales language and actionable blockers", () => {
-    const panel = read("../pages/inventory/catalog/CatalogLifecycleSimplePanel.tsx");
-    const actions = read("../pages/inventory/catalog/CatalogLifecycleActions.tsx");
+    const panel = read("../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx");
+    const actions = read("../features/catalog/lifecycle/CatalogLifecycleActions.tsx");
     const i18n = read("../i18n/resources.ts");
     expect(i18n).toContain('closeRecall: "إعادة إتاحة البيع"');
     expect(i18n).toContain("recallBlockerActions");
@@ -18,7 +18,7 @@ describe("Products guided sales recovery", () => {
   });
 
   it("explains both product and sales status axes in one simple panel", () => {
-    const panel = read("../pages/inventory/catalog/CatalogLifecycleSimplePanel.tsx");
+    const panel = read("../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx");
     expect(panel).toContain("products.details.lifecycleModes.${variant.lifecycle_status}");
     expect(panel).toContain("products.details.holdModes.${variant.operational_hold}");
   });

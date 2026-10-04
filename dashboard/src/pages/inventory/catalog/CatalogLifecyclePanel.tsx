@@ -33,8 +33,8 @@ import {
   parseProductLocations,
   type CatalogVariant,
   type ProductLocationAssignment,
-} from "./contracts";
-import { CatalogLifecycleActions } from "./CatalogLifecycleActions";
+} from "@/features/catalog/contracts";
+import { CatalogLifecycleActions } from "@/features/catalog/lifecycle/CatalogLifecycleActions";
 
 interface LocationOption {
   id: number;

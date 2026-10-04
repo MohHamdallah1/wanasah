@@ -31,7 +31,7 @@ describe("Products fast Enter and commercial-status UX", () => {
       "../pages/products/barcode/ProductBarcodeSimplePanel.tsx",
     );
     const lifecycle = read(
-      "../pages/inventory/catalog/CatalogLifecycleSimplePanel.tsx",
+      "../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx",
     );
 
     expect(price).toContain(
@@ -72,7 +72,7 @@ describe("Products fast Enter and commercial-status UX", () => {
 
   it("separates ordinary product actions from quality-issue scope", () => {
     const source = read(
-      "../pages/inventory/catalog/CatalogLifecycleSimplePanel.tsx",
+      "../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx",
     );
 
     expect(source).toContain(
@@ -103,10 +103,10 @@ describe("Products fast Enter and commercial-status UX", () => {
 
   it("preserves and displays backend issue-completion blockers", () => {
     const actions = read(
-      "../pages/inventory/catalog/CatalogLifecycleActions.tsx",
+      "../features/catalog/lifecycle/CatalogLifecycleActions.tsx",
     );
     const panel = read(
-      "../pages/inventory/catalog/CatalogLifecycleSimplePanel.tsx",
+      "../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx",
     );
 
     expect(actions).toContain(
