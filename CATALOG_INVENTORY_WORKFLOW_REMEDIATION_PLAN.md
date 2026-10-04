@@ -375,11 +375,12 @@ Purpose: archiving must not show backend nouns and leave the user stranded.
 
 Purpose: validate the architecture for future operational growth before adding those modules.
 
-- [ ] Validate multi-warehouse authorization/isolation for product-wide and batch workflows:
+- [x] Validate multi-warehouse authorization/isolation for product-wide and batch workflows:
   - Product-level decisions remain company-wide.
   - Quantity actions remain per location.
   - A user authorized for Warehouse A cannot view or mutate Warehouse B detail.
   - Company-wide summaries expose only detail/counts allowed by the approved permission contract.
+  Evidence: whole-product source tests permission-filter Warehouse B from Warehouse-A-only users; exact-location InventoryAccess tests deny `transfer.send`/`transfer.destination` on B, and the special-transfer contract rechecks both the requested source and server-derived destination before mutation.
 - [x] Validate vehicle/custody extensibility using current Inventory truth: vehicle-only stock remains discoverable/actionable where supported without redefining Catalog ownership. Evidence: whole-product source contract/test returns VEHICLE sources separately, and exact-batch stock-sources supports vehicle-only opening without fabricating warehouse state.
 - [x] Preserve module boundaries for future scale: vehicle identity remains Fleet-owned, representative/driver identity stays outside Catalog, transfers use Inventory authority with exact source/destination permissions, and Products never imports driver/vehicle internals. Evidence: Catalog/Inventory boundary gate rejects dispatch components and vehicle/driver identity fields under Products; physical actions remain Inventory-owned source-scoped commands.
 
