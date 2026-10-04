@@ -1526,6 +1526,12 @@ class WarehouseBatchStockStatusItem(BaseModel):
     on_hand_quantity: NonNegativeQuantity
     reserved_quantity: NonNegativeQuantity
     movable_quantity: NonNegativeQuantity
+    allowed_purposes: List[Literal[
+        "RETURN_TO_VENDOR",
+        "QUARANTINE",
+        "RECALL_RETURN",
+        "DISPOSAL",
+    ]] = Field(default_factory=list, max_length=4)
     reservation_evidence: ReservationEvidence
 
 

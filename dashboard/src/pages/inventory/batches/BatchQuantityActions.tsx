@@ -75,61 +75,6 @@ const purposeIcon = (
   return <Trash2 className="h-3.5 w-3.5" />;
 };
 
-const allowedPurposes = (
-  batchDisposition: BatchActionSnapshot["disposition"],
-  operationalHold: "NONE" | "SALES_HOLD" | "RECALL",
-  sourceStatus: BatchStockStatus,
-  metadataRestricted: boolean,
-): BatchSpecialTransferPurpose[] => {
-  const result: BatchSpecialTransferPurpose[] = [];
-  const unsafeOrRestricted =
-    sourceStatus !== "AVAILABLE" ||
-    batchDisposition !== "RELEASED" ||
-    operationalHold !== "NONE" ||
-    metadataRestricted;
-
-  if (
-    operationalHold === "RECALL" &&
-    sourceStatus !== "DAMAGED" &&
-    sourceStatus !== "DISPOSAL_PENDING"
-  ) {
-    result.push("RECALL_RETURN");
-  }
-
-  if (
-    batchDisposition !== "BLOCKED" &&
-    sourceStatus !== "BLOCKED" &&
-    sourceStatus !== "DAMAGED" &&
-    sourceStatus !== "DISPOSAL_PENDING" &&
-    unsafeOrRestricted
-  ) {
-    result.push("QUARANTINE");
-  }
-
-  const returnable =
-    sourceStatus === "QUARANTINED" ||
-    sourceStatus === "BLOCKED" ||
-    sourceStatus === "DAMAGED" ||
-    batchDisposition === "QUARANTINED" ||
-    batchDisposition === "BLOCKED" ||
-    metadataRestricted;
-  if (
-    operationalHold !== "RECALL" &&
-    batchDisposition !== "RECALLED" &&
-    sourceStatus !== "RECALLED" &&
-    sourceStatus !== "DISPOSAL_PENDING" &&
-    returnable
-  ) {
-    result.push("RETURN_TO_VENDOR");
-  }
-
-  if (unsafeOrRestricted) {
-    result.push("DISPOSAL");
-  }
-
-  return result;
-};
-
 const choiceKey = (choice: Choice) =>
   [
     choice.source.location_id,
@@ -228,12 +173,7 @@ export function BatchQuantityActions({
       ) : (
         <div className="space-y-2">
           {stockRows.map(({ source, status }) => {
-            const purposes = allowedPurposes(
-              batch.disposition,
-              data.operational_hold,
-              status.stock_status,
-              batch.days_to_expiry !== null && batch.days_to_expiry < 0,
-            );
+            const purposes = status.allowed_purposes;
             const key = `${source.location_id}:${status.stock_status}`;
             return (
               <div

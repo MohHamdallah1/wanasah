@@ -269,7 +269,7 @@ Purpose: when physical quantities require action, Inventory provides the complet
 - [x] Batches & Expiry opens directly on the affected product/batch from a navigation intent.
 - [x] Show batch state, saved reason, expiry evidence, and affected quantities.
 - [x] Show quantity by exact warehouse/location and vehicle/custody source when supported.
-- [ ] Offer only backend-valid actions for the current quantity/state/permission.
+- [x] Offer only backend-valid actions for the current quantity/state/permission. `stock-sources` now returns backend-derived `allowed_purposes` using current lifecycle/hold/batch/source/expiry-policy state, exact source send permission, published server-derived destination policy, purpose permission and destination permission; mutation endpoints still re-check under locks before writing.
 - [x] Supported physical actions include quarantine, affected-quantity transfer, supplier-return staging, disposal staging, and warehouse/vehicle source collection through Inventory-owned special transfers. Terminal supplier handoff/destruction are not falsely claimed; those remain separate capability boundaries.
 - [x] Reserved quantity must show the exact blocker and the owning operation when available; do not say only `عالج الحجز`.
 

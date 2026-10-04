@@ -27,6 +27,7 @@ const response = {
           on_hand_quantity: "12.000000",
           reserved_quantity: "2.000000",
           movable_quantity: "10.000000",
+          allowed_purposes: ["QUARANTINE", "DISPOSAL"],
           reservation_evidence: {
             coverage: "COMPLETE",
             reason: null,
@@ -77,6 +78,7 @@ describe("batch stock-source action contract", () => {
       on_hand_quantity: "12",
       reserved_quantity: "2",
       movable_quantity: "10",
+      allowed_purposes: ["QUARANTINE", "DISPOSAL"],
       reservation_evidence: {
         coverage: "COMPLETE",
         unattributed_quantity: "0",

@@ -35,10 +35,14 @@ from models import (
 )
 from quantity import canonical_quantity
 from product_lifecycle import recall_completion_blockers
+from domains.inventory_rules import batch_metadata_is_sellable
 from services import (
+    SPECIAL_TRANSFER_PERMISSION,
+    allowed_special_transfer_purposes,
     batch_expiry_policy_predicate,
     batch_sellability_predicate,
     inventory_business_error,
+    read_special_transfer_destinations,
 )
 from domains.live_stock_projection.service import (
     LiveStockProjectionDueTransitionError,
@@ -2444,7 +2448,9 @@ async def get_whole_product_quality_issue_sources(
             select(
                 ProductVariant.id,
                 ProductVariant.version,
+                ProductVariant.lifecycle_status,
                 ProductVariant.operational_hold,
+                ProductVariant.expiry_control_mode,
                 ProductVariant.base_uom_id,
                 UOM.code.label("base_uom_code"),
                 func.timezone(
@@ -2507,6 +2513,23 @@ async def get_whole_product_quality_issue_sources(
     selected_batch_ids = page_ids[:limit]
     next_cursor = selected_batch_ids[-1] if has_more and selected_batch_ids else None
 
+    special_destinations = await read_special_transfer_destinations(
+        db, company_id=company_id
+    )
+    company_codes = set(await access.codes())
+    destination_codes = (
+        await access.codes_by_location(list(set(special_destinations.values())))
+        if special_destinations
+        else {}
+    )
+    purpose_access = {
+        purpose: (
+            SPECIAL_TRANSFER_PERMISSION[purpose] in company_codes
+            and "transfer.destination" in set(destination_codes.get(destination_id, []))
+        )
+        for purpose, destination_id in special_destinations.items()
+    }
+
     batches_by_id: dict[int, dict] = {}
     if selected_batch_ids:
         can_send = access.allows("transfer.send", InventoryLocation.id)
@@ -2526,6 +2549,7 @@ async def get_whole_product_quality_issue_sources(
                     ProductBatch.disposition,
                     ProductBatch.disposition_reason,
                     ProductBatch.disposition_revision,
+                    ProductBatch.is_active.label("batch_is_active"),
                     InventoryLocation.id.label("location_id"),
                     InventoryLocation.name.label("location_name"),
                     InventoryLocation.location_type,
@@ -2533,6 +2557,9 @@ async def get_whole_product_quality_issue_sources(
                     InventoryBalance.stock_status,
                     InventoryBalance.on_hand_quantity,
                     InventoryBalance.reserved_quantity,
+                    func.coalesce(
+                        InventoryStockPolicy.minimum_remaining_shelf_life_days, 0
+                    ).label("minimum_remaining_shelf_life_days"),
                     *owners.c,
                 )
                 .select_from(InventoryBalance)
@@ -2550,6 +2577,15 @@ async def get_whole_product_quality_issue_sources(
                     and_(
                         InventoryLocation.company_id == InventoryBalance.company_id,
                         InventoryLocation.id == InventoryBalance.location_id,
+                    ),
+                )
+                .outerjoin(
+                    InventoryStockPolicy,
+                    and_(
+                        InventoryStockPolicy.company_id == InventoryBalance.company_id,
+                        InventoryStockPolicy.location_id == InventoryBalance.location_id,
+                        InventoryStockPolicy.product_variant_id == InventoryBalance.product_variant_id,
+                        InventoryStockPolicy.is_active.is_(True),
                     ),
                 )
                 .outerjoin(
@@ -2641,11 +2677,37 @@ async def get_whole_product_quality_issue_sources(
                     f"variant_id={product_variant_id}, batch_id={batch_id}, "
                     f"location_id={location_id}."
                 )
+            metadata_sellable = batch_metadata_is_sellable(
+                as_of_date=variant_row.as_of_date,
+                expiry_control_mode=str(variant_row.expiry_control_mode),
+                production_date=row.production_date,
+                expiry_date=row.expiry_date,
+                minimum_remaining_shelf_life_days=int(
+                    row.minimum_remaining_shelf_life_days or 0
+                ),
+                is_active=bool(row.batch_is_active),
+                disposition=str(row.disposition),
+            )
+            allowed = allowed_special_transfer_purposes(
+                lifecycle_status=str(variant_row.lifecycle_status),
+                operational_hold="RECALL",
+                batch_disposition=str(row.disposition),
+                source_status=str(row.stock_status),
+                metadata_sellable=metadata_sellable,
+            )
+            allowed = tuple(
+                purpose
+                for purpose in allowed
+                if bool(row.can_send)
+                and purpose_access.get(purpose, False)
+                and special_destinations.get(purpose) != location_id
+            ) if movable > 0 else ()
             status = {
                 "stock_status": str(row.stock_status).upper(),
                 "on_hand_quantity": canonical_quantity(on_hand),
                 "reserved_quantity": canonical_quantity(reserved),
                 "movable_quantity": canonical_quantity(movable),
+                "allowed_purposes": list(allowed),
             }
             statuses_by_key[key] = status
             source["statuses"].append(status)
@@ -2722,7 +2784,10 @@ async def get_batch_stock_sources(
                 ProductBatch.disposition_revision,
                 ProductVariant.base_uom_id,
                 UOM.code.label("base_uom_code"),
+                ProductVariant.lifecycle_status,
                 ProductVariant.operational_hold,
+                ProductVariant.expiry_control_mode,
+                ProductBatch.is_active.label("batch_is_active"),
                 func.timezone(
                     Company.timezone,
                     func.current_timestamp(),
@@ -2756,6 +2821,22 @@ async def get_batch_stock_sources(
     company_wide_inventory_read = bool(
         await db.scalar(select(access.allows("inventory.read")))
     )
+    special_destinations = await read_special_transfer_destinations(
+        db, company_id=company_id
+    )
+    company_codes = set(await access.codes())
+    destination_codes = (
+        await access.codes_by_location(list(set(special_destinations.values())))
+        if special_destinations
+        else {}
+    )
+    purpose_access = {
+        purpose: (
+            SPECIAL_TRANSFER_PERMISSION[purpose] in company_codes
+            and "transfer.destination" in set(destination_codes.get(destination_id, []))
+        )
+        for purpose, destination_id in special_destinations.items()
+    }
     can_send = access.allows("transfer.send", InventoryLocation.id)
     owners = reservation_owner_projection(
         access, batch_id=batch_id, variant_id=int(batch_row.product_variant_id),
@@ -2771,6 +2852,9 @@ async def get_batch_stock_sources(
                 InventoryBalance.stock_status,
                 InventoryBalance.on_hand_quantity,
                 InventoryBalance.reserved_quantity,
+                func.coalesce(
+                    InventoryStockPolicy.minimum_remaining_shelf_life_days, 0
+                ).label("minimum_remaining_shelf_life_days"),
                 *owners.c,
             )
             .select_from(InventoryBalance)
@@ -2779,6 +2863,15 @@ async def get_batch_stock_sources(
                 and_(
                     InventoryLocation.company_id == InventoryBalance.company_id,
                     InventoryLocation.id == InventoryBalance.location_id,
+                ),
+            )
+            .outerjoin(
+                InventoryStockPolicy,
+                and_(
+                    InventoryStockPolicy.company_id == InventoryBalance.company_id,
+                    InventoryStockPolicy.location_id == InventoryBalance.location_id,
+                    InventoryStockPolicy.product_variant_id == InventoryBalance.product_variant_id,
+                    InventoryStockPolicy.is_active.is_(True),
                 ),
             )
             .outerjoin(
@@ -2847,11 +2940,37 @@ async def get_batch_stock_sources(
                 "Inventory reservation exceeds on-hand quantity for "
                 f"batch_id={batch_id}, location_id={location_id}."
             )
+        metadata_sellable = batch_metadata_is_sellable(
+            as_of_date=batch_row.as_of_date,
+            expiry_control_mode=str(batch_row.expiry_control_mode),
+            production_date=batch_row.production_date,
+            expiry_date=batch_row.expiry_date,
+            minimum_remaining_shelf_life_days=int(
+                row.minimum_remaining_shelf_life_days or 0
+            ),
+            is_active=bool(batch_row.batch_is_active),
+            disposition=str(batch_row.disposition),
+        )
+        allowed = allowed_special_transfer_purposes(
+            lifecycle_status=str(batch_row.lifecycle_status),
+            operational_hold=str(batch_row.operational_hold),
+            batch_disposition=str(batch_row.disposition),
+            source_status=str(row.stock_status),
+            metadata_sellable=metadata_sellable,
+        )
+        allowed = tuple(
+            purpose
+            for purpose in allowed
+            if bool(row.can_send)
+            and purpose_access.get(purpose, False)
+            and special_destinations.get(purpose) != location_id
+        ) if movable > 0 else ()
         status = {
             "stock_status": str(row.stock_status).upper(),
             "on_hand_quantity": canonical_quantity(on_hand),
             "reserved_quantity": canonical_quantity(reserved),
             "movable_quantity": canonical_quantity(movable),
+            "allowed_purposes": list(allowed),
         }
         statuses_by_key[key] = status
         source["statuses"].append(status)

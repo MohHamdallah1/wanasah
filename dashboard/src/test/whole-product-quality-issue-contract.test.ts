@@ -27,6 +27,7 @@ const batch = (batchId: number) => ({
           on_hand_quantity: "10",
           reserved_quantity: "0",
           movable_quantity: "10",
+          allowed_purposes: ["RECALL_RETURN", "QUARANTINE", "DISPOSAL"],
           reservation_evidence: {
             coverage: "NONE",
             reason: null,

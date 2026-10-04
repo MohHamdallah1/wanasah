@@ -1358,6 +1358,106 @@ SPECIAL_TRANSFER_PERMISSION = {
 }
 
 
+def allowed_special_transfer_purposes(
+    *,
+    lifecycle_status: str,
+    operational_hold: str,
+    batch_disposition: str,
+    source_status: str,
+    metadata_sellable: bool,
+) -> tuple[str, ...]:
+    """Pure backend authority for which special-transfer purposes may be offered.
+
+    This is advisory only: mutation endpoints still re-check quantity, current
+    policy, permissions and locked state before writing anything.
+    """
+    lifecycle = str(lifecycle_status or "").upper()
+    hold = str(operational_hold or "").upper()
+    disposition = str(batch_disposition or "").upper()
+    status = str(source_status or "").upper()
+    if hold not in {"NONE", "SALES_HOLD", "RECALL"}:
+        return ()
+    if disposition not in _BATCH_DISPOSITIONS:
+        return ()
+    if status not in _INVENTORY_STOCK_STATUSES:
+        return ()
+    if not evaluate_product_capability(
+        lifecycle, hold, RETURN_DISPOSAL
+    ).allowed:
+        return ()
+
+    unsafe_or_restricted = (
+        status != "AVAILABLE"
+        or disposition != "RELEASED"
+        or not bool(metadata_sellable)
+        or hold != "NONE"
+    )
+    allowed: list[str] = []
+
+    if (
+        hold == "RECALL"
+        and status not in {"DAMAGED", "DISPOSAL_PENDING"}
+    ):
+        allowed.append("RECALL_RETURN")
+
+    if (
+        disposition != "BLOCKED"
+        and status not in {"BLOCKED", "DAMAGED", "DISPOSAL_PENDING"}
+        and unsafe_or_restricted
+    ):
+        allowed.append("QUARANTINE")
+
+    returnable = (
+        status in {"QUARANTINED", "BLOCKED", "DAMAGED"}
+        or disposition in {"QUARANTINED", "BLOCKED"}
+        or not bool(metadata_sellable)
+    )
+    if (
+        hold != "RECALL"
+        and disposition != "RECALLED"
+        and status not in {"RECALLED", "DISPOSAL_PENDING"}
+        and returnable
+    ):
+        allowed.append("RETURN_TO_VENDOR")
+
+    if unsafe_or_restricted:
+        allowed.append("DISPOSAL")
+
+    return tuple(allowed)
+
+
+async def read_special_transfer_destinations(
+    db_session: AsyncSession,
+    *,
+    company_id: int,
+) -> dict[str, int]:
+    """Read the current published special-transfer destinations without locks.
+
+    Invalid/missing policy means no action is offered. The mutation path remains
+    fail-closed and revalidates the same policy under its normal guards.
+    """
+    _draft, published = await get_transfer_destination_policy_state(
+        db_session, company_id=company_id
+    )
+    if published is None:
+        return {}
+    if int(published.schema_version) != TRANSFER_DESTINATION_POLICY_SCHEMA_VERSION:
+        return {}
+    try:
+        normalized = await validate_transfer_destination_policy_payload(
+            db_session,
+            company_id=company_id,
+            payload=dict(published.validated_payload or {}),
+            lock_locations=False,
+        )
+    except InventoryRuleError:
+        return {}
+    return {
+        purpose: int(normalized[key])
+        for purpose, key in SPECIAL_TRANSFER_DESTINATION_POLICY_KEY.items()
+    }
+
+
 async def resolve_special_transfer_direction_context(
     db_session: AsyncSession,
     *,

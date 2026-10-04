@@ -41,11 +41,18 @@ export type ReservationEvidence = {
   owners_truncated: boolean;
 };
 
+export type BatchSpecialPurpose =
+  | "RETURN_TO_VENDOR"
+  | "QUARANTINE"
+  | "RECALL_RETURN"
+  | "DISPOSAL";
+
 export type BatchStockSourceStatus = {
   stock_status: BatchStockStatus;
   on_hand_quantity: Quantity;
   reserved_quantity: Quantity;
   movable_quantity: Quantity;
+  allowed_purposes: BatchSpecialPurpose[];
   reservation_evidence: ReservationEvidence;
 };
 
@@ -297,11 +304,28 @@ export function parseBatchStockSources(
       ) {
         return invalid();
       }
+      if (
+        !Array.isArray(statusRow.allowed_purposes) ||
+        statusRow.allowed_purposes.length > 4 ||
+        statusRow.allowed_purposes.some(
+          (value) =>
+            ![
+              "RETURN_TO_VENDOR",
+              "QUARANTINE",
+              "RECALL_RETURN",
+              "DISPOSAL",
+            ].includes(String(value)),
+        )
+      ) {
+        return invalid();
+      }
       return {
         stock_status: stockStatus,
         on_hand_quantity: onHand,
         reserved_quantity: reserved,
         movable_quantity: movable,
+        allowed_purposes:
+          statusRow.allowed_purposes as BatchSpecialPurpose[],
         reservation_evidence: parseReservationEvidence(
           statusRow.reservation_evidence,
           reserved,

@@ -6,19 +6,35 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import Column, Date, MetaData, Table, and_, create_engine, literal, select
+from sqlalchemy import func as sa_func, Column, Date, MetaData, Table, and_, create_engine, literal, select
 
 from domains.batch_reservation_contracts import OWNER_PREVIEW_LIMIT
 from domains.batch_reservation_evidence import reservation_evidence
 from domains.dispatch_reservations import variant_reservation_owner_projection
 from inventory_access import InventoryAccess
 from models import (
-    Company, DispatchRoute, InventoryBalance, InventoryLocation, InventoryMovement,
+    Company, DispatchRoute, InventoryBalance, InventoryLocation, InventoryMovement, InventoryStockPolicy,
     InventoryTransferHeader, InventoryTransferLine, Permission, ProductBatch,
     ProductVariant, UOM, UserLocationAccess, UserRole, role_permissions,
 )
 from quantity import canonical_quantity
+from domains.inventory_rules import batch_metadata_is_sellable
 from schemas import WarehouseWholeProductIssueSourcesResponse
+
+SPECIAL_TRANSFER_PERMISSION = {
+    "RETURN_TO_VENDOR": "transfer.special.return_to_vendor",
+    "QUARANTINE": "transfer.special.quarantine",
+    "RECALL_RETURN": "transfer.special.recall_return",
+    "DISPOSAL": "transfer.special.disposal",
+}
+
+def no_special_purposes(**_kwargs):
+    return ()
+
+
+
+async def no_special_transfer_destinations(_db, *, company_id):
+    return {}
 
 
 class _TimezoneExpression:
@@ -34,6 +50,10 @@ class _EndpointFunc:
     @staticmethod
     def timezone(_timezone, _timestamp):
         return _TimezoneExpression()
+
+    @staticmethod
+    def coalesce(*values):
+        return sa_func.coalesce(*values)
 
 
 async def no_completion_blockers(_db, _company_id, _variant_id):
@@ -61,6 +81,7 @@ def endpoint(blocker_reader=no_completion_blockers):
         ProductBatch=ProductBatch,
         InventoryLocation=InventoryLocation,
         InventoryBalance=InventoryBalance,
+        InventoryStockPolicy=InventoryStockPolicy,
         UOM=UOM,
         Company=Company,
         select=select,
@@ -74,7 +95,11 @@ def endpoint(blocker_reader=no_completion_blockers):
         OWNER_PREVIEW_LIMIT=OWNER_PREVIEW_LIMIT,
         variant_reservation_owner_projection=variant_reservation_owner_projection,
         recall_completion_blockers=blocker_reader,
-        inventory_business_error=lambda code, message, context=None: {
+        batch_metadata_is_sellable=batch_metadata_is_sellable,
+        allowed_special_transfer_purposes=no_special_purposes,
+        SPECIAL_TRANSFER_PERMISSION=SPECIAL_TRANSFER_PERMISSION,
+        read_special_transfer_destinations=no_special_transfer_destinations,
+                inventory_business_error=lambda code, message, context=None: {
             "code": code,
             "message": message,
             "context": context,
@@ -102,12 +127,13 @@ class ReadSession:
 def store():
     metadata = MetaData()
     definitions = [
-        (ProductBatch, "id company_id product_variant_id batch_number production_date expiry_date disposition disposition_reason disposition_revision"),
-        (ProductVariant, "id company_id version base_uom_id operational_hold"),
+        (ProductBatch, "id company_id product_variant_id batch_number production_date expiry_date disposition disposition_reason disposition_revision is_active"),
+        (ProductVariant, "id company_id version base_uom_id lifecycle_status operational_hold expiry_control_mode"),
         (UOM, "id code"),
         (Company, "id timezone"),
         (InventoryLocation, "id company_id name location_type is_active vehicle_id"),
         (InventoryBalance, "id company_id location_id product_variant_id batch_id stock_status on_hand_quantity reserved_quantity"),
+        (InventoryStockPolicy, "id company_id location_id product_variant_id minimum_remaining_shelf_life_days is_active"),
         (InventoryTransferHeader, "id company_id source_location_id destination_location_id reference_number workflow_type status transfer_purpose work_session_id expected_receiver_id dispatched_by"),
         (InventoryTransferLine, "id company_id transfer_header_id product_variant_id batch_id source_stock_status quantity"),
         (InventoryMovement, "id company_id transfer_header_id product_variant_id batch_id source_location_id destination_location_id source_stock_status destination_stock_status movement_kind reservation_action reference_type reference_id quantity work_session_id"),
@@ -138,7 +164,7 @@ def store():
 
         insert(Company, id=1, timezone="UTC")
         insert(UOM, id=1, code="EA")
-        insert(ProductVariant, id=101, company_id=1, version=7, base_uom_id=1, operational_hold="RECALL")
+        insert(ProductVariant, id=101, company_id=1, version=7, base_uom_id=1, lifecycle_status="ACTIVE", operational_hold="RECALL", expiry_control_mode="REQUIRED")
         for batch_id in (11, 12):
             insert(
                 ProductBatch,
