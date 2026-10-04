@@ -8,7 +8,7 @@ import { apiErrorMessage } from "@/lib/apiErrors";
 import {
   buildBarcodePayload, buildConversionPayload, buildProductPayload, buildVariantPayload, parseBarcodes, parseConversions, parseMutationMessage, parseProducts, parseUoms, parseVariants,
   type CatalogProduct, type CatalogVariant, type ProductBarcode, type ProductDraft, type UomConversion, type UomRef, type VariantDraft,
-} from "./catalog/contracts";
+} from "@/features/catalog/contracts";
 import { CatalogLifecyclePanel } from "./catalog/CatalogLifecyclePanel";
 
 interface Props {

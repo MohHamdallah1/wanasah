@@ -165,26 +165,38 @@ Purpose: remove the accidental coupling before changing UX behavior.
 
 ## 1.1 Product lifecycle ownership
 
-- [ ] Move Product/Catalog lifecycle UI out of `pages/inventory/catalog` into Product/Catalog-owned frontend structure.
-- [ ] `ProductsPage` must not import Inventory page business-action components.
-- [ ] Keep backend catalog endpoints/contracts unchanged unless a proven gap requires a separately approved change.
-- [ ] Preserve current permissions, durable request IDs, and mutation semantics during the move.
+- [x] Move Product/Catalog lifecycle UI out of `pages/inventory/catalog` into Product/Catalog-owned frontend structure. Canonical implementation now lives under `dashboard/src/features/catalog/`; old paths are compatibility re-exports only.
+- [x] `ProductsPage` / Products-owned code no longer imports Inventory page business-action components; an architecture gate prevents direct `pages/products` ? `pages/inventory` imports.
+- [x] Keep backend catalog endpoints and mutation semantics unchanged; this phase is frontend ownership/navigation only.
+- [x] Preserve current permissions, durable request IDs, and mutation semantics during the move; focused lifecycle/catalog/inventory regressions remain green.
 
 ## 1.2 Shared code rules
 
-- [ ] Extract only generic UI primitives or pure navigation contracts when genuinely shared.
-- [ ] Do not create a generic `shared business logic` folder.
-- [ ] Keep Product-specific DTO parsing with Products when the API response belongs to Products.
-- [ ] Keep Inventory batch/quantity DTO parsing with Inventory.
+- [x] Extract only genuine technical primitives: exact quantity arithmetic to `lib/quantity.ts` and typed Inventory route intent to `features/inventory/navigation.ts`.
+- [x] No generic shared-business folder was introduced; Catalog and Inventory retain explicit owners.
+- [x] Product-specific Products-page contracts remain Products-owned; Catalog public contracts are isolated under `features/catalog`.
+- [x] Inventory batch/quantity DTOs remain Inventory-owned; `ProductLocation` parsing/mutation validation was split into `features/inventory/productLocations`.
 
 ## 1.3 Navigation contract
 
-- [ ] Replace cross-module localStorage workflow signaling with an explicit typed navigation intent.
-- [ ] Navigation may carry `variant_id`, `batch_id`, `location_id`, and target surface as hints only.
-- [ ] Inventory must independently resolve and authorize every target.
-- [ ] Preserve localStorage only for harmless UI preferences such as last selected tab/location when appropriate.
+- [x] Replace cross-module localStorage/sessionStorage workflow signaling with a versioned typed React Router navigation intent.
+- [x] Navigation contract carries only typed surface/identity/location hints; no permission, mutation payload, business transition, or durable command is transported.
+- [x] Inventory consumes the hint and still resolves data through its existing location-scoped APIs/access checks; navigation state is never authorization.
+- [x] Inventory localStorage remains only for harmless last-tab/last-location UI preferences; the batch workflow bridge no longer uses storage.
 
 **Exit gate:** no Products business component imports Inventory internal business UI, and vice versa.
+
+**Phase 1 implementation evidence (2026-10-04):**
+- Canonical Catalog lifecycle/contracts/status live under `dashboard/src/features/catalog/`; `pages/inventory/catalog/*` compatibility files no longer own those implementations.
+- `ProductLocationAssignment` and its mutation/parser contract are Inventory-owned under `dashboard/src/features/inventory/productLocations/`; the legacy mixed lifecycle panel is now composition-only.
+- Direct Products <-> Inventory page-internal imports are blocked by `catalog-inventory-boundary.test.ts`.
+- Product -> Inventory workflow navigation uses typed route state; `inventory_batch_issue_focus` storage signaling was removed.
+- Focused gate at this checkpoint: TypeScript PASS, ESLint PASS, 6 test files / 73 tests PASS, production build PASS (2786 modules).
+
+**Residual legacy debt - quarantined, not mounted:**
+- [x] Verify `pages/inventory/TabProductCatalog.tsx` is not mounted by the active Inventory shell and preserve it as legacy/test-only code during this behavior-preserving phase.
+- [ ] Relocate or retire the legacy `TabProductCatalog.tsx` file itself after its test-only consumers and old hardcoded UI are migrated safely. Do not re-enable it in Inventory and do not let it become an excuse for new cross-domain code.
+
 
 ---
 

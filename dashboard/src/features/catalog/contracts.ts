@@ -308,17 +308,6 @@ export interface DraftDeletePreflight {
   can_delete: boolean;
   blockers: ArchiveBlocker[];
 }
-export interface ProductLocationAssignment {
-  id: number;
-  location: { id: number; code: string; name: string; location_type: string };
-  product_variant: { id: number; sku: string; name: string; lifecycle_status: CatalogVariant["lifecycle_status"] };
-  operational_flags: { inbound_enabled: boolean; outbound_enabled: boolean };
-  version: number;
-  created_by: number;
-  created_at: string;
-  updated_at: string;
-}
-
 const parseLifecycle = (value: unknown): CatalogVariant["lifecycle_status"] => {
   if (!["DRAFT", "ACTIVE", "RETIRING", "ARCHIVED"].includes(String(value))) throw catalogContractError("حالة دورة الحياة غير صالحة.");
   return value as CatalogVariant["lifecycle_status"];
@@ -402,22 +391,6 @@ export const parseDraftDeletePreflight = (
       ),
   };
 };
-const parseProductLocation = (value: unknown): ProductLocationAssignment => {
-  const row = record(value, "ربط الصنف بالموقع غير صالح.");
-  const location = record(row.location, "هوية الموقع غير صالحة.");
-  const variant = record(row.product_variant, "هوية الصنف غير صالحة.");
-  const flags = record(row.operational_flags, "صلاحيات تشغيل الصنف غير صالحة.");
-  if (typeof flags.inbound_enabled !== "boolean" || typeof flags.outbound_enabled !== "boolean") throw catalogContractError("صلاحيات تشغيل الصنف غير صالحة.");
-  return {
-    id: integer(row.id, "product_location.id", 1),
-    location: { id: integer(location.id, "location.id", 1), code: requiredString(location.code, "location.code", 100), name: requiredString(location.name, "location.name", 150), location_type: requiredString(location.location_type, "location.location_type", 30) },
-    product_variant: { id: integer(variant.id, "variant.id", 1), sku: requiredString(variant.sku, "variant.sku", 100), name: requiredString(variant.name, "variant.name", 200), lifecycle_status: parseLifecycle(variant.lifecycle_status) },
-    operational_flags: { inbound_enabled: flags.inbound_enabled, outbound_enabled: flags.outbound_enabled },
-    version: integer(row.version, "product_location.version", 1), created_by: integer(row.created_by, "created_by", 1),
-    created_at: requiredString(row.created_at, "created_at", 64), updated_at: requiredString(row.updated_at, "updated_at", 64),
-  };
-};
-export const parseProductLocations = (raw: unknown): CursorPage<ProductLocationAssignment> => cursorPage(raw, parseProductLocation);
 export const buildLifecycleCommand = (variant: CatalogVariant, reason: string) => {
   const clean = reason.trim();
   if (clean.length < 3 || clean.length > 1000) throw catalogContractError("سبب الإجراء مطلوب وبحد أدنى 3 أحرف.");

@@ -22,7 +22,7 @@ import {
 import {
   parseVariants,
   type CatalogVariant,
-} from "./catalog/contracts";
+} from "@/features/catalog/contracts";
 import {
   buildInboundItems,
   emptyInboundBatch,
