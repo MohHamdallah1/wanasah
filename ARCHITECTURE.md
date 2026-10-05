@@ -1,5 +1,11 @@
 # Wanasah Architecture Constitution
 
+## Version 1 product-scope companion
+
+`V1_SCOPE_FREEZE.md` is the canonical authority for **what must ship in Version 1 and where Version 1 stops**. This architecture constitution remains the authority for **how the platform is built and evolves**. A long-term architectural target, existing backend primitive, table, endpoint, page, or partial workflow in this document does not by itself make that capability a V1 requirement. Capabilities explicitly deferred beyond V1 remain governed by `VERSION_2_FUTURE_FEATURES.md`.
+
+Any proposed implementation that would expand V1 must pass the change-control rule in `V1_SCOPE_FREEZE.md` before code changes begin.
+
 ## Mandatory delivery workflow — Owner directive (2026-09-30)
 
 > من الآن راح أغيّر أسلوب الشغل: فحص مجمّع، تنفيذ محدد، اختبار قبول شامل، ثم Commit. وإذا فشل الاختبار نعالج السبب المثبت فقط، بدل دوامة اختبارات وإعادة تشغيل غير ضرورية. وما رح أعيد فحوصات D7-L الناجحة لمجرد التكرار.
