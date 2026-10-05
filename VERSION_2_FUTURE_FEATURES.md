@@ -2,7 +2,7 @@
 
 **Status:** CANONICAL V2 BACKLOG — DO NOT DELETE OR ARCHIVE AS TEMPORARY NOTES  
 **Scope:** Product capabilities intentionally deferred from Version 1  
-**Last updated:** 2026-09-28
+**Last updated:** 2026-10-05
 
 This file is the source of truth for Product capabilities that already have meaningful backend/domain foundations but are intentionally **not exposed as active Version 1 workflows**.
 
@@ -556,7 +556,50 @@ sign-off. Deferral is an honest scope decision, not a green test result.
 
 ---
 
-## 9. Preservation rule
+## 9. Product archival workflow after permanent stop
+
+### V1 decision
+
+**Full Product archival is deferred to Version 2.**
+
+Version 1 keeps the **Archive record** action visible for discoverability, but disabled. The existing backend/domain foundations remain in the repository and must not be deleted merely because the V1 UI entry is closed.
+
+This deferral does **not** weaken the Version 1 permanent-stop rule. In V1, **Permanent product stop** is an immediate commercial stop: from the moment it is applied, no new sale, route/vehicle load, replenishment, or supplier inbound may start for that product. Existing stock, transfers, driver custody, sales history, returns, stocktake/reconciliation evidence, and other durable references remain preserved only so they can be returned, handled, reconciled, or audited; they are not permission to keep selling the product.
+
+The permanent-stop state remains reversible through the approved restore-to-use command if the company later changes its business decision. This is different from archiving and is part of the supported V1 lifecycle.
+
+### Why archival is deferred
+
+The current archival foundations are fail-closed, but the end-user workflow is not coherent enough for production use:
+
+- an `INVENTORY_BALANCE` archive blocker currently opens the whole-product quality/batch handling workspace, which is the wrong business destination for ordinary archival cleanup;
+- that workspace offers quality actions such as quarantine, sale blocking, or final exclusion even when the user's intent is only to retire/archive an ordinary discontinued product;
+- `ProductLocation` may remain a blocker even after stock reaches zero because historical inventory/movement references can legitimately prevent deleting the operational link;
+- active stock-policy blockers do not yet have a complete V1 owner workflow that lets a user safely retire the policy as part of archival cleanup;
+- the user is forced to chase blockers across unrelated pages instead of completing one understandable archive-readiness journey.
+
+Therefore Version 1 must not represent archival as a complete workflow merely because an archive endpoint and blocker checks already exist.
+
+### Required Version 2 workflow
+
+Version 2 must redesign archival as one coherent business journey:
+
+1. Start from an already permanently stopped product; archiving must never be required to stop new sales/load/inbound.
+2. Show one archive-readiness checklist owned by the archival workflow, with plain-language blockers and an actionable owner for each blocker.
+3. Distinguish live operational blockers from historical evidence. Historical sales, movements, audit, costing, and other durable evidence must remain preserved and must not require destructive deletion.
+4. Define the correct lifecycle for product-location assignments and stock policies when the product is permanently out of use. Do not require deleting historical references merely to archive a catalog record.
+5. Route stock/custody/transfer cleanup to the correct inventory or dispatch owner flow, never to quality/batch actions unless there is an actual quality issue.
+6. Preserve tenant/company isolation, exact warehouse/location authorization, idempotency, audit evidence, and backend authority.
+7. Keep restore-from-archive semantics explicit and safe if the company later chooses to reactivate the product; reactivation must revalidate the then-current readiness rules rather than silently reviving stale operational configuration.
+8. Provide Arabic/English, RTL/LTR, accessibility, keyboard-first behavior, and focused end-to-end acceptance before enabling the V1-visible disabled button.
+
+### Version 2 acceptance criteria
+
+Archival is not complete until a non-technical user can understand why archiving is blocked, complete every required cleanup through the correct owner workflow, archive without deleting historical truth, and safely restore when allowed. No blocker may send the user into an unrelated quality workflow merely because both features touch inventory quantities.
+
+---
+
+## 10. Preservation rule
 
 This file is intentional product/architecture scope, not a temporary handoff note.
 

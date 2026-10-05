@@ -1,6 +1,7 @@
 import {
   readFileSync,
 } from "node:fs";
+import { resolve } from "node:path";
 import {
   describe,
   expect,
@@ -9,9 +10,10 @@ import {
 
 const read = (relativePath: string) =>
   readFileSync(
-    new URL(
+    resolve(
+      process.cwd(),
+      "src/test",
       relativePath,
-      import.meta.url,
     ),
     "utf8",
   );
@@ -150,6 +152,26 @@ describe("Products fast Enter and commercial-status UX", () => {
     expect(panel).toContain('catalogLifecycle.simple.manageConfirmedIssue');
   });
 
+  it("keeps V1 archival visible but disabled and deferred", () => {
+    const panel = read(
+      "../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx",
+    );
+    const resources = read("../i18n/resources.ts");
+
+    expect(panel).toContain(
+      "catalogLifecycle.simple.actionHints.archiveDeferred",
+    );
+    expect(panel).toContain(
+      "onClick={() => undefined}",
+    );
+    expect(resources).toContain(
+      "الأرشفة محفوظة لنسخة V2",
+    );
+    expect(resources).toContain(
+      "Archiving is deferred to Version 2",
+    );
+  });
+
   it("keeps user-facing wording commercial and unified", () => {
     const resources = read("../i18n/resources.ts");
     for (const oldTerm of [
@@ -179,6 +201,8 @@ describe("Products fast Enter and commercial-status UX", () => {
       expect(resources).not.toContain(oldTerm);
     }
     for (const term of [
+      "إيقاف دائم للمنتج",
+      "Stop product permanently",
       "متاح للبيع",
       "موقوف",
       "خارج الاستخدام",

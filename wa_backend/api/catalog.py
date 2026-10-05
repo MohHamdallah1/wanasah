@@ -1497,7 +1497,10 @@ async def _run_variant_state_command(
                 raise _error(409, "PRODUCT_RETIRE_TRANSITION_INVALID", "التقاعد مسموح للصنف الفعال فقط.")
             row.lifecycle_status = "RETIRING"
             row.retired_at = now
-            event_type, message = "ProductRetired", "دخل الصنف مرحلة التقاعد."
+            event_type, message = (
+                "ProductRetired",
+                "تم إيقاف الصنف دائمًا عن البيع والتحميل والتوريد الجديد.",
+            )
         elif command == "restore":
             if row.lifecycle_status not in {"RETIRING", "ARCHIVED"}:
                 raise _error(409, "PRODUCT_RESTORE_TRANSITION_INVALID", "الاستعادة مسموحة للصنف المتقاعد أو المؤرشف فقط.")

@@ -273,7 +273,7 @@ export const resources = {
           hints: {
             available: "المنتج يعمل بشكل طبيعي ويمكن بيعه.",
             stopped: "المنتج غير متاح للبيع حاليًا. السبب أدناه يوضح نوع الإيقاف وما يمكن فعله.",
-            outOfUse: "قررت الشركة عدم الاستمرار بهذا المنتج. البيع والتشغيل متوقفان، والسجل محفوظ ويمكن إعادته للاستخدام أو أرشفته عندما يسمح النظام.",
+            outOfUse: "تم إيقاف هذا المنتج دائمًا. لا يُسمح ببيع أو تحميل أو توريد جديد، بينما يبقى السجل والآثار التشغيلية محفوظة ويمكن إعادة المنتج للاستخدام إذا تغير القرار.",
             archived: "المنتج خارج التشغيل اليومي ومحفوظ بكامل تاريخه.",
           },
           reasonHints: {
@@ -283,7 +283,7 @@ export const resources = {
             pendingArchive: "المنتج خارج الاستخدام، وسجله ما زال محفوظًا داخل الكتالوج.",
           },
           secondary: {
-            pendingArchive: "بعد إنهاء سبب الإيقاف الحالي سيبقى المنتج خارج الاستخدام حتى تختار إعادته للاستخدام أو أرشفة سجله.",
+            pendingArchive: "بعد إنهاء سبب الإيقاف الحالي سيبقى المنتج موقوفًا دائمًا حتى تختار إعادته للاستخدام؛ الأرشفة مؤجلة لنسخة V2.",
           },
           batchRestrictionWarning: "المنتج نشط، لكن {{count}} دفعة غير متاحة للبيع.",
           batchRestrictionReason: "السبب: {{reason}}",
@@ -1016,7 +1016,7 @@ export const resources = {
           checkDeleteDraft:
             "فحص إمكانية حذف المسودة",
           deleteDraft: "حذف المسودة نهائياً",
-          retire: "التوقف عن استخدام المنتج",
+          retire: "إيقاف دائم للمنتج",
           restore: "إعادة المنتج للاستخدام",
           checkArchive: "التحقق من إمكانية الأرشفة",
           archive: "أرشفة السجل",
@@ -1031,7 +1031,7 @@ export const resources = {
           deleteDraft:
             "تم حذف مسودة المنتج.",
           retire:
-            "أصبح المنتج خارج الاستخدام مع بقاء سجله محفوظًا.",
+            "تم إيقاف المنتج دائمًا. لن يُسمح ببيع أو تحميل أو توريد جديد، مع بقاء سجله وآثاره التشغيلية محفوظة للمعالجة والتسوية.",
           restore:
             "تمت إعادة المنتج للاستخدام.",
           archive:
@@ -1167,18 +1167,20 @@ export const resources = {
           lifecycleStatusHints: {
             DRAFT: "المنتج ما زال مسودة ولم يدخل التشغيل بعد.",
             ACTIVE: "المنتج ضمن الكتالوج التشغيلي ومتاح حسب حالة البيع.",
-            RETIRING: "المنتج خارج الاستخدام بالفعل. سجله محفوظ، ويمكن إعادته للاستخدام أو أرشفة السجل إذا سمحت الشروط.",
+            RETIRING: "المنتج موقوف دائمًا عن البيع والتحميل والتوريد الجديد. يبقى سجله وآثاره التشغيلية محفوظة، ويمكن إعادته للاستخدام إذا تغير القرار.",
             ARCHIVED: "المنتج محفوظ في الأرشيف ولا يعمل تشغيليًا حاليًا.",
           },
           actionHints: {
             publish:
               "يجعل المنتج متاحًا للاستخدام التشغيلي.",
             retire:
-              "استخدمه عندما قررت الشركة عدم الاستمرار بهذا المنتج. يصبح خارج الاستخدام فورًا مع بقاء سجله محفوظًا.",
+              "استخدمه عندما انتهت الشركة من هذا المنتج نهائيًا. من لحظة الإيقاف لا يُسمح ببيع أو تحميل أو توريد جديد، لكن قد يبقى مخزون أو حوالات أو عهدة مندوب أو تاريخ مبيعات أو مرتجعات تحتاج إلى المعالجة أو الإرجاع أو التسوية.",
             restore:
               "يعيد المنتج للاستخدام التشغيلي إذا كانت بياناته وشروطه سليمة.",
             archive:
               "يؤرشف سجل منتج أصبح خارج الاستخدام. الأرشفة خطوة مستقلة وليست شرطًا حتى يكون المنتج متوقفًا عن الاستخدام.",
+            archiveDeferred:
+              "الأرشفة محفوظة لنسخة V2 حتى يكتمل مسار واضح لمعالجة الموانع والروابط التاريخية بدون إرسال المستخدم إلى إجراءات غير مرتبطة.",
             salesHold:
               "يوقف البيع مؤقتًا ويمكن الرجوع عنه مباشرة؛ مناسب لقرار إداري أو توقف قصير.",
             releaseSalesHold:
@@ -2453,7 +2455,7 @@ export const resources = {
           hints: {
             available: "The product is operating normally and can be sold.",
             stopped: "The product is not currently available for sale. The reason below explains the stop and what can be done next.",
-            outOfUse: "The company has decided not to continue using this product. Sales and operations are stopped, while its record stays preserved and can be restored or archived when allowed.",
+            outOfUse: "This product has been permanently stopped. No new sale, load, or inbound is allowed, while its record and operational history remain preserved and it can be restored if the business decision changes.",
             archived: "The product is out of daily operations and its full history is preserved.",
           },
           reasonHints: {
@@ -2463,7 +2465,7 @@ export const resources = {
             pendingArchive: "The product is out of use and its catalog record is still preserved.",
           },
           secondary: {
-            pendingArchive: "After resolving the current stop, the product will remain out of use until you choose to restore it or archive its record.",
+            pendingArchive: "After resolving the current stop, the product remains permanently stopped until you restore it; archiving is deferred to Version 2.",
           },
           batchRestrictionWarning: "The product is active, but {{count}} batch is not available for sale.",
           batchRestrictionReason: "Reason: {{reason}}",
@@ -3197,7 +3199,7 @@ export const resources = {
             "Check draft deletion",
           deleteDraft:
             "Permanently delete draft",
-          retire: "Stop using product",
+          retire: "Stop product permanently",
           restore: "Return product to use",
           checkArchive: "Check archive readiness",
           archive: "Archive record",
@@ -3212,7 +3214,7 @@ export const resources = {
           deleteDraft:
             "Draft product deleted.",
           retire:
-            "The product is now out of use while its record remains preserved.",
+            "The product is permanently stopped. No new sale, load, or inbound is allowed while its record and operational history remain preserved for handling and reconciliation.",
           restore:
             "Product returned to use.",
           archive:
@@ -3348,18 +3350,20 @@ export const resources = {
           lifecycleStatusHints: {
             DRAFT: "The product is still a draft and has not entered operations.",
             ACTIVE: "The product is in the operational catalog and availability depends on its sales status.",
-            RETIRING: "The product is already out of use. Its record is preserved and can be returned to use or archived when conditions allow.",
+            RETIRING: "The product is permanently stopped for new sales, loads, and inbound. Its record and operational history remain preserved, and it can be restored if the business decision changes.",
             ARCHIVED: "The product is retained in history and is not operationally active.",
           },
           actionHints: {
             publish:
               "Makes the product available for normal operations.",
             retire:
-              "Use this when the company has decided not to continue using the product. It becomes out of use immediately while its record remains preserved.",
+              "Use this when the company is permanently finished with the product. From that moment no new sale, load, or inbound is allowed; existing stock, transfers, driver custody, sales history, or returns remain only for handling, return, or reconciliation.",
             restore:
               "Returns the product to operational use when its data and conditions are valid.",
             archive:
               "Archives the record of a product that is already out of use. Archiving is a separate record step, not a requirement for stopping product use.",
+            archiveDeferred:
+              "Archiving is deferred to Version 2 until there is a complete workflow for resolving blockers and historical links without sending users into unrelated actions.",
             salesHold:
               "Pauses sales temporarily and can be reversed directly; use it for a short administrative or operational pause.",
             releaseSalesHold:

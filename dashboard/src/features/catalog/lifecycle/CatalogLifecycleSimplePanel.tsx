@@ -412,14 +412,10 @@ export function CatalogLifecycleSimplePanel({
                 "catalogLifecycle.actions.archive",
               )}
               hint={t(
-                "catalogLifecycle.simple.actionHints.archive",
+                "catalogLifecycle.simple.actionHints.archiveDeferred",
               )}
-              disabled={actionsDisabled}
-              onClick={() =>
-                onChooseCommand(
-                  "archive",
-                )
-              }
+              disabled
+              onClick={() => undefined}
             />
           ) : null}
 
