@@ -1,176 +1,321 @@
 # Wanasah V1 Completion Audit
 
-**Status:** rolling execution-status companion to `V1_SCOPE_FREEZE.md`  
-**Audit date:** 2026-10-05  
-**Audited branch:** `main`  
-**Audited commit:** `a9dd7b4dde5a29aaf4bfeb6b383e28d70e79c0f5`  
-**Canonical V1 scope authority:** `V1_SCOPE_FREEZE.md`
+**الحالة:** مرجع متحرك لقياس التقدم مقابل `V1_SCOPE_FREEZE.md`  
+**تاريخ التدقيق:** 2026-10-05  
+**الفرع المدقق:** `main`  
+**النسخة المدققة:** `54aebe02000da3d87a5be562467950e0491602fc`  
+**مرجع حدود V1:** `V1_SCOPE_FREEZE.md`
 
-This file does **not** change V1 scope. It measures progress against the already-frozen scope and records the shortest remaining path to `V1 DONE`.
+هذا الملف لا يغيّر نطاق V1. وظيفته قياس الجاهزية الفعلية واكتشاف النواقص حتى لو لم تكن مكتوبة في خطة سابقة.
 
-## 1. Current V1 completion score
+## 1. تصحيح منهج التدقيق
 
-**Canonical snapshot: 65 / 100 complete.**
+التقدير السابق `65/100` اعتمد أكثر من اللازم على الخطط والمهام الموجودة في المستودع. هذا غير كافٍ لأن الخطة لا تستطيع كشف ميزة تشغيلية لم نفكر بها أصلاً.
 
-This is a weighted engineering/release-readiness score, not a percentage of files or lines of code. A capability scores high only when the end-to-end V1 workflow is substantially implemented and there is meaningful correctness evidence. Existing code without production acceptance does not receive 100%.
+من الآن التدقيق يبدأ من رحلة شركة توزيع حقيقية:
 
-| Frozen V1 area | Weight | Current completion | Weighted points | Status |
+**تأسيس الشركة → إنشاء المستخدمين والمندوبين → إضافة السيارات → الفروع والمستودعات → المناطق والمحلات → المنتجات والأسعار → التوريد من المورد → المخزون → تجهيز السيارة والمسار → تطبيق المندوب → الزيارة والبيع والتحصيل والمرتجع → إغلاق اليوم والتسوية → التقارير.**
+
+كل حلقة تُفحص ضد الكود والواجهة الفعليين، وليس ضد ملفات الخطط فقط.
+
+## 2. النسبة الحالية بعد تدقيق رحلة العمل
+
+**التقدير المحافظ الحالي: 61 / 100.**
+
+هذه نسبة جاهزية تشغيلية وليست نسبة ملفات أو أسطر كود. وجود نموذج في قاعدة البيانات أو خدمة خلفية لا يعني أن الشركة تستطيع استخدام الميزة فعلياً.
+
+| الجزء التشغيلي | الوزن | الجاهزية الحالية | النقاط | الحالة |
 | --- | ---: | ---: | ---: | --- |
-| Identity / company / access / sessions | 7 | 82% | 5.7 | `[~]` |
-| Products / Catalog | 11 | 94% | 10.3 | `[~]` |
-| Inventory / Warehouses | 17 | 65% | 11.1 | `[~]` |
-| Dispatch / routes / shops | 13 | 72% | 9.4 | `[~]` |
-| Flutter field application | 15 | 52% | 7.8 | `[~]` |
-| Commercial rules / offers / taxes | 7 | 78% | 5.5 | `[~]` |
-| Sales / returns / financial truth | 12 | 62% | 7.4 | `[~]` |
-| Minimal launch reports | 6 | 30% | 1.8 | `[ ]` |
-| Minimal operational settings | 4 | 40% | 1.6 | `[ ]` |
-| Production readiness / deployment acceptance | 8 | 58% | 4.6 | `[~]` |
-| **Total** | **100** |  | **65.2 → 65** | **`[~]`** |
+| تأسيس الشركة والإعدادات الأساسية | 5 | 70% | 3.5 | `[~]` |
+| المستخدمون والمندوبون والصلاحيات | 7 | 40% | 2.8 | `[ ]` |
+| السيارات والأسطول الأساسي | 5 | 25% | 1.3 | `[ ]` |
+| المناطق والمحلات | 6 | 85% | 5.1 | `[~]` |
+| المنتجات والأسعار والقواعد التجارية | 11 | 92% | 10.1 | `[~]` |
+| الموردون والتوريد والمخزون | 16 | 64% | 10.2 | `[~]` |
+| التوزيع والمسارات وتحميل السيارات | 11 | 72% | 7.9 | `[~]` |
+| تطبيق المندوب | 14 | 52% | 7.3 | `[~]` |
+| البيع والتحصيل والمرتجعات وذمم المحلات | 10 | 58% | 5.8 | `[~]` |
+| إغلاق اليوم والتسويات والتقارير | 6 | 45% | 2.7 | `[ ]` |
+| الإعدادات التشغيلية | 3 | 25% | 0.8 | `[ ]` |
+| جاهزية الإنتاج والإطلاق | 6 | 58% | 3.5 | `[~]` |
+| **المجموع** | **100** |  | **61.0** | **`[~]`** |
 
-### Scoring rule
+## 3. تدقيق رحلة شركة التوزيع
 
-- `[x]` means the frozen V1 boundary is implemented and accepted for its current risk level.
-- `[~]` means substantial implementation exists but one or more required V1 gaps or release gates remain.
-- `[ ]` means the minimal frozen V1 boundary is materially incomplete.
-- V2 work contributes **zero** to this score and is not allowed to delay V1.
+### أ. تأسيس الشركة — موجود جزئياً
 
-The score is intentionally conservative. It is easier to raise it by closing a real workflow than by adding code.
+الموجود:
 
----
+- مدير المنصة يستطيع إنشاء شركة.
+- الإنشاء يجهز الشركة والفرع الرئيسي وحساب مدير الشركة.
+- العملة تُحدد عند التأسيس.
+- يوجد عزل للشركة وجلسات دخول وتجديد جلسة.
 
-## 2. What is already strong / substantially closed
+النقص:
 
-### [x] Product Import engineering
+- [ ] لا توجد إدارة شركة واضحة لبيانات التشغيل الأساسية بعد التأسيس.
+- [ ] المنطقة الزمنية موجودة في نموذج الشركة لكن إنشاء الشركة لا يسمح باختيارها ولا توجد صفحة واضحة لتعديلها.
+- [ ] يجب حسم الإعدادات التي تحتاجها الشركة الأولى فعلياً فقط، بدون بناء مركز إعدادات ضخم.
 
-Product Import development engineering is closed for V1. Real owner-run Dashboard evidence includes 500-row, 50,000 mixed, and 50,000 all-valid imports; the final 50k runs are in the accepted ~4-minute class. Deeper import throughput optimization is V2 unless a real regression appears.
+### ب. المستخدمون والمندوبون — فجوة V1 حقيقية
 
-### [x] Worker foundation
+الموجود:
 
-The operational/reports/product-import worker foundation has recorded isolation, cleanup, recovery, dedupe, bounded tenant discovery, heartbeat, retry, Live Stock recovery and queue-health gates. Do not reopen this foundation without a demonstrated regression.
+- نموذج `Driver` يمثل مستخدمي الشركة والمندوبين والمدير.
+- تسجيل الدخول للمندوب والمدير موجود.
+- الأدوار والصلاحيات والمنح على المواقع موجودة، ويوجد تبويب لإدارة منح الصلاحيات.
+- شاشة التوزيع تستطيع قراءة المندوبين الموجودين وربطهم بالمسارات.
 
-### [~] Products / Catalog is near the frozen V1 boundary
+النقص المكتشف:
 
-The current Products area already has structured create/list/detail/family/barcode/import/lifecycle/display-preference surfaces and a large focused Dashboard test set. Current status/lifecycle UX polishing may continue only until the required V1 workflow is clear and safe. Optional cosmetic perfection must not hold V1 open.
+- [ ] لا توجد صفحة تشغيلية لإنشاء مندوب/مستخدم جديد.
+- [ ] لا يوجد مسار إداري طبيعي لتعديل اسم المستخدم/الاسم/الهاتف والخصائص التشغيلية اللازمة.
+- [ ] لا يوجد مسار واضح لتعطيل وإعادة تفعيل مستخدم مع الحفاظ على التاريخ.
+- [ ] لا توجد إدارة واضحة لإعادة تعيين كلمة المرور أو تغييرها عند الحاجة.
+- [ ] يجب ربط إنشاء المستخدم بالأدوار ونطاق الوصول المطلوب بدون الاعتماد على تعديل قاعدة البيانات أو بيانات التطوير.
 
-### [~] Dashboard business surfaces are not empty prototypes
+**الحكم:** هذه ليست ميزة V2. هي جزء مباشر من `users/access` ومن تشغيل المندوب في V1.
 
-Current routed surfaces include Operations, Dispatch, Inventory, Products, Commercial Rules and Sales/Returns. Inventory already exposes Live Stock, Inbound, Stocktake, Ledger, Batches, Transfers, Warehouse Locations and Inventory Access.
+### ج. السيارات — فجوة V1 حقيقية
 
-### [~] Flutter already contains real operational code
+الموجود:
 
-Flutter contains login, dashboard, visit list, visit workflow and add-shop screens. It also has a local/offline sync repository, stable request IDs for sales, pending-sync replay, token refresh and local persistence. It therefore needs audit/hardening, not a rewrite from zero.
+- نموذج `Vehicle` موجود ويحتوي اللوحة والنوع والعداد وانتهاء الترخيص وحالة الصيانة والتفعيل.
+- شاشة التوزيع تقرأ السيارات الموجودة وتربط سيارة بالمسار.
+- المخزون يدعم موقعاً من نوع سيارة وتتبع عهدتها.
 
----
+النقص المكتشف:
 
-## 3. Closed list of work separating current `main` from V1 DONE
+- [ ] لا توجد صفحة لإضافة سيارة جديدة.
+- [ ] لا يوجد مسار إداري واضح لتعديل بيانات السيارة.
+- [ ] لا يوجد مسار واضح لتعطيل/إعادة تفعيل السيارة بأمان.
+- [ ] يجب أن يتكامل إنشاء السيارة مع هوية موقع مخزون السيارة اللازمة للتوزيع، بدون إنشاء يدوي غامض.
 
-This is the current **closed remaining list**. Do not add another V1 item unless it passes the scope-change guard in `V1_SCOPE_FREEZE.md`.
+**حد V1:** إدارة السيارة الأساسية فقط. إدارة صيانة متقدمة، تنبيهات زيت، مصاريف وقود، تتبع GPS وما شابه ليست مطلوبة لـV1 إلا إذا اعتمدها المالك صراحة.
 
-### A. Inventory correctness: Inbound → Batches & Expiry — V1 BLOCKER/REQUIRED
+### د. الفروع والمستودعات — موجودة بدرجة جيدة
 
-- [ ] Finish the production audit/hardening of Supplier Inbound / Goods Receipt.
-- [ ] Make `lot_control_mode` and `expiry_control_mode` consistent across Catalog, Inbound backend contracts and Dashboard.
-- [ ] Remove the current semantic gap where inbound still requires a batch number for products whose lot mode may be `NONE` or `OPTIONAL`.
-- [ ] Close required batch/expiry validation, existing-batch metadata conflict, tenant/location identity, idempotency/concurrency and draft-recovery gates.
-- [ ] Freeze the inbound batch/expiry contract.
-- [ ] Finalize the Batches & Expiry V1 UI only after that frozen contract.
+الموجود:
 
-**Stop boundary:** do not build an advanced batch analytics product. Close only sellability/expiry/quality visibility and actions required by the frozen operational workflow.
+- إدارة الفروع موجودة داخل إدارة مواقع المستودعات.
+- إنشاء/تعديل/تفعيل/تعطيل الفروع موجود.
+- إدارة مواقع المستودعات موجودة.
+- صلاحيات المواقع موجودة.
 
-### B. Financial / tenant truth across real commercial workflows — V1 BLOCKER
+المتبقي هو إغلاق فجوات الصحة والعزل الموجودة في خطط المخزون الحالية، وليس اختراع صفحة فروع جديدة.
 
-- [ ] Complete cross-domain Product Master vs sellable Variant identity, composite-FK and FORCE-RLS negative coverage where it matters to Inventory, Pricing, Sale, reporting and Flutter/offline.
-- [ ] Close the genuinely required costing and immutable Sale/Return/retry/COGS scenarios for enabled V1 workflows.
-- [ ] Confirm ambiguous/lost-response retries cannot duplicate or corrupt financial/stock truth.
-- [ ] Preserve one official valuation/COGS/profit authority; do not create a second accounting truth.
+### هـ. المناطق والمحلات — موجودة بدرجة جيدة
 
-**Stop boundary:** this is correctness work, not a request to build a full accounting/ERP module.
+الموجود:
 
-### C. Flutter + Dispatch real end-to-end production workflow — V1 REQUIRED
+- إنشاء وتعديل وأرشفة واستعادة المناطق.
+- جدولة المنطقة بالتاريخ والتكرار.
+- إنشاء وتعديل المحلات.
+- استيراد جماعي للمحلات.
+- ربط المحل بالمنطقة والموقع والهاتف والمسؤول وسقف الدين والرصيد الافتتاحي.
+- إضافة محل من تطبيق المندوب مدعومة.
 
-- [ ] Audit the existing Flutter app against the frozen flow: login → assigned route/visits → shop → visit → sale/return/sample where enabled → durable sync/recovery.
-- [ ] Close cross-user/company leakage and exact route/territory/warehouse authorization gaps.
-- [ ] Verify offline mutation identity and reconciliation through real network-loss/lost-response scenarios.
-- [ ] Add focused Flutter tests for the real V1 workflows. The current Flutter test directory contains only the default counter-style widget smoke test and is not meaningful release evidence.
-- [ ] Run one Dashboard → backend → Flutter end-to-end route/visit acceptance with real V1 permissions and retry semantics.
-- [ ] Harden existing Dispatch only where the real field workflow proves a gap; do not refactor large stable files merely for cleanliness before launch.
+المتبقي:
 
-### D. Minimal Reports — V1 REQUIRED
+- [ ] تدقيق الصلاحيات ونطاق المنطقة/المندوب ضمن رحلة العمل الحقيقية.
+- [ ] عدم توسيع V1 إلى إدارة علاقات عملاء عامة؛ المحل هو العميل التشغيلي المطلوب.
 
-- [ ] Close route/visit completion + visit-result reporting.
-- [ ] Close management sales/returns summary.
-- [ ] Ensure stock/movement questions not already answered by Inventory surfaces have a usable answer.
-- [ ] Close field-user settlement/accountability reporting only to the extent required by the current operating model.
+### و. المنتجات والأسعار والقواعد التجارية — قريب من حد V1
 
-The current sidebar exposes `/reports` as coming soon and there is no active report route. Existing Operations settlement/sales views may satisfy part of the requirement and should be reused rather than building a BI platform.
+الموجود قوي: إنشاء وبحث وتعديل وعائلات وباركود وحالة المنتج واستيراد كبير وأسعار وقواعد عروض وضرائب. استيراد 50 ألف منتج مقبول هندسياً لـV1 ولا يجب إعادة فتح تحسين السرعة بلا تراجع حقيقي.
 
-### E. Minimal Settings — V1 REQUIRED
+المتبقي:
 
-- [ ] Provide one usable path to all configuration required by V1: company/user/access/branch/location plus only the operational policies consumed by frozen workflows.
-- [ ] Reuse existing Inventory Access, Warehouse Locations, product tracking and other existing administration surfaces where possible.
+- [ ] إنهاء تشطيب تجربة حالة المنتج الحالية فقط إلى حد واضح وآمن.
+- [ ] إغلاق أي فجوة حقيقية بين المنتج القابل للبيع وسلطة السعر/التتبع، بدون فتح التسعير المتقدم أو وحدات القياس المتقدمة.
 
-The current sidebar exposes `/settings` as coming soon and there is no active Settings route. A giant generic settings center is not required if existing authoritative surfaces cover the frozen workflow cleanly.
+### ز. الموردون والتوريد — فجوة إضافية لم تكن ظاهرة في التدقيق السابق
 
-### F. First-company deployment / release acceptance — V1 RELEASE GATE
+الموجود:
 
-- [ ] Identify the actual first-company deployment target and expected active-user/import envelope.
-- [ ] Rehearse against an independent target/rehearsal database.
-- [ ] Produce a real backup and restore the **whole** archive into a separate disposable DB; verify key Product/Variant/Price/Inventory/COGS/Audit/Outbox evidence.
-- [ ] Deploy one reviewed immutable application/frontend/worker commit and verify worker code identity.
-- [ ] Run the bounded first-company D7-P representative workload: Sale/COGS + Supplier Inbound + Route Launch + Product Import, with persisted reconciliation.
-- [ ] Exercise browser/network loss, retry with the same request identity, cancellation, worker restart and session expiry on the actual target.
-- [ ] Obtain final owner release sign-off on recovery, worker/schema identity, pilot SLOs, operational alerts and business reconciliation.
+- استلام بضاعة من المورد موجود.
+- الكمية والوحدة وتكلفة الشراء والدفعة وتواريخ الإنتاج/الصلاحية موجودة.
+- يوجد رقم/مرجع للتوريد وسجل مخزون وتكلفة.
 
-Large 1,000-open-connection/multi-company scale certification remains V2 and must not delay this release.
+النقص المكتشف:
 
-### G. Final integrated V1 gate — LAST STEP
+- لا يوجد كيان `Supplier` في نموذج البيانات الحالي.
+- عقد التوريد الحالي يحمل `reference_id` و`notes` والأصناف، لكنه لا يحمل هوية مورد صريحة.
+- بالتالي لا يستطيع النظام بصورة منظمة الإجابة: **من أي مورد دخلت هذه البضاعة؟**
 
-- [ ] One first-company scenario starts from company/admin setup and reaches products/prices → warehouse/inbound/stock → dispatch → Flutter visit/commercial action → return/settlement/report without falling back to WhatsApp/Word/Excel for the frozen core flow.
-- [ ] All known V1 BLOCKER items are closed.
-- [ ] The required focused security/isolation, stock/financial truth, idempotency/recovery and user-workflow gates pass.
-- [ ] Mark all frozen V1 sections `[x]`, declare `V1 DONE`, and stop feature expansion.
+المطلوب لـV1:
 
----
+- [ ] كل توريد يجب أن يحتفظ بهوية مورد واضحة وقابلة للقراءة لاحقاً.
+- [!] طريقة التنفيذ تحتاج قراراً: إما سجل مورد بسيط قابل للاختيار، أو هوية مورد محفوظة بشكل ثابت داخل سند التوريد. لا نحتاج في V1 حسابات موردين أو أوامر شراء أو ذمم دائنة كاملة.
+- [ ] إغلاق فجوات `lot_control_mode` و`expiry_control_mode` والدفعات والصلاحية كما هو موثق في خطة التوريد الحالية.
 
-## 4. What must NOT consume V1 time now
+### ح. المخزون — أساس قوي لكن الإغلاق لم يكتمل
 
-Do not delay V1 for:
+الموجود:
 
-- Advanced UOM or multi-level packaging;
-- Advanced Pricing workspace/rules;
-- generic BI/report builder;
-- giant configurable Settings framework;
-- extra import channels/connectors;
-- further Product Import performance work while the accepted ~4-minute 50k class holds;
-- 1,000 truly simultaneous external connections or large multi-company scale certification;
-- broad cleanup/refactoring of stable legacy code solely because a cleaner architecture is possible;
-- optional animations/cosmetic redesign after a workflow is understandable and safe.
+- الرصيد الحي.
+- المستودعات والمواقع.
+- التوريد.
+- الحوالات.
+- الجرد.
+- سجل الحركات.
+- الدفعات وحالات الجودة.
+- تكلفة المخزون وأدلة COGS.
 
----
+المتبقي:
 
-## 5. Recommended execution order from here
+- [ ] إغلاق التوريد → الدفعات والصلاحية من البداية للنهاية.
+- [ ] إغلاق التحقق العابر للمجالات من هوية المنتج/الصنف والعزل وصحة التكلفة.
+- [ ] عدم فتح تحسينات معمارية أو تحليلات مخزون إضافية لا تمنع التشغيل.
 
-1. Finish the currently-open Products UX/status polish and stop when its V1 workflow is safe and understandable.
-2. Close **Inbound → batch/expiry** correctness and its focused production gate.
-3. Close the two cross-domain **financial/tenant truth** responsibilities in `INVENTORY_COMMERCIAL_FOUNDATION_PLAN.md`.
-4. Audit/harden **Flutter + Dispatch together** as one real field workflow rather than separately polishing screens.
-5. Close **Sales/Returns/Commercial** integration gaps discovered by that real field flow.
-6. Implement only the **minimal Reports + Settings** gaps that remain after reusing existing surfaces.
-7. Select the first-company target and execute the **deployment/backup/restore/rehearsal** gate.
-8. Run the single integrated V1 acceptance, mark the remaining items `[x]`, and stop.
+### ط. التوزيع والمسارات — موجود لكنه يعتمد على بيانات لا يمكن إدارتها بعد
 
----
+الموجود:
 
-## 6. How the score changes
+- المناطق والمحلات.
+- إطلاق المسار.
+- اختيار المندوب والسيارة.
+- تحميل مخزون السيارة.
+- متابعة المسار.
+- التحويلات والعجز والزيارات.
+- غرفة العمليات والتسوية.
 
-The percentage is updated only when evidence closes part of a frozen workflow. UI polish that does not change V1 usability/safety should not materially change the score.
+الفجوة الأساسية:
 
-A useful target sequence is:
+حتى لو كانت شاشة التوزيع نفسها تعمل، الشركة الجديدة لا تستطيع تجهيز مدخلاتها بالكامل من الواجهة لأن إدارة المندوبين والسيارات غائبة.
 
-- current baseline: **65/100**;
-- after Inventory Inbound/Batch-Expiry + finance truth closure: approximately **75–80/100**;
-- after Flutter/Dispatch/Sales real end-to-end closure: approximately **88–92/100**;
-- after minimal Reports/Settings + first-company deployment gate: **100/100**.
+- [ ] بعد إضافة الإدارة الأساسية للمندوب والسيارة، يجب تشغيل سيناريو كامل من شركة فارغة إلى مسار جاهز للمندوب.
 
-These ranges are planning guidance, not permission to skip a blocker.
+### ي. تطبيق المندوب — ليس صفراً لكنه غير مثبت للإنتاج بعد
+
+الموجود:
+
+- تسجيل الدخول وتجديد الجلسة.
+- لوحة يومية.
+- الزيارات.
+- تفاصيل المحل.
+- إنشاء محل.
+- البيع والتحصيل والمرتجعات/العينات في الزيارة.
+- حفظ محلي ومزامنة ومحاولات إعادة آمنة في أجزاء مهمة.
+
+النقص:
+
+- [ ] تدقيق التطبيق كاملاً ضد رحلة V1 الحالية.
+- [ ] إغلاق تسرب بيانات مستخدم/شركة عند تبديل الجلسات أو العمل دون شبكة.
+- [ ] اختبار فقد الشبكة وفقد الرد وإعادة التشغيل بنفس هوية العملية.
+- [ ] اختبارات Flutter الحالية لا تزال عملياً اختباراً افتراضياً بسيطاً وليست دليل قبول للعمل الحقيقي.
+- [ ] تشغيل قبول حقيقي من لوحة التحكم → المسار → التطبيق → الزيارة → الخادم.
+
+### ك. البيع والتحصيل والمرتجعات وذمم المحلات — الوظيفة موجودة لكن هناك فجوة إدارية مهمة
+
+الموجود:
+
+- البيع داخل الزيارة.
+- النقد المحصل.
+- البيع بالدين ضمن السقف.
+- تحصيل ذمم سابقة.
+- حفظ رصيد المحل قبل/بعد الزيارة.
+- المرتجعات وأدلتها المالية موجودة بدرجات مختلفة.
+- التسوية تعرض نقد المبيعات وتحصيل الذمم.
+
+النقص المكتشف:
+
+- [ ] لا توجد شاشة/تقرير واضح لكشف حساب المحل: مبيعات، ديون جديدة، تحصيلات، أرصدة قبل/بعد، مرتجعات/أرصدة دائنة والتعديلات ذات الصلة.
+- [ ] بما أن النظام يسمح بتحصيل دين سابق وتعديل الرصيد، يجب أن يستطيع المسؤول تفسير رصيد المحل بدون الرجوع إلى قاعدة البيانات أو واتساب/Excel.
+
+**حد V1:** كشف حساب تشغيلي واضح، لا نظام محاسبة عملاء كامل.
+
+قرار يحتاج حسم قبل إعلان 100%:
+
+- [!] هل الشركة الأولى تحتاج من التطبيق إصدار/مشاركة/طباعة إيصال أو فاتورة للعميل؟ الكود يسجل الفاتورة داخلياً، لكن لم أجد مساراً واضحاً لإخراج مستند للعميل. لا يُضاف تلقائياً إلى V1 قبل قرار صريح حول طريقة عمل الشركة الأولى والمتطلبات القانونية الفعلية.
+
+### ل. إغلاق اليوم والتسوية — موجود بدرجة جيدة
+
+الموجود:
+
+- جلسة عمل للمندوب.
+- مخزون افتتاحي للسيارة.
+- بيع وتحصيل.
+- إنهاء اليوم.
+- تقرير تسوية.
+- اعتماد التسوية ومراجعة عهدة المخزون.
+
+المتبقي:
+
+- [ ] ربطه بقبول كامل مع تطبيق المندوب وفقد الشبكة والتعديلات/المرتجعات.
+- [ ] عدم بناء محاسبة عامة أو صندوق نقدية شامل ما لم يظهر احتياج V1 صريح.
+
+### م. التقارير — نقص واضح
+
+`/reports` ظاهر في القائمة لكنه غير مربوط بصفحة تشغيلية، والقائمة تعرضه كقادم لاحقاً.
+
+المطلوب فقط:
+
+- [ ] نتائج الزيارات ونسبة الإنجاز وعدم الزيارة/التأجيل.
+- [ ] ملخص المبيعات والتحصيل والمرتجعات.
+- [ ] كشف حساب المحل المطلوب لتفسير الذمم.
+- [ ] التسوية/عهدة المندوب بما لا تغطيه غرفة العمليات الحالية.
+- [ ] إعادة استخدام شاشات المخزون الحالية بدل تكرار تقارير مخزون بلا داعٍ.
+
+### ن. الإعدادات — نقص واضح
+
+`/settings` ظاهر لكنه غير مربوط بصفحة تشغيلية.
+
+الحد الأدنى المطلوب لـV1:
+
+- [ ] إدارة المستخدمين/المندوبين.
+- [ ] إدارة السيارات الأساسية، سواء داخل الإعدادات أو قسم التوزيع.
+- [ ] الوصول إلى الفروع والمستودعات والصلاحيات الحالية بدون تكرار وظائف موجودة.
+- [ ] بيانات الشركة التشغيلية اللازمة فعلياً مثل العملة/المنطقة الزمنية والسياسات التي يستهلكها V1.
+
+لا نحتاج مركز إعدادات عاماً ولا تخصيصات شكلية كثيرة.
+
+### س. جاهزية الإنتاج — ما زالت مفتوحة
+
+- [ ] اختيار هدف تشغيل الشركة الأولى.
+- [ ] قاعدة تجربة مستقلة.
+- [ ] نسخة احتياطية حقيقية ثم استعادة كاملة في قاعدة منفصلة.
+- [ ] نشر نسخة واحدة ثابتة والتحقق من نسخة الخادم والعمال.
+- [ ] تشغيل رحلة شركة ممثلة مع البيع والتوريد والمسار والاستيراد.
+- [ ] فحص فقد الشبكة وإعادة المحاولة والجلسة وإعادة تشغيل العمال.
+- [ ] اعتماد نهائي من المالك.
+
+## 4. القائمة المغلقة الحالية التي تفصلنا عن V1 DONE
+
+هذه القائمة هي التي يجب أن نقفلها. أي شيء جديد خارجها يحتاج أن يثبت أنه يمنع رحلة V1 أو يمر بإجراء تغيير النطاق.
+
+1. [ ] إنهاء التشطيب الحالي لصفحة المنتجات عند حد V1، ثم وقف التحسين الاختياري.
+2. [ ] بناء إدارة المستخدمين/المندوبين الأساسية: إنشاء، تعديل، تعطيل/تفعيل، كلمة مرور، وربط صلاحيات.
+3. [ ] بناء إدارة السيارات الأساسية: إنشاء، تعديل، تعطيل/تفعيل وربطها التشغيلي بالمخزون/التوزيع.
+4. [ ] إغلاق إعدادات الشركة الأساسية التي تمنع التشغيل، خصوصاً المنطقة الزمنية عند الحاجة.
+5. [ ] حسم وتمثيل هوية المورد داخل التوريد بدون فتح نظام مشتريات كامل.
+6. [ ] إغلاق Inbound → Batches & Expiry وإثباته.
+7. [ ] إغلاق صحة العزل والتكلفة/COGS والبيع/المرتجع وإعادة المحاولة في الرحلات المفعلة.
+8. [ ] تدقيق وتقوية Flutter + Dispatch كرحلة واحدة حقيقية.
+9. [ ] توفير كشف حساب محل تشغيلي يفسر الذمم والحركات المالية المطلوبة.
+10. [ ] إكمال الحد الأدنى من التقارير والإعدادات، مع إعادة استخدام الصفحات الحالية.
+11. [ ] حسم قرار مستند العميل (إيصال/فاتورة/مشاركة/طباعة) بحسب الشركة الأولى؛ لا يُنفذ بلا قرار.
+12. [ ] تنفيذ تجربة الإطلاق الفعلية والنسخ الاحتياطي/الاستعادة.
+13. [ ] تشغيل قبول واحد من شركة جديدة إلى نهاية يوم مندوب بدون الاعتماد على Word/Excel/WhatsApp في المسار الأساسي.
+14. [ ] إذا نجح ما سبق ولا يوجد مانع أمني/مالي/مخزني: إعلان `V1 DONE` والتوقف.
+
+## 5. أشياء شائعة في أنظمة التوزيع لكنها ليست تلقائياً V1
+
+لا نسمح لعملية التدقيق نفسها أن تعيد تضخيم المشروع. هذه أمثلة لا تدخل V1 لمجرد أنها شائعة:
+
+- إدارة صيانة أسطول كاملة ومصاريف الوقود والتأمين والتنبيهات المتقدمة.
+- رواتب ودوام وموارد بشرية للمندوبين.
+- أوامر شراء وموافقات مشتريات وذمم موردين كاملة.
+- تحسين آلي للمسارات وتتبع GPS لحظي.
+- نظام محاسبة عام كامل.
+- برنامج ولاء أو إدارة علاقات عملاء عامة.
+- تحليلات أعمال متقدمة وبناء تقارير مخصص.
+- طباعة محمولة أو مستندات عميل إن لم تحتجها الشركة الأولى أو المتطلبات القانونية.
+
+## 6. قاعدة القياس من الآن
+
+نسبة V1 ترتفع فقط عندما تُغلق حلقة تشغيلية حقيقية. مثال: وجود جدول `vehicles` لا يعني أن السيارات منجزة؛ تصبح منجزة عندما يستطيع مدير الشركة إضافة سيارة آمنة واستخدامها في مسار فعلي بدون تدخل يدوي في قاعدة البيانات.
+
+وبالمثل لا نعتبر المندوب منجزاً لأن تسجيل دخوله موجود؛ يجب أن تستطيع الشركة إنشاءه وإدارته وتحديد صلاحياته ثم إرساله للعمل.
+
+الهدف ليس أن يحتوي النظام كل ميزة موجودة في Odoo أو أي نظام ضخم. الهدف أن تتمكن شركة التوزيع الأولى من بدء يومها وتشغيله وإغلاقه بالكامل داخل Wanasah ضمن الحدود المجمدة.
