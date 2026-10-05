@@ -74,6 +74,12 @@ describe("Products fast Enter and commercial-status UX", () => {
     expect(lifecycle).toContain(
       "onSubmit={onConfirm}",
     );
+    expect(lifecycle).toContain(
+      '{t("common.back")}',
+    );
+    expect(lifecycle).toContain(
+      "onClick={onCancel}",
+    );
   });
 
   it("separates ordinary product actions from quality-issue scope", () => {

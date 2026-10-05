@@ -75,7 +75,18 @@ Be direct. Get straight to the point. No apologies, no repetitive phrasing, and 
 - Import/export templates may be localized, but parsers must map localized aliases to canonical language-neutral fields.
 - When touching an existing frontend file with hardcoded strings, migrate the touched user-facing area to translation keys rather than adding more hardcoded copy.
 
-10. Network Failure, Idempotency & Durable Commands (MANDATORY):
+10. Authorization, Scope & Isolation Readiness (MANDATORY, repository-wide):
+- No new feature, page, read model, workflow, command, button, import/export path, background task, or realtime channel is complete unless its authorization model is explicit from the start, even while Version 1 is currently exercised mainly by a top-level administrator.
+- Design every business capability for future least-privilege roles and scopes. Do not hardcode business authority around one current admin persona or rely on UI visibility as authorization.
+- Every protected read and mutation must be authorized by the backend using stable permission/capability codes and the authenticated actor context. The frontend may hide or disable actions for UX, but it must never be the security boundary.
+- Company/tenant isolation is mandatory on every tenant-owned path. Tenant identity comes only from trusted authenticated server context; ambiguous or missing tenant context fails closed.
+- Within a company, warehouse/location-sensitive inventory operations must authorize the exact affected location. Cross-location operations must authorize both source and destination. Company membership alone never implies access to all warehouses.
+- Authorization contracts must remain compatible with future company-wide, branch, warehouse/location, route/territory, vehicle, team, and user/role scopes without rewriting business logic.
+- New queries, caches, jobs, events, websockets, reports, and derived projections must include the same company and applicable location scope as their source authority; never add scope only at the UI layer.
+- Negative authorization/isolation evidence must be added when risk requires it: cross-company denial, cross-location denial, revoked permission, and unauthorized direct API access must fail closed.
+- A feature that works only because the current user is a top-level admin is architecturally incomplete. Like i18n readiness, permission/scope readiness is a build-time requirement, not a future retrofit.
+
+11. Network Failure, Idempotency & Durable Commands (MANDATORY):
 - Assume every mutating HTTP response can be lost after the server has committed.
 - Every new or modified mutating command must be idempotent or state-idempotent on the server.
 - Generate one operation/request id per logical mutation and preserve it across retry, timeout, disconnect, refresh, and lost-response recovery until the operation is known to have completed or is explicitly abandoned safely.
@@ -88,7 +99,7 @@ Be direct. Get straight to the point. No apologies, no repetitive phrasing, and 
 - Global transport code must distinguish offline/network/timeout from deterministic API rejection without relying on localized message text.
 
 
-11. Keyboard-First Dashboard Accessibility (MANDATORY, repository-wide):
+12. Keyboard-First Dashboard Accessibility (MANDATORY, repository-wide):
 - Every dashboard workflow must be fully operable without a mouse. Mouse/touch may enhance the experience but must never be the only way to reach or execute an action.
 - Preserve a logical Tab/Shift+Tab order, visible focus states, and predictable focus restoration after dialogs, drawers, popovers, menus, and inline editors close.
 - Primary form actions must support native keyboard submission (Enter) when safe and unambiguous. Escape must close or cancel transient UI where doing so cannot lose or submit data unexpectedly.

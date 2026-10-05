@@ -529,16 +529,28 @@ export function CatalogLifecycleSimplePanel({
       {selectedCommand &&
       selectedActionKey ? (
         <div className="px-4 py-3 sm:px-5 sm:py-4">
-          <p className="text-xs font-black text-slate-900">
-            {t(
-              `catalogLifecycle.actions.${selectedActionKey}`,
-            )}
-          </p>
-          <p className="mt-1 text-[10px] font-semibold leading-5 text-slate-500">
-            {t(
-              `catalogLifecycle.simple.actionHints.${selectedActionKey}`,
-            )}
-          </p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-black text-slate-900">
+                {t(
+                  `catalogLifecycle.actions.${selectedActionKey}`,
+                )}
+              </p>
+              <p className="mt-1 text-[10px] font-semibold leading-5 text-slate-500">
+                {t(
+                  `catalogLifecycle.simple.actionHints.${selectedActionKey}`,
+                )}
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onCancel}
+              className="shrink-0 rounded-lg px-2 py-1 text-[9px] font-black text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-200 disabled:opacity-40"
+            >
+              {t("common.back")}
+            </button>
+          </div>
 
           <div className="mt-3">
             <ReasonPresetField
