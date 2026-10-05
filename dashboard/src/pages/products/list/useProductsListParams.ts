@@ -2,6 +2,8 @@ import {
   useMemo,
 } from "react";
 
+import type { ProductWarehouseFilterOption } from "@/pages/products/list/warehouseFilterContract";
+
 import type {
   ProductBooleanFilter,
   ProductLifecycleFilter,
@@ -14,6 +16,7 @@ type Params = {
   search: string;
   cursor: string | null;
   familyFilterId: string;
+  warehouseFilters: ProductWarehouseFilterOption[];
   lifecycleFilter: ProductLifecycleFilter;
   trackingTypeFilter: ProductTrackingTypeFilter;
   compatibilityFilter: ProductBooleanFilter;
@@ -31,6 +34,7 @@ export function useProductsListParams({
   search,
   cursor,
   familyFilterId,
+  warehouseFilters,
   lifecycleFilter,
   trackingTypeFilter,
   compatibilityFilter,
@@ -63,6 +67,9 @@ export function useProductsListParams({
             "family_id",
             familyFilterId,
           );
+        }
+        for (const warehouse of [...warehouseFilters].sort((a, b) => a.id - b.id)) {
+          value.append("warehouse_id", String(warehouse.id));
         }
         if (lifecycleFilter) {
           value.set(
@@ -114,6 +121,7 @@ export function useProductsListParams({
       [
         search,
         familyFilterId,
+        warehouseFilters,
         lifecycleFilter,
         trackingTypeFilter,
         compatibilityFilter,

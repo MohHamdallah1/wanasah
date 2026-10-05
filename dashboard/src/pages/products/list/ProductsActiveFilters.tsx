@@ -9,6 +9,7 @@ import type {
   ProductDisplaySortField,
 } from "@/lib/productDisplayPreferences";
 import { findProductSortOption } from "@/pages/products/list/productSortOptions";
+import type { ProductWarehouseFilterOption } from "@/pages/products/list/warehouseFilterContract";
 import type {
   ProductBooleanFilter,
   ProductLifecycleFilter,
@@ -20,6 +21,7 @@ import type {
 type Props = {
   familyFilterId: string;
   familyFilterName: string;
+  warehouseFilters: ProductWarehouseFilterOption[];
   lifecycleFilter: ProductLifecycleFilter;
   trackingTypeFilter: ProductTrackingTypeFilter;
   compatibilityFilter: ProductBooleanFilter;
@@ -33,6 +35,7 @@ type Props = {
   defaultSortBy: ProductDisplaySortField;
   defaultSortDir: ProductDisplaySortDirection;
   onFamilyFilterChange: (value: string) => void;
+  onWarehouseFiltersChange: (value: ProductWarehouseFilterOption[]) => void;
   onLifecycleFilterChange: (value: ProductLifecycleFilter) => void;
   onTrackingTypeFilterChange: (value: ProductTrackingTypeFilter) => void;
   onCompatibilityFilterChange: (value: ProductBooleanFilter) => void;
@@ -88,6 +91,7 @@ const booleanLabelKey = (
 export function ProductsActiveFilters({
   familyFilterId,
   familyFilterName,
+  warehouseFilters,
   lifecycleFilter,
   trackingTypeFilter,
   compatibilityFilter,
@@ -101,6 +105,7 @@ export function ProductsActiveFilters({
   defaultSortBy,
   defaultSortDir,
   onFamilyFilterChange,
+  onWarehouseFiltersChange,
   onLifecycleFilterChange,
   onTrackingTypeFilterChange,
   onCompatibilityFilterChange,
@@ -120,6 +125,7 @@ export function ProductsActiveFilters({
 
   const hasFilters = Boolean(
     familyFilterId ||
+      warehouseFilters.length > 0 ||
       lifecycleFilter ||
       trackingTypeFilter ||
       compatibilityFilter ||
@@ -158,6 +164,18 @@ export function ProductsActiveFilters({
           }
         />
       ) : null}
+
+      {warehouseFilters.map((warehouse) => (
+        <FilterChip
+          key={warehouse.id}
+          label={label("products.filters.warehouses", warehouse.name)}
+          onRemove={() =>
+            onWarehouseFiltersChange(
+              warehouseFilters.filter((item) => item.id !== warehouse.id),
+            )
+          }
+        />
+      ))}
 
       {lifecycleFilter ? (
         <FilterChip

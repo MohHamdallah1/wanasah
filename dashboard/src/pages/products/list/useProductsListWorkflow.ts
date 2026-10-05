@@ -20,6 +20,7 @@ type Params = {
   driverId: number | null;
   authFetch: AuthFetch;
   canViewPricing: boolean;
+  canFilterByWarehouse: boolean;
   displayPreferences:
     ProductDisplayPreferences;
   online: boolean;
@@ -30,6 +31,7 @@ export function useProductsListWorkflow({
   driverId,
   authFetch,
   canViewPricing,
+  canFilterByWarehouse,
   displayPreferences,
   online,
 }: Params) {
@@ -52,6 +54,12 @@ export function useProductsListWorkflow({
     setFamilyFilterId,
     familyFilterName,
     setFamilyFilterName,
+    warehouseFilterSearchInput,
+    setWarehouseFilterSearchInput,
+    warehouseFilterSearch,
+    setWarehouseFilterSearch,
+    warehouseFilters,
+    setWarehouseFilters,
     lifecycleFilter,
     setLifecycleFilter,
     trackingTypeFilter,
@@ -78,6 +86,11 @@ export function useProductsListWorkflow({
     setSearch,
     familyFilterSearchInput,
     setFamilyFilterSearch,
+    warehouseFilterSearchInput,
+    setWarehouseFilterSearch,
+    canFilterByWarehouse,
+    warehouseFilters,
+    setWarehouseFilters,
     canViewPricing,
     priceFilter,
     setPriceFilter,
@@ -93,6 +106,7 @@ export function useProductsListWorkflow({
     search,
     cursor,
     familyFilterId,
+    warehouseFilters,
     lifecycleFilter,
     trackingTypeFilter,
     compatibilityFilter,
@@ -109,6 +123,7 @@ export function useProductsListWorkflow({
   const {
     productsQuery,
     familyFilterOptionsQuery,
+    warehouseFilterOptionsQuery,
   } = useProductsListQueries({
     companyId,
     params,
@@ -116,6 +131,8 @@ export function useProductsListWorkflow({
     filtersOpen,
     familyFilterSearch,
     familyFilterParams,
+    canFilterByWarehouse,
+    warehouseFilterSearch,
     authFetch,
   });
 
@@ -147,6 +164,7 @@ export function useProductsListWorkflow({
     canViewPricing,
     displayPreferences,
     familyFilterId,
+    warehouseFilters,
     lifecycleFilter,
     trackingTypeFilter,
     compatibilityFilter,
@@ -162,6 +180,7 @@ export function useProductsListWorkflow({
     clearControls,
     clearAllCriteria,
     selectFamily,
+    updateWarehouseFilters,
     updateLifecycleFilter,
     updateTrackingTypeFilter,
     updateCompatibilityFilter,
@@ -183,6 +202,8 @@ export function useProductsListWorkflow({
     setFamilyFilterId,
     setFamilyFilterName,
     setFamilyFilterSearchInput,
+    setWarehouseFilterSearchInput,
+    setWarehouseFilters,
     setLifecycleFilter,
     setTrackingTypeFilter,
     setCompatibilityFilter,
@@ -213,6 +234,9 @@ export function useProductsListWorkflow({
       setFamilyFilterSearch,
       setFamilyFilterId,
       setFamilyFilterName,
+      setWarehouseFilterSearchInput,
+      setWarehouseFilterSearch,
+      setWarehouseFilters,
       setLifecycleFilter,
       setTrackingTypeFilter,
       setCompatibilityFilter,
@@ -254,6 +278,7 @@ export function useProductsListWorkflow({
       activeFilters: {
         familyFilterId,
         familyFilterName,
+        warehouseFilters,
         lifecycleFilter,
         trackingTypeFilter,
         compatibilityFilter,
@@ -272,6 +297,8 @@ export function useProductsListWorkflow({
             .direction,
         onFamilyFilterChange:
           selectFamily,
+        onWarehouseFiltersChange:
+          updateWarehouseFilters,
         onLifecycleFilterChange:
           updateLifecycleFilter,
         onTrackingTypeFilterChange:
@@ -300,6 +327,13 @@ export function useProductsListWorkflow({
         familyFilterOptions,
         familyOptionsError:
           familyFilterOptionsQuery.isError,
+        canFilterByWarehouse,
+        warehouseFilterSearchInput,
+        warehouseFilterOptions: warehouseFilterOptionsQuery.data?.items ?? [],
+        warehouseFilters,
+        warehouseOptionsLoading: warehouseFilterOptionsQuery.isLoading,
+        warehouseOptionsError: warehouseFilterOptionsQuery.isError,
+        warehouseOptionsHasMore: warehouseFilterOptionsQuery.data?.has_more ?? false,
         lifecycleFilter,
         trackingTypeFilter,
         compatibilityFilter,
@@ -316,6 +350,12 @@ export function useProductsListWorkflow({
           selectFamily,
         onRetryFamilyOptions: () =>
           void familyFilterOptionsQuery.refetch(),
+        onWarehouseFilterSearchInputChange:
+          setWarehouseFilterSearchInput,
+        onWarehouseFiltersChange:
+          updateWarehouseFilters,
+        onRetryWarehouseOptions: () =>
+          void warehouseFilterOptionsQuery.refetch(),
         onLifecycleFilterChange:
           updateLifecycleFilter,
         onTrackingTypeFilterChange:

@@ -174,13 +174,6 @@ function ActionItem({
   );
 }
 
-const statusDot = {
-  good: "bg-emerald-500",
-  warning: "bg-amber-500",
-  blocked: "bg-rose-500",
-  muted: "bg-slate-400",
-} as const;
-
 const recallBlockerHasOwnerAction = (code: string): boolean =>
   code === "INVENTORY_BALANCE" ||
   code === "OPEN_TRANSFER" ||
@@ -255,54 +248,10 @@ export function CatalogLifecycleSimplePanel({
     commercial.state === "archived";
 
   return (
-    <section className="overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_18px_50px_-42px_rgba(15,23,42,0.65)]">
-      <div className="px-5 py-5">
-        <p className="text-[10px] font-black tracking-wide text-slate-400">
-          {t(
-            "products.commercialStatus.label",
-          )}
-        </p>
-
-        <div className="mt-2 flex flex-wrap items-center gap-2.5">
-          <span
-            aria-hidden="true"
-            className={`h-2.5 w-2.5 rounded-full ${statusDot[commercial.tone]}`}
-          />
-          <h3 className="text-lg font-black text-slate-950">
-            {t(commercial.stateKey)}
-          </h3>
-          {commercial.reasonKey ? (
-            <span className="text-[10px] font-bold text-slate-500">
-              {t(
-                "products.commercialStatus.reasonLabel",
-              )}
-              : {t(commercial.reasonKey)}
-            </span>
-          ) : null}
-        </div>
-
-        <p className="mt-2 max-w-2xl text-[10px] font-semibold leading-5 text-slate-500">
-          {t(commercial.hintKey)}
-        </p>
-
-        {commercial.reason ? (
-          <p className="mt-1 max-w-2xl text-[10px] font-semibold leading-5 text-slate-600">
-            {t(
-              `products.commercialStatus.reasonHints.${commercial.reason}`,
-            )}
-          </p>
-        ) : null}
-
-        {commercial.secondaryReasonKey ? (
-          <p className="mt-2 max-w-2xl border-s-2 border-amber-300 ps-3 text-[9px] font-semibold leading-5 text-slate-500">
-            {t(
-              commercial.secondaryReasonKey,
-            )}
-          </p>
-        ) : null}
-      </div>
-
-      <div className="border-t border-slate-100 px-5 py-4">
+    <section className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_14px_36px_-34px_rgba(15,23,42,0.55)]">
+      <div className="px-4 py-3 sm:px-5 sm:py-4">
+        {!issueScopeOpen && !selectedCommand ? (
+          <>
         <p className="mb-2 text-[10px] font-black text-slate-400">
           {t("products.commercialStatus.availableActionsTitle")}
         </p>
@@ -493,9 +442,11 @@ export function CatalogLifecycleSimplePanel({
             />
           ) : null}
         </div>
+          </>
+        ) : null}
 
-        {showAvailableStopOptions && canHold ? (
-          <div className="mt-4 border-t border-slate-100 pt-4 md:max-w-2xl">
+        {showAvailableStopOptions && canHold && !selectedCommand ? (
+          <div className={issueScopeOpen ? "md:max-w-2xl" : "mt-4 border-t border-slate-100 pt-4 md:max-w-2xl"}>
             {!issueScopeOpen ? (
               <ActionItem
                 icon={<CircleAlert className="h-3.5 w-3.5" />}
@@ -506,22 +457,37 @@ export function CatalogLifecycleSimplePanel({
                   "catalogLifecycle.simple.qualityIssueHint",
                 )}
                 disabled={actionsDisabled}
-                onClick={() => setIssueScopeOpen(true)}
+                onClick={() => {
+                  onCancel();
+                  setIssueScopeOpen(true);
+                }}
                 emphasis="warning"
               />
             ) : (
-              <div className="rounded-xl border border-rose-100 bg-rose-50/30 p-3">
-                <p className="text-xs font-black text-slate-950">
-                  {t(
-                    "catalogLifecycle.simple.issueScopeQuestion",
-                  )}
-                </p>
-                <p className="mt-1 text-[9px] font-semibold leading-4 text-slate-500">
-                  {t(
-                    "catalogLifecycle.simple.issueScopeHint",
-                  )}
-                </p>
-                <div className="mt-2 grid gap-1">
+              <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-[0_12px_30px_-28px_rgba(15,23,42,0.45)]">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-black text-slate-950">
+                      {t(
+                        "catalogLifecycle.simple.issueScopeQuestion",
+                      )}
+                    </p>
+                    <p className="mt-1 text-[9px] font-semibold leading-4 text-slate-500">
+                      {t(
+                        "catalogLifecycle.simple.issueScopeHint",
+                      )}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={actionsDisabled}
+                    onClick={() => setIssueScopeOpen(false)}
+                    className="shrink-0 rounded-lg px-2 py-1 text-[9px] font-black text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40"
+                  >
+                    {t("common.back")}
+                  </button>
+                </div>
+                <div className="mt-3 divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 [&>button]:rounded-none">
                   <ActionItem
                     icon={<CircleAlert className="h-3.5 w-3.5" />}
                     label={t(
@@ -554,14 +520,6 @@ export function CatalogLifecycleSimplePanel({
                     emphasis="warning"
                   />
                 </div>
-                <button
-                  type="button"
-                  disabled={actionsDisabled}
-                  onClick={() => setIssueScopeOpen(false)}
-                  className="mt-2 rounded-lg px-2 py-1 text-[9px] font-black text-slate-500 hover:bg-white hover:text-slate-900 disabled:opacity-40"
-                >
-                  {t("common.back")}
-                </button>
               </div>
             )}
           </div>
@@ -570,7 +528,7 @@ export function CatalogLifecycleSimplePanel({
 
       {selectedCommand &&
       selectedActionKey ? (
-        <div className="border-t border-slate-100 bg-slate-50/60 px-5 py-4">
+        <div className="px-4 py-3 sm:px-5 sm:py-4">
           <p className="text-xs font-black text-slate-900">
             {t(
               `catalogLifecycle.actions.${selectedActionKey}`,

@@ -4,6 +4,8 @@ import type {
 import type {
   SimpleProductPage,
 } from "@/pages/products/contracts";
+import type { ProductWarehouseFilterOption } from "@/pages/products/list/warehouseFilterContract";
+
 import type {
   ProductBooleanFilter,
   ProductLifecycleFilter,
@@ -18,6 +20,7 @@ type Params = {
   displayPreferences: ProductDisplayPreferences;
   search: string;
   familyFilterId: string;
+  warehouseFilters: ProductWarehouseFilterOption[];
   lifecycleFilter: ProductLifecycleFilter;
   trackingTypeFilter: ProductTrackingTypeFilter;
   compatibilityFilter: ProductBooleanFilter;
@@ -35,6 +38,7 @@ export function deriveProductsListViewState({
   displayPreferences,
   search,
   familyFilterId,
+  warehouseFilters,
   lifecycleFilter,
   trackingTypeFilter,
   compatibilityFilter,
@@ -87,6 +91,7 @@ export function deriveProductsListViewState({
     Boolean(
       search ||
         familyFilterId ||
+        warehouseFilters.length > 0 ||
         lifecycleFilter ||
         trackingTypeFilter ||
         compatibilityFilter ||

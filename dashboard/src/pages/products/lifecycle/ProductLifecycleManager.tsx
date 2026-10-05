@@ -20,6 +20,7 @@ import {
   createInventoryWholeProductIssueNavigationState,
 } from "@/features/inventory/navigation";
 import { CatalogLifecycleActions } from "@/features/catalog/lifecycle/CatalogLifecycleActions";
+import { productCommercialStatus } from "@/features/catalog/status/productCommercialStatus";
 import {
   parseCatalogPage,
   type CatalogVariant,
@@ -187,6 +188,18 @@ export function ProductLifecycleManager({
     return null;
   }
 
+  const commercial = variant
+    ? productCommercialStatus(variant)
+    : null;
+  const statusDotClass =
+    commercial?.tone === "good"
+      ? "bg-emerald-500"
+      : commercial?.tone === "warning"
+        ? "bg-amber-500"
+        : commercial?.tone === "blocked"
+          ? "bg-rose-500"
+          : "bg-slate-400";
+
   return (
     <Modal
       isOpen={product !== null}
@@ -198,7 +211,39 @@ export function ProductLifecycleManager({
             product.name,
         },
       )}
+      subtitle={commercial ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          <span
+            aria-hidden="true"
+            className={`h-2 w-2 shrink-0 rounded-full ${statusDotClass}`}
+          />
+          <span className="font-black text-slate-700">
+            {t(commercial.stateKey)}
+          </span>
+          <span aria-hidden="true" className="text-slate-300">•</span>
+          <span className="font-semibold text-slate-500">
+            {t(commercial.hintKey)}
+          </span>
+          {commercial.reasonKey ? (
+            <>
+              <span aria-hidden="true" className="text-slate-300">•</span>
+              <span className="font-semibold text-slate-500">
+                {t(commercial.reasonKey)}
+              </span>
+            </>
+          ) : null}
+          {commercial.secondaryReasonKey ? (
+            <>
+              <span aria-hidden="true" className="text-slate-300">•</span>
+              <span className="font-semibold text-amber-700">
+                {t(commercial.secondaryReasonKey)}
+              </span>
+            </>
+          ) : null}
+        </div>
+      ) : undefined}
       maxWidth="max-w-2xl"
+      bodyClassName="p-3 sm:p-4"
     >
       <div className="space-y-3">
         {loading ? (

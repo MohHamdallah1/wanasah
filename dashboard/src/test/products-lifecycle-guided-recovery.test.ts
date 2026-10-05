@@ -18,8 +18,11 @@ describe("Products guided sales recovery", () => {
 
   it("uses one commercial status instead of exposing backend lifecycle axes", () => {
     const panel = read("../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx");
+    const manager = read("../pages/products/lifecycle/ProductLifecycleManager.tsx");
     expect(panel).toContain("productCommercialStatus(");
-    expect(panel).toContain("products.commercialStatus.label");
+    expect(manager).toContain("subtitle={commercial ?");
+    expect(manager).toContain("t(commercial.stateKey)");
+    expect(manager).toContain("t(commercial.hintKey)");
     expect(panel).not.toContain("products.details.lifecycleModes.${variant.lifecycle_status}");
     expect(panel).not.toContain("products.details.holdModes.${variant.operational_hold}");
   });

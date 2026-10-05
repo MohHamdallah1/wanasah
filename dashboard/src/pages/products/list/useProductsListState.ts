@@ -2,6 +2,8 @@ import {
   useState,
 } from "react";
 
+import type { ProductWarehouseFilterOption } from "@/pages/products/list/warehouseFilterContract";
+
 import type {
   ProductBooleanFilter,
   ProductLifecycleFilter,
@@ -51,6 +53,18 @@ export function useProductsListState() {
     familyFilterName,
     setFamilyFilterName,
   ] = useState("");
+  const [
+    warehouseFilterSearchInput,
+    setWarehouseFilterSearchInput,
+  ] = useState("");
+  const [
+    warehouseFilterSearch,
+    setWarehouseFilterSearch,
+  ] = useState("");
+  const [
+    warehouseFilters,
+    setWarehouseFilters,
+  ] = useState<ProductWarehouseFilterOption[]>([]);
   const [
     lifecycleFilter,
     setLifecycleFilter,
@@ -139,6 +153,12 @@ export function useProductsListState() {
     setFamilyFilterId,
     familyFilterName,
     setFamilyFilterName,
+    warehouseFilterSearchInput,
+    setWarehouseFilterSearchInput,
+    warehouseFilterSearch,
+    setWarehouseFilterSearch,
+    warehouseFilters,
+    setWarehouseFilters,
     lifecycleFilter,
     setLifecycleFilter,
     trackingTypeFilter,

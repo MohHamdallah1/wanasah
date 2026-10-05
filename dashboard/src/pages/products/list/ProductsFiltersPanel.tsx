@@ -6,6 +6,8 @@ import type {
 } from "@/pages/products/contracts";
 import { ProductFamilyCombobox } from "@/pages/products/family/ProductFamilyCombobox";
 import { PRODUCT_SORT_OPTIONS } from "@/pages/products/list/productSortOptions";
+import { ProductsWarehouseFilter } from "@/pages/products/list/ProductsWarehouseFilter";
+import type { ProductWarehouseFilterOption } from "@/pages/products/list/warehouseFilterContract";
 import type {
   ProductBooleanFilter,
   ProductLifecycleFilter,
@@ -20,6 +22,13 @@ type Props = {
   familyFilterName: string;
   familyFilterOptions: ProductFamily[];
   familyOptionsError: boolean;
+  canFilterByWarehouse: boolean;
+  warehouseFilterSearchInput: string;
+  warehouseFilterOptions: ProductWarehouseFilterOption[];
+  warehouseFilters: ProductWarehouseFilterOption[];
+  warehouseOptionsLoading: boolean;
+  warehouseOptionsError: boolean;
+  warehouseOptionsHasMore: boolean;
   lifecycleFilter: ProductLifecycleFilter;
   trackingTypeFilter: ProductTrackingTypeFilter;
   compatibilityFilter: ProductBooleanFilter;
@@ -37,6 +46,9 @@ type Props = {
     value: string,
   ) => void;
   onRetryFamilyOptions: () => void;
+  onWarehouseFilterSearchInputChange: (value: string) => void;
+  onWarehouseFiltersChange: (value: ProductWarehouseFilterOption[]) => void;
+  onRetryWarehouseOptions: () => void;
   onLifecycleFilterChange: (
     value: ProductLifecycleFilter,
   ) => void;
@@ -77,6 +89,13 @@ export function ProductsFiltersPanel({
   familyFilterName,
   familyFilterOptions,
   familyOptionsError,
+  canFilterByWarehouse,
+  warehouseFilterSearchInput,
+  warehouseFilterOptions,
+  warehouseFilters,
+  warehouseOptionsLoading,
+  warehouseOptionsError,
+  warehouseOptionsHasMore,
   lifecycleFilter,
   trackingTypeFilter,
   barcodeFilter,
@@ -85,6 +104,9 @@ export function ProductsFiltersPanel({
   onFamilySearchInputChange,
   onFamilyFilterChange,
   onRetryFamilyOptions,
+  onWarehouseFilterSearchInputChange,
+  onWarehouseFiltersChange,
+  onRetryWarehouseOptions,
   onLifecycleFilterChange,
   onTrackingTypeFilterChange,
   onBarcodeFilterChange,
@@ -119,7 +141,7 @@ export function ProductsFiltersPanel({
 
   return (
     <div className="space-y-3">
-      <div className="grid gap-x-3 gap-y-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <div className="grid gap-x-3 gap-y-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       <div className="space-y-1">
         <span className="text-[11px] font-black text-slate-500">
           {t(
@@ -219,6 +241,19 @@ export function ProductsFiltersPanel({
           inputClassName="h-9 w-full rounded-lg border border-slate-200 bg-white pe-9 ps-2.5 text-xs font-bold outline-none transition placeholder:font-normal placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
         />
       </div>
+
+      <ProductsWarehouseFilter
+        enabled={canFilterByWarehouse}
+        searchInput={warehouseFilterSearchInput}
+        options={warehouseFilterOptions}
+        selected={warehouseFilters}
+        loading={warehouseOptionsLoading}
+        error={warehouseOptionsError}
+        hasMore={warehouseOptionsHasMore}
+        onSearchInputChange={onWarehouseFilterSearchInputChange}
+        onRetry={onRetryWarehouseOptions}
+        onChange={onWarehouseFiltersChange}
+      />
 
       <label className="space-y-1">
         <span className="text-[11px] font-black text-slate-500">

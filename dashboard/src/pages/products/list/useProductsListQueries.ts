@@ -7,6 +7,7 @@ import {
   parseProductFamilies,
   parseSimpleProductPage,
 } from "@/pages/products/contracts";
+import { parseWarehouseFilterPage } from "@/pages/products/list/warehouseFilterContract";
 
 type AuthFetch = (
   path: string,
@@ -20,6 +21,8 @@ type Params = {
   filtersOpen: boolean;
   familyFilterSearch: string;
   familyFilterParams: string;
+  canFilterByWarehouse: boolean;
+  warehouseFilterSearch: string;
   authFetch: AuthFetch;
 };
 
@@ -30,6 +33,8 @@ export function useProductsListQueries({
   filtersOpen,
   familyFilterSearch,
   familyFilterParams,
+  canFilterByWarehouse,
+  warehouseFilterSearch,
   authFetch,
 }: Params) {
   const productsQuery =
@@ -80,8 +85,25 @@ export function useProductsListQueries({
         ),
     });
 
+  const warehouseFilterOptionsQuery = useQuery({
+    queryKey: [
+      "product-warehouse-filter-options",
+      companyId,
+      warehouseFilterSearch,
+    ],
+    enabled: Boolean(companyId && filtersOpen && canFilterByWarehouse),
+    queryFn: async ({ signal }) => {
+      const params = new URLSearchParams({ limit: "50" });
+      if (warehouseFilterSearch) params.set("search", warehouseFilterSearch);
+      return parseWarehouseFilterPage(
+        await authFetch(`/warehouse/locations?${params.toString()}`, { signal }),
+      );
+    },
+  });
+
   return {
     productsQuery,
     familyFilterOptionsQuery,
+    warehouseFilterOptionsQuery,
   };
 }

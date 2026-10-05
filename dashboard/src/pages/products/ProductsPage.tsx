@@ -98,12 +98,17 @@ export default function ProductsPage() {
   } =
     useProductDisplayPreferencesState();
 
+  const canFilterByWarehouse =
+    access.isCompanyAdmin ||
+    (access.canAny("location.read") && access.canAny("inventory.read"));
+
   const listWorkflow =
     useProductsListWorkflow({
       companyId,
       driverId,
       authFetch,
       canViewPricing,
+      canFilterByWarehouse,
       displayPreferences,
       online: isOnline,
     });

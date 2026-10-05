@@ -3,6 +3,8 @@ import type {
   SetStateAction,
 } from "react";
 
+import type { ProductWarehouseFilterOption } from "@/pages/products/list/warehouseFilterContract";
+
 import type {
   ProductDisplayPreferences,
 } from "@/lib/productDisplayPreferences";
@@ -40,6 +42,8 @@ type Params = {
   setFamilyFilterSearchInput: Dispatch<
     SetStateAction<string>
   >;
+  setWarehouseFilterSearchInput: Dispatch<SetStateAction<string>>;
+  setWarehouseFilters: Dispatch<SetStateAction<ProductWarehouseFilterOption[]>>;
   setLifecycleFilter: Dispatch<
     SetStateAction<ProductLifecycleFilter>
   >;
@@ -89,6 +93,8 @@ export function createProductsListActions({
   setFamilyFilterId,
   setFamilyFilterName,
   setFamilyFilterSearchInput,
+  setWarehouseFilterSearchInput,
+  setWarehouseFilters,
   setLifecycleFilter,
   setTrackingTypeFilter,
   setCompatibilityFilter,
@@ -111,6 +117,8 @@ export function createProductsListActions({
     setFamilyFilterId("");
     setFamilyFilterName("");
     setFamilyFilterSearchInput("");
+    setWarehouseFilterSearchInput("");
+    setWarehouseFilters([]);
     setLifecycleFilter("");
     setTrackingTypeFilter("");
     setCompatibilityFilter("");
@@ -150,6 +158,11 @@ export function createProductsListActions({
     setFamilyFilterName(
       selected?.name ?? ""
     );
+    resetProductPagination();
+  };
+
+  const updateWarehouseFilters = (value: ProductWarehouseFilterOption[]) => {
+    setWarehouseFilters(value);
     resetProductPagination();
   };
 
@@ -249,6 +262,7 @@ export function createProductsListActions({
     clearControls,
     clearAllCriteria,
     selectFamily,
+    updateWarehouseFilters,
     updateLifecycleFilter,
     updateTrackingTypeFilter,
     updateCompatibilityFilter,

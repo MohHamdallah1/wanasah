@@ -5,6 +5,7 @@ import {
 import type {
   ProductBooleanFilter,
 } from "@/pages/products/list/types";
+import type { ProductWarehouseFilterOption } from "@/pages/products/list/warehouseFilterContract";
 
 type Params = {
   searchInput: string;
@@ -13,6 +14,11 @@ type Params = {
   setFamilyFilterSearch: (
     value: string,
   ) => void;
+  warehouseFilterSearchInput: string;
+  setWarehouseFilterSearch: (value: string) => void;
+  canFilterByWarehouse: boolean;
+  warehouseFilters: ProductWarehouseFilterOption[];
+  setWarehouseFilters: (value: ProductWarehouseFilterOption[]) => void;
   canViewPricing: boolean;
   priceFilter: ProductBooleanFilter;
   setPriceFilter: (
@@ -37,6 +43,11 @@ export function useProductsListDebounce({
   setSearch,
   familyFilterSearchInput,
   setFamilyFilterSearch,
+  warehouseFilterSearchInput,
+  setWarehouseFilterSearch,
+  canFilterByWarehouse,
+  warehouseFilters,
+  setWarehouseFilters,
   canViewPricing,
   priceFilter,
   setPriceFilter,
@@ -81,6 +92,29 @@ export function useProductsListDebounce({
   }, [
     familyFilterSearchInput,
     setFamilyFilterSearch,
+  ]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const clean = warehouseFilterSearchInput.trim().slice(0, 100);
+      setWarehouseFilterSearch(clean.length >= 2 ? clean : "");
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [warehouseFilterSearchInput, setWarehouseFilterSearch]);
+
+  useEffect(() => {
+    if (canFilterByWarehouse || warehouseFilters.length === 0) {
+      return;
+    }
+    setWarehouseFilters([]);
+    setCursor(null);
+    setHistory([]);
+  }, [
+    canFilterByWarehouse,
+    warehouseFilters.length,
+    setCursor,
+    setHistory,
+    setWarehouseFilters,
   ]);
 
   useEffect(() => {

@@ -12,6 +12,8 @@ import type {
   ProductTrackingMode,
   SimpleProduct,
 } from "@/pages/products/contracts";
+import type { ProductWarehouseFilterOption } from "@/pages/products/list/warehouseFilterContract";
+
 import type {
   ProductBooleanFilter,
   ProductLifecycleFilter,
@@ -44,6 +46,9 @@ type ListScope = {
   setFamilyFilterName: Dispatch<
     SetStateAction<string>
   >;
+  setWarehouseFilterSearchInput: Dispatch<SetStateAction<string>>;
+  setWarehouseFilterSearch: Dispatch<SetStateAction<string>>;
+  setWarehouseFilters: Dispatch<SetStateAction<ProductWarehouseFilterOption[]>>;
   setLifecycleFilter: Dispatch<
     SetStateAction<ProductLifecycleFilter>
   >;
@@ -196,6 +201,9 @@ export function useProductsIdentityScopeReset({
     setFamilyFilterSearch,
     setFamilyFilterId,
     setFamilyFilterName,
+    setWarehouseFilterSearchInput,
+    setWarehouseFilterSearch,
+    setWarehouseFilters,
     setLifecycleFilter,
     setTrackingTypeFilter,
     setCompatibilityFilter,
@@ -262,6 +270,9 @@ export function useProductsIdentityScopeReset({
     setFamilyFilterSearch("");
     setFamilyFilterId("");
     setFamilyFilterName("");
+    setWarehouseFilterSearchInput("");
+    setWarehouseFilterSearch("");
+    setWarehouseFilters([]);
     setLifecycleFilter("");
     setTrackingTypeFilter("");
     setCompatibilityFilter("");
@@ -314,6 +325,9 @@ export function useProductsIdentityScopeReset({
     setFamilyFilterName,
     setFamilyFilterSearch,
     setFamilyFilterSearchInput,
+    setWarehouseFilterSearchInput,
+    setWarehouseFilterSearch,
+    setWarehouseFilters,
     setFamilyOptionSearch,
     setFamilyReassignProduct,
     setFiltersOpen,

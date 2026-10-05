@@ -41,6 +41,10 @@ from api.dependencies import get_current_driver
 from config import Config
 from database import get_db
 from domains.inventory_batch_restrictions import load_batch_restrictions
+from domains.inventory_catalog_presence import (
+    InventoryCatalogPresenceForbidden,
+    variant_ids_present_in_all_warehouses,
+)
 from domains.pricing.core import PricingError
 from domains.simple_products.catalog_summary import (
     CatalogSummaryResponse,
@@ -531,6 +535,7 @@ _PRODUCT_SORT_FIELDS = {
     "lifecycle",
 }
 _PRODUCT_SORT_DIRECTIONS = {"asc", "desc"}
+_PRODUCT_WAREHOUSE_FILTER_MAX = 20
 
 
 def _product_query_error(
@@ -610,6 +615,32 @@ def _effective_barcode_exists(
     return matching_barcode_id.is_not(None)
 
 
+def _normalized_warehouse_ids(
+    values: list[int] | None,
+) -> tuple[int, ...]:
+    if not values:
+        return ()
+    if any(
+        type(value) is not int
+        or value <= 0
+        or value > 2_147_483_647
+        for value in values
+    ):
+        raise _product_query_error(
+            code="SIMPLE_PRODUCT_WAREHOUSE_FILTER_INVALID",
+            field="warehouse_id",
+            value=values,
+        )
+    normalized = tuple(sorted(set(values)))
+    if len(normalized) > _PRODUCT_WAREHOUSE_FILTER_MAX:
+        raise _product_query_error(
+            code="SIMPLE_PRODUCT_WAREHOUSE_FILTER_INVALID",
+            field="warehouse_id",
+            value=values,
+        )
+    return normalized
+
+
 def _tracking_type_clause(
     tracking_type: str,
 ):
@@ -670,6 +701,7 @@ def _product_cursor_scope(
     has_price: bool | None,
     lot_tracked: bool | None,
     expiry_tracked: bool | None,
+    warehouse_ids: tuple[int, ...],
     sort_by: str,
     sort_dir: str,
     limit: int,
@@ -690,6 +722,7 @@ def _product_cursor_scope(
             "lot_tracked": lot_tracked,
             "expiry_tracked":
                 expiry_tracked,
+            "warehouse_ids": list(warehouse_ids),
             "sort_by": sort_by,
             "sort_dir": sort_dir,
             "limit": int(limit),
@@ -714,6 +747,7 @@ def _product_cursor(
     has_price: bool | None,
     lot_tracked: bool | None,
     expiry_tracked: bool | None,
+    warehouse_ids: tuple[int, ...],
     sort_by: str,
     sort_dir: str,
     limit: int,
@@ -770,6 +804,7 @@ def _product_cursor(
                 lot_tracked=lot_tracked,
                 expiry_tracked=
                     expiry_tracked,
+                warehouse_ids=warehouse_ids,
                 sort_by=sort_by,
                 sort_dir=sort_dir,
                 limit=limit,
@@ -818,6 +853,7 @@ def _product_next_cursor(
     has_price: bool | None,
     lot_tracked: bool | None,
     expiry_tracked: bool | None,
+    warehouse_ids: tuple[int, ...],
     sort_by: str,
     sort_dir: str,
     limit: int,
@@ -860,6 +896,7 @@ def _product_next_cursor(
                 lot_tracked=lot_tracked,
                 expiry_tracked=
                     expiry_tracked,
+                warehouse_ids=warehouse_ids,
                 sort_by=sort_by,
                 sort_dir=sort_dir,
                 limit=limit,
@@ -1400,6 +1437,7 @@ async def list_simple_products(
     has_price: bool | None = None,
     lot_tracked: bool | None = None,
     expiry_tracked: bool | None = None,
+    warehouse_id: list[int] | None = Query(default=None),
     sort_by: str = "id",
     sort_dir: str = "asc",
     db: AsyncSession = Depends(get_db),
@@ -1423,6 +1461,7 @@ async def list_simple_products(
             field="family_id",
             value=family_id,
         )
+    warehouse_ids = _normalized_warehouse_ids(warehouse_id)
     lifecycle_value = _normalized_product_choice(
         lifecycle,
         field="lifecycle",
@@ -1517,6 +1556,7 @@ async def list_simple_products(
             has_price=has_price,
             lot_tracked=lot_tracked,
             expiry_tracked=expiry_tracked,
+            warehouse_ids=warehouse_ids,
             sort_by=sort_by_value,
             sort_dir=sort_dir_value,
             limit=limit,
@@ -1572,6 +1612,28 @@ async def list_simple_products(
             stmt = stmt.where(
                 ProductVariant.product_id
                 == int(family_id)
+            )
+        if warehouse_ids:
+            try:
+                warehouse_variant_ids = await variant_ids_present_in_all_warehouses(
+                    db,
+                    actor=actor,
+                    company_id=company_id,
+                    warehouse_ids=warehouse_ids,
+                )
+            except InventoryCatalogPresenceForbidden as exc:
+                raise HTTPException(
+                    403,
+                    detail={
+                        "code": "SIMPLE_PRODUCT_WAREHOUSE_FILTER_FORBIDDEN",
+                        "message": (
+                            "Warehouse stock filtering is unavailable for one or more selected locations."
+                        ),
+                        "context": {},
+                    },
+                ) from exc
+            stmt = stmt.where(
+                ProductVariant.id.in_(warehouse_variant_ids)
             )
         if tracking_value is not None:
             stmt = stmt.where(
@@ -1962,6 +2024,7 @@ async def list_simple_products(
                     lot_tracked=lot_tracked,
                     expiry_tracked=
                         expiry_tracked,
+                    warehouse_ids=warehouse_ids,
                     sort_by=sort_by_value,
                     sort_dir=sort_dir_value,
                     limit=limit,
