@@ -1,3 +1,14 @@
+V1 SCOPE FREEZE (MANDATORY):
+- Read `V1_SCOPE_FREEZE.md` before implementing any feature, workflow expansion, optimization, redesign, or refactor that could affect product scope.
+- `V1_SCOPE_FREEZE.md` is the canonical authority for what must ship in Version 1 and where Version 1 stops.
+- `ARCHITECTURE.md` remains the canonical authority for how the system is built; architecture direction does not automatically expand V1 scope.
+- `VERSION_2_FUTURE_FEATURES.md` is the canonical deferred-capability backlog.
+- Before code changes, identify the concrete frozen V1 workflow the task unblocks. If none exists, classify the task as V2 / STOP AND ASK.
+- Owner wording such as "نفذ", "اعملها", "كمل", urgency, repetition, or the fact that implementation looks easy does NOT authorize expansion of the frozen V1 scope.
+- A task outside frozen V1 must not be implemented as V1 until the owner explicitly approves changing the frozen V1 scope. Update `V1_SCOPE_FREEZE.md` first, then implement.
+- Security, tenant/location isolation, data-integrity, financial/inventory truth, or demonstrated breakage of an already-frozen V1 workflow may be classified as a V1 blocker without inventing a new product capability.
+- Once a V1 acceptance boundary is met, do not continue speculative optimization, refactoring, or polish unless a real regression or blocker is demonstrated.
+
 ARCHITECTURE CONSTITUTION (MANDATORY):
 - Read `ARCHITECTURE.md` before architectural or cross-module changes.
 - `ARCHITECTURE.md` is the canonical repository-wide architecture direction.

@@ -1,5 +1,13 @@
 # Wanasah project instructions
 
+## Version 1 scope guard — mandatory before implementation
+
+Read `V1_SCOPE_FREEZE.md` before implementing any feature, workflow expansion, optimization, redesign, or refactor that could affect product scope. It is the canonical authority for **what ships in V1 and where V1 stops**. `ARCHITECTURE.md` remains authoritative for **how the platform is built**, and `VERSION_2_FUTURE_FEATURES.md` remains the canonical deferred-capability backlog.
+
+For every task, identify the concrete frozen V1 workflow it unblocks. If the task is outside V1, **stop before implementation and tell the owner**. Ordinary execution wording such as "نفذ", "اعملها", "كمل", urgency, repetition, or ease of implementation does not authorize V1 scope expansion. V1 scope may expand only after explicit owner approval to change the frozen V1 scope; update `V1_SCOPE_FREEZE.md` before implementing the newly approved capability.
+
+Security, tenant/location isolation, data integrity, financial/inventory truth, and demonstrated breakage of an already-frozen required workflow remain valid V1 blockers. Do not use the scope guard to defer correctness or safety defects.
+
 Read `ARCHITECTURE.md`, `.rules`, and `.cursor/rules/business-workflow-protection.mdc` before making
 changes. `ARCHITECTURE.md` is the canonical architecture constitution for the entire repository and all future modules.
 The workflow-protection rule applies to the entire repository and all future tasks.
