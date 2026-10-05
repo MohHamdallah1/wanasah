@@ -33,7 +33,7 @@ export function ProductStatusBadges({
 }: {
   item: Pick<
     SimpleProduct,
-    "id" | "name" | "lifecycle_status" | "operational_hold"
+    "id" | "name" | "lifecycle_status" | "operational_hold" | "status_reason"
   > &
     Partial<Pick<SimpleProduct, "batch_restrictions">>;
 }) {
@@ -41,6 +41,7 @@ export function ProductStatusBadges({
   const navigate = useNavigate();
   const { status, reason } = productTableStatus(item);
   const restrictions = item.batch_restrictions ?? null;
+  const statusReason = item.status_reason?.trim() || null;
   const showBatchWarning =
     item.lifecycle_status === "ACTIVE" &&
     item.operational_hold === "NONE" &&
@@ -78,8 +79,16 @@ export function ProductStatusBadges({
         </span>
       </div>
       {reason ? (
-        <p className="mt-1 ps-4 text-[9px] font-semibold leading-4 text-slate-500">
+        <p
+          title={
+            statusReason
+              ? `${t(reason.valueKey)} (${statusReason})`
+              : t(reason.valueKey)
+          }
+          className="mt-1 max-w-[18rem] truncate whitespace-nowrap ps-4 text-[9px] font-semibold leading-4 text-slate-500"
+        >
           {t(reason.valueKey)}
+          {statusReason ? ` (${statusReason})` : ""}
         </p>
       ) : null}
 

@@ -50,6 +50,9 @@ from domains.simple_products.catalog_summary import (
     CatalogSummaryResponse,
     load_catalog_summary,
 )
+from domains.simple_products.status_reason import (
+    load_current_product_status_reasons,
+)
 from domains.simple_products.service import (
     SimpleProductError,
     SimpleProductSpec,
@@ -1870,6 +1873,11 @@ async def list_simple_products(
         batch_restrictions = await load_batch_restrictions(
             db, actor=actor, variant_ids=[int(variant.id) for variant in variants],
         )
+        status_reasons = await load_current_product_status_reasons(
+            db,
+            company_id=company_id,
+            variants=variants,
+        )
 
         shapes = await load_sale_shapes(
             db,
@@ -1987,6 +1995,9 @@ async def list_simple_products(
                     ),
                     "operational_hold": str(
                         variant.operational_hold
+                    ),
+                    "status_reason": status_reasons.get(
+                        int(variant.id)
                     ),
                     "batch_restrictions": (
                         batch_restrictions[int(variant.id)].model_dump(mode="json")

@@ -228,7 +228,7 @@ export function ProductTableRow({
         </td>
       ) : null}
 
-      <td className={`${cellSpacing} min-w-[7.75rem] text-center`}>
+      <td className="w-12 min-w-12 px-2 py-2.5 text-center">
         <ProductRowActions
           item={item}
           canEditPrice={

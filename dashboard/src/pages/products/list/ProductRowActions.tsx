@@ -130,14 +130,9 @@ export function ProductRowActions({
           title={t(
             "products.details.actions",
           )}
-          className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-center text-[10px] font-black leading-4 text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
         >
-          <MoreHorizontal className="h-3.5 w-3.5 shrink-0" />
-          <span className="md:whitespace-nowrap">
-            {t(
-              "products.details.actions",
-            )}
-          </span>
+          <MoreHorizontal className="h-4 w-4" />
         </button>
       </DropdownMenuTrigger>
 

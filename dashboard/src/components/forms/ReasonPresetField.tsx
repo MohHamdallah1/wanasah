@@ -57,7 +57,7 @@ export function ReasonPresetField({
       : "";
 
   const handleKeyDown = (
-    event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
+    event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
   ) => {
     if (event.key === "Escape" && onCancel) {
       event.preventDefault();
@@ -84,6 +84,7 @@ export function ReasonPresetField({
         value={selected}
         disabled={disabled}
         autoFocus={autoFocus}
+        onKeyDown={handleKeyDown}
         onChange={(event) => {
           const next = event.target.value;
           if (next === OTHER) {

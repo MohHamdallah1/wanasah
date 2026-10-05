@@ -244,10 +244,12 @@ def test_actual_products_payload_adds_read_evidence_without_relabeling_lifecycle
         counts_by_disposition=DispositionCounts(RECALLED=1))
     context = dict(variant=variant, product=SimpleNamespace(id=10, name="Master"), shape=None,
         package_price=None, unit_price=None, currency="JOD", unit_barcode=None, package_barcode=None,
-        compatible={101: True}, batch_restrictions={101: summary})
+        compatible={101: True}, batch_restrictions={101: summary},
+        status_reasons={101: "مراجعة التسعير"})
     result = eval(compile(ast.Expression(payload), str(source), "eval"), context)
     assert result["id"] == 101 and result["product_id"] == 10
     assert result["batch_restrictions"] == summary.model_dump(mode="json")
     assert result["lifecycle_status"] == "ACTIVE" and result["operational_hold"] == "NONE"
+    assert result["status_reason"] == "مراجعة التسعير"
     context["batch_restrictions"] = {101: None}
     assert eval(compile(ast.Expression(payload), str(source), "eval"), context)["batch_restrictions"] is None

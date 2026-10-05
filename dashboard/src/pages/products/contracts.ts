@@ -380,6 +380,7 @@ export interface SimpleProduct {
     | "RETIRING"
     | "ARCHIVED";
   operational_hold: ProductOperationalHold;
+  status_reason: string | null;
   batch_restrictions: ProductBatchRestrictions | null;
   simple_compatible: boolean;
 }
@@ -708,6 +709,11 @@ export function parseSimpleProductPage(
       operational_hold: operationalHold(
         row.operational_hold,
         code,
+      ),
+      status_reason: nullableStr(
+        row.status_reason ?? null,
+        code,
+        1000,
       ),
       batch_restrictions: batchRestrictions(
         row.batch_restrictions,

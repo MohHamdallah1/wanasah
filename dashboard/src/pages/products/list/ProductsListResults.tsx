@@ -409,7 +409,7 @@ export function ProductsListResults({
                   </th>
                 ) : null}
                 <th
-                  className={`${tableHeaderSpacing} min-w-[7.75rem] text-center`}
+                  className="w-12 min-w-12 px-2 py-2 text-center"
                 >
                   <span className="sr-only">
                     {t(
