@@ -34,14 +34,24 @@ def test_healthy_available_stock_offers_no_quality_transfer():
     ) == ()
 
 
-def test_confirmed_product_issue_offers_only_recall_safe_paths():
+def test_confirmed_product_issue_offers_recall_return_vendor_return_and_disposal():
     assert authority()(
         lifecycle_status="ACTIVE",
         operational_hold="RECALL",
         batch_disposition="RELEASED",
         source_status="AVAILABLE",
         metadata_sellable=True,
-    ) == ("RECALL_RETURN", "QUARANTINE", "DISPOSAL")
+    ) == ("RECALL_RETURN", "RETURN_TO_VENDOR", "DISPOSAL")
+
+
+def test_recalled_batch_can_be_staged_for_vendor_return():
+    assert authority()(
+        lifecycle_status="ACTIVE",
+        operational_hold="NONE",
+        batch_disposition="RECALLED",
+        source_status="RECALLED",
+        metadata_sellable=False,
+    ) == ("RETURN_TO_VENDOR", "DISPOSAL")
 
 
 def test_blocked_batch_cannot_be_downgraded_to_quarantine():

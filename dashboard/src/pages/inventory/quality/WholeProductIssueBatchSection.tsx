@@ -22,7 +22,11 @@ export function WholeProductIssueBatchSection({ batch, onRefresh, onOpenTransfer
       <div>
         <h3 id={titleId} className="text-sm font-bold">{t("inventoryQualityIssue.batchTitle", { batch: batch.batch.batch_number })}</h3>
         <p className="text-xs text-muted-foreground">{t(`inventoryQualityIssue.dispositions.${batch.batch.disposition}`)}</p>
-        {batch.batch.disposition_reason && <p className="text-xs">{t("inventoryBatches.disposition.reasonDisplay", { reason: batch.batch.disposition_reason })}</p>}
+        {batch.batch.disposition !== "RELEASED" && batch.batch.disposition_reason ? (
+          <p className="text-xs">
+            {t("inventoryBatches.disposition.reasonDisplay", { reason: batch.batch.disposition_reason })}
+          </p>
+        ) : null}
       </div>
       <p className="text-xs text-muted-foreground">{t("inventoryQualityIssue.expiry", { date })}</p>
     </div>

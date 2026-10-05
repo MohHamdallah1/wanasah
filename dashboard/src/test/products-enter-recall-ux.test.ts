@@ -148,7 +148,7 @@ describe("Products fast Enter and commercial-status UX", () => {
     expect(panel).toContain(
       "catalogLifecycle.blockers.",
     );
-    expect(panel).toContain('item.code === "INVENTORY_BALANCE"');
+    expect(panel).toContain('item.code !== "INVENTORY_BALANCE"');
     expect(panel).toContain('catalogLifecycle.simple.manageConfirmedIssue');
   });
 
@@ -212,13 +212,13 @@ describe("Products fast Enter and commercial-status UX", () => {
       "أين توجد المشكلة؟",
       "دفعة محددة",
       "المنتج بالكامل",
-      "المشكلة مؤكدة — التعامل مع الكميات الحالية",
-      "السماح ببيع المنتج من جديد",
+      "معالجة الكميات المتأثرة",
+      "إغلاق المشكلة وإعادة البيع",
       "منع بيع الدفعة",
       "استبعاد الدفعة من البيع نهائيًا",
       "نقل الكمية المتأثرة",
-      "Issue confirmed — handle current quantities",
-      "Allow product sales again",
+      "Handle affected quantities",
+      "Close issue and resume sales",
       "Permanently exclude batch from sale",
     ]) {
       expect(resources).toContain(term);

@@ -11,16 +11,19 @@ import { WholeProductIssueBatchSection } from "./WholeProductIssueBatchSection";
 import { ProductQualityReadiness } from "./ProductQualityReadiness";
 
 /** Inventory-owned hierarchy; Catalog hold and actions come from fresh reads. */
-export function WholeProductIssueWorkspace({ productVariantId, productName, onConsumed, onClose, onOpenTransfers, onOpenReservationOwner }: {
+export function WholeProductIssueWorkspace({ productVariantId, productName, onConsumed, onClose, onOpenQualitySettings, onOpenTransfers, onOpenReservationOwner }: {
   productVariantId: number;
   productName: string;
   onConsumed: () => void;
   onClose: () => void;
+  onOpenQualitySettings: () => void;
   onOpenTransfers: (transfer: BatchSpecialTransferResult) => void | Promise<void>;
   onOpenReservationOwner: (owner: ReservationOwner) => void;
 }) {
   const { t, i18n } = useTranslation();
   const access = useInventoryAccess();
+  const canManageQualitySettings =
+    access.isCompanyAdmin || access.can("inventory.transfer_policy.manage");
   const query = useWholeProductIssueSources(productVariantId);
   const heading = useRef<HTMLHeadingElement>(null);
   const consumed = useRef(false);
@@ -45,9 +48,16 @@ export function WholeProductIssueWorkspace({ productVariantId, productName, onCo
       <h1 id="product-quality-heading" ref={heading} tabIndex={-1} className="text-base font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         {t("productQualityWorkspace.title")}
       </h1>
-      <button type="button" onClick={onClose} className="rounded-lg border border-border px-3 py-2 text-xs focus-visible:ring-2 focus-visible:ring-ring">
-        {t("batchFocus.back")}
-      </button>
+      <div className="flex flex-wrap items-center gap-2">
+        {canManageQualitySettings ? (
+          <button type="button" onClick={onOpenQualitySettings} className="rounded-lg border border-border px-3 py-2 text-xs focus-visible:ring-2 focus-visible:ring-ring">
+            {t("productQualityWorkspace.configureDestinations")}
+          </button>
+        ) : null}
+        <button type="button" onClick={onClose} className="rounded-lg border border-border px-3 py-2 text-xs focus-visible:ring-2 focus-visible:ring-ring">
+          {t("batchFocus.back")}
+        </button>
+      </div>
     </header>
     {failed ? <div role="alert" className="rounded-xl border border-destructive p-3 text-sm">
       <p>{mismatch ? t("productQualityWorkspace.scopeMismatch") : apiErrorMessage(access.error ?? query.error, t("inventoryQualityIssue.errors.load"))}</p>

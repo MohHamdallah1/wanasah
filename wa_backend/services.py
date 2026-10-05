@@ -1414,23 +1414,20 @@ def allowed_special_transfer_purposes(
         allowed.append("RECALL_RETURN")
 
     if (
-        disposition != "BLOCKED"
-        and status not in {"BLOCKED", "DAMAGED", "DISPOSAL_PENDING"}
+        hold != "RECALL"
+        and disposition not in {"BLOCKED", "RECALLED"}
+        and status not in {"BLOCKED", "RECALLED", "DAMAGED", "DISPOSAL_PENDING"}
         and unsafe_or_restricted
     ):
         allowed.append("QUARANTINE")
 
     returnable = (
-        status in {"QUARANTINED", "BLOCKED", "DAMAGED"}
-        or disposition in {"QUARANTINED", "BLOCKED"}
+        hold == "RECALL"
+        or status in {"QUARANTINED", "BLOCKED", "RECALLED", "DAMAGED"}
+        or disposition in {"QUARANTINED", "BLOCKED", "RECALLED"}
         or not bool(metadata_sellable)
     )
-    if (
-        hold != "RECALL"
-        and disposition != "RECALLED"
-        and status not in {"RECALLED", "DISPOSAL_PENDING"}
-        and returnable
-    ):
+    if status != "DISPOSAL_PENDING" and returnable:
         allowed.append("RETURN_TO_VENDOR")
 
     if unsafe_or_restricted:

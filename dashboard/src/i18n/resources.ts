@@ -1022,9 +1022,9 @@ export const resources = {
           archive: "أرشفة السجل",
           salesHold: "إيقاف البيع مؤقتًا",
           releaseSalesHold: "إعادة البيع",
-          recall: "المشكلة مؤكدة — التعامل مع الكميات الحالية",
+          recall: "إيقاف المنتج بسبب مشكلة الجودة أو السلامة",
           cancelRecall: "تبين أن المنتج سليم",
-          closeRecall: "السماح ببيع المنتج من جديد",
+          closeRecall: "إغلاق المشكلة وإعادة البيع",
         },
         success: {
           publish: "تم تفعيل المنتج.",
@@ -1114,21 +1114,21 @@ export const resources = {
           problemSaleStopTitle: "لماذا البيع موقوف؟",
           problemSaleStopHint:
             "تم إيقاف بيع المنتج بالكامل بسبب مشكلة جودة أو سلامة. اختر الإجراء التالي حسب نتيجة التحقيق.",
-          manageConfirmedIssue: "المشكلة مؤكدة — التعامل مع الكميات الحالية",
+          manageConfirmedIssue: "معالجة الكميات المتأثرة",
           manageConfirmedIssueHint:
-            "افتح جميع الكميات التي يمكنك التعامل معها في المستودعات والمركبات، مع بقاء بيع المنتج موقوفًا على مستوى الشركة.",
+            "افتح أماكن الكميات المتأثرة واختر الإجراء المناسب: تجميعها في موقع المعالجة، إرجاعها للمورد أو إتلافها. يبقى المنتج موقوفًا أثناء المعالجة.",
           recallCompletionTitle:
-            "التعامل مع المشكلة لم يكتمل بعد",
+            "ما زالت معالجة المشكلة غير مكتملة",
           recallCompletionHint:
-            "إذا ثبتت المشكلة، أكمل البنود الظاهرة أدناه قبل السماح بالبيع من جديد. إذا تبين أن الإنذار خاطئ، استخدم «تبين أن المنتج سليم» بدل التعامل مع مخزون سليم بلا حاجة.",
-          recallCurrentTitle: "بيع المنتج موقوف بسبب مشكلة مؤكدة",
+            "أكمل الكميات والعمليات الظاهرة قبل إعادة البيع. إذا تبين أن البلاغ غير صحيح ولم تبدأ معالجة فعلية للكميات، استخدم «تبين أن المنتج سليم».",
+          recallCurrentTitle: "المنتج موقوف بسبب مشكلة جودة أو سلامة",
           recallCurrentHint:
-            "إذا تبين أن المشكلة لا تشمل المنتج بالكامل يمكنك إزالة الإيقاف بسبب واضح. أما إذا كانت المشكلة مؤكدة فيبقى البيع موقوفًا حتى تتعامل مع الكميات وتنهي العمليات المرتبطة.",
+            "إذا كان البلاغ غير صحيح يمكنك إزالة الإيقاف بسبب واضح. وإلا عالج الكميات المتأثرة ثم أغلق المشكلة بعد اكتمال جميع المتطلبات.",
           recallRecoveryTitle: "ماذا أفعل الآن؟",
           recallRecoverySteps: {
-            first: "إذا كان الإنذار خاطئًا اختر «تبين أن المنتج سليم».",
-            second: "إذا كانت المشكلة حقيقية، افتح «التعامل مع الكميات الحالية» ونفّذ الإجراء المناسب لكل موقع أو عملية ظاهرة لك.",
-            third: "بعد اكتمال البنود اختر «السماح ببيع المنتج من جديد».",
+            first: "إذا كان البلاغ غير صحيح اختر «تبين أن المنتج سليم».",
+            second: "إذا كانت المشكلة حقيقية افتح «معالجة الكميات المتأثرة» واختر القرار المناسب لكل كمية.",
+            third: "بعد اكتمال جميع المتطلبات اختر «إغلاق المشكلة وإعادة البيع».",
           },
           recallBlockerActions: {
             INVENTORY_BALANCE: "ما زالت هناك كمية أو حجز لهذا المنتج. يجب التعامل مع الكمية أو الحجز قبل السماح ببيع المنتج من جديد.",
@@ -1401,9 +1401,9 @@ export const resources = {
       },
       inventoryQualityIssue: {
         title: "التعامل مع كميات {{name}}",
-        companyHoldTitle: "بيع المنتج موقوف على مستوى الشركة",
+        companyHoldTitle: "المنتج موقوف عن البيع والتحميل والتوريد الجديد",
         companyHoldHint:
-          "يبقى إيقاف البيع فعالًا أثناء التعامل مع الكميات. كل مستودع أو مركبة يُعالج بشكل مستقل، وهذه الشاشة لا تغيّر حالة المنتج نفسها.",
+          "يبقى الإيقاف فعالًا أثناء معالجة الكميات. كل مستودع أو مركبة يُعالج بشكل مستقل، وهذه الشاشة لا تعيد المنتج للبيع.",
         readiness: {
           readyTitle: "اكتملت متطلبات المخزون والعمليات",
           readyHint:
@@ -1421,7 +1421,7 @@ export const resources = {
         batchTitle: "الدفعة {{batch}}",
         expiry: "الصلاحية: {{date}}",
         dispositions: {
-          RELEASED: "الدفعة نفسها مسموح بيعها، لكن المنتج بالكامل موقوف بسبب المشكلة",
+          RELEASED: "لا يوجد قيد مستقل على هذه الدفعة؛ منع البيع الحالي سببه إيقاف المنتج بالكامل",
           QUARANTINED: "الدفعة معزولة للفحص",
           BLOCKED: "بيع الدفعة ممنوع",
           RECALLED: "الدفعة مستبعدة من البيع نهائيًا",
@@ -1791,6 +1791,35 @@ export const resources = {
       inventoryWarehouses: {
         processing: "جاري التنفيذ...",
         noChanges: "لا توجد تغييرات لحفظها.",
+        qualityDestinations: {
+          title: "وجهات معالجة الجودة والمخزون المقيّد",
+          hint: "حدد أين تُجمع الكميات المتأثرة، وأين تُجهز مرتجعات المورد، وأين تُنقل كميات الإتلاف. يحدد الخادم الوجهة تلقائيًا عند تنفيذ الإجراء.",
+          active: "مفعّلة",
+          notConfigured: "غير مهيأة",
+          search: "ابحث عن مستودع بالاسم أو الكود...",
+          searchMore: "هناك مستودعات إضافية. استخدم البحث للوصول إليها.",
+          choose: "اختر مستودعًا...",
+          quarantine: {
+            label: "العزل ومعالجة المشكلة",
+            hint: "تُجمع فيه الكميات التي تحتاج فحصًا أو استرجاعًا بسبب مشكلة جودة أو سلامة.",
+          },
+          vendorReturn: {
+            label: "تجهيز الإرجاع للمورد",
+            hint: "تُنقل إليه الكمية قبل تأكيد تسليمها الفعلي للمورد أو المصنع.",
+          },
+          disposal: {
+            label: "منطقة الإتلاف",
+            hint: "تُنقل إليها الكمية قبل تأكيد الإتلاف الفعلي وتسجيل دليله.",
+          },
+          saveAndActivate: "حفظ وتفعيل الوجهات",
+          saved: "تم حفظ وتفعيل وجهات معالجة الجودة.",
+          errors: {
+            loadPolicy: "تعذر تحميل إعداد وجهات معالجة الجودة.",
+            loadLocations: "تعذر تحميل المستودعات المتاحة.",
+            required: "اختر وجهة لكل من العزل والإرجاع للمورد والإتلاف.",
+            save: "تعذر حفظ وتفعيل وجهات معالجة الجودة.",
+          },
+        },
         errors: {
           loadFailed: "تعذر تحميل إدارة المستودعات.",
           nameInvalid: "اسم المستودع مطلوب وبحد أقصى 150 حرفاً.",
@@ -3205,9 +3234,9 @@ export const resources = {
           archive: "Archive record",
           salesHold: "Pause sales temporarily",
           releaseSalesHold: "Resume sales",
-          recall: "Issue confirmed — handle current quantities",
+          recall: "Stop product for a quality or safety issue",
           cancelRecall: "Product confirmed safe",
-          closeRecall: "Allow product sales again",
+          closeRecall: "Close issue and resume sales",
         },
         success: {
           publish: "Product activated.",
@@ -3297,21 +3326,21 @@ export const resources = {
           problemSaleStopTitle: "Why are sales stopped?",
           problemSaleStopHint:
             "Sales for the whole product were stopped because of a quality or safety issue. Choose the next action based on the investigation result.",
-          manageConfirmedIssue: "Issue confirmed — handle current quantities",
+          manageConfirmedIssue: "Handle affected quantities",
           manageConfirmedIssueHint:
-            "Open all quantities you can act on across warehouses and vehicles while the company-wide sales stop remains active.",
+            "Open affected stock locations and choose the appropriate action: collect it in the issue-handling location, return it to the supplier, or dispose of it. The product remains stopped during handling.",
           recallCompletionTitle:
-            "Issue handling is not complete yet",
+            "Issue handling is still incomplete",
           recallCompletionHint:
-            "If the issue is confirmed, complete the items below before allowing sales again. If it was a false alarm, use “Product confirmed safe” instead of acting on healthy stock unnecessarily.",
-          recallCurrentTitle: "Product sales are stopped for a confirmed issue",
+            "Complete the visible stock and operations before restoring sales. If the report was incorrect and no physical handling has started, use “Product confirmed safe”.",
+          recallCurrentTitle: "The product is stopped for a quality or safety issue",
           recallCurrentHint:
-            "If the issue does not affect the whole product, remove the stop with a clear reason. If it is confirmed, sales remain stopped until affected quantities and related operations are handled.",
+            "If the report was incorrect, remove the stop with a clear reason. Otherwise handle the affected quantities, then close the issue after all requirements are complete.",
           recallRecoveryTitle: "What should I do now?",
           recallRecoverySteps: {
-            first: "If it was a false alarm, choose “Product confirmed safe”.",
-            second: "If the issue is real, open “Handle current quantities” and complete the appropriate action for each visible location or operation.",
-            third: "When all items are complete, choose “Allow product sales again”.",
+            first: "If the report was incorrect, choose “Product confirmed safe”.",
+            second: "If the issue is real, open “Handle affected quantities” and choose the appropriate decision for each quantity.",
+            third: "After all requirements are complete, choose “Close issue and resume sales”.",
           },
           recallBlockerActions: {
             INVENTORY_BALANCE: "Stock or a reservation still exists for this product. The quantity or reservation must be handled before sales can be allowed again.",
@@ -3584,9 +3613,9 @@ export const resources = {
       },
       inventoryQualityIssue: {
         title: "Handle quantities for {{name}}",
-        companyHoldTitle: "Product sales are stopped company-wide",
+        companyHoldTitle: "The product is stopped for new sales, loads, and inbound",
         companyHoldHint:
-          "The sales stop stays active while quantities are handled. Each warehouse or vehicle is handled independently, and this screen does not change the product state itself.",
+          "The stop remains active while quantities are handled. Each warehouse or vehicle is handled independently, and this screen does not return the product to sale.",
         readiness: {
           readyTitle: "Inventory and operation requirements are complete",
           readyHint:
@@ -3604,7 +3633,7 @@ export const resources = {
         batchTitle: "Batch {{batch}}",
         expiry: "Expiry: {{date}}",
         dispositions: {
-          RELEASED: "The batch itself is sellable, but the whole product is stopped for the issue",
+          RELEASED: "This batch has no independent restriction; the current sales stop comes from the whole-product issue",
           QUARANTINED: "Batch quarantined for inspection",
           BLOCKED: "Batch sale is blocked",
           RECALLED: "Batch permanently excluded from sale",
@@ -3974,6 +4003,35 @@ export const resources = {
       inventoryWarehouses: {
         processing: "Processing...",
         noChanges: "There are no changes to save.",
+        qualityDestinations: {
+          title: "Quality and restricted-stock destinations",
+          hint: "Choose where affected stock is collected, where supplier returns are staged, and where disposal quantities are moved. The server selects the configured destination automatically when an action runs.",
+          active: "Active",
+          notConfigured: "Not configured",
+          search: "Search warehouses by name or code...",
+          searchMore: "More warehouses exist. Use search to reach them.",
+          choose: "Choose a warehouse...",
+          quarantine: {
+            label: "Quarantine and issue handling",
+            hint: "Affected quantities that need inspection or collection for a quality or safety issue are moved here.",
+          },
+          vendorReturn: {
+            label: "Supplier-return staging",
+            hint: "Quantities are moved here before the physical handover to the supplier or manufacturer is confirmed.",
+          },
+          disposal: {
+            label: "Disposal area",
+            hint: "Quantities are moved here before physical disposal is confirmed and its evidence is recorded.",
+          },
+          saveAndActivate: "Save and activate destinations",
+          saved: "Quality-handling destinations were saved and activated.",
+          errors: {
+            loadPolicy: "Could not load quality-handling destinations.",
+            loadLocations: "Could not load available warehouses.",
+            required: "Choose a destination for quarantine, supplier return, and disposal.",
+            save: "Could not save and activate quality-handling destinations.",
+          },
+        },
         errors: {
           loadFailed: "Could not load warehouse management.",
           nameInvalid: "Warehouse name is required and must be at most 150 characters.",

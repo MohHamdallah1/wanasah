@@ -652,22 +652,17 @@ export function CatalogLifecycleSimplePanel({
                     <span className="text-xs font-black tabular-nums text-rose-700">
                       {item.count}
                     </span>
-                    {recallBlockerHasOwnerAction(item.code) ? (
+                    {item.code !== "INVENTORY_BALANCE" &&
+                    recallBlockerHasOwnerAction(item.code) ? (
                       <button
                         type="button"
-                        onClick={() =>
-                          item.code === "INVENTORY_BALANCE"
-                            ? onManageWholeProductIssue()
-                            : onOpenBlocker(item.code)
-                        }
+                        onClick={() => onOpenBlocker(item.code)}
                         className="rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-[9px] font-black text-rose-800 transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
                       >
-                        {item.code === "INVENTORY_BALANCE"
-                          ? t("catalogLifecycle.simple.manageConfirmedIssue")
-                          : t(
-                              `catalogLifecycle.simple.blockerActionLabels.${item.code}`,
-                              { defaultValue: t("catalogLifecycle.simple.openRequiredAction") },
-                            )}
+                        {t(
+                          `catalogLifecycle.simple.blockerActionLabels.${item.code}`,
+                          { defaultValue: t("catalogLifecycle.simple.openRequiredAction") },
+                        )}
                       </button>
                     ) : null}
                   </div>

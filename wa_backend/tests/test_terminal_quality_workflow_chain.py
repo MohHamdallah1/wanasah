@@ -50,8 +50,13 @@ async def test_special_receipt_creates_terminal_staging_states_without_pretendin
         object(), company_id=1, destination_location_id=40, transfer_purpose="RETURN_TO_VENDOR",
         terminal_action="RECEIVE", lines=[SimpleNamespace(id=2, source_stock_status="QUARANTINED")],
     )
+    vendor_from_available = await resolve(
+        object(), company_id=1, destination_location_id=40, transfer_purpose="RETURN_TO_VENDOR",
+        terminal_action="RECEIVE", lines=[SimpleNamespace(id=3, source_stock_status="AVAILABLE")],
+    )
     assert disposal == {1: "DISPOSAL_PENDING"}
     assert vendor == {2: "QUARANTINED"}
+    assert vendor_from_available == {3: "QUARANTINED"}
 
 
 def test_transfer_receipt_and_terminal_commands_form_one_authoritative_chain():

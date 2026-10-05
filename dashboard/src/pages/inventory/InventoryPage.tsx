@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { inventoryWorkspaceFocus } from "@/features/inventory/workspaceFocusNavigation";
-import { createInventoryOwnerFocusState, parseInventoryNavigationState } from "@/features/inventory/navigation";
+import { createInventoryOwnerFocusState, createInventoryTabNavigationState, parseInventoryNavigationState } from "@/features/inventory/navigation";
 import { createDispatchReservationFocusState } from "@/features/dispatch/navigation";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { parseInventoryLocationCapabilities } from "@/hooks/useInventoryAccess";
@@ -60,6 +60,10 @@ export default function InventoryPage() {
   };
   if (focus?.kind === "quality") return <WholeProductIssueWorkspace key={`quality:${focus.variantId}`}
     productVariantId={focus.variantId} productName={focus.productName} onConsumed={consume} onClose={close}
+    onOpenQualitySettings={() => {
+      navigate("/inventory", { state: createInventoryTabNavigationState("warehouses") });
+      setFocus(null);
+    }}
     onOpenTransfers={openTransfers} onOpenReservationOwner={openReservationOwner} />;
   if (focus?.kind === "batch") return <BatchFocusWorkspace key={`${focus.batchId}:${focus.variantId}`} identity={focus}
     onConsumed={consume} onClose={close} onOpenTransfers={openTransfers} onOpenReservationOwner={openReservationOwner} />;

@@ -19,8 +19,18 @@ def matrix(**overrides):
         can_send=True,
         can_confirm_disposal=False,
         can_confirm_vendor_return=False,
-        special_destinations={"QUARANTINE": 20, "RECALL_RETURN": 20, "DISPOSAL": 30},
-        purpose_access={"QUARANTINE": True, "RECALL_RETURN": True, "DISPOSAL": True},
+        special_destinations={
+            "QUARANTINE": 20,
+            "RECALL_RETURN": 20,
+            "RETURN_TO_VENDOR": 40,
+            "DISPOSAL": 30,
+        },
+        purpose_access={
+            "QUARANTINE": True,
+            "RECALL_RETURN": True,
+            "RETURN_TO_VENDOR": True,
+            "DISPOSAL": True,
+        },
         terminal_evidence={},
     )
     values.update(overrides)
@@ -33,8 +43,9 @@ def test_allowed_purposes_are_derived_from_the_same_special_action_matrix():
         item["purpose"] for item in result["special_actions"] if item["allowed"]
     ]
     reasons = {item["purpose"]: item["reason_code"] for item in result["special_actions"]}
-    assert reasons["RETURN_TO_VENDOR"] == "STATE_RESTRICTION"
+    assert reasons["RETURN_TO_VENDOR"] == "ALLOWED"
     assert reasons["RECALL_RETURN"] == "ALLOWED"
+    assert reasons["QUARANTINE"] == "STATE_RESTRICTION"
     assert reasons["DISPOSAL"] == "ALLOWED"
 
 

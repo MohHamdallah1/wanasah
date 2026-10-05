@@ -689,9 +689,6 @@ export function CatalogLifecycleActions({
       await onVariantChanged(
         result.variant,
       );
-      if (payload.command === "recall") {
-        onManageWholeProductIssue?.();
-      }
     } catch (error) {
       const code =
         apiErrorCode(error);

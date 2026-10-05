@@ -11,6 +11,7 @@ import { useInventoryAccess, useLocationCapabilities } from "@/hooks/useInventor
 import { BranchManagementModal } from "./warehouse-locations/BranchManagementModal";
 import { BranchSelector } from "./warehouse-locations/BranchSelector";
 import { StockMinimumManager } from "./StockMinimumManager";
+import { QualityHandlingDestinationsCard } from "./warehouse-locations/QualityHandlingDestinationsCard";
 
 interface WarehouseLocationItem {
   id: number;
@@ -480,6 +481,8 @@ export function TabWarehouseLocations({
           </button>
         </div>
       </div>
+
+      <QualityHandlingDestinationsCard />
 
       <div className="glass-card inventory-toolbar rounded-2xl p-4">
         <div className="relative">
