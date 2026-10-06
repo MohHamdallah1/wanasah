@@ -6,6 +6,7 @@ export const productQualityInline = {
       stage: "تعذر تجهيز الكمية للمعالجة.",
       confirm: "تعذر تأكيد خروج الكمية من مخزون الشركة.",
       load: "تعذر تحميل الكميات المتأثرة.",
+      quantity: "أدخل كمية صحيحة ضمن الكمية المتاحة لهذا الإجراء.",
     },
     confirmSuccess: {
       CONFIRM_DISPOSAL: "تم تأكيد الإتلاف وخصم الكمية من مخزون الشركة.",
@@ -40,6 +41,7 @@ export const productQualityInline = {
       stage: "Could not stage the quantity for handling.",
       confirm: "Could not confirm that the quantity left company-owned inventory.",
       load: "Could not load the affected quantities.",
+      quantity: "Enter a valid quantity within the amount available for this action.",
     },
     confirmSuccess: {
       CONFIRM_DISPOSAL: "Disposal was confirmed and the quantity was removed from company inventory.",
