@@ -17,7 +17,9 @@ import { allocateRequestedQuantity, type QualityActionLine } from "./productQual
 import type { QualityDispatchPurpose, QualityTerminalAction } from "./wholeProductQualityContract";
 
 const resultRecord = (raw: unknown): Record<string, unknown> => {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("PRODUCT_QUALITY_COMMAND_RESPONSE_INVALID");
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("PRODUCT_QUALITY_COMMAND_RESPONSE_INVALID");
+  }
   return raw as Record<string, unknown>;
 };
 
@@ -52,7 +54,14 @@ export function useProductQualityCommands({
     reason: string;
   }) => {
     if (!isOnline || companyId === null || driverId === null || busyKey !== null) return false;
-    const allocations = allocateRequestedQuantity(lines, quantity);
+    const key = `${productVariantId}:${locationId}:${purpose}`;
+    let allocations;
+    try {
+      allocations = allocateRequestedQuantity(lines, quantity);
+    } catch {
+      toast.error(t("products.qualityInline.errors.quantity"));
+      return false;
+    }
     const payload = {
       source_location_id: locationId,
       transfer_purpose: purpose,
@@ -65,7 +74,6 @@ export function useProductQualityCommands({
       })),
       notes: reason.trim(),
     };
-    const key = `${productVariantId}:${locationId}:${purpose}`;
     const scope = durableScope(companyId, driverId, "product-quality-location-stage-v1", key);
     setBusyKey(key);
     try {
@@ -83,9 +91,16 @@ export function useProductQualityCommands({
       return true;
     } catch (error) {
       const code = apiErrorCode(error);
-      const ambiguous = isAmbiguousRequestError(error) || code === "DURABLE_OPERATION_PENDING" || code === "PRODUCT_QUALITY_COMMAND_RESPONSE_INVALID";
+      const ambiguous = isAmbiguousRequestError(error)
+        || code === "DURABLE_OPERATION_PENDING"
+        || code === "PRODUCT_QUALITY_COMMAND_RESPONSE_INVALID";
       if (!ambiguous) abandonDurableOperation(scope);
-      toast.error(apiErrorMessage(error, ambiguous ? t("products.qualityInline.pending") : t("products.qualityInline.errors.stage")));
+      toast.error(apiErrorMessage(
+        error,
+        ambiguous
+          ? t("products.qualityInline.pending")
+          : t("products.qualityInline.errors.stage"),
+      ));
       return false;
     } finally {
       setBusyKey(null);
@@ -116,8 +131,14 @@ export function useProductQualityCommands({
     handoverReference?: string;
   }) => {
     if (!isOnline || companyId === null || driverId === null || busyKey !== null) return false;
-    const allocations = allocateRequestedQuantity(lines, quantity);
     const groupKey = `${productVariantId}:${locationId}:${action}`;
+    let allocations;
+    try {
+      allocations = allocateRequestedQuantity(lines, quantity);
+    } catch {
+      toast.error(t("products.qualityInline.errors.quantity"));
+      return false;
+    }
     setBusyKey(groupKey);
     let changed = false;
     try {
@@ -143,7 +164,12 @@ export function useProductQualityCommands({
               handover_reference: handoverReference?.trim(),
             };
         const key = `${groupKey}:${allocation.batchId}:${allocation.stockStatus}`;
-        const scope = durableScope(companyId, driverId, "product-quality-location-terminal-v1", key);
+        const scope = durableScope(
+          companyId,
+          driverId,
+          "product-quality-location-terminal-v1",
+          key,
+        );
         try {
           const durable = await getOrCreateDurableCommand(scope, payload);
           const endpoint = action === "CONFIRM_DISPOSAL"
@@ -156,15 +182,24 @@ export function useProductQualityCommands({
           const expected = action === "CONFIRM_DISPOSAL"
             ? "INVENTORY_FINAL_DISPOSAL_CONFIRMED"
             : "INVENTORY_VENDOR_HANDOVER_CONFIRMED";
-          if (raw.event_type !== expected) throw new Error("PRODUCT_QUALITY_COMMAND_RESPONSE_INVALID");
+          if (raw.event_type !== expected) {
+            throw new Error("PRODUCT_QUALITY_COMMAND_RESPONSE_INVALID");
+          }
           completeDurableOperation(scope, durable.requestId);
           changed = true;
         } catch (error) {
           const code = apiErrorCode(error);
-          const ambiguous = isAmbiguousRequestError(error) || code === "DURABLE_OPERATION_PENDING" || code === "PRODUCT_QUALITY_COMMAND_RESPONSE_INVALID";
+          const ambiguous = isAmbiguousRequestError(error)
+            || code === "DURABLE_OPERATION_PENDING"
+            || code === "PRODUCT_QUALITY_COMMAND_RESPONSE_INVALID";
           if (!ambiguous) abandonDurableOperation(scope);
           if (changed) await onSucceeded();
-          toast.error(apiErrorMessage(error, ambiguous ? t("products.qualityInline.pending") : t("products.qualityInline.errors.confirm")));
+          toast.error(apiErrorMessage(
+            error,
+            ambiguous
+              ? t("products.qualityInline.pending")
+              : t("products.qualityInline.errors.confirm"),
+          ));
           return false;
         }
       }
