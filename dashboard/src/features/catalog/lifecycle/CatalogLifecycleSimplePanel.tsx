@@ -176,13 +176,6 @@ function ActionItem({
   );
 }
 
-const recallBlockerHasOwnerAction = (code: string): boolean =>
-  code === "INVENTORY_BALANCE" ||
-  code === "OPEN_TRANSFER" ||
-  code === "ACTIVE_ROUTE_LOAD" ||
-  code === "OPEN_CUSTODY" ||
-  code === "OPEN_SHORTAGE";
-
 export function CatalogLifecycleSimplePanel({
   variant,
   actionsDisabled,
@@ -337,18 +330,6 @@ export function CatalogLifecycleSimplePanel({
                   )
                 }
               />
-              <ActionItem
-                icon={<ShieldCheck className="h-3.5 w-3.5" />}
-                label={t(
-                  "catalogLifecycle.simple.manageConfirmedIssue",
-                )}
-                hint={t(
-                  "catalogLifecycle.simple.manageConfirmedIssueHint",
-                )}
-                disabled={actionsDisabled}
-                onClick={onManageWholeProductIssue}
-                emphasis="warning"
-              />
               {recallReadyToClose ? (
                 <ActionItem
                   icon={<Play className="h-3.5 w-3.5" />}
@@ -365,7 +346,20 @@ export function CatalogLifecycleSimplePanel({
                     )
                   }
                 />
-              ) : null}
+              ) : (
+                <ActionItem
+                  icon={<ShieldCheck className="h-3.5 w-3.5" />}
+                  label={t(
+                    "catalogLifecycle.simple.manageConfirmedIssue",
+                  )}
+                  hint={t(
+                    "catalogLifecycle.simple.manageConfirmedIssueHint",
+                  )}
+                  disabled={actionsDisabled}
+                  onClick={onManageWholeProductIssue}
+                  emphasis="warning"
+                />
+              )}
             </>
           ) : null}
 
@@ -605,115 +599,38 @@ export function CatalogLifecycleSimplePanel({
         </div>
       ) : null}
 
-      {recallCompletionBlockers.length > 0 ? (
-        <div
-          role="alert"
-          className="border-t border-slate-100 px-5 py-4"
-        >
-          <div className="border-s-2 border-rose-400 ps-3">
-            <p className="text-xs font-black text-slate-950">
-              {t(
-                "catalogLifecycle.simple.recallCompletionTitle",
-              )}
+      {showProblemRecovery && recallInventorySummary ? (
+        <div className="border-t border-slate-100 px-5 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[10px] font-black text-slate-900">
+              {t("productQualityWorkspace.affectedStockTitle")}
             </p>
-            <p className="mt-1 text-[10px] font-semibold leading-5 text-slate-600">
-              {t(
-                "catalogLifecycle.simple.recallCompletionHint",
-              )}
-            </p>
+            <span className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-black text-slate-600">
+              {t("productQualityWorkspace.batchCount", {
+                count: recallInventorySummary.batch_count,
+              })}
+            </span>
           </div>
-
-          {recallInventorySummary ? (
-            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-              <p className="text-[10px] font-black text-slate-900">
-                {t("catalogLifecycle.simple.recallInventorySummaryTitle")}
-              </p>
-              <p className="mt-1 text-[9px] font-semibold leading-4 text-slate-600">
-                {t("catalogLifecycle.simple.recallInventorySummary", {
-                  onHand: recallInventorySummary.total_on_hand_quantity,
-                  reserved: recallInventorySummary.total_reserved_quantity,
-                  sources: String(recallInventorySummary.source_count),
-                  batches: String(recallInventorySummary.batch_count),
-                  unit: variant.base_uom.code,
-                })}
-              </p>
-              {recallInventorySummary.locations_preview.length > 0 ? (
-                <div className="mt-2 space-y-1">
-                  {recallInventorySummary.locations_preview.map((location) => (
-                    <p key={location.location_id} className="text-[9px] font-semibold leading-4 text-slate-600">
-                      {t("catalogLifecycle.simple.recallInventoryLocation", {
-                        name: location.location_name,
-                        onHand: location.on_hand_quantity,
-                        reserved: location.reserved_quantity,
-                        unit: variant.base_uom.code,
-                      })}
-                    </p>
-                  ))}
-                  {recallInventorySummary.locations_truncated ? (
-                    <p className="text-[9px] font-bold text-slate-500">
-                      {t("catalogLifecycle.simple.recallInventoryMoreLocations")}
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
-              {recallInventorySummary.total_reserved_quantity !== "0" ? (
-                <p className="mt-2 text-[9px] font-semibold leading-4 text-sky-800">
-                  {t("catalogLifecycle.simple.recallReservationMeaning")}
-                </p>
+          {recallInventorySummary.locations_preview.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {recallInventorySummary.locations_preview.map((location) => (
+                <span
+                  key={location.location_id}
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[9px] font-bold text-slate-700"
+                >
+                  {t("productQualityWorkspace.locationStock", {
+                    name: location.location_name,
+                    quantity: location.on_hand_quantity,
+                  })}
+                </span>
+              ))}
+              {recallInventorySummary.locations_truncated ? (
+                <span className="px-2 py-1.5 text-[9px] font-bold text-slate-500">
+                  {t("productQualityWorkspace.moreLocationsCompact")}
+                </span>
               ) : null}
             </div>
           ) : null}
-
-          <div className="mt-3 divide-y divide-slate-100">
-            {recallCompletionBlockers.map(
-              (item) => (
-                <div
-                  key={item.code}
-                  className="grid gap-1 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
-                >
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-black text-slate-900">
-                      {t(
-                        `catalogLifecycle.blockers.${item.code}`,
-                        {
-                          defaultValue:
-                            item.code,
-                        },
-                      )}
-                    </p>
-                    <p className="mt-0.5 text-[9px] font-semibold leading-4 text-slate-500">
-                      {t(
-                        `catalogLifecycle.simple.recallBlockerActions.${item.code}`,
-                        {
-                          defaultValue: t(
-                            "catalogLifecycle.simple.recallCompletionHint",
-                          ),
-                        },
-                      )}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-black tabular-nums text-rose-700">
-                      {item.count}
-                    </span>
-                    {item.code !== "INVENTORY_BALANCE" &&
-                    recallBlockerHasOwnerAction(item.code) ? (
-                      <button
-                        type="button"
-                        onClick={() => onOpenBlocker(item.code)}
-                        className="rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-[9px] font-black text-rose-800 transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
-                      >
-                        {t(
-                          `catalogLifecycle.simple.blockerActionLabels.${item.code}`,
-                          { defaultValue: t("catalogLifecycle.simple.openRequiredAction") },
-                        )}
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              ),
-            )}
-          </div>
         </div>
       ) : null}
 

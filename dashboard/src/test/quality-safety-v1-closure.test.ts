@@ -18,8 +18,10 @@ describe("V1 quality and safety workflow closure", () => {
     const panel = read(
       "../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx",
     );
-    expect(panel).toContain('item.code !== "INVENTORY_BALANCE"');
-    expect(panel.match(/catalogLifecycle\.simple\.manageConfirmedIssue/g)?.length).toBe(2);
+    expect(panel).toContain("recallReadyToClose ?");
+    expect(panel).toContain('catalogLifecycle.simple.manageConfirmedIssue');
+    expect(panel).toContain("productQualityWorkspace.affectedStockTitle");
+    expect(panel).not.toContain('item.code !== "INVENTORY_BALANCE"');
   });
 
   it("does not present a released batch historical reason as the current whole-product issue", () => {
@@ -47,6 +49,9 @@ describe("V1 quality and safety workflow closure", () => {
     expect(card).toContain("/publish`");
     expect(warehouses).toContain("<QualityHandlingDestinationsCard />");
     expect(workspace).toContain("productQualityWorkspace.configureDestinations");
+    expect(workspace).toContain("needsDestinationSetup");
+    expect(workspace).not.toContain("ProductQualityReadiness");
+    expect(workspace).not.toContain("common.refresh");
   });
 
   it("uses plain business wording for the post-stop handling journey", () => {

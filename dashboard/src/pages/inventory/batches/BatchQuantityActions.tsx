@@ -47,6 +47,7 @@ type Props = {
   onRefreshStockSources?: () => Promise<void>;
   showTransferListLink?: boolean;
   header?: ReactNode;
+  suppressDestinationSetupPrompt?: boolean;
 };
 
 type Choice = {
@@ -99,6 +100,7 @@ export function BatchQuantityActions({
   onRefreshStockSources,
   showTransferListLink = false,
   header,
+  suppressDestinationSetupPrompt = false,
 }: Props) {
   const { t } = useTranslation();
   const access = useInventoryAccess();
@@ -352,7 +354,8 @@ export function BatchQuantityActions({
                 ) : status.special_actions.some(
                     (action) => action.reason_code === "NO_CONFIGURED_DESTINATION",
                   ) ? (
-                  <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/70 p-3">
+                  suppressDestinationSetupPrompt ? null : (
+                    <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/70 p-3">
                     <p className="text-[10px] font-black text-amber-950">
                       {t("qualityActionReasons.setupRequiredTitle")}
                     </p>
@@ -368,7 +371,8 @@ export function BatchQuantityActions({
                         {t("qualityActionReasons.configure")}
                       </button>
                     ) : null}
-                  </div>
+                    </div>
+                  )
                 ) : (
                   <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50/70 p-2.5">
                     <p className="text-[9px] font-black text-slate-700">

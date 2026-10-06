@@ -137,19 +137,21 @@ describe("Products fast Enter and commercial-status UX", () => {
     );
 
     expect(panel).toContain(
-      "recallCompletionBlockers.length > 0",
+      "productQualityWorkspace.affectedStockTitle",
     );
     expect(panel).toContain(
+      "productQualityWorkspace.locationStock",
+    );
+    expect(panel).toContain(
+      "recallReadyToClose ?",
+    );
+    expect(panel).toContain('catalogLifecycle.simple.manageConfirmedIssue');
+    expect(panel).not.toContain(
       "catalogLifecycle.simple.recallCompletionTitle",
     );
-    expect(panel).toContain(
-      "catalogLifecycle.simple.recallCompletionHint",
+    expect(panel).not.toContain(
+      "recallBlockerActions.${item.code}",
     );
-    expect(panel).toContain(
-      "catalogLifecycle.blockers.",
-    );
-    expect(panel).toContain('item.code !== "INVENTORY_BALANCE"');
-    expect(panel).toContain('catalogLifecycle.simple.manageConfirmedIssue');
   });
 
   it("keeps V1 archival visible but disabled and deferred", () => {

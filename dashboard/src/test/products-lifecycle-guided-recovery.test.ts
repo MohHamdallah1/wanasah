@@ -10,8 +10,10 @@ describe("Products guided sales recovery", () => {
     const i18n = read("../i18n/resources.ts");
     expect(i18n).toContain('closeRecall: "إغلاق المشكلة وإعادة البيع"');
     expect(i18n).toContain("recallBlockerActions");
-    expect(panel).toContain("recallCompletionTitle");
-    expect(panel).toContain("recallBlockerActions.${item.code}");
+    expect(panel).toContain("productQualityWorkspace.affectedStockTitle");
+    expect(panel).toContain("productQualityWorkspace.locationStock");
+    expect(panel).toContain("recallReadyToClose ?");
+    expect(panel).not.toContain("recallBlockerActions.${item.code}");
     expect(actions).toContain("recallCompletionRequired");
     expect(actions).toContain("setSelectedCommand(null)");
   });
