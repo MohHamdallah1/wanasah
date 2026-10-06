@@ -41,7 +41,7 @@ function RouteEvidence() {
   return <output data-testid="route-state">{JSON.stringify(location.state)}</output>;
 }
 
-async function mount(options: { language?: "ar" | "en"; products?: boolean; client?: QueryClient; workspace?: boolean } = {}) {
+async function mount(options: { language?: "ar" | "en"; products?: boolean; client?: QueryClient; workspace?: boolean; navigationState?: unknown } = {}) {
   const i18n = createInstance();
   await i18n.init({ resources, lng: options.language ?? "en", fallbackLng: "en", interpolation: { escapeValue: false } });
   const client = options.client ?? new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
@@ -53,7 +53,7 @@ async function mount(options: { language?: "ar" | "en"; products?: boolean; clie
       representative_reason: { selection: "LOWEST_BATCH_ID_WITH_CURRENT_REASON" as const, batch_id: 41, disposition: "QUARANTINED" as const,
         disposition_revision: 3, disposition_reason: "Saved inspection reason" } } };
   render(<QueryClientProvider client={client}><I18nextProvider i18n={i18n}>
-    <MemoryRouter initialEntries={[options.products ? "/products" : { pathname: "/inventory", state: intent }]}>
+    <MemoryRouter initialEntries={[options.products ? "/products" : { pathname: "/inventory", state: options.navigationState ?? intent }]}>
       {options.workspace ? <BatchFocusWorkspace identity={{ batchId: 41, variantId: 118 }} onConsumed={onConsumed} onClose={vi.fn()} onOpenTransfers={vi.fn()} onOpenReservationOwner={vi.fn()} /> : <Routes>
         <Route path="/products" element={<ProductStatusBadges item={product} />} />
         <Route path="/inventory" element={<InventoryPage />} />
@@ -200,5 +200,95 @@ describe("batch-first Phase 1 acceptance", () => {
     expect(signal?.aborted).toBe(true);
     expect(screen.getByTestId("route-state")).toHaveTextContent("null");
     expect(screen.queryByText("LOT-41")).not.toBeInTheDocument();
+  });
+});
+
+
+describe("company-wide quality batch selection", () => {
+  it("lists product batches across readable locations before opening all sources for the chosen batch", async () => {
+    const pickerIntent = createInventoryBatchFocusNavigationState({
+      variantId: 118,
+      batchId: null,
+      productName: "Company-wide product",
+      locationId: 999,
+    });
+    const candidatesUrl = "/warehouse/variants/118/quality-batch-candidates?limit=25";
+    const candidates = {
+      product_variant_id: 118,
+      base_uom_id: 7,
+      base_uom_code: "EACH",
+      items: [
+        {
+          batch_id: 41,
+          batch_number: "LOT-41",
+          production_date: "2026-09-01",
+          expiry_date: "2027-09-01",
+          disposition: "QUARANTINED",
+          disposition_reason: "Inspection",
+          total_on_hand_quantity: "13",
+          total_reserved_quantity: "4",
+          source_count: 2,
+          sources_preview: [
+            { location_id: 13, location_name: "Vehicle 13", location_type: "VEHICLE", on_hand_quantity: "3", reserved_quantity: "2" },
+            { location_id: 11, location_name: "Warehouse A", location_type: "WAREHOUSE", on_hand_quantity: "10", reserved_quantity: "2" },
+          ],
+          sources_truncated: false,
+        },
+        {
+          batch_id: 42,
+          batch_number: "LOT-42",
+          production_date: "2026-09-02",
+          expiry_date: "2027-09-02",
+          disposition: "RELEASED",
+          disposition_reason: null,
+          total_on_hand_quantity: "7",
+          total_reserved_quantity: "0",
+          source_count: 1,
+          sources_preview: [
+            { location_id: 12, location_name: "Warehouse C", location_type: "WAREHOUSE", on_hand_quantity: "7", reserved_quantity: "0" },
+          ],
+          sources_truncated: false,
+        },
+      ],
+      next_cursor: null,
+      has_more: false,
+    };
+    mocks.fetch.mockImplementation(async (url: string) => {
+      if (url === "/inventory/access/me") return inventoryReadAccess();
+      if (url === candidatesUrl) return candidates;
+      if (url === "/warehouse/batches/41/stock-sources") {
+        return batchFocusPayload([
+          batchSource(11, "Warehouse A"),
+          batchSource(13, "Vehicle 13", "VEHICLE"),
+        ]);
+      }
+      throw new Error(`Unexpected read: ${url}`);
+    });
+
+    const { i18n } = await mount({ language: "ar", navigationState: pickerIntent });
+    await screen.findByRole("heading", {
+      level: 2,
+      name: i18n.t("productQualityWorkspace.batchPicker.batch", { batch: "LOT-41" }),
+    });
+    expect(screen.getByRole("heading", {
+      level: 2,
+      name: i18n.t("productQualityWorkspace.batchPicker.batch", { batch: "LOT-42" }),
+    })).toBeVisible();
+    expect(screen.getByText("Warehouse A · 10 EACH")).toBeVisible();
+    expect(screen.getByText("Vehicle 13 · 3 EACH")).toBeVisible();
+    expect(screen.getByText("Warehouse C · 7 EACH")).toBeVisible();
+    expect(localStorage.getItem("inventory_selected_location:1")).toBe("999");
+    expect(mocks.fetch.mock.calls.some(([url]) => String(url).includes("location_id=999"))).toBe(false);
+    expect(mocks.fetch.mock.calls.some(([url]) => String(url).includes("/warehouse/inventory/118/batches"))).toBe(false);
+
+    fireEvent.click(screen.getAllByRole("button", {
+      name: i18n.t("productQualityWorkspace.batchPicker.open"),
+    })[0]);
+    await screen.findByRole("heading", { level: 2, name: "LOT-41" });
+    expect(screen.getAllByText("Warehouse A").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Vehicle 13").length).toBeGreaterThan(0);
+    expect(mocks.fetch.mock.calls.filter(([url]) => url === candidatesUrl)).toHaveLength(1);
+    expect(mocks.fetch.mock.calls.filter(([url]) => url === "/warehouse/batches/41/stock-sources")).toHaveLength(1);
+    expect(screen.getByTestId("route-state")).toHaveTextContent("null");
   });
 });

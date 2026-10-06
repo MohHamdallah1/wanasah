@@ -42,6 +42,7 @@ type Props = {
     transfer?: BatchSpecialTransferResult,
   ) => void | Promise<void>;
   onOpenReservationOwner: (owner: ReservationOwner) => void;
+  onConfigureQualityDestinations?: () => void;
   stockSources?: BatchStockSources;
   onRefreshStockSources?: () => Promise<void>;
   showTransferListLink?: boolean;
@@ -93,6 +94,7 @@ export function BatchQuantityActions({
   onChanged,
   onOpenTransfers,
   onOpenReservationOwner,
+  onConfigureQualityDestinations,
   stockSources,
   onRefreshStockSources,
   showTransferListLink = false,
@@ -347,20 +349,48 @@ export function BatchQuantityActions({
                       </button>
                     ))}
                   </div>
+                ) : status.special_actions.some(
+                    (action) => action.reason_code === "NO_CONFIGURED_DESTINATION",
+                  ) ? (
+                  <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/70 p-3">
+                    <p className="text-[10px] font-black text-amber-950">
+                      {t("qualityActionReasons.setupRequiredTitle")}
+                    </p>
+                    <p className="mt-1 text-[9px] font-semibold leading-4 text-amber-900/80">
+                      {t("qualityActionReasons.setupRequiredHint")}
+                    </p>
+                    {onConfigureQualityDestinations ? (
+                      <button
+                        type="button"
+                        onClick={onConfigureQualityDestinations}
+                        className="mt-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-[9px] font-black text-amber-950 focus-visible:ring-2 focus-visible:ring-amber-300"
+                      >
+                        {t("qualityActionReasons.configure")}
+                      </button>
+                    ) : null}
+                  </div>
                 ) : (
                   <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50/70 p-2.5">
                     <p className="text-[9px] font-black text-slate-700">
                       {t("qualityActionReasons.title")}
                     </p>
                     <div className="mt-1.5 space-y-1">
-                      {status.special_actions.map((action) => (
-                        <p key={action.purpose} className="text-[9px] font-semibold leading-4 text-slate-600">
-                          <span className="font-black text-slate-800">
-                            {t(`inventoryBatches.quantityActions.purposes.${action.purpose}.label`)}:
-                          </span>{" "}
-                          {t(`qualityActionReasons.reasons.${action.reason_code}`)}
-                        </p>
-                      ))}
+                      {status.special_actions
+                        .filter(
+                          (action) =>
+                            !(
+                              data?.operational_hold === "RECALL" &&
+                              action.purpose === "QUARANTINE"
+                            ),
+                        )
+                        .map((action) => (
+                          <p key={action.purpose} className="text-[9px] font-semibold leading-4 text-slate-600">
+                            <span className="font-black text-slate-800">
+                              {t(`inventoryBatches.quantityActions.purposes.${action.purpose}.label`)}:
+                            </span>{" "}
+                            {t(`qualityActionReasons.reasons.${action.reason_code}`)}
+                          </p>
+                        ))}
                       {status.terminal_actions.map((action) => (
                         <p key={action.action} className="text-[9px] font-semibold leading-4 text-slate-600">
                           <span className="font-black text-slate-800">{t(`terminalQualityActions.actions.${action.action}.label`)}:</span>{" "}

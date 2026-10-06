@@ -8,7 +8,7 @@ describe("Products guided sales recovery", () => {
     const panel = read("../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx");
     const actions = read("../features/catalog/lifecycle/CatalogLifecycleActions.tsx");
     const i18n = read("../i18n/resources.ts");
-    expect(i18n).toContain('closeRecall: "السماح ببيع المنتج من جديد"');
+    expect(i18n).toContain('closeRecall: "إغلاق المشكلة وإعادة البيع"');
     expect(i18n).toContain("recallBlockerActions");
     expect(panel).toContain("recallCompletionTitle");
     expect(panel).toContain("recallBlockerActions.${item.code}");

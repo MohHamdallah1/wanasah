@@ -1121,6 +1121,15 @@ export const resources = {
             "ما زالت معالجة المشكلة غير مكتملة",
           recallCompletionHint:
             "أكمل الكميات والعمليات الظاهرة قبل إعادة البيع. إذا تبين أن البلاغ غير صحيح ولم تبدأ معالجة فعلية للكميات، استخدم «تبين أن المنتج سليم».",
+          recallInventorySummaryTitle: "تفاصيل الكمية الحالية",
+          recallInventorySummary:
+            "الإجمالي {{onHand}} {{unit}} موزع على {{sources}} موقع/عهدة ضمن {{batches}} دفعة · المرتبط بعملية تشغيلية {{reserved}} {{unit}}.",
+          recallInventoryLocation:
+            "{{name}}: {{onHand}} {{unit}} · مرتبط بعملية {{reserved}} {{unit}}",
+          recallInventoryMoreLocations:
+            "هناك مواقع إضافية؛ افتح «معالجة الكميات المتأثرة» لعرضها كلها.",
+          recallReservationMeaning:
+            "الكمية «المرتبطة بعملية» ليست حجز زبون؛ هي ارتباط تشغيلي داخل المخزون. عندما يقدر النظام ينسبها لعملية محددة، يعرض نوع العملية ومرجعها داخل معالجة الكميات.",
           recallCurrentTitle: "المنتج موقوف بسبب مشكلة جودة أو سلامة",
           recallCurrentHint:
             "إذا كان البلاغ غير صحيح يمكنك إزالة الإيقاف بسبب واضح. وإلا عالج الكميات المتأثرة ثم أغلق المشكلة بعد اكتمال جميع المتطلبات.",
@@ -1131,7 +1140,7 @@ export const resources = {
             third: "بعد اكتمال جميع المتطلبات اختر «إغلاق المشكلة وإعادة البيع».",
           },
           recallBlockerActions: {
-            INVENTORY_BALANCE: "ما زالت هناك كمية أو حجز لهذا المنتج. يجب التعامل مع الكمية أو الحجز قبل السماح ببيع المنتج من جديد.",
+            INVENTORY_BALANCE: "التفصيل الدقيق للكميات ومواقعها ظاهر أعلاه. افتح «معالجة الكميات المتأثرة» لتنفيذ القرار المناسب على كل موقع أو فتح العملية المرتبطة بالكمية.",
             OPEN_TRANSFER: "هناك حوالة مفتوحة تحتوي المنتج. أكمل الحوالة أو ألغها قبل السماح ببيع المنتج من جديد.",
             ACTIVE_ROUTE_LOAD: "المنتج موجود ضمن حمولة مسار نشطة. أعد الكمية من الحمولة أو أغلق المسار حسب حالته.",
             OPEN_CUSTODY: "المنتج ما زال ضمن عهدة مندوب مفتوحة. أرجع الكمية من المندوب ثم سوِّ العهدة.",
@@ -1284,7 +1293,7 @@ export const resources = {
             "مرجع ضريبي محفوظ",
         },
         blockers: {
-          INVENTORY_BALANCE: "رصيد أو حجز مخزون",
+          INVENTORY_BALANCE: "كميات موجودة أو مرتبطة بعملية",
           PRODUCT_LOCATION: "ربط تشغيلي بموقع",
           STOCK_POLICY: "سياسة مخزون فعالة",
           OPEN_TRANSFER: "حوالة مفتوحة",
@@ -1513,20 +1522,21 @@ export const resources = {
           noMovable: "لا توجد كمية حرة يمكن نقلها لهذه الدفعة حاليًا.",
           onHand: "الموجود: {{quantity}} {{unit}}",
           movable: "القابل للنقل: {{quantity}} {{unit}}",
-          reserved: "المحجوز: {{quantity}} {{unit}}",
+          reserved: "مرتبط بعملية: {{quantity}} {{unit}}",
           reservationEvidence: {
-            title: "سبب الحجز الحالي",
+            title: "العملية المرتبطة بهذه الكمية",
+            hint: "هذا ارتباط تشغيلي داخل المخزون، وليس حجزًا لزبون. عندما يعرف النظام العملية المالكة يعرض نوعها ومرجعها هنا.",
             purposes: {
               ROUTE_LOAD: "تحميل مندوب · {{reference}}",
               ROUTE_RETURN: "إرجاع عهدة مندوب · {{reference}}",
             },
-            ownerQuantity: "يحجز {{quantity}} {{unit}} من هذه الكمية.",
+            ownerQuantity: "مرتبط بهذه العملية: {{quantity}} {{unit}}.",
             openOwner: "فتح العملية",
-            openAndRelease: "فتح وإلغاء الحجز",
-            unattributed: "{{quantity}} {{unit}} من الحجز لا يمكن نسبها بأمان إلى عملية ظاهرة لك حاليًا.",
-            previewLimited: "هناك عمليات حجز إضافية غير معروضة في هذه القائمة المختصرة.",
+            openAndRelease: "فتح العملية ومعالجة الارتباط",
+            unattributed: "{{quantity}} {{unit}} مرتبطة تشغيليًا لكن لا يمكن نسبها بأمان إلى عملية ظاهرة لك حاليًا.",
+            previewLimited: "هناك عمليات مرتبطة إضافية غير معروضة في هذه القائمة المختصرة.",
           },
-          fullyReserved: "هذه الكمية محجوزة بالكامل ولا يمكن نقلها الآن. راجع العملية المالكة للحجز أدناه لتحريرها من مصدرها الصحيح.",
+          fullyReserved: "هذه الكمية مرتبطة بالكامل بعملية تشغيلية ولا يمكن نقلها الآن. افتح العملية المالكة أدناه لمعالجة الارتباط من مصدره الصحيح.",
           noSendPermission: "لديك صلاحية رؤية الكمية، لكن لا تملك صلاحية إرسال حوالة من هذا الموقع.",
           noActionForStatus: "لا يوجد إجراء كمية مناسب لهذه الحالة من هذا الموقع.",
           openTransfers: "فتح الحوالات ومتابعة العمليات",
@@ -3333,6 +3343,15 @@ export const resources = {
             "Issue handling is still incomplete",
           recallCompletionHint:
             "Complete the visible stock and operations before restoring sales. If the report was incorrect and no physical handling has started, use “Product confirmed safe”.",
+          recallInventorySummaryTitle: "Current quantity details",
+          recallInventorySummary:
+            "Total {{onHand}} {{unit}} across {{sources}} stock sources and {{batches}} batches · tied to an active operation {{reserved}} {{unit}}.",
+          recallInventoryLocation:
+            "{{name}}: {{onHand}} {{unit}} · tied to an operation {{reserved}} {{unit}}",
+          recallInventoryMoreLocations:
+            "More locations exist; open “Handle affected quantities” to see all of them.",
+          recallReservationMeaning:
+            "Quantity “tied to an operation” is not a customer reservation. It is an operational inventory link; when the system can identify the owner, quantity handling shows the operation type and reference.",
           recallCurrentTitle: "The product is stopped for a quality or safety issue",
           recallCurrentHint:
             "If the report was incorrect, remove the stop with a clear reason. Otherwise handle the affected quantities, then close the issue after all requirements are complete.",
@@ -3343,7 +3362,7 @@ export const resources = {
             third: "After all requirements are complete, choose “Close issue and resume sales”.",
           },
           recallBlockerActions: {
-            INVENTORY_BALANCE: "Stock or a reservation still exists for this product. The quantity or reservation must be handled before sales can be allowed again.",
+            INVENTORY_BALANCE: "The exact quantities and locations are shown above. Open “Handle affected quantities” to act on each source or open the operation that owns tied stock.",
             OPEN_TRANSFER: "An open transfer still contains this product. Complete or cancel that transfer before sales can be allowed again.",
             ACTIVE_ROUTE_LOAD: "The product is on an active route load. Return the quantity from the load or close the route as appropriate.",
             OPEN_CUSTODY: "The product remains in an open representative custody. Return the quantity from the representative and settle the custody.",
@@ -3496,7 +3515,7 @@ export const resources = {
             "Saved tax reference",
         },
         blockers: {
-          INVENTORY_BALANCE: "Inventory balance or reservation",
+          INVENTORY_BALANCE: "Physical quantity or operation-tied stock",
           PRODUCT_LOCATION: "Operational location assignment",
           STOCK_POLICY: "Active stock policy",
           OPEN_TRANSFER: "Open transfer",
@@ -3725,20 +3744,21 @@ export const resources = {
           noMovable: "There is no movable quantity for this batch right now.",
           onHand: "On hand: {{quantity}} {{unit}}",
           movable: "Movable: {{quantity}} {{unit}}",
-          reserved: "Reserved: {{quantity}} {{unit}}",
+          reserved: "Tied to an operation: {{quantity}} {{unit}}",
           reservationEvidence: {
-            title: "What currently owns this reservation",
+            title: "Operation tied to this quantity",
+            hint: "This is an operational inventory link, not a customer reservation. When the system can identify the owner, it shows the operation type and reference here.",
             purposes: {
               ROUTE_LOAD: "Driver load · {{reference}}",
               ROUTE_RETURN: "Driver custody return · {{reference}}",
             },
-            ownerQuantity: "Reserves {{quantity}} {{unit}} from this stock.",
+            ownerQuantity: "Tied to this operation: {{quantity}} {{unit}}.",
             openOwner: "Open operation",
-            openAndRelease: "Open and release reservation",
-            unattributed: "{{quantity}} {{unit}} of the reservation cannot be safely attributed to an operation currently visible to you.",
-            previewLimited: "Additional reservation operations exist beyond this compact preview.",
+            openAndRelease: "Open operation and resolve link",
+            unattributed: "{{quantity}} {{unit}} is operationally tied but cannot be safely attributed to an operation currently visible to you.",
+            previewLimited: "Additional linked operations exist beyond this compact preview.",
           },
-          fullyReserved: "This quantity is fully reserved and cannot be moved now. Open the owning operation below to release it from the correct workflow.",
+          fullyReserved: "This quantity is fully tied to an operational workflow and cannot be moved now. Open the owning operation below to resolve the link from its correct source.",
           noSendPermission: "You can view this quantity, but you do not have permission to send a transfer from this location.",
           noActionForStatus: "No quantity action is valid for this state at this location.",
           openTransfers: "Open transfers and track operations",

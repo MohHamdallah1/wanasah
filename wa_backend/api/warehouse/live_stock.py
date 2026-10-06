@@ -41,6 +41,10 @@ from quantity import canonical_quantity
 from product_lifecycle import recall_completion_blockers
 from domains.inventory_rules import batch_metadata_is_sellable
 from domains.inventory_quality_source_bounds import first_quality_source_limit_excess
+from domains.inventory_quality_reads import (
+    read_quality_batch_candidates,
+    read_variant_inventory_issue_summary,
+)
 from services import (
     InventoryRuleError,
     SPECIAL_TRANSFER_PERMISSION,
@@ -61,6 +65,7 @@ from domains.live_stock_projection.service import (
 from schemas import (
     WarehouseInventoryAlertSummaryResponse,
     WarehouseBatchStockSourcesResponse,
+    WarehouseQualityBatchCandidatePage,
     WarehouseWholeProductIssueSourcesResponse,
     WarehouseInventoryBatchDetailResponse,
     WarehouseInventoryBatchProductCursorPage,
@@ -2427,6 +2432,44 @@ async def get_warehouse_inventory_batches(
 
 
 @router.get(
+    "/warehouse/variants/{product_variant_id}/quality-batch-candidates",
+    response_model=WarehouseQualityBatchCandidatePage,
+    status_code=200,
+)
+async def get_quality_batch_candidates(
+    product_variant_id: int,
+    cursor: Optional[int] = Query(default=None, ge=1),
+    limit: int = Query(default=25, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    """List this product's physical batches across all readable warehouses/vehicles."""
+    if product_variant_id <= 0:
+        raise HTTPException(status_code=422, detail="Invalid product variant id.")
+    access = InventoryAccess(db, current_admin)
+    await access.require("inventory.read", any_location=True)
+    result = await read_quality_batch_candidates(
+        db,
+        company_id=current_admin.company_id,
+        product_variant_id=product_variant_id,
+        readable_location_filter=access.location_filter(
+            "inventory.read", InventoryLocation.id
+        ),
+        cursor=cursor,
+        limit=limit,
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=inventory_business_error(
+                "PRODUCT_VARIANT_NOT_FOUND",
+                "The product is unavailable.",
+            ),
+        )
+    return result
+
+
+@router.get(
     "/warehouse/variants/{product_variant_id}/quality-issue-sources",
     response_model=WarehouseWholeProductIssueSourcesResponse,
     status_code=200,
@@ -2491,6 +2534,15 @@ async def get_whole_product_quality_issue_sources(
                 "The product does not have an active whole-product quality issue.",
             ),
         )
+
+    inventory_summary = await read_variant_inventory_issue_summary(
+        db,
+        company_id=company_id,
+        product_variant_id=product_variant_id,
+        readable_location_filter=access.location_filter(
+            "inventory.read", InventoryLocation.id
+        ),
+    )
 
     batch_id_query = (
         select(InventoryBalance.batch_id)
@@ -2784,6 +2836,7 @@ async def get_whole_product_quality_issue_sources(
         "operational_hold": "RECALL",
         "base_uom_id": int(variant_row.base_uom_id),
         "base_uom_code": str(variant_row.base_uom_code),
+        "inventory_summary": inventory_summary,
         "batches": [
             batches_by_id[batch_id]
             for batch_id in selected_batch_ids

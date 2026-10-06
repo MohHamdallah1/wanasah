@@ -11,6 +11,7 @@ import { parseInventoryLocationCapabilities } from "@/hooks/useInventoryAccess";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { BatchFocusWorkspace } from "./batches/BatchFocusWorkspace";
 import { WholeProductIssueWorkspace } from "./quality/WholeProductIssueWorkspace";
+import { QualityBatchPickerWorkspace } from "./quality/QualityBatchPickerWorkspace";
 import type { BatchSpecialTransferResult } from "./batches/batchSpecialTransferContract";
 import type { ReservationOwner } from "./batches/batchStockSourcesContract";
 import MainInventory from "./MainInventory";
@@ -58,14 +59,19 @@ export default function InventoryPage() {
     navigate("/dispatch", { state: createDispatchReservationFocusState({ routeId: owner.route_id,
       transferId: owner.transfer_id, openCancel: owner.action === "FORCE_CANCEL_HANDSHAKE" }) });
   };
+  const openQualitySettings = () => {
+    navigate("/inventory", { state: createInventoryTabNavigationState("warehouses") });
+    setFocus(null);
+  };
+  if (focus?.kind === "batch-picker") return <QualityBatchPickerWorkspace key={`batch-picker:${focus.variantId}`}
+    productVariantId={focus.variantId} productName={focus.productName} onConsumed={consume} onClose={close}
+    onSelectBatch={(batchId) => setFocus({ kind: "batch", batchId, variantId: focus.variantId })} />;
   if (focus?.kind === "quality") return <WholeProductIssueWorkspace key={`quality:${focus.variantId}`}
     productVariantId={focus.variantId} productName={focus.productName} onConsumed={consume} onClose={close}
-    onOpenQualitySettings={() => {
-      navigate("/inventory", { state: createInventoryTabNavigationState("warehouses") });
-      setFocus(null);
-    }}
+    onOpenQualitySettings={openQualitySettings}
     onOpenTransfers={openTransfers} onOpenReservationOwner={openReservationOwner} />;
   if (focus?.kind === "batch") return <BatchFocusWorkspace key={`${focus.batchId}:${focus.variantId}`} identity={focus}
-    onConsumed={consume} onClose={close} onOpenTransfers={openTransfers} onOpenReservationOwner={openReservationOwner} />;
+    onConsumed={consume} onClose={close} onOpenTransfers={openTransfers} onOpenReservationOwner={openReservationOwner}
+    onConfigureQualityDestinations={openQualitySettings} />;
   return <MainInventory />;
 }

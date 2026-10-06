@@ -1,4 +1,8 @@
-﻿import {
+import {
+  parseQualityInventorySummary,
+  type QualityInventorySummary,
+} from "@/features/inventory/quality/qualityInventorySummaryContract";
+import {
   parseBatchStockSources,
   type BatchStockSources,
 } from "../batches/batchStockSourcesContract";
@@ -9,6 +13,7 @@ export type WholeProductIssueSourcesPage = {
   operational_hold: "RECALL";
   base_uom_id: number;
   base_uom_code: string;
+  inventory_summary: QualityInventorySummary;
   batches: BatchStockSources[];
   next_cursor: number | null;
   has_more: boolean;
@@ -17,27 +22,17 @@ export type WholeProductIssueSourcesPage = {
 };
 
 const invalid = (): never => {
-  const error = new Error("WHOLE_PRODUCT_ISSUE_RESPONSE_INVALID") as Error & {
-    code: string;
-  };
+  const error = new Error("WHOLE_PRODUCT_ISSUE_RESPONSE_INVALID") as Error & { code: string };
   error.code = "WHOLE_PRODUCT_ISSUE_RESPONSE_INVALID";
   throw error;
 };
 
 const positiveInt = (value: unknown): number => {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value <= 0
-  ) {
-    return invalid();
-  }
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) return invalid();
   return value;
 };
 
-export function parseWholeProductIssueSourcesPage(
-  raw: unknown,
-): WholeProductIssueSourcesPage {
+export function parseWholeProductIssueSourcesPage(raw: unknown): WholeProductIssueSourcesPage {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return invalid();
   const row = raw as Record<string, unknown>;
   const variantId = positiveInt(row.product_variant_id);
@@ -53,11 +48,16 @@ export function parseWholeProductIssueSourcesPage(
     typeof row.has_more !== "boolean" ||
     typeof row.ready_to_resume_sales !== "boolean" ||
     typeof row.company_requirements_remaining !== "boolean"
-  ) {
+  ) return invalid();
+
+  let inventorySummary: QualityInventorySummary;
+  let batches: BatchStockSources[];
+  try {
+    inventorySummary = parseQualityInventorySummary(row.inventory_summary);
+    batches = row.batches.map((item) => parseBatchStockSources(item));
+  } catch {
     return invalid();
   }
-
-  const batches = row.batches.map((item) => parseBatchStockSources(item));
   const seen = new Set<number>();
   for (const batch of batches) {
     if (
@@ -66,21 +66,16 @@ export function parseWholeProductIssueSourcesPage(
       batch.base_uom_code !== row.base_uom_code.trim() ||
       batch.operational_hold !== "RECALL" ||
       seen.has(batch.batch_id)
-    ) {
-      return invalid();
-    }
+    ) return invalid();
     seen.add(batch.batch_id);
   }
 
-  const nextCursor =
-    row.next_cursor === null ? null : positiveInt(row.next_cursor);
+  const nextCursor = row.next_cursor === null ? null : positiveInt(row.next_cursor);
   if (
     (row.has_more && nextCursor === null) ||
     (!row.has_more && nextCursor !== null) ||
     row.ready_to_resume_sales === row.company_requirements_remaining
-  ) {
-    return invalid();
-  }
+  ) return invalid();
 
   return {
     product_variant_id: variantId,
@@ -88,6 +83,7 @@ export function parseWholeProductIssueSourcesPage(
     operational_hold: "RECALL",
     base_uom_id: baseUomId,
     base_uom_code: row.base_uom_code.trim(),
+    inventory_summary: inventorySummary,
     batches,
     next_cursor: nextCursor,
     has_more: row.has_more,

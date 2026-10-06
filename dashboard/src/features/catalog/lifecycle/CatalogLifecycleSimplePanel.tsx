@@ -18,6 +18,7 @@ import {
 import {
   productCommercialStatus,
 } from "@/features/catalog/status/productCommercialStatus";
+import type { QualityInventorySummary } from "@/features/inventory/quality/qualityInventorySummaryContract";
 
 export type RecallCompletionBlocker = {
   code: string;
@@ -103,6 +104,7 @@ type Props = {
   preflight: ArchivePreflight | null;
   recallCompletionBlockers: RecallCompletionBlocker[];
   recallReadyToClose: boolean;
+  recallInventorySummary: QualityInventorySummary | null;
   onChooseCommand: (
     command: SimpleLifecycleCommand,
   ) => void;
@@ -199,6 +201,7 @@ export function CatalogLifecycleSimplePanel({
   preflight,
   recallCompletionBlockers,
   recallReadyToClose,
+  recallInventorySummary,
   onChooseCommand,
   onManageBatchIssue,
   onManageWholeProductIssue,
@@ -619,6 +622,47 @@ export function CatalogLifecycleSimplePanel({
               )}
             </p>
           </div>
+
+          {recallInventorySummary ? (
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+              <p className="text-[10px] font-black text-slate-900">
+                {t("catalogLifecycle.simple.recallInventorySummaryTitle")}
+              </p>
+              <p className="mt-1 text-[9px] font-semibold leading-4 text-slate-600">
+                {t("catalogLifecycle.simple.recallInventorySummary", {
+                  onHand: recallInventorySummary.total_on_hand_quantity,
+                  reserved: recallInventorySummary.total_reserved_quantity,
+                  sources: String(recallInventorySummary.source_count),
+                  batches: String(recallInventorySummary.batch_count),
+                  unit: variant.base_uom.code,
+                })}
+              </p>
+              {recallInventorySummary.locations_preview.length > 0 ? (
+                <div className="mt-2 space-y-1">
+                  {recallInventorySummary.locations_preview.map((location) => (
+                    <p key={location.location_id} className="text-[9px] font-semibold leading-4 text-slate-600">
+                      {t("catalogLifecycle.simple.recallInventoryLocation", {
+                        name: location.location_name,
+                        onHand: location.on_hand_quantity,
+                        reserved: location.reserved_quantity,
+                        unit: variant.base_uom.code,
+                      })}
+                    </p>
+                  ))}
+                  {recallInventorySummary.locations_truncated ? (
+                    <p className="text-[9px] font-bold text-slate-500">
+                      {t("catalogLifecycle.simple.recallInventoryMoreLocations")}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+              {recallInventorySummary.total_reserved_quantity !== "0" ? (
+                <p className="mt-2 text-[9px] font-semibold leading-4 text-sky-800">
+                  {t("catalogLifecycle.simple.recallReservationMeaning")}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="mt-3 divide-y divide-slate-100">
             {recallCompletionBlockers.map(

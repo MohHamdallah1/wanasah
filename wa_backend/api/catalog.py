@@ -22,6 +22,7 @@ from database import get_db
 from gs1 import Gs1ParseError, parse_gs1
 from inventory_access import InventoryAccess
 from domains.inventory_archive_navigation import inventory_archive_targets
+from domains.inventory_quality_reads import read_variant_inventory_issue_summary
 from domains.dispatch_archive_navigation import dispatch_archive_targets
 from domains.operations_archive_navigation import operations_archive_targets
 from models import (
@@ -1834,6 +1835,28 @@ async def variant_recall_readiness(
         if row.operational_hold == "RECALL"
         else []
     )
+    inventory_summary = None
+    if row.operational_hold == "RECALL":
+        inventory_access = InventoryAccess(db, actor)
+        can_read_inventory = bool(
+            await db.scalar(
+                select(
+                    inventory_access.allows(
+                        "inventory.read",
+                        any_location=True,
+                    )
+                )
+            )
+        )
+        if can_read_inventory:
+            inventory_summary = await read_variant_inventory_issue_summary(
+                db,
+                company_id=actor.company_id,
+                product_variant_id=variant_id,
+                readable_location_filter=inventory_access.location_filter(
+                    "inventory.read"
+                ),
+            )
     return {
         "variant_id": variant_id,
         "version": int(row.version),
@@ -1842,6 +1865,7 @@ async def variant_recall_readiness(
             row.operational_hold == "RECALL" and not blockers
         ),
         "blockers": blockers,
+        "inventory_summary": inventory_summary,
     }
 
 

@@ -12,6 +12,10 @@ import {
   Trash2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import {
+  parseQualityInventorySummary,
+  type QualityInventorySummary,
+} from "@/features/inventory/quality/qualityInventorySummaryContract";
 import { toast } from "sonner";
 
 import { useAuthFetch } from "@/hooks/useAuthFetch";
@@ -163,6 +167,7 @@ const readRecallCompletionBlockers = (
 type RecallReadiness = {
   ready_to_resume_sales: boolean;
   blockers: RecallCompletionBlocker[];
+  inventory_summary: QualityInventorySummary | null;
 };
 
 const parseRecallReadiness = (
@@ -204,9 +209,14 @@ const parseRecallReadiness = (
   if (row.ready_to_resume_sales === (blockers.length > 0)) {
     throw new Error("CATALOG_RECALL_READINESS_INVALID");
   }
+  const inventorySummary =
+    row.inventory_summary === null
+      ? null
+      : parseQualityInventorySummary(row.inventory_summary);
   return {
     ready_to_resume_sales: row.ready_to_resume_sales,
     blockers,
+    inventory_summary: inventorySummary,
   };
 };
 
@@ -943,6 +953,7 @@ export function CatalogLifecycleActions({
         recallReadyToClose={
           recallReadiness?.ready_to_resume_sales === true
         }
+        recallInventorySummary={recallReadiness?.inventory_summary ?? null}
         onChooseCommand={(
           command,
         ) => {

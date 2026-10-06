@@ -12,6 +12,66 @@
       "status_code": "200",
       "response_model": "WarehouseInventoryBatchProductCursorPage",
       "expected_module": "live_stock"
+    },
+    {
+      "insert_after": {
+        "method": "GET",
+        "path": "/warehouse/inventory/{product_variant_id}/batches"
+      },
+      "method": "GET",
+      "path": "/warehouse/variants/{product_variant_id}/quality-batch-candidates",
+      "function": "get_quality_batch_candidates",
+      "status_code": "200",
+      "response_model": "WarehouseQualityBatchCandidatePage",
+      "expected_module": "live_stock"
+    },
+    {
+      "insert_after": {
+        "method": "GET",
+        "path": "/warehouse/variants/{product_variant_id}/quality-batch-candidates"
+      },
+      "method": "GET",
+      "path": "/warehouse/variants/{product_variant_id}/quality-issue-sources",
+      "function": "get_whole_product_quality_issue_sources",
+      "status_code": "200",
+      "response_model": "WarehouseWholeProductIssueSourcesResponse",
+      "expected_module": "live_stock"
+    },
+    {
+      "insert_after": {
+        "method": "GET",
+        "path": "/warehouse/variants/{product_variant_id}/quality-issue-sources"
+      },
+      "method": "GET",
+      "path": "/warehouse/batches/{batch_id}/stock-sources",
+      "function": "get_batch_stock_sources",
+      "status_code": "200",
+      "response_model": "WarehouseBatchStockSourcesResponse",
+      "expected_module": "live_stock"
+    },
+    {
+      "insert_after": {
+        "method": "POST",
+        "path": "/warehouse/unified/transfer/special/dispatch"
+      },
+      "method": "POST",
+      "path": "/warehouse/quality/disposal/confirm",
+      "function": "confirm_inventory_disposal",
+      "status_code": "200",
+      "response_model": "TerminalDisposalConfirmResponse",
+      "expected_module": "transfers"
+    },
+    {
+      "insert_after": {
+        "method": "POST",
+        "path": "/warehouse/quality/disposal/confirm"
+      },
+      "method": "POST",
+      "path": "/warehouse/quality/vendor-return/confirm",
+      "function": "confirm_inventory_vendor_handover",
+      "status_code": "200",
+      "response_model": "TerminalVendorHandoverResponse",
+      "expected_module": "transfers"
     }
   ]
 }

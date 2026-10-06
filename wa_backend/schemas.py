@@ -1604,12 +1604,59 @@ class WarehouseBatchStockSourcesResponse(BaseModel):
     )
 
 
+class WarehouseQualityLocationSummaryItem(BaseModel):
+    location_id: PositiveDbInt
+    location_name: str = Field(..., min_length=1, max_length=200)
+    location_type: Literal["WAREHOUSE", "VEHICLE"]
+    on_hand_quantity: NonNegativeQuantity
+    reserved_quantity: NonNegativeQuantity
+
+
+class WarehouseQualityInventorySummary(BaseModel):
+    total_on_hand_quantity: NonNegativeQuantity
+    total_reserved_quantity: NonNegativeQuantity
+    batch_count: NonNegativeDbInt
+    source_count: NonNegativeDbInt
+    locations_preview: List[WarehouseQualityLocationSummaryItem] = Field(
+        default_factory=list, max_length=8
+    )
+    locations_truncated: bool
+
+
+class WarehouseQualityBatchCandidateItem(BaseModel):
+    batch_id: PositiveDbInt
+    batch_number: str = Field(..., min_length=1, max_length=100)
+    production_date: Optional[date] = None
+    expiry_date: Optional[date] = None
+    disposition: Literal["RELEASED", "QUARANTINED", "BLOCKED", "RECALLED"]
+    disposition_reason: Optional[str] = Field(None, max_length=2000)
+    total_on_hand_quantity: NonNegativeQuantity
+    total_reserved_quantity: NonNegativeQuantity
+    source_count: PositiveDbInt
+    sources_preview: List[WarehouseQualityLocationSummaryItem] = Field(
+        default_factory=list, max_length=6
+    )
+    sources_truncated: bool
+
+
+class WarehouseQualityBatchCandidatePage(BaseModel):
+    product_variant_id: PositiveDbInt
+    base_uom_id: PositiveDbInt
+    base_uom_code: str = Field(..., min_length=1, max_length=20)
+    items: List[WarehouseQualityBatchCandidateItem] = Field(
+        default_factory=list, max_length=50
+    )
+    next_cursor: OptionalPositiveDbInt = None
+    has_more: bool
+
+
 class WarehouseWholeProductIssueSourcesResponse(BaseModel):
     product_variant_id: PositiveDbInt
     variant_version: PositiveDbInt
     operational_hold: Literal["RECALL"]
     base_uom_id: PositiveDbInt
     base_uom_code: str = Field(..., min_length=1, max_length=20)
+    inventory_summary: WarehouseQualityInventorySummary
     batches: List[WarehouseBatchStockSourcesResponse] = Field(
         default_factory=list,
         max_length=50,

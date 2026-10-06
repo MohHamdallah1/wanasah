@@ -88,7 +88,10 @@ describe("Phase 2.4 backend-only readiness acceptance", () => {
     const i18n = await mount();
     expect(await screen.findByText(i18n.t("inventoryQualityIssue.readiness.pendingHint"))).toBeVisible();
     const batch = screen.getByRole("region", { name: i18n.t("inventoryQualityIssue.batchTitle", { batch: "LOT-41" }) });
-    expect(within(batch).getAllByText(i18n.t("qualityActionReasons.reasons.NO_CONFIGURED_DESTINATION"), { exact: false })).toHaveLength(4);
+    expect(within(batch).getByText(i18n.t("qualityActionReasons.setupRequiredTitle"))).toBeVisible();
+    expect(within(batch).getByText(i18n.t("qualityActionReasons.setupRequiredHint"))).toBeVisible();
+    expect(within(batch).queryByText(i18n.t("qualityActionReasons.reasons.NO_CONFIGURED_DESTINATION"), { exact: false })).not.toBeInTheDocument();
+    expect(within(batch).queryByRole("button", { name: i18n.t("qualityActionReasons.configure") })).not.toBeInTheDocument();
     expect(within(batch).queryByText(i18n.t("qualityActionReasons.reasons.SOURCE_CANNOT_SEND"))).not.toBeInTheDocument();
     expect(within(batch).queryByRole("button", { name: i18n.t("inventoryBatches.quantityActions.purposes.QUARANTINE.label") })).not.toBeInTheDocument();
     expect(screen.queryByText(/Hidden B|Vehicle 13|Warehouse C|9184/)).not.toBeInTheDocument();

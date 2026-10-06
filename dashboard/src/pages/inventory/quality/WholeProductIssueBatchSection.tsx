@@ -6,11 +6,12 @@ import type { BatchSpecialTransferResult } from "../batches/batchSpecialTransfer
 import type { BatchStockSources, ReservationOwner } from "../batches/batchStockSourcesContract";
 
 /** Present the existing source/action projection, without a per-batch read. */
-export function WholeProductIssueBatchSection({ batch, onRefresh, onOpenTransfers, onOpenReservationOwner }: {
+export function WholeProductIssueBatchSection({ batch, onRefresh, onOpenTransfers, onOpenReservationOwner, onConfigureQualityDestinations }: {
   batch: BatchStockSources;
   onRefresh: () => Promise<void>;
   onOpenTransfers: (transfer: BatchSpecialTransferResult) => void | Promise<void>;
   onOpenReservationOwner: (owner: ReservationOwner) => void;
+  onConfigureQualityDestinations?: () => void;
 }) {
   const { t, i18n } = useTranslation();
   const titleId = `whole-product-batch-${batch.batch_id}`;
@@ -36,6 +37,7 @@ export function WholeProductIssueBatchSection({ batch, onRefresh, onOpenTransfer
         <h4 className="text-xs font-bold">{t("productQualityWorkspace.sources")}</h4>
         <p className="text-xs text-muted-foreground">{t("productQualityWorkspace.sourceScope")}</p>
       </div>}
-      onOpenTransfers={(transfer) => { if (transfer) return onOpenTransfers(transfer); }} onOpenReservationOwner={onOpenReservationOwner} />
+      onOpenTransfers={(transfer) => { if (transfer) return onOpenTransfers(transfer); }}
+      onOpenReservationOwner={onOpenReservationOwner} onConfigureQualityDestinations={onConfigureQualityDestinations} />
   </section>;
 }

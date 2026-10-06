@@ -12,15 +12,18 @@ import type { ReservationOwner } from "./batchStockSourcesContract";
 import { useBatchStockSources } from "./useBatchStockSources";
 
 /** Batch identity is independent of the Inventory shell's warehouse preference. */
-export function BatchFocusWorkspace({ identity, onConsumed, onClose, onOpenTransfers, onOpenReservationOwner }: {
+export function BatchFocusWorkspace({ identity, onConsumed, onClose, onOpenTransfers, onOpenReservationOwner, onConfigureQualityDestinations }: {
   identity: BatchFocusIdentity;
   onConsumed: () => void;
   onClose: () => void;
   onOpenTransfers: (transfer: BatchSpecialTransferResult) => void | Promise<void>;
   onOpenReservationOwner: (owner: ReservationOwner) => void;
+  onConfigureQualityDestinations: () => void;
 }) {
   const { t, i18n } = useTranslation();
   const access = useInventoryAccess();
+  const canManageQualitySettings =
+    access.isCompanyAdmin || access.can("inventory.transfer_policy.manage");
   const query = useBatchStockSources(identity.batchId);
   const consumed = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -77,7 +80,9 @@ export function BatchFocusWorkspace({ identity, onConsumed, onClose, onOpenTrans
       </div>
       <BatchQuantityActions batch={data.batch} productVariantId={data.product_variant_id} baseUomCode={data.base_uom_code}
         stockSources={data} onRefreshStockSources={refresh} onChanged={async () => {}} showTransferListLink={false}
-        onOpenTransfers={(transfer) => { if (transfer) return onOpenTransfers(transfer); }} onOpenReservationOwner={onOpenReservationOwner} />
+        onOpenTransfers={(transfer) => { if (transfer) return onOpenTransfers(transfer); }}
+        onOpenReservationOwner={onOpenReservationOwner}
+        onConfigureQualityDestinations={canManageQualitySettings ? onConfigureQualityDestinations : undefined} />
       {editingDisposition && <BatchDispositionManager batch={data.batch} productVariantId={data.product_variant_id}
         baseUomCode={data.base_uom_code} onClose={() => setEditingDisposition(false)} onChanged={refresh}
         showQuantityActions={false} onOpenTransfers={(transfer) => { if (transfer) return onOpenTransfers(transfer); }} onOpenReservationOwner={onOpenReservationOwner} />}

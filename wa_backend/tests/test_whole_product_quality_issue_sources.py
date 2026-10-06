@@ -19,7 +19,11 @@ from models import (
 )
 from quantity import canonical_quantity
 from domains.inventory_rules import batch_metadata_is_sellable
-from schemas import WarehouseWholeProductIssueSourcesResponse
+from domains.inventory_quality_reads import (
+    read_quality_batch_candidates,
+    read_variant_inventory_issue_summary,
+)
+from schemas import WarehouseQualityBatchCandidatePage, WarehouseWholeProductIssueSourcesResponse
 
 SPECIAL_TRANSFER_PERMISSION = {
     "RETURN_TO_VENDOR": "transfer.special.return_to_vendor",
@@ -126,8 +130,9 @@ def endpoint(blocker_reader=no_completion_blockers):
         SPECIAL_TRANSFER_PERMISSION=SPECIAL_TRANSFER_PERMISSION,
         read_special_transfer_destinations=no_special_transfer_destinations,
         first_quality_source_limit_excess=no_quality_source_limit,
+        read_variant_inventory_issue_summary=read_variant_inventory_issue_summary,
         allowed_batch_disposition_targets=no_disposition_targets,
-                inventory_business_error=lambda code, message, context=None: {
+        inventory_business_error=lambda code, message, context=None: {
             "code": code,
             "message": message,
             "context": context,
@@ -238,11 +243,32 @@ async def read(store, *, user=None, cursor=None, limit=25, blocker_reader=no_com
     return WarehouseWholeProductIssueSourcesResponse.model_validate(raw).model_dump(mode="json")
 
 
+async def read_candidates(store, *, user=None, cursor=None, limit=25, source_preview_limit=6):
+    principal = user or actor()
+    access = InventoryAccess(store.db, principal)
+    raw = await read_quality_batch_candidates(
+        store.db,
+        company_id=principal.company_id,
+        product_variant_id=101,
+        readable_location_filter=access.location_filter("inventory.read", InventoryLocation.id),
+        cursor=cursor,
+        limit=limit,
+        source_preview_limit=source_preview_limit,
+    )
+    assert raw is not None
+    return WarehouseQualityBatchCandidatePage.model_validate(raw).model_dump(mode="json")
+
+
 @pytest.mark.asyncio
 async def test_whole_product_issue_lists_warehouse_and_vehicle_separately(store):
     result = await read(store)
     assert result["product_variant_id"] == 101
     assert result["ready_to_resume_sales"] is True
+    assert result["inventory_summary"]["total_on_hand_quantity"] == "20"
+    assert result["inventory_summary"]["total_reserved_quantity"] == "0"
+    assert result["inventory_summary"]["batch_count"] == 2
+    assert result["inventory_summary"]["source_count"] == 3
+    assert [item["location_id"] for item in result["inventory_summary"]["locations_preview"]] == [2, 1, 3]
     assert [item["batch_id"] for item in result["batches"]] == [11, 12]
     sources = result["batches"][0]["sources"]
     assert [(item["location_id"], item["location_type"]) for item in sources] == [
@@ -261,6 +287,10 @@ async def test_whole_product_issue_respects_location_permissions_and_backend_rea
     result = await read(store, user=actor(admin=False), blocker_reader=inventory_completion_blocker)
     assert [item["batch_id"] for item in result["batches"]] == [11]
     assert [item["location_id"] for item in result["batches"][0]["sources"]] == [1]
+    assert result["inventory_summary"]["total_on_hand_quantity"] == "10"
+    assert result["inventory_summary"]["batch_count"] == 1
+    assert result["inventory_summary"]["source_count"] == 1
+    assert [item["location_id"] for item in result["inventory_summary"]["locations_preview"]] == [1]
     assert result["ready_to_resume_sales"] is False
     assert result["company_requirements_remaining"] is True
 
@@ -275,3 +305,69 @@ async def test_whole_product_issue_uses_bounded_batch_cursor(store):
     assert second["has_more"] is False
     assert second["next_cursor"] is None
     assert [item["batch_id"] for item in second["batches"]] == [12]
+
+
+@pytest.mark.asyncio
+async def test_quality_batch_candidates_are_company_wide_and_show_all_readable_sources(store):
+    result = await read_candidates(store)
+    assert [item["batch_id"] for item in result["items"]] == [11, 12]
+    first = result["items"][0]
+    assert first["total_on_hand_quantity"] == "13"
+    assert first["total_reserved_quantity"] == "0"
+    assert first["source_count"] == 2
+    assert [item["location_id"] for item in first["sources_preview"]] == [2, 1]
+
+
+@pytest.mark.asyncio
+async def test_quality_batch_candidates_respect_location_permissions(store):
+    grant(store, "inventory.read", 1)
+    result = await read_candidates(store, user=actor(admin=False))
+    assert [item["batch_id"] for item in result["items"]] == [11]
+    first = result["items"][0]
+    assert first["total_on_hand_quantity"] == "10"
+    assert first["source_count"] == 1
+    assert [item["location_id"] for item in first["sources_preview"]] == [1]
+
+
+@pytest.mark.asyncio
+async def test_quality_batch_candidates_use_batch_cursor(store):
+    first = await read_candidates(store, limit=1)
+    assert first["has_more"] is True
+    assert first["next_cursor"] == 11
+    assert [item["batch_id"] for item in first["items"]] == [11]
+    second = await read_candidates(store, cursor=first["next_cursor"], limit=1)
+    assert second["has_more"] is False
+    assert second["next_cursor"] is None
+    assert [item["batch_id"] for item in second["items"]] == [12]
+
+
+@pytest.mark.asyncio
+async def test_quality_batch_candidate_source_preview_is_bounded_per_batch(store):
+    for index in range(8):
+        location_id = 10 + index
+        store.insert(
+            InventoryLocation,
+            id=location_id,
+            company_id=1,
+            name=f"Extra Warehouse {index}",
+            location_type="WAREHOUSE",
+            is_active=True,
+            vehicle_id=None,
+        )
+        store.insert(
+            InventoryBalance,
+            id=100 + index,
+            company_id=1,
+            location_id=location_id,
+            product_variant_id=101,
+            batch_id=11,
+            stock_status="AVAILABLE",
+            on_hand_quantity=Decimal("1"),
+            reserved_quantity=Decimal("0"),
+        )
+
+    result = await read_candidates(store, source_preview_limit=3)
+    first = result["items"][0]
+    assert first["source_count"] == 10
+    assert len(first["sources_preview"]) == 3
+    assert first["sources_truncated"] is True
