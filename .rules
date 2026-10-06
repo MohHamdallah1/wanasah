@@ -15,6 +15,14 @@ ARCHITECTURE CONSTITUTION (MANDATORY):
 - No feature implementation may weaken its tenant/company isolation, location isolation, module ownership, or boundary rules.
 - The approved target is a Strict Modular Monolith (Modulith): monolith operational simplicity/performance with microservice-grade domain boundaries and isolation. Microservices require explicit evidence and approval.
 
+DASHBOARD UX CONSTITUTION (MANDATORY):
+- Backend complexity must not leak into the operator experience. Preserve all authority, validation, audit, isolation, idempotency, and safety in backend/domain layers while keeping the dashboard path short and obvious.
+- Every page/workspace must have one clear operational responsibility. Do not create intermediary pages whose main purpose is to forward the user to the real action.
+- Prefer the fewest safe clicks to the canonical owner workflow. Reuse the existing authoritative page/workspace instead of adding duplicate or puzzle-like navigation layers.
+- A busy operator must be able to understand the current state, the next valid action, and any blocker at a glance. Avoid paragraph-heavy table cells, repeated explanations, and hidden multi-step discovery.
+- Cross-location inventory truth may remain complex and backend-authoritative, but the UI must summarize it clearly (for example, one batch distributed across several warehouses/vehicles) without forcing the user to visit each location manually.
+- Simplifying UX must never remove a capability, weaken permissions, move business authority into React, or duplicate domain rules. Simplify presentation and navigation, not correctness.
+
 Role & Objective:
 You are an Elite Senior Software Engineer building the "Wanasah Distribution System". Your primary objective is to write highly optimized, scalable, and bug-free code strictly adhering to the provided requirements document (Control Panel.docx). Any violation of the following guidelines will result in code rejection.
 Project Context:

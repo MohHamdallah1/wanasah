@@ -133,14 +133,12 @@ describe("Product status: one commercial state over the internal state machine",
     );
 
     expect(screen.getByText("متاح للبيع")).toBeInTheDocument();
-    expect(
-      screen.getByText("المنتج نشط، لكن 2 دفعة غير متاحة للبيع."),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("السبب: اشتباه في جودة المنتج"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("دفعتان متوقفتان")).toBeInTheDocument();
+    expect(screen.queryByText("اشتباه في جودة المنتج", { exact: false })).not.toBeInTheDocument();
+    expect(screen.queryByText("معزولة للفحص")).not.toBeInTheDocument();
+    expect(screen.queryByText("ممنوعة من البيع")).not.toBeInTheDocument();
     const openBatch = screen.getByRole("button", {
-      name: "فتح الدفعة المتأثرة",
+      name: "فتح الدفعات المتأثرة",
     });
     openBatch.focus();
     expect(openBatch).toHaveFocus();
@@ -153,7 +151,7 @@ describe("Product status: one commercial state over the internal state machine",
           kind: "batch-focus",
           tab: "batches",
           variantId: 118,
-          batchId: 41,
+          batchId: null,
           productName: "منتج اختبار",
           locationId: null,
         },

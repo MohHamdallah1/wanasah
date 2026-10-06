@@ -90,13 +90,14 @@ describe("Catalog / Inventory frontend boundary", () => {
     ).toBeNull();
   });
 
-  it("keeps exact batch focus as a read-only navigation hint resolved by Inventory", () => {
+  it("keeps Products navigation as a read-only company-wide batch hint resolved by Inventory", () => {
     const statusBadges = read(
       "../pages/products/list/ProductStatusBadges.tsx",
     );
     const batches = read("../pages/inventory/TabBatches.tsx");
 
-    expect(statusBadges).toContain(
+    expect(statusBadges).toContain("batchId: null");
+    expect(statusBadges).not.toContain(
       "restrictions.representative_reason?.batch_id",
     );
     expect(statusBadges).toContain(
