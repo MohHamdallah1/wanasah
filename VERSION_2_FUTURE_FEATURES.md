@@ -604,3 +604,8 @@ Archival is not complete until a non-technical user can understand why archiving
 This file is intentional product/architecture scope, not a temporary handoff note.
 
 **Do not delete, archive, rename ambiguously, or mark these items complete unless the Version 2 workflows have actually been implemented and verified.**
+
+## Company-wide audit center
+- Build a central, filterable company audit center in V2 for cross-module activity.
+- V1 still requires the product-local «سجل النشاط» so product actions are accountable without making the operator leave the product workflow.
+- Reuse immutable `domain_audit_events`; do not create a second audit authority in the frontend.

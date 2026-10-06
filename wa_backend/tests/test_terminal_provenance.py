@@ -64,9 +64,9 @@ async def test_provenance_rejects_quantity_beyond_remaining_staging_evidence():
 @pytest.mark.asyncio
 async def test_page_availability_is_set_based_for_multiple_batches_and_sources():
     origins = [
-        SimpleNamespace(header_id=10, destination_location_id=7, transfer_purpose="DISPOSAL", batch_id=9, quantity=Decimal("5")),
-        SimpleNamespace(header_id=11, destination_location_id=7, transfer_purpose="DISPOSAL", batch_id=10, quantity=Decimal("4")),
-        SimpleNamespace(header_id=12, destination_location_id=8, transfer_purpose="RETURN_TO_VENDOR", batch_id=9, quantity=Decimal("3")),
+        SimpleNamespace(header_id=10, workflow_type="TRANSIT", source_location_id=1, destination_location_id=7, transfer_purpose="DISPOSAL", batch_id=9, quantity=Decimal("5")),
+        SimpleNamespace(header_id=11, workflow_type="TRANSIT", source_location_id=1, destination_location_id=7, transfer_purpose="DISPOSAL", batch_id=10, quantity=Decimal("4")),
+        SimpleNamespace(header_id=12, workflow_type="DIRECT", source_location_id=8, destination_location_id=99, transfer_purpose="RETURN_TO_VENDOR", batch_id=9, quantity=Decimal("3")),
     ]
     consumed = [
         SimpleNamespace(transfer_header_id=10, batch_id=9, source_location_id=7, reference_type="FINAL_DISPOSAL", quantity=Decimal("2")),

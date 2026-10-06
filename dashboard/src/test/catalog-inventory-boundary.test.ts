@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 import {
   createInventoryBatchFocusNavigationState,
   createInventoryTabNavigationState,
-  createInventoryWholeProductIssueNavigationState,
   parseInventoryNavigationState,
 } from "@/features/inventory/navigation";
 import {
@@ -59,19 +58,6 @@ describe("Catalog / Inventory frontend boundary", () => {
       version: 1,
       kind: "tab",
       tab: "transfers",
-      locationId: null,
-    });
-
-    const qualityState = createInventoryWholeProductIssueNavigationState({
-      variantId: 118,
-      productName: "Test product",
-    });
-    expect(parseInventoryNavigationState(qualityState)).toEqual({
-      version: 1,
-      kind: "quality-issue",
-      tab: "batches",
-      variantId: 118,
-      productName: "Test product",
       locationId: null,
     });
 
@@ -160,23 +146,22 @@ describe("Catalog / Inventory frontend boundary", () => {
     expect(quantityActions).not.toContain("/force_cancel");
   });
 
-  it("keeps whole-product physical handling Inventory-owned and lifecycle closure Catalog-owned", () => {
-    const lifecycle = read(
-      "../pages/products/lifecycle/ProductLifecycleManager.tsx",
-    );
-    const inventory = read("../pages/inventory/MainInventory.tsx");
-    const manager = read(
-      "../pages/inventory/quality/WholeProductIssueManager.tsx",
-    );
+  it("keeps whole-product physical handling Inventory-owned while Products only hosts the shared feature", () => {
+    const lifecycle = read("../pages/products/lifecycle/ProductLifecycleManager.tsx");
+    const inline = read("../features/inventory/quality/WholeProductQualityActionsPanel.tsx");
+    const commands = read("../features/inventory/quality/useProductQualityCommands.ts");
 
-    expect(lifecycle).toContain(
-      "createInventoryWholeProductIssueNavigationState",
-    );
+    expect(lifecycle).toContain("WholeProductQualityActionsPanel");
     expect(lifecycle).not.toContain("/warehouse/unified/transfer/special/dispatch");
-    expect(inventory).toContain("<WholeProductIssueManager");
-    expect(manager).toContain("<BatchQuantityActions");
-    expect(manager).not.toContain("close-recall");
-    expect(manager).not.toContain("cancel-recall");
+    expect(lifecycle).not.toContain("/warehouse/quality/disposal/confirm");
+    expect(lifecycle).not.toContain("/warehouse/quality/vendor-return/confirm");
+    expect(inline).toContain("useProductQualityCommands");
+    expect(commands).toContain("/warehouse/quality/stage");
+    expect(commands).not.toContain("/warehouse/unified/transfer/special/dispatch");
+    expect(commands).toContain("/warehouse/quality/disposal/confirm");
+    expect(commands).toContain("/warehouse/quality/vendor-return/confirm");
+    expect(commands).not.toContain("close-recall");
+    expect(commands).not.toContain("cancel-recall");
   });
 
   it("keeps Product lifecycle independent from Inventory page internals", () => {

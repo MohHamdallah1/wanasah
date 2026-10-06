@@ -78,7 +78,7 @@ export function useProductQualityCommands({
     setBusyKey(key);
     try {
       const durable = await getOrCreateDurableCommand(scope, payload);
-      const raw = resultRecord(await authFetch("/warehouse/unified/transfer/special/dispatch", {
+      const raw = resultRecord(await authFetch("/warehouse/quality/stage", {
         method: "POST",
         body: JSON.stringify({ request_id: durable.requestId, ...durable.payload }),
       }));

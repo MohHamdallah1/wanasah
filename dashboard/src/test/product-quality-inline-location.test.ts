@@ -93,14 +93,16 @@ describe("whole-product quality location model", () => {
   it("hides batches behind one row per physical location while preserving exact stock totals", () => {
     const locations = aggregateProductQualityLocations([page()]);
     expect(locations).toHaveLength(2);
-    expect(locations[1].locationName).toBe("مستودع التطوير");
-    expect(locations[1].onHandQuantity).toBe("100");
-    expect(locations[1].reservedQuantity).toBe("10");
-    expect(locations[1].movableQuantity).toBe("90");
-    expect(locations[1].batchIds).toEqual([101, 102]);
-    expect(actionTotal(locations[1].dispatch.DISPOSAL)).toBe("90");
-    expect(actionTotal(locations[1].dispatch.RETURN_TO_VENDOR)).toBe("50");
-    expect(locations[0].needsDestinationSetup).toBe(true);
+    const development = locations.find((item) => item.locationId === 7)!;
+    const second = locations.find((item) => item.locationId === 8)!;
+    expect(development.locationName).toBe("مستودع التطوير");
+    expect(development.onHandQuantity).toBe("100");
+    expect(development.reservedQuantity).toBe("10");
+    expect(development.movableQuantity).toBe("90");
+    expect(development).not.toHaveProperty("batchIds");
+    expect(actionTotal(development.dispatch.DISPOSAL)).toBe("90");
+    expect(actionTotal(development.dispatch.RETURN_TO_VENDOR)).toBe("50");
+    expect(second.needsDestinationSetup).toBe(true);
   });
 
   it("allocates a location-level command across backend-approved batches deterministically", () => {

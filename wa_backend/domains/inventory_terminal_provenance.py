@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Iterable
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import InventoryMovement, InventoryTransferHeader, InventoryTransferLine
@@ -88,10 +88,19 @@ async def allocate_terminal_origin_quantity(
             )
             .where(
                 InventoryTransferHeader.company_id == company_id,
-                InventoryTransferHeader.workflow_type == "TRANSIT",
                 InventoryTransferHeader.transfer_purpose == transfer_purpose,
                 InventoryTransferHeader.status == "POSTED",
-                InventoryTransferHeader.destination_location_id == destination_location_id,
+                or_(
+                    and_(
+                        InventoryTransferHeader.workflow_type == "TRANSIT",
+                        InventoryTransferHeader.destination_location_id == destination_location_id,
+                    ),
+                    and_(
+                        InventoryTransferHeader.workflow_type == "DIRECT",
+                        InventoryTransferHeader.reference_number.like("QSTG-%"),
+                        InventoryTransferHeader.source_location_id == destination_location_id,
+                    ),
+                ),
                 InventoryTransferLine.product_variant_id == product_variant_id,
                 InventoryTransferLine.batch_id == batch_id,
             )
@@ -212,6 +221,8 @@ async def read_terminal_origin_availability_for_batches(
             db,
             select(
                 InventoryTransferHeader.id.label("header_id"),
+                InventoryTransferHeader.workflow_type,
+                InventoryTransferHeader.source_location_id,
                 InventoryTransferHeader.destination_location_id,
                 InventoryTransferHeader.transfer_purpose,
                 InventoryTransferLine.batch_id,
@@ -226,10 +237,19 @@ async def read_terminal_origin_availability_for_batches(
             )
             .where(
                 InventoryTransferHeader.company_id == company_id,
-                InventoryTransferHeader.workflow_type == "TRANSIT",
                 InventoryTransferHeader.transfer_purpose.in_(purposes),
                 InventoryTransferHeader.status == "POSTED",
-                InventoryTransferHeader.destination_location_id.in_(location_ids),
+                or_(
+                    and_(
+                        InventoryTransferHeader.workflow_type == "TRANSIT",
+                        InventoryTransferHeader.destination_location_id.in_(location_ids),
+                    ),
+                    and_(
+                        InventoryTransferHeader.workflow_type == "DIRECT",
+                        InventoryTransferHeader.reference_number.like("QSTG-%"),
+                        InventoryTransferHeader.source_location_id.in_(location_ids),
+                    ),
+                ),
                 InventoryTransferLine.product_variant_id == product_variant_id,
                 InventoryTransferLine.batch_id.in_(normalized_batch_ids),
             )
@@ -255,9 +275,15 @@ async def read_terminal_origin_availability_for_batches(
                 "Duplicate terminal staging evidence exists for one transfer batch.",
                 context={"transfer_header_id": header_id, "batch_id": batch_id},
             )
+        workflow_type = str(row.workflow_type).upper()
+        staged_location_id = (
+            int(row.source_location_id)
+            if workflow_type == "DIRECT"
+            else int(row.destination_location_id)
+        )
         origin_meta[key] = (
             str(row.transfer_purpose).upper(),
-            int(row.destination_location_id),
+            staged_location_id,
             Decimal(row.quantity or 0),
         )
 

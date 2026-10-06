@@ -89,6 +89,7 @@ from services import (
 
 from domains.inventory_terminal_quality import confirm_final_disposal
 from domains.inventory_terminal_vendor import confirm_vendor_handover
+from domains.inventory_quality_handling import stage_quality_handling_direct
 
 from ._shared import (
     _decode_variant_cursor,
@@ -1701,6 +1702,148 @@ async def special_transfer_dispatch(
                 "خطأ داخلي أثناء إنشاء التحويل الخاص.",
             ),
         ) from exc
+
+# ====================================================
+# Whole-product quality handling stage: one atomic step, no transit/receipt UI
+# ====================================================
+@router.post(
+    "/warehouse/quality/stage",
+    response_model=SpecialTransferDispatchResponse,
+    status_code=200,
+)
+async def stage_inventory_quality_handling(
+    payload: SpecialTransferDispatchRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    company_id = current_admin.company_id
+    purpose = str(payload.transfer_purpose).upper()
+    if purpose not in {"DISPOSAL", "RETURN_TO_VENDOR"}:
+        raise HTTPException(
+            status_code=422,
+            detail=inventory_business_error(
+                "QUALITY_STAGE_PURPOSE_INVALID",
+                "Whole-product quality handling supports disposal or vendor return only.",
+                context={"transfer_purpose": purpose},
+            ),
+        )
+
+    access = InventoryAccess(db, current_admin)
+    await access.require(SPECIAL_TRANSFER_PERMISSION[purpose])
+    await access.require("transfer.send", payload.source_location_id)
+
+    try:
+        request_hash = _stable_request_hash(payload)
+        idempotency_record, replay_response = await begin_idempotent_operation(
+            db,
+            company_id=company_id,
+            actor_id=current_admin.id,
+            operation="PRODUCT_QUALITY_HANDLING_STAGE",
+            request_id=str(payload.request_id),
+            request_hash=request_hash,
+        )
+        if replay_response is not None:
+            await db.rollback()
+            return replay_response
+
+        requested_variant_ids = sorted({int(item.product_variant_id) for item in payload.items})
+        await acquire_product_lifecycle_guards(
+            db, company_id, requested_variant_ids, exclusive=False
+        )
+        direction = await resolve_special_transfer_direction_context(
+            db,
+            company_id=company_id,
+            source_location_id=payload.source_location_id,
+            transfer_purpose=purpose,
+        )
+        destination_location_id = int(direction["destination_location_id"])
+        await access.require("transfer.destination", destination_location_id)
+
+        as_of_date = await get_company_local_date(db, company_id)
+        source_lines = await validate_special_transfer_source_items_locked(
+            db,
+            company_id=company_id,
+            source_location_id=payload.source_location_id,
+            transfer_purpose=purpose,
+            items=list(payload.items),
+            as_of_date=as_of_date,
+            quality_issue_stage=True,
+        )
+        if any(
+            str(line["operational_hold_snapshot"]).upper() != "RECALL"
+            for line in source_lines
+        ):
+            raise InventoryRuleError(
+                "PRODUCT_QUALITY_ISSUE_NOT_ACTIVE",
+                "Whole-product handling requires an active product quality issue.",
+            )
+
+        response_payload = await stage_quality_handling_direct(
+            db,
+            company_id=company_id,
+            actor_id=current_admin.id,
+            source_location_id=payload.source_location_id,
+            destination_location_id=destination_location_id,
+            transfer_purpose=purpose,
+            tenant_policy_id=int(direction["tenant_policy_id"]),
+            tenant_policy_revision=int(direction["tenant_policy_revision"]),
+            source_location_type=str(direction["source_location_type"]),
+            destination_location_type=str(direction["destination_location_type"]),
+            source_lines=source_lines,
+            notes=payload.notes,
+        )
+        db.add(SystemAuditLog(
+            company_id=company_id,
+            admin_id=current_admin.id,
+            target_id=f"Transfer_{response_payload['header_id']}",
+            action_type="PRODUCT_QUALITY_HANDLING_STAGED",
+            old_value=None,
+            new_value=(
+                f"purpose={purpose}; source={payload.source_location_id}; "
+                f"policy_destination={destination_location_id}"
+            ),
+        ))
+        response_payload = {
+            "message": "Quantity staged for quality handling without a separate receipt step.",
+            **response_payload,
+        }
+        complete_idempotent_operation(idempotency_record, response_payload)
+        await db.commit()
+        return response_payload
+
+    except HTTPException:
+        await db.rollback()
+        raise
+    except InventoryRuleError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=exc.as_detail()) from exc
+    except InventoryMutationError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=inventory_business_error("QUALITY_STAGE_REJECTED", str(exc)),
+        ) from exc
+    except IntegrityError as exc:
+        await db.rollback()
+        logger.warning("Concurrent quality-stage conflict", exc_info=True)
+        raise HTTPException(
+            status_code=409,
+            detail=inventory_business_error(
+                "QUALITY_STAGE_CONFLICT",
+                "A concurrent inventory change prevented staging; retry safely.",
+            ),
+        ) from exc
+    except Exception as exc:
+        await db.rollback()
+        logger.error("Unexpected quality-stage failure", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=inventory_business_error(
+                "QUALITY_STAGE_INTERNAL_ERROR",
+                "Quality handling could not be staged.",
+            ),
+        ) from exc
+
 
 # ====================================================
 # Final physical disposal: remove DISPOSAL_PENDING stock from company ownership

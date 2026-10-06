@@ -6,59 +6,56 @@ const read = (relativePath: string) =>
   readFileSync(resolve(process.cwd(), "src/test", relativePath), "utf8");
 
 describe("V1 quality and safety workflow closure", () => {
-  it("records a whole-product issue without forcing immediate navigation", () => {
-    const actions = read(
-      "../features/catalog/lifecycle/CatalogLifecycleActions.tsx",
-    );
+  it("records a whole-product issue without forcing navigation away from Products", () => {
+    const actions = read("../features/catalog/lifecycle/CatalogLifecycleActions.tsx");
+    const manager = read("../pages/products/lifecycle/ProductLifecycleManager.tsx");
     expect(actions).not.toContain('payload.command === "recall"');
     expect(actions).toContain("onManageWholeProductIssue");
+    expect(manager).toContain("<WholeProductQualityActionsPanel");
+    expect(manager).toContain("onManageWholeProductIssue={() => setQualityOpen(true)}");
+    expect(manager).not.toContain("createInventoryWholeProductIssueNavigationState");
+    const mainInventory = read("../pages/inventory/MainInventory.tsx");
+    const navigation = read("../features/inventory/navigation.ts");
+    expect(mainInventory).not.toContain("WholeProductIssueManager");
+    expect(navigation).not.toContain('kind: "quality-issue"');
   });
 
-  it("keeps one primary affected-quantity action instead of duplicating inventory balance navigation", () => {
-    const panel = read(
-      "../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx",
-    );
+  it("keeps one primary affected-quantity action and hosts Inventory-owned commands through a shared feature", () => {
+    const panel = read("../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx");
+    const manager = read("../pages/products/lifecycle/ProductLifecycleManager.tsx");
+    const inline = read("../features/inventory/quality/WholeProductQualityActionsPanel.tsx");
     expect(panel).toContain("recallReadyToClose ?");
     expect(panel).toContain('catalogLifecycle.simple.manageConfirmedIssue');
-    expect(panel).toContain("productQualityWorkspace.affectedStockTitle");
-    expect(panel).not.toContain('item.code !== "INVENTORY_BALANCE"');
+    expect(manager).toContain("WholeProductQualityActionsPanel");
+    expect(manager).not.toContain("@/pages/inventory/");
+    expect(inline).toContain("useProductQualityCommands");
+    expect(inline).toContain("products.qualityInline.actions.dispose");
+    expect(inline).toContain("products.qualityInline.actions.returnVendor");
+    expect(inline).toContain("products.qualityInline.actions.confirmDisposal");
+    expect(inline).toContain("products.qualityInline.actions.confirmVendor");
   });
 
-  it("does not present a released batch historical reason as the current whole-product issue", () => {
-    const section = read(
-      "../pages/inventory/quality/WholeProductIssueBatchSection.tsx",
-    );
-    const resources = read("../i18n/resources.ts");
-    expect(section).toContain('batch.batch.disposition !== "RELEASED"');
-    expect(resources).toContain(
-      "لا يوجد قيد مستقل على هذه الدفعة؛ منع البيع الحالي سببه إيقاف المنتج بالكامل",
-    );
-  });
-
-  it("exposes server-owned handling destination setup from warehouse management", () => {
-    const card = read(
-      "../pages/inventory/warehouse-locations/QualityHandlingDestinationsCard.tsx",
-    );
+  it("keeps handling-destination setup inline instead of redirecting the operator", () => {
+    const sharedCard = read("../features/inventory/quality/QualityHandlingDestinationsCard.tsx");
+    const wrapper = read("../pages/inventory/warehouse-locations/QualityHandlingDestinationsCard.tsx");
+    const inline = read("../features/inventory/quality/WholeProductQualityActionsPanel.tsx");
     const warehouses = read("../pages/inventory/TabWarehouseLocations.tsx");
-    const workspace = read(
-      "../pages/inventory/quality/WholeProductIssueWorkspace.tsx",
-    );
-    expect(card).toContain('access.can("inventory.transfer_policy.manage")');
-    expect(card).toContain('/warehouse/operational-policy/transfer-destinations"');
-    expect(card).toContain('/warehouse/operational-policy/transfer-destinations/draft"');
-    expect(card).toContain("/publish`");
+    expect(sharedCard).toContain('access.can("inventory.transfer_policy.manage")');
+    expect(sharedCard).toContain("/warehouse/operational-policy/transfer-destinations");
+    expect(wrapper).toContain("@/features/inventory/quality/QualityHandlingDestinationsCard");
     expect(warehouses).toContain("<QualityHandlingDestinationsCard />");
-    expect(workspace).toContain("productQualityWorkspace.configureDestinations");
-    expect(workspace).toContain("needsDestinationSetup");
-    expect(workspace).not.toContain("ProductQualityReadiness");
-    expect(workspace).not.toContain("common.refresh");
+    expect(inline).toContain("<QualityHandlingDestinationsCard compact");
+    expect(inline).not.toContain('navigate("/inventory"');
   });
 
   it("uses plain business wording for the post-stop handling journey", () => {
     const resources = read("../i18n/resources.ts");
+    const inlineTranslations = read("../i18n/productQualityInline.ts");
     expect(resources).toContain('manageConfirmedIssue: "معالجة الكميات المتأثرة"');
     expect(resources).toContain('closeRecall: "إغلاق المشكلة وإعادة البيع"');
-    expect(resources).toContain('manageConfirmedIssue: "Handle affected quantities"');
-    expect(resources).toContain('closeRecall: "Close issue and resume sales"');
+    expect(inlineTranslations).toContain('dispose: "إتلاف"');
+    expect(inlineTranslations).toContain('returnVendor: "إرجاع للمورد / المصنع"');
+    expect(inlineTranslations).toContain('confirmDisposal: "تأكيد الإتلاف"');
+    expect(inlineTranslations).toContain('confirmVendor: "تأكيد التسليم"');
   });
 });

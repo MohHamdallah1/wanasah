@@ -54,7 +54,7 @@ export function WholeProductQualityActionsPanel({
   baseUomName: string;
   onBack: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const authFetch = useAuthFetch();
   const access = useInventoryAccess();
   const query = useProductQualitySources(productVariantId);
@@ -159,7 +159,7 @@ export function WholeProductQualityActionsPanel({
     if (ok) setActive(null);
   };
 
-  return <div className="space-y-3" dir={t("common.direction", { defaultValue: "rtl" })}>
+  return <div className="space-y-3" dir={i18n.dir()}>
     <div className="flex items-center justify-between gap-2">
       <button type="button" onClick={onBack} className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-700">
         <ArrowRight className="h-4 w-4" />{t("common.back")}

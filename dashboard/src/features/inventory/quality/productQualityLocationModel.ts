@@ -28,7 +28,6 @@ export type ProductQualityLocation = {
   onHandQuantity: Quantity;
   reservedQuantity: Quantity;
   movableQuantity: Quantity;
-  batchIds: number[];
   dispatch: Record<QualityDispatchPurpose, QualityActionLine[]>;
   terminal: Record<QualityTerminalAction, QualityActionLine[]>;
   needsDestinationSetup: boolean;
@@ -55,14 +54,12 @@ export function aggregateProductQualityLocations(pages: ProductQualityPage[]): P
             onHandQuantity: zero,
             reservedQuantity: zero,
             movableQuantity: zero,
-            batchIds: [],
             dispatch: { DISPOSAL: [], RETURN_TO_VENDOR: [] },
             terminal: { CONFIRM_DISPOSAL: [], CONFIRM_VENDOR_HANDOVER: [] },
             needsDestinationSetup: false,
           };
           map.set(source.locationId, location);
         }
-        if (!location.batchIds.includes(batch.batchId)) location.batchIds.push(batch.batchId);
         for (const status of source.statuses) {
           location.onHandQuantity = addQuantity(location.onHandQuantity, status.onHandQuantity);
           location.reservedQuantity = addQuantity(location.reservedQuantity, status.reservedQuantity);
@@ -93,7 +90,6 @@ export function aggregateProductQualityLocations(pages: ProductQualityPage[]): P
     }
   }
   return [...map.values()]
-    .map((row) => ({ ...row, batchIds: [...row.batchIds].sort((a, b) => a - b) }))
     .sort((a, b) => a.locationName.localeCompare(b.locationName, undefined, { numeric: true }));
 }
 
@@ -127,8 +123,4 @@ export function allocateRequestedQuantity(
 export function firstBaseIdentity(pages: ProductQualityPage[]): { baseUomId: number; baseUomCode: string } | null {
   const page = pages[0];
   return page ? { baseUomId: page.baseUomId, baseUomCode: page.baseUomCode } : null;
-}
-
-export function affectedBatchCount(location: ProductQualityLocation): number {
-  return location.batchIds.length;
 }

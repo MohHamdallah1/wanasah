@@ -100,6 +100,34 @@ def test_vendor_terminal_eligibility_requires_evidence_permission_and_staging_st
     assert vendor["eligible_quantity"] == "0"
 
 
+def test_staged_quantities_are_not_offered_for_staging_twice():
+    disposal = matrix(
+        source_status="DISPOSAL_PENDING",
+        operational_hold="NONE",
+        batch_disposition="BLOCKED",
+        can_confirm_disposal=True,
+        terminal_evidence={"DISPOSAL": Decimal("3")},
+    )
+    disposal_stage = next(
+        item for item in disposal["special_actions"] if item["purpose"] == "DISPOSAL"
+    )
+    assert disposal_stage["allowed"] is False
+    assert disposal_stage["eligible_quantity"] == "0"
+
+    vendor = matrix(
+        source_status="QUARANTINED",
+        operational_hold="RECALL",
+        batch_disposition="RELEASED",
+        movable_quantity=Decimal("8"),
+        terminal_evidence={"RETURN_TO_VENDOR": Decimal("3")},
+    )
+    vendor_stage = next(
+        item for item in vendor["special_actions"] if item["purpose"] == "RETURN_TO_VENDOR"
+    )
+    assert vendor_stage["allowed"] is True
+    assert vendor_stage["eligible_quantity"] == "5"
+
+
 def test_both_inventory_read_surfaces_use_the_same_backend_action_helper():
     from pathlib import Path
     api = (Path(__file__).parents[1] / "api" / "warehouse" / "live_stock.py").read_text(encoding="utf-8")

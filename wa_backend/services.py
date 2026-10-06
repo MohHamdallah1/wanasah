@@ -1471,10 +1471,18 @@ def inventory_quality_action_availability(
         source_status=status,
         metadata_sellable=metadata_sellable,
     ))
+    evidence = terminal_evidence or {}
+    vendor_evidence = Decimal(evidence.get("RETURN_TO_VENDOR", Decimal("0")) or 0)
     special_actions: List[Dict[str, Any]] = []
     for purpose in ("QUARANTINE", "RECALL_RETURN", "RETURN_TO_VENDOR", "DISPOSAL"):
         destination_id = special_destinations.get(purpose)
-        if purpose not in state_allowed:
+        action_movable = movable
+        if purpose == "RETURN_TO_VENDOR" and vendor_evidence > 0:
+            action_movable = max(Decimal("0"), movable - vendor_evidence)
+        if purpose == "DISPOSAL" and status == "DISPOSAL_PENDING":
+            allowed = False
+            reason = "STATE_RESTRICTION"
+        elif purpose not in state_allowed:
             allowed = False
             reason = "STATE_RESTRICTION"
         elif destination_id is None:
@@ -1489,7 +1497,7 @@ def inventory_quality_action_availability(
         elif not bool(purpose_access.get(purpose, False)):
             allowed = False
             reason = "PERMISSION_REQUIRED"
-        elif movable <= 0:
+        elif action_movable <= 0:
             allowed = False
             reason = "NO_MOVABLE_QUANTITY"
         else:
@@ -1498,11 +1506,10 @@ def inventory_quality_action_availability(
         special_actions.append({
             "purpose": purpose,
             "allowed": allowed,
-            "eligible_quantity": canonical_quantity(movable if allowed else Decimal("0")),
+            "eligible_quantity": canonical_quantity(action_movable if allowed else Decimal("0")),
             "reason_code": reason,
         })
 
-    evidence = terminal_evidence or {}
     terminal_actions: List[Dict[str, Any]] = []
     disposal_evidence = Decimal(evidence.get("DISPOSAL", Decimal("0")) or 0)
     if status == "DISPOSAL_PENDING" or disposal_evidence > 0:
@@ -1840,6 +1847,7 @@ async def validate_special_transfer_source_items_locked(
     transfer_purpose: str,
     items: List[Any],
     as_of_date: date,
+    quality_issue_stage: bool = False,
 ) -> List[Dict[str, Any]]:
     # PRECONDITION: caller already holds shared lifecycle guards for all variants
     # and shared location guards for source/destination/transit. Do not reacquire
@@ -2167,28 +2175,32 @@ async def validate_special_transfer_source_items_locked(
                 )
 
         elif purpose == "RETURN_TO_VENDOR":
-            if (
+            recall_scoped = (
                 hold == "RECALL"
                 or disposition == "RECALLED"
-                or source_status in {"RECALLED", "DISPOSAL_PENDING"}
+                or source_status == "RECALLED"
+            )
+            if source_status == "DISPOSAL_PENDING" or (
+                recall_scoped and not quality_issue_stage
             ):
                 raise InventoryRuleError(
                     "RETURN_TO_VENDOR_RECALL_BLOCKED",
-                    "المخزون المستدعى يستخدم RECALL_RETURN أو DISPOSAL وليس RETURN_TO_VENDOR.",
+                    "Vendor return during recall is reserved for the whole-product quality workflow.",
                     context={
                         "product_variant_id": variant_id,
                         "batch_id": batch_id,
                     },
                 )
             returnable = (
-                source_status in {"QUARANTINED", "BLOCKED", "DAMAGED"}
-                or disposition in {"QUARANTINED", "BLOCKED"}
+                (quality_issue_stage and hold == "RECALL")
+                or source_status in {"QUARANTINED", "BLOCKED", "RECALLED", "DAMAGED"}
+                or disposition in {"QUARANTINED", "BLOCKED", "RECALLED"}
                 or not metadata_sellable
             )
             if not returnable:
                 raise InventoryRuleError(
                     "RETURN_TO_VENDOR_NOT_ELIGIBLE",
-                    "المخزون السليم RELEASED/AVAILABLE لا يخرج إلى المورد عبر هذا المسار.",
+                    "Stock is not eligible for vendor return.",
                     context={
                         "product_variant_id": variant_id,
                         "batch_id": batch_id,

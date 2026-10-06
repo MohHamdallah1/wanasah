@@ -1,6 +1,7 @@
 import { archiveOwners } from "./archiveOwners";
 import { batchFocus } from "./batchFocus";
 import { productQualityWorkspace } from "./productQualityWorkspace";
+import { productQualityInline } from "./productQualityInline";
 import { terminalQualityActions } from "./terminalQualityActions";
 import { qualityActionReasons } from "./qualityActionReasons";
 
@@ -18,11 +19,13 @@ export const resources = {
       archiveOwners: archiveOwners.ar,
       batchFocus: batchFocus.ar,
       productQualityWorkspace: productQualityWorkspace.ar,
+      productQualityInline: productQualityInline.ar,
       terminalQualityActions: terminalQualityActions.ar,
       qualityActionReasons: qualityActionReasons.ar,
       common: {
         save: "حفظ",
         cancel: "إلغاء",
+        confirm: "تأكيد",
         close: "إغلاق",
         refresh: "تحديث",
         edit: "تعديل",
@@ -2235,11 +2238,13 @@ export const resources = {
       archiveOwners: archiveOwners.en,
       batchFocus: batchFocus.en,
       productQualityWorkspace: productQualityWorkspace.en,
+      productQualityInline: productQualityInline.en,
       terminalQualityActions: terminalQualityActions.en,
       qualityActionReasons: qualityActionReasons.en,
       common: {
         save: "Save",
         cancel: "Cancel",
+        confirm: "Confirm",
         close: "Close",
         refresh: "Refresh",
         edit: "Edit",
