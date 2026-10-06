@@ -6,6 +6,8 @@ import subprocess
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TEST = ROOT / "dashboard" / "src" / "test" / "batch-focus-workspace.test.tsx"
+CATALOG_TEST = ROOT / "dashboard" / "src" / "test" / "catalog-inventory-boundary.test.ts"
+STATUS_TEST = ROOT / "dashboard" / "src" / "test" / "products-status-summary.test.tsx"
 RULES = ROOT / ".rules"
 MAIN_NODE_MODULES = pathlib.Path(r"C:\Users\admin\Desktop\wanasah\dashboard\node_modules")
 WORKTREE_NODE_MODULES = ROOT / "dashboard" / "node_modules"
@@ -41,7 +43,6 @@ old_first = '''  const matrix: Array<[string, ReturnType<typeof batchSource>[]]>
   });
 
 '''
-
 new_first = '''  it("keeps the Products batch warning compact and opens company-wide batch management", async () => {
     const candidatesUrl = "/warehouse/variants/118/quality-batch-candidates?limit=25";
     mocks.fetch.mockImplementation(async (url: string) => {
@@ -99,7 +100,6 @@ new_first = '''  it("keeps the Products batch warning compact and opens company-
   });
 
 '''
-
 old_tail = '''    fireEvent.click(screen.getAllByRole("button", {
       name: i18n.t("productQualityWorkspace.batchPicker.open"),
     })[0]);
@@ -110,7 +110,6 @@ old_tail = '''    fireEvent.click(screen.getAllByRole("button", {
     expect(mocks.fetch.mock.calls.filter(([url]) => url === "/warehouse/batches/41/stock-sources")).toHaveLength(1);
     expect(screen.getByTestId("route-state")).toHaveTextContent("null");
 '''
-
 new_tail = '''    fireEvent.click(screen.getAllByRole("button", {
       name: i18n.t("productQualityWorkspace.batchPicker.open"),
     })[0]);
@@ -137,11 +136,100 @@ if old_first not in text:
     raise RuntimeError("old Products warning test block not found")
 if old_tail not in text:
     raise RuntimeError("old company-wide batch test tail not found")
-TEST.write_text(
-    text.replace(old_first, new_first, 1).replace(old_tail, new_tail, 1),
-    encoding="utf-8",
-    newline="\n",
-)
+TEST.write_text(text.replace(old_first, new_first, 1).replace(old_tail, new_tail, 1), encoding="utf-8")
+
+catalog_old = '''  it("keeps exact batch focus as a read-only navigation hint resolved by Inventory", () => {
+    const statusBadges = read(
+      "../pages/products/list/ProductStatusBadges.tsx",
+    );
+    const batches = read("../pages/inventory/TabBatches.tsx");
+
+    expect(statusBadges).toContain(
+      "restrictions.representative_reason?.batch_id",
+    );
+    expect(statusBadges).toContain(
+      "createInventoryBatchFocusNavigationState",
+    );
+    expect(statusBadges).not.toContain("authFetch(");
+'''
+catalog_new = '''  it("keeps Products navigation as a read-only company-wide batch hint resolved by Inventory", () => {
+    const statusBadges = read(
+      "../pages/products/list/ProductStatusBadges.tsx",
+    );
+    const batches = read("../pages/inventory/TabBatches.tsx");
+
+    expect(statusBadges).toContain("batchId: null");
+    expect(statusBadges).not.toContain(
+      "restrictions.representative_reason?.batch_id",
+    );
+    expect(statusBadges).toContain(
+      "createInventoryBatchFocusNavigationState",
+    );
+    expect(statusBadges).not.toContain("authFetch(");
+'''
+catalog_text = CATALOG_TEST.read_text(encoding="utf-8")
+if catalog_old not in catalog_text:
+    raise RuntimeError("old Catalog/Inventory boundary assertion not found")
+CATALOG_TEST.write_text(catalog_text.replace(catalog_old, catalog_new, 1), encoding="utf-8")
+
+status_old = '''    expect(screen.getByText("متاح للبيع")).toBeInTheDocument();
+    expect(
+      screen.getByText("المنتج نشط، لكن 2 دفعة غير متاحة للبيع."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("السبب: اشتباه في جودة المنتج"),
+    ).toBeInTheDocument();
+    const openBatch = screen.getByRole("button", {
+      name: "فتح الدفعة المتأثرة",
+    });
+    openBatch.focus();
+    expect(openBatch).toHaveFocus();
+    fireEvent.click(openBatch);
+    expect(JSON.parse(screen.getByTestId("route-state").textContent ?? "{}")).toEqual({
+      pathname: "/inventory",
+      state: {
+        inventoryNavigation: {
+          version: 1,
+          kind: "batch-focus",
+          tab: "batches",
+          variantId: 118,
+          batchId: 41,
+          productName: "منتج اختبار",
+          locationId: null,
+        },
+      },
+    });
+'''
+status_new = '''    expect(screen.getByText("متاح للبيع")).toBeInTheDocument();
+    expect(screen.getByText("دفعتان متوقفتان")).toBeInTheDocument();
+    expect(screen.queryByText("اشتباه في جودة المنتج", { exact: false })).not.toBeInTheDocument();
+    expect(screen.queryByText("معزولة للفحص")).not.toBeInTheDocument();
+    expect(screen.queryByText("ممنوعة من البيع")).not.toBeInTheDocument();
+    const openBatch = screen.getByRole("button", {
+      name: "فتح الدفعات المتأثرة",
+    });
+    openBatch.focus();
+    expect(openBatch).toHaveFocus();
+    fireEvent.click(openBatch);
+    expect(JSON.parse(screen.getByTestId("route-state").textContent ?? "{}")).toEqual({
+      pathname: "/inventory",
+      state: {
+        inventoryNavigation: {
+          version: 1,
+          kind: "batch-focus",
+          tab: "batches",
+          variantId: 118,
+          batchId: null,
+          productName: "منتج اختبار",
+          locationId: null,
+        },
+      },
+    });
+'''
+status_text = STATUS_TEST.read_text(encoding="utf-8")
+if status_old not in status_text:
+    raise RuntimeError("old product status presentation assertion not found")
+STATUS_TEST.write_text(status_text.replace(status_old, status_new, 1), encoding="utf-8")
 
 ux_rules = '''DASHBOARD UX CONSTITUTION (MANDATORY):
 - Backend complexity must not leak into the operator experience. Preserve all authority, validation, audit, isolation, idempotency, and safety in backend/domain layers while keeping the dashboard path short and obvious.
@@ -155,11 +243,9 @@ ux_rules = '''DASHBOARD UX CONSTITUTION (MANDATORY):
 rules = RULES.read_text(encoding="utf-8")
 if "DASHBOARD UX CONSTITUTION (MANDATORY):" not in rules:
     marker = "Role & Objective:\n"
-    RULES.write_text(
-        rules.replace(marker, ux_rules + marker, 1),
-        encoding="utf-8",
-        newline="\n",
-    )
+    if marker not in rules:
+        raise RuntimeError("Role & Objective marker not found in .rules")
+    RULES.write_text(rules.replace(marker, ux_rules + marker, 1), encoding="utf-8")
 
 if not WORKTREE_NODE_MODULES.exists():
     run("cmd", "/c", "mklink", "/J", str(WORKTREE_NODE_MODULES), str(MAIN_NODE_MODULES))
@@ -172,21 +258,19 @@ if not vitest.exists() or not vite.exists():
     raise RuntimeError("dashboard node_modules does not contain Vitest/Vite")
 
 dashboard = ROOT / "dashboard"
-run(
-    node,
-    str(vitest),
-    "run",
+run(node, str(vitest), "run",
     "src/test/batch-focus-workspace.test.tsx",
     "src/test/products-lifecycle-guided-recovery.test.ts",
     "src/test/products-enter-recall-ux.test.ts",
     "src/test/products-status-summary.test.tsx",
     "src/test/catalog-inventory-boundary.test.ts",
-    "src/test/quality-safety-v1-closure.test.ts",
-    cwd=dashboard,
-)
+    "src/test/quality-safety-v1-closure.test.ts", cwd=dashboard)
 run(node, str(vite), "build", cwd=dashboard)
 
-run("git", "add", ".rules", "dashboard/src/test/batch-focus-workspace.test.tsx")
+run("git", "add", ".rules",
+    "dashboard/src/test/batch-focus-workspace.test.tsx",
+    "dashboard/src/test/catalog-inventory-boundary.test.ts",
+    "dashboard/src/test/products-status-summary.test.tsx")
 run("git", "rm", "tools/_tmp_quality_ux_patch.py")
 run("git", "commit", "-m", "test(ux): lock simplified batch quality flow")
 run("git", "push", "origin", f"HEAD:{BRANCH}")
