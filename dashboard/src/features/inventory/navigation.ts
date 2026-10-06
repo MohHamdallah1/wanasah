@@ -25,15 +25,6 @@ export type InventoryBatchFocusIntent = {
   locationId: number | null;
 };
 
-export type InventoryWholeProductIssueIntent = {
-  version: 1;
-  kind: "quality-issue";
-  tab: "batches";
-  variantId: number;
-  productName: string;
-  locationId: number | null;
-};
-
 export type InventoryOwnerFocusIntent = {
   version: 1;
   kind: "owner-focus";
@@ -48,7 +39,6 @@ export type InventoryOwnerFocusIntent = {
 export type InventoryNavigationIntent =
   | InventoryTabIntent
   | InventoryBatchFocusIntent
-  | InventoryWholeProductIssueIntent
   | InventoryOwnerFocusIntent;
 
 const OWNER_TABS = {
@@ -130,27 +120,6 @@ export function createInventoryBatchFocusNavigationState({
   };
 }
 
-export function createInventoryWholeProductIssueNavigationState({
-  variantId,
-  productName,
-  locationId = null,
-}: {
-  variantId: number;
-  productName: string;
-  locationId?: number | null;
-}): InventoryNavigationState {
-  return {
-    inventoryNavigation: {
-      version: 1,
-      kind: "quality-issue",
-      tab: "batches",
-      variantId,
-      productName,
-      locationId,
-    },
-  };
-}
-
 export function parseInventoryNavigationState(
   value: unknown,
 ): InventoryNavigationIntent | null {
@@ -181,18 +150,33 @@ export function parseInventoryNavigationState(
     };
   }
 
-  if (row.kind === "owner-focus" && typeof row.flow === "string" && Object.prototype.hasOwnProperty.call(OWNER_TABS, row.flow)) {
+  if (
+    row.kind === "owner-focus" &&
+    typeof row.flow === "string" &&
+    Object.prototype.hasOwnProperty.call(OWNER_TABS, row.flow)
+  ) {
     const flow = row.flow as InventoryOwnerFocusIntent["flow"];
-    if (row.tab !== OWNER_TABS[flow] || row.locationId === null ||
-        !validLocationId(row.variantId) || row.variantId === null ||
-        !validLocationId(row.operationId) || row.operationId === null ||
-        typeof row.reference !== "string" || row.reference.length > 100) return null;
-    return { version: 1, kind: "owner-focus", tab: OWNER_TABS[flow], flow,
-      variantId: row.variantId, operationId: row.operationId, locationId: row.locationId as number, reference: row.reference };
+    if (
+      row.tab !== OWNER_TABS[flow] ||
+      row.locationId === null ||
+      !validLocationId(row.variantId) || row.variantId === null ||
+      !validLocationId(row.operationId) || row.operationId === null ||
+      typeof row.reference !== "string" || row.reference.length > 100
+    ) return null;
+    return {
+      version: 1,
+      kind: "owner-focus",
+      tab: OWNER_TABS[flow],
+      flow,
+      variantId: row.variantId,
+      operationId: row.operationId,
+      locationId: row.locationId as number,
+      reference: row.reference,
+    };
   }
 
   if (
-    (row.kind === "batch-focus" || row.kind === "quality-issue") &&
+    row.kind === "batch-focus" &&
     row.tab === "batches" &&
     typeof row.variantId === "number" &&
     Number.isSafeInteger(row.variantId) &&
@@ -201,16 +185,6 @@ export function parseInventoryNavigationState(
     row.productName.trim().length > 0 &&
     row.productName.length <= 200
   ) {
-    if (row.kind === "quality-issue") {
-      return {
-        version: 1,
-        kind: "quality-issue",
-        tab: "batches",
-        variantId: row.variantId,
-        productName: row.productName.trim(),
-        locationId: row.locationId as number | null,
-      };
-    }
     if (!validLocationId(row.batchId)) return null;
     return {
       version: 1,
