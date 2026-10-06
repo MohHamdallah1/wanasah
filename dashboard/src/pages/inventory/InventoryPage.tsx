@@ -14,13 +14,12 @@ import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { parseInventoryLocationCapabilities } from "@/hooks/useInventoryAccess";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { BatchFocusWorkspace } from "./batches/BatchFocusWorkspace";
-import { WholeProductIssueWorkspace } from "./quality/WholeProductIssueWorkspace";
 import { QualityBatchPickerWorkspace } from "./quality/QualityBatchPickerWorkspace";
 import type { BatchSpecialTransferResult } from "./batches/batchSpecialTransferContract";
 import type { ReservationOwner } from "./batches/batchStockSourcesContract";
 import MainInventory from "./MainInventory";
 
-/** Exact quality focus bypasses warehouse-shell initialization, not authority. */
+/** Exact batch-quality focus bypasses warehouse-shell initialization, not authority. */
 export default function InventoryPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -138,21 +137,6 @@ export default function InventoryPage() {
         onOpenTransfers={openTransfers}
         onOpenReservationOwner={openReservationOwner}
         onConfigureQualityDestinations={openQualitySettings}
-      />
-    );
-  }
-
-  if (focus?.kind === "quality") {
-    return (
-      <WholeProductIssueWorkspace
-        key={`quality:${focus.variantId}`}
-        productVariantId={focus.variantId}
-        productName={focus.productName}
-        onConsumed={consume}
-        onClose={close}
-        onOpenQualitySettings={openQualitySettings}
-        onOpenTransfers={openTransfers}
-        onOpenReservationOwner={openReservationOwner}
       />
     );
   }
