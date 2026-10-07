@@ -28,11 +28,24 @@ describe("V1 quality and safety workflow closure", () => {
     expect(inline).toContain("productQualityInline.actions.returnAll");
     expect(inline).not.toContain("QualityHandlingDestinationsCard");
     expect(inline).not.toContain("setupRequired");
-    expect(inline).not.toContain("batchId");
     expect(commands).toContain("/resolve-all");
     expect(commands).not.toContain("source_location_id");
     expect(commands).not.toContain("batch_id");
     expect(commands).not.toContain("transfer_purpose");
+  });
+
+  it("shows locations batches and book value as information without turning them into command inputs", () => {
+    const inline = read("../features/inventory/quality/WholeProductQualityActionsPanel.tsx");
+    const previewHook = read("../features/inventory/quality/useWholeProductQualityPreview.ts");
+    const commands = read("../features/inventory/quality/useProductQualityCommands.ts");
+    expect(previewHook).toContain("/resolve-preview");
+    expect(inline).toContain("preview.data.locations");
+    expect(inline).toContain("preview.data.batches");
+    expect(inline).toContain("preview.data.valuationLines");
+    expect(inline).toContain("totalBookValue");
+    expect(inline).toContain("formatMoneyDisplay");
+    expect(commands).not.toContain("locationId");
+    expect(commands).not.toContain("batchId");
   });
 
   it("keeps configurable handling destinations available only to workflows that need them", () => {
@@ -56,6 +69,8 @@ describe("V1 quality and safety workflow closure", () => {
     expect(translations).toContain('returnAll: "إرجاع المنتج بالكامل للمورد / المصنع"');
     expect(translations).toContain('disposeButton: "تأكيد إتلاف جميع الكميات"');
     expect(translations).toContain('returnButton: "تأكيد تسليم جميع الكميات"');
+    expect(translations).toContain('locationsTitle: "أماكن وجود المنتج المشمولة بالقرار"');
+    expect(translations).toContain('totalBookValue: "إجمالي القيمة الدفترية"');
     expect(translations).not.toContain("setupRequired");
   });
 });
