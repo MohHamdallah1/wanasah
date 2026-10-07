@@ -59,7 +59,7 @@ export function useProductQualityCommands({
     try {
       allocations = allocateRequestedQuantity(lines, quantity);
     } catch {
-      toast.error(t("products.qualityInline.errors.quantity"));
+      toast.error(t("productQualityInline.errors.quantity"));
       return false;
     }
     const payload = {
@@ -86,7 +86,7 @@ export function useProductQualityCommands({
         throw new Error("PRODUCT_QUALITY_COMMAND_RESPONSE_INVALID");
       }
       completeDurableOperation(scope, durable.requestId);
-      toast.success(t("products.qualityInline.stageSuccess", { reference: raw.transfer_reference }));
+      toast.success(t("productQualityInline.stageSuccess", { reference: raw.transfer_reference }));
       await onSucceeded();
       return true;
     } catch (error) {
@@ -98,8 +98,8 @@ export function useProductQualityCommands({
       toast.error(apiErrorMessage(
         error,
         ambiguous
-          ? t("products.qualityInline.pending")
-          : t("products.qualityInline.errors.stage"),
+          ? t("productQualityInline.pending")
+          : t("productQualityInline.errors.stage"),
       ));
       return false;
     } finally {
@@ -136,7 +136,7 @@ export function useProductQualityCommands({
     try {
       allocations = allocateRequestedQuantity(lines, quantity);
     } catch {
-      toast.error(t("products.qualityInline.errors.quantity"));
+      toast.error(t("productQualityInline.errors.quantity"));
       return false;
     }
     setBusyKey(groupKey);
@@ -197,14 +197,14 @@ export function useProductQualityCommands({
           toast.error(apiErrorMessage(
             error,
             ambiguous
-              ? t("products.qualityInline.pending")
-              : t("products.qualityInline.errors.confirm"),
+              ? t("productQualityInline.pending")
+              : t("productQualityInline.errors.confirm"),
           ));
           return false;
         }
       }
       await onSucceeded();
-      toast.success(t(`products.qualityInline.confirmSuccess.${action}`));
+      toast.success(t(`productQualityInline.confirmSuccess.${action}`));
       return true;
     } finally {
       setBusyKey(null);
