@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -118,5 +120,16 @@ describe("whole-product quality location model", () => {
   it("rejects a location quantity above the backend-derived eligible total", () => {
     const location = aggregateProductQualityLocations([page()]).find((item) => item.locationId === 7)!;
     expect(() => allocateRequestedQuantity(location.dispatch.DISPOSAL, "91")).toThrow("QUALITY_ACTION_QUANTITY_OUT_OF_RANGE");
+  });
+
+  it("uses the registered quality translation namespace so raw keys cannot leak to the UI", () => {
+    for (const file of [
+      "src/features/inventory/quality/WholeProductQualityActionsPanel.tsx",
+      "src/features/inventory/quality/useProductQualityCommands.ts",
+    ]) {
+      const source = readFileSync(join(process.cwd(), file), "utf-8");
+      expect(source).not.toContain("products.qualityInline");
+      expect(source).toContain("productQualityInline.");
+    }
   });
 });
