@@ -39,7 +39,7 @@ export function SupplierTable({ items, manage, disabled, onEdit, onState }: {
   if (desktop) {
     return <div className="overflow-x-auto">
       <table className="w-full min-w-[760px] text-sm">
-        <thead className="bg-slate-50/[0.72] text-[11px] font-black text-slate-500">
+        <thead className="sticky top-0 z-10 bg-slate-50/[0.94] text-[11px] font-black text-slate-500 backdrop-blur-xl">
           <tr>
             {["name", "contact_person", "phone", "email", "status", "actions"].map(field =>
               <th key={field} scope="col" className="px-4 py-3 text-start tracking-wide">{t(`suppliers.fields.${field}`)}</th>)}
