@@ -1,7 +1,6 @@
 export const suppliers = {
   ar: {
     title: "الموردون", subtitle: "إدارة الموردين وبيانات الاتصال من مكان واحد", add: "إضافة مورد", edit: "تعديل المورد", editNamed: "تعديل {{name}}",
-    editorHint: "أدخل البيانات الأساسية فقط؛ يمكنك تعديلها لاحقًا.",
     search: "ابحث بالاسم أو الرمز أو بيانات الاتصال", clearSearch: "مسح البحث", filterLabel: "تصفية الموردين",
     active: "نشط", inactive: "غير نشط", all: "الكل", activate: "تفعيل", deactivate: "تعطيل",
     previous: "السابق", next: "التالي", visibleCount: "{{count}} مورد ظاهر", empty: "لا يوجد موردون مطابقون.",
@@ -20,7 +19,6 @@ export const suppliers = {
   },
   en: {
     title: "Suppliers", subtitle: "Manage suppliers and contact details in one place", add: "Add supplier", edit: "Edit supplier", editNamed: "Edit {{name}}",
-    editorHint: "Add the essentials now; you can update them later.",
     search: "Search name, code or contact details", clearSearch: "Clear search", filterLabel: "Filter suppliers",
     active: "Active", inactive: "Inactive", all: "All", activate: "Activate", deactivate: "Deactivate",
     previous: "Previous", next: "Next", visibleCount: "{{count}} suppliers shown", empty: "No matching suppliers.",
