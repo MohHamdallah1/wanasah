@@ -88,7 +88,7 @@
     {
       "insert_after": {
         "method": "POST",
-        "path": "/warehouse/quality/vendor-return/confirm"
+        "path": "/warehouse/unified/transfer/{header_id}/reject"
       },
       "method": "GET",
       "path": "/warehouse/quality/products/{product_variant_id}/resolve-preview",
