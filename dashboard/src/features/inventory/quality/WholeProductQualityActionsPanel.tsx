@@ -1,5 +1,5 @@
-import { AlertTriangle, ArrowRight, PackageCheck, Trash2, Truck, Warehouse } from "lucide-react";
-import { useMemo, useState } from "react";
+import { AlertTriangle, ArrowRight, PackageCheck, Pencil, Trash2, Truck, Warehouse } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
@@ -58,10 +58,9 @@ export function WholeProductQualityActionsPanel({
   const query = useProductQualitySources(productVariantId);
   const [activeAction, setActiveAction] = useState<WholeProductQualityAction | null>(null);
   const [reason, setReason] = useState("");
-  const [method, setMethod] = useState("");
-  const [evidence, setEvidence] = useState("");
+  const [reasonEditing, setReasonEditing] = useState(false);
+  const [reasonTouched, setReasonTouched] = useState(false);
   const [recipientName, setRecipientName] = useState("");
-  const [handoverReference, setHandoverReference] = useState("");
   const [previewChanged, setPreviewChanged] = useState(false);
 
   const pages = query.data?.pages ?? [];
@@ -83,6 +82,13 @@ export function WholeProductQualityActionsPanel({
     retry: false,
   });
 
+  useEffect(() => {
+    if (!activeAction || !preview.data || reasonTouched) return;
+    const savedReason = preview.data.issueReason ?? "";
+    setReason(savedReason);
+    setReasonEditing(savedReason.length === 0);
+  }, [activeAction, preview.data, reasonTouched]);
+
   const display = useMemo(() => {
     const candidates = (conversions.data ?? []).filter((item) =>
       item.to_uom.id === baseUomId && compareQuantity(item.numerator, item.denominator) > 0,
@@ -98,20 +104,23 @@ export function WholeProductQualityActionsPanel({
     [locations],
   );
   const totalDisplay = format(totalQuantity);
+  const currentBatchValuation = useMemo(() => {
+    if (preview.data?.costingMethod !== "MOVING_AVERAGE") return new Map();
+    return new Map(preview.data.valuationLines.map((line) => [line.batchId, line]));
+  }, [preview.data]);
 
   const openAction = (action: WholeProductQualityAction) => {
     setActiveAction(action);
     setReason("");
-    setMethod("");
-    setEvidence("");
+    setReasonEditing(false);
+    setReasonTouched(false);
     setRecipientName("");
-    setHandoverReference("");
     setPreviewChanged(false);
   };
 
   const submit = async () => {
     if (!activeAction || !reason.trim() || !preview.data || preview.data.blockerCodes.length > 0) return;
-    if (activeAction === "RETURN_TO_VENDOR" && (!recipientName.trim() || !handoverReference.trim())) return;
+    if (activeAction === "RETURN_TO_VENDOR" && !recipientName.trim()) return;
 
     const shownSignature = previewSignature(preview.data);
     const refreshed = await preview.refetch();
@@ -124,10 +133,7 @@ export function WholeProductQualityActionsPanel({
     const ok = await commands.resolveAll({
       action: activeAction,
       reason,
-      disposalMethod: method,
-      evidenceReference: evidence,
       recipientName,
-      handoverReference,
     });
     if (ok) setActiveAction(null);
   };
@@ -139,7 +145,7 @@ export function WholeProductQualityActionsPanel({
     || preview.isError
     || previewBlocked
     || !reason.trim()
-    || (activeAction === "RETURN_TO_VENDOR" && (!recipientName.trim() || !handoverReference.trim()));
+    || (activeAction === "RETURN_TO_VENDOR" && !recipientName.trim());
 
   return <div className="space-y-3" dir={i18n.dir()}>
     <div className="flex items-center justify-between gap-2">
@@ -184,37 +190,39 @@ export function WholeProductQualityActionsPanel({
           <PackageCheck className="h-4 w-4 text-slate-500" />
           <p className="text-xs font-black text-slate-950">{t(activeAction === "DISPOSE" ? "productQualityInline.confirm.disposeTitle" : "productQualityInline.confirm.returnTitle")}</p>
         </div>
-        <p className="mt-1 text-[10px] font-semibold text-slate-500">{t("productQualityInline.confirm.scope", { count: locations.length, quantity: totalDisplay.primary, secondary: totalDisplay.secondary ? ` (${totalDisplay.secondary})` : "" })}</p>
+        <p className="mt-1 text-[10px] font-semibold text-slate-500">{t("productQualityInline.confirm.scope", { quantity: totalDisplay.primary, secondary: totalDisplay.secondary ? ` (${totalDisplay.secondary})` : "" })}</p>
 
         {preview.isLoading ? <p role="status" className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-[10px] font-bold text-slate-500">{t("productQualityInline.preview.loading")}</p> : null}
         {preview.isError ? <div role="alert" className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-[10px] font-bold text-rose-800">{apiErrorMessage(preview.error, t("productQualityInline.errors.preview"))}</div> : null}
         {previewChanged ? <div role="alert" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-[10px] font-bold text-amber-900">{t("productQualityInline.preview.changed")}</div> : null}
 
         {preview.data ? <div className="mt-3 space-y-3">
-          <section className="rounded-lg border border-slate-200 bg-white p-3">
-            <p className="text-[10px] font-black text-slate-800">{t("productQualityInline.preview.locationsTitle")}</p>
-            <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
-              {preview.data.locations.map((location) => {
-                const quantity = format(location.quantity);
-                return <div key={location.locationId} className="flex items-center justify-between gap-2 rounded-md bg-slate-50 px-2.5 py-2">
-                  <div className="flex min-w-0 items-center gap-1.5">
-                    {location.locationType === "VEHICLE" ? <Truck className="h-3.5 w-3.5 shrink-0 text-slate-400" /> : <Warehouse className="h-3.5 w-3.5 shrink-0 text-slate-400" />}
-                    <span className="truncate text-[10px] font-black text-slate-800">{location.locationName}</span>
-                  </div>
-                  <span className="shrink-0 text-[10px] font-bold tabular-nums text-slate-600">{quantity.primary}{quantity.secondary ? ` (${quantity.secondary})` : ""}</span>
-                </div>;
-              })}
-            </div>
+          <section className="grid gap-1.5 sm:grid-cols-2">
+            {preview.data.locations.map((location) => {
+              const quantity = format(location.quantity);
+              return <div key={location.locationId} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  {location.locationType === "VEHICLE" ? <Truck className="h-3.5 w-3.5 shrink-0 text-slate-400" /> : <Warehouse className="h-3.5 w-3.5 shrink-0 text-slate-400" />}
+                  <span className="truncate text-[10px] font-black text-slate-800">{location.locationName}</span>
+                </div>
+                <span className="shrink-0 text-[10px] font-bold tabular-nums text-slate-600">{quantity.primary}{quantity.secondary ? ` (${quantity.secondary})` : ""}</span>
+              </div>;
+            })}
           </section>
 
           <section className="rounded-lg border border-slate-200 bg-white p-3">
             <p className="text-[10px] font-black text-slate-800">{t("productQualityInline.preview.batchesTitle")}</p>
-            <div className="mt-2 max-h-40 overflow-y-auto rounded-md border border-slate-100">
+            <div className="mt-2 max-h-52 overflow-y-auto rounded-md border border-slate-100">
               {preview.data.batches.map((batch) => {
                 const quantity = format(batch.quantity);
-                return <div key={batch.batchId} className="flex items-center justify-between gap-3 border-b border-slate-100 px-2.5 py-2 last:border-b-0">
+                const valuation = currentBatchValuation.get(batch.batchId);
+                return <div key={batch.batchId} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 border-b border-slate-100 px-2.5 py-2 last:border-b-0 sm:grid-cols-4">
                   <span className="text-[10px] font-black text-slate-800">{batch.batchNumber}</span>
                   <span className="text-[10px] font-bold tabular-nums text-slate-600">{quantity.primary}{quantity.secondary ? ` (${quantity.secondary})` : ""}</span>
+                  {valuation ? <>
+                    <span className="text-[9px] tabular-nums text-slate-600">{t("productQualityInline.preview.unitCostInline", { value: formatMoneyDisplay(valuation.unitCost, preview.data.currencyCode, locale) })}</span>
+                    <span className="text-[9px] font-bold tabular-nums text-slate-700">{t("productQualityInline.preview.valueInline", { value: formatMoneyDisplay(valuation.bookValue, preview.data.currencyCode, locale) })}</span>
+                  </> : null}
                 </div>;
               })}
             </div>
@@ -231,47 +239,39 @@ export function WholeProductQualityActionsPanel({
                 <strong className="text-sm font-black tabular-nums text-slate-950">{formatMoneyDisplay(preview.data.totalBookValue, preview.data.currencyCode, locale)}</strong>
               </div> : null}
             </div>
-
-            {preview.data.valuationAvailable ? <>
-              {preview.data.costingMethod === "FIFO" ? <p className="mt-2 rounded-md bg-sky-50 px-2.5 py-2 text-[9px] font-semibold text-sky-900">{t("productQualityInline.preview.fifoNote")}</p> : null}
-              <div className="mt-2 max-h-52 overflow-y-auto rounded-md border border-slate-100">
-                <div className="grid grid-cols-4 gap-2 bg-slate-50 px-2.5 py-1.5 text-[9px] font-black text-slate-600">
-                  <span>{t("productQualityInline.preview.columns.batch")}</span>
-                  <span>{t("productQualityInline.preview.columns.quantity")}</span>
-                  <span>{t("productQualityInline.preview.columns.unitCost")}</span>
-                  <span>{t("productQualityInline.preview.columns.value")}</span>
-                </div>
-                {preview.data.valuationLines.map((line) => {
-                  const quantity = format(line.quantity);
-                  return <div key={line.batchId} className="grid grid-cols-4 gap-2 border-t border-slate-100 px-2.5 py-2 text-[9px] text-slate-700">
-                    <span className="font-black">{line.batchNumber}</span>
-                    <span className="tabular-nums">{quantity.primary}{quantity.secondary ? ` (${quantity.secondary})` : ""}</span>
-                    <span className="tabular-nums">{formatMoneyDisplay(line.unitCost, preview.data.currencyCode, locale)}</span>
-                    <span className="font-bold tabular-nums">{formatMoneyDisplay(line.bookValue, preview.data.currencyCode, locale)}</span>
-                  </div>;
-                })}
-              </div>
-            </> : <div role="note" className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[9px] font-semibold text-amber-900">
-              {t("productQualityInline.preview.valuationUnavailable")}
-            </div>}
+            {preview.data.valuationAvailable && preview.data.costingMethod === "FIFO" ? <p className="mt-2 rounded-md bg-sky-50 px-2.5 py-2 text-[9px] font-semibold text-sky-900">{t("productQualityInline.preview.fifoNote")}</p> : null}
+            {!preview.data.valuationAvailable ? <div role="note" className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[9px] font-semibold text-amber-900">{t("productQualityInline.preview.valuationUnavailable")}</div> : null}
           </section>
 
           {previewBlocked ? <div role="alert" className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-[10px] font-bold text-amber-900">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{t("productQualityInline.preview.blocked")}</span>
           </div> : null}
+
+          <section className="rounded-lg border border-slate-200 bg-white p-3">
+            {!reasonEditing ? <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[9px] font-black text-slate-500">{t("productQualityInline.fields.reason")}</p>
+                <p className="mt-1 break-words text-[11px] font-bold text-slate-900">{reason || t("productQualityInline.fields.reasonMissing")}</p>
+              </div>
+              <button type="button" onClick={() => setReasonEditing(true)} className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[9px] font-black text-slate-700">
+                <Pencil className="h-3 w-3" />{t("productQualityInline.fields.editReason")}
+              </button>
+            </div> : <label className="text-[10px] font-black text-slate-700">{t("productQualityInline.fields.reason")}
+              <input
+                autoFocus
+                value={reason}
+                onChange={(event) => { setReason(event.target.value); setReasonTouched(true); }}
+                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+              />
+            </label>}
+          </section>
+
+          {activeAction === "RETURN_TO_VENDOR" ? <label className="block text-[10px] font-black text-slate-700">{t("productQualityInline.fields.recipientName")}
+            <input autoFocus={!reasonEditing} value={recipientName} onChange={(event) => setRecipientName(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+          </label> : null}
         </div> : null}
 
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          <label className="text-[10px] font-black text-slate-700 sm:col-span-2">{t("productQualityInline.fields.reason")}<input autoFocus value={reason} onChange={(event) => setReason(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" /></label>
-          {activeAction === "DISPOSE" ? <>
-            <label className="text-[10px] font-black text-slate-700">{t("productQualityInline.fields.method")}<input value={method} onChange={(event) => setMethod(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" /></label>
-            <label className="text-[10px] font-black text-slate-700">{t("productQualityInline.fields.evidence")}<input value={evidence} onChange={(event) => setEvidence(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" /></label>
-          </> : <>
-            <label className="text-[10px] font-black text-slate-700">{t("productQualityInline.fields.recipientName")}<input value={recipientName} onChange={(event) => setRecipientName(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" /></label>
-            <label className="text-[10px] font-black text-slate-700">{t("productQualityInline.fields.handoverReference")}<input value={handoverReference} onChange={(event) => setHandoverReference(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" /></label>
-          </>}
-        </div>
         <div className="mt-3 flex justify-end gap-2">
           <button type="button" onClick={() => setActiveAction(null)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-black text-slate-700">{t("common.cancel")}</button>
           <button type="submit" disabled={submitDisabled} className={`rounded-lg px-4 py-2 text-[10px] font-black text-white disabled:opacity-40 ${activeAction === "DISPOSE" ? "bg-rose-700" : "bg-sky-700"}`}>
