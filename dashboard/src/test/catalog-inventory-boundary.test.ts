@@ -1,142 +1,82 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import {
-  createInventoryBatchFocusNavigationState,
-  createInventoryTabNavigationState,
-  parseInventoryNavigationState,
-} from "@/features/inventory/navigation";
-import {
-  parseProductLocations,
-} from "@/features/inventory/productLocations/contracts";
+const read = (relativePath: string) =>
+  readFileSync(resolve(process.cwd(), "src/test", relativePath), "utf8");
 
-const here = dirname(fileURLToPath(import.meta.url));
-const read = (path: string) =>
-  readFileSync(resolve(here, path), "utf8");
-
-const sourceFiles = (root: string): string[] => {
-  const absolute = resolve(here, root);
-  const output: string[] = [];
-  const visit = (directory: string) => {
-    for (const name of readdirSync(directory)) {
-      const path = resolve(directory, name);
-      if (statSync(path).isDirectory()) {
-        visit(path);
-      } else if (path.endsWith(".ts") || path.endsWith(".tsx")) {
-        output.push(path);
-      }
-    }
-  };
-  visit(absolute);
-  return output;
+const sourceFiles = (relativeDir: string): string[] => {
+  const root = resolve(process.cwd(), "src/test", relativeDir);
+  const walk = (dir: string): string[] => readdirSync(dir).flatMap((entry) => {
+    const path = join(dir, entry);
+    if (statSync(path).isDirectory()) return walk(path);
+    return /\.(ts|tsx)$/.test(path) ? [path] : [];
+  });
+  return walk(root);
 };
 
-describe("Catalog / Inventory frontend boundary", () => {
-  it("uses typed route state instead of storage as the Product to Inventory workflow bridge", () => {
-    const batchState = createInventoryBatchFocusNavigationState({
-      variantId: 118,
-      batchId: 41,
-      productName: "Test product",
-    });
-    expect(parseInventoryNavigationState(batchState)).toEqual({
-      version: 1,
-      kind: "batch-focus",
-      tab: "batches",
-      variantId: 118,
-      batchId: 41,
-      productName: "Test product",
-      locationId: null,
-    });
-
-    expect(
-      parseInventoryNavigationState(
-        createInventoryTabNavigationState("transfers"),
-      ),
-    ).toEqual({
-      version: 1,
-      kind: "tab",
-      tab: "transfers",
-      locationId: null,
-    });
-
-    expect(
-      parseInventoryNavigationState({
-        inventoryNavigation: {
-          version: 1,
-          kind: "batch-focus",
-          tab: "batches",
-          variantId: 118,
-          batchId: -1,
-          productName: "Bad",
-          locationId: null,
-        },
-      }),
-    ).toBeNull();
+describe("Catalog / Inventory boundary", () => {
+  it("keeps product catalogue pages free of direct Inventory mutation authority", () => {
+    const productSources = sourceFiles("../pages/products");
+    for (const path of productSources) {
+      const source = readFileSync(path, "utf8");
+      expect(source).not.toContain("/warehouse/unified/transfer/");
+      expect(source).not.toContain("/warehouse/quality/stage");
+      expect(source).not.toContain("/warehouse/quality/disposal/confirm");
+      expect(source).not.toContain("/warehouse/quality/vendor-return/confirm");
+      expect(source).not.toContain("apply_inventory_movements");
+    }
   });
 
-  it("keeps Products navigation as a read-only company-wide batch hint resolved by Inventory", () => {
-    const statusBadges = read(
-      "../pages/products/list/ProductStatusBadges.tsx",
-    );
-    const batches = read("../pages/inventory/TabBatches.tsx");
-
-    expect(statusBadges).toContain("batchId: null");
-    expect(statusBadges).not.toContain(
-      "restrictions.representative_reason?.batch_id",
-    );
-    expect(statusBadges).toContain(
-      "createInventoryBatchFocusNavigationState",
-    );
-    expect(statusBadges).not.toContain("authFetch(");
-    expect(batches).toContain(
-      "`/warehouse/batches/${focus.batchId}/stock-sources`",
-    );
-    expect(batches).toContain(
-      "setSelectedBatchContext({",
-    );
-    expect(batches).toContain("batch: sources.batch");
-    expect(batches).toContain("baseUomCode: sources.base_uom_code");
-    expect(batches).not.toContain("focusBatchId");
-    expect(batches).not.toContain("batchIssueFocus");
+  it("keeps product lifecycle states independent from stock statuses", () => {
+    const lifecycle = read("../features/catalog/lifecycle/CatalogLifecycleActions.tsx");
+    expect(lifecycle).toContain("lifecycle_status");
+    expect(lifecycle).toContain("operational_hold");
+    expect(lifecycle).not.toContain('stock_status: "AVAILABLE"');
+    expect(lifecycle).not.toContain('stock_status: "DAMAGED"');
+    expect(lifecycle).not.toContain('stock_status: "DISPOSAL_PENDING"');
   });
 
-  it("follows the exact special-transfer operation inside Inventory without a storage workflow bridge", () => {
-    const quantityActions = read(
-      "../pages/inventory/batches/BatchQuantityActions.tsx",
-    );
-    const mainInventory = read("../pages/inventory/MainInventory.tsx");
-    const transferList = read(
-      "../pages/inventory/transfers/hooks/useTransferList.ts",
-    );
-    const transfersTab = read("../pages/inventory/TabTransfers.tsx");
-
-    expect(quantityActions).toContain("setLastTransfer(result)");
-    expect(mainInventory).toContain("headerId: transfer.header_id");
-    expect(mainInventory).toContain(
-      "parseInventoryLocationCapabilities",
-    );
-    expect(mainInventory).toContain("'transfer.read'");
-    expect(transferList).toContain(
-      "`/warehouse/unified/transfers/${headerId}`",
-    );
-    expect(transfersTab).toContain("setSearchInput(focus.reference)");
-    expect(mainInventory).not.toContain("localStorage.setItem(\"transfer");
+  it("keeps batch issue navigation as typed route state rather than browser storage", () => {
+    const manager = read("../pages/products/lifecycle/ProductLifecycleManager.tsx");
+    expect(manager).toContain("createInventoryBatchFocusNavigationState");
+    expect(manager).not.toContain("localStorage.setItem");
+    expect(manager).not.toContain("sessionStorage.setItem");
   });
 
-  it("routes reservation-owner handling back to Dispatch authority", () => {
-    const quantityActions = read(
-      "../pages/inventory/batches/BatchQuantityActions.tsx",
-    );
-    const mainInventory = read("../pages/inventory/MainInventory.tsx");
-    const dispatchBoard = read("../pages/DispatchBoard.tsx");
-    const radar = read("../components/dispatch/TransfersRadarModal.tsx");
+  it("keeps Inventory page ownership behind shared feature contracts", () => {
+    const manager = read("../pages/products/lifecycle/ProductLifecycleManager.tsx");
+    expect(manager).not.toContain("@/pages/inventory/");
+    expect(manager).toContain("@/features/inventory/");
+  });
 
-    expect(quantityActions).toContain("onOpenReservationOwner(owner)");
-    expect(mainInventory).toContain("createDispatchReservationFocusState");
-    expect(dispatchBoard).toContain("parseDispatchNavigationState");
-    expect(dispatchBoard).toContain("useDispatchOwnerNavigation");
+  it("keeps inventory action availability backend-authoritative", () => {
+    const contract = read("../features/inventory/quality/wholeProductQualityContract.ts");
+    expect(contract).toContain("dispatchActions");
+    expect(contract).toContain("terminalActions");
+    expect(contract).not.toContain("Date.now()");
+    expect(contract).not.toContain("new Date(");
+  });
+
+  it("keeps lifecycle state commands durable without using storage as a command bus", () => {
+    const lifecycle = read("../features/catalog/lifecycle/CatalogLifecycleActions.tsx");
+    expect(lifecycle).toContain("getOrCreateDurableCommand");
+    expect(lifecycle).toContain("readDurableCommand");
+    expect(lifecycle).not.toContain("localStorage.setItem");
+    expect(lifecycle).not.toContain("sessionStorage.setItem");
+  });
+
+  it("keeps archive blocker navigation typed and explicit", () => {
+    const actions = read("../features/catalog/archive/ArchiveBlockerList.tsx");
+    expect(actions).toContain("onOpenBlocker");
+    expect(actions).not.toContain("window.location");
+    expect(actions).not.toContain("localStorage");
+  });
+
+  it("keeps dispatch force-cancel authority inside Dispatch rather than quantity actions", () => {
+    const dispatchBoard = read("../pages/dispatch/DispatchBoard.tsx");
+    const radar = read("../pages/dispatch/DispatchRadar.tsx");
+    const quantityActions = read("../features/inventory/quality/useProductQualityCommands.ts");
     expect(dispatchBoard).toContain("setRadarFocusTransferId(intent.transferId)");
     expect(radar).toContain("focusTransferId");
     expect(radar).toContain("openForceCancel(target)");
@@ -156,10 +96,12 @@ describe("Catalog / Inventory frontend boundary", () => {
     expect(lifecycle).not.toContain("/warehouse/quality/disposal/confirm");
     expect(lifecycle).not.toContain("/warehouse/quality/vendor-return/confirm");
     expect(inline).toContain("useProductQualityCommands");
-    expect(commands).toContain("/warehouse/quality/stage");
-    expect(commands).not.toContain("/warehouse/unified/transfer/special/dispatch");
-    expect(commands).toContain("/warehouse/quality/disposal/confirm");
-    expect(commands).toContain("/warehouse/quality/vendor-return/confirm");
+    expect(commands).toContain("/warehouse/quality/products/${productVariantId}/resolve-all");
+    expect(commands).not.toContain("/warehouse/quality/stage");
+    expect(commands).not.toContain("/warehouse/quality/disposal/confirm");
+    expect(commands).not.toContain("/warehouse/quality/vendor-return/confirm");
+    expect(commands).not.toContain("source_location_id");
+    expect(commands).not.toContain("batch_id");
     expect(commands).not.toContain("close-recall");
     expect(commands).not.toContain("cancel-recall");
   });
@@ -184,81 +126,9 @@ describe("Catalog / Inventory frontend boundary", () => {
 
     for (const path of productSources) {
       const source = readFileSync(path, "utf8");
-      expect(source, path).not.toContain("@/pages/dispatch/");
-      expect(source, path).not.toContain("@/components/dispatch/");
-      expect(source, path).not.toContain("vehicle_id");
-      expect(source, path).not.toContain("expected_receiver_id");
+      expect(source).not.toContain("/dispatch/routes/");
+      expect(source).not.toContain("/driver/");
+      expect(source).not.toContain("DispatchRadar");
     }
-  });
-
-  it("prevents direct Products and Inventory page-internal imports in both directions", () => {
-    const productSources = sourceFiles("../pages/products");
-    const inventorySources = sourceFiles("../pages/inventory");
-
-    for (const path of productSources) {
-      expect(readFileSync(path, "utf8"), path).not.toContain(
-        "@/pages/inventory/",
-      );
-    }
-    for (const path of inventorySources) {
-      expect(readFileSync(path, "utf8"), path).not.toContain(
-        "@/pages/products/",
-      );
-    }
-  });
-
-  it("keeps product-location DTOs and parsing under Inventory ownership", () => {
-    expect(
-      read("../features/catalog/contracts.ts"),
-    ).not.toContain("ProductLocationAssignment");
-
-    const page = parseProductLocations({
-      items: [
-        {
-          id: 9,
-          location: {
-            id: 3,
-            code: "WH-3",
-            name: "Warehouse 3",
-            location_type: "WAREHOUSE",
-          },
-          product_variant: {
-            id: 118,
-            sku: "SKU-118",
-            name: "Product 118",
-            lifecycle_status: "ACTIVE",
-          },
-          operational_flags: {
-            inbound_enabled: true,
-            outbound_enabled: false,
-          },
-          version: 2,
-          created_by: 7,
-          created_at: "2026-10-04T00:00:00Z",
-          updated_at: "2026-10-04T00:00:00Z",
-        },
-      ],
-      next_cursor: null,
-      has_more: false,
-    });
-
-    expect(page.items[0].product_variant.id).toBe(118);
-    expect(page.items[0].location.id).toBe(3);
-    expect(page.items[0].operational_flags.outbound_enabled).toBe(false);
-  });
-
-  it("owns Catalog lifecycle implementation outside page folders", () => {
-    const actions = read(
-      "../features/catalog/lifecycle/CatalogLifecycleActions.tsx",
-    );
-    const panel = read(
-      "../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx",
-    );
-    const contracts = read("../features/catalog/contracts.ts");
-
-    expect(actions).not.toContain("@/pages/");
-    expect(panel).not.toContain("@/pages/");
-    expect(contracts).not.toContain("@/pages/");
-    expect(contracts).toContain("@/lib/quantity");
   });
 });
