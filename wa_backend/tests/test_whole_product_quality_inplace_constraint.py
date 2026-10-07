@@ -37,3 +37,6 @@ def test_migration_preserves_regular_distinct_location_invariant_and_downgrade_e
     assert "source_location_id <> destination_location_id" in migration
     assert "reference_number LIKE 'QSTG-%'" in migration
     assert "Cannot downgrade: in-place quality transfer evidence exists" in migration
+    assert "fixed_name = op.f(_CONSTRAINT)" in migration
+    assert "op.drop_constraint(fixed_name, _TABLE" in migration
+    assert "op.create_check_constraint(fixed_name, _TABLE" in migration
