@@ -34,7 +34,7 @@ describe("V1 quality and safety workflow closure", () => {
     expect(commands).not.toContain("transfer_purpose");
   });
 
-  it("shows locations batches and book value as information without turning them into command inputs", () => {
+  it("shows current locations batches and book value as information without turning them into command inputs", () => {
     const inline = read("../features/inventory/quality/WholeProductQualityActionsPanel.tsx");
     const previewHook = read("../features/inventory/quality/useWholeProductQualityPreview.ts");
     const commands = read("../features/inventory/quality/useProductQualityCommands.ts");
@@ -46,6 +46,22 @@ describe("V1 quality and safety workflow closure", () => {
     expect(inline).toContain("formatMoneyDisplay");
     expect(commands).not.toContain("locationId");
     expect(commands).not.toContain("batchId");
+  });
+
+  it("reuses the saved safety reason and keeps technical references out of the form", () => {
+    const inline = read("../features/inventory/quality/WholeProductQualityActionsPanel.tsx");
+    const commands = read("../features/inventory/quality/useProductQualityCommands.ts");
+    const translations = read("../i18n/productQualityInline.ts");
+    expect(inline).toContain("preview.data.issueReason");
+    expect(inline).toContain("setReasonEditing(true)");
+    expect(translations).toContain('editReason: "تعديل"');
+    expect(translations).not.toContain("طريقة الإتلاف");
+    expect(translations).not.toContain("مرجع الدليل");
+    expect(translations).not.toContain("مرجع التسليم");
+    expect(inline).not.toContain("handoverReference");
+    expect(inline).not.toContain("evidenceReference");
+    expect(inline).not.toContain("disposalMethod");
+    expect(commands).toContain("SYSTEM-${durable.requestId}");
   });
 
   it("keeps configurable handling destinations available only to workflows that need them", () => {
@@ -69,7 +85,7 @@ describe("V1 quality and safety workflow closure", () => {
     expect(translations).toContain('returnAll: "إرجاع المنتج بالكامل للمورد / المصنع"');
     expect(translations).toContain('disposeButton: "تأكيد إتلاف جميع الكميات"');
     expect(translations).toContain('returnButton: "تأكيد تسليم جميع الكميات"');
-    expect(translations).toContain('locationsTitle: "أماكن وجود المنتج المشمولة بالقرار"');
+    expect(translations).not.toContain("أماكن وجود المنتج المشمولة بالقرار");
     expect(translations).toContain('totalBookValue: "إجمالي القيمة الدفترية"');
     expect(translations).not.toContain("setupRequired");
   });
