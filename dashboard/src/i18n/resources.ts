@@ -1091,37 +1091,32 @@ export const resources = {
             recallOperationsClosed: "تم إغلاق العمليات المرتبطة بالمشكلة",
           },
           qualityIssueTitle: "مشكلة جودة أو سلامة",
-          qualityIssueHint:
-            "حدد أولًا هل المشكلة تخص دفعة بعينها أم المنتج بالكامل حتى يطبّق النظام الإجراء على النطاق الصحيح.",
-          issueScopeQuestion: "أين توجد المشكلة؟",
-          issueScopeHint:
-            "اختيار النطاق الصحيح يمنع إيقاف منتجات أو دفعات سليمة بدون حاجة.",
+          qualityIssueHint: "حدد هل المشكلة تشمل المنتج بالكامل أم دفعة محددة.",
+          qualityIssueNoStock: "لا توجد كمية حالية لهذا المنتج، لذلك لا يمكن فتح مشكلة سلامة عليه.",
+          issueScopeQuestion: "النطاق",
+          issueScopeHint: "اختر النطاق.",
           issueScopes: {
             batch: {
               label: "دفعة محددة",
-              hint: "افتح إدارة الدفعات واعزل الدفعة أو امنع بيعها أو استبعدها نهائيًا حسب نتيجة الفحص. بقية الدفعات السليمة تبقى قابلة للبيع.",
-              unavailableHint: "هذا المنتج لا يستخدم تتبع الدفعات أو الصلاحية، لذلك لا توجد دفعة محددة يمكن إيقافها بهذا المسار.",
+              hint: "يفتح صفحة الدفعات والصلاحية مباشرة.",
+              unavailableHint: "هذا المنتج لا يستخدم تتبع الدفعات.",
             },
             product: {
               label: "المنتج بالكامل",
-              hint: "استخدم هذا الخيار فقط عندما ثبت أن المشكلة تشمل المنتج كله، وليس دفعة واحدة فقط. سيتم إيقاف البيع على مستوى الشركة.",
+              hint: "يوقف بيع المنتج بالكامل.",
             },
           },
           salesHints: {
-            NONE: "يمكن بيع المنتج وتحميله بشكل طبيعي.",
-            SALES_HOLD: "البيع متوقف مؤقتًا ويمكن إعادته مباشرة من هذه الشاشة.",
-            RECALL: "البيع موقوف بسبب مشكلة جودة أو سلامة مؤكدة، ويبقى موقوفًا حتى تكتمل المتطلبات المرتبطة بالمنتج.",
+            NONE: "المنتج متاح للبيع.",
+            SALES_HOLD: "المنتج متوقف مؤقتًا.",
+            RECALL: "المنتج متوقف بسبب مشكلة جودة أو سلامة.",
           },
-          salesHoldDifference:
-            "توقف مؤقت يمكنك التراجع عنه مباشرة. مناسب لقرار إداري أو توقف قصير.",
-          recallDifference:
-            "استخدم إيقاف المنتج بالكامل فقط عندما ثبت أن المشكلة تشمل المنتج كله. إذا كان الشك مؤقتًا أو يخص دفعة واحدة فاختر المسار الأبسط المناسب.",
-          problemSaleStopTitle: "لماذا البيع موقوف؟",
-          problemSaleStopHint:
-            "إذا تبين أن البلاغ خاطئًا فأعد المنتج للبيع مباشرة. وإذا كانت المشكلة مؤكدة فعالج كل الكمية؛ بعد التأكيد النهائي يغلق النظام المشكلة تلقائيًا.",
-          manageConfirmedIssue: "معالجة الكميات المتأثرة",
-          manageConfirmedIssueHint:
-            "اختر إتلاف كل الكمية الحالية أو إرجاعها للمورد / المصنع. بعد إدخال كلمة مرور المشرف والتأكيد، يخرج الرصيد وتُغلق مشكلة السلامة تلقائيًا.",
+          salesHoldDifference: "إيقاف مؤقت.",
+          recallDifference: "لمشكلة جودة أو سلامة تشمل المنتج بالكامل.",
+          problemSaleStopTitle: "مشكلة السلامة",
+          problemSaleStopHint: "إذا كان البلاغ خاطئًا أعد المنتج للبيع، وإلا عالج الكمية.",
+          manageConfirmedIssue: "معالجة",
+          manageConfirmedIssueHint: "اختر الإتلاف أو الإرجاع للمورد.",
           recallCompletionTitle:
             "ما زالت معالجة المشكلة غير مكتملة",
           recallCompletionHint:
@@ -3286,6 +3281,7 @@ export const resources = {
             "Control whether the product remains in the operational catalog without deleting its history.",
           salesStatusTitle: "Sales status",
           confirm: "Apply change",
+          continueToHandling: "Continue to handling",
           reasonChoose: "Choose a reason...",
           reasonOther: "Other reason...",
           reasonPresets: {
@@ -3319,37 +3315,32 @@ export const resources = {
             recallOperationsClosed: "Issue-related operations were closed",
           },
           qualityIssueTitle: "Quality or safety issue",
-          qualityIssueHint:
-            "First choose whether the issue affects one batch or the whole product so the system applies the action to the correct scope.",
-          issueScopeQuestion: "Where is the issue?",
-          issueScopeHint:
-            "Choosing the correct scope avoids stopping healthy products or batches unnecessarily.",
+          qualityIssueHint: "Choose whether the issue affects the whole product or one batch.",
+          qualityIssueNoStock: "There is no current stock, so a whole-product safety issue cannot be opened.",
+          issueScopeQuestion: "Scope",
+          issueScopeHint: "Choose the scope.",
           issueScopes: {
             batch: {
               label: "A specific batch",
-              hint: "Open batch management and quarantine the batch, block its sale, or permanently exclude it based on the inspection result. Other healthy batches can remain sellable.",
-              unavailableHint: "This product does not use batch or expiry tracking, so there is no specific batch to stop through this flow.",
+              hint: "Open the Batches & Expiry page directly.",
+              unavailableHint: "This product does not use batch tracking.",
             },
             product: {
               label: "The whole product",
-              hint: "Use this only when the issue is confirmed to affect the whole product, not just one batch. Sales will stop company-wide.",
+              hint: "Stop sales for the whole product.",
             },
           },
           salesHints: {
-            NONE: "The product can be sold and loaded normally.",
-            SALES_HOLD: "Sales are temporarily paused and can be restored directly from this screen.",
-            RECALL: "Sales are stopped because of a confirmed quality or safety issue and remain stopped until the required conditions are resolved.",
+            NONE: "The product is available for sale.",
+            SALES_HOLD: "The product is temporarily stopped.",
+            RECALL: "The product is stopped for a quality or safety issue.",
           },
-          salesHoldDifference:
-            "A temporary stop you can reverse directly. Use it for a short administrative or operational pause.",
-          recallDifference:
-            "Stop the whole product only when the issue is confirmed to affect the whole product. For a temporary concern or one batch, use the simpler scope-specific path instead.",
-          problemSaleStopTitle: "Why are sales stopped?",
-          problemSaleStopHint:
-            "If the report was a false alarm, return the product to sale directly. If the issue is confirmed, handle all current stock; the issue closes automatically after final confirmation.",
-          manageConfirmedIssue: "Handle affected quantities",
-          manageConfirmedIssueHint:
-            "Dispose of all current stock or return it to the supplier / manufacturer. After supervisor-password confirmation, the stock leaves inventory and the safety issue closes automatically.",
+          salesHoldDifference: "Temporary stop.",
+          recallDifference: "For a quality or safety issue affecting the whole product.",
+          problemSaleStopTitle: "Safety issue",
+          problemSaleStopHint: "If the report was false, restore sales. Otherwise handle the stock.",
+          manageConfirmedIssue: "Handle stock",
+          manageConfirmedIssueHint: "Choose disposal or return to vendor.",
           recallCompletionTitle:
             "Issue handling is still incomplete",
           recallCompletionHint:

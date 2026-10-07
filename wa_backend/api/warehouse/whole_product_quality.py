@@ -66,6 +66,7 @@ class WholeProductQualityResolveRequest(BaseModel):
     recipient_name: str | None = Field(default=None, max_length=300, deprecated=True)
     handover_reference: str | None = Field(default=None, max_length=500)
     confirmation_password: SecretStr = Field(..., min_length=1, max_length=256)
+    post_resolution_hold: Literal["NONE", "SALES_HOLD"] = "NONE"
 
     @model_validator(mode="after")
     def validate_action_evidence(self):
@@ -92,6 +93,7 @@ class WholeProductQualityResolveResponse(BaseModel):
     product_variant_id: int
     total_quantity: str
     location_count: int
+    post_resolution_hold: Literal["NONE", "SALES_HOLD"]
     locations: list[WholeProductQualityLocationResult]
 
 
@@ -161,10 +163,17 @@ async def resolve_whole_product_quality(
             request_hash=request_hash,
         )
         if replay is not None:
-            replay_names = {int(row["location_id"]): row["location_name"] for row in replay["locations"]}
-            await _require_location_authority(access, sorted(replay_names), replay_names, terminal_permission)
+            replay_payload = dict(replay)
+            replay_payload.setdefault("post_resolution_hold", "NONE")
+            replay_names = {
+                int(row["location_id"]): row["location_name"]
+                for row in replay_payload["locations"]
+            }
+            await _require_location_authority(
+                access, sorted(replay_names), replay_names, terminal_permission
+            )
             await db.rollback()
-            return replay
+            return replay_payload
 
         supplier = None
         if payload.action == "RETURN_TO_VENDOR":
@@ -412,6 +421,7 @@ async def resolve_whole_product_quality(
                 if payload.action == "DISPOSE"
                 else "تم إغلاق مشكلة السلامة تلقائيًا بعد تسليم كل الكميات الحالية للمورد / المصنع."
             ),
+            target_hold=payload.post_resolution_hold,
         )
         await refresh_live_stock_variants(
             db,
@@ -431,6 +441,7 @@ async def resolve_whole_product_quality(
             old_value="quality_issue=RECALL",
             new_value=(
                 f"action={payload.action}; quality_issue=CLOSED; "
+                f"post_resolution_hold={payload.post_resolution_hold}; "
                 f"locations={len(response_locations)}; "
                 f"quantity={canonical_quantity(total_quantity)}"
             ),
@@ -445,6 +456,7 @@ async def resolve_whole_product_quality(
             "product_variant_id": int(product_variant_id),
             "total_quantity": canonical_quantity(total_quantity),
             "location_count": len(response_locations),
+            "post_resolution_hold": payload.post_resolution_hold,
             "locations": response_locations,
         }
         complete_idempotent_operation(idem, response_payload)
