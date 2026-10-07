@@ -15,6 +15,7 @@ from domains.inventory_costing.service import get_cost_policy, money6
 from inventory_access import InventoryAccess
 from models import (
     Company,
+    DomainAuditEvent,
     Driver,
     InventoryBalance,
     InventoryCostLayer,
@@ -55,6 +56,7 @@ class WholeProductQualityValuationLine(BaseModel):
 
 class WholeProductQualityPreviewResponse(BaseModel):
     product_variant_id: int
+    issue_reason: str | None
     currency_code: str
     costing_method: Literal["MOVING_AVERAGE", "FIFO"] | None
     valuation_available: bool
@@ -75,6 +77,37 @@ def _money_text(value: Decimal) -> str:
     return format(money6(value, "preview_value"), "f")
 
 
+async def _current_recall_reason(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    product_variant_id: int,
+    lifecycle_revision: int,
+) -> str | None:
+    event = await db.scalar(
+        select(DomainAuditEvent)
+        .where(
+            DomainAuditEvent.company_id == company_id,
+            DomainAuditEvent.event_type == "ProductRecallIssued",
+            DomainAuditEvent.entity_type == "ProductVariant",
+            DomainAuditEvent.entity_id == str(product_variant_id),
+        )
+        .order_by(DomainAuditEvent.occurred_at.desc(), DomainAuditEvent.id.desc())
+        .limit(1)
+    )
+    if event is None:
+        return None
+    snapshot = event.after_snapshot if isinstance(event.after_snapshot, dict) else {}
+    try:
+        event_revision = int(snapshot.get("lifecycle_revision"))
+    except (TypeError, ValueError):
+        return None
+    if event_revision != lifecycle_revision:
+        return None
+    reason = str(event.reason_text or "").strip()
+    return reason or None
+
+
 @router.get(
     "/warehouse/quality/products/{product_variant_id}/resolve-preview",
     response_model=WholeProductQualityPreviewResponse,
@@ -90,7 +123,11 @@ async def get_whole_product_quality_preview(
 
     variant = (
         await db.execute(
-            select(ProductVariant.id, ProductVariant.operational_hold).where(
+            select(
+                ProductVariant.id,
+                ProductVariant.operational_hold,
+                ProductVariant.lifecycle_revision,
+            ).where(
                 ProductVariant.company_id == company_id,
                 ProductVariant.id == int(product_variant_id),
             )
@@ -106,6 +143,13 @@ async def get_whole_product_quality_preview(
                 "لا توجد مشكلة جودة مفتوحة على المنتج بالكامل.",
             ),
         )
+
+    issue_reason = await _current_recall_reason(
+        db,
+        company_id=company_id,
+        product_variant_id=int(product_variant_id),
+        lifecycle_revision=int(variant.lifecycle_revision),
+    )
 
     rows = (
         await db.execute(
@@ -224,6 +268,8 @@ async def get_whole_product_quality_preview(
         }
         for location_id in location_ids
     ]
+    # Physical batches come only from positive current InventoryBalance rows above.
+    # Historical ProductBatch rows with zero on-hand never enter this list.
     batches = [
         {
             "batch_id": batch_id,
@@ -333,6 +379,7 @@ async def get_whole_product_quality_preview(
 
     return {
         "product_variant_id": int(product_variant_id),
+        "issue_reason": issue_reason,
         "currency_code": currency_code,
         "costing_method": costing_method if costing_method in {"MOVING_AVERAGE", "FIFO"} else None,
         "valuation_available": valuation_available,
