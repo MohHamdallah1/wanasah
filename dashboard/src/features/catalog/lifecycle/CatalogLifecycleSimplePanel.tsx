@@ -422,7 +422,7 @@ export function CatalogLifecycleSimplePanel({
                     ? "catalogLifecycle.simple.qualityIssueNoStock"
                     : "catalogLifecycle.simple.qualityIssueHint",
                 )}
-                disabled={actionsDisabled || recallHasCurrentStock === false}
+                disabled={actionsDisabled || recallHasCurrentStock !== true}
                 onClick={() => {
                   onCancel();
                   setIssueScopeOpen(true);
@@ -478,7 +478,7 @@ export function CatalogLifecycleSimplePanel({
                     hint={t(
                       "catalogLifecycle.simple.issueScopes.product.hint",
                     )}
-                    disabled={actionsDisabled || recallHasCurrentStock === false}
+                    disabled={actionsDisabled || recallHasCurrentStock !== true}
                     onClick={() => {
                       setIssueScopeOpen(false);
                       onChooseCommand("recall");
