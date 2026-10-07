@@ -31,8 +31,12 @@ _INPLACE_QUALITY_CHECK = """
 
 
 def upgrade():
-    op.drop_constraint(_CONSTRAINT, _TABLE, type_="check")
-    op.create_check_constraint(_CONSTRAINT, _TABLE, _INPLACE_QUALITY_CHECK)
+    # The repository metadata uses a naming convention for check constraints.
+    # This is already the physical database name, so mark it fixed to prevent
+    # Alembic from applying the convention a second time.
+    fixed_name = op.f(_CONSTRAINT)
+    op.drop_constraint(fixed_name, _TABLE, type_="check")
+    op.create_check_constraint(fixed_name, _TABLE, _INPLACE_QUALITY_CHECK)
 
 
 def downgrade():
@@ -53,9 +57,10 @@ def downgrade():
         $$;
         """
     )
-    op.drop_constraint(_CONSTRAINT, _TABLE, type_="check")
+    fixed_name = op.f(_CONSTRAINT)
+    op.drop_constraint(fixed_name, _TABLE, type_="check")
     op.create_check_constraint(
-        _CONSTRAINT,
+        fixed_name,
         _TABLE,
         "source_location_id <> destination_location_id",
     )
