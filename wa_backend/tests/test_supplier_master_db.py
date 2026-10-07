@@ -198,7 +198,7 @@ async def test_bounded_search_company_code_and_cursor_scope(api):
     assert_code(await api.client.get("/suppliers", params={"active": "false", "search": "Search", "cursor": cursor}), "SUPPLIER_CURSOR_INVALID", 400)
     assert (await api.client.get("/suppliers?limit=101")).status_code == 422
     await create(api, "Duplicate names allowed", None); await create(api, "Duplicate names allowed", None)
-    assert_code(await api.client.post("/suppliers", json={"request_id": str(uuid4()), "name": "Code duplicate", "code": "S0"}), "SUPPLIER_DATA_CONFLICT", 409)
+    assert_code(await api.client.post("/suppliers", json={"request_id": str(uuid4()), "name": "Code duplicate", "code": "S0", "phone": "+962790000001", "address": "Amman main address"}), "SUPPLIER_DATA_CONFLICT", 409)
 
 
 @pytest.mark.asyncio
