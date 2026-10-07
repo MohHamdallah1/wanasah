@@ -10,15 +10,27 @@ COSTING_SOURCE = (
 ).read_text(encoding="utf-8")
 
 
-def test_preview_is_read_only_and_discovers_locations_and_physical_batches():
+def test_preview_is_read_only_and_discovers_only_positive_current_physical_batches():
     assert '@router.get(' in PREVIEW_SOURCE
     assert '"/warehouse/quality/products/{product_variant_id}/resolve-preview"' in PREVIEW_SOURCE
     assert "InventoryBalance.product_variant_id == int(product_variant_id)" in PREVIEW_SOURCE
     assert "InventoryBalance.on_hand_quantity > 0" in PREVIEW_SOURCE
     assert 'ProductBatch.batch_number.label("batch_number")' in PREVIEW_SOURCE
-    assert '"location_name": location_meta[location_id][0]' in PREVIEW_SOURCE
+    assert "batch_quantities[batch_id] += quantity" in PREVIEW_SOURCE
     assert '"batch_number": batch_numbers[batch_id]' in PREVIEW_SOURCE
+    assert "for batch_id in sorted(batch_quantities)" in PREVIEW_SOURCE
+    assert "Historical ProductBatch rows with zero on-hand never enter this list." in PREVIEW_SOURCE
     assert "InventoryLocation.code" not in PREVIEW_SOURCE
+
+
+def test_preview_reads_the_reason_from_the_current_recall_audit_event():
+    assert 'DomainAuditEvent.event_type == "ProductRecallIssued"' in PREVIEW_SOURCE
+    assert 'DomainAuditEvent.entity_type == "ProductVariant"' in PREVIEW_SOURCE
+    assert "event.after_snapshot" in PREVIEW_SOURCE
+    assert 'snapshot.get("lifecycle_revision")' in PREVIEW_SOURCE
+    assert "event_revision != lifecycle_revision" in PREVIEW_SOURCE
+    assert "event.reason_text" in PREVIEW_SOURCE
+    assert '"issue_reason": issue_reason' in PREVIEW_SOURCE
 
 
 def test_preview_preserves_non_warehouse_custody_as_visible_information_and_blocker():
