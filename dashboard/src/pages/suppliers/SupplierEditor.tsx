@@ -48,7 +48,7 @@ export function SupplierEditor({ supplier, storageKey, busy, blocked, error, blo
       <div className="rounded-[24px] border border-white/90 bg-gradient-to-br from-slate-50/95 via-white/90 to-cyan-50/[0.45] p-4 shadow-[0_18px_45px_-36px_rgba(15,23,42,0.55)]">
         <div className="flex items-center gap-3">
           <div className="grid h-11 w-11 place-items-center rounded-2xl border border-white bg-white/[0.85] shadow-sm"><Building2 className="h-5 w-5 text-slate-600" /></div>
-          <div><p className="text-sm font-black text-slate-900">{t(supplier ? "suppliers.edit" : "suppliers.add")}</p><p className="mt-0.5 text-xs font-semibold text-slate-500">{t("suppliers.editorHint")}</p></div>
+          <p className="text-sm font-black text-slate-900">{t(supplier ? "suppliers.edit" : "suppliers.add")}</p>
         </div>
       </div>
 
