@@ -30,7 +30,7 @@ export type ProductQualityLocation = {
   movableQuantity: Quantity;
   dispatch: Record<QualityDispatchPurpose, QualityActionLine[]>;
   terminal: Record<QualityTerminalAction, QualityActionLine[]>;
-  needsDestinationSetup: boolean;
+  setupRequired: Record<QualityDispatchPurpose, boolean>;
 };
 
 const zero = "0" as Quantity;
@@ -56,7 +56,7 @@ export function aggregateProductQualityLocations(pages: ProductQualityPage[]): P
             movableQuantity: zero,
             dispatch: { DISPOSAL: [], RETURN_TO_VENDOR: [] },
             terminal: { CONFIRM_DISPOSAL: [], CONFIRM_VENDOR_HANDOVER: [] },
-            needsDestinationSetup: false,
+            setupRequired: { DISPOSAL: false, RETURN_TO_VENDOR: false },
           };
           map.set(source.locationId, location);
         }
@@ -65,7 +65,9 @@ export function aggregateProductQualityLocations(pages: ProductQualityPage[]): P
           location.reservedQuantity = addQuantity(location.reservedQuantity, status.reservedQuantity);
           location.movableQuantity = addQuantity(location.movableQuantity, status.movableQuantity);
           for (const action of status.dispatchActions) {
-            if (action.reasonCode === "NO_CONFIGURED_DESTINATION") location.needsDestinationSetup = true;
+            if (action.reasonCode === "NO_CONFIGURED_DESTINATION") {
+              location.setupRequired[action.action] = true;
+            }
             if (!action.allowed || isZeroQuantity(action.eligibleQuantity)) continue;
             location.dispatch[action.action].push({
               batchId: batch.batchId,
