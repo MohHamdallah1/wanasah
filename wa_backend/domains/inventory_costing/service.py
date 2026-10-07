@@ -29,6 +29,7 @@ from models import (
 MONEY_QUANT = Decimal("0.000001")
 MONEY_MAX = Decimal("99999999999999.999999")
 COST_METHODS = frozenset({"MOVING_AVERAGE", "FIFO"})
+LEGACY_FIFO_STATE_BRIDGE_BASIS = "LEGACY_FIFO_STATE_BRIDGE"
 
 
 class CostingError(ValueError):
@@ -108,6 +109,130 @@ def _positive_quantity(value: Any, field: str) -> Decimal:
             context={"field": field},
         )
     return quantity
+
+
+def _consume_fifo_outbound_cost(
+    *,
+    quantity: Decimal,
+    before_quantity: Decimal,
+    before_value: Decimal,
+    layers: list[InventoryCostLayer],
+    allow_legacy_state_bridge: bool,
+) -> tuple[Decimal, str, list[tuple[InventoryCostLayer, Decimal, Decimal]]]:
+    """Consume FIFO without fabricating missing legacy acquisition layers.
+
+    Historical active FIFO tenants may have aggregate cost state that predates
+    FIFO-layer provenance. Ordinary outbounds fail closed when that residual
+    exists. The whole-product terminal quality workflow may consume that
+    residual explicitly while closing the product position atomically.
+    """
+    layer_quantity = sum(
+        (Decimal(layer.remaining_quantity or 0) for layer in layers),
+        Decimal("0"),
+    )
+    layer_value = money6(
+        sum((Decimal(layer.remaining_value or 0) for layer in layers), Decimal("0")),
+        "fifo_layer_total_value",
+    )
+    if layer_quantity > before_quantity or layer_value > before_value:
+        raise CostingError(
+            "FIFO_COST_STATE_LAYER_OVERFLOW",
+            "FIFO layers exceed the current inventory cost state.",
+            context={
+                "state_quantity": format(before_quantity, "f"),
+                "layer_quantity": format(layer_quantity, "f"),
+                "state_value": format(before_value, "f"),
+                "layer_value": format(layer_value, "f"),
+            },
+        )
+
+    legacy_quantity = before_quantity - layer_quantity
+    legacy_value = money6(before_value - layer_value, "legacy_fifo_state_value")
+    if legacy_quantity == 0 and legacy_value != Decimal("0.000000"):
+        raise CostingError(
+            "FIFO_COST_STATE_LAYER_VALUE_MISMATCH",
+            "FIFO layer value does not reconcile with the current cost state.",
+        )
+    if legacy_quantity > 0 and not allow_legacy_state_bridge:
+        raise CostingError(
+            "FIFO_LEGACY_STATE_UNLAYERED",
+            "Legacy FIFO inventory has no layer provenance; the outbound was rejected.",
+            context={
+                "legacy_quantity": format(legacy_quantity, "f"),
+                "legacy_value": format(legacy_value, "f"),
+            },
+        )
+
+    remaining = quantity
+    total_cost = Decimal("0.000000")
+    used_legacy_bridge = False
+    if legacy_quantity > 0 and remaining > 0:
+        take = min(legacy_quantity, remaining)
+        value = (
+            legacy_value
+            if take == legacy_quantity
+            else money6(
+                legacy_value * take / legacy_quantity,
+                "legacy_fifo_bridge_value",
+            )
+        )
+        total_cost = money6(total_cost + value, "fifo_total_cost")
+        remaining -= take
+        used_legacy_bridge = take > 0
+
+    explicit_available = sum(
+        (Decimal(layer.remaining_quantity or 0) for layer in layers),
+        Decimal("0"),
+    )
+    if remaining > explicit_available:
+        raise CostingError(
+            "FIFO_COST_LAYER_SHORTAGE",
+            "FIFO cost layers do not cover the outbound product quantity.",
+            context={"missing_quantity": format(remaining - explicit_available, "f")},
+        )
+
+    consumed: list[tuple[InventoryCostLayer, Decimal, Decimal]] = []
+    for layer in layers:
+        if remaining <= 0:
+            break
+        layer_qty = Decimal(layer.remaining_quantity or 0)
+        layer_value_before = Decimal(layer.remaining_value or 0)
+        if layer_qty <= 0:
+            continue
+        take = min(layer_qty, remaining)
+        value = (
+            layer_value_before
+            if take == layer_qty
+            else money6(
+                layer_value_before * take / layer_qty,
+                "fifo_allocation_value",
+            )
+        )
+        if value > layer_value_before:
+            value = layer_value_before
+        layer.remaining_quantity = layer_qty - take
+        layer.remaining_value = money6(
+            layer_value_before - value,
+            "fifo_layer_remaining_value",
+        )
+        layer.version += 1
+        layer.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        consumed.append((layer, take, value))
+        total_cost = money6(total_cost + value, "fifo_total_cost")
+        remaining -= take
+
+    if remaining != 0:
+        raise CostingError(
+            "FIFO_COST_LAYER_SHORTAGE",
+            "FIFO cost layers do not cover the outbound product quantity.",
+            context={"missing_quantity": format(remaining, "f")},
+        )
+    basis = (
+        LEGACY_FIFO_STATE_BRIDGE_BASIS
+        if used_legacy_bridge
+        else "FIFO_LAYER"
+    )
+    return total_cost, basis, consumed
 
 
 def build_purchase_cost_input(
@@ -711,7 +836,10 @@ async def apply_inventory_costing_for_movements(
                 event_type = "REVERSAL_IN"
                 if method == "FIFO":
                     allocations = original_allocations.get(int(original.id), [])
-                    if not allocations:
+                    if (
+                        not allocations
+                        and str(original.cost_basis) != LEGACY_FIFO_STATE_BRIDGE_BASIS
+                    ):
                         raise CostingError("FIFO_REVERSAL_ALLOCATIONS_MISSING", "FIFO outbound allocations are missing.")
                     for allocation in allocations:
                         layer = layer_by_id[int(allocation.cost_layer_id)]
@@ -876,33 +1004,18 @@ async def apply_inventory_costing_for_movements(
                 total_cost = before_v
             basis = "MOVING_AVERAGE"
         else:
-            remaining = quantity
-            total_cost = Decimal("0.000000")
-            for layer in fifo_layers_by_variant[variant_id]:
-                if remaining <= 0:
-                    break
-                layer_qty = Decimal(layer.remaining_quantity)
-                layer_value = Decimal(layer.remaining_value)
-                if layer_qty <= 0:
-                    continue
-                take = min(layer_qty, remaining)
-                value = layer_value if take == layer_qty else money6(layer_value * take / layer_qty, "fifo_allocation_value")
-                if value > layer_value:
-                    value = layer_value
-                layer.remaining_quantity = layer_qty - take
-                layer.remaining_value = money6(layer_value - value, "fifo_layer_remaining_value")
-                layer.version += 1
-                layer.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                fifo_consumed.append((layer, take, value))
-                total_cost = money6(total_cost + value, "fifo_total_cost")
-                remaining -= take
-            if remaining != 0:
-                raise CostingError(
-                    "FIFO_COST_LAYER_SHORTAGE",
-                    "FIFO cost layers do not cover the outbound product quantity.",
-                    context={"product_variant_id": variant_id, "missing_quantity": format(remaining, "f")},
-                )
-            basis = "FIFO_LAYER"
+            bridge_requested = bool(spec.get("allow_legacy_fifo_state_bridge", False))
+            bridge_allowed = (
+                bridge_requested
+                and getattr(policy, "selected_at", None) is None
+            )
+            total_cost, basis, fifo_consumed = _consume_fifo_outbound_cost(
+                quantity=quantity,
+                before_quantity=before_q,
+                before_value=before_v,
+                layers=fifo_layers_by_variant[variant_id],
+                allow_legacy_state_bridge=bridge_allowed,
+            )
         after_q = before_q - quantity
         after_v = money6(before_v - total_cost, "inventory_value")
         if after_q == 0:

@@ -559,7 +559,7 @@ class InventoryCostEvent(Base):
         ),
         CheckConstraint(
             "cost_basis IN ('PURCHASE_ACTUAL','MOVING_AVERAGE','FIFO_LAYER',"
-            "'ORIGINAL_REVERSAL','CURRENT_AVERAGE_ESTIMATE')",
+            "'ORIGINAL_REVERSAL','CURRENT_AVERAGE_ESTIMATE','LEGACY_FIFO_STATE_BRIDGE')",
             name='chk_inventory_cost_event_basis',
         ),
         CheckConstraint('quantity > 0', name='chk_inventory_cost_event_quantity'),

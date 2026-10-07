@@ -34,6 +34,7 @@ async def confirm_final_disposal(
     reason: str,
     method: str | None = None,
     evidence_reference: str | None = None,
+    allow_legacy_fifo_state_bridge: bool = False,
 ) -> dict[str, Any]:
     """Destroy company-owned stock only after it reached DISPOSAL_PENDING.
 
@@ -119,6 +120,7 @@ async def confirm_final_disposal(
             "source_stock_status": "DISPOSAL_PENDING",
             "destination_stock_status": None,
             "transfer_header_id": allocation.transfer_header_id,
+            "allow_legacy_fifo_state_bridge": allow_legacy_fifo_state_bridge,
             "notes": str(reason).strip(),
         }
         for allocation in allocations

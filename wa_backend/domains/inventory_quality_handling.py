@@ -76,6 +76,8 @@ async def stage_quality_handling_direct(
         tenant_policy_id=int(tenant_policy_id),
         tenant_policy_revision=int(tenant_policy_revision),
         dispatched_by=actor_id,
+        created_at=now_utc,
+        updated_at=now_utc,
         posted_at=now_utc,
         notes=notes,
     )

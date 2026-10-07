@@ -36,6 +36,7 @@ async def confirm_vendor_handover(
     vendor_name: str,
     vendor_reference: str,
     handover_reference: str,
+    allow_legacy_fifo_state_bridge: bool = False,
 ) -> dict[str, Any]:
     try:
         qty = parse_quantity(quantity, "quantity", allow_zero=False)
@@ -112,6 +113,7 @@ async def confirm_vendor_handover(
             "source_stock_status": normalized_status,
             "destination_stock_status": None,
             "transfer_header_id": allocation.transfer_header_id,
+            "allow_legacy_fifo_state_bridge": allow_legacy_fifo_state_bridge,
             "notes": f"Vendor handover evidence: {vendor_reference}",
         }
         for allocation in allocations
