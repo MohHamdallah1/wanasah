@@ -26,6 +26,7 @@ export type WholeProductQualityValuationLine = {
 
 export type WholeProductQualityPreview = {
   productVariantId: number;
+  issueReason: string | null;
   currencyCode: string;
   costingMethod: WholeProductCostingMethod | null;
   valuationAvailable: boolean;
@@ -67,6 +68,9 @@ const text = (value: unknown, max: number): string =>
     ? value.trim()
     : invalid();
 
+const optionalText = (value: unknown, max: number): string | null =>
+  value === null ? null : text(value, max);
+
 const quantity = (value: unknown, field: string): Quantity => {
   try {
     return parseQuantity(value, field, { allowZero: false });
@@ -83,6 +87,7 @@ const money = (value: unknown): string =>
 export function parseWholeProductQualityPreview(raw: unknown): WholeProductQualityPreview {
   const row = record(raw);
   const productVariantId = positiveInt(row.product_variant_id);
+  const issueReason = optionalText(row.issue_reason, 1000);
   const currencyCode = text(row.currency_code, 10).toUpperCase();
   const costingMethod = row.costing_method === null
     ? null
@@ -155,6 +160,7 @@ export function parseWholeProductQualityPreview(raw: unknown): WholeProductQuali
 
   return {
     productVariantId,
+    issueReason,
     currencyCode,
     costingMethod,
     valuationAvailable,
