@@ -254,7 +254,7 @@ export function WholeProductQualityActionsPanel({
                 <p className="text-[9px] font-black text-slate-500">{t("productQualityInline.fields.reason")}</p>
                 <p className="mt-1 break-words text-[11px] font-bold text-slate-900">{reason || t("productQualityInline.fields.reasonMissing")}</p>
               </div>
-              <button type="button" onClick={() => setReasonEditing(true)} className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[9px] font-black text-slate-700">
+              <button type="button" onClick={() => { setReasonEditing(true); setReasonTouched(true); }} className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[9px] font-black text-slate-700">
                 <Pencil className="h-3 w-3" />{t("productQualityInline.fields.editReason")}
               </button>
             </div> : <label className="text-[10px] font-black text-slate-700">{t("productQualityInline.fields.reason")}
