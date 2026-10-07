@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { parseWholeProductQualityPreview } from "@/features/inventory/quality/wholeProductQualityPreviewContract";
 
-const movingAveragePreview = () => ({
+const movingAveragePreview = (): Record<string, unknown> => ({
   product_variant_id: 44,
   currency_code: "JOD",
   costing_method: "MOVING_AVERAGE",
