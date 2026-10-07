@@ -32,8 +32,6 @@ from models import (
     ProductBatch,
     ProductUomConversion,
     ProductVariant,
-    InventoryTransferHeader,
-    InventoryTransferLine,
     SystemAuditLog,
     UOM,
 )
@@ -44,6 +42,7 @@ from product_lifecycle import (
     apply_variant_publish_transition,
     archive_blockers,
     recall_completion_blockers,
+    recall_has_terminal_activity,
     draft_delete_blockers,
     record_domain_event,
     variant_snapshot,
@@ -1396,44 +1395,6 @@ async def parse_gs1_endpoint(payload: Gs1Request, db: AsyncSession = Depends(get
     return {"gtin": parsed.gtin, "lot": parsed.lot, "expiry_date": parsed.expiry_date, "serial": parsed.serial}
 
 
-async def _assert_recall_cancel_has_no_return_activity(
-    db: AsyncSession,
-    *,
-    company_id: int,
-    variant_id: int,
-    lifecycle_revision: int,
-) -> None:
-    active_recall_transfer = await db.scalar(
-        select(InventoryTransferLine.id)
-        .join(
-            InventoryTransferHeader,
-            and_(
-                InventoryTransferHeader.company_id
-                == InventoryTransferLine.company_id,
-                InventoryTransferHeader.id
-                == InventoryTransferLine.transfer_header_id,
-            ),
-        )
-        .where(
-            InventoryTransferLine.company_id == company_id,
-            InventoryTransferLine.product_variant_id == variant_id,
-            InventoryTransferLine.lifecycle_revision_snapshot
-            == lifecycle_revision,
-            InventoryTransferLine.operational_hold_snapshot == "RECALL",
-            InventoryTransferHeader.transfer_purpose == "RECALL_RETURN",
-            InventoryTransferHeader.status.not_in(("CANCELLED", "REJECTED")),
-        )
-        .limit(1)
-    )
-    if active_recall_transfer is not None:
-        raise _error(
-            409,
-            "PRODUCT_RECALL_CANCEL_AFTER_ACTIVITY",
-            "لا يمكن اعتبار السحب إنذارًا خاطئًا بعد بدء إرجاع كميات ضمن السحب. أكمل السحب، أو ألغِ عمليات الإرجاع المفتوحة أولًا إذا لم تتحرك الكمية فعليًا.",
-            variant_id=variant_id,
-        )
-
-
 async def _run_variant_state_command(
     *,
     variant_id: int,
@@ -1550,12 +1511,18 @@ async def _run_variant_state_command(
         elif command == "cancel-recall":
             if row.operational_hold != "RECALL":
                 raise _error(409, "PRODUCT_RECALL_CANCEL_INVALID", "لا يوجد استدعاء مفتوح يمكن إلغاؤه.")
-            await _assert_recall_cancel_has_no_return_activity(
+            if await recall_has_terminal_activity(
                 db,
                 company_id=actor.company_id,
                 variant_id=variant_id,
                 lifecycle_revision=int(row.lifecycle_revision),
-            )
+            ):
+                raise _error(
+                    409,
+                    "PRODUCT_RECALL_CANCEL_AFTER_ACTIVITY",
+                    "لا يمكن اعتبار المشكلة إنذارًا خاطئًا بعد بدء إتلاف أو إرجاع أي كمية. أكمل المعالجة الحالية بدل إعادة المخزون للبيع.",
+                    variant_id=variant_id,
+                )
             row.operational_hold = "NONE"
             event_type, message = (
                 "ProductRecallCancelled",

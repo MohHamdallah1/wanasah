@@ -1116,10 +1116,10 @@ export const resources = {
             "استخدم إيقاف المنتج بالكامل فقط عندما ثبت أن المشكلة تشمل المنتج كله. إذا كان الشك مؤقتًا أو يخص دفعة واحدة فاختر المسار الأبسط المناسب.",
           problemSaleStopTitle: "لماذا البيع موقوف؟",
           problemSaleStopHint:
-            "تم إيقاف بيع المنتج بالكامل بسبب مشكلة جودة أو سلامة. اختر الإجراء التالي حسب نتيجة التحقيق.",
+            "إذا تبين أن البلاغ خاطئًا فأعد المنتج للبيع مباشرة. وإذا كانت المشكلة مؤكدة فعالج كل الكمية؛ بعد التأكيد النهائي يغلق النظام المشكلة تلقائيًا.",
           manageConfirmedIssue: "معالجة الكميات المتأثرة",
           manageConfirmedIssueHint:
-            "افتح أماكن الكميات المتأثرة واختر الإجراء المناسب: تجميعها في موقع المعالجة، إرجاعها للمورد أو إتلافها. يبقى المنتج موقوفًا أثناء المعالجة.",
+            "اختر إتلاف كل الكمية الحالية أو إرجاعها للمورد / المصنع. بعد إدخال كلمة مرور المشرف والتأكيد، يخرج الرصيد وتُغلق مشكلة السلامة تلقائيًا.",
           recallCompletionTitle:
             "ما زالت معالجة المشكلة غير مكتملة",
           recallCompletionHint:
@@ -3340,10 +3340,10 @@ export const resources = {
             "Stop the whole product only when the issue is confirmed to affect the whole product. For a temporary concern or one batch, use the simpler scope-specific path instead.",
           problemSaleStopTitle: "Why are sales stopped?",
           problemSaleStopHint:
-            "Sales for the whole product were stopped because of a quality or safety issue. Choose the next action based on the investigation result.",
+            "If the report was a false alarm, return the product to sale directly. If the issue is confirmed, handle all current stock; the issue closes automatically after final confirmation.",
           manageConfirmedIssue: "Handle affected quantities",
           manageConfirmedIssueHint:
-            "Open affected stock locations and choose the appropriate action: collect it in the issue-handling location, return it to the supplier, or dispose of it. The product remains stopped during handling.",
+            "Dispose of all current stock or return it to the supplier / manufacturer. After supervisor-password confirmation, the stock leaves inventory and the safety issue closes automatically.",
           recallCompletionTitle:
             "Issue handling is still incomplete",
           recallCompletionHint:

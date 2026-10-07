@@ -1,40 +1,38 @@
-from unittest.mock import AsyncMock
+﻿from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import HTTPException
 
-from api.catalog import _assert_recall_cancel_has_no_return_activity
+from product_lifecycle import recall_has_terminal_activity
 
 
 @pytest.mark.asyncio
-async def test_false_alarm_cancel_is_allowed_before_recall_return_activity():
+async def test_false_alarm_cancel_is_allowed_before_any_terminal_activity():
     db = AsyncMock()
     db.scalar.return_value = None
 
-    await _assert_recall_cancel_has_no_return_activity(
+    active = await recall_has_terminal_activity(
         db,
         company_id=38,
         variant_id=118,
         lifecycle_revision=7,
     )
 
+    assert active is False
     db.scalar.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_false_alarm_cancel_is_blocked_after_recall_return_activity():
+@pytest.mark.parametrize("row_id", [501, 777])
+async def test_false_alarm_cancel_is_blocked_after_terminal_activity(row_id):
     db = AsyncMock()
-    db.scalar.return_value = 501
+    db.scalar.return_value = row_id
 
-    with pytest.raises(HTTPException) as exc_info:
-        await _assert_recall_cancel_has_no_return_activity(
-            db,
-            company_id=38,
-            variant_id=118,
-            lifecycle_revision=7,
-        )
+    active = await recall_has_terminal_activity(
+        db,
+        company_id=38,
+        variant_id=118,
+        lifecycle_revision=7,
+    )
 
-    error = exc_info.value
-    assert error.status_code == 409
-    assert error.detail["code"] == "PRODUCT_RECALL_CANCEL_AFTER_ACTIVITY"
-    assert error.detail["context"]["variant_id"] == 118
+    assert active is True
+    db.scalar.assert_awaited_once()

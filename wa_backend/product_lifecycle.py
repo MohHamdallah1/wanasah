@@ -8,7 +8,14 @@ from uuid import UUID
 from sqlalchemy import and_, func, inspect, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import DomainAuditEvent, ProductVariant, TransactionalOutbox, utc_now
+from models import (
+    DomainAuditEvent,
+    InventoryTransferHeader,
+    InventoryTransferLine,
+    ProductVariant,
+    TransactionalOutbox,
+    utc_now,
+)
 
 
 STRUCTURE_EDIT = "STRUCTURE_EDIT"
@@ -116,11 +123,13 @@ class ProductLifecycleTransitionError(ValueError):
         message: str,
         *,
         status_code: int = 409,
+        context: dict[str, Any] | None = None,
     ):
         super().__init__(message)
         self.code = code
         self.message = message
         self.status_code = status_code
+        self.context = context or {}
 
 
 def apply_variant_publish_transition(
@@ -500,6 +509,83 @@ async def recall_completion_blockers(
         for item in await archive_blockers(db, company_id, variant_id)
         if item["code"] in RECALL_COMPLETION_BLOCKER_CODES
     ]
+
+
+async def recall_has_terminal_activity(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    variant_id: int,
+    lifecycle_revision: int,
+) -> bool:
+    """A false-alarm cancellation is allowed only before real handling starts."""
+    activity = await db.scalar(
+        select(InventoryTransferLine.id)
+        .join(
+            InventoryTransferHeader,
+            and_(
+                InventoryTransferHeader.company_id == InventoryTransferLine.company_id,
+                InventoryTransferHeader.id == InventoryTransferLine.transfer_header_id,
+            ),
+        )
+        .where(
+            InventoryTransferLine.company_id == int(company_id),
+            InventoryTransferLine.product_variant_id == int(variant_id),
+            InventoryTransferLine.lifecycle_revision_snapshot == int(lifecycle_revision),
+            InventoryTransferLine.operational_hold_snapshot == "RECALL",
+            InventoryTransferHeader.transfer_purpose.in_(
+                ("RECALL_RETURN", "DISPOSAL", "RETURN_TO_VENDOR")
+            ),
+            InventoryTransferHeader.status.not_in(("CANCELLED", "REJECTED")),
+        )
+        .limit(1)
+    )
+    return activity is not None
+
+
+async def close_recall_after_terminal_resolution(
+    db: AsyncSession,
+    *,
+    row: ProductVariant,
+    company_id: int,
+    actor_id: int,
+    request_id: UUID,
+    reason: str,
+) -> None:
+    """Close the safety issue in the same transaction as terminal handling."""
+    if row.company_id != int(company_id) or str(row.operational_hold).upper() != "RECALL":
+        raise ProductLifecycleTransitionError(
+            "PRODUCT_RECALL_CLOSE_INVALID",
+            "لا توجد مشكلة سلامة مفتوحة يمكن إغلاقها.",
+        )
+
+    blockers = await recall_completion_blockers(db, int(company_id), int(row.id))
+    if blockers:
+        raise ProductLifecycleTransitionError(
+            "PRODUCT_RECALL_COMPLETION_REQUIRED",
+            "لا يمكن إنهاء مشكلة السلامة قبل اكتمال معالجة كل الكميات والعمليات المرتبطة.",
+            context={"variant_id": int(row.id), "blockers": blockers},
+        )
+
+    before = variant_snapshot(row)
+    row.operational_hold = "NONE"
+    row.lifecycle_revision += 1
+    row.version += 1
+    row.updated_at = utc_now()
+    after = variant_snapshot(row)
+    record_domain_event(
+        db,
+        company_id=int(company_id),
+        actor_id=int(actor_id),
+        request_id=request_id,
+        event_type="ProductRecallClosed",
+        entity_type="ProductVariant",
+        entity_id=int(row.id),
+        reason=reason,
+        before=before,
+        after=after,
+    )
+    await db.flush()
 
 
 async def product_location_delete_blockers(
