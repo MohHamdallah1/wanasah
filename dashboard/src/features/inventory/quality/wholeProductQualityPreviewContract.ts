@@ -34,6 +34,7 @@ export type WholeProductQualityPreview = {
   totalQuantity: Quantity;
   totalReservedQuantity: Quantity;
   totalBookValue: string | null;
+  averageUnitCost: string | null;
   locations: WholeProductQualityPreviewLocation[];
   batches: WholeProductQualityPreviewBatch[];
   valuationLines: WholeProductQualityValuationLine[];
@@ -114,6 +115,7 @@ export function parseWholeProductQualityPreview(raw: unknown): WholeProductQuali
     "total_reserved_quantity",
   );
   const totalBookValue = row.total_book_value === null ? null : money(row.total_book_value);
+  const averageUnitCost = row.average_unit_cost === null ? null : money(row.average_unit_cost);
 
   if (!Array.isArray(row.locations) || row.locations.length === 0 || row.locations.length > 100) return invalid();
   const seenLocations = new Set<number>();
@@ -166,8 +168,14 @@ export function parseWholeProductQualityPreview(raw: unknown): WholeProductQuali
   if (new Set(blockerCodes).size !== blockerCodes.length) return invalid();
 
   if (valuationAvailable) {
-    if (costingMethod === null || totalBookValue === null || valuationReason !== null || valuationLines.length === 0) return invalid();
-  } else if (totalBookValue !== null || valuationLines.length !== 0) {
+    if (
+      costingMethod === null ||
+      totalBookValue === null ||
+      averageUnitCost === null ||
+      valuationReason !== null ||
+      valuationLines.length === 0
+    ) return invalid();
+  } else if (totalBookValue !== null || averageUnitCost !== null || valuationLines.length !== 0) {
     return invalid();
   }
 
@@ -181,6 +189,7 @@ export function parseWholeProductQualityPreview(raw: unknown): WholeProductQuali
     totalQuantity,
     totalReservedQuantity,
     totalBookValue,
+    averageUnitCost,
     locations,
     batches,
     valuationLines,
