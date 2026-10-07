@@ -4,6 +4,7 @@ import { productQualityWorkspace } from "./productQualityWorkspace";
 import { productQualityInline } from "./productQualityInline";
 import { terminalQualityActions } from "./terminalQualityActions";
 import { qualityActionReasons } from "./qualityActionReasons";
+import { suppliers } from "./suppliers";
 
 export const supportedLanguages = [
   "ar",
@@ -22,6 +23,7 @@ export const resources = {
       productQualityInline: productQualityInline.ar,
       terminalQualityActions: terminalQualityActions.ar,
       qualityActionReasons: qualityActionReasons.ar,
+      suppliers: suppliers.ar,
       common: {
         save: "حفظ",
         cancel: "إلغاء",
@@ -1882,6 +1884,8 @@ export const resources = {
         unexpectedWithReference:
           "حدث خطأ غير متوقع في الخادم. رقم التتبع: {{requestId}}",
         codes: {
+          ...suppliers.ar.errors,
+          SUPPLIER_REQUIRED: "اختر موردًا نشطًا لهذه العملية الجديدة.",
           LIVE_STOCK_RESPONSE_INVALID: "استجابة الرصيد الحي غير صالحة أو غير مكتملة.",
           LIVE_STOCK_BATCH_RESPONSE_INVALID: "استجابة تفاصيل الدفعات غير صالحة أو غير مكتملة.",
           LIVE_STOCK_LOCATION_NOT_FOUND: "المستودع المحدد غير متاح.",
@@ -2241,6 +2245,7 @@ export const resources = {
       productQualityInline: productQualityInline.en,
       terminalQualityActions: terminalQualityActions.en,
       qualityActionReasons: qualityActionReasons.en,
+      suppliers: suppliers.en,
       common: {
         save: "Save",
         cancel: "Cancel",
@@ -4146,6 +4151,8 @@ export const resources = {
           OPERATIONS_RESPONSE_INVALID: "The operations response is invalid or incomplete.",
           INBOUND_DUPLICATE_BATCH_UOM_LINE: "Do not repeat the same product, batch, and purchasing unit on multiple lines. Add another line only for a different purchasing unit.",
           VALIDATION_ERROR: "The request data is invalid. Review the entered fields.",
+          ...suppliers.en.errors,
+          SUPPLIER_REQUIRED: "Choose an active supplier for this new operation.",
           RATE_LIMITED: "The request limit was exceeded. Try again later.",
           REQUEST_TOO_LARGE: "The request is larger than the allowed limit.",
           INTERNAL_SERVER_ERROR: "An internal server error occurred.",

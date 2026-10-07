@@ -56,6 +56,8 @@ from product_lifecycle import (
     product_location_allows,
     record_domain_event,
 )
+from domains.suppliers.public import SupplierError, select_active_supplier, require_supplier_permission
+from domains.inventory_supplier_evidence import record_supplier_evidence
 
 
 
@@ -428,9 +430,10 @@ async def warehouse_inbound(
     company_id = current_admin.company_id
     await _require_active_warehouse_setup(db, company_id)
     await access.require('inbound.create', payload.location_id)
-
     try:
-        request_hash = _stable_request_hash(payload)
+        if payload.supplier_id is not None:
+            await require_supplier_permission(db, current_admin)
+        request_hash = _stable_request_hash(payload, exclude_fields={"supplier_id"} if payload.supplier_id is None else None)
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
@@ -445,6 +448,10 @@ async def warehouse_inbound(
 
         if not payload.items:
             raise HTTPException(status_code=400, detail="No inbound items were supplied.")
+
+        if payload.supplier_id is None:
+            raise HTTPException(422, detail=inventory_business_error("SUPPLIER_REQUIRED", "Select a supplier for every new receipt."))
+        supplier = await select_active_supplier(db, actor=current_admin, supplier_id=payload.supplier_id)
 
         reference_id = payload.reference_id
         if not reference_id or not reference_id.strip() or reference_id == "بدون فاتورة":
@@ -869,11 +876,15 @@ async def warehouse_inbound(
                 "notes": payload.notes,
             })
 
-        await apply_inventory_movements_batch(
+        posted_movements = await apply_inventory_movements_batch(
             db,
             company_id=company_id,
             performed_by=current_admin.id,
             movements=movement_specs,
+        )
+        record_supplier_evidence(
+            db, company_id=company_id, movement_ids=[row.id for row in posted_movements],
+            supplier=supplier, request_id=payload.request_id,
         )
 
         response_payload = {"message": "INBOUND_POSTED"}
@@ -881,6 +892,9 @@ async def warehouse_inbound(
         await db.commit()
         return response_payload
 
+    except SupplierError as exc:
+        await db.rollback()
+        raise HTTPException(exc.status_code, detail=exc.as_detail()) from exc
     except HTTPException:
         await db.rollback()
         raise
@@ -892,7 +906,7 @@ async def warehouse_inbound(
         ) from exc
     except InventoryMutationError as exc:
         await db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=inventory_business_error("INBOUND_REJECTED", str(exc))) from exc
     except IntegrityError as exc:
         await db.rollback()
         logger.warning(

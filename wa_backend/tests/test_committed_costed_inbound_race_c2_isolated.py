@@ -14,6 +14,8 @@ pass. Never run against the Wanasah development, shared or production DB.
 """
 from __future__ import annotations
 
+from tests.supplier_fixtures import seed_receipt_supplier
+
 import asyncio
 import os
 import unittest
@@ -102,6 +104,8 @@ class CommittedReceiptRaceC2IsolatedTests(unittest.IsolatedAsyncioTestCase):
             self.actor = SimpleNamespace(
                 id=int(actor_id), company_id=2, is_admin=True, is_active=True,
             )
+            self.supplier_id = await seed_receipt_supplier(session, self.actor)
+            await session.commit()
             self.location_id = await session.scalar(text(
                 "SELECT id FROM inventory_locations "
                 "WHERE company_id=2 AND location_type='WAREHOUSE' "
@@ -149,6 +153,7 @@ class CommittedReceiptRaceC2IsolatedTests(unittest.IsolatedAsyncioTestCase):
         rid = request_id or uuid4()
         tag = rid.hex[:14]
         return UpgradedInboundRequest(
+            supplier_id=self.supplier_id,
             request_id=rid,
             location_id=self.location_id,
             reference_id=reference or ("C2-COMMIT-" + tag),

@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { parseConversions } from "@/features/catalog/contracts";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
+import { SupplierSelector } from "@/features/suppliers/SupplierSelector";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { resolveI18nLocale } from "@/lib/locale";
@@ -21,7 +22,9 @@ import {
 } from "./useProductQualityCommands";
 import { useProductQualitySources } from "./useProductQualitySources";
 import { useWholeProductQualityPreview } from "./useWholeProductQualityPreview";
+import { useWholeProductQualityDraft } from "./useWholeProductQualityDraft";
 import type { WholeProductQualityPreview } from "./wholeProductQualityPreviewContract";
+import { SupervisorPasswordField } from "./SupervisorPasswordField";
 
 const scaled = (value: string): bigint => {
   const [whole, fraction = ""] = value.split(".");
@@ -62,9 +65,14 @@ export function WholeProductQualityActionsPanel({
   const [reason, setReason] = useState("");
   const [reasonEditing, setReasonEditing] = useState(false);
   const [reasonTouched, setReasonTouched] = useState(false);
-  const [recipientName, setRecipientName] = useState("");
   const [supervisorPassword, setSupervisorPassword] = useState("");
+  const [supplierId, setSupplierId] = useState<number | null>(null);
   const [previewChanged, setPreviewChanged] = useState(false);
+  const drafts = useWholeProductQualityDraft(access.data?.company_id, access.data?.driver_id, productVariantId);
+  const saveDraft = drafts.save;
+  useEffect(() => {
+    if (activeAction) saveDraft(activeAction, { reason, reasonTouched, supplierId });
+  }, [activeAction, reason, reasonTouched, supplierId, saveDraft]);
 
   const pages = query.data?.pages ?? [];
   const allLoaded = !query.hasNextPage && !query.isFetchingNextPage;
@@ -75,6 +83,8 @@ export function WholeProductQualityActionsPanel({
   const commands = useProductQualityCommands({
     productVariantId,
     onSucceeded: async () => {
+      drafts.clear("DISPOSE"); drafts.clear("RETURN_TO_VENDOR"); setActiveAction(null);
+      setSupervisorPassword("");
       await query.refetch();
       await onResolved();
     },
@@ -116,18 +126,20 @@ export function WholeProductQualityActionsPanel({
   }, [preview.data]);
 
   const openAction = (action: WholeProductQualityAction) => {
+    if (commands.pending || commands.recoveryBlocked) return;
     setActiveAction(action);
-    setReason("");
-    setReasonEditing(false);
-    setReasonTouched(false);
-    setRecipientName("");
     setSupervisorPassword("");
+    const draft = drafts.read(action);
+    setReason(draft?.reason ?? "");
+    setReasonEditing(draft?.reasonTouched ?? false);
+    setReasonTouched(draft?.reasonTouched ?? false);
+    setSupplierId(draft?.supplierId ?? null);
     setPreviewChanged(false);
   };
 
   const submit = async () => {
     if (!activeAction || !reason.trim() || !supervisorPassword || !preview.data || preview.data.blockerCodes.length > 0) return;
-    if (activeAction === "RETURN_TO_VENDOR" && !recipientName.trim()) return;
+    if (activeAction === "RETURN_TO_VENDOR" && supplierId === null) return;
 
     const shownSignature = previewSignature(preview.data);
     const refreshed = await preview.refetch();
@@ -140,8 +152,8 @@ export function WholeProductQualityActionsPanel({
     const ok = await commands.resolveAll({
       action: activeAction,
       reason,
-      recipientName,
       confirmationPassword: supervisorPassword,
+      supplierId,
     });
     if (ok) {
       setSupervisorPassword("");
@@ -151,15 +163,23 @@ export function WholeProductQualityActionsPanel({
 
   const previewBlocked = (preview.data?.blockerCodes.length ?? 0) > 0;
   const submitDisabled = commands.busyKey !== null
+    || !commands.isOnline
+    || commands.pending !== null
     || preview.isFetching
     || !preview.data
     || preview.isError
     || previewBlocked
     || !reason.trim()
     || !supervisorPassword
-    || (activeAction === "RETURN_TO_VENDOR" && !recipientName.trim());
+    || (activeAction === "RETURN_TO_VENDOR" && (supplierId === null || !access.can("supplier.read")));
 
   return <div className="space-y-3" dir={i18n.dir()}>
+    {!commands.isOnline ? <p role="status">{t("suppliers.offline")}</p> : null}
+    {commands.pending || commands.recoveryBlocked ? <div role="alert" className="rounded-lg border p-3">
+      <p>{t("suppliers.pending")}</p>
+      {commands.pending ? <SupervisorPasswordField value={supervisorPassword} onChange={setSupervisorPassword} disabled={commands.busyKey !== null} /> : null}
+      <button type="button" disabled={!supervisorPassword || commands.busyKey !== null || !commands.isOnline || commands.recoveryBlocked} onClick={() => { void commands.retryPending(supervisorPassword); }}>{t("common.retry")}</button>
+    </div> : null}
     <div className="flex items-center justify-between gap-2">
       <button type="button" onClick={onBack} className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-700">
         <ArrowRight className="h-4 w-4" />{t("common.back")}
@@ -272,6 +292,8 @@ export function WholeProductQualityActionsPanel({
             </div> : <label className="text-[10px] font-black text-slate-700">{t("productQualityInline.fields.reason")}
               <input
                 autoFocus
+                maxLength={1000}
+                disabled={commands.busyKey !== null || commands.pending !== null}
                 value={reason}
                 onChange={(event) => { setReason(event.target.value); setReasonTouched(true); }}
                 className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
@@ -279,29 +301,13 @@ export function WholeProductQualityActionsPanel({
             </label>}
           </section>
 
-          {activeAction === "RETURN_TO_VENDOR" ? <label className="block text-[10px] font-black text-slate-700">{t("productQualityInline.fields.recipientName")}
-            <input autoFocus={!reasonEditing} value={recipientName} onChange={(event) => setRecipientName(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
-          </label> : null}
+          {activeAction === "RETURN_TO_VENDOR" ? <SupplierSelector value={supplierId} onChange={setSupplierId} disabled={commands.busyKey !== null || commands.pending !== null} /> : null}
         </div> : null}
 
-        <label className="mt-3 block rounded-lg border border-slate-200 bg-white p-3 text-[10px] font-black text-slate-700">
-          {t("productQualityInline.fields.supervisorPassword")}
-          <input
-            type="password"
-            autoComplete="current-password"
-            maxLength={256}
-            value={supervisorPassword}
-            onChange={(event) => setSupervisorPassword(event.target.value)}
-            placeholder={t("productQualityInline.fields.supervisorPasswordPlaceholder")}
-            className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-          />
-          <span className="mt-1 block text-[9px] font-semibold leading-4 text-slate-500">
-            {t("productQualityInline.fields.supervisorPasswordHint")}
-          </span>
-        </label>
+        {!commands.pending ? <SupervisorPasswordField value={supervisorPassword} onChange={setSupervisorPassword} disabled={commands.busyKey !== null} /> : null}
 
         <div className="mt-3 flex justify-end gap-2">
-          <button type="button" onClick={() => setActiveAction(null)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-black text-slate-700">{t("common.cancel")}</button>
+          <button type="button" disabled={commands.busyKey !== null || commands.pending !== null} onClick={() => { drafts.clear(activeAction); setSupervisorPassword(""); setActiveAction(null); }} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-black text-slate-700">{t("common.cancel")}</button>
           <button type="submit" disabled={submitDisabled} className={`rounded-lg px-4 py-2 text-[10px] font-black text-white disabled:opacity-40 ${activeAction === "DISPOSE" ? "bg-rose-700" : "bg-sky-700"}`}>
             {t(activeAction === "DISPOSE" ? "productQualityInline.confirm.disposeButton" : "productQualityInline.confirm.returnButton")}
           </button>

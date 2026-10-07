@@ -20,6 +20,8 @@ from domains.inventory_quality_handling import (
 )
 from domains.inventory_terminal_quality import confirm_final_disposal
 from domains.inventory_terminal_vendor import confirm_vendor_handover
+from domains.suppliers.public import SupplierError, select_active_supplier, require_supplier_permission
+from domains.inventory_supplier_evidence import record_supplier_evidence
 from domains.inventory_whole_product_quality_policy import ensure_whole_product_quality_policy
 from inventory_access import InventoryAccess
 from models import Driver, InventoryBalance, InventoryLocation, ProductVariant, SystemAuditLog
@@ -43,7 +45,7 @@ from services import (
     validate_special_transfer_source_items_locked,
 )
 
-from ._shared import _stable_request_hash
+from .whole_product_quality_identity import quality_request_hash
 
 
 router = APIRouter()
@@ -59,7 +61,9 @@ class WholeProductQualityResolveRequest(BaseModel):
     reason: str = Field(..., min_length=1, max_length=1000)
     disposal_method: str | None = Field(default=None, max_length=200)
     evidence_reference: str | None = Field(default=None, max_length=500)
-    recipient_name: str | None = Field(default=None, max_length=300)
+    supplier_id: int | None = Field(default=None, gt=0, le=2_147_483_647, strict=True)
+    # Retained solely for replay of immutable pre-Supplier commands.
+    recipient_name: str | None = Field(default=None, max_length=300, deprecated=True)
     handover_reference: str | None = Field(default=None, max_length=500)
     confirmation_password: SecretStr = Field(..., min_length=1, max_length=256)
 
@@ -68,11 +72,11 @@ class WholeProductQualityResolveRequest(BaseModel):
         self.reason = self.reason.strip()
         if not self.reason:
             raise ValueError("reason is required")
+        if self.supplier_id is not None and (self.action != "RETURN_TO_VENDOR" or self.recipient_name is not None):
+            raise ValueError("supplier_id is used only for supplier return; manual recipient input is not accepted")
         if self.action == "RETURN_TO_VENDOR":
             self.recipient_name = (self.recipient_name or "").strip() or None
             self.handover_reference = (self.handover_reference or "").strip() or None
-            if self.recipient_name is None or self.handover_reference is None:
-                raise ValueError("recipient_name and handover_reference are required for vendor return")
         return self
 
 
@@ -93,6 +97,21 @@ class WholeProductQualityResolveResponse(BaseModel):
 
 def _business_detail(code: str, message: str, *, context: dict | None = None):
     return inventory_business_error(code, message, context=context or {})
+
+
+async def _require_location_authority(access, location_ids, location_names, terminal_permission):
+    codes_by_location = await access.codes_by_location(location_ids)
+    required_location_codes = {"inventory.read", "transfer.send", terminal_permission}
+    denied = [
+        {"location_id": location_id, "location_name": location_names[location_id]}
+        for location_id in location_ids
+        if not required_location_codes.issubset(set(codes_by_location.get(location_id, ())))
+    ]
+    if denied:
+        raise HTTPException(403, detail=_business_detail(
+            "WHOLE_PRODUCT_QUALITY_LOCATION_PERMISSION_DENIED",
+            "You do not have permission to handle all affected warehouses.", context={"locations": denied[:20]},
+        ))
 
 
 @router.post(
@@ -117,7 +136,6 @@ async def resolve_whole_product_quality(
 
     access = InventoryAccess(db, current_admin)
     await access.require(SPECIAL_TRANSFER_PERMISSION[purpose])
-
     try:
         if not await verify_actor_password(current_admin, payload.confirmation_password.get_secret_value()):
             raise HTTPException(
@@ -128,9 +146,11 @@ async def resolve_whole_product_quality(
                 ),
             )
 
-        request_hash = _stable_request_hash(
-            payload,
-            context={"product_variant_id": int(product_variant_id)},
+        if payload.action == "RETURN_TO_VENDOR" and payload.supplier_id is not None:
+            await require_supplier_permission(db, current_admin)
+        request_hash = await quality_request_hash(
+            db, payload=payload, product_variant_id=product_variant_id,
+            company_id=company_id, actor_id=actor_id,
         )
         idem, replay = await begin_idempotent_operation(
             db,
@@ -141,8 +161,17 @@ async def resolve_whole_product_quality(
             request_hash=request_hash,
         )
         if replay is not None:
+            replay_names = {int(row["location_id"]): row["location_name"] for row in replay["locations"]}
+            await _require_location_authority(access, sorted(replay_names), replay_names, terminal_permission)
             await db.rollback()
             return replay
+
+        supplier = None
+        if payload.action == "RETURN_TO_VENDOR":
+            if payload.supplier_id is None:
+                raise HTTPException(422, detail=_business_detail("SUPPLIER_REQUIRED", "Select a supplier for every new whole-product return."))
+            supplier = await select_active_supplier(db, actor=current_admin, supplier_id=payload.supplier_id)
+        handover_reference = payload.handover_reference or f"SYSTEM-{payload.request_id}"
 
         await acquire_product_lifecycle_guards(
             db,
@@ -267,25 +296,7 @@ async def resolve_whole_product_quality(
                 ),
             )
 
-        codes_by_location = await access.codes_by_location(location_ids)
-        required_location_codes = {"inventory.read", "transfer.send", terminal_permission}
-        denied = [
-            {
-                "location_id": location_id,
-                "location_name": location_names[location_id],
-            }
-            for location_id in location_ids
-            if not required_location_codes.issubset(set(codes_by_location.get(location_id, ())))
-        ]
-        if denied:
-            raise HTTPException(
-                status_code=403,
-                detail=_business_detail(
-                    "WHOLE_PRODUCT_QUALITY_LOCATION_PERMISSION_DENIED",
-                    "لا تملك الصلاحيات اللازمة لمعالجة كل مستودعات المنتج.",
-                    context={"locations": denied[:20]},
-                ),
-            )
+        await _require_location_authority(access, location_ids, location_names, terminal_permission)
 
         await acquire_inventory_location_guards(db, company_id, location_ids)
         policy = await ensure_whole_product_quality_policy(
@@ -361,7 +372,7 @@ async def resolve_whole_product_quality(
                         allow_legacy_fifo_state_bridge=True,
                     )
                 else:
-                    await confirm_vendor_handover(
+                    handover = await confirm_vendor_handover(
                         db,
                         company_id=company_id,
                         actor_id=actor_id,
@@ -371,10 +382,16 @@ async def resolve_whole_product_quality(
                         batch_id=batch_id,
                         source_status=quality_stage_target_status(purpose, str(line["source_stock_status"])),
                         quantity=quantity,
-                        vendor_name=str(payload.recipient_name),
-                        vendor_reference=str(payload.handover_reference),
-                        handover_reference=str(payload.handover_reference),
+                        vendor_name=supplier.name,
+                        vendor_reference=handover_reference,
+                        handover_reference=handover_reference,
                         allow_legacy_fifo_state_bridge=True,
+                        supplier_id=supplier.id,
+                        supplier_code=supplier.code,
+                    )
+                    record_supplier_evidence(
+                        db, company_id=company_id, movement_ids=handover["movement_ids"],
+                        supplier=supplier, request_id=payload.request_id,
                     )
                 total_quantity += quantity
 
@@ -434,6 +451,9 @@ async def resolve_whole_product_quality(
         await db.commit()
         return response_payload
 
+    except SupplierError as exc:
+        await db.rollback()
+        raise HTTPException(exc.status_code, detail=exc.as_detail()) from exc
     except HTTPException:
         await db.rollback()
         raise

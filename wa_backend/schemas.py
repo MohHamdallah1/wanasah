@@ -1668,6 +1668,9 @@ class WarehouseWholeProductIssueSourcesResponse(BaseModel):
 
 
 class WarehouseLedgerItem(BaseModel):
+    supplier_id: Optional[PositiveDbInt] = None
+    supplier_name: Optional[str] = Field(None, max_length=300)
+    supplier_code: Optional[str] = Field(None, max_length=50)
     id: PositiveDbInt
     product_variant_id: PositiveDbInt
     product_name: str = Field(..., min_length=1, max_length=200)
@@ -1959,6 +1962,9 @@ class InventoryCostPolicyUpdateRequest(RequestModel):
 
 class UpgradedInboundRequest(RequestModel):
     request_id: UUID
+    # Optional only to reconcile already-committed pre-Supplier commands.
+    # warehouse_inbound requires it after durable replay, before any new posting.
+    supplier_id: Optional[PositiveDbInt] = None
     location_id: PositiveDbInt
     reference_id: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = Field(None, max_length=4000)

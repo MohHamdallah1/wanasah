@@ -222,7 +222,7 @@ export function TabInventoryAccess() {
         <div className="inventory-permission-grid">
           {catalog.data?.permissions.map(code=><label key={code} className="inventory-permission-option">
             <input type="checkbox" checked={codes.includes(code)} onChange={e=>setCodes(old=>e.target.checked?[...old,code]:old.filter(c=>c!==code))}/>
-            <span>{LABELS[code] || code}{catalog.data.company_only.includes(code) ? <small>منح الشركة فقط</small> : null}</span>
+            <span>{code === 'supplier.read' ? t('suppliers.permissions.read') : code === 'supplier.manage' ? t('suppliers.permissions.manage') : LABELS[code] || code}{catalog.data.company_only.includes(code) ? <small>{t('suppliers.permissions.companyOnly')}</small> : null}</span>
           </label>)}
         </div>
 

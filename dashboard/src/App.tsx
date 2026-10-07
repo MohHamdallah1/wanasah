@@ -14,6 +14,7 @@ const OperationsDashboard = lazy(() => import("./pages/OperationsDashboard"));
 const DispatchBoard = lazy(() => import("./pages/DispatchBoard"));
 const MainInventory = lazy(() => import("./pages/inventory/InventoryPage"));
 const ProductsPage = lazy(loadProductsPage);
+const SuppliersPage = lazy(() => import("./pages/suppliers/SuppliersPage"));
 const AdvancedUomDashboard = lazy(() => import("./pages/products/advanced-uom/AdvancedUomDashboard"));
 const CommercialRulesDashboard = lazy(() => import("./pages/CommercialRulesDashboard"));
 const SalesReturnsDashboard = lazy(() => import("./pages/SalesReturnsDashboard"));
@@ -194,6 +195,7 @@ const App = () => (
                 <Route path="/dispatch" element={<DispatchBoard />} />
                 <Route path="/inventory" element={<MainInventory />} />
                 <Route path="/products" element={<ProductsPage />} />
+                <Route path="/suppliers" element={<SuppliersPage />} />
                 <Route path="/products/advanced-uom" element={<AdvancedUomDashboard />} />
                 <Route path="/pricing" element={<Navigate to="/products" replace />} />
                 <Route path="/commercial-rules" element={<CommercialRulesDashboard />} />

@@ -8,6 +8,8 @@ not real simultaneous committed invoices or an actual dropped TCP socket.
 """
 from __future__ import annotations
 
+from tests.supplier_fixtures import seed_receipt_supplier
+
 import asyncio
 import os
 import unittest
@@ -69,6 +71,7 @@ class InflightWarehouseContentionC2Tests(unittest.IsolatedAsyncioTestCase):
             id=actor_id, company_id=self.company_id,
             is_admin=True, is_active=True,
         )
+        self.supplier_id = await seed_receipt_supplier(self.db, self.actor)
         self.location_id = await self.db.scalar(
             text(
                 "SELECT id FROM inventory_locations WHERE company_id=:c "
@@ -132,6 +135,7 @@ class InflightWarehouseContentionC2Tests(unittest.IsolatedAsyncioTestCase):
         identifier = request_id or uuid4()
         name = "C2-RACE-" + identifier.hex[:16]
         return UpgradedInboundRequest(
+            supplier_id=self.supplier_id,
             request_id=identifier,
             reference_id=reference or name,
             location_id=self.location_id,
