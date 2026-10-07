@@ -29,10 +29,10 @@ describe("V1 quality and safety workflow closure", () => {
     expect(manager).toContain("WholeProductQualityActionsPanel");
     expect(manager).not.toContain("@/pages/inventory/");
     expect(inline).toContain("useProductQualityCommands");
-    expect(inline).toContain("products.qualityInline.actions.dispose");
-    expect(inline).toContain("products.qualityInline.actions.returnVendor");
-    expect(inline).toContain("products.qualityInline.actions.confirmDisposal");
-    expect(inline).toContain("products.qualityInline.actions.confirmVendor");
+    expect(inline).toContain("productQualityInline.actions.dispose");
+    expect(inline).toContain("productQualityInline.actions.returnVendor");
+    expect(inline).toContain("productQualityInline.actions.confirmDisposal");
+    expect(inline).toContain("productQualityInline.actions.confirmVendor");
   });
 
   it("keeps handling-destination setup inline instead of redirecting the operator", () => {
