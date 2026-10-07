@@ -40,6 +40,12 @@ def test_preview_preserves_non_warehouse_custody_as_visible_information_and_bloc
     assert 'blocker_codes.add("WHOLE_PRODUCT_QUALITY_RESERVED_STOCK")' in PREVIEW_SOURCE
 
 
+def test_preview_exposes_exact_reserved_quantity_for_operator_blocker_explanation():
+    assert 'total_reserved_quantity = Decimal("0")' in PREVIEW_SOURCE
+    assert 'total_reserved_quantity += Decimal(row.reserved_quantity or 0)' in PREVIEW_SOURCE
+    assert '"total_reserved_quantity": canonical_quantity(total_reserved_quantity)' in PREVIEW_SOURCE
+
+
 def test_moving_average_preview_uses_authoritative_cost_state_not_sale_or_last_purchase_price():
     assert "select(InventoryCostState)" in PREVIEW_SOURCE
     assert "state.average_unit_cost" in PREVIEW_SOURCE

@@ -11,6 +11,7 @@ export const productQualityInline = {
     },
     title: "معالجة المنتج",
     currentQuantity: "الكمية الحالية",
+    totalBaseQuantity: "الإجمالي: {{quantity}}",
     actions: {
       disposeAll: "إتلاف الكمية",
       returnAll: "إرجاع للمورد",
@@ -23,6 +24,10 @@ export const productQualityInline = {
     preview: {
       changed: "تغيرت الكمية منذ عرضها. راجع البيانات ثم تابع من جديد.",
       blocked: "لا يمكن تنفيذ المعالجة الآن لوجود كمية مرتبطة بعملية أخرى. أنهِ العملية المرتبطة أولًا.",
+      blockers: {
+        reservedStock: "الكمية المحجوزة: {{quantity}}. حرّر الحجز أولًا ثم أعد المحاولة.",
+        custody: "جزء من الكمية موجود خارج مستودع فعّال أو ضمن حيازة أو حركة قائمة. أعده إلى مستودع فعّال أولًا.",
+      },
     },
     fields: {
       reason: "السبب",
@@ -50,9 +55,17 @@ export const productQualityInline = {
     success: { DISPOSE: "All current stock was disposed.", RETURN_TO_VENDOR: "All current stock was returned to the vendor / manufacturer." },
     title: "Handle product",
     currentQuantity: "Current quantity",
+    totalBaseQuantity: "Total: {{quantity}}",
     actions: { disposeAll: "Dispose quantity", returnAll: "Return to vendor" },
     confirm: { disposeTitle: "Dispose current quantity", returnTitle: "Return current quantity to vendor", continue: "Continue" },
-    preview: { changed: "The quantity changed since it was shown. Review it and continue again.", blocked: "This action cannot run while stock is tied to another operation. Finish that operation first." },
+    preview: {
+      changed: "The quantity changed since it was shown. Review it and continue again.",
+      blocked: "This action cannot run while stock is tied to another operation. Finish that operation first.",
+      blockers: {
+        reservedStock: "Reserved quantity: {{quantity}}. Release the reservation first, then try again.",
+        custody: "Part of the stock is outside an active warehouse or tied to custody or movement. Return it to an active warehouse first.",
+      },
+    },
     fields: { reason: "Reason", reasonMissing: "Enter the issue reason to continue.", recipientName: "Vendor / recipient", supervisorPassword: "Password", supervisorPasswordPlaceholder: "Enter your password" },
     final: {
       title: "Final confirmation",

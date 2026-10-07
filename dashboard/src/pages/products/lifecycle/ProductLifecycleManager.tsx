@@ -199,6 +199,18 @@ export function ProductLifecycleManager({
           <WholeProductQualityActionsPanel
             productVariantId={variant.id}
             baseUomName={variant.base_uom.name}
+            displayUomName={
+              product.package_uom_code && product.units_per_package
+                ? t(`uom.${product.package_uom_code}`, {
+                    defaultValue: product.package_uom_code,
+                  })
+                : variant.base_uom.name
+            }
+            displayFactorToBase={
+              product.package_uom_code && product.units_per_package
+                ? String(product.units_per_package)
+                : "1"
+            }
             onBack={() => setQualityOpen(false)}
             onResolved={async () => {
               setQualityOpen(false);

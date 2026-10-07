@@ -62,6 +62,7 @@ class WholeProductQualityPreviewResponse(BaseModel):
     valuation_available: bool
     valuation_reason: str | None
     total_quantity: str
+    total_reserved_quantity: str
     total_book_value: str | None
     locations: list[WholeProductQualityPreviewLocation]
     batches: list[WholeProductQualityPreviewBatch]
@@ -213,6 +214,7 @@ async def get_whole_product_quality_preview(
     batch_quantities: dict[int, Decimal] = defaultdict(Decimal)
     batch_numbers: dict[int, str] = {}
     total_quantity = Decimal("0")
+    total_reserved_quantity = Decimal("0")
     blocker_codes: set[str] = set()
 
     for row in rows:
@@ -229,6 +231,7 @@ async def get_whole_product_quality_preview(
         batch_quantities[batch_id] += quantity
         batch_numbers[batch_id] = str(row.batch_number)
         total_quantity += quantity
+        total_reserved_quantity += Decimal(row.reserved_quantity or 0)
         if location_type != "WAREHOUSE" or not bool(row.location_active):
             blocker_codes.add("WHOLE_PRODUCT_QUALITY_CUSTODY_BLOCKER")
         if Decimal(row.reserved_quantity or 0) > 0:
@@ -385,6 +388,7 @@ async def get_whole_product_quality_preview(
         "valuation_available": valuation_available,
         "valuation_reason": valuation_reason,
         "total_quantity": canonical_quantity(total_quantity),
+        "total_reserved_quantity": canonical_quantity(total_reserved_quantity),
         "total_book_value": total_book_value,
         "locations": locations,
         "batches": batches,

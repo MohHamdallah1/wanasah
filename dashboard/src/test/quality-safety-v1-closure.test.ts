@@ -23,6 +23,8 @@ describe("V1 quality and safety workflow closure", () => {
     expect(actions).toContain("has_current_stock");
     expect(panel).toContain("recallHasCurrentStock !== true");
     expect(panel).toContain("catalogLifecycle.simple.qualityIssueNoStock");
+    expect(panel).toContain("disabledReason");
+    expect(panel).toContain("recallHasCurrentStock === false");
   });
 
   it("sends batch issues directly to Inventory batches without the intermediate picker", () => {
@@ -48,6 +50,17 @@ describe("V1 quality and safety workflow closure", () => {
     expect(commands).not.toContain("source_location_id");
     expect(commands).not.toContain("batch_id");
     expect(commands).not.toContain("transfer_purpose");
+  });
+
+  it("shows the product package as the primary quantity and explains blocked actions", () => {
+    const manager = read("../pages/products/lifecycle/ProductLifecycleManager.tsx");
+    const inline = read("../features/inventory/quality/WholeProductQualityActionsPanel.tsx");
+    expect(manager).toContain("product.package_uom_code");
+    expect(manager).toContain("product.units_per_package");
+    expect(inline).toContain("displayFactorToBase");
+    expect(inline).toContain("WHOLE_PRODUCT_QUALITY_RESERVED_STOCK");
+    expect(inline).toContain("blockerText");
+    expect(inline).toContain("totalBaseQuantity");
   });
 
   it("reuses the saved issue reason and uses Supplier identity instead of manual recipient text", () => {
@@ -98,7 +111,7 @@ describe("V1 quality and safety workflow closure", () => {
     const resources = read("../i18n/resources.ts");
     const translations = read("../i18n/productQualityInline.ts");
     expect(resources).toContain('manageConfirmedIssue: "معالجة"');
-    expect(resources).toContain('qualityIssueNoStock: "لا توجد كمية حالية لهذا المنتج، لذلك لا يمكن فتح مشكلة سلامة عليه."');
+    expect(resources).toContain('qualityIssueNoStock: "رصيد المنتج الحالي صفر؛ لا توجد كمية يمكن تطبيق مشكلة جودة أو سلامة عليها."');
     expect(translations).toContain('disposeAll: "إتلاف الكمية"');
     expect(translations).toContain('returnAll: "إرجاع للمورد"');
     expect(translations).toContain('title: "التأكيد النهائي"');
