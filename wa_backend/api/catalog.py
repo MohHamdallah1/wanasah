@@ -27,6 +27,7 @@ from domains.dispatch_archive_navigation import dispatch_archive_targets
 from domains.operations_archive_navigation import operations_archive_targets
 from models import (
     Driver,
+    InventoryBalance,
     Product,
     ProductBarcode,
     ProductBatch,
@@ -1506,6 +1507,22 @@ async def _run_variant_state_command(
         elif command == "recall":
             if row.lifecycle_status not in {"ACTIVE", "RETIRING"} or row.operational_hold not in {"NONE", "SALES_HOLD"}:
                 raise _error(409, "PRODUCT_RECALL_TRANSITION_INVALID", "لا يمكن إصدار الاستدعاء من الحالة الحالية.")
+            has_current_stock = await db.scalar(
+                select(InventoryBalance.id)
+                .where(
+                    InventoryBalance.company_id == actor.company_id,
+                    InventoryBalance.product_variant_id == variant_id,
+                    InventoryBalance.on_hand_quantity > 0,
+                )
+                .limit(1)
+            )
+            if has_current_stock is None:
+                raise _error(
+                    409,
+                    "PRODUCT_RECALL_NO_STOCK",
+                    "لا توجد كمية حالية لهذا المنتج، لذلك لا يمكن فتح مشكلة سلامة على المنتج بالكامل.",
+                    variant_id=variant_id,
+                )
             row.operational_hold = "RECALL"
             event_type, message = "ProductRecallIssued", "تم إصدار استدعاء الصنف."
         elif command == "cancel-recall":
@@ -1868,6 +1885,37 @@ async def place_variant_sales_hold(variant_id: int, payload: LifecycleCommand, d
 @router.post("/variants/{variant_id}/release-sales-hold")
 async def release_variant_sales_hold(variant_id: int, payload: LifecycleCommand, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver)):
     return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="release-sales-hold", permission="catalog.hold", db=db, actor=actor)
+
+
+@router.get("/variants/{variant_id}/recall-preflight")
+async def recall_variant_preflight(
+    variant_id: int,
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require(db, actor, "catalog.hold")
+    row = await db.scalar(
+        select(ProductVariant).where(
+            ProductVariant.company_id == actor.company_id,
+            ProductVariant.id == variant_id,
+        )
+    )
+    if row is None:
+        raise _error(404, "VARIANT_NOT_FOUND", "المنتج غير موجود.")
+    has_current_stock = await db.scalar(
+        select(InventoryBalance.id)
+        .where(
+            InventoryBalance.company_id == actor.company_id,
+            InventoryBalance.product_variant_id == variant_id,
+            InventoryBalance.on_hand_quantity > 0,
+        )
+        .limit(1)
+    )
+    return {
+        "variant_id": variant_id,
+        "version": int(row.version),
+        "has_current_stock": has_current_stock is not None,
+    }
 
 
 @router.post("/variants/{variant_id}/recall")

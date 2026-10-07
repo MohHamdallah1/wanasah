@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 from uuid import UUID
 
 from sqlalchemy import and_, func, inspect, select, text
@@ -551,8 +551,9 @@ async def close_recall_after_terminal_resolution(
     actor_id: int,
     request_id: UUID,
     reason: str,
+    target_hold: Literal["NONE", "SALES_HOLD"] = "NONE",
 ) -> None:
-    """Close the safety issue in the same transaction as terminal handling."""
+    """Close the safety issue atomically and choose the product's post-resolution sales state."""
     if row.company_id != int(company_id) or str(row.operational_hold).upper() != "RECALL":
         raise ProductLifecycleTransitionError(
             "PRODUCT_RECALL_CLOSE_INVALID",
@@ -567,8 +568,14 @@ async def close_recall_after_terminal_resolution(
             context={"variant_id": int(row.id), "blockers": blockers},
         )
 
+    if target_hold not in {"NONE", "SALES_HOLD"}:
+        raise ProductLifecycleTransitionError(
+            "PRODUCT_RECALL_CLOSE_TARGET_INVALID",
+            "حالة المنتج بعد المعالجة غير صالحة.",
+        )
+
     before = variant_snapshot(row)
-    row.operational_hold = "NONE"
+    row.operational_hold = target_hold
     row.lifecycle_revision += 1
     row.version += 1
     row.updated_at = utc_now()

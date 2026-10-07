@@ -168,7 +168,7 @@ export function ProductLifecycleManager({
           ) : null}
         </div>
       ) : undefined}
-      maxWidth={qualityOpen ? "max-w-4xl" : "max-w-2xl"}
+      maxWidth="max-w-2xl"
       bodyClassName="p-3 sm:p-4"
     >
       <div className="space-y-3">
@@ -198,7 +198,6 @@ export function ProductLifecycleManager({
         {variant && qualityOpen ? (
           <WholeProductQualityActionsPanel
             productVariantId={variant.id}
-            baseUomId={variant.base_uom.id}
             baseUomName={variant.base_uom.name}
             onBack={() => setQualityOpen(false)}
             onResolved={async () => {

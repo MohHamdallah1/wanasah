@@ -14,7 +14,6 @@ import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { parseInventoryLocationCapabilities } from "@/hooks/useInventoryAccess";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { BatchFocusWorkspace } from "./batches/BatchFocusWorkspace";
-import { QualityBatchPickerWorkspace } from "./quality/QualityBatchPickerWorkspace";
 import type { BatchSpecialTransferResult } from "./batches/batchSpecialTransferContract";
 import type { ReservationOwner } from "./batches/batchStockSourcesContract";
 import MainInventory from "./MainInventory";
@@ -125,21 +124,6 @@ export default function InventoryPage() {
     });
     setFocus(null);
   };
-
-  if (focus?.kind === "batch-picker") {
-    return (
-      <QualityBatchPickerWorkspace
-        key={`batch-picker:${focus.variantId}`}
-        productVariantId={focus.variantId}
-        productName={focus.productName}
-        onConsumed={consume}
-        onClose={close}
-        onOpenTransfers={openTransfers}
-        onOpenReservationOwner={openReservationOwner}
-        onConfigureQualityDestinations={openQualitySettings}
-      />
-    );
-  }
 
   if (focus?.kind === "batch") {
     return (

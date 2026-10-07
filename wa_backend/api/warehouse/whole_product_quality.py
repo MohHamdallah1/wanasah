@@ -62,6 +62,7 @@ class WholeProductQualityResolveRequest(BaseModel):
     recipient_name: str | None = Field(default=None, max_length=300)
     handover_reference: str | None = Field(default=None, max_length=500)
     confirmation_password: SecretStr = Field(..., min_length=1, max_length=256)
+    post_resolution_hold: Literal["NONE", "SALES_HOLD"] = "NONE"
 
     @model_validator(mode="after")
     def validate_action_evidence(self):
@@ -88,6 +89,7 @@ class WholeProductQualityResolveResponse(BaseModel):
     product_variant_id: int
     total_quantity: str
     location_count: int
+    post_resolution_hold: Literal["NONE", "SALES_HOLD"]
     locations: list[WholeProductQualityLocationResult]
 
 
@@ -395,6 +397,7 @@ async def resolve_whole_product_quality(
                 if payload.action == "DISPOSE"
                 else "تم إغلاق مشكلة السلامة تلقائيًا بعد تسليم كل الكميات الحالية للمورد / المصنع."
             ),
+            target_hold=payload.post_resolution_hold,
         )
         await refresh_live_stock_variants(
             db,
@@ -414,6 +417,7 @@ async def resolve_whole_product_quality(
             old_value="quality_issue=RECALL",
             new_value=(
                 f"action={payload.action}; quality_issue=CLOSED; "
+                f"post_resolution_hold={payload.post_resolution_hold}; "
                 f"locations={len(response_locations)}; "
                 f"quantity={canonical_quantity(total_quantity)}"
             ),
@@ -428,6 +432,7 @@ async def resolve_whole_product_quality(
             "product_variant_id": int(product_variant_id),
             "total_quantity": canonical_quantity(total_quantity),
             "location_count": len(response_locations),
+            "post_resolution_hold": payload.post_resolution_hold,
             "locations": response_locations,
         }
         complete_idempotent_operation(idem, response_payload)
