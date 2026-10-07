@@ -4,6 +4,7 @@ export const productQualityInline = {
     errors: {
       resolve: "تعذر تنفيذ معالجة المنتج بالكامل.",
       load: "تعذر تحميل الكميات المتأثرة.",
+      preview: "تعذر تحميل ملخص المستودعات والدفعات والقيمة الدفترية.",
     },
     success: {
       DISPOSE: "تم إتلاف كل الكميات الحالية للمنتج وخصمها من مخزون الشركة.",
@@ -24,6 +25,27 @@ export const productQualityInline = {
       disposeButton: "تأكيد إتلاف جميع الكميات",
       returnButton: "تأكيد تسليم جميع الكميات",
     },
+    preview: {
+      loading: "جاري حساب الكميات والقيمة الدفترية الحالية...",
+      changed: "تغير المخزون أو تقييمه منذ عرض الملخص. تم تحديث الأرقام؛ راجعها ثم اضغط التأكيد مرة أخرى.",
+      locationsTitle: "أماكن وجود المنتج المشمولة بالقرار",
+      batchesTitle: "الدفعات الموجودة حاليًا وكمياتها",
+      valuationTitle: "القيمة الدفترية للبضاعة التي ستخرج من المخزون",
+      totalBookValue: "إجمالي القيمة الدفترية",
+      valuationUnavailable: "القيمة الدفترية غير متاحة بشكل موثوق لهذا المخزون، لذلك لن يعرض النظام رقمًا تقديريًا مضللًا.",
+      blocked: "لا يمكن تنفيذ القرار على المنتج بالكامل الآن لوجود كمية محجوزة أو كمية خارج مستودع تشغيلي صالح. عالجها أولًا ثم أعد المحاولة.",
+      fifoNote: "طريقة FIFO تفصل بين الدفعة المادية وتدفق التكلفة. الجدول أدناه يعرض طبقات القيمة المالية الفعلية التي ستُشطب، وليس سعرًا مختلقًا لكل دفعة مادية.",
+      costing: {
+        MOVING_AVERAGE: "محسوبة بمتوسط التكلفة الحالي للشركة.",
+        FIFO: "محسوبة حسب طبقات FIFO الحالية.",
+      },
+      columns: {
+        batch: "الدفعة",
+        quantity: "الكمية",
+        unitCost: "تكلفة الوحدة",
+        value: "القيمة",
+      },
+    },
     fields: {
       reason: "السبب",
       method: "طريقة الإتلاف (اختياري)",
@@ -37,6 +59,7 @@ export const productQualityInline = {
     errors: {
       resolve: "Could not complete whole-product quality handling.",
       load: "Could not load the affected quantities.",
+      preview: "Could not load the warehouse, batch, and book-value summary.",
     },
     success: {
       DISPOSE: "All current product quantities were disposed and removed from company inventory.",
@@ -56,6 +79,27 @@ export const productQualityInline = {
       scope: "This decision will apply to all current stock across {{count}} location(s) · {{quantity}}{{secondary}}.",
       disposeButton: "Confirm disposal of all quantities",
       returnButton: "Confirm handover of all quantities",
+    },
+    preview: {
+      loading: "Calculating current quantities and book value...",
+      changed: "Inventory or its valuation changed since this summary was shown. The figures were refreshed; review them and confirm again.",
+      locationsTitle: "Product locations included in this decision",
+      batchesTitle: "Current batches and quantities",
+      valuationTitle: "Book value that will leave inventory",
+      totalBookValue: "Total book value",
+      valuationUnavailable: "A reliable book value is not available for this stock, so the system will not show a misleading estimate.",
+      blocked: "The whole-product action cannot run yet because some quantity is reserved or outside a valid operational warehouse. Resolve that first and retry.",
+      fifoNote: "FIFO separates physical batch selection from financial cost flow. The table below shows the actual cost layers that will be written off rather than inventing a price for each physical batch.",
+      costing: {
+        MOVING_AVERAGE: "Calculated using the company's current moving-average cost.",
+        FIFO: "Calculated from the current FIFO cost layers.",
+      },
+      columns: {
+        batch: "Batch",
+        quantity: "Quantity",
+        unitCost: "Unit cost",
+        value: "Value",
+      },
     },
     fields: {
       reason: "Reason",
