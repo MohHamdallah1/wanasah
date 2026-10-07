@@ -9,6 +9,8 @@ transaction. Do not run this against production or use shared customer data.
 """
 from __future__ import annotations
 
+from tests.supplier_fixtures import seed_receipt_supplier
+
 import os
 import unittest
 from datetime import date, timedelta
@@ -79,6 +81,7 @@ class CostedInboundC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             company_id=self.company_id, id=actor,
             is_admin=True, is_active=True,
         )
+        self.supplier_id = await seed_receipt_supplier(self.db, self.actor)
         self.location_id = await self.db.scalar(
             text(
                 "SELECT id FROM inventory_locations WHERE company_id=:company_id "
@@ -146,6 +149,7 @@ class CostedInboundC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         price: str = "2",
     ):
         return UpgradedInboundRequest(
+            supplier_id=self.supplier_id,
             request_id=request_id,
             location_id=self.location_id,
             reference_id=reference,

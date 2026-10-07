@@ -187,8 +187,9 @@ def _stable_request_hash(
     payload,
     *,
     context: Optional[dict] = None,
+    exclude_fields: Optional[set[str]] = None,
 ) -> str:
-    body = payload.model_dump(mode="json", exclude={"request_id"})
+    body = payload.model_dump(mode="json", exclude={"request_id"} | (exclude_fields or set()))
 
     items = body.get("items")
     if isinstance(items, list):

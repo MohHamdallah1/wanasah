@@ -8,6 +8,8 @@ back stock, cost, policy, idempotency and domain events.
 """
 from __future__ import annotations
 
+from tests.supplier_fixtures import seed_receipt_supplier
+
 import os
 import unittest
 from datetime import date, timedelta
@@ -67,6 +69,7 @@ class CostedInboundASGIC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.actor = SimpleNamespace(
             company_id=self.company_id, id=actor_id, is_admin=True, is_active=True,
         )
+        self.supplier_id = await seed_receipt_supplier(self.db, self.actor)
         self.app = FastAPI()
         self.app.include_router(router)
 
@@ -118,6 +121,7 @@ class CostedInboundASGIC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         request_id = str(uuid4())
         ref = "C2-HTTP-" + request_id.split("-")[0]
         body = {
+            "supplier_id": self.supplier_id,
             "request_id": request_id, "location_id": warehouse_id,
             "reference_id": ref, "notes": "",
             "items": [{

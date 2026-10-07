@@ -12,6 +12,8 @@ from correcting an existing Sale and separate from refunding customer cash.
 """
 from __future__ import annotations
 
+from tests.supplier_fixtures import seed_receipt_supplier
+
 import os
 import unittest
 from datetime import date, timedelta
@@ -76,6 +78,7 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             ).limit(1),
         )
         self.assertIsNotNone(self.actor)
+        self.supplier_id = await seed_receipt_supplier(self.db, self.actor)
         self.warehouse_id = await self.db.scalar(
             text(
                 "SELECT id FROM inventory_locations "
@@ -121,6 +124,7 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
 
         req = uuid4()
         inbound = UpgradedInboundRequest(
+            supplier_id=self.supplier_id,
             request_id=req, location_id=self.warehouse_id,
             reference_id="C2-CUST-IN-" + req.hex[:14],
             items=[{
@@ -143,6 +147,7 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             # stock only from the original purchased batch.
             more = uuid4()
             additional = UpgradedInboundRequest(
+                supplier_id=self.supplier_id,
                 request_id=more, location_id=self.warehouse_id,
                 reference_id="C2-CUST-EXTRA-" + more.hex[:12],
                 items=[{

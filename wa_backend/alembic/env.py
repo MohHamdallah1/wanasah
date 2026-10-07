@@ -21,6 +21,8 @@ from models import * # استيراد إجباري لكل الجداول لتف�
 from domains.offers import models as offer_models  # noqa: F401
 from domains.taxation import models as taxation_models  # noqa: F401
 from domains.sales_evidence import models as sales_evidence_models  # noqa: F401
+from domains.suppliers import models as supplier_models  # noqa: F401
+from domains import inventory_supplier_evidence  # noqa: F401
 
 target_metadata = Base.metadata
 

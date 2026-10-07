@@ -2,17 +2,20 @@ import { AlertTriangle, ArrowRight, PackageCheck, Trash2, Truck } from "lucide-r
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { SupplierSelector } from "@/features/suppliers/SupplierSelector";
+import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { formatCommercialQuantity } from "@/lib/quantity";
 import {
   useProductQualityCommands,
   type WholeProductQualityAction,
 } from "./useProductQualityCommands";
+import { SupervisorPasswordField } from "./SupervisorPasswordField";
+import { useWholeProductQualityDraft } from "./useWholeProductQualityDraft";
 import { useWholeProductQualityPreview } from "./useWholeProductQualityPreview";
 import type { WholeProductQualityPreview } from "./wholeProductQualityPreviewContract";
 
 const previewSignature = (preview: WholeProductQualityPreview): string => JSON.stringify(preview);
-
 type PostResolutionHold = "NONE" | "SALES_HOLD";
 
 export function WholeProductQualityActionsPanel({
@@ -27,25 +30,43 @@ export function WholeProductQualityActionsPanel({
   onResolved: () => void | Promise<void>;
 }) {
   const { t, i18n } = useTranslation();
+  const access = useInventoryAccess();
   const [activeAction, setActiveAction] = useState<WholeProductQualityAction | null>(null);
   const [reason, setReason] = useState("");
-  const [recipientName, setRecipientName] = useState("");
+  const [supplierId, setSupplierId] = useState<number | null>(null);
   const [finalConfirmOpen, setFinalConfirmOpen] = useState(false);
   const [supervisorPassword, setSupervisorPassword] = useState("");
-  const [passwordEditable, setPasswordEditable] = useState(false);
   const [postResolutionHold, setPostResolutionHold] = useState<PostResolutionHold | null>(null);
   const [previewChanged, setPreviewChanged] = useState(false);
 
+  const { read: readDraft, save: saveDraft, clear: clearDraft } = useWholeProductQualityDraft(
+    access.data?.company_id,
+    access.data?.driver_id,
+    productVariantId,
+  );
   const preview = useWholeProductQualityPreview(productVariantId, true);
   const commands = useProductQualityCommands({
     productVariantId,
-    onSucceeded: onResolved,
+    onSucceeded: async () => {
+      clearDraft("DISPOSE");
+      clearDraft("RETURN_TO_VENDOR");
+      setActiveAction(null);
+      setFinalConfirmOpen(false);
+      setSupervisorPassword("");
+      setPostResolutionHold(null);
+      await onResolved();
+    },
   });
 
   useEffect(() => {
     if (!preview.data || reason) return;
     setReason(preview.data.issueReason ?? "");
   }, [preview.data, reason]);
+
+  useEffect(() => {
+    if (!activeAction) return;
+    saveDraft(activeAction, { reason, supplierId });
+  }, [activeAction, reason, saveDraft, supplierId]);
 
   const totalDisplay = useMemo(() => {
     if (!preview.data) return null;
@@ -60,38 +81,56 @@ export function WholeProductQualityActionsPanel({
   const resetFinalConfirmation = () => {
     setFinalConfirmOpen(false);
     setSupervisorPassword("");
-    setPasswordEditable(false);
     setPostResolutionHold(null);
   };
 
   const resetAction = () => {
     resetFinalConfirmation();
     setActiveAction(null);
-    setRecipientName("");
+    setSupplierId(null);
     setPreviewChanged(false);
   };
 
   const openAction = (action: WholeProductQualityAction) => {
+    if (
+      commands.busyKey !== null
+      || commands.pending !== null
+      || commands.recoveryBlocked
+      || !commands.recoveryReady
+      || !commands.isOnline
+    ) return;
+
+    const draft = readDraft(action);
     resetFinalConfirmation();
     setActiveAction(action);
-    setRecipientName("");
+    setReason(preview.data?.issueReason ?? draft?.reason ?? "");
+    setSupplierId(action === "RETURN_TO_VENDOR" ? draft?.supplierId ?? null : null);
     setPreviewChanged(false);
   };
 
+  const previewBlocked = (preview.data?.blockerCodes.length ?? 0) > 0;
+  const interactionBlocked = commands.busyKey !== null
+    || commands.pending !== null
+    || commands.recoveryBlocked
+    || !commands.recoveryReady
+    || !commands.isOnline;
   const canContinue = Boolean(
     activeAction
       && preview.data
       && !preview.isFetching
       && !preview.isError
-      && preview.data.blockerCodes.length === 0
+      && !previewBlocked
+      && !interactionBlocked
       && reason.trim()
-      && (activeAction !== "RETURN_TO_VENDOR" || recipientName.trim()),
+      && (
+        activeAction !== "RETURN_TO_VENDOR"
+        || (supplierId !== null && access.can("supplier.read"))
+      ),
   );
 
   const openFinalConfirmation = () => {
     if (!canContinue) return;
     setSupervisorPassword("");
-    setPasswordEditable(false);
     setPostResolutionHold(null);
     setFinalConfirmOpen(true);
   };
@@ -103,9 +142,9 @@ export function WholeProductQualityActionsPanel({
       || !supervisorPassword
       || !postResolutionHold
       || !preview.data
-      || preview.data.blockerCodes.length > 0
+      || previewBlocked
     ) return;
-    if (activeAction === "RETURN_TO_VENDOR" && !recipientName.trim()) return;
+    if (activeAction === "RETURN_TO_VENDOR" && supplierId === null) return;
 
     const shownSignature = previewSignature(preview.data);
     const refreshed = await preview.refetch();
@@ -119,12 +158,12 @@ export function WholeProductQualityActionsPanel({
     const ok = await commands.resolveAll({
       action: activeAction,
       reason,
-      recipientName,
+      supplierId,
       confirmationPassword: supervisorPassword,
       postResolutionHold,
     });
+    setSupervisorPassword("");
     if (ok) {
-      setSupervisorPassword("");
       setActiveAction(null);
       setFinalConfirmOpen(false);
     }
@@ -133,17 +172,58 @@ export function WholeProductQualityActionsPanel({
   const quantityText = totalDisplay
     ? `${totalDisplay.primary}${totalDisplay.secondary ? ` (${totalDisplay.secondary})` : ""}`
     : "?";
-  const previewBlocked = (preview.data?.blockerCodes.length ?? 0) > 0;
-  const finalDisabled = commands.busyKey !== null
+  const finalDisabled = interactionBlocked
     || preview.isFetching
     || !supervisorPassword
     || postResolutionHold === null;
+
+  if (commands.pending || commands.recoveryBlocked) {
+    return (
+      <div className="space-y-3" dir={i18n.dir()}>
+        <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+          <p className="text-xs font-black text-amber-950">{t("productQualityInline.pending")}</p>
+          {commands.pending ? (
+            <div className="mt-3 space-y-3">
+              <SupervisorPasswordField
+                value={supervisorPassword}
+                onChange={setSupervisorPassword}
+                disabled={commands.busyKey !== null || !commands.isOnline}
+              />
+              <button
+                type="button"
+                disabled={!supervisorPassword || commands.busyKey !== null || !commands.isOnline}
+                onClick={() => {
+                  const password = supervisorPassword;
+                  setSupervisorPassword("");
+                  void commands.retryPending(password);
+                }}
+                className="rounded-lg bg-slate-950 px-4 py-2 text-[10px] font-black text-white disabled:opacity-40"
+              >
+                {t("common.retry")}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  if (!commands.recoveryReady) {
+    return (
+      <p role="status" className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-500">
+        {t("common.loading")}
+      </p>
+    );
+  }
 
   if (finalConfirmOpen && activeAction) {
     return (
       <form
         autoComplete="off"
-        onSubmit={(event) => { event.preventDefault(); void submit(); }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
         className="space-y-4"
         dir={i18n.dir()}
       >
@@ -169,11 +249,6 @@ export function WholeProductQualityActionsPanel({
           <p className="mt-1 text-[11px] font-bold text-slate-600">
             {t("productQualityInline.final.quantity", { quantity: quantityText })}
           </p>
-          {activeAction === "RETURN_TO_VENDOR" ? (
-            <p className="mt-1 text-[11px] font-bold text-slate-600">
-              {t("productQualityInline.final.recipient", { recipient: recipientName.trim() })}
-            </p>
-          ) : null}
         </div>
 
         <fieldset className="space-y-2">
@@ -204,24 +279,11 @@ export function WholeProductQualityActionsPanel({
           </label>
         </fieldset>
 
-        <label className="block text-xs font-black text-slate-800">
-          {t("productQualityInline.fields.supervisorPassword")}
-          <input
-            type="password"
-            name="quality-confirmation-secret"
-            autoComplete="off"
-            readOnly={!passwordEditable}
-            data-lpignore="true"
-            data-1p-ignore="true"
-            data-form-type="other"
-            maxLength={256}
-            value={supervisorPassword}
-            onFocus={() => setPasswordEditable(true)}
-            onChange={(event) => setSupervisorPassword(event.target.value)}
-            placeholder={t("productQualityInline.fields.supervisorPasswordPlaceholder")}
-            className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
-          />
-        </label>
+        <SupervisorPasswordField
+          value={supervisorPassword}
+          onChange={setSupervisorPassword}
+          disabled={commands.busyKey !== null || !commands.isOnline}
+        />
 
         <div className="flex justify-end gap-2">
           <button
@@ -258,6 +320,11 @@ export function WholeProductQualityActionsPanel({
         <h3 className="text-sm font-black text-slate-950">{t("productQualityInline.title")}</h3>
       </div>
 
+      {!commands.isOnline ? (
+        <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-900">
+          {t("suppliers.offline")}
+        </p>
+      ) : null}
       {preview.isLoading ? (
         <p role="status" className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-500">
           {t("common.loading")}
@@ -281,7 +348,7 @@ export function WholeProductQualityActionsPanel({
               <button
                 type="button"
                 onClick={() => openAction("DISPOSE")}
-                disabled={commands.busyKey !== null || previewBlocked}
+                disabled={interactionBlocked || previewBlocked}
                 className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-rose-200 bg-white px-4 text-xs font-black text-rose-800 transition hover:bg-rose-50 disabled:opacity-40"
               >
                 <Trash2 className="h-4 w-4" />{t("productQualityInline.actions.disposeAll")}
@@ -289,7 +356,7 @@ export function WholeProductQualityActionsPanel({
               <button
                 type="button"
                 onClick={() => openAction("RETURN_TO_VENDOR")}
-                disabled={commands.busyKey !== null || previewBlocked}
+                disabled={interactionBlocked || previewBlocked}
                 className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-sky-200 bg-white px-4 text-xs font-black text-sky-900 transition hover:bg-sky-50 disabled:opacity-40"
               >
                 <Truck className="h-4 w-4" />{t("productQualityInline.actions.returnAll")}
@@ -317,22 +384,20 @@ export function WholeProductQualityActionsPanel({
                   onChange={(event) => setReason(event.target.value)}
                   autoComplete="off"
                   name="quality-issue-reason"
+                  maxLength={1000}
                   placeholder={t("productQualityInline.fields.reasonMissing")}
                   className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
                 />
               )}
 
               {activeAction === "RETURN_TO_VENDOR" ? (
-                <label className="mt-3 block text-[10px] font-black text-slate-700">
-                  {t("productQualityInline.fields.recipientName")}
-                  <input
-                    value={recipientName}
-                    onChange={(event) => setRecipientName(event.target.value)}
-                    autoComplete="off"
-                    name="quality-return-recipient"
-                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                <div className="mt-3">
+                  <SupplierSelector
+                    value={supplierId}
+                    onChange={setSupplierId}
+                    disabled={interactionBlocked}
                   />
-                </label>
+                </div>
               ) : null}
 
               {previewChanged ? (
@@ -351,7 +416,8 @@ export function WholeProductQualityActionsPanel({
                 <button
                   type="button"
                   onClick={resetAction}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-black text-slate-700"
+                  disabled={interactionBlocked}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-black text-slate-700 disabled:opacity-40"
                 >
                   {t("common.back")}
                 </button>

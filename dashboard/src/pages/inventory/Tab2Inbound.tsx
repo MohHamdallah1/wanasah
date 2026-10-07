@@ -14,6 +14,8 @@ import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 import { currentLocale } from "@/i18n";
 import { apiErrorMessage } from "@/lib/apiErrors";
+import { SupplierSelector } from "@/features/suppliers/SupplierSelector";
+import { useInboundPosting } from "./inbound/useInboundPosting";
 import {
   completeDurableOperation,
   durableScope,
@@ -31,7 +33,6 @@ import {
   parseCostPolicy,
   parseInboundDrafts,
   parseInboundOptions,
-  parseInboundResponse,
   type CostMethod,
   type CostPolicy,
   type InboundBatchDraft,
@@ -97,6 +98,16 @@ export function Tab2Inbound({
     }));
   const request = useRef(0);
   const optionsRequest = useRef(0);
+  const supplierKey = `${keys.drafts}:supplier`;
+  const [supplierId, setSupplierId] = useState<number | null>(() => {
+    const saved = Number(localStorage.getItem(supplierKey));
+    return Number.isSafeInteger(saved) && saved > 0 ? saved : null;
+  });
+  const posting = useInboundPosting({ companyId, actorId, locationId, authenticatedFetch, legacyRequestKey: keys.requestId, legacyPayloadKey: keys.fingerprint });
+  useEffect(() => {
+    if (supplierId === null) localStorage.removeItem(supplierKey);
+    else localStorage.setItem(supplierKey, String(supplierId));
+  }, [supplierId, supplierKey]);
 
   useEffect(() => {
     localStorage.setItem(keys.drafts, JSON.stringify(drafts));
@@ -250,7 +261,8 @@ export function Tab2Inbound({
       return { ...current, [key]: rows };
     });
 
-  const clear = () => {
+  const clear = (reconciled = false) => {
+    if (!reconciled && (posting.pending || posting.recoveryError)) return;
     setDrafts({});
     setReferenceId("");
     setNotes("");
@@ -297,6 +309,8 @@ export function Tab2Inbound({
   };
 
   const submit = async () => {
+    if (!posting.online || supplierId === null) return toast.error(t("suppliers.choose"));
+    if (posting.pending || posting.recoveryError || localStorage.getItem(keys.requestId)) return toast.error(t("suppliers.pending"));
     if (!costPolicy?.is_selected || savingPolicy) {
       return toast.error(t("inventoryInbound.errors.policyRequired"));
     }
@@ -336,26 +350,15 @@ export function Tab2Inbound({
         documentDefaults
       );
       const businessPayload = {
+        supplier_id: supplierId,
         location_id: locationId,
         reference_id: referenceId.trim(),
         notes: notes.trim() || null,
         items,
       };
-      const fingerprint = JSON.stringify(businessPayload);
-      let requestId = localStorage.getItem(keys.requestId);
-      if (!requestId || localStorage.getItem(keys.fingerprint) !== fingerprint) {
-        requestId = crypto.randomUUID();
-        localStorage.setItem(keys.requestId, requestId);
-        localStorage.setItem(keys.fingerprint, fingerprint);
-      }
-      parseInboundResponse(
-        await authenticatedFetch("/warehouse/inbound", {
-          method: "POST",
-          body: JSON.stringify({ request_id: requestId, ...businessPayload }),
-        })
-      );
+      await posting.post(businessPayload);
       toast.success(t("inventoryInbound.received"));
-      clear();
+      clear(true);
       await onSuccess();
     } catch (error) {
       toast.error(
@@ -383,6 +386,19 @@ export function Tab2Inbound({
       dir={i18n.dir()}
     >
       <div className="inventory-surface relative bg-white rounded-2xl border flex flex-col flex-1 min-h-0">
+        <div className="mx-4 mt-6">
+          <SupplierSelector value={supplierId} onChange={setSupplierId} disabled={submitting || posting.pending !== null} />
+          {!posting.online ? <p role="status">{t("suppliers.offline")}</p> : null}
+          {posting.pending || posting.recoveryError ? <div role="alert">
+            <p>{posting.recoveryError ?? t("suppliers.pending")}</p>
+            <button type="button" disabled={submitting || !posting.online || !!posting.recoveryError} onClick={async () => {
+              setSubmitting(true);
+              try { if (await posting.post()) { toast.success(t("inventoryInbound.received")); clear(true); await onSuccess(); } }
+              catch (error) { toast.error(apiErrorMessage(error, t("suppliers.pending"))); }
+              finally { setSubmitting(false); }
+            }}>{t("common.retry")}</button>
+          </div> : null}
+        </div>
         <div className="absolute -top-3.5 right-6 rtl:right-6 rtl:left-auto ltr:left-6 ltr:right-auto bg-emerald-600 text-white px-4 py-1.5 rounded-lg text-sm font-black flex gap-2">
           <FilePlus className="w-4 h-4" />
           {t("inventoryInbound.title")}
@@ -749,7 +765,7 @@ export function Tab2Inbound({
               </button>
               <button
                 type="button"
-                onClick={clear}
+                onClick={() => clear()}
                 className="rounded-xl bg-red-600 text-white px-5 py-2"
               >
                 {t("inventoryInbound.clearConfirm")}

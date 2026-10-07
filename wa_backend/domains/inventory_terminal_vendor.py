@@ -37,6 +37,8 @@ async def confirm_vendor_handover(
     vendor_reference: str,
     handover_reference: str,
     allow_legacy_fifo_state_bridge: bool = False,
+    supplier_id: int | None = None,
+    supplier_code: str | None = None,
 ) -> dict[str, Any]:
     try:
         qty = parse_quantity(quantity, "quantity", allow_zero=False)
@@ -166,6 +168,8 @@ async def confirm_vendor_handover(
             "handed_over_quantity": canonical_quantity(qty),
             "remaining_quantity": canonical_quantity(remaining),
             "vendor_name": vendor_name,
+            "supplier_id": supplier_id,
+            "supplier_code": supplier_code,
             "vendor_reference": vendor_reference,
             "handover_reference": handover_reference,
             "origin_transfer_header_ids": origin_ids,
@@ -182,6 +186,8 @@ async def confirm_vendor_handover(
         "remaining_quantity": canonical_quantity(remaining),
         "origin_transfer_header_ids": origin_ids,
         "vendor_name": vendor_name,
+        "supplier_id": supplier_id,
+        "supplier_code": supplier_code,
         "vendor_reference": vendor_reference,
         "handover_reference": handover_reference,
         "event_type": FINAL_VENDOR_HANDOVER_EVENT,

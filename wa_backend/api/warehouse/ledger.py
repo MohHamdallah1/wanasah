@@ -17,6 +17,7 @@ from models import (
     Company,
     Driver,
     InventoryBalance,
+    InventoryLocation,
     InventoryCostEvent,
     InventoryMovement,
     InventoryMovementImpact,
@@ -476,6 +477,15 @@ async def get_warehouse_ledger_cursor(
             }
 
         movement_ids = [row[0].id for row in rows]
+        from domains.inventory_supplier_evidence import InventorySupplierEvidence
+        supplier_evidence = {
+            row.movement_id: row for row in (await db.scalars(
+                select(InventorySupplierEvidence).where(
+                    InventorySupplierEvidence.company_id == company_id,
+                    InventorySupplierEvidence.movement_id.in_(movement_ids),
+                )
+            )).all()
+        }
         page_variant_ids = sorted({int(row[0].product_variant_id) for row in rows})
 
         aggregate_snapshots = (
@@ -819,6 +829,9 @@ async def get_warehouse_ledger_cursor(
                 "average_cost_uom_name": average_cost_uom_name,
                 "admin_name": admin_name or "غير معروف",
                 "reference": movement.reference_id,
+                "supplier_id": supplier_evidence[movement.id].supplier_id if movement.id in supplier_evidence else None,
+                "supplier_name": supplier_evidence[movement.id].supplier_name if movement.id in supplier_evidence else None,
+                "supplier_code": supplier_evidence[movement.id].supplier_code if movement.id in supplier_evidence else None,
                 "notes": movement.notes,
                 "date": (
                     response_created_at.isoformat()

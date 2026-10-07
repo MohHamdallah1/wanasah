@@ -12,6 +12,7 @@ from models import (Driver, Permission, UserRole, UserLocationAccess, role_permi
                     InventoryLocation, InventoryTransferHeader, InventoryMovement, StocktakeSession)
 
 PERMISSIONS = frozenset({
+    'supplier.read', 'supplier.manage',
     'location.read', 'location.create', 'location.update', 'location.state',
     'inventory.read', 'inbound.create', 'ledger.read', 'ledger.adjust',
     'batch.disposition', 'inventory.status_change',
@@ -34,6 +35,7 @@ PERMISSIONS = frozenset({
     'dispatch.read', 'dispatch.execute',
 })
 COMPANY_ONLY = frozenset({
+    'supplier.read', 'supplier.manage',
     'location.create', 'catalog.manage', 'catalog.publish', 'catalog.retire',
     'catalog.restore', 'catalog.archive', 'catalog.hold',
     'batch.disposition', 'inventory.transfer_policy.manage', 'inventory.costing.manage',

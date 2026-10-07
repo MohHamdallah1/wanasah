@@ -1,4 +1,4 @@
-import type { CatalogVariant } from "../catalog/contracts";
+import type { CatalogVariant } from "@/features/catalog/contracts";
 import {
   compareQuantity,
   parseQuantity,

@@ -451,6 +451,8 @@ app.include_router(commercial_policy.router)
 app.include_router(offers.router)
 app.include_router(taxation.router)
 app.include_router(tenant.router)
+from api import suppliers
+app.include_router(suppliers.router)
 
 # Step 5.7a: WebSocket endpoint for real-time dispatch dashboard updates
 @app.websocket("/ws/dispatch")

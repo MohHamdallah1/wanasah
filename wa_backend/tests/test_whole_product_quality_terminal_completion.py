@@ -211,3 +211,14 @@ def test_whole_product_endpoint_applies_post_resolution_choice_atomically():
     assert "post_resolution_hold" in source
     assert "target_hold=payload.post_resolution_hold" in source
     assert source.index("target_hold=payload.post_resolution_hold") < source.index("complete_idempotent_operation(idem")
+
+
+def test_supplier_integration_preserves_pre_post_resolution_replay_compatibility():
+    identity_source = Path(__file__).resolve().parents[1].joinpath(
+        "api", "warehouse", "whole_product_quality_identity.py"
+    ).read_text(encoding="utf-8")
+    endpoint_source = Path(__file__).resolve().parents[1].joinpath(
+        "api", "warehouse", "whole_product_quality.py"
+    ).read_text(encoding="utf-8")
+    assert '"post_resolution_hold"' in identity_source
+    assert 'replay_payload.setdefault("post_resolution_hold", "NONE")' in endpoint_source

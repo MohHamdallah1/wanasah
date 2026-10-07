@@ -6,6 +6,8 @@ so this regression cannot accidentally commit a sale/receipt on a bad code path.
 """
 from __future__ import annotations
 
+from tests.supplier_fixtures import seed_receipt_supplier
+
 import os
 import unittest
 from datetime import date, timedelta
@@ -53,6 +55,7 @@ class WarehouseInboundCostSelectionC2DatabaseTests(unittest.IsolatedAsyncioTestC
             ).limit(1)
         )
         self.assertIsNotNone(self.actor)
+        self.supplier_id = await seed_receipt_supplier(self.db, self.actor)
         self.location_id = await self.db.scalar(text(
             "SELECT id FROM inventory_locations WHERE company_id=:company_id "
             "AND location_type='WAREHOUSE' AND is_active=true "
@@ -79,6 +82,7 @@ class WarehouseInboundCostSelectionC2DatabaseTests(unittest.IsolatedAsyncioTestC
         batch = "C2-NEG-" + uuid4().hex[:12]
         supplier_ref = "C2-NEG-" + uuid4().hex[:12]
         payload = UpgradedInboundRequest(
+            supplier_id=self.supplier_id,
             request_id=request_id,
             location_id=self.location_id,
             reference_id=supplier_ref,

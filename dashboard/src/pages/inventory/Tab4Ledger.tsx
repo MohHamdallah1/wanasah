@@ -411,13 +411,16 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
                     <td className="px-4 py-3">
                       {reference ? (
                         entry.type === "INBOUND_SUPPLIER" || entry.type === "INBOUND_CORRECTION" ? (
-                          <span className="text-[11px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2 py-1 rounded-md">فاتورة مورد: {reference}</span>
+                          <span className="text-[11px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2 py-1 rounded-md">{t("suppliers.receiptReference", { reference })}</span>
                         ) : (
                           <button onClick={() => { void openReference(reference); }} className="flex items-center gap-1 text-xs text-blue-700 hover:bg-blue-50 px-2 py-1 rounded-md">
                             <FileText className="w-3.5 h-3.5" /> {reference}
                           </button>
                         )
                       ) : <span className="text-slate-300">—</span>}
+                      {entry.type === "INBOUND_SUPPLIER" || entry.type === "FINAL_VENDOR_HANDOVER" ? <p className="mt-1 text-xs text-muted-foreground">
+                        {entry.supplier_name ?? t("suppliers.historicalUnknown")}{entry.supplier_code ? ` · ${entry.supplier_code}` : ""}
+                      </p> : null}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">

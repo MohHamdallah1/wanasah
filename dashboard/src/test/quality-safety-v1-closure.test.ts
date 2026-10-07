@@ -16,12 +16,12 @@ describe("V1 quality and safety workflow closure", () => {
     expect(manager).not.toContain("createInventoryWholeProductIssueNavigationState");
   });
 
-  it("prevents a whole-product safety issue when there is no current stock", () => {
+  it("prevents a whole-product safety issue until positive stock is proven", () => {
     const actions = read("../features/catalog/lifecycle/CatalogLifecycleActions.tsx");
     const panel = read("../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx");
     expect(actions).toContain("/recall-preflight");
     expect(actions).toContain("has_current_stock");
-    expect(panel).toContain("recallHasCurrentStock === false");
+    expect(panel).toContain("recallHasCurrentStock !== true");
     expect(panel).toContain("catalogLifecycle.simple.qualityIssueNoStock");
   });
 
@@ -34,7 +34,7 @@ describe("V1 quality and safety workflow closure", () => {
     expect(inventoryPage).not.toContain("QualityBatchPickerWorkspace");
   });
 
-  it("keeps whole-product commands global and hides implementation details from the operator", () => {
+  it("keeps whole-product commands global and hides inventory implementation detail", () => {
     const inline = read("../features/inventory/quality/WholeProductQualityActionsPanel.tsx");
     const commands = read("../features/inventory/quality/useProductQualityCommands.ts");
     const previewHook = read("../features/inventory/quality/useWholeProductQualityPreview.ts");
@@ -50,34 +50,48 @@ describe("V1 quality and safety workflow closure", () => {
     expect(commands).not.toContain("transfer_purpose");
   });
 
-  it("reuses the saved issue reason and keeps technical references out of the form", () => {
+  it("reuses the saved issue reason and uses Supplier identity instead of manual recipient text", () => {
     const inline = read("../features/inventory/quality/WholeProductQualityActionsPanel.tsx");
     const commands = read("../features/inventory/quality/useProductQualityCommands.ts");
     expect(inline).toContain("preview.data.issueReason");
+    expect(inline).toContain("<SupplierSelector");
+    expect(inline).not.toContain("recipientName");
     expect(inline).not.toContain("handoverReference");
     expect(inline).not.toContain("evidenceReference");
     expect(inline).not.toContain("disposalMethod");
+    expect(commands).toContain("supplier_id");
     expect(commands).toContain("SYSTEM-${durable.requestId}");
   });
 
-  it("uses a separate final confirmation step for the password and post-action product state", () => {
+  it("uses a separate final password confirmation and never persists the credential", () => {
     const inline = read("../features/inventory/quality/WholeProductQualityActionsPanel.tsx");
     const commands = read("../features/inventory/quality/useProductQualityCommands.ts");
+    const passwordField = read("../features/inventory/quality/SupervisorPasswordField.tsx");
     expect(inline).toContain("finalConfirmOpen");
-    expect(inline).toContain('type="password"');
-    expect(inline).toContain('autoComplete="off"');
-    expect(inline).toContain('readOnly={!passwordEditable}');
-    expect(inline).toContain('data-lpignore="true"');
+    expect(inline).toContain("<SupervisorPasswordField");
     expect(inline).toContain("postResolutionHold");
     expect(inline).toContain('setPostResolutionHold("NONE")');
     expect(inline).toContain('setPostResolutionHold("SALES_HOLD")');
-    expect(commands).toContain("post_resolution_hold: postResolutionHold");
+    expect(passwordField).toContain('type="password"');
+    expect(passwordField).toContain('autoComplete="off"');
+    expect(passwordField).toContain('readOnly={!editable}');
+    expect(passwordField).toContain('data-lpignore="true"');
+    expect(commands).toContain("post_resolution_hold");
     expect(commands).toContain("confirmation_password: confirmationPassword");
     const durablePayload = commands.slice(
-      commands.indexOf("const payload = {"),
+      commands.indexOf("const payload: QualityPayload"),
       commands.indexOf("const scope ="),
     );
     expect(durablePayload).not.toContain("confirmation_password");
+  });
+
+  it("keeps retry password-only while replay identity stays in durable storage", () => {
+    const inline = read("../features/inventory/quality/WholeProductQualityActionsPanel.tsx");
+    const commands = read("../features/inventory/quality/useProductQualityCommands.ts");
+    expect(commands).toContain("whole-product-quality-resolve-v3");
+    expect(commands).toContain("whole-product-quality-resolve-v2");
+    expect(commands).toContain("retryPending");
+    expect(inline).toContain("commands.retryPending(password)");
   });
 
   it("uses short business wording for the operator flow", () => {

@@ -53,6 +53,7 @@ const navItems = [
     icon: Package,
     path: "/inventory",
   },
+  { labelKey: "suppliers.title", icon: Truck, path: "/suppliers" },
   {
     labelKey: "nav.products",
     icon: PackagePlus,
@@ -149,6 +150,7 @@ export function OperationsSidebar({
       item.path === "/dispatch" ||
       item.path === "/inventory" ||
       item.path === "/products" ||
+      item.path === "/suppliers" ||
       item.path === "/commercial-rules" ||
       item.path === "/sales-returns"
     ) {
@@ -397,6 +399,7 @@ export function OperationsSidebar({
             .filter(
               (item) =>
                 access.isCompanyAdmin ||
+                (item.path === "/suppliers" && access.can("supplier.read")) ||
                 item.path ===
                   "/inventory" ||
                 (item.path ===
