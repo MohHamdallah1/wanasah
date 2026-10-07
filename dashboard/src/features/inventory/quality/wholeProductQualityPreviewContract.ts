@@ -1,11 +1,12 @@
 import { parseQuantity, type Quantity } from "@/lib/quantity";
 
 export type WholeProductCostingMethod = "MOVING_AVERAGE" | "FIFO";
+export type WholeProductQualityPreviewLocationType = "WAREHOUSE" | "VEHICLE" | "IN_TRANSIT" | "SCRAP";
 
 export type WholeProductQualityPreviewLocation = {
   locationId: number;
   locationName: string;
-  locationType: "WAREHOUSE" | "VEHICLE";
+  locationType: WholeProductQualityPreviewLocationType;
   quantity: Quantity;
 };
 
@@ -38,6 +39,12 @@ export type WholeProductQualityPreview = {
 };
 
 const MONEY_PATTERN = /^\d+(?:\.\d{1,6})?$/;
+const locationTypes = new Set<WholeProductQualityPreviewLocationType>([
+  "WAREHOUSE",
+  "VEHICLE",
+  "IN_TRANSIT",
+  "SCRAP",
+]);
 
 const invalid = (): never => {
   const error = new Error("WHOLE_PRODUCT_QUALITY_PREVIEW_INVALID") as Error & { code: string };
@@ -97,11 +104,11 @@ export function parseWholeProductQualityPreview(raw: unknown): WholeProductQuali
     const locationId = positiveInt(location.location_id);
     if (seenLocations.has(locationId)) return invalid();
     seenLocations.add(locationId);
-    if (location.location_type !== "WAREHOUSE" && location.location_type !== "VEHICLE") return invalid();
+    if (!locationTypes.has(location.location_type as WholeProductQualityPreviewLocationType)) return invalid();
     return {
       locationId,
       locationName: text(location.location_name, 200),
-      locationType: location.location_type,
+      locationType: location.location_type as WholeProductQualityPreviewLocationType,
       quantity: quantity(location.quantity, "location.quantity"),
     } satisfies WholeProductQualityPreviewLocation;
   });
