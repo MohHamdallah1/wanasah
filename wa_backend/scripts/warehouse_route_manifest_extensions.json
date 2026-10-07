@@ -72,6 +72,18 @@
       "status_code": "200",
       "response_model": "TerminalVendorHandoverResponse",
       "expected_module": "transfers"
+    },
+    {
+      "insert_after": {
+        "method": "POST",
+        "path": "/warehouse/quality/vendor-return/confirm"
+      },
+      "method": "POST",
+      "path": "/warehouse/quality/products/{product_variant_id}/resolve-all",
+      "function": "resolve_whole_product_quality",
+      "status_code": "200",
+      "response_model": "WholeProductQualityResolveResponse",
+      "expected_module": "whole_product_quality"
     }
   ]
 }
