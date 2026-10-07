@@ -156,11 +156,14 @@ describe("Catalog / Inventory frontend boundary", () => {
     expect(lifecycle).not.toContain("/warehouse/quality/disposal/confirm");
     expect(lifecycle).not.toContain("/warehouse/quality/vendor-return/confirm");
     expect(inline).toContain("useProductQualityCommands");
-    expect(commands).toContain("/warehouse/quality/products/${productVariantId}/resolve-all");`r`n    expect(commands).not.toContain("/warehouse/quality/stage");
+    expect(commands).toContain("/warehouse/quality/products/${productVariantId}/resolve-all");
+    expect(commands).not.toContain("/warehouse/quality/stage");
     expect(commands).not.toContain("/warehouse/unified/transfer/special/dispatch");
     expect(commands).not.toContain("/warehouse/quality/disposal/confirm");
     expect(commands).not.toContain("/warehouse/quality/vendor-return/confirm");
-    expect(commands).not.toContain("source_location_id");`r`n    expect(commands).not.toContain("batch_id");`r`n    expect(commands).not.toContain("close-recall");
+    expect(commands).not.toContain("source_location_id");
+    expect(commands).not.toContain("batch_id");
+    expect(commands).not.toContain("close-recall");
     expect(commands).not.toContain("cancel-recall");
   });
 
