@@ -1,8 +1,6 @@
 import { useState } from "react";
 import {
   AlertTriangle,
-  ArrowLeft,
-  ArrowRight,
   Plus,
   RefreshCw,
   Search,
@@ -35,7 +33,7 @@ export default function SuppliersPage() {
   const [stateRow, setStateRow] = useState<Supplier | null>(null);
   const manage = search.access.can("supplier.manage");
   const blocked = !commands.online || commands.busy || commands.pending !== null;
-  const items = search.query.isError ? [] : search.query.data?.items ?? [];
+  const items = search.query.isError ? [] : search.items;
 
   if (search.access.isPending) {
     return <div className="grid h-full place-items-center text-sm font-semibold text-slate-500" role="status">{t("common.loading")}</div>;
@@ -70,8 +68,8 @@ export default function SuppliersPage() {
       </header>
     </WorkspaceTopBar>
 
-    <div className="relative z-10 min-h-0 flex-1 overflow-auto px-4 pb-5 pt-4 sm:px-5">
-      <section className="mx-auto w-full max-w-[1500px] space-y-3">
+    <div className="relative z-10 min-h-0 flex-1 overflow-hidden px-4 pb-5 pt-4 sm:px-5">
+      <section className="mx-auto flex h-full min-h-0 w-full max-w-[1500px] flex-col gap-3">
         {!commands.online ? <div role="status" className="flex items-center gap-2 rounded-2xl border border-amber-200/70 bg-amber-50/80 px-4 py-3 text-sm font-bold text-amber-800 shadow-sm backdrop-blur-xl"><WifiOff className="h-4 w-4" />{t("suppliers.offline")}</div> : null}
         {commands.error ? <div role="alert" className="flex items-center gap-2 rounded-2xl border border-rose-200/70 bg-rose-50/[0.85] px-4 py-3 text-sm font-bold text-rose-700 shadow-sm backdrop-blur-xl"><AlertTriangle className="h-4 w-4" />{commands.error}</div> : null}
         {commands.pending ? <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200/70 bg-white/75 px-4 py-3 shadow-sm backdrop-blur-xl">
@@ -108,7 +106,7 @@ export default function SuppliersPage() {
           <button type="button" onClick={() => void search.query.refetch()} className="mt-3 rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white">{t("common.retry")}</button>
         </div> : null}
 
-        {!search.query.isError && !search.query.isFetching && items.length === 0 ? <div className="grid min-h-[360px] place-items-center rounded-[28px] border border-white/80 bg-white/[0.58] px-6 text-center shadow-[0_20px_60px_-44px_rgba(15,23,42,0.6)] backdrop-blur-2xl">
+        {!search.query.isError && !search.query.isFetching && items.length === 0 ? <div className="grid min-h-0 flex-1 place-items-center rounded-[28px] border border-white/80 bg-white/[0.58] px-6 text-center shadow-[0_20px_60px_-44px_rgba(15,23,42,0.6)] backdrop-blur-2xl">
           <div className="max-w-sm">
             <div className="mx-auto grid h-16 w-16 place-items-center rounded-[22px] border border-white bg-gradient-to-br from-cyan-50 to-amber-50 shadow-sm"><UsersRound className="h-7 w-7 text-slate-600" /></div>
             <h2 className="mt-4 text-base font-black text-slate-900">{t("suppliers.empty")}</h2>
@@ -118,17 +116,15 @@ export default function SuppliersPage() {
           </div>
         </div> : null}
 
-        {!search.query.isError && items.length > 0 ? <div className="overflow-hidden rounded-[26px] border border-white/[0.85] bg-white/[0.62] shadow-[0_22px_65px_-46px_rgba(15,23,42,0.65)] backdrop-blur-2xl">
-          <SupplierTable items={items} manage={manage} disabled={blocked} onEdit={supplier => setEditor({ supplier })} onState={setStateRow} />
-          <footer className="flex items-center justify-between border-t border-slate-200/70 bg-white/[0.55] px-3 py-2.5 sm:px-4">
-            <span className="text-xs font-bold text-slate-400">{t("suppliers.visibleCount", { count: items.length })}</span>
-            <div className="flex items-center gap-2">
-              <button type="button" disabled={!search.hasBack || search.query.isFetching} onClick={search.back} aria-label={t("suppliers.previous")}
-                className="inline-flex h-9 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-35">{i18n.dir() === "rtl" ? <ArrowRight className="h-3.5 w-3.5" /> : <ArrowLeft className="h-3.5 w-3.5" />}{t("suppliers.previous")}</button>
-              <button type="button" disabled={!search.query.data?.has_more || search.query.isFetching} onClick={search.next} aria-label={t("suppliers.next")}
-                className="inline-flex h-9 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-35">{t("suppliers.next")}{i18n.dir() === "rtl" ? <ArrowLeft className="h-3.5 w-3.5" /> : <ArrowRight className="h-3.5 w-3.5" />}</button>
-            </div>
-          </footer>
+        {!search.query.isError && items.length > 0 ? <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[26px] border border-white/[0.85] bg-white/[0.62] shadow-[0_22px_65px_-46px_rgba(15,23,42,0.65)] backdrop-blur-2xl">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" onScroll={event => {
+            const target = event.currentTarget;
+            const nearBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 180;
+            if (nearBottom && search.query.hasNextPage && !search.query.isFetchingNextPage) void search.query.fetchNextPage();
+          }}>
+            <SupplierTable items={items} manage={manage} disabled={blocked} onEdit={supplier => setEditor({ supplier })} onState={setStateRow} />
+            {search.query.isFetchingNextPage ? <div role="status" className="border-t border-slate-200/70 bg-white/70 px-4 py-3 text-center text-xs font-bold text-slate-500">{t("common.loading")}</div> : null}
+          </div>
         </div> : null}
       </section>
     </div>

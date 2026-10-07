@@ -69,6 +69,7 @@ describe("Supplier V1 contract and presentation", () => {
     fake.manage = false;
     const view = render(<SuppliersPage />, { wrapper });
     await screen.findByText("ABC Trading"); expect(screen.queryByRole("button", { name: "Add supplier" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Previous" })).toBeNull(); expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
     view.unmount(); fake.fetch.mockResolvedValue({ ...page, items: [] });
     const empty = render(<SuppliersPage />, { wrapper }); await screen.findByText(/No matching suppliers/); empty.unmount();
     fake.fetch.mockRejectedValue(Object.assign(new Error(), { code: "SUPPLIER_PERMISSION_DENIED", status: 403 }));
