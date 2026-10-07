@@ -21,11 +21,15 @@ type PostResolutionHold = "NONE" | "SALES_HOLD";
 export function WholeProductQualityActionsPanel({
   productVariantId,
   baseUomName,
+  displayUomName,
+  displayFactorToBase,
   onBack,
   onResolved,
 }: {
   productVariantId: number;
   baseUomName: string;
+  displayUomName: string;
+  displayFactorToBase: string;
   onBack: () => void;
   onResolved: () => void | Promise<void>;
 }) {
@@ -72,11 +76,21 @@ export function WholeProductQualityActionsPanel({
     if (!preview.data) return null;
     return formatCommercialQuantity(
       preview.data.totalQuantity,
+      displayUomName,
       baseUomName,
-      baseUomName,
-      "1",
+      displayFactorToBase,
     );
-  }, [baseUomName, preview.data]);
+  }, [baseUomName, displayFactorToBase, displayUomName, preview.data]);
+
+  const reservedDisplay = useMemo(() => {
+    if (!preview.data || preview.data.totalReservedQuantity === "0") return null;
+    return formatCommercialQuantity(
+      preview.data.totalReservedQuantity,
+      displayUomName,
+      baseUomName,
+      displayFactorToBase,
+    );
+  }, [baseUomName, displayFactorToBase, displayUomName, preview.data]);
 
   const resetFinalConfirmation = () => {
     setFinalConfirmOpen(false);
@@ -109,6 +123,19 @@ export function WholeProductQualityActionsPanel({
   };
 
   const previewBlocked = (preview.data?.blockerCodes.length ?? 0) > 0;
+  const blockerText = useMemo(() => {
+    const codes = preview.data?.blockerCodes ?? [];
+    if (codes.includes("WHOLE_PRODUCT_QUALITY_RESERVED_STOCK")) {
+      const reserved = reservedDisplay
+        ? `${reservedDisplay.primary}${reservedDisplay.secondary ? ` — ${t("productQualityInline.totalBaseQuantity", { quantity: reservedDisplay.secondary })}` : ""}`
+        : "";
+      return t("productQualityInline.preview.blockers.reservedStock", { quantity: reserved });
+    }
+    if (codes.includes("WHOLE_PRODUCT_QUALITY_CUSTODY_BLOCKER")) {
+      return t("productQualityInline.preview.blockers.custody");
+    }
+    return codes.length > 0 ? t("productQualityInline.preview.blocked") : null;
+  }, [preview.data?.blockerCodes, reservedDisplay, t]);
   const interactionBlocked = commands.busyKey !== null
     || commands.pending !== null
     || commands.recoveryBlocked
@@ -170,7 +197,7 @@ export function WholeProductQualityActionsPanel({
   };
 
   const quantityText = totalDisplay
-    ? `${totalDisplay.primary}${totalDisplay.secondary ? ` (${totalDisplay.secondary})` : ""}`
+    ? `${totalDisplay.primary}${totalDisplay.secondary ? ` (${t("productQualityInline.totalBaseQuantity", { quantity: totalDisplay.secondary })})` : ""}`
     : "?";
   const finalDisabled = interactionBlocked
     || preview.isFetching
@@ -340,8 +367,22 @@ export function WholeProductQualityActionsPanel({
         <>
           <div className="rounded-xl border border-slate-200 bg-white p-3">
             <p className="text-[10px] font-black text-slate-500">{t("productQualityInline.currentQuantity")}</p>
-            <p className="mt-1 text-lg font-black tabular-nums text-slate-950">{quantityText}</p>
+            <p className="mt-1 text-lg font-black tabular-nums text-slate-950">
+              {totalDisplay?.primary ?? "?"}
+            </p>
+            {totalDisplay?.secondary ? (
+              <p className="mt-1 text-[10px] font-bold tabular-nums text-slate-500">
+                {t("productQualityInline.totalBaseQuantity", { quantity: totalDisplay.secondary })}
+              </p>
+            ) : null}
           </div>
+
+          {previewBlocked && blockerText ? (
+            <div role="alert" className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-[10px] font-bold leading-5 text-amber-900">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{blockerText}</span>
+            </div>
+          ) : null}
 
           {!activeAction ? (
             <div className="grid gap-2 sm:grid-cols-2">
@@ -349,6 +390,7 @@ export function WholeProductQualityActionsPanel({
                 type="button"
                 onClick={() => openAction("DISPOSE")}
                 disabled={interactionBlocked || previewBlocked}
+                title={previewBlocked && blockerText ? blockerText : undefined}
                 className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-rose-200 bg-white px-4 text-xs font-black text-rose-800 transition hover:bg-rose-50 disabled:opacity-40"
               >
                 <Trash2 className="h-4 w-4" />{t("productQualityInline.actions.disposeAll")}
@@ -357,6 +399,7 @@ export function WholeProductQualityActionsPanel({
                 type="button"
                 onClick={() => openAction("RETURN_TO_VENDOR")}
                 disabled={interactionBlocked || previewBlocked}
+                title={previewBlocked && blockerText ? blockerText : undefined}
                 className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-sky-200 bg-white px-4 text-xs font-black text-sky-900 transition hover:bg-sky-50 disabled:opacity-40"
               >
                 <Truck className="h-4 w-4" />{t("productQualityInline.actions.returnAll")}
@@ -408,7 +451,7 @@ export function WholeProductQualityActionsPanel({
               {previewBlocked ? (
                 <div role="alert" className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-[10px] font-bold text-amber-900">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span>{t("productQualityInline.preview.blocked")}</span>
+                  <span>{blockerText ?? t("productQualityInline.preview.blocked")}</span>
                 </div>
               ) : null}
 

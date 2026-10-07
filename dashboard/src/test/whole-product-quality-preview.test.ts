@@ -11,6 +11,7 @@ const movingAveragePreview = (): Record<string, unknown> => ({
   valuation_available: true,
   valuation_reason: null,
   total_quantity: "120",
+  total_reserved_quantity: "0",
   total_book_value: "30.000000",
   locations: [
     {
@@ -97,10 +98,23 @@ describe("whole-product quality financial preview", () => {
     expect(() => parseWholeProductQualityPreview(raw)).toThrow("WHOLE_PRODUCT_QUALITY_PREVIEW_INVALID");
   });
 
-  it("shows loose base units instead of rounding them into cartons", () => {
+  it("exposes the exact reserved quantity used to explain blocked handling", () => {
+    const raw = movingAveragePreview();
+    raw.total_reserved_quantity = "100";
+    raw.blocker_codes = ["WHOLE_PRODUCT_QUALITY_RESERVED_STOCK"];
+    const parsed = parseWholeProductQualityPreview(raw);
+    expect(parsed.totalReservedQuantity).toBe("100");
+    expect(parsed.blockerCodes).toEqual(["WHOLE_PRODUCT_QUALITY_RESERVED_STOCK"]);
+  });
+
+  it("shows the larger package first and keeps loose base units exact", () => {
     expect(formatCommercialQuantity("5110", "كرتونة", "حبة", "50")).toEqual({
       primary: "102 كرتونة + 10 حبة",
       secondary: "5110 حبة",
+    });
+    expect(formatCommercialQuantity("5500", "كرتونة", "حبة", "50")).toEqual({
+      primary: "110 كرتونة",
+      secondary: "5500 حبة",
     });
   });
 });

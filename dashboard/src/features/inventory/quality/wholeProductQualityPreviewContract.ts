@@ -32,6 +32,7 @@ export type WholeProductQualityPreview = {
   valuationAvailable: boolean;
   valuationReason: string | null;
   totalQuantity: Quantity;
+  totalReservedQuantity: Quantity;
   totalBookValue: string | null;
   locations: WholeProductQualityPreviewLocation[];
   batches: WholeProductQualityPreviewBatch[];
@@ -79,6 +80,14 @@ const quantity = (value: unknown, field: string): Quantity => {
   }
 };
 
+const nonnegativeQuantity = (value: unknown, field: string): Quantity => {
+  try {
+    return parseQuantity(value, field, { allowZero: true });
+  } catch {
+    return invalid();
+  }
+};
+
 const money = (value: unknown): string =>
   typeof value === "string" && MONEY_PATTERN.test(value)
     ? value
@@ -100,6 +109,10 @@ export function parseWholeProductQualityPreview(raw: unknown): WholeProductQuali
     ? null
     : text(row.valuation_reason, 100);
   const totalQuantity = quantity(row.total_quantity, "total_quantity");
+  const totalReservedQuantity = nonnegativeQuantity(
+    row.total_reserved_quantity,
+    "total_reserved_quantity",
+  );
   const totalBookValue = row.total_book_value === null ? null : money(row.total_book_value);
 
   if (!Array.isArray(row.locations) || row.locations.length === 0 || row.locations.length > 100) return invalid();
@@ -166,6 +179,7 @@ export function parseWholeProductQualityPreview(raw: unknown): WholeProductQuali
     valuationAvailable,
     valuationReason,
     totalQuantity,
+    totalReservedQuantity,
     totalBookValue,
     locations,
     batches,

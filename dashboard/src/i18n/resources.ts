@@ -1092,7 +1092,7 @@ export const resources = {
           },
           qualityIssueTitle: "مشكلة جودة أو سلامة",
           qualityIssueHint: "حدد هل المشكلة تشمل المنتج بالكامل أم دفعة محددة.",
-          qualityIssueNoStock: "لا توجد كمية حالية لهذا المنتج، لذلك لا يمكن فتح مشكلة سلامة عليه.",
+          qualityIssueNoStock: "رصيد المنتج الحالي صفر؛ لا توجد كمية يمكن تطبيق مشكلة جودة أو سلامة عليها.",
           issueScopeQuestion: "النطاق",
           issueScopeHint: "اختر النطاق.",
           issueScopes: {
@@ -3316,7 +3316,7 @@ export const resources = {
           },
           qualityIssueTitle: "Quality or safety issue",
           qualityIssueHint: "Choose whether the issue affects the whole product or one batch.",
-          qualityIssueNoStock: "There is no current stock, so a whole-product safety issue cannot be opened.",
+          qualityIssueNoStock: "The product's current stock is zero; there is no quantity to place under a quality or safety issue.",
           issueScopeQuestion: "Scope",
           issueScopeHint: "Choose the scope.",
           issueScopes: {
