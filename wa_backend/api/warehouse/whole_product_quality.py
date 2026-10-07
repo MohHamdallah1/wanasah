@@ -415,7 +415,7 @@ async def resolve_whole_product_quality(
             status_code=409,
             detail=_business_detail(
                 "WHOLE_PRODUCT_QUALITY_CONFLICT",
-                "تغير المخزون بالتزامن مع العملية؛ أعد المحاولة بأمان.",
+                "تعذر إتمام العملية بسبب تعارض في بيانات المخزون. حدّث البيانات وحاول مجددًا.",
             ),
         ) from exc
     except Exception as exc:

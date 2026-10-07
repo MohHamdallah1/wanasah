@@ -250,6 +250,23 @@ export function apiErrorMessage(
 
   const serverMessage =
     apiErrorServerMessage(error);
+  if (
+    typeof status === "number" &&
+    status >= 400 &&
+    status < 500 &&
+    serverMessage
+  ) {
+    if (requestId) {
+      return i18n.t(
+        "errors.serverReasonWithReference",
+        {
+          message: serverMessage,
+          requestId,
+        }
+      );
+    }
+    return serverMessage;
+  }
   if (!code && serverMessage) {
     if (requestId) {
       return i18n.t(
