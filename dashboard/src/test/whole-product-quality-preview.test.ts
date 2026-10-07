@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { parseWholeProductQualityPreview } from "@/features/inventory/quality/wholeProductQualityPreviewContract";
+import { formatCommercialQuantity } from "@/lib/quantity";
 
 const movingAveragePreview = (): Record<string, unknown> => ({
   product_variant_id: 44,
+  issue_reason: "اشتباه بسلامة المنتج",
   currency_code: "JOD",
   costing_method: "MOVING_AVERAGE",
   valuation_available: true,
@@ -50,6 +52,7 @@ const movingAveragePreview = (): Record<string, unknown> => ({
 describe("whole-product quality financial preview", () => {
   it("keeps warehouse/custody locations and physical batches informational", () => {
     const parsed = parseWholeProductQualityPreview(movingAveragePreview());
+    expect(parsed.issueReason).toBe("اشتباه بسلامة المنتج");
     expect(parsed.locations).toEqual([
       expect.objectContaining({ locationName: "مستودع التطوير", locationType: "WAREHOUSE", quantity: "100" }),
       expect.objectContaining({ locationName: "حركة قيد النقل", locationType: "IN_TRANSIT", quantity: "20" }),
@@ -82,9 +85,22 @@ describe("whole-product quality financial preview", () => {
     expect(parsed.valuationReason).toBe("COSTING_NOT_ACTIVE");
   });
 
+  it("accepts a legacy active recall whose saved reason cannot be reconstructed", () => {
+    const raw = movingAveragePreview();
+    raw.issue_reason = null;
+    expect(parseWholeProductQualityPreview(raw).issueReason).toBeNull();
+  });
+
   it("rejects a claimed valuation that omits its book-value evidence", () => {
     const raw = movingAveragePreview();
     raw.total_book_value = null;
     expect(() => parseWholeProductQualityPreview(raw)).toThrow("WHOLE_PRODUCT_QUALITY_PREVIEW_INVALID");
+  });
+
+  it("shows loose base units instead of rounding them into cartons", () => {
+    expect(formatCommercialQuantity("5110", "كرتونة", "حبة", "50")).toEqual({
+      primary: "102 كرتونة + 10 حبة",
+      secondary: "5110 حبة",
+    });
   });
 });
