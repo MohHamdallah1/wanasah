@@ -12,10 +12,6 @@ import {
   Trash2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import {
-  parseQualityInventorySummary,
-  type QualityInventorySummary,
-} from "@/features/inventory/quality/qualityInventorySummaryContract";
 import { toast } from "sonner";
 
 import { useAuthFetch } from "@/hooks/useAuthFetch";
@@ -164,62 +160,6 @@ const readRecallCompletionBlockers = (
   return result;
 };
 
-type RecallReadiness = {
-  ready_to_resume_sales: boolean;
-  blockers: RecallCompletionBlocker[];
-  inventory_summary: QualityInventorySummary | null;
-};
-
-const parseRecallReadiness = (
-  raw: unknown,
-  expectedVariantId: number,
-): RecallReadiness => {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error("CATALOG_RECALL_READINESS_INVALID");
-  }
-  const row = raw as Record<string, unknown>;
-  if (
-    row.variant_id !== expectedVariantId ||
-    typeof row.version !== "number" ||
-    !Number.isSafeInteger(row.version) ||
-    row.version <= 0 ||
-    row.operational_hold !== "RECALL" ||
-    typeof row.ready_to_resume_sales !== "boolean" ||
-    !Array.isArray(row.blockers)
-  ) {
-    throw new Error("CATALOG_RECALL_READINESS_INVALID");
-  }
-  const blockers: RecallCompletionBlocker[] = [];
-  for (const item of row.blockers) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) {
-      throw new Error("CATALOG_RECALL_READINESS_INVALID");
-    }
-    const blocker = item as Record<string, unknown>;
-    if (
-      typeof blocker.code !== "string" ||
-      !blocker.code.trim() ||
-      typeof blocker.count !== "number" ||
-      !Number.isSafeInteger(blocker.count) ||
-      blocker.count <= 0
-    ) {
-      throw new Error("CATALOG_RECALL_READINESS_INVALID");
-    }
-    blockers.push({ code: blocker.code.trim(), count: blocker.count });
-  }
-  if (row.ready_to_resume_sales === (blockers.length > 0)) {
-    throw new Error("CATALOG_RECALL_READINESS_INVALID");
-  }
-  const inventorySummary =
-    row.inventory_summary === null
-      ? null
-      : parseQualityInventorySummary(row.inventory_summary);
-  return {
-    ready_to_resume_sales: row.ready_to_resume_sales,
-    blockers,
-    inventory_summary: inventorySummary,
-  };
-};
-
 const isLifecyclePayload = (
   value: unknown,
 ): value is LifecyclePayload => {
@@ -324,8 +264,8 @@ export function CatalogLifecycleActions({
   ] = useState<
     RecallCompletionBlocker[]
   >([]);
-  const [recallReadiness, setRecallReadiness] =
-    useState<RecallReadiness | null>(null);
+  const [recallHasCurrentStock, setRecallHasCurrentStock] =
+    useState<boolean | null>(null);
 
   const companyId =
     access.data?.company_id ??
@@ -356,7 +296,7 @@ export function CatalogLifecycleActions({
     setDeletePreflight(null);
     setSelectedCommand(null);
     setRecallCompletionBlockers([]);
-    setRecallReadiness(null);
+    setRecallHasCurrentStock(null);
     setReason("");
   }, [
     variant.id,
@@ -366,22 +306,34 @@ export function CatalogLifecycleActions({
   useEffect(() => {
     const controller = new AbortController();
     let cancelled = false;
-    if (variant.operational_hold !== "RECALL" || !canHoldPermission) {
-      setRecallReadiness(null);
+    const eligible =
+      canHoldPermission &&
+      ["ACTIVE", "RETIRING"].includes(variant.lifecycle_status) &&
+      ["NONE", "SALES_HOLD"].includes(variant.operational_hold);
+    if (!eligible) {
+      setRecallHasCurrentStock(null);
       return () => controller.abort();
     }
 
     void (async () => {
       try {
-        const parsed = parseRecallReadiness(
-          await authFetch(
-            `/catalog/variants/${variant.id}/recall-readiness`,
-            { signal: controller.signal },
-          ),
-          variant.id,
+        const raw = await authFetch(
+          `/catalog/variants/${variant.id}/recall-preflight`,
+          { signal: controller.signal },
         );
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+          throw new Error("CATALOG_RECALL_PREFLIGHT_INVALID");
+        }
+        const row = raw as Record<string, unknown>;
+        if (
+          row.variant_id !== variant.id ||
+          row.version !== variant.version ||
+          typeof row.has_current_stock !== "boolean"
+        ) {
+          throw new Error("CATALOG_RECALL_PREFLIGHT_INVALID");
+        }
         if (!cancelled && !controller.signal.aborted) {
-          setRecallReadiness(parsed);
+          setRecallHasCurrentStock(row.has_current_stock);
         }
       } catch (error) {
         if (
@@ -389,7 +341,7 @@ export function CatalogLifecycleActions({
           !controller.signal.aborted &&
           !(error instanceof Error && error.name === "AbortError")
         ) {
-          setRecallReadiness(null);
+          setRecallHasCurrentStock(null);
         }
       }
     })();
@@ -402,6 +354,7 @@ export function CatalogLifecycleActions({
     authFetch,
     canHoldPermission,
     variant.id,
+    variant.lifecycle_status,
     variant.operational_hold,
     variant.version,
   ]);
@@ -699,6 +652,9 @@ export function CatalogLifecycleActions({
       await onVariantChanged(
         result.variant,
       );
+      if (simpleMode && payload.command === "recall") {
+        onManageWholeProductIssue?.();
+      }
     } catch (error) {
       const code =
         apiErrorCode(error);
@@ -947,7 +903,7 @@ export function CatalogLifecycleActions({
             : null
         }
         preflight={preflight}
-        recallInventorySummary={recallReadiness?.inventory_summary ?? null}
+        recallHasCurrentStock={recallHasCurrentStock}
         onChooseCommand={(
           command,
         ) => {

@@ -42,11 +42,13 @@ export function useProductQualityCommands({
     reason,
     recipientName,
     confirmationPassword,
+    postResolutionHold,
   }: {
     action: WholeProductQualityAction;
     reason: string;
     recipientName?: string;
     confirmationPassword: string;
+    postResolutionHold: "NONE" | "SALES_HOLD";
   }) => {
     if (!isOnline || companyId === null || driverId === null || busyKey !== null) return false;
     const key = `${productVariantId}:${action}`;
@@ -54,6 +56,7 @@ export function useProductQualityCommands({
       action,
       reason: reason.trim(),
       recipient_name: recipientName?.trim() || null,
+      post_resolution_hold: postResolutionHold,
     };
     const scope = durableScope(companyId, driverId, "whole-product-quality-resolve-v2", key);
     setBusyKey(key);
@@ -78,6 +81,7 @@ export function useProductQualityCommands({
       ));
       if (
         raw.action !== action
+        || raw.post_resolution_hold !== postResolutionHold
         || typeof raw.total_quantity !== "string"
         || !Array.isArray(raw.locations)
       ) {
