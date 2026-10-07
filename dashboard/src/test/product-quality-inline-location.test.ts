@@ -102,7 +102,8 @@ describe("whole-product quality location model", () => {
     expect(development).not.toHaveProperty("batchIds");
     expect(actionTotal(development.dispatch.DISPOSAL)).toBe("90");
     expect(actionTotal(development.dispatch.RETURN_TO_VENDOR)).toBe("50");
-    expect(second.needsDestinationSetup).toBe(true);
+    expect(development.setupRequired).toEqual({ DISPOSAL: false, RETURN_TO_VENDOR: false });
+    expect(second.setupRequired).toEqual({ DISPOSAL: true, RETURN_TO_VENDOR: true });
   });
 
   it("allocates a location-level command across backend-approved batches deterministically", () => {
