@@ -40,37 +40,36 @@ export function useProductQualityCommands({
   const resolveAll = async ({
     action,
     reason,
-    disposalMethod,
-    evidenceReference,
     recipientName,
-    handoverReference,
   }: {
     action: WholeProductQualityAction;
     reason: string;
-    disposalMethod?: string;
-    evidenceReference?: string;
     recipientName?: string;
-    handoverReference?: string;
   }) => {
     if (!isOnline || companyId === null || driverId === null || busyKey !== null) return false;
     const key = `${productVariantId}:${action}`;
     const payload = {
       action,
       reason: reason.trim(),
-      disposal_method: disposalMethod?.trim() || null,
-      evidence_reference: evidenceReference?.trim() || null,
       recipient_name: recipientName?.trim() || null,
-      handover_reference: handoverReference?.trim() || null,
     };
-    const scope = durableScope(companyId, driverId, "whole-product-quality-resolve-v1", key);
+    const scope = durableScope(companyId, driverId, "whole-product-quality-resolve-v2", key);
     setBusyKey(key);
     try {
       const durable = await getOrCreateDurableCommand(scope, payload);
+      const body = {
+        request_id: durable.requestId,
+        ...durable.payload,
+        // Technical traceability stays backend-facing; the user does not type document IDs.
+        handover_reference: action === "RETURN_TO_VENDOR"
+          ? `SYSTEM-${durable.requestId}`
+          : null,
+      };
       const raw = resultRecord(await authFetch(
         `/warehouse/quality/products/${productVariantId}/resolve-all`,
         {
           method: "POST",
-          body: JSON.stringify({ request_id: durable.requestId, ...durable.payload }),
+          body: JSON.stringify(body),
         },
       ));
       if (
