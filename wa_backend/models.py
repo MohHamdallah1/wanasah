@@ -3155,7 +3155,23 @@ class InventoryTransferHeader(Base):
             "(workflow_type = 'TRANSIT' AND status IN ('DRAFT', 'IN_TRANSIT', 'ACCEPTED', 'REJECTED', 'POSTED', 'CANCELLED')))",
             name='chk_transfer_header_workflow_status'
         ),
-        CheckConstraint('source_location_id <> destination_location_id', name='chk_transfer_header_distinct_locations'),
+        CheckConstraint(
+            """
+            source_location_id <> destination_location_id
+            OR (
+                workflow_type = 'DIRECT'
+                AND status = 'POSTED'
+                AND transfer_purpose IN ('DISPOSAL','RETURN_TO_VENDOR')
+                AND transit_location_id IS NULL
+                AND reference_number LIKE 'QSTG-%'
+                AND tenant_policy_id IS NOT NULL
+                AND tenant_policy_revision IS NOT NULL
+                AND commercial_context IS NOT NULL
+                AND commercial_context ->> 'quality_stage_v1' = 'true'
+            )
+            """,
+            name='chk_transfer_header_distinct_locations',
+        ),
         CheckConstraint(
             "transit_location_id IS NULL OR "
             "(transit_location_id <> source_location_id AND transit_location_id <> destination_location_id)",
