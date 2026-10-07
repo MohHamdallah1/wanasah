@@ -111,7 +111,7 @@ export function useProductQualityCommands({
         || code === "DURABLE_OPERATION_PENDING"
         || code === "DURABLE_OPERATION_CORRUPT"
         || code === "PRODUCT_QUALITY_COMMAND_RESPONSE_INVALID";
-      if (!ambiguous || isConfirmedSupplierRejection(code)) { abandonDurableOperation(scope); setPending(null); setRecoveryRevision(value => value + 1); }
+      if (!ambiguous || (isConfirmedSupplierRejection(code) && !isAmbiguousRequestError(error))) { abandonDurableOperation(scope); setPending(null); setRecoveryRevision(value => value + 1); }
       toast.error(apiErrorMessage(
         error,
         ambiguous

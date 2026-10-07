@@ -49,7 +49,7 @@ export function useSupplierCommands(companyId: number | undefined, actorId: numb
     } catch (err) {
       const code = apiErrorCode(err);
       const ambiguous = recovering || isAmbiguousRequestError(err) || ["DURABLE_OPERATION_PENDING", "DURABLE_OPERATION_CORRUPT", "SUPPLIER_RESPONSE_INVALID"].includes(code ?? "");
-      if (!ambiguous || isConfirmedSupplierRejection(code)) { abandonDurableOperation(scope); setPending(null); }
+      if (!ambiguous || (isConfirmedSupplierRejection(code) && !isAmbiguousRequestError(err))) { abandonDurableOperation(scope); setPending(null); }
       setError(apiErrorMessage(err, t(ambiguous ? "suppliers.pending" : "suppliers.saveFailed")));
       return false;
     } finally { running.current = false; setBusy(false); }

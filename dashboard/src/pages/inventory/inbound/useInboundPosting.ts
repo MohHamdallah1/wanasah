@@ -60,7 +60,7 @@ export function useInboundPosting({ companyId, actorId, locationId, authenticate
       }
       return true;
     } catch (error) {
-      if (isConfirmedSupplierRejection(apiErrorCode(error)) || (!recovering && !isAmbiguousRequestError(error) && !["DURABLE_OPERATION_PENDING", "DURABLE_OPERATION_CORRUPT", "INBOUND_RESPONSE_INVALID"].includes(apiErrorCode(error) ?? ""))) {
+      if ((isConfirmedSupplierRejection(apiErrorCode(error)) && !isAmbiguousRequestError(error)) || (!recovering && !isAmbiguousRequestError(error) && !["DURABLE_OPERATION_PENDING", "DURABLE_OPERATION_CORRUPT", "INBOUND_RESPONSE_INVALID"].includes(apiErrorCode(error) ?? ""))) {
         abandonDurableOperation(scope); setPending(null);
         if (legacyRequestKey) localStorage.removeItem(legacyRequestKey);
         if (legacyPayloadKey) localStorage.removeItem(legacyPayloadKey);

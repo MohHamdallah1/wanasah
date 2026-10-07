@@ -100,6 +100,12 @@ describe("Supplier V1 contract and presentation", () => {
 });
 
 describe("durable Supplier and Inbound commands", () => {
+  it("keeps a 5xx outcome ambiguous even when it carries a known Supplier rejection code", async () => {
+    fake.fetch.mockRejectedValue(Object.assign(new Error(), { code: "SUPPLIER_INACTIVE", status: 500 }));
+    const hook = renderHook(() => useSupplierCommands(1, 2), { wrapper });
+    await act(async () => { expect(await hook.result.current.execute({ endpoint: "/suppliers", method: "POST", body: { name: "Unknown result" } })).toBe(false); });
+    expect(hook.result.current.pending).not.toBeNull();
+  });
   it("preserves an unsubmitted quality draft across refresh without crossing actor scope", () => {
     const hook = renderHook(() => useWholeProductQualityDraft(1, 2, 7));
     hook.result.current.save("RETURN_TO_VENDOR", { reason: "Edited reason", reasonTouched: true, supplierId: 3 });
