@@ -108,7 +108,7 @@ describe("durable Supplier and Inbound commands", () => {
   });
   it("preserves an unsubmitted quality draft across refresh without crossing actor scope", () => {
     const hook = renderHook(() => useWholeProductQualityDraft(1, 2, 7));
-    hook.result.current.save("RETURN_TO_VENDOR", { reason: "Edited reason", reasonTouched: true, supplierId: 3 });
+    hook.result.current.save("RETURN_TO_VENDOR", { reason: "Edited reason", supplierId: 3 });
     hook.unmount();
     const resumed = renderHook(() => useWholeProductQualityDraft(1, 2, 7));
     expect(resumed.result.current.read("RETURN_TO_VENDOR")?.supplierId).toBe(3);
