@@ -41,12 +41,14 @@ export function SupplierTable({ items, manage, disabled, onEdit, onState }: {
       <table className="w-full min-w-[760px] text-sm">
         <thead className="sticky top-0 z-10 bg-slate-50/[0.94] text-[11px] font-black text-slate-500 backdrop-blur-xl">
           <tr>
+            <th scope="col" className="w-12 px-3 py-3 text-center tracking-wide">#</th>
             {["name", "contact_person", "phone", "email", "status", "actions"].map(field =>
               <th key={field} scope="col" className="px-4 py-3 text-start tracking-wide">{t(`suppliers.fields.${field}`)}</th>)}
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-200/[0.65]">
-          {items.map(row => <tr key={row.id} className="group transition hover:bg-white/80">
+          {items.map((row, index) => <tr key={row.id} className="group transition hover:bg-white/80">
+            <td className="w-12 px-3 py-3.5 text-center text-xs font-black tabular-nums text-slate-400">{index + 1}</td>
             <td className="px-4 py-3.5">
               <div className="flex min-w-0 items-center gap-3">
                 <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-white bg-gradient-to-br from-cyan-50 to-slate-100 text-sm font-black text-slate-700 shadow-sm">{supplierInitial(row.name)}</div>
@@ -83,8 +85,9 @@ export function SupplierTable({ items, manage, disabled, onEdit, onState }: {
   }
 
   return <div className="grid gap-2 p-2">
-    {items.map(row => <article key={row.id} className="rounded-[20px] border border-white bg-white/[0.76] p-3.5 shadow-sm">
+    {items.map((row, index) => <article key={row.id} className="rounded-[20px] border border-white bg-white/[0.76] p-3.5 shadow-sm">
       <div className="flex items-start gap-3">
+        <span className="grid h-7 min-w-7 shrink-0 place-items-center rounded-lg bg-slate-100 px-1.5 text-[10px] font-black tabular-nums text-slate-500">{index + 1}</span>
         <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-cyan-50 to-slate-100 font-black text-slate-700 shadow-sm">{supplierInitial(row.name)}</div>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">

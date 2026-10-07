@@ -68,7 +68,7 @@ export default function SuppliersPage() {
       </header>
     </WorkspaceTopBar>
 
-    <div className="relative z-10 min-h-0 flex-1 overflow-hidden px-4 pb-5 pt-4 sm:px-5">
+    <div className="relative z-10 min-h-0 flex-1 overflow-hidden px-3 pb-3 pt-3 sm:px-4">
       <section className="mx-auto flex h-full min-h-0 w-full max-w-[1500px] flex-col gap-3">
         {!commands.online ? <div role="status" className="flex items-center gap-2 rounded-2xl border border-amber-200/70 bg-amber-50/80 px-4 py-3 text-sm font-bold text-amber-800 shadow-sm backdrop-blur-xl"><WifiOff className="h-4 w-4" />{t("suppliers.offline")}</div> : null}
         {commands.error ? <div role="alert" className="flex items-center gap-2 rounded-2xl border border-rose-200/70 bg-rose-50/[0.85] px-4 py-3 text-sm font-bold text-rose-700 shadow-sm backdrop-blur-xl"><AlertTriangle className="h-4 w-4" />{commands.error}</div> : null}
@@ -78,54 +78,50 @@ export default function SuppliersPage() {
             className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">{t("common.retry")}</button>
         </div> : null}
 
-        <div className="rounded-[22px] border border-white/80 bg-white/[0.68] p-2.5 shadow-[0_18px_50px_-36px_rgba(15,23,42,0.55)] backdrop-blur-2xl">
-          <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center">
-            <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute start-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input aria-label={t("suppliers.search")} placeholder={t("suppliers.search")} type="search" maxLength={100}
-                value={search.input} onChange={event => search.setInput(event.target.value)}
-                className="h-11 w-full rounded-2xl border border-slate-200/80 bg-white/[0.82] pe-10 ps-10 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-cyan-300 focus:ring-4 focus:ring-cyan-100/60" />
-              {search.input ? <button type="button" aria-label={t("suppliers.clearSearch")} onClick={() => search.setInput("")}
-                className="absolute end-2.5 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"><X className="h-3.5 w-3.5" /></button> : null}
-            </div>
-            <div className="flex min-w-max items-center rounded-2xl border border-slate-200/70 bg-slate-100/[0.65] p-1" aria-label={t("suppliers.filterLabel")}>
-              {filterOptions.map(option => {
-                const selected = active === option.value;
-                return <button key={String(option.value)} type="button" aria-pressed={selected}
-                  onClick={() => { search.resetPagination(); setActive(option.value); }}
-                  className={`h-9 rounded-xl px-3.5 text-xs font-black transition ${selected ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/70" : "text-slate-500 hover:text-slate-800"}`}>
-                  {t(option.key)}
-                </button>;
-              })}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[26px] border border-white/[0.85] bg-white/[0.62] shadow-[0_22px_65px_-46px_rgba(15,23,42,0.65)] backdrop-blur-2xl">
+          <div className="shrink-0 border-b border-slate-200/70 bg-white/[0.62] p-2.5">
+            <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center">
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute start-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input aria-label={t("suppliers.search")} placeholder={t("suppliers.search")} type="search" maxLength={100}
+                  value={search.input} onChange={event => search.setInput(event.target.value)}
+                  className="h-11 w-full rounded-2xl border border-slate-200/80 bg-white pe-10 ps-10 text-sm font-semibold text-slate-800 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-cyan-300 focus:ring-4 focus:ring-cyan-100/60" />
+                {search.input ? <button type="button" aria-label={t("suppliers.clearSearch")} onClick={() => search.setInput("")}
+                  className="absolute end-2.5 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"><X className="h-3.5 w-3.5" /></button> : null}
+              </div>
+              <div className="flex min-w-max items-center rounded-2xl border border-slate-200/70 bg-slate-100/[0.65] p-1" aria-label={t("suppliers.filterLabel")}>
+                {filterOptions.map(option => {
+                  const selected = active === option.value;
+                  return <button key={String(option.value)} type="button" aria-pressed={selected}
+                    onClick={() => { search.resetPagination(); setActive(option.value); }}
+                    className={`h-9 rounded-xl px-3.5 text-xs font-black transition ${selected ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/70" : "text-slate-500 hover:text-slate-800"}`}>
+                    {t(option.key)}
+                  </button>;
+                })}
+              </div>
             </div>
           </div>
-        </div>
 
-        {search.query.isError ? <div role="alert" className="rounded-[24px] border border-rose-200/70 bg-white/75 p-6 text-center shadow-sm backdrop-blur-xl">
-          <p className="font-bold text-rose-700">{apiErrorMessage(search.query.error, t("suppliers.loadFailed"))}</p>
-          <button type="button" onClick={() => void search.query.refetch()} className="mt-3 rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white">{t("common.retry")}</button>
-        </div> : null}
-
-        {!search.query.isError && !search.query.isFetching && items.length === 0 ? <div className="grid min-h-0 flex-1 place-items-center rounded-[28px] border border-white/80 bg-white/[0.58] px-6 text-center shadow-[0_20px_60px_-44px_rgba(15,23,42,0.6)] backdrop-blur-2xl">
-          <div className="max-w-sm">
-            <div className="mx-auto grid h-16 w-16 place-items-center rounded-[22px] border border-white bg-gradient-to-br from-cyan-50 to-amber-50 shadow-sm"><UsersRound className="h-7 w-7 text-slate-600" /></div>
-            <h2 className="mt-4 text-base font-black text-slate-900">{t("suppliers.empty")}</h2>
-            <p className="mt-1.5 text-sm font-semibold leading-6 text-slate-500">{t("suppliers.emptyHint")}</p>
-            {manage && !search.input && active === true ? <button type="button" disabled={blocked} onClick={() => setEditor({ supplier: null })}
-              className="mt-4 inline-flex h-10 items-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-50"><Plus className="h-4 w-4" />{t("suppliers.add")}</button> : null}
-          </div>
-        </div> : null}
-
-        {!search.query.isError && items.length > 0 ? <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[26px] border border-white/[0.85] bg-white/[0.62] shadow-[0_22px_65px_-46px_rgba(15,23,42,0.65)] backdrop-blur-2xl">
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" onScroll={event => {
+          {search.query.isError ? <div role="alert" className="grid min-h-0 flex-1 place-items-center p-6 text-center">
+            <div><p className="font-bold text-rose-700">{apiErrorMessage(search.query.error, t("suppliers.loadFailed"))}</p>
+            <button type="button" onClick={() => void search.query.refetch()} className="mt-3 rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white">{t("common.retry")}</button></div>
+          </div> : !search.query.isFetching && items.length === 0 ? <div className="grid min-h-0 flex-1 place-items-center px-6 text-center">
+            <div className="max-w-sm">
+              <div className="mx-auto grid h-16 w-16 place-items-center rounded-[22px] border border-white bg-gradient-to-br from-cyan-50 to-amber-50 shadow-sm"><UsersRound className="h-7 w-7 text-slate-600" /></div>
+              <h2 className="mt-4 text-base font-black text-slate-900">{t("suppliers.empty")}</h2>
+              <p className="mt-1.5 text-sm font-semibold leading-6 text-slate-500">{t("suppliers.emptyHint")}</p>
+              {manage && !search.input && active === true ? <button type="button" disabled={blocked} onClick={() => setEditor({ supplier: null })}
+                className="mt-4 inline-flex h-10 items-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-50"><Plus className="h-4 w-4" />{t("suppliers.add")}</button> : null}
+            </div>
+          </div> : <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain" onScroll={event => {
             const target = event.currentTarget;
             const nearBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 180;
             if (nearBottom && search.query.hasNextPage && !search.query.isFetchingNextPage) void search.query.fetchNextPage();
           }}>
             <SupplierTable items={items} manage={manage} disabled={blocked} onEdit={supplier => setEditor({ supplier })} onState={setStateRow} />
             {search.query.isFetchingNextPage ? <div role="status" className="border-t border-slate-200/70 bg-white/70 px-4 py-3 text-center text-xs font-bold text-slate-500">{t("common.loading")}</div> : null}
-          </div>
-        </div> : null}
+          </div>}
+        </div>
       </section>
     </div>
 
