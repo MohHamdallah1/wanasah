@@ -75,17 +75,24 @@ describe("Supplier V1 contract and presentation", () => {
     fake.fetch.mockRejectedValue(Object.assign(new Error(), { code: "SUPPLIER_PERMISSION_DENIED", status: 403 }));
     render(<SuppliersPage />, { wrapper }); await screen.findByRole("alert");
   });
-  it("selects only active server options and submits the authoritative ID", async () => {
+  it("keeps search inside the supplier list and submits the authoritative ID", async () => {
     const select = vi.fn(); render(<SupplierSelector value={null} onChange={select} />, { wrapper });
-    await screen.findByRole("option", { name: "ABC Trading · ABC" });
+    expect(screen.queryByPlaceholderText("Search name, code or contact details")).toBeNull();
+    const combobox = screen.getByRole("combobox");
+    fireEvent.click(combobox);
+    expect(screen.getByPlaceholderText("Search name, code or contact details")).toBeInTheDocument();
+    const option = await screen.findByRole("option", { name: "ABC Trading · ABC" });
     expect(fake.fetch.mock.calls[0][0]).toContain("active=true"); expect(fake.fetch.mock.calls[0][0]).toContain("limit=30");
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "3" } }); expect(select).toHaveBeenCalledWith(3);
+    fireEvent.click(option); expect(select).toHaveBeenCalledWith(3);
   });
   it("shows an inactive restored selection without offering it for new selection", async () => {
     fake.fetch.mockImplementation((url: string) => Promise.resolve(url.startsWith("/suppliers?") ? { ...page, items: [] } : { ...row, is_active: false }));
     render(<SupplierSelector value={3} onChange={vi.fn()} />, { wrapper });
     await screen.findByText(/This supplier is inactive/);
-    expect(screen.getByRole("option", { name: /ABC Trading/ })).toBeDisabled();
+    const combobox = screen.getByRole("combobox");
+    expect(combobox).toHaveTextContent("ABC Trading");
+    fireEvent.click(combobox);
+    expect(screen.queryByRole("option", { name: /ABC Trading/ })).toBeNull();
   });
   it("uses a semantic form, initial focus and scoped saved draft", async () => {
     const save = vi.fn().mockResolvedValue(true); const close = vi.fn();

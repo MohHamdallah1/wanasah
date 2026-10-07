@@ -18,6 +18,13 @@ import type { WholeProductQualityPreview } from "./wholeProductQualityPreviewCon
 const previewSignature = (preview: WholeProductQualityPreview): string => JSON.stringify(preview);
 type PostResolutionHold = "NONE" | "SALES_HOLD";
 
+const formatMoneyDisplay = (value: string, currencyCode: string): string => {
+  const [whole, fraction = ""] = value.split(".");
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const decimals = fraction.slice(0, 3).replace(/0+$/, "");
+  return `${grouped}${decimals ? `.${decimals}` : ""} ${currencyCode}`;
+};
+
 export function WholeProductQualityActionsPanel({
   productVariantId,
   baseUomName,
@@ -201,6 +208,9 @@ export function WholeProductQualityActionsPanel({
   const quantityText = totalDisplay
     ? `${totalDisplay.primary}${totalDisplay.secondary ? ` (${t("productQualityInline.totalBaseQuantity", { quantity: totalDisplay.secondary })})` : ""}`
     : "?";
+  const returnValueText = preview.data?.valuationAvailable && preview.data.totalBookValue
+    ? formatMoneyDisplay(preview.data.totalBookValue, preview.data.currencyCode)
+    : null;
   const finalDisabled = interactionBlocked
     || preview.isFetching
     || !supervisorPassword
@@ -278,6 +288,11 @@ export function WholeProductQualityActionsPanel({
           <p className="mt-1 text-[11px] font-bold text-slate-600">
             {t("productQualityInline.final.quantity", { quantity: quantityText })}
           </p>
+          {activeAction === "RETURN_TO_VENDOR" ? (
+            <p className="mt-1 text-[11px] font-bold text-slate-600">
+              {t("productQualityInline.confirm.returnValue")}: {returnValueText ?? t("productQualityInline.confirm.valuationUnavailable")}
+            </p>
+          ) : null}
         </div>
 
         <fieldset className="space-y-2">
@@ -447,7 +462,15 @@ export function WholeProductQualityActionsPanel({
               )}
 
               {activeAction === "RETURN_TO_VENDOR" ? (
-                <div className="mt-3">
+                <div className="mt-3 space-y-3">
+                  <div className="rounded-xl border border-slate-200 bg-white p-3">
+                    <p className="text-[10px] font-black text-slate-500">
+                      {t("productQualityInline.confirm.returnValue")}
+                    </p>
+                    <p className="mt-1 text-sm font-black tabular-nums text-slate-950">
+                      {returnValueText ?? t("productQualityInline.confirm.valuationUnavailable")}
+                    </p>
+                  </div>
                   <SupplierSelector
                     value={supplierId}
                     onChange={setSupplierId}

@@ -19,6 +19,8 @@ export const productQualityInline = {
     confirm: {
       disposeTitle: "إتلاف الكمية الحالية",
       returnTitle: "إرجاع الكمية الحالية للمورد",
+      returnValue: "قيمة الكمية بسعر التكلفة",
+      valuationUnavailable: "قيمة التكلفة غير متاحة حاليًا لهذه الكمية.",
       continue: "متابعة",
     },
     preview: {
@@ -58,7 +60,13 @@ export const productQualityInline = {
     currentQuantity: "Current quantity",
     totalBaseQuantity: "Total: {{quantity}}",
     actions: { disposeAll: "Dispose quantity", returnAll: "Return to vendor" },
-    confirm: { disposeTitle: "Dispose current quantity", returnTitle: "Return current quantity to vendor", continue: "Continue" },
+    confirm: {
+      disposeTitle: "Dispose current quantity",
+      returnTitle: "Return current quantity to vendor",
+      returnValue: "Stock value at cost",
+      valuationUnavailable: "Cost value is not currently available for this stock.",
+      continue: "Continue",
+    },
     preview: {
       changed: "The quantity changed since it was shown. Review it and continue again.",
       blocked: "This action cannot run while stock is tied to another operation. Finish that operation first.",
