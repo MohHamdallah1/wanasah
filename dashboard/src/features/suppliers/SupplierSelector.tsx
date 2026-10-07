@@ -1,13 +1,8 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { cn } from "@/lib/utils";
@@ -22,6 +17,8 @@ export function SupplierSelector({ value, onChange, disabled = false }: {
 }) {
   const { t, i18n } = useTranslation();
   const id = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const search = useSupplierSearch(true);
   const authFetch = useAuthFetch();
@@ -37,54 +34,80 @@ export function SupplierSelector({ value, onChange, disabled = false }: {
   const current = items.find((row) => row.id === value) ?? selected.data;
   const controlDisabled = disabled || blocked;
 
+  const close = () => {
+    setOpen(false);
+    search.setInput("");
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && !rootRef.current?.contains(target)) {
+        setOpen(false);
+        search.setInput("");
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [open, search.setInput]);
+
+  useEffect(() => {
+    if (!open) return;
+    searchRef.current?.focus();
+  }, [open]);
+
   return (
-    <div className="space-y-2" dir={i18n.dir()}>
+    <div
+      ref={rootRef}
+      className="relative space-y-2"
+      dir={i18n.dir()}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && open) {
+          event.preventDefault();
+          close();
+        }
+      }}
+    >
       <label id={`${id}-label`} className="block text-sm font-semibold">
         {t("suppliers.select")}
       </label>
       {blocked && !search.access.isPending ? <p role="alert">{t("suppliers.denied")}</p> : null}
 
-      <Popover
-        open={open && !controlDisabled}
-        onOpenChange={(next) => {
+      <button
+        type="button"
+        role="combobox"
+        aria-labelledby={`${id}-label`}
+        aria-expanded={open}
+        aria-controls={`${id}-options`}
+        disabled={controlDisabled}
+        onClick={() => {
           if (controlDisabled) return;
-          setOpen(next);
-          if (!next) search.setInput("");
+          setOpen((currentOpen) => !currentOpen);
+          if (open) search.setInput("");
         }}
+        className="flex min-h-10 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 text-start text-sm font-bold text-slate-900 outline-none transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            role="combobox"
-            aria-labelledby={`${id}-label`}
-            aria-expanded={open}
-            aria-controls={`${id}-options`}
-            disabled={controlDisabled}
-            className="flex min-h-10 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 text-start text-sm font-bold text-slate-900 outline-none transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <span className={cn("truncate", !current && "text-slate-400")}>
-              {current
-                ? `${current.name}${current.code ? ` · ${current.code}` : ""}`
-                : t("suppliers.choose")}
-            </span>
-            <ChevronsUpDown className="h-4 w-4 shrink-0 text-slate-400" />
-          </button>
-        </PopoverTrigger>
+        <span className={cn("truncate", !current && "text-slate-400")}>
+          {current
+            ? `${current.name}${current.code ? ` · ${current.code}` : ""}`
+            : t("suppliers.choose")}
+        </span>
+        <ChevronsUpDown className="h-4 w-4 shrink-0 text-slate-400" />
+      </button>
 
-        <PopoverContent
-          align="start"
-          className="w-[var(--radix-popover-trigger-width)] min-w-64 overflow-hidden rounded-xl border-slate-200 p-0 shadow-xl"
-        >
+      {open && !controlDisabled ? (
+        <div className="absolute inset-x-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
           <div className="flex items-center border-b border-slate-100 px-3">
             <Search className="me-2 h-4 w-4 shrink-0 text-slate-400" />
             <input
+              ref={searchRef}
               id={`${id}-search`}
               type="search"
               value={search.input}
               onChange={(event) => search.setInput(event.target.value)}
               placeholder={t("suppliers.search")}
               maxLength={100}
-              autoFocus
               className="h-11 w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
             />
           </div>
@@ -108,8 +131,7 @@ export function SupplierSelector({ value, onChange, disabled = false }: {
                 aria-selected={row.id === value}
                 onClick={() => {
                   onChange(row.id);
-                  setOpen(false);
-                  search.setInput("");
+                  close();
                 }}
                 className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-start text-xs font-bold text-slate-800 transition hover:bg-slate-100 focus-visible:bg-slate-100 focus-visible:outline-none"
               >
@@ -141,8 +163,8 @@ export function SupplierSelector({ value, onChange, disabled = false }: {
               </button>
             </div>
           ) : null}
-        </PopoverContent>
-      </Popover>
+        </div>
+      ) : null}
 
       {search.query.isError || selected.isError ? (
         <p role="alert" className="text-xs font-bold text-rose-700">
