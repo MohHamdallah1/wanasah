@@ -90,6 +90,18 @@
         "method": "POST",
         "path": "/warehouse/quality/vendor-return/confirm"
       },
+      "method": "GET",
+      "path": "/warehouse/quality/products/{product_variant_id}/resolve-preview",
+      "function": "get_whole_product_quality_preview",
+      "status_code": "200",
+      "response_model": "WholeProductQualityPreviewResponse",
+      "expected_module": "whole_product_quality_preview"
+    },
+    {
+      "insert_after": {
+        "method": "GET",
+        "path": "/warehouse/quality/products/{product_variant_id}/resolve-preview"
+      },
       "method": "POST",
       "path": "/warehouse/quality/products/{product_variant_id}/resolve-all",
       "function": "resolve_whole_product_quality",
