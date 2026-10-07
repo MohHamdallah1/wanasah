@@ -9,6 +9,7 @@ from . import (
     inbound_adjustments,
     transfer_policy,
     transfers,
+    whole_product_quality_preview,
     whole_product_quality,
     stocktake,
 )
@@ -26,5 +27,6 @@ router.include_router(status.router)
 router.include_router(inbound_adjustments.router)
 router.include_router(transfer_policy.router)
 router.include_router(transfers.router)
+router.include_router(whole_product_quality_preview.router)
 router.include_router(whole_product_quality.router)
 router.include_router(stocktake.router)
