@@ -55,6 +55,18 @@
         "path": "/warehouse/unified/transfer/special/dispatch"
       },
       "method": "POST",
+      "path": "/warehouse/quality/stage",
+      "function": "stage_inventory_quality_handling",
+      "status_code": "200",
+      "response_model": "SpecialTransferDispatchResponse",
+      "expected_module": "transfers"
+    },
+    {
+      "insert_after": {
+        "method": "POST",
+        "path": "/warehouse/quality/stage"
+      },
+      "method": "POST",
       "path": "/warehouse/quality/disposal/confirm",
       "function": "confirm_inventory_disposal",
       "status_code": "200",
@@ -72,6 +84,30 @@
       "status_code": "200",
       "response_model": "TerminalVendorHandoverResponse",
       "expected_module": "transfers"
+    },
+    {
+      "insert_after": {
+        "method": "POST",
+        "path": "/warehouse/unified/transfer/{header_id}/reject"
+      },
+      "method": "GET",
+      "path": "/warehouse/quality/products/{product_variant_id}/resolve-preview",
+      "function": "get_whole_product_quality_preview",
+      "status_code": "200",
+      "response_model": "WholeProductQualityPreviewResponse",
+      "expected_module": "whole_product_quality_preview"
+    },
+    {
+      "insert_after": {
+        "method": "GET",
+        "path": "/warehouse/quality/products/{product_variant_id}/resolve-preview"
+      },
+      "method": "POST",
+      "path": "/warehouse/quality/products/{product_variant_id}/resolve-all",
+      "function": "resolve_whole_product_quality",
+      "status_code": "200",
+      "response_model": "WholeProductQualityResolveResponse",
+      "expected_module": "whole_product_quality"
     }
   ]
 }

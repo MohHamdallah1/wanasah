@@ -13,7 +13,7 @@ from services import InventoryMutationError, apply_inventory_movements_batch
 QUALITY_STAGE_REFERENCE_PREFIX = "QSTG-"
 
 
-def _quality_stage_target_status(purpose: str, source_status: str) -> str:
+def quality_stage_target_status(purpose: str, source_status: str) -> str:
     normalized_purpose = str(purpose or "").strip().upper()
     normalized_status = str(source_status or "").strip().upper()
     if normalized_purpose == "DISPOSAL":
@@ -43,10 +43,9 @@ async def stage_quality_handling_direct(
 ) -> dict[str, Any]:
     """Stage disposal/vendor handling atomically without a user-visible transit leg.
 
-    The configured handling destination remains immutable policy evidence on the
-    DIRECT+POSTED header, while stock stays attributed to its physical source.
-    Only a status change is written when needed. Final disposal/vendor handover
-    remains a separate source-only physical command with idempotent provenance.
+    destination_location_id is immutable policy evidence. Whole-product in-place
+    handling may intentionally set it to the physical source; stock remains at
+    the source and only its status changes until the terminal action is confirmed.
     """
     purpose = str(transfer_purpose or "").strip().upper()
     if purpose not in {"DISPOSAL", "RETURN_TO_VENDOR"}:
@@ -87,7 +86,7 @@ async def stage_quality_handling_direct(
     movement_specs: list[dict[str, Any]] = []
     for line_no, line in enumerate(source_lines, start=1):
         source_status = str(line["source_stock_status"]).upper()
-        target_status = _quality_stage_target_status(purpose, source_status)
+        target_status = quality_stage_target_status(purpose, source_status)
         transfer_lines.append(InventoryTransferLine(
             company_id=company_id,
             transfer_header_id=header.id,

@@ -18,6 +18,7 @@ PACKAGE_DIR = BACKEND_ROOT / "api" / "warehouse"
 MANIFEST_PATH = Path(__file__).with_name("warehouse_route_manifest_baseline.json")
 EXTENSIONS_PATH = Path(__file__).with_name("warehouse_route_manifest_extensions.json")
 
+# Locked decomposition order for the original warehouse.py baseline.
 MODULE_ORDER = (
     "locations",
     "inbound",
@@ -27,6 +28,21 @@ MODULE_ORDER = (
     "inbound_adjustments",
     "transfer_policy",
     "transfers",
+    "stocktake",
+)
+# Current runtime package order may grow through explicitly approved extensions;
+# keep the baseline tuple above immutable so the historical contract stays locked.
+PACKAGE_MODULE_ORDER = (
+    "locations",
+    "inbound",
+    "live_stock",
+    "ledger",
+    "status",
+    "inbound_adjustments",
+    "transfer_policy",
+    "transfers",
+    "whole_product_quality_preview",
+    "whole_product_quality",
     "stocktake",
 )
 HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
@@ -319,7 +335,7 @@ def main() -> None:
         )
 
     package_routes: list[dict[str, Any]] = []
-    for module_name in MODULE_ORDER:
+    for module_name in PACKAGE_MODULE_ORDER:
         module_path = PACKAGE_DIR / f"{module_name}.py"
         if not module_path.is_file():
             _fail(f"missing staged warehouse module: {module_path}")

@@ -14,28 +14,41 @@ describe("V1 quality and safety workflow closure", () => {
     expect(manager).toContain("<WholeProductQualityActionsPanel");
     expect(manager).toContain("onManageWholeProductIssue={() => setQualityOpen(true)}");
     expect(manager).not.toContain("createInventoryWholeProductIssueNavigationState");
-    const mainInventory = read("../pages/inventory/MainInventory.tsx");
-    const navigation = read("../features/inventory/navigation.ts");
-    expect(mainInventory).not.toContain("WholeProductIssueManager");
-    expect(navigation).not.toContain('kind: "quality-issue"');
   });
 
-  it("keeps one primary affected-quantity action and hosts Inventory-owned commands through a shared feature", () => {
-    const panel = read("../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx");
+  it("keeps whole-product handling global while Inventory remains backend authority", () => {
     const manager = read("../pages/products/lifecycle/ProductLifecycleManager.tsx");
     const inline = read("../features/inventory/quality/WholeProductQualityActionsPanel.tsx");
-    expect(panel).toContain("recallReadyToClose ?");
-    expect(panel).toContain('catalogLifecycle.simple.manageConfirmedIssue');
+    const commands = read("../features/inventory/quality/useProductQualityCommands.ts");
     expect(manager).toContain("WholeProductQualityActionsPanel");
     expect(manager).not.toContain("@/pages/inventory/");
-    expect(inline).toContain("useProductQualityCommands");
-    expect(inline).toContain("productQualityInline.actions.dispose");
-    expect(inline).toContain("productQualityInline.actions.returnVendor");
-    expect(inline).toContain("productQualityInline.actions.confirmDisposal");
-    expect(inline).toContain("productQualityInline.actions.confirmVendor");
+    expect(inline).toContain('openAction("DISPOSE")');
+    expect(inline).toContain('openAction("RETURN_TO_VENDOR")');
+    expect(inline).toContain("productQualityInline.actions.disposeAll");
+    expect(inline).toContain("productQualityInline.actions.returnAll");
+    expect(inline).not.toContain("QualityHandlingDestinationsCard");
+    expect(inline).not.toContain("setupRequired");
+    expect(commands).toContain("/resolve-all");
+    expect(commands).not.toContain("source_location_id");
+    expect(commands).not.toContain("batch_id");
+    expect(commands).not.toContain("transfer_purpose");
   });
 
-  it("keeps handling-destination setup inline instead of redirecting the operator", () => {
+  it("shows locations batches and book value as information without turning them into command inputs", () => {
+    const inline = read("../features/inventory/quality/WholeProductQualityActionsPanel.tsx");
+    const previewHook = read("../features/inventory/quality/useWholeProductQualityPreview.ts");
+    const commands = read("../features/inventory/quality/useProductQualityCommands.ts");
+    expect(previewHook).toContain("/resolve-preview");
+    expect(inline).toContain("preview.data.locations");
+    expect(inline).toContain("preview.data.batches");
+    expect(inline).toContain("preview.data.valuationLines");
+    expect(inline).toContain("totalBookValue");
+    expect(inline).toContain("formatMoneyDisplay");
+    expect(commands).not.toContain("locationId");
+    expect(commands).not.toContain("batchId");
+  });
+
+  it("keeps configurable handling destinations available only to workflows that need them", () => {
     const sharedCard = read("../features/inventory/quality/QualityHandlingDestinationsCard.tsx");
     const wrapper = read("../pages/inventory/warehouse-locations/QualityHandlingDestinationsCard.tsx");
     const inline = read("../features/inventory/quality/WholeProductQualityActionsPanel.tsx");
@@ -44,18 +57,20 @@ describe("V1 quality and safety workflow closure", () => {
     expect(sharedCard).toContain("/warehouse/operational-policy/transfer-destinations");
     expect(wrapper).toContain("@/features/inventory/quality/QualityHandlingDestinationsCard");
     expect(warehouses).toContain("<QualityHandlingDestinationsCard />");
-    expect(inline).toContain("<QualityHandlingDestinationsCard compact");
-    expect(inline).not.toContain('navigate("/inventory"');
+    expect(inline).not.toContain("QualityHandlingDestinationsCard");
   });
 
-  it("uses plain business wording for the post-stop handling journey", () => {
+  it("uses plain business wording for one global decision", () => {
     const resources = read("../i18n/resources.ts");
-    const inlineTranslations = read("../i18n/productQualityInline.ts");
+    const translations = read("../i18n/productQualityInline.ts");
     expect(resources).toContain('manageConfirmedIssue: "معالجة الكميات المتأثرة"');
     expect(resources).toContain('closeRecall: "إغلاق المشكلة وإعادة البيع"');
-    expect(inlineTranslations).toContain('dispose: "إتلاف"');
-    expect(inlineTranslations).toContain('returnVendor: "إرجاع للمورد / المصنع"');
-    expect(inlineTranslations).toContain('confirmDisposal: "تأكيد الإتلاف"');
-    expect(inlineTranslations).toContain('confirmVendor: "تأكيد التسليم"');
+    expect(translations).toContain('disposeAll: "إتلاف المنتج بالكامل"');
+    expect(translations).toContain('returnAll: "إرجاع المنتج بالكامل للمورد / المصنع"');
+    expect(translations).toContain('disposeButton: "تأكيد إتلاف جميع الكميات"');
+    expect(translations).toContain('returnButton: "تأكيد تسليم جميع الكميات"');
+    expect(translations).toContain('locationsTitle: "أماكن وجود المنتج المشمولة بالقرار"');
+    expect(translations).toContain('totalBookValue: "إجمالي القيمة الدفترية"');
+    expect(translations).not.toContain("setupRequired");
   });
 });
