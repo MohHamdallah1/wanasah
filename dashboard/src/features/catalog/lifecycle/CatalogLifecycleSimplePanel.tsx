@@ -416,30 +416,39 @@ export function CatalogLifecycleSimplePanel({
           <div className={issueScopeOpen ? "md:max-w-2xl" : "mt-4 border-t border-slate-100 pt-4 md:max-w-2xl"}>
             {!issueScopeOpen ? (
               <>
-                <ActionItem
-                  icon={<CircleAlert className="h-3.5 w-3.5" />}
-                  label={t(
-                    "catalogLifecycle.simple.qualityIssueTitle",
-                  )}
-                  hint={t(
-                    recallHasCurrentStock === false
-                      ? "catalogLifecycle.simple.qualityIssueNoStock"
-                      : "catalogLifecycle.simple.qualityIssueHint",
-                  )}
-                  disabled={actionsDisabled || recallHasCurrentStock !== true}
-                  disabledReason={
+                <span
+                  className="block w-full"
+                  title={
                     recallHasCurrentStock === false
                       ? t("catalogLifecycle.simple.qualityIssueNoStock")
                       : undefined
                   }
-                  onClick={() => {
-                    onCancel();
-                    setIssueScopeOpen(true);
-                  }}
-                  emphasis="warning"
-                />
+                >
+                  <ActionItem
+                    icon={<CircleAlert className="h-3.5 w-3.5" />}
+                    label={t(
+                      "catalogLifecycle.simple.qualityIssueTitle",
+                    )}
+                    hint={t(
+                      recallHasCurrentStock === false
+                        ? "catalogLifecycle.simple.qualityIssueNoStock"
+                        : "catalogLifecycle.simple.qualityIssueHint",
+                    )}
+                    disabled={actionsDisabled || recallHasCurrentStock !== true}
+                    disabledReason={
+                      recallHasCurrentStock === false
+                        ? t("catalogLifecycle.simple.qualityIssueNoStock")
+                        : undefined
+                    }
+                    onClick={() => {
+                      onCancel();
+                      setIssueScopeOpen(true);
+                    }}
+                    emphasis="warning"
+                  />
+                </span>
                 {recallHasCurrentStock === false ? (
-                  <p className="mt-1 px-2 text-[9px] font-bold leading-4 text-amber-700">
+                  <p className="mt-1 px-2 text-[9px] font-bold leading-4 text-slate-500">
                     {t("catalogLifecycle.simple.qualityIssueNoStock")}
                   </p>
                 ) : null}

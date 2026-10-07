@@ -61,6 +61,7 @@ describe("V1 quality and safety workflow closure", () => {
     expect(inline).toContain("WHOLE_PRODUCT_QUALITY_RESERVED_STOCK");
     expect(inline).toContain("blockerText");
     expect(inline).toContain("totalBaseQuantity");
+    expect(inline).not.toContain("amber-");
   });
 
   it("reuses the saved issue reason and uses Supplier identity instead of manual recipient text", () => {
