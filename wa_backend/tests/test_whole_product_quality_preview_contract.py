@@ -29,7 +29,8 @@ def test_preview_preserves_non_warehouse_custody_as_visible_information_and_bloc
 
 
 def test_moving_average_preview_uses_authoritative_cost_state_not_sale_or_last_purchase_price():
-    assert "InventoryCostState.average_unit_cost" in PREVIEW_SOURCE
+    assert "select(InventoryCostState)" in PREVIEW_SOURCE
+    assert "state.average_unit_cost" in PREVIEW_SOURCE
     assert "state.inventory_value" in PREVIEW_SOURCE
     assert 'costing_method == "MOVING_AVERAGE"' in PREVIEW_SOURCE
     assert "last_purchase" not in PREVIEW_SOURCE
