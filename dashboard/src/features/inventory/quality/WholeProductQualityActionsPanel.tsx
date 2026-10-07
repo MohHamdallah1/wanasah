@@ -207,8 +207,8 @@ export function WholeProductQualityActionsPanel({
   if (commands.pending || commands.recoveryBlocked) {
     return (
       <div className="space-y-3" dir={i18n.dir()}>
-        <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-3">
-          <p className="text-xs font-black text-amber-950">{t("productQualityInline.pending")}</p>
+        <div role="alert" className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs font-black text-slate-900">{t("productQualityInline.pending")}</p>
           {commands.pending ? (
             <div className="mt-3 space-y-3">
               <SupervisorPasswordField
@@ -348,7 +348,7 @@ export function WholeProductQualityActionsPanel({
       </div>
 
       {!commands.isOnline ? (
-        <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-900">
+        <p role="status" className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-700">
           {t("suppliers.offline")}
         </p>
       ) : null}
@@ -378,7 +378,7 @@ export function WholeProductQualityActionsPanel({
           </div>
 
           {previewBlocked && blockerText ? (
-            <div role="alert" className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-[10px] font-bold leading-5 text-amber-900">
+            <div role="alert" className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-[10px] font-bold leading-5 text-slate-700">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>{blockerText}</span>
             </div>
@@ -444,12 +444,12 @@ export function WholeProductQualityActionsPanel({
               ) : null}
 
               {previewChanged ? (
-                <div role="alert" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-[10px] font-bold text-amber-900">
+                <div role="alert" className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-[10px] font-bold text-slate-700">
                   {t("productQualityInline.preview.changed")}
                 </div>
               ) : null}
               {previewBlocked ? (
-                <div role="alert" className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-[10px] font-bold text-amber-900">
+                <div role="alert" className="mt-3 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-[10px] font-bold text-slate-700">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>{blockerText ?? t("productQualityInline.preview.blocked")}</span>
                 </div>

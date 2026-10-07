@@ -255,6 +255,7 @@ async def seed_hot(
     each_id: int,
     carton_id: int,
     actor_id: int,
+    include_synthetic_reservations: bool,
 ) -> None:
     existing = await scalar(
         session,
@@ -294,6 +295,7 @@ async def seed_hot(
         "carton_id": carton_id,
         "actor_id": actor_id,
         "sku_prefix": HOT_SKU_PREFIX,
+        "include_synthetic_reservations": include_synthetic_reservations,
     }
 
     await execute(
@@ -433,7 +435,10 @@ async def seed_hot(
         SELECT
             :company_id, :location_id, r.id, b.id,
             'AVAILABLE', 5100,
-            CASE WHEN r.rn % 5 = 0 THEN 100 ELSE 0 END,
+            CASE
+                WHEN :include_synthetic_reservations AND r.rn % 5 = 0 THEN 100
+                ELSE 0
+            END,
             CURRENT_TIMESTAMP
         FROM ranked r
         JOIN product_batches b
@@ -761,6 +766,7 @@ async def run(args: argparse.Namespace) -> None:
                     each_id=each_id,
                     carton_id=carton_id,
                     actor_id=actor_id,
+                    include_synthetic_reservations=args.synthetic_reservations,
                 )
 
             if args.noise_companies and args.noise_products:
@@ -808,6 +814,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--alert-ratio", type=float, default=0.20)
     parser.add_argument("--noise-companies", type=int, default=0)
     parser.add_argument("--noise-products", type=int, default=0)
+    parser.add_argument(
+        "--synthetic-reservations",
+        action="store_true",
+        help="Seed synthetic reserved stock for benchmark-only scenarios.",
+    )
     parser.add_argument("--cleanup-hot", action="store_true")
     parser.add_argument("--cleanup-noise", action="store_true")
     parser.add_argument("--confirm-dev", action="store_true")
