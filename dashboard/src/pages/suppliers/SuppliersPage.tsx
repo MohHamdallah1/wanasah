@@ -11,7 +11,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { WorkspaceTopBar } from "@/components/dashboard/WorkspaceTopBar";
 import { Modal } from "@/components/ui/modal";
-import { useSupplierSearch } from "@/features/suppliers/useSupplierSearch";
+import { useSupplierListSearch } from "./useSupplierListSearch";
 import { supplierDraftKey, type Supplier } from "@/features/suppliers/contracts";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { SupplierEditor } from "./SupplierEditor";
@@ -27,7 +27,7 @@ const filterOptions = [
 export default function SuppliersPage() {
   const { t, i18n } = useTranslation();
   const [active, setActive] = useState<boolean | null>(true);
-  const search = useSupplierSearch(active);
+  const search = useSupplierListSearch(active);
   const commands = useSupplierCommands(search.access.data?.company_id, search.access.data?.driver_id);
   const [editor, setEditor] = useState<{ supplier: Supplier | null } | null>(null);
   const [stateRow, setStateRow] = useState<Supplier | null>(null);
