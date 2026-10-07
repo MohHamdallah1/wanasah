@@ -35,7 +35,7 @@ _MAX_PREVIEW_LOCATIONS = 100
 class WholeProductQualityPreviewLocation(BaseModel):
     location_id: int
     location_name: str
-    location_type: Literal["WAREHOUSE", "VEHICLE"]
+    location_type: Literal["WAREHOUSE", "VEHICLE", "IN_TRANSIT", "SCRAP"]
     quantity: str
 
 
