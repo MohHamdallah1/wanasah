@@ -19,7 +19,6 @@ function useDesktopSupplierLayout() {
     if (typeof window.matchMedia !== "function") return;
     const media = window.matchMedia(query);
     const sync = () => setDesktop(media.matches);
-    sync();
     media.addEventListener?.("change", sync);
     return () => media.removeEventListener?.("change", sync);
   }, []);

@@ -111,7 +111,7 @@ export default function SuppliersPage() {
         {!search.query.isError && !search.query.isFetching && items.length === 0 ? <div className="grid min-h-[360px] place-items-center rounded-[28px] border border-white/80 bg-white/[0.58] px-6 text-center shadow-[0_20px_60px_-44px_rgba(15,23,42,0.6)] backdrop-blur-2xl">
           <div className="max-w-sm">
             <div className="mx-auto grid h-16 w-16 place-items-center rounded-[22px] border border-white bg-gradient-to-br from-cyan-50 to-amber-50 shadow-sm"><UsersRound className="h-7 w-7 text-slate-600" /></div>
-            <h2 className="mt-4 text-base font-black text-slate-900">{t("suppliers.emptyTitle")}</h2>
+            <h2 className="mt-4 text-base font-black text-slate-900">{t("suppliers.empty")}</h2>
             <p className="mt-1.5 text-sm font-semibold leading-6 text-slate-500">{t("suppliers.emptyHint")}</p>
             {manage && !search.input && active === true ? <button type="button" disabled={blocked} onClick={() => setEditor({ supplier: null })}
               className="mt-4 inline-flex h-10 items-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-50"><Plus className="h-4 w-4" />{t("suppliers.add")}</button> : null}
