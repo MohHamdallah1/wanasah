@@ -55,6 +55,18 @@
         "path": "/warehouse/unified/transfer/special/dispatch"
       },
       "method": "POST",
+      "path": "/warehouse/quality/stage",
+      "function": "stage_inventory_quality_handling",
+      "status_code": "200",
+      "response_model": "SpecialTransferDispatchResponse",
+      "expected_module": "transfers"
+    },
+    {
+      "insert_after": {
+        "method": "POST",
+        "path": "/warehouse/quality/stage"
+      },
+      "method": "POST",
       "path": "/warehouse/quality/disposal/confirm",
       "function": "confirm_inventory_disposal",
       "status_code": "200",
