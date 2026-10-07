@@ -309,7 +309,7 @@ export function CatalogLifecycleActions({
     const eligible =
       canHoldPermission &&
       ["ACTIVE", "RETIRING"].includes(variant.lifecycle_status) &&
-      ["NONE", "SALES_HOLD"].includes(variant.operational_hold);
+      ["NONE", "SALES_HOLD", "RECALL"].includes(variant.operational_hold);
     if (!eligible) {
       setRecallHasCurrentStock(null);
       return () => controller.abort();

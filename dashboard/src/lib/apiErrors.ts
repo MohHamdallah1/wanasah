@@ -194,6 +194,10 @@ export function apiErrorMessage(
     apiErrorRequestId(error);
   const status =
     apiErrorStatus(error);
+  const isClientError =
+    typeof status === "number" &&
+    status >= 400 &&
+    status < 500;
 
   const translatedCodeKey = code
     ? `errors.codes.${code}`
@@ -250,22 +254,10 @@ export function apiErrorMessage(
 
   const serverMessage =
     apiErrorServerMessage(error);
-  if (
-    typeof status === "number" &&
-    status >= 400 &&
-    status < 500 &&
-    serverMessage
-  ) {
-    if (requestId) {
-      return i18n.t(
-        "errors.serverReasonWithReference",
-        {
-          message: serverMessage,
-          requestId,
-        }
-      );
-    }
-    return serverMessage;
+  if (isClientError) {
+    // Client/business errors must stay actionable and operator-facing: no
+    // request/reference IDs and no raw technical codes in the visible message.
+    return serverMessage || fallback;
   }
   if (!code && serverMessage) {
     if (requestId) {

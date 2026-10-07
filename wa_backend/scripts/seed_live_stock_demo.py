@@ -376,11 +376,10 @@ async def seed(
                 await session.flush()
 
                 if stock_status == "AVAILABLE":
-                    reserved = (
-                        min(Decimal("13"), available_part)
-                        if index % 5 == 0 and batch_index == 1
-                        else Decimal("0")
-                    )
+                    # Do not invent reservations in seed data. A reserved quantity must be
+                    # owned by a real workflow (for example a pending Dispatch HANDSHAKE)
+                    # and backed by reservation movement evidence.
+                    reserved = Decimal("0")
                     session.add(
                         InventoryBalance(
                             company_id=company_id,

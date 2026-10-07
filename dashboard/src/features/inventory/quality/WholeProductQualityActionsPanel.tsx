@@ -24,6 +24,7 @@ export function WholeProductQualityActionsPanel({
   displayUomName,
   displayFactorToBase,
   onBack,
+  onOpenBatches,
   onResolved,
 }: {
   productVariantId: number;
@@ -31,6 +32,7 @@ export function WholeProductQualityActionsPanel({
   displayUomName: string;
   displayFactorToBase: string;
   onBack: () => void;
+  onOpenBatches: () => void;
   onResolved: () => void | Promise<void>;
 }) {
   const { t, i18n } = useTranslation();
@@ -378,9 +380,20 @@ export function WholeProductQualityActionsPanel({
           </div>
 
           {previewBlocked && blockerText ? (
-            <div role="alert" className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-[10px] font-bold leading-5 text-slate-700">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{blockerText}</span>
+            <div role="alert" className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-[10px] font-bold leading-5 text-slate-700">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{blockerText}</span>
+              </div>
+              {preview.data.blockerCodes.includes("WHOLE_PRODUCT_QUALITY_RESERVED_STOCK") ? (
+                <button
+                  type="button"
+                  onClick={onOpenBatches}
+                  className="mt-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[10px] font-black text-slate-800 transition hover:bg-slate-100"
+                >
+                  {t("productQualityInline.preview.openLinkedOperation")}
+                </button>
+              ) : null}
             </div>
           ) : null}
 
