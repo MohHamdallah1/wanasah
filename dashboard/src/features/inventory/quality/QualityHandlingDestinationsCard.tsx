@@ -216,7 +216,7 @@ export function QualityHandlingDestinationsCard({ compact = false, onSaved }: { 
         <h3 id="quality-destinations-title" className="flex items-center gap-2 text-sm font-black text-slate-900"><ShieldCheck className="h-4 w-4 text-blue-600" />{t("inventoryWarehouses.qualityDestinations.title")}</h3>
         {!compact ? <p className="mt-1 max-w-3xl text-[10px] font-semibold leading-5 text-slate-500">{t("inventoryWarehouses.qualityDestinations.hint")}</p> : null}
       </div>
-      <span className={`rounded-full px-2.5 py-1 text-[9px] font-black ${policy.published ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{t(policy.published ? "inventoryWarehouses.qualityDestinations.active" : "inventoryWarehouses.qualityDestinations.notConfigured")}</span>
+      {!compact ? <span className={`rounded-full px-2.5 py-1 text-[9px] font-black ${policy.published ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{t(policy.published ? "inventoryWarehouses.qualityDestinations.active" : "inventoryWarehouses.qualityDestinations.notConfigured")}</span> : null}
     </div>
     <div className="mt-3 relative"><Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder={t("inventoryWarehouses.qualityDestinations.search")} className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pr-10 pl-3 text-sm outline-none focus:ring-2 focus:ring-blue-500/20" /></div>
     {hasMoreLocations ? <p className="mt-1 text-[9px] font-semibold text-slate-500">{t("inventoryWarehouses.qualityDestinations.searchMore")}</p> : null}
