@@ -55,7 +55,7 @@ describe("Supplier V1 contract and presentation", () => {
     expect(keys(resources.ar.translation.suppliers).sort()).toEqual(keys(resources.en.translation.suppliers).sort());
     await i18n.changeLanguage("ar");
     render(<SupplierTable items={[row]} manage={false} disabled={false} onEdit={vi.fn()} onState={vi.fn()} />);
-    expect(screen.getByText("نشط")).toBeInTheDocument(); expect(document.documentElement.dir).toBe("rtl");
+    expect(screen.getByText("نشط")).toBeInTheDocument(); expect(screen.getByText("1")).toBeInTheDocument(); expect(document.documentElement.dir).toBe("rtl");
     await act(() => i18n.changeLanguage("en")); expect(document.documentElement.dir).toBe("ltr");
   });
   it("denies the page and selector without read authority", () => {
