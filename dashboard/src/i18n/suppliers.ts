@@ -2,7 +2,7 @@ export const suppliers = {
   ar: {
     title: "الموردون", subtitle: "إدارة الموردين وبيانات الاتصال من مكان واحد", add: "إضافة مورد", edit: "تعديل المورد", editNamed: "تعديل {{name}}",
     search: "ابحث بالاسم أو الرمز أو بيانات الاتصال", clearSearch: "مسح البحث", filterLabel: "تصفية الموردين",
-    active: "نشط", inactive: "غير نشط", all: "الكل", activate: "تفعيل", deactivate: "تعطيل",
+    active: "نشط", inactive: "غير نشط", all: "الكل", activate: "تفعيل", deactivate: "تعطيل", required: "إجباري", optional: "اختياري",
     previous: "السابق", next: "التالي", visibleCount: "{{count}} مورد ظاهر", empty: "لا يوجد موردون مطابقون.",
     emptyTitle: "لا يوجد موردون هنا", emptyHint: "أضف أول مورد أو غيّر البحث والتصفية.",
     select: "المورد", choose: "اختر موردًا نشطًا",
@@ -15,12 +15,12 @@ export const suppliers = {
     receiptReference: "مرجع التوريد: {{reference}}",
     permissions: { read: "قراءة واختيار الموردين", manage: "إدارة الموردين", companyOnly: "منح الشركة فقط" },
     errors: { SUPPLIER_NOT_FOUND: "المورد غير متاح في شركتك.", SUPPLIER_INACTIVE: "اختر موردًا نشطًا.", SUPPLIER_PERMISSION_DENIED: "لا تملك صلاحية الموردين المطلوبة.", SUPPLIER_COMPANY_REQUIRED: "يلزم حساب شركة نشط.", SUPPLIER_VERSION_CONFLICT: "تغيّرت بيانات المورد. حدّثها قبل التعديل.", SUPPLIER_REQUEST_CONFLICT: "هوية العملية مستخدمة لطلب مختلف.", SUPPLIER_DATA_CONFLICT: "رمز المورد مستخدم أو تغيّرت البيانات بالتزامن.", SUPPLIER_CURSOR_INVALID: "حدّث البحث وأعد المحاولة.", SUPPLIER_RESPONSE_INVALID: "تعذر التحقق من نتيجة المورد. أعد المحاولة بنفس العملية." },
-    fields: { name: "اسم المورد", code: "رمز المورد", contact_person: "جهة الاتصال", phone: "الهاتف", email: "البريد الإلكتروني", address: "العنوان", notes: "ملاحظات", status: "الحالة", actions: "الإجراءات" },
+    fields: { name: "اسم المورد", code: "رمز المورد", contact_person: "جهة الاتصال", phone: "رقم الهاتف", email: "البريد الإلكتروني", address: "العنوان الرئيسي", notes: "ملاحظات", status: "الحالة", actions: "الإجراءات" },
   },
   en: {
     title: "Suppliers", subtitle: "Manage suppliers and contact details in one place", add: "Add supplier", edit: "Edit supplier", editNamed: "Edit {{name}}",
     search: "Search name, code or contact details", clearSearch: "Clear search", filterLabel: "Filter suppliers",
-    active: "Active", inactive: "Inactive", all: "All", activate: "Activate", deactivate: "Deactivate",
+    active: "Active", inactive: "Inactive", all: "All", activate: "Activate", deactivate: "Deactivate", required: "Required", optional: "Optional",
     previous: "Previous", next: "Next", visibleCount: "{{count}} suppliers shown", empty: "No matching suppliers.",
     emptyTitle: "No suppliers here", emptyHint: "Add your first supplier or change the search and filters.",
     select: "Supplier", choose: "Choose an active supplier",
@@ -33,6 +33,6 @@ export const suppliers = {
     receiptReference: "Receipt reference: {{reference}}",
     permissions: { read: "Read and select suppliers", manage: "Manage suppliers", companyOnly: "Company grants only" },
     errors: { SUPPLIER_NOT_FOUND: "Supplier is unavailable in your company.", SUPPLIER_INACTIVE: "Choose an active supplier.", SUPPLIER_PERMISSION_DENIED: "Supplier permission is required.", SUPPLIER_COMPANY_REQUIRED: "An active company account is required.", SUPPLIER_VERSION_CONFLICT: "Supplier changed. Refresh before editing.", SUPPLIER_REQUEST_CONFLICT: "Operation identity was used for a different request.", SUPPLIER_DATA_CONFLICT: "Supplier code is already used or the data changed concurrently.", SUPPLIER_CURSOR_INVALID: "Refresh the search and retry.", SUPPLIER_RESPONSE_INVALID: "Could not verify the supplier result. Retry the same operation." },
-    fields: { name: "Supplier name", code: "Supplier code", contact_person: "Contact person", phone: "Phone", email: "Email", address: "Address", notes: "Notes", status: "Status", actions: "Actions" },
+    fields: { name: "Supplier name", code: "Supplier code", contact_person: "Contact person", phone: "Phone number", email: "Email", address: "Primary address", notes: "Notes", status: "Status", actions: "Actions" },
   },
 } as const;

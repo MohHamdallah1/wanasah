@@ -1,6 +1,12 @@
 """Executable ownership contract for the new V1 authority."""
 import ast
 from pathlib import Path
+from uuid import uuid4
+
+import pytest
+from pydantic import ValidationError
+
+from domains.suppliers.contracts import SupplierCreate, SupplierUpdate, SupplierView
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -26,3 +32,19 @@ def test_supplier_is_never_a_global_product_attribute():
     for node in tree.body:
         if isinstance(node, ast.ClassDef) and node.name in {"Product", "ProductVariant"}:
             assert "supplier_id" not in ast.unparse(node)
+
+def test_supplier_writes_require_phone_and_primary_address_but_legacy_views_remain_readable():
+    valid = dict(name="Supplier", phone="0790000000", address="Main address")
+    assert SupplierCreate(request_id=uuid4(), **valid).phone == "0790000000"
+    assert SupplierUpdate(request_id=uuid4(), expected_version=1, **valid).address == "Main address"
+    with pytest.raises(ValidationError):
+        SupplierCreate(request_id=uuid4(), name="Supplier", address="Main address")
+    with pytest.raises(ValidationError):
+        SupplierCreate(request_id=uuid4(), name="Supplier", phone="0790000000")
+    with pytest.raises(ValidationError):
+        SupplierCreate(request_id=uuid4(), name="Supplier", phone="   ", address="Main address")
+    legacy = SupplierView(
+        id=1, name="Legacy supplier", phone=None, address=None, is_active=True, version=1,
+        created_at="2026-10-07T00:00:00Z", updated_at="2026-10-07T00:00:00Z",
+    )
+    assert legacy.phone is None and legacy.address is None

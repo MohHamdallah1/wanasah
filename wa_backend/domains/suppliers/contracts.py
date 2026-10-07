@@ -34,10 +34,14 @@ class SupplierDetails(BaseModel):
 
 
 class SupplierCreate(SupplierDetails):
+    phone: str = Field(min_length=1, max_length=50)
+    address: str = Field(min_length=1, max_length=1000)
     request_id: UUID
 
 
 class SupplierUpdate(SupplierDetails):
+    phone: str = Field(min_length=1, max_length=50)
+    address: str = Field(min_length=1, max_length=1000)
     request_id: UUID
     expected_version: int = Field(ge=1)
 
