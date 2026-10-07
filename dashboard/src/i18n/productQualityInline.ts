@@ -7,8 +7,8 @@ export const productQualityInline = {
       preview: "تعذر تحميل ملخص المستودعات والدفعات والقيمة الدفترية.",
     },
     success: {
-      DISPOSE: "تم إتلاف كل الكميات الحالية للمنتج وخصمها من مخزون الشركة.",
-      RETURN_TO_VENDOR: "تم تسجيل تسليم كل الكميات الحالية للجهة المستلمة وخصمها من مخزون الشركة.",
+      DISPOSE: "تم إتلاف كل الكميات الحالية، خصمها من المخزون، وإغلاق مشكلة السلامة تلقائيًا.",
+      RETURN_TO_VENDOR: "تم تسليم كل الكميات الحالية، خصمها من المخزون، وإغلاق مشكلة السلامة تلقائيًا.",
     },
     title: "معالجة الكميات المتأثرة",
     noStock: "لا توجد كميات حالية لهذا المنتج ضمن المواقع المسموح لك برؤيتها.",
@@ -46,6 +46,9 @@ export const productQualityInline = {
       editReason: "تعديل",
       reasonMissing: "لم يُعثر على السبب المحفوظ. أدخل السبب للمتابعة.",
       recipientName: "اسم المورد / الجهة المستلمة",
+      supervisorPassword: "كلمة مرور المشرف",
+      supervisorPasswordPlaceholder: "أدخل كلمة مرورك للتأكيد",
+      supervisorPasswordHint: "هذه هي الخطوة الأخيرة. بعد نجاح التأكيد تُنفذ العملية وتُغلق مشكلة السلامة تلقائيًا.",
     },
   },
   en: {
@@ -56,8 +59,8 @@ export const productQualityInline = {
       preview: "Could not load the warehouse, batch, and book-value summary.",
     },
     success: {
-      DISPOSE: "All current product quantities were disposed and removed from company inventory.",
-      RETURN_TO_VENDOR: "All current product quantities were handed over and removed from company inventory.",
+      DISPOSE: "All current quantities were disposed, removed from inventory, and the safety issue was closed automatically.",
+      RETURN_TO_VENDOR: "All current quantities were handed over, removed from inventory, and the safety issue was closed automatically.",
     },
     title: "Handle affected quantities",
     noStock: "There is no current stock for this product in locations you can read.",
@@ -95,6 +98,9 @@ export const productQualityInline = {
       editReason: "Edit",
       reasonMissing: "The saved reason could not be found. Enter a reason to continue.",
       recipientName: "Vendor / recipient name",
+      supervisorPassword: "Supervisor password",
+      supervisorPasswordPlaceholder: "Enter your password to confirm",
+      supervisorPasswordHint: "This is the final step. On success, the action is completed and the safety issue closes automatically.",
     },
   },
 } as const;

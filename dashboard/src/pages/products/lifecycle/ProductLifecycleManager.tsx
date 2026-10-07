@@ -201,6 +201,11 @@ export function ProductLifecycleManager({
             baseUomId={variant.base_uom.id}
             baseUomName={variant.base_uom.name}
             onBack={() => setQualityOpen(false)}
+            onResolved={async () => {
+              setQualityOpen(false);
+              setReloadToken((current) => current + 1);
+              await onChanged();
+            }}
           />
         ) : null}
 

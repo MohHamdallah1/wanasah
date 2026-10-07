@@ -45,11 +45,13 @@ export function WholeProductQualityActionsPanel({
   baseUomId,
   baseUomName,
   onBack,
+  onResolved,
 }: {
   productVariantId: number;
   baseUomId: number;
   baseUomName: string;
   onBack: () => void;
+  onResolved: () => void | Promise<void>;
 }) {
   const { t, i18n } = useTranslation();
   const locale = resolveI18nLocale(i18n);
@@ -61,6 +63,7 @@ export function WholeProductQualityActionsPanel({
   const [reasonEditing, setReasonEditing] = useState(false);
   const [reasonTouched, setReasonTouched] = useState(false);
   const [recipientName, setRecipientName] = useState("");
+  const [supervisorPassword, setSupervisorPassword] = useState("");
   const [previewChanged, setPreviewChanged] = useState(false);
 
   const pages = query.data?.pages ?? [];
@@ -71,7 +74,10 @@ export function WholeProductQualityActionsPanel({
   );
   const commands = useProductQualityCommands({
     productVariantId,
-    onSucceeded: async () => { await query.refetch(); },
+    onSucceeded: async () => {
+      await query.refetch();
+      await onResolved();
+    },
   });
   const preview = useWholeProductQualityPreview(productVariantId, activeAction !== null);
   const conversions = useQuery({
@@ -115,11 +121,12 @@ export function WholeProductQualityActionsPanel({
     setReasonEditing(false);
     setReasonTouched(false);
     setRecipientName("");
+    setSupervisorPassword("");
     setPreviewChanged(false);
   };
 
   const submit = async () => {
-    if (!activeAction || !reason.trim() || !preview.data || preview.data.blockerCodes.length > 0) return;
+    if (!activeAction || !reason.trim() || !supervisorPassword || !preview.data || preview.data.blockerCodes.length > 0) return;
     if (activeAction === "RETURN_TO_VENDOR" && !recipientName.trim()) return;
 
     const shownSignature = previewSignature(preview.data);
@@ -134,8 +141,12 @@ export function WholeProductQualityActionsPanel({
       action: activeAction,
       reason,
       recipientName,
+      confirmationPassword: supervisorPassword,
     });
-    if (ok) setActiveAction(null);
+    if (ok) {
+      setSupervisorPassword("");
+      setActiveAction(null);
+    }
   };
 
   const previewBlocked = (preview.data?.blockerCodes.length ?? 0) > 0;
@@ -145,6 +156,7 @@ export function WholeProductQualityActionsPanel({
     || preview.isError
     || previewBlocked
     || !reason.trim()
+    || !supervisorPassword
     || (activeAction === "RETURN_TO_VENDOR" && !recipientName.trim());
 
   return <div className="space-y-3" dir={i18n.dir()}>
@@ -271,6 +283,22 @@ export function WholeProductQualityActionsPanel({
             <input autoFocus={!reasonEditing} value={recipientName} onChange={(event) => setRecipientName(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
           </label> : null}
         </div> : null}
+
+        <label className="mt-3 block rounded-lg border border-slate-200 bg-white p-3 text-[10px] font-black text-slate-700">
+          {t("productQualityInline.fields.supervisorPassword")}
+          <input
+            type="password"
+            autoComplete="current-password"
+            maxLength={256}
+            value={supervisorPassword}
+            onChange={(event) => setSupervisorPassword(event.target.value)}
+            placeholder={t("productQualityInline.fields.supervisorPasswordPlaceholder")}
+            className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+          />
+          <span className="mt-1 block text-[9px] font-semibold leading-4 text-slate-500">
+            {t("productQualityInline.fields.supervisorPasswordHint")}
+          </span>
+        </label>
 
         <div className="mt-3 flex justify-end gap-2">
           <button type="button" onClick={() => setActiveAction(null)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-black text-slate-700">{t("common.cancel")}</button>

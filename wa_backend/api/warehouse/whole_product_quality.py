@@ -6,13 +6,14 @@ from typing import Literal
 from uuid import UUID, uuid5
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_current_driver
 from database import get_db
+from domains.credential_confirmation import verify_actor_password
 from domains.inventory_quality_handling import (
     quality_stage_target_status,
     stage_quality_handling_direct,
@@ -22,7 +23,12 @@ from domains.inventory_terminal_vendor import confirm_vendor_handover
 from domains.inventory_whole_product_quality_policy import ensure_whole_product_quality_policy
 from inventory_access import InventoryAccess
 from models import Driver, InventoryBalance, InventoryLocation, ProductVariant, SystemAuditLog
-from product_lifecycle import acquire_product_lifecycle_guards
+from product_lifecycle import (
+    ProductLifecycleTransitionError,
+    acquire_product_lifecycle_guards,
+    close_recall_after_terminal_resolution,
+)
+from domains.live_stock_projection.service import refresh_live_stock_variants
 from quantity import canonical_quantity
 from schemas import SpecialTransferItem
 from services import (
@@ -55,6 +61,7 @@ class WholeProductQualityResolveRequest(BaseModel):
     evidence_reference: str | None = Field(default=None, max_length=500)
     recipient_name: str | None = Field(default=None, max_length=300)
     handover_reference: str | None = Field(default=None, max_length=500)
+    confirmation_password: SecretStr = Field(..., min_length=1, max_length=256)
 
     @model_validator(mode="after")
     def validate_action_evidence(self):
@@ -112,6 +119,15 @@ async def resolve_whole_product_quality(
     await access.require(SPECIAL_TRANSFER_PERMISSION[purpose])
 
     try:
+        if not await verify_actor_password(current_admin, payload.confirmation_password.get_secret_value()):
+            raise HTTPException(
+                status_code=403,
+                detail=_business_detail(
+                    "SUPERVISOR_CONFIRMATION_FAILED",
+                    "كلمة مرور المشرف غير صحيحة. لم يتم تنفيذ أي تغيير.",
+                ),
+            )
+
         request_hash = _stable_request_hash(
             payload,
             context={"product_variant_id": int(product_variant_id)},
@@ -134,14 +150,14 @@ async def resolve_whole_product_quality(
             [int(product_variant_id)],
             exclusive=True,
         )
-        variant = (
-            await db.execute(
-                select(ProductVariant.id, ProductVariant.base_uom_id, ProductVariant.operational_hold).where(
-                    ProductVariant.company_id == company_id,
-                    ProductVariant.id == int(product_variant_id),
-                )
+        variant = await db.scalar(
+            select(ProductVariant)
+            .where(
+                ProductVariant.company_id == company_id,
+                ProductVariant.id == int(product_variant_id),
             )
-        ).one_or_none()
+            .with_for_update()
+        )
         if variant is None:
             raise HTTPException(status_code=404, detail="المنتج غير موجود أو لا يتبع شركتك.")
         if str(variant.operational_hold or "").upper() != "RECALL":
@@ -368,6 +384,24 @@ async def resolve_whole_product_quality(
                 "quantity": canonical_quantity(location_quantities[location_id]),
             })
 
+        await close_recall_after_terminal_resolution(
+            db,
+            row=variant,
+            company_id=company_id,
+            actor_id=actor_id,
+            request_id=payload.request_id,
+            reason=(
+                "تم إغلاق مشكلة السلامة تلقائيًا بعد إتلاف كل الكميات الحالية."
+                if payload.action == "DISPOSE"
+                else "تم إغلاق مشكلة السلامة تلقائيًا بعد تسليم كل الكميات الحالية للمورد / المصنع."
+            ),
+        )
+        await refresh_live_stock_variants(
+            db,
+            company_id=company_id,
+            variant_ids=[int(product_variant_id)],
+        )
+
         db.add(SystemAuditLog(
             company_id=company_id,
             admin_id=actor_id,
@@ -379,15 +413,16 @@ async def resolve_whole_product_quality(
             ),
             old_value="quality_issue=RECALL",
             new_value=(
-                f"action={payload.action}; locations={len(response_locations)}; "
+                f"action={payload.action}; quality_issue=CLOSED; "
+                f"locations={len(response_locations)}; "
                 f"quantity={canonical_quantity(total_quantity)}"
             ),
         ))
         response_payload = {
             "message": (
-                "تم إتلاف كل الكميات الحالية للمنتج."
+                "تم إتلاف كل الكميات الحالية وإغلاق مشكلة السلامة تلقائيًا."
                 if payload.action == "DISPOSE"
-                else "تم تسجيل تسليم كل الكميات الحالية للجهة المستلمة."
+                else "تم تسليم كل الكميات الحالية وإغلاق مشكلة السلامة تلقائيًا."
             ),
             "action": payload.action,
             "product_variant_id": int(product_variant_id),
@@ -402,6 +437,12 @@ async def resolve_whole_product_quality(
     except HTTPException:
         await db.rollback()
         raise
+    except ProductLifecycleTransitionError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=_business_detail(exc.code, exc.message, context=exc.context),
+        ) from exc
     except InventoryRuleError as exc:
         await db.rollback()
         raise HTTPException(status_code=409, detail=exc.as_detail()) from exc

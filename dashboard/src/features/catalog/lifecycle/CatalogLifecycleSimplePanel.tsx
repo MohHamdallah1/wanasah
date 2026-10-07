@@ -33,8 +33,7 @@ type SimpleLifecycleCommand =
   | "sales-hold"
   | "release-sales-hold"
   | "recall"
-  | "cancel-recall"
-  | "close-recall";
+  | "cancel-recall";
 
 const lifecycleReasonPresetKeys: Record<
   SimpleLifecycleCommand,
@@ -77,11 +76,6 @@ const lifecycleReasonPresetKeys: Record<
     "scopeLimitedToBatch",
     "inspectionPassed",
   ],
-  "close-recall": [
-    "recallCompleted",
-    "stockRecovered",
-    "recallOperationsClosed",
-  ],
 };
 
 type Props = {
@@ -102,8 +96,6 @@ type Props = {
   reason: string;
   pendingActionKey: string | null;
   preflight: ArchivePreflight | null;
-  recallCompletionBlockers: RecallCompletionBlocker[];
-  recallReadyToClose: boolean;
   recallInventorySummary: QualityInventorySummary | null;
   onChooseCommand: (
     command: SimpleLifecycleCommand,
@@ -192,8 +184,6 @@ export function CatalogLifecycleSimplePanel({
   reason,
   pendingActionKey,
   preflight,
-  recallCompletionBlockers,
-  recallReadyToClose,
   recallInventorySummary,
   onChooseCommand,
   onManageBatchIssue,
@@ -330,36 +320,18 @@ export function CatalogLifecycleSimplePanel({
                   )
                 }
               />
-              {recallReadyToClose ? (
-                <ActionItem
-                  icon={<Play className="h-3.5 w-3.5" />}
-                  label={t(
-                    "catalogLifecycle.actions.closeRecall",
-                  )}
-                  hint={t(
-                    "catalogLifecycle.simple.actionHints.closeRecall",
-                  )}
-                  disabled={actionsDisabled}
-                  onClick={() =>
-                    onChooseCommand(
-                      "close-recall",
-                    )
-                  }
-                />
-              ) : (
-                <ActionItem
-                  icon={<ShieldCheck className="h-3.5 w-3.5" />}
-                  label={t(
-                    "catalogLifecycle.simple.manageConfirmedIssue",
-                  )}
-                  hint={t(
-                    "catalogLifecycle.simple.manageConfirmedIssueHint",
-                  )}
-                  disabled={actionsDisabled}
-                  onClick={onManageWholeProductIssue}
-                  emphasis="warning"
-                />
-              )}
+              <ActionItem
+                icon={<ShieldCheck className="h-3.5 w-3.5" />}
+                label={t(
+                  "catalogLifecycle.simple.manageConfirmedIssue",
+                )}
+                hint={t(
+                  "catalogLifecycle.simple.manageConfirmedIssueHint",
+                )}
+                disabled={actionsDisabled}
+                onClick={onManageWholeProductIssue}
+                emphasis="warning"
+              />
             </>
           ) : null}
 

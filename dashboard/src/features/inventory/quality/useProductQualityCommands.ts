@@ -41,10 +41,12 @@ export function useProductQualityCommands({
     action,
     reason,
     recipientName,
+    confirmationPassword,
   }: {
     action: WholeProductQualityAction;
     reason: string;
     recipientName?: string;
+    confirmationPassword: string;
   }) => {
     if (!isOnline || companyId === null || driverId === null || busyKey !== null) return false;
     const key = `${productVariantId}:${action}`;
@@ -64,6 +66,8 @@ export function useProductQualityCommands({
         handover_reference: action === "RETURN_TO_VENDOR"
           ? `SYSTEM-${durable.requestId}`
           : null,
+        // Re-authentication is ephemeral: never persist it in durable storage.
+        confirmation_password: confirmationPassword,
       };
       const raw = resultRecord(await authFetch(
         `/warehouse/quality/products/${productVariantId}/resolve-all`,

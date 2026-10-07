@@ -13,6 +13,8 @@ describe("V1 quality and safety workflow closure", () => {
     expect(actions).toContain("onManageWholeProductIssue");
     expect(manager).toContain("<WholeProductQualityActionsPanel");
     expect(manager).toContain("onManageWholeProductIssue={() => setQualityOpen(true)}");
+    expect(manager).toContain("onResolved={async () => {");
+    expect(manager).toContain("setReloadToken((current) => current + 1)");
     expect(manager).not.toContain("createInventoryWholeProductIssueNavigationState");
   });
 
@@ -79,8 +81,10 @@ describe("V1 quality and safety workflow closure", () => {
   it("uses plain business wording for one global decision", () => {
     const resources = read("../i18n/resources.ts");
     const translations = read("../i18n/productQualityInline.ts");
+    const panel = read("../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx");
     expect(resources).toContain('manageConfirmedIssue: "معالجة الكميات المتأثرة"');
-    expect(resources).toContain('closeRecall: "إغلاق المشكلة وإعادة البيع"');
+    expect(panel).not.toContain("catalogLifecycle.actions.closeRecall");
+    expect(panel).not.toContain("recallReadyToClose");
     expect(translations).toContain('disposeAll: "إتلاف المنتج بالكامل"');
     expect(translations).toContain('returnAll: "إرجاع المنتج بالكامل للمورد / المصنع"');
     expect(translations).toContain('disposeButton: "تأكيد إتلاف جميع الكميات"');
@@ -89,4 +93,22 @@ describe("V1 quality and safety workflow closure", () => {
     expect(translations).toContain('totalBookValue: "إجمالي القيمة الدفترية"');
     expect(translations).not.toContain("setupRequired");
   });
+
+  it("uses one final supervisor-password confirmation without persisting the secret", () => {
+    const inline = read("../features/inventory/quality/WholeProductQualityActionsPanel.tsx");
+    const commands = read("../features/inventory/quality/useProductQualityCommands.ts");
+    const translations = read("../i18n/productQualityInline.ts");
+    expect(inline).toContain('type="password"');
+    expect(inline).toContain('autoComplete="current-password"');
+    expect(inline).toContain("confirmationPassword: supervisorPassword");
+    expect(commands).toContain("confirmation_password: confirmationPassword");
+    const durablePayload = commands.slice(
+      commands.indexOf("const payload = {"),
+      commands.indexOf("const scope ="),
+    );
+    expect(durablePayload).not.toContain("confirmation_password");
+    expect(translations).toContain('supervisorPassword: "كلمة مرور المشرف"');
+    expect(translations).toContain("تُغلق مشكلة السلامة تلقائيًا");
+  });
+
 });

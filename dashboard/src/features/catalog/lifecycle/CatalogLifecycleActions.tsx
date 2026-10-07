@@ -902,7 +902,7 @@ export function CatalogLifecycleActions({
 
   if (simpleMode) {
     const simpleSelectedCommand =
-      selectedCommand === "delete-draft"
+      selectedCommand === "delete-draft" || selectedCommand === "close-recall"
         ? null
         : selectedCommand;
     const simpleSelectedActionKey =
@@ -947,12 +947,6 @@ export function CatalogLifecycleActions({
             : null
         }
         preflight={preflight}
-        recallCompletionBlockers={
-          recallReadiness?.blockers ?? recallCompletionBlockers
-        }
-        recallReadyToClose={
-          recallReadiness?.ready_to_resume_sales === true
-        }
         recallInventorySummary={recallReadiness?.inventory_summary ?? null}
         onChooseCommand={(
           command,
@@ -1318,34 +1312,6 @@ export function CatalogLifecycleActions({
             </button>
           ) : null}
 
-          {variant.operational_hold ===
-            "RECALL" &&
-          can(
-            "catalog.hold",
-          ) ? (
-            <button
-              type="button"
-              className={
-                actionClass
-              }
-              disabled={
-                actionsDisabled
-              }
-              onClick={() =>
-                void runCommand(
-                  "close-recall",
-                  {
-                    target_hold:
-                      "NONE",
-                  },
-                )
-              }
-            >
-              {t(
-                "catalogLifecycle.actions.closeRecall",
-              )}
-            </button>
-          ) : null}
         </div>
       </div>
 
