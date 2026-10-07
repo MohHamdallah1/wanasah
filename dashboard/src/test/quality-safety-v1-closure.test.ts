@@ -21,6 +21,7 @@ describe("V1 quality and safety workflow closure", () => {
     const panel = read("../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx");
     expect(actions).toContain("/recall-preflight");
     expect(actions).toContain("has_current_stock");
+    expect(actions).toContain('["NONE", "SALES_HOLD", "RECALL"]');
     expect(panel).toContain("recallHasCurrentStock !== true");
     expect(panel).toContain("catalogLifecycle.simple.qualityIssueNoStock");
     expect(panel).toContain("disabledReason");
@@ -60,6 +61,8 @@ describe("V1 quality and safety workflow closure", () => {
     expect(inline).toContain("displayFactorToBase");
     expect(inline).toContain("WHOLE_PRODUCT_QUALITY_RESERVED_STOCK");
     expect(inline).toContain("blockerText");
+    expect(inline).toContain("onOpenBatches");
+    expect(inline).toContain("productQualityInline.preview.openLinkedOperation");
     expect(inline).toContain("totalBaseQuantity");
     expect(inline).not.toContain("amber-");
   });

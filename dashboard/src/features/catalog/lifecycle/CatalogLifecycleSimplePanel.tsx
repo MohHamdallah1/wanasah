@@ -322,18 +322,34 @@ export function CatalogLifecycleSimplePanel({
                   )
                 }
               />
-              <ActionItem
-                icon={<ShieldCheck className="h-3.5 w-3.5" />}
-                label={t(
-                  "catalogLifecycle.simple.manageConfirmedIssue",
-                )}
-                hint={t(
-                  "catalogLifecycle.simple.manageConfirmedIssueHint",
-                )}
-                disabled={actionsDisabled}
-                onClick={onManageWholeProductIssue}
-                emphasis="warning"
-              />
+              <span
+                className="block w-full"
+                title={
+                  recallHasCurrentStock === false
+                    ? t("catalogLifecycle.simple.qualityIssueNoStock")
+                    : undefined
+                }
+              >
+                <ActionItem
+                  icon={<ShieldCheck className="h-3.5 w-3.5" />}
+                  label={t(
+                    "catalogLifecycle.simple.manageConfirmedIssue",
+                  )}
+                  hint={t(
+                    recallHasCurrentStock === false
+                      ? "catalogLifecycle.simple.qualityIssueNoStock"
+                      : "catalogLifecycle.simple.manageConfirmedIssueHint",
+                  )}
+                  disabled={actionsDisabled || recallHasCurrentStock !== true}
+                  disabledReason={
+                    recallHasCurrentStock === false
+                      ? t("catalogLifecycle.simple.qualityIssueNoStock")
+                      : undefined
+                  }
+                  onClick={onManageWholeProductIssue}
+                  emphasis="warning"
+                />
+              </span>
             </>
           ) : null}
 

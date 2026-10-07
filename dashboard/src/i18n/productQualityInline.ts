@@ -24,8 +24,9 @@ export const productQualityInline = {
     preview: {
       changed: "تغيرت الكمية منذ عرضها. راجع البيانات ثم تابع من جديد.",
       blocked: "لا يمكن تنفيذ المعالجة الآن لوجود كمية مرتبطة بعملية أخرى. أنهِ العملية المرتبطة أولًا.",
+      openLinkedOperation: "عرض العملية المرتبطة",
       blockers: {
-        reservedStock: "الكمية المحجوزة: {{quantity}}. حرّر الحجز أولًا ثم أعد المحاولة.",
+        reservedStock: "هناك {{quantity}} مرتبطة بعملية تشغيلية مفتوحة، مثل تحميل أو إرجاع مندوب. أنهِ أو ألغِ العملية المالكة أولًا؛ لا تعدّل الرصيد يدويًا.",
         custody: "جزء من الكمية موجود خارج مستودع فعّال أو ضمن حيازة أو حركة قائمة. أعده إلى مستودع فعّال أولًا.",
       },
     },
@@ -61,8 +62,9 @@ export const productQualityInline = {
     preview: {
       changed: "The quantity changed since it was shown. Review it and continue again.",
       blocked: "This action cannot run while stock is tied to another operation. Finish that operation first.",
+      openLinkedOperation: "View linked operation",
       blockers: {
-        reservedStock: "Reserved quantity: {{quantity}}. Release the reservation first, then try again.",
+        reservedStock: "{{quantity}} is tied to an open operational process, such as a pending driver load or return. Complete or cancel the owning operation first; do not edit the stock balance manually.",
         custody: "Part of the stock is outside an active warehouse or tied to custody or movement. Return it to an active warehouse first.",
       },
     },

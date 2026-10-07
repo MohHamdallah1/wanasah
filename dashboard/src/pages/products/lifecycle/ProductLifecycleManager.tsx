@@ -56,6 +56,16 @@ export function ProductLifecycleManager({
     onClose();
   };
 
+  const openInventoryBatches = (variantId: number, productName: string) => {
+    close();
+    navigate("/inventory", {
+      state: createInventoryBatchFocusNavigationState({
+        variantId,
+        productName,
+      }),
+    });
+  };
+
   const openBlocker = (code: string) => {
     if (code === "OPEN_TRANSFER") {
       close();
@@ -212,6 +222,7 @@ export function ProductLifecycleManager({
                 : "1"
             }
             onBack={() => setQualityOpen(false)}
+            onOpenBatches={() => openInventoryBatches(variant.id, product.name)}
             onResolved={async () => {
               setQualityOpen(false);
               setReloadToken((current) => current + 1);
@@ -224,15 +235,7 @@ export function ProductLifecycleManager({
           <CatalogLifecycleActions
             variant={variant}
             simpleMode
-            onManageBatchIssue={() => {
-              close();
-              navigate("/inventory", {
-                state: createInventoryBatchFocusNavigationState({
-                  variantId: variant.id,
-                  productName: product.name,
-                }),
-              });
-            }}
+            onManageBatchIssue={() => openInventoryBatches(variant.id, product.name)}
             onManageWholeProductIssue={() => setQualityOpen(true)}
             onOpenBlocker={openBlocker}
             onVariantChanged={async (updated) => {
