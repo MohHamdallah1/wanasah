@@ -43,7 +43,7 @@ jobs:
         run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
       - name: Supplier database acceptance and affected regressions
         working-directory: wa_backend
-        run: python -m pytest -q tests/test_supplier_master_db.py tests/test_supplier_module_boundaries.py tests/test_whole_product_quality_global_contract.py tests/test_whole_product_quality_direct_stage.py tests/test_terminal_quality_workflow_chain.py tests/test_whole_product_quality_stage4_legacy_fifo.py
+        run: python -m pytest -q tests/test_supplier_master_db.py tests/test_supplier_module_boundaries.py tests/test_whole_product_quality_global_contract.py tests/test_whole_product_quality_direct_stage.py tests/test_terminal_quality_workflow_chain.py tests/test_whole_product_quality_stage4_legacy_fifo.py tests/test_whole_product_quality_terminal_completion.py tests/test_catalog_recall_cancel_guard.py
       - name: Locked frontend dependencies
         working-directory: dashboard
         run: npm ci --no-audit --no-fund
@@ -62,7 +62,7 @@ jobs:
         run: node scripts/check-types-against-baseline.mjs ../baseline/dashboard
       - name: Affected frontend lint
         working-directory: dashboard
-        run: npx eslint src/features/suppliers src/pages/suppliers src/i18n/suppliers.ts src/pages/inventory/inbound/useInboundPosting.ts src/features/inventory/quality/useProductQualityCommands.ts src/features/inventory/quality/wholeProductQualityResolveContract.ts src/features/inventory/quality/WholeProductQualityActionsPanel.tsx src/pages/inventory/Tab2Inbound.tsx src/pages/inventory/Tab4Ledger.tsx src/pages/inventory/TabInventoryAccess.tsx src/pages/inventory/ledger/contracts.ts src/pages/inventory/inbound/contracts.ts src/App.tsx src/components/operations/OperationsSidebar.tsx src/i18n/resources.ts src/test/suppliers-v1.test.tsx
+        run: npx eslint src/features/suppliers src/pages/suppliers src/i18n/suppliers.ts src/pages/inventory/inbound/useInboundPosting.ts src/features/inventory/quality/useProductQualityCommands.ts src/features/inventory/quality/wholeProductQualityResolveContract.ts src/features/inventory/quality/WholeProductQualityActionsPanel.tsx src/features/inventory/quality/SupervisorPasswordField.tsx src/pages/inventory/Tab2Inbound.tsx src/pages/inventory/Tab4Ledger.tsx src/pages/inventory/TabInventoryAccess.tsx src/pages/inventory/ledger/contracts.ts src/pages/inventory/inbound/contracts.ts src/App.tsx src/components/operations/OperationsSidebar.tsx src/i18n/resources.ts src/test/suppliers-v1.test.tsx src/test/quality-safety-v1-closure.test.ts
       - name: Production build
         working-directory: dashboard
         run: npm run build

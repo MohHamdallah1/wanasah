@@ -43,6 +43,7 @@ from domains.inventory_supplier_evidence import InventorySupplierEvidence
 from domains.suppliers.models import Supplier
 
 pytestmark = pytest.mark.skipif(os.getenv("WANASAH_SUPPLIER_DB_GATE") != "1", reason="Explicit isolated Supplier gate database only")
+GATE_PASSWORD = "SupplierGateSupervisor123"
 
 
 def revision_module():
@@ -77,6 +78,8 @@ async def gate():
         companies = [Company(name=f"Gate {index}", company_code=f"SG{index}") for index in (1, 2)]
         seed.add_all(companies); await seed.flush()
         actors = [Driver(company_id=c.id, username="gate", full_name="Gate admin", password_hash="synthetic", is_admin=True) for c in companies]
+        for actor in actors:
+            actor.set_password(GATE_PASSWORD)
         seed.add_all(actors); await seed.flush()
         uom = UOM(name="Each", code="EACH"); seed.add(uom); await seed.flush()
         products = [Product(company_id=c.id, code="P", name="Gate product") for c in companies]
@@ -119,7 +122,8 @@ async def api(gate):
     conn = await gate.engine.connect()
     outer = await conn.begin()
     db = AsyncSession(bind=conn, expire_on_commit=False, join_transaction_mode="create_savepoint")
-    actor = SimpleNamespace(id=gate.actors[0].id, company_id=gate.companies[0].id, is_admin=True, is_active=True)
+    actor = SimpleNamespace(id=gate.actors[0].id, company_id=gate.companies[0].id, is_admin=True, is_active=True,
+                            password_hash=gate.actors[0].password_hash)
     await db.execute(text("SELECT set_config('app.current_tenant',:tenant,true)"), {"tenant": str(actor.company_id)})
     app = FastAPI()
     for router in (supplier_router, inbound_router, quality_router, ledger_router):
@@ -202,7 +206,8 @@ async def test_tenant_and_inactive_selection_fail_closed_at_direct_api(api):
     row, _ = await create(api)
     row = await state(api, row, False)
     assert_code(await api.client.post("/warehouse/inbound", json=inbound_body(api, row["id"])), "SUPPLIER_INACTIVE", 409)
-    return_body = {"request_id": str(uuid4()), "action": "RETURN_TO_VENDOR", "reason": "Confirmed issue", "supplier_id": row["id"]}
+    return_body = {"request_id": str(uuid4()), "action": "RETURN_TO_VENDOR", "reason": "Confirmed issue", "supplier_id": row["id"],
+                   "confirmation_password": GATE_PASSWORD}
     path = f"/warehouse/quality/products/{api.gate.variants[0].id}/resolve-all"
     assert_code(await api.client.post(path, json=return_body), "SUPPLIER_INACTIVE", 409)
     api.actor.company_id = api.gate.companies[1].id; api.actor.id = api.gate.actors[1].id
@@ -258,14 +263,24 @@ async def test_whole_product_return_snapshot_and_dispose_parity(api, action):
     posted = await api.client.post("/warehouse/inbound", json=inbound_body(api, row["id"]))
     assert posted.status_code == 201, posted.text
     await api.db.execute(text("UPDATE product_variants SET operational_hold='RECALL' WHERE id=:variant"), {"variant": api.gate.variants[0].id})
-    body = {"request_id": str(uuid4()), "action": action, "reason": "Confirmed issue"}
+    body = {"request_id": str(uuid4()), "action": action, "reason": "Confirmed issue", "confirmation_password": GATE_PASSWORD}
     if action == "RETURN_TO_VENDOR": body["supplier_id"] = row["id"]
     path = f"/warehouse/quality/products/{api.gate.variants[0].id}/resolve-all"
+    await api.db.commit()
+    movement_count = await api.db.scalar(text("SELECT count(*) FROM inventory_movements"))
+    assert_code(await api.client.post(path, json={**body, "confirmation_password": "wrong"}), "SUPERVISOR_CONFIRMATION_FAILED", 403)
+    assert await api.db.scalar(text("SELECT count(*) FROM inventory_movements")) == movement_count
     response = await api.client.post(path, json=body)
     assert response.status_code == 200, response.text
     assert response.json()["total_quantity"] == "4" and response.json()["location_count"] == 1
     assert (await api.client.post(path, json=body)).json() == response.json()
     assert await api.db.scalar(text("SELECT sum(on_hand_quantity) FROM inventory_balances")) == 0
+    assert await api.db.scalar(text("SELECT operational_hold FROM product_variants WHERE id=:variant"), {"variant": api.gate.variants[0].id}) == "NONE"
+    assert await api.db.scalar(select(DomainAuditEvent.id).where(DomainAuditEvent.event_type == "ProductRecallClosed")) is not None
+    # A new valid supervisor credential must not change business command identity.
+    changed_credential = Driver(); changed_credential.set_password("RefreshedSupervisor123")
+    api.actor.password_hash = changed_credential.password_hash
+    assert (await api.client.post(path, json={**body, "confirmation_password": "RefreshedSupervisor123"})).json() == response.json()
     final_evidence = (await api.db.scalars(select(InventorySupplierEvidence).join(InventoryMovement,
         InventoryMovement.id == InventorySupplierEvidence.movement_id).where(InventoryMovement.reference_type == "FINAL_VENDOR_HANDOVER"))).all()
     if action == "RETURN_TO_VENDOR":
@@ -317,13 +332,21 @@ async def test_single_migration_head_and_downgrade_preserves_identity(api):
         with pytest.raises(Exception, match="Cannot downgrade"):
             await conn.run_sync(downgrade)
         await outer.rollback()
+    # A migration actor unable to bypass RLS cannot prove an all-company empty
+    # history. Its downgrade must fail before DROP, even with no tenant context.
+    await api.db.execute(text("SELECT set_config('app.current_tenant','',true)"))
+    with pytest.raises(Exception, match="row-level security"):
+        async with api.db.begin_nested():
+            await api.db.run_sync(lambda sync_session: downgrade(sync_session.connection()))
 
 
 @pytest.mark.asyncio
-async def test_legacy_commands_replay_but_new_manual_operations_are_rejected(api):
+@pytest.mark.parametrize("credential_in_hash", [False, True])
+async def test_legacy_commands_replay_but_new_manual_operations_are_rejected(api, credential_in_hash):
     old_inbound = inbound_body(api, None); old_inbound.pop("supplier_id")
     old_quality = {"request_id": str(uuid4()), "action": "RETURN_TO_VENDOR", "reason": "Legacy issue",
-                   "recipient_name": "Manual historical recipient", "handover_reference": "LEGACY-HANDOVER"}
+                   "recipient_name": "Manual historical recipient", "handover_reference": "LEGACY-HANDOVER",
+                   "confirmation_password": GATE_PASSWORD}
     for payload, model, operation, response, context in (
         (old_inbound, UpgradedInboundRequest, "WAREHOUSE_INBOUND", {"message": "INBOUND_POSTED"}, None),
         (old_quality, WholeProductQualityResolveRequest, "WHOLE_PRODUCT_QUALITY_RESOLVE_ALL", {
@@ -332,12 +355,14 @@ async def test_legacy_commands_replay_but_new_manual_operations_are_rejected(api
          {"product_variant_id": api.gate.variants[0].id}),
     ):
         api.db.add(OperationIdempotency(company_id=api.actor.company_id, operation=operation, request_id=payload["request_id"],
-            request_hash=_stable_request_hash(model(**payload), context=context, exclude_fields={"supplier_id"}),
+            request_hash=_stable_request_hash(model(**payload), context=context,
+                exclude_fields={"supplier_id"} if credential_in_hash else {"supplier_id", "confirmation_password"}),
             created_by=api.actor.id, completed_at=utc_now(), response_json=response))
     await api.db.commit()
     assert (await api.client.post("/warehouse/inbound", json=old_inbound)).status_code == 201
     path = f"/warehouse/quality/products/{api.gate.variants[0].id}/resolve-all"
     assert (await api.client.post(path, json=old_quality)).status_code == 200
+    assert_code(await api.client.post(path, json={**old_quality, "reason": "Changed history"}), "WHOLE_PRODUCT_QUALITY_REJECTED", 409)
     assert_code(await api.client.post("/warehouse/inbound", json={**old_inbound, "request_id": str(uuid4())}), "SUPPLIER_REQUIRED", 422)
     assert_code(await api.client.post(path, json={**old_quality, "request_id": str(uuid4())}), "SUPPLIER_REQUIRED", 422)
 
@@ -383,7 +408,8 @@ async def test_multisupplier_stock_is_one_operator_selected_return_and_location_
     await api.db.execute(grant, {"company": api.actor.company_id, "actor": api.actor.id, "location": api.gate.locations[0].id, "role": role_ids[1]})
     # Grant edits represent independently committed access administration.
     await api.db.commit(); api.actor.is_admin = False
-    body = {"request_id": str(uuid4()), "action": "RETURN_TO_VENDOR", "reason": "Confirmed issue", "supplier_id": supplier_a["id"]}
+    body = {"request_id": str(uuid4()), "action": "RETURN_TO_VENDOR", "reason": "Confirmed issue", "supplier_id": supplier_a["id"],
+            "confirmation_password": GATE_PASSWORD}
     path = f"/warehouse/quality/products/{api.gate.variants[0].id}/resolve-all"
     assert_code(await api.client.post(path, json=body), "WHOLE_PRODUCT_QUALITY_LOCATION_PERMISSION_DENIED", 403)
     assert await api.db.scalar(text("SELECT sum(on_hand_quantity) FROM inventory_balances")) == 8

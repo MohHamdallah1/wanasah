@@ -155,8 +155,8 @@ export function WholeProductQualityActionsPanel({
       confirmationPassword: supervisorPassword,
       supplierId,
     });
+    setSupervisorPassword("");
     if (ok) {
-      setSupervisorPassword("");
       setActiveAction(null);
     }
   };
@@ -178,7 +178,7 @@ export function WholeProductQualityActionsPanel({
     {commands.pending || commands.recoveryBlocked ? <div role="alert" className="rounded-lg border p-3">
       <p>{t("suppliers.pending")}</p>
       {commands.pending ? <SupervisorPasswordField value={supervisorPassword} onChange={setSupervisorPassword} disabled={commands.busyKey !== null} /> : null}
-      <button type="button" disabled={!supervisorPassword || commands.busyKey !== null || !commands.isOnline || commands.recoveryBlocked} onClick={() => { void commands.retryPending(supervisorPassword); }}>{t("common.retry")}</button>
+      <button type="button" disabled={!supervisorPassword || commands.busyKey !== null || !commands.isOnline || commands.recoveryBlocked} onClick={() => { void commands.retryPending(supervisorPassword).finally(() => setSupervisorPassword("")); }}>{t("common.retry")}</button>
     </div> : null}
     <div className="flex items-center justify-between gap-2">
       <button type="button" onClick={onBack} className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-700">

@@ -98,12 +98,15 @@ describe("V1 quality and safety workflow closure", () => {
     const inline = read("../features/inventory/quality/WholeProductQualityActionsPanel.tsx");
     const commands = read("../features/inventory/quality/useProductQualityCommands.ts");
     const translations = read("../i18n/productQualityInline.ts");
-    expect(inline).toContain('type="password"');
-    expect(inline).toContain('autoComplete="current-password"');
+    const passwordField = read("../features/inventory/quality/SupervisorPasswordField.tsx");
+    expect(passwordField).toContain('type="password"');
+    expect(passwordField).toContain('autoComplete="current-password"');
+    expect(inline).toContain("<SupervisorPasswordField");
+    expect(inline).toContain("commands.retryPending(supervisorPassword)");
     expect(inline).toContain("confirmationPassword: supervisorPassword");
     expect(commands).toContain("confirmation_password: confirmationPassword");
     const durablePayload = commands.slice(
-      commands.indexOf("const payload = {"),
+      commands.indexOf("const payload = "),
       commands.indexOf("const scope ="),
     );
     expect(durablePayload).not.toContain("confirmation_password");

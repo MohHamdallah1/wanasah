@@ -1886,6 +1886,7 @@ export const resources = {
         codes: {
           ...suppliers.ar.errors,
           SUPPLIER_REQUIRED: "اختر موردًا نشطًا لهذه العملية الجديدة.",
+          SUPERVISOR_CONFIRMATION_FAILED: "كلمة مرور المشرف غير صحيحة. لم يتم تنفيذ أي تغيير.",
           LIVE_STOCK_RESPONSE_INVALID: "استجابة الرصيد الحي غير صالحة أو غير مكتملة.",
           LIVE_STOCK_BATCH_RESPONSE_INVALID: "استجابة تفاصيل الدفعات غير صالحة أو غير مكتملة.",
           LIVE_STOCK_LOCATION_NOT_FOUND: "المستودع المحدد غير متاح.",
@@ -4153,6 +4154,7 @@ export const resources = {
           VALIDATION_ERROR: "The request data is invalid. Review the entered fields.",
           ...suppliers.en.errors,
           SUPPLIER_REQUIRED: "Choose an active supplier for this new operation.",
+          SUPERVISOR_CONFIRMATION_FAILED: "The supervisor password is incorrect. No changes were made.",
           RATE_LIMITED: "The request limit was exceeded. Try again later.",
           REQUEST_TOO_LARGE: "The request is larger than the allowed limit.",
           INTERNAL_SERVER_ERROR: "An internal server error occurred.",

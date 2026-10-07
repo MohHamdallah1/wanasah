@@ -88,6 +88,9 @@ def upgrade():
 
 def downgrade():
     # Fail before any destructive step. Exporting evidence requires an explicit plan.
+    # Never let tenant RLS hide history from a non-BYPASSRLS migration role.
+    # Such a role must fail closed instead of mistaking invisible rows for empty tables.
+    op.execute("SET LOCAL row_security = off")
     op.execute("""
         DO $$ BEGIN
             IF EXISTS (SELECT 1 FROM inventory_supplier_evidence) OR EXISTS (SELECT 1 FROM suppliers) THEN

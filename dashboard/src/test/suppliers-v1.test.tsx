@@ -165,15 +165,20 @@ describe("durable Supplier and Inbound commands", () => {
     fake.fetch.mockRejectedValue(Object.assign(new Error(), { code: "NETWORK_UNAVAILABLE" }));
     const hook = renderHook(() => useProductQualityCommands({ productVariantId: 7, onSucceeded: vi.fn() }), { wrapper });
     await act(async () => { await Promise.resolve(); });
-    await act(async () => { expect(await hook.result.current.resolveAll({ action: "RETURN_TO_VENDOR", reason: "Issue", supplierId: 3 })).toBe(false); });
+    await act(async () => { expect(await hook.result.current.resolveAll({ action: "RETURN_TO_VENDOR", reason: "Issue", supplierId: 3, confirmationPassword: "first-credential" })).toBe(false); });
     const sent = JSON.parse(fake.fetch.mock.calls[0][1].body); expect(sent.supplier_id).toBe(3); expect(sent.recipient_name).toBeUndefined();
+    expect(JSON.stringify(localStorage)).not.toContain("first-credential");
+    expect(hook.result.current.pending?.command.payload).not.toHaveProperty("confirmation_password");
     hook.unmount();
     const resumed = renderHook(() => useProductQualityCommands({ productVariantId: 7, onSucceeded: vi.fn() }), { wrapper });
     await waitFor(() => expect(resumed.result.current.pending).not.toBeNull());
     fake.fetch.mockResolvedValue({ message: "Completed", action: "RETURN_TO_VENDOR", product_variant_id: 7, total_quantity: "4", location_count: 1,
       locations: [{ location_id: 5, location_name: "Warehouse", quantity: "4" }] });
-    await act(async () => { expect(await resumed.result.current.retryPending()).toBe(true); });
-    expect(JSON.parse(fake.fetch.mock.calls.at(-1)![1].body)).toEqual(sent);
+    await act(async () => { expect(await resumed.result.current.retryPending("")).toBe(false); });
+    expect(fake.fetch).toHaveBeenCalledTimes(1);
+    await act(async () => { expect(await resumed.result.current.retryPending("fresh-credential")).toBe(true); });
+    expect(JSON.parse(fake.fetch.mock.calls.at(-1)![1].body)).toEqual({ ...sent, confirmation_password: "fresh-credential" });
+    expect(JSON.stringify(localStorage)).not.toContain("fresh-credential");
   });
   it("replays a stored pre-Supplier quality command while the new UI exposes only selection", async () => {
     const old = await getOrCreateDurableCommand(durableScope(1, 2, "whole-product-quality-resolve-v2", "7:RETURN_TO_VENDOR"),
@@ -182,7 +187,7 @@ describe("durable Supplier and Inbound commands", () => {
       locations: [{ location_id: 5, location_name: "Warehouse", quantity: "4" }] });
     const hook = renderHook(() => useProductQualityCommands({ productVariantId: 7, onSucceeded: vi.fn() }), { wrapper });
     await waitFor(() => expect(hook.result.current.pending).not.toBeNull());
-    await act(async () => { expect(await hook.result.current.retryPending()).toBe(true); });
+    await act(async () => { expect(await hook.result.current.retryPending("fresh-credential")).toBe(true); });
     expect(JSON.parse(fake.fetch.mock.calls[0][1].body).request_id).toBe(old.requestId);
     const source = readFileSync(resolve(process.cwd(), "src/features/inventory/quality/WholeProductQualityActionsPanel.tsx"), "utf8");
     const inbound = readFileSync(resolve(process.cwd(), "src/pages/inventory/Tab2Inbound.tsx"), "utf8");
