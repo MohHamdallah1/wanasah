@@ -139,7 +139,7 @@ async def api(gate):
 
 
 async def create(api, name="ABC Trading", code="ABC"):
-    body = {"request_id": str(uuid4()), "name": name, "code": code}
+    body = {"request_id": str(uuid4()), "name": name, "code": code, "phone": "+962790000000", "address": "Amman main address"}
     result = await api.client.post("/suppliers", json=body)
     assert result.status_code == 201, result.text
     return result.json(), body
@@ -176,7 +176,7 @@ async def test_supplier_lifecycle_replay_mismatch_and_audit(api):
     assert (await api.client.get(f"/suppliers/{row['id']}")).json() == row
     assert (await api.client.post("/suppliers", json=body)).json() == row
     assert_code(await api.client.post("/suppliers", json={**body, "name": "Other"}), "SUPPLIER_REQUEST_CONFLICT", 409)
-    edit = await api.client.put(f"/suppliers/{row['id']}", json={"request_id": str(uuid4()), "expected_version": 1, "name": "ABC Distribution", "phone": "+962123"})
+    edit = await api.client.put(f"/suppliers/{row['id']}", json={"request_id": str(uuid4()), "expected_version": 1, "name": "ABC Distribution", "phone": "+962123", "address": row["address"]})
     assert edit.status_code == 200, edit.text
     row = edit.json()
     assert row["name"] == "ABC Distribution" and row["version"] == 2
@@ -198,7 +198,7 @@ async def test_bounded_search_company_code_and_cursor_scope(api):
     assert_code(await api.client.get("/suppliers", params={"active": "false", "search": "Search", "cursor": cursor}), "SUPPLIER_CURSOR_INVALID", 400)
     assert (await api.client.get("/suppliers?limit=101")).status_code == 422
     await create(api, "Duplicate names allowed", None); await create(api, "Duplicate names allowed", None)
-    assert_code(await api.client.post("/suppliers", json={"request_id": str(uuid4()), "name": "Code duplicate", "code": "S0"}), "SUPPLIER_DATA_CONFLICT", 409)
+    assert_code(await api.client.post("/suppliers", json={"request_id": str(uuid4()), "name": "Code duplicate", "code": "S0", "phone": "+962790000001", "address": "Amman main address"}), "SUPPLIER_DATA_CONFLICT", 409)
 
 
 @pytest.mark.asyncio
@@ -214,7 +214,7 @@ async def test_tenant_and_inactive_selection_fail_closed_at_direct_api(api):
     await api.db.execute(text("SELECT set_config('app.current_tenant',:tenant,true)"), {"tenant": str(api.actor.company_id)})
     assert (await api.client.get("/suppliers")).json()["items"] == []
     assert_code(await api.client.get(f"/suppliers/{row['id']}"), "SUPPLIER_NOT_FOUND", 404)
-    assert_code(await api.client.put(f"/suppliers/{row['id']}", json={"request_id": str(uuid4()), "expected_version": row["version"], "name": "Foreign"}), "SUPPLIER_NOT_FOUND", 404)
+    assert_code(await api.client.put(f"/suppliers/{row['id']}", json={"request_id": str(uuid4()), "expected_version": row["version"], "name": "Foreign", "phone": row["phone"], "address": row["address"]}), "SUPPLIER_NOT_FOUND", 404)
     foreign_receipt = inbound_body(api, row["id"]); foreign_receipt["location_id"] = api.gate.locations[1].id
     assert_code(await api.client.post("/warehouse/inbound", json=foreign_receipt), "SUPPLIER_NOT_FOUND", 404)
     assert_code(await api.client.post(path, json={**return_body, "request_id": str(uuid4())}), "SUPPLIER_NOT_FOUND", 404)
@@ -242,7 +242,7 @@ async def test_inbound_snapshot_rename_legacy_read_and_replay_after_deactivation
     body = inbound_body(api, row["id"])
     posted = await api.client.post("/warehouse/inbound", json=body)
     assert posted.status_code == 201, posted.text
-    edited = await api.client.put(f"/suppliers/{row['id']}", json={"request_id": str(uuid4()), "expected_version": 1, "name": "Renamed", "code": "NEW"})
+    edited = await api.client.put(f"/suppliers/{row['id']}", json={"request_id": str(uuid4()), "expected_version": 1, "name": "Renamed", "code": "NEW", "phone": row["phone"], "address": row["address"]})
     assert edited.status_code == 200, edited.text
     row = await state(api, edited.json(), False)
     assert (await api.client.post("/warehouse/inbound", json=body)).json() == posted.json()
@@ -288,7 +288,7 @@ async def test_whole_product_return_snapshot_and_dispose_parity(api, action):
         event = await api.db.scalar(select(DomainAuditEvent).where(DomainAuditEvent.event_type == "INVENTORY_VENDOR_HANDOVER_CONFIRMED", DomainAuditEvent.entity_id != "legacy"))
         assert event.after_snapshot["supplier_id"] == row["id"]
         assert event.after_snapshot["vendor_name"] == "ABC Trading"
-        renamed = await api.client.put(f"/suppliers/{row['id']}", json={"request_id": str(uuid4()), "expected_version": 1, "name": "Later name"})
+        renamed = await api.client.put(f"/suppliers/{row['id']}", json={"request_id": str(uuid4()), "expected_version": 1, "name": "Later name", "phone": row["phone"], "address": row["address"]})
         assert renamed.status_code == 200
         await api.db.refresh(final_evidence[0])
         assert final_evidence[0].supplier_name == "ABC Trading" and final_evidence[0].request_id.hex == body["request_id"].replace("-", "")

@@ -90,11 +90,17 @@ describe("Supplier V1 contract and presentation", () => {
     const save = vi.fn().mockResolvedValue(true); const close = vi.fn();
     render(<SupplierEditor supplier={null} storageKey="supplier-draft:1:2" busy={false} blocked={false} onSave={save} onClose={close} />);
     const name = screen.getByRole("textbox", { name: "Supplier name" });
+    const phone = screen.getByRole("textbox", { name: "Phone number" });
+    const address = screen.getByRole("textbox", { name: "Primary address" });
     await waitFor(() => expect(name).toHaveFocus());
+    expect(name).toBeRequired(); expect(phone).toBeRequired(); expect(address).toBeRequired();
+    expect(screen.getAllByText("Required")).toHaveLength(3); expect(screen.getAllByText("Optional")).toHaveLength(4);
     fireEvent.change(name, { target: { value: " New supplier " } });
+    fireEvent.change(phone, { target: { value: "0790000000" } });
+    fireEvent.change(address, { target: { value: "Main address" } });
     expect(localStorage.getItem("supplier-draft:1:2")).toContain("New supplier");
     fireEvent.submit(name.closest("form")!);
-    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ name: "New supplier" })));
+    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ name: "New supplier", phone: "0790000000", address: "Main address" })));
     expect(close).toHaveBeenCalled(); expect(localStorage.getItem("supplier-draft:1:2")).toBeNull();
   });
 });
