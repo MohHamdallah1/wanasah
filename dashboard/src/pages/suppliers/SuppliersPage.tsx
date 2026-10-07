@@ -44,7 +44,7 @@ export default function SuppliersPage() {
     return <div className="grid h-full place-items-center p-6" role="alert"><div className="rounded-2xl border border-rose-200/70 bg-rose-50/80 px-5 py-4 font-bold text-rose-700 shadow-sm">{t("suppliers.denied")}</div></div>;
   }
 
-  return <main className="relative flex h-full min-h-0 flex-col overflow-hidden text-foreground" dir={i18n.dir()}>
+  return <main className="relative flex min-h-0 flex-1 flex-col overflow-visible text-foreground" dir={i18n.dir()}>
     <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
       <div className="absolute -right-20 top-12 h-72 w-72 rounded-full bg-cyan-200/25 blur-3xl" />
       <div className="absolute bottom-10 left-12 h-72 w-72 rounded-full bg-amber-100/[0.35] blur-3xl" />
