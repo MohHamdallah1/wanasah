@@ -13,6 +13,7 @@ const movingAveragePreview = (): Record<string, unknown> => ({
   total_quantity: "120",
   total_reserved_quantity: "0",
   total_book_value: "30.000000",
+  average_unit_cost: "0.250000",
   locations: [
     {
       location_id: 7,
@@ -67,6 +68,7 @@ describe("whole-product quality financial preview", () => {
   it("preserves authoritative book value and per-line cost as exact strings", () => {
     const parsed = parseWholeProductQualityPreview(movingAveragePreview());
     expect(parsed.totalBookValue).toBe("30.000000");
+    expect(parsed.averageUnitCost).toBe("0.250000");
     expect(parsed.valuationLines[0]).toEqual(expect.objectContaining({
       unitCost: "0.250000",
       bookValue: "17.500000",
@@ -79,6 +81,7 @@ describe("whole-product quality financial preview", () => {
     raw.valuation_available = false;
     raw.valuation_reason = "COSTING_NOT_ACTIVE";
     raw.total_book_value = null;
+    raw.average_unit_cost = null;
     raw.valuation_lines = [];
     const parsed = parseWholeProductQualityPreview(raw);
     expect(parsed.valuationAvailable).toBe(false);

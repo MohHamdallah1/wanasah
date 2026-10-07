@@ -64,6 +64,7 @@ class WholeProductQualityPreviewResponse(BaseModel):
     total_quantity: str
     total_reserved_quantity: str
     total_book_value: str | None
+    average_unit_cost: str | None
     locations: list[WholeProductQualityPreviewLocation]
     batches: list[WholeProductQualityPreviewBatch]
     valuation_lines: list[WholeProductQualityValuationLine]
@@ -380,6 +381,12 @@ async def get_whole_product_quality_preview(
         else:
             valuation_reason = "COSTING_METHOD_UNSUPPORTED"
 
+    average_unit_cost = (
+        _money_text(Decimal(total_book_value) / total_quantity)
+        if valuation_available and total_book_value is not None
+        else None
+    )
+
     return {
         "product_variant_id": int(product_variant_id),
         "issue_reason": issue_reason,
@@ -390,6 +397,7 @@ async def get_whole_product_quality_preview(
         "total_quantity": canonical_quantity(total_quantity),
         "total_reserved_quantity": canonical_quantity(total_reserved_quantity),
         "total_book_value": total_book_value,
+        "average_unit_cost": average_unit_cost,
         "locations": locations,
         "batches": batches,
         "valuation_lines": valuation_lines,

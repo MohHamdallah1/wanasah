@@ -47,7 +47,11 @@ describe("V1 quality and safety workflow closure", () => {
     expect(inline).not.toContain("preview.data.locations");
     expect(inline).not.toContain("preview.data.batches");
     expect(inline).not.toContain("valuationLines");
-    expect(inline).not.toContain("formatMoneyDisplay");
+    expect(inline).toContain("preview.data.totalBookValue");
+    expect(inline).toContain("preview.data.averageUnitCost");
+    expect(inline).toContain("formatMoneyDisplay");
+    expect(inline).toContain("productQualityInline.confirm.averageUnitCost");
+    expect(inline).toContain("productQualityInline.confirm.returnValue");
     expect(commands).not.toContain("source_location_id");
     expect(commands).not.toContain("batch_id");
     expect(commands).not.toContain("transfer_purpose");
