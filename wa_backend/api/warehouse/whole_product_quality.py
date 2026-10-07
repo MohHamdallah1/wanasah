@@ -342,6 +342,7 @@ async def resolve_whole_product_quality(
                         reason=payload.reason,
                         method=(payload.disposal_method or "").strip() or None,
                         evidence_reference=(payload.evidence_reference or "").strip() or None,
+                        allow_legacy_fifo_state_bridge=True,
                     )
                 else:
                     await confirm_vendor_handover(
@@ -357,6 +358,7 @@ async def resolve_whole_product_quality(
                         vendor_name=str(payload.recipient_name),
                         vendor_reference=str(payload.handover_reference),
                         handover_reference=str(payload.handover_reference),
+                        allow_legacy_fifo_state_bridge=True,
                     )
                 total_quantity += quantity
 

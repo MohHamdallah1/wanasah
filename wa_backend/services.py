@@ -3248,6 +3248,9 @@ def _normalize_inventory_movement_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
     inventory_cost_input = spec.get("inventory_cost_input")
     if inventory_cost_input is not None and not isinstance(inventory_cost_input, dict):
         raise InventoryMutationError("inventory_cost_input must be a dict or None.")
+    allow_legacy_fifo_state_bridge = spec.get("allow_legacy_fifo_state_bridge", False)
+    if type(allow_legacy_fifo_state_bridge) is not bool:
+        raise InventoryMutationError("allow_legacy_fifo_state_bridge must be boolean.")
     try:
         cost_reversal_of_movement_id = _optional_positive_int(
             spec.get("cost_reversal_of_movement_id"),
@@ -3310,7 +3313,13 @@ def _normalize_inventory_movement_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             frozenset(),
         )
         special_disposal_transition = (
-            reference_type == "SPECIAL_TRANSFER_TERMINAL_STATUS"
+            (
+                reference_type == "SPECIAL_TRANSFER_TERMINAL_STATUS"
+                or (
+                    reference_type == "QUALITY_HANDLING_STAGE"
+                    and reference_id.startswith("QSTG-")
+                )
+            )
             and normalized["transfer_header_id"] is not None
             and destination_stock_status == "DISPOSAL_PENDING"
             and source_stock_status in _INVENTORY_STOCK_STATUSES
@@ -3349,6 +3358,22 @@ def _normalize_inventory_movement_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
                 "الحركة PHYSICAL لا يجوز أن تغيّر حالة المخزون؛ استخدم STATUS_CHANGE."
             )
 
+    if allow_legacy_fifo_state_bridge:
+        if not (
+            movement_kind == "PHYSICAL"
+            and reference_type in {"FINAL_DISPOSAL", "FINAL_VENDOR_HANDOVER"}
+            and normalized["transfer_header_id"] is not None
+            and source_location_id is not None
+            and destination_location_id is None
+            and source_stock_status is not None
+            and destination_stock_status is None
+            and inventory_cost_input is None
+            and cost_reversal_of_movement_id is None
+        ):
+            raise InventoryMutationError(
+                "Legacy FIFO bridge is restricted to terminal quality outbounds."
+            )
+
     normalized.update({
         "movement_kind": movement_kind,
         "reference_type": reference_type,
@@ -3360,6 +3385,7 @@ def _normalize_inventory_movement_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         "financial_unit_price_snapshot": financial_unit_price_snapshot,
         "inventory_cost_input": inventory_cost_input,
         "cost_reversal_of_movement_id": cost_reversal_of_movement_id,
+        "allow_legacy_fifo_state_bridge": allow_legacy_fifo_state_bridge,
         "notes": notes,
     })
     return normalized

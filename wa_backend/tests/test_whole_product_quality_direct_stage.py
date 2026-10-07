@@ -13,6 +13,9 @@ def test_whole_product_quality_stage_is_direct_posted_without_transit_receipt():
     assert '"movement_kind": "STATUS_CHANGE"' in domain
     assert '"source_location_id": source_location_id' in domain
     assert '"destination_location_id": source_location_id' in domain
+    assert "created_at=now_utc" in domain
+    assert "updated_at=now_utc" in domain
+    assert "posted_at=now_utc" in domain
     assert "ensure_system_transit_location" not in domain
 
 
