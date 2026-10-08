@@ -158,7 +158,7 @@ export function ProductLifecycleManager({
       isOpen={product !== null}
       onClose={close}
       title={t("products.lifecycleManager.title", { name: product.name })}
-      maxWidth="max-w-2xl"
+      maxWidth="max-w-xl"
       bodyClassName="p-3 sm:p-4"
     >
       <div className="space-y-3">
