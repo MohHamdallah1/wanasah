@@ -209,7 +209,7 @@ async def test_tenant_and_inactive_selection_fail_closed_at_direct_api(api):
     return_body = {"request_id": str(uuid4()), "action": "RETURN_TO_VENDOR", "reason": "Confirmed issue", "supplier_id": row["id"],
                    "confirmation_password": GATE_PASSWORD}
     path = f"/warehouse/quality/products/{api.gate.variants[0].id}/resolve-all"
-    assert_code(await api.client.post(path, json=return_body), "SUPPLIER_INACTIVE", 409)
+    assert_code(await api.client.post(path, json=return_body), "PRODUCT_QUALITY_ISSUE_NOT_ACTIVE", 409)
     api.actor.company_id = api.gate.companies[1].id; api.actor.id = api.gate.actors[1].id
     await api.db.execute(text("SELECT set_config('app.current_tenant',:tenant,true)"), {"tenant": str(api.actor.company_id)})
     assert (await api.client.get("/suppliers")).json()["items"] == []
@@ -217,7 +217,7 @@ async def test_tenant_and_inactive_selection_fail_closed_at_direct_api(api):
     assert_code(await api.client.put(f"/suppliers/{row['id']}", json={"request_id": str(uuid4()), "expected_version": row["version"], "name": "Foreign", "phone": row["phone"], "address": row["address"]}), "SUPPLIER_NOT_FOUND", 404)
     foreign_receipt = inbound_body(api, row["id"]); foreign_receipt["location_id"] = api.gate.locations[1].id
     assert_code(await api.client.post("/warehouse/inbound", json=foreign_receipt), "SUPPLIER_NOT_FOUND", 404)
-    assert_code(await api.client.post(path, json={**return_body, "request_id": str(uuid4())}), "SUPPLIER_NOT_FOUND", 404)
+    assert (await api.client.post(path, json={**return_body, "request_id": str(uuid4())})).status_code == 404
 
 
 @pytest.mark.asyncio
@@ -254,6 +254,17 @@ async def test_inbound_snapshot_rename_legacy_read_and_replay_after_deactivation
     assert old["supplier_id"] is None and old["supplier_name"] is None
     assert new["total_cost"] == "10.000000"
     assert_code(await api.client.post("/warehouse/inbound", json={**body, "supplier_id": row["id"] + 999}), "INBOUND_REJECTED", 409)
+    await api.db.execute(text("UPDATE product_variants SET operational_hold='RECALL' WHERE id=:variant"), {"variant": api.gate.variants[0].id})
+    await api.db.commit()
+    returned = await api.client.post(
+        f"/warehouse/quality/products/{api.gate.variants[0].id}/resolve-all",
+        json={"request_id": str(uuid4()), "action": "RETURN_TO_VENDOR", "reason": "Inactive origin supplier", "confirmation_password": GATE_PASSWORD},
+    )
+    assert returned.status_code == 200, returned.text
+    final = await api.db.scalar(select(InventorySupplierEvidence).join(
+        InventoryMovement, InventoryMovement.id == InventorySupplierEvidence.movement_id
+    ).where(InventoryMovement.reference_type == "FINAL_VENDOR_HANDOVER"))
+    assert final is not None and final.supplier_id == row["id"]
 
 
 @pytest.mark.asyncio
@@ -264,7 +275,6 @@ async def test_whole_product_return_snapshot_and_dispose_parity(api, action):
     assert posted.status_code == 201, posted.text
     await api.db.execute(text("UPDATE product_variants SET operational_hold='RECALL' WHERE id=:variant"), {"variant": api.gate.variants[0].id})
     body = {"request_id": str(uuid4()), "action": action, "reason": "Confirmed issue", "confirmation_password": GATE_PASSWORD}
-    if action == "RETURN_TO_VENDOR": body["supplier_id"] = row["id"]
     path = f"/warehouse/quality/products/{api.gate.variants[0].id}/resolve-all"
     await api.db.commit()
     movement_count = await api.db.scalar(text("SELECT count(*) FROM inventory_movements"))
@@ -381,7 +391,7 @@ async def test_privileged_snapshot_update_is_blocked_by_database_trigger(api):
 
 
 @pytest.mark.asyncio
-async def test_multisupplier_stock_is_one_operator_selected_return_and_location_atomic(api):
+async def test_multisupplier_stock_is_not_collapsed_to_one_operator_selected_supplier(api):
     supplier_a, _ = await create(api, "Supplier A", "A")
     supplier_b, _ = await create(api, "Supplier B", "B")
     await cost_policy(api)
@@ -415,12 +425,11 @@ async def test_multisupplier_stock_is_one_operator_selected_return_and_location_
     assert await api.db.scalar(text("SELECT sum(on_hand_quantity) FROM inventory_balances")) == 8
     await api.db.execute(grant, {"company": api.actor.company_id, "actor": api.actor.id, "location": second_id, "role": role_ids[1]})
     await api.db.commit()
-    returned = await api.client.post(path, json=body)
-    assert returned.status_code == 200, returned.text
-    assert returned.json()["total_quantity"] == "8" and returned.json()["location_count"] == 2
+    assert_code(await api.client.post(path, json=body), "WHOLE_PRODUCT_RETURN_MULTIPLE_SUPPLIERS", 409)
+    assert await api.db.scalar(text("SELECT sum(on_hand_quantity) FROM inventory_balances")) == 8
     selected_ids = (await api.db.scalars(select(InventorySupplierEvidence.supplier_id).join(InventoryMovement,
         InventoryMovement.id == InventorySupplierEvidence.movement_id).where(InventoryMovement.reference_type == "FINAL_VENDOR_HANDOVER"))).all()
-    assert selected_ids == [supplier_a["id"], supplier_a["id"]]
+    assert selected_ids == []
     await api.db.execute(text("DELETE FROM user_location_access WHERE location_id=:location"), {"location": second_id})
     await api.db.commit()
     assert_code(await api.client.post(path, json=body), "WHOLE_PRODUCT_QUALITY_LOCATION_PERMISSION_DENIED", 403)

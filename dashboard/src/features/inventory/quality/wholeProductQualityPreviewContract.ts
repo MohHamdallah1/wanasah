@@ -16,6 +16,15 @@ export type WholeProductQualityPreviewBatch = {
   quantity: Quantity;
 };
 
+export type WholeProductSupplierResolution = "SINGLE" | "MULTIPLE" | "UNKNOWN";
+
+export type WholeProductQualitySupplierCandidate = {
+  supplierId: number;
+  supplierName: string;
+  supplierCode: string | null;
+  quantity: Quantity | null;
+};
+
 export type WholeProductQualityValuationLine = {
   batchId: number;
   batchNumber: string;
@@ -35,6 +44,8 @@ export type WholeProductQualityPreview = {
   totalReservedQuantity: Quantity;
   totalBookValue: string | null;
   averageUnitCost: string | null;
+  supplierResolution: WholeProductSupplierResolution;
+  supplierCandidates: WholeProductQualitySupplierCandidate[];
   locations: WholeProductQualityPreviewLocation[];
   batches: WholeProductQualityPreviewBatch[];
   valuationLines: WholeProductQualityValuationLine[];
@@ -116,6 +127,30 @@ export function parseWholeProductQualityPreview(raw: unknown): WholeProductQuali
   );
   const totalBookValue = row.total_book_value === null ? null : money(row.total_book_value);
   const averageUnitCost = row.average_unit_cost === null ? null : money(row.average_unit_cost);
+  const supplierResolution = row.supplier_resolution === "SINGLE"
+    || row.supplier_resolution === "MULTIPLE"
+    || row.supplier_resolution === "UNKNOWN"
+    ? row.supplier_resolution
+    : invalid();
+  if (!Array.isArray(row.supplier_candidates) || row.supplier_candidates.length > 50) return invalid();
+  const seenSuppliers = new Set<number>();
+  const supplierCandidates = row.supplier_candidates.map((rawSupplier) => {
+    const supplier = record(rawSupplier);
+    const supplierId = positiveInt(supplier.supplier_id);
+    if (seenSuppliers.has(supplierId)) return invalid();
+    seenSuppliers.add(supplierId);
+    return {
+      supplierId,
+      supplierName: text(supplier.supplier_name, 300),
+      supplierCode: optionalText(supplier.supplier_code, 50),
+      quantity: supplier.quantity === null
+        ? null
+        : quantity(supplier.quantity, "supplier.quantity"),
+    } satisfies WholeProductQualitySupplierCandidate;
+  });
+  if (supplierResolution === "SINGLE" && supplierCandidates.length !== 1) return invalid();
+  if (supplierResolution === "MULTIPLE" && supplierCandidates.length < 2) return invalid();
+  if (supplierResolution === "UNKNOWN" && supplierCandidates.length !== 0) return invalid();
 
   if (!Array.isArray(row.locations) || row.locations.length === 0 || row.locations.length > 100) return invalid();
   const seenLocations = new Set<number>();
@@ -190,6 +225,8 @@ export function parseWholeProductQualityPreview(raw: unknown): WholeProductQuali
     totalReservedQuantity,
     totalBookValue,
     averageUnitCost,
+    supplierResolution,
+    supplierCandidates,
     locations,
     batches,
     valuationLines,

@@ -2,7 +2,6 @@ import { AlertTriangle, ArrowRight, PackageCheck, Trash2, Truck } from "lucide-r
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { SupplierSelector } from "@/features/suppliers/SupplierSelector";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { formatCommercialQuantity } from "@/lib/quantity";
@@ -46,7 +45,6 @@ export function WholeProductQualityActionsPanel({
   const access = useInventoryAccess();
   const [activeAction, setActiveAction] = useState<WholeProductQualityAction | null>(null);
   const [reason, setReason] = useState("");
-  const [supplierId, setSupplierId] = useState<number | null>(null);
   const [finalConfirmOpen, setFinalConfirmOpen] = useState(false);
   const [supervisorPassword, setSupervisorPassword] = useState("");
   const [postResolutionHold, setPostResolutionHold] = useState<PostResolutionHold | null>(null);
@@ -58,6 +56,9 @@ export function WholeProductQualityActionsPanel({
     productVariantId,
   );
   const preview = useWholeProductQualityPreview(productVariantId, true);
+  const resolvedSupplier = preview.data?.supplierResolution === "SINGLE"
+    ? preview.data.supplierCandidates[0] ?? null
+    : null;
   const commands = useProductQualityCommands({
     productVariantId,
     onSucceeded: async () => {
@@ -78,8 +79,8 @@ export function WholeProductQualityActionsPanel({
 
   useEffect(() => {
     if (!activeAction) return;
-    saveDraft(activeAction, { reason, supplierId });
-  }, [activeAction, reason, saveDraft, supplierId]);
+    saveDraft(activeAction, { reason, supplierId: resolvedSupplier?.supplierId ?? null });
+  }, [activeAction, reason, resolvedSupplier?.supplierId, saveDraft]);
 
   const totalDisplay = useMemo(() => {
     if (!preview.data) return null;
@@ -110,7 +111,6 @@ export function WholeProductQualityActionsPanel({
   const resetAction = () => {
     resetFinalConfirmation();
     setActiveAction(null);
-    setSupplierId(null);
     setPreviewChanged(false);
   };
 
@@ -127,7 +127,6 @@ export function WholeProductQualityActionsPanel({
     resetFinalConfirmation();
     setActiveAction(action);
     setReason(preview.data?.issueReason ?? draft?.reason ?? "");
-    setSupplierId(action === "RETURN_TO_VENDOR" ? draft?.supplierId ?? null : null);
     setPreviewChanged(false);
   };
 
@@ -160,7 +159,7 @@ export function WholeProductQualityActionsPanel({
       && reason.trim()
       && (
         activeAction !== "RETURN_TO_VENDOR"
-        || (supplierId !== null && access.can("supplier.read"))
+        || (resolvedSupplier !== null && access.can("supplier.read"))
       ),
   );
 
@@ -180,7 +179,7 @@ export function WholeProductQualityActionsPanel({
       || !preview.data
       || previewBlocked
     ) return;
-    if (activeAction === "RETURN_TO_VENDOR" && supplierId === null) return;
+    if (activeAction === "RETURN_TO_VENDOR" && resolvedSupplier === null) return;
 
     const shownSignature = previewSignature(preview.data);
     const refreshed = await preview.refetch();
@@ -194,7 +193,7 @@ export function WholeProductQualityActionsPanel({
     const ok = await commands.resolveAll({
       action: activeAction,
       reason,
-      supplierId,
+      supplierId: activeAction === "RETURN_TO_VENDOR" ? resolvedSupplier?.supplierId ?? null : null,
       confirmationPassword: supervisorPassword,
       postResolutionHold,
     });
@@ -214,6 +213,11 @@ export function WholeProductQualityActionsPanel({
   const averageUnitCostText = preview.data?.valuationAvailable && preview.data.averageUnitCost
     ? formatMoneyDisplay(preview.data.averageUnitCost, preview.data.currencyCode)
     : null;
+  const supplierQuantityText = (value: string | null): string | null => {
+    if (!value) return null;
+    const display = formatCommercialQuantity(value, displayUomName, baseUomName, displayFactorToBase);
+    return `${display.primary}${display.secondary ? ` · ${t("productQualityInline.totalBaseQuantity", { quantity: display.secondary })}` : ""}`;
+  };
   const finalDisabled = interactionBlocked
     || preview.isFetching
     || !supervisorPassword
@@ -283,7 +287,7 @@ export function WholeProductQualityActionsPanel({
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-          <p className="text-xs font-black text-slate-950">
+          <p className="text-xs font-semibold text-slate-900">
             {t(activeAction === "DISPOSE"
               ? "productQualityInline.final.disposeSummary"
               : "productQualityInline.final.returnSummary")}
@@ -292,7 +296,10 @@ export function WholeProductQualityActionsPanel({
             {t("productQualityInline.final.quantity", { quantity: quantityText })}
           </p>
           {activeAction === "RETURN_TO_VENDOR" ? (
-            <div className="mt-1 space-y-0.5 text-[11px] font-bold text-slate-600">
+            <div className="mt-1 space-y-0.5 text-[11px] font-medium text-slate-600">
+              {resolvedSupplier ? (
+                <p>{t("productQualityInline.final.recipient", { recipient: resolvedSupplier.supplierName })}</p>
+              ) : null}
               <p>
                 {t("productQualityInline.confirm.averageUnitCost")}: {averageUnitCostText ? `${averageUnitCostText} / ${baseUomName}` : t("productQualityInline.confirm.valuationUnavailable")}
               </p>
@@ -390,16 +397,16 @@ export function WholeProductQualityActionsPanel({
 
       {preview.data ? (
         <>
-          <div className="rounded-xl border border-slate-200 bg-white p-3">
-            <p className="text-[10px] font-black text-slate-500">{t("productQualityInline.currentQuantity")}</p>
-            <p className="mt-1 text-lg font-black tabular-nums text-slate-950">
-              {totalDisplay?.primary ?? "?"}
-            </p>
-            {totalDisplay?.secondary ? (
-              <p className="mt-1 text-[10px] font-bold tabular-nums text-slate-500">
-                {t("productQualityInline.totalBaseQuantity", { quantity: totalDisplay.secondary })}
-              </p>
-            ) : null}
+          <div className="rounded-xl border border-slate-100 bg-white px-3 py-2.5">
+            <p className="text-[10px] font-medium text-slate-500">{t("productQualityInline.currentQuantity")}</p>
+            <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 tabular-nums">
+              <span className="text-base font-semibold text-slate-900">{totalDisplay?.primary ?? "?"}</span>
+              {totalDisplay?.secondary ? (
+                <span className="text-[10px] font-medium text-slate-500">
+                  {t("productQualityInline.totalBaseQuantity", { quantity: totalDisplay.secondary })}
+                </span>
+              ) : null}
+            </div>
           </div>
 
           {previewBlocked && blockerText ? (
@@ -427,7 +434,7 @@ export function WholeProductQualityActionsPanel({
                 onClick={() => openAction("DISPOSE")}
                 disabled={interactionBlocked || previewBlocked}
                 title={previewBlocked && blockerText ? blockerText : undefined}
-                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-rose-200 bg-white px-4 text-xs font-black text-rose-800 transition hover:bg-rose-50 disabled:opacity-40"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40"
               >
                 <Trash2 className="h-4 w-4" />{t("productQualityInline.actions.disposeAll")}
               </button>
@@ -436,13 +443,13 @@ export function WholeProductQualityActionsPanel({
                 onClick={() => openAction("RETURN_TO_VENDOR")}
                 disabled={interactionBlocked || previewBlocked}
                 title={previewBlocked && blockerText ? blockerText : undefined}
-                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-sky-200 bg-white px-4 text-xs font-black text-sky-900 transition hover:bg-sky-50 disabled:opacity-40"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40"
               >
                 <Truck className="h-4 w-4" />{t("productQualityInline.actions.returnAll")}
               </button>
             </div>
           ) : (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="rounded-xl border border-slate-100 bg-white p-3">
               <div className="flex items-center gap-2">
                 <PackageCheck className="h-4 w-4 text-slate-500" />
                 <p className="text-xs font-black text-slate-950">
@@ -452,11 +459,11 @@ export function WholeProductQualityActionsPanel({
                 </p>
               </div>
 
-              <p className="mt-3 text-[10px] font-black text-slate-500">
+              <p className="mt-3 text-[10px] font-medium text-slate-500">
                 {t("productQualityInline.fields.reason")}
               </p>
               {reason ? (
-                <p className="mt-1 text-xs font-bold text-slate-900">{reason}</p>
+                <p className="mt-1 text-xs font-medium text-slate-800">{reason}</p>
               ) : (
                 <input
                   value={reason}
@@ -470,30 +477,63 @@ export function WholeProductQualityActionsPanel({
               )}
 
               {activeAction === "RETURN_TO_VENDOR" ? (
-                <div className="mt-3 space-y-3">
-                  <div className="grid gap-2 rounded-xl border border-slate-200 bg-white p-3 sm:grid-cols-2">
+                <div className="mt-3 space-y-2">
+                  <div className="grid gap-3 rounded-lg bg-slate-50/80 px-3 py-2.5 sm:grid-cols-2">
                     <div>
-                      <p className="text-[10px] font-black text-slate-500">
+                      <p className="text-[10px] font-medium text-slate-500">
                         {t("productQualityInline.confirm.averageUnitCost")}
                       </p>
-                      <p className="mt-1 text-sm font-black tabular-nums text-slate-950">
+                      <p className="mt-0.5 text-sm font-semibold tabular-nums text-slate-900">
                         {averageUnitCostText ? `${averageUnitCostText} / ${baseUomName}` : t("productQualityInline.confirm.valuationUnavailable")}
                       </p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-black text-slate-500">
+                      <p className="text-[10px] font-medium text-slate-500">
                         {t("productQualityInline.confirm.returnValue")}
                       </p>
-                      <p className="mt-1 text-sm font-black tabular-nums text-slate-950">
+                      <p className="mt-0.5 text-sm font-semibold tabular-nums text-slate-900">
                         {returnValueText ?? t("productQualityInline.confirm.valuationUnavailable")}
                       </p>
                     </div>
                   </div>
-                  <SupplierSelector
-                    value={supplierId}
-                    onChange={setSupplierId}
-                    disabled={interactionBlocked}
-                  />
+                  <div className="rounded-lg bg-slate-50/80 px-3 py-2.5">
+                    <p className="text-[10px] font-medium text-slate-500">
+                      {t("productQualityInline.confirm.supplier")}
+                    </p>
+                    {resolvedSupplier ? (
+                      <>
+                        <div className="mt-0.5 flex flex-wrap items-baseline gap-2">
+                          <span className="text-sm font-semibold text-slate-900">{resolvedSupplier.supplierName}</span>
+                          {resolvedSupplier.supplierCode ? (
+                            <span className="text-[10px] font-medium text-slate-500">{resolvedSupplier.supplierCode}</span>
+                          ) : null}
+                        </div>
+                        <p className="mt-0.5 text-[10px] font-medium text-slate-500">
+                          {t("productQualityInline.confirm.supplierResolved")}
+                        </p>
+                      </>
+                    ) : preview.data.supplierResolution === "MULTIPLE" ? (
+                      <div className="mt-1 space-y-1.5">
+                        <p className="text-[10px] font-medium leading-5 text-slate-600">
+                          {t("productQualityInline.confirm.supplierMultiple")}
+                        </p>
+                        {preview.data.supplierCandidates.map((candidate) => (
+                          <div key={candidate.supplierId} className="flex items-baseline justify-between gap-3 text-xs">
+                            <span className="font-medium text-slate-800">{candidate.supplierName}</span>
+                            {candidate.quantity ? (
+                              <span className="shrink-0 text-[10px] tabular-nums text-slate-500">
+                                {supplierQuantityText(candidate.quantity)}
+                              </span>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-[10px] font-medium leading-5 text-slate-600">
+                        {t("productQualityInline.confirm.supplierUnknown")}
+                      </p>
+                    )}
+                  </div>
                 </div>
               ) : null}
 

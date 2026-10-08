@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.dependencies import get_current_driver
 from database import get_db
 from domains.inventory_costing.service import get_cost_policy, money6
+from domains.inventory_supplier_resolution import resolve_current_stock_suppliers
 from inventory_access import InventoryAccess
 from models import (
     Company,
@@ -54,6 +55,13 @@ class WholeProductQualityValuationLine(BaseModel):
     book_value: str
 
 
+class WholeProductQualitySupplierCandidate(BaseModel):
+    supplier_id: int
+    supplier_name: str
+    supplier_code: str | None
+    quantity: str | None
+
+
 class WholeProductQualityPreviewResponse(BaseModel):
     product_variant_id: int
     issue_reason: str | None
@@ -65,6 +73,8 @@ class WholeProductQualityPreviewResponse(BaseModel):
     total_reserved_quantity: str
     total_book_value: str | None
     average_unit_cost: str | None
+    supplier_resolution: Literal["SINGLE", "MULTIPLE", "UNKNOWN"]
+    supplier_candidates: list[WholeProductQualitySupplierCandidate]
     locations: list[WholeProductQualityPreviewLocation]
     batches: list[WholeProductQualityPreviewBatch]
     valuation_lines: list[WholeProductQualityValuationLine]
@@ -387,6 +397,27 @@ async def get_whole_product_quality_preview(
         else None
     )
 
+    supplier_codes = set(await access.codes())
+    supplier_resolution = (
+        await resolve_current_stock_suppliers(
+            db,
+            company_id=company_id,
+            product_variant_id=int(product_variant_id),
+            current_batches=batch_quantities,
+        )
+        if "supplier.read" in supplier_codes
+        else None
+    )
+    supplier_candidates = [
+        {
+            "supplier_id": row.supplier_id,
+            "supplier_name": row.supplier_name,
+            "supplier_code": row.supplier_code,
+            "quantity": canonical_quantity(row.quantity) if row.quantity is not None else None,
+        }
+        for row in supplier_resolution.candidates
+    ] if supplier_resolution is not None else []
+
     return {
         "product_variant_id": int(product_variant_id),
         "issue_reason": issue_reason,
@@ -398,6 +429,8 @@ async def get_whole_product_quality_preview(
         "total_reserved_quantity": canonical_quantity(total_reserved_quantity),
         "total_book_value": total_book_value,
         "average_unit_cost": average_unit_cost,
+        "supplier_resolution": supplier_resolution.status if supplier_resolution is not None else "UNKNOWN",
+        "supplier_candidates": supplier_candidates,
         "locations": locations,
         "batches": batches,
         "valuation_lines": valuation_lines,

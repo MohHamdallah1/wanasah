@@ -25,7 +25,8 @@ describe("Products guided sales recovery", () => {
     expect(panel).toContain("productCommercialStatus(");
     expect(manager).toContain("subtitle={commercial ?");
     expect(manager).toContain("t(commercial.stateKey)");
-    expect(manager).toContain("t(commercial.hintKey)");
+    expect(manager).not.toContain("t(commercial.hintKey)");
+    expect(manager).not.toContain("t(commercial.reasonKey)");
     expect(panel).not.toContain("products.details.lifecycleModes.${variant.lifecycle_status}");
     expect(panel).not.toContain("products.details.holdModes.${variant.operational_hold}");
   });

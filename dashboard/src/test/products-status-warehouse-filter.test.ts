@@ -14,7 +14,8 @@ describe("Products status flow and warehouse-presence filter", () => {
 
     expect(manager).toContain("subtitle={commercial ?");
     expect(manager).toContain("t(commercial.stateKey)");
-    expect(manager).toContain("t(commercial.hintKey)");
+    expect(manager).not.toContain("t(commercial.hintKey)");
+    expect(manager).not.toContain("t(commercial.reasonKey)");
     expect(panel).not.toContain("products.commercialStatus.label");
     expect(panel).toContain("!issueScopeOpen && !selectedCommand");
     expect(panel).toContain("showAvailableStopOptions && canHold && !selectedCommand");

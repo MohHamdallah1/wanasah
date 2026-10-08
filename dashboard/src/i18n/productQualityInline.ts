@@ -8,6 +8,7 @@ export const productQualityInline = {
     success: {
       DISPOSE: "تم إتلاف كل الكمية الحالية.",
       RETURN_TO_VENDOR: "تم إرجاع كل الكمية الحالية للمورد / المصنع.",
+      openSupplier: "معلومات المورد للتواصل",
     },
     title: "معالجة المنتج",
     currentQuantity: "الكمية الحالية",
@@ -22,6 +23,11 @@ export const productQualityInline = {
       averageUnitCost: "متوسط سعر التكلفة",
       returnValue: "إجمالي قيمة الكمية بسعر التكلفة",
       valuationUnavailable: "قيمة التكلفة غير متاحة حاليًا لهذه الكمية.",
+      supplier: "المورد",
+      supplierResolved: "تم تحديد المورد من سجل توريد هذه الكمية.",
+      supplierUnknown: "لا يوجد مورد موثق يمكن ربط الكمية الحالية به بأمان.",
+      supplierMultiple: "الكمية الحالية مرتبطة بأكثر من مورد. لن يختار النظام موردًا عشوائيًا.",
+      supplierQuantity: "{{quantity}}",
       continue: "متابعة",
     },
     preview: {
@@ -56,7 +62,7 @@ export const productQualityInline = {
   en: {
     pending: "The operation result is still uncertain. Refresh before retrying.",
     errors: { resolve: "Could not complete the action.", preview: "Could not load the product's current data." },
-    success: { DISPOSE: "All current stock was disposed.", RETURN_TO_VENDOR: "All current stock was returned to the vendor / manufacturer." },
+    success: { DISPOSE: "All current stock was disposed.", RETURN_TO_VENDOR: "All current stock was returned to the vendor / manufacturer.", openSupplier: "Supplier contact details" },
     title: "Handle product",
     currentQuantity: "Current quantity",
     totalBaseQuantity: "Total: {{quantity}}",
@@ -67,6 +73,11 @@ export const productQualityInline = {
       averageUnitCost: "Average unit cost",
       returnValue: "Total stock value at cost",
       valuationUnavailable: "Cost value is not currently available for this stock.",
+      supplier: "Supplier",
+      supplierResolved: "Supplier was resolved from this stock's inbound evidence.",
+      supplierUnknown: "No recorded supplier can be linked safely to the current stock.",
+      supplierMultiple: "Current stock is linked to more than one supplier. The system will not choose one arbitrarily.",
+      supplierQuantity: "{{quantity}}",
       continue: "Continue",
     },
     preview: {

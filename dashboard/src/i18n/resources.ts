@@ -1058,6 +1058,7 @@ export const resources = {
             "تحكم في بقاء المنتج ضمن الكتالوج التشغيلي بدون حذف تاريخه.",
           salesStatusTitle: "حالة البيع",
           confirm: "تنفيذ الإجراء",
+          continueToHandling: "متابعة",
           reasonChoose: "اختر سببًا...",
           reasonOther: "سبب آخر...",
           reasonPresets: {
@@ -1881,6 +1882,9 @@ export const resources = {
         codes: {
           ...suppliers.ar.errors,
           SUPPLIER_REQUIRED: "اختر موردًا نشطًا لهذه العملية الجديدة.",
+          WHOLE_PRODUCT_RETURN_MULTIPLE_SUPPLIERS: "الكمية الحالية مرتبطة بأكثر من مورد، لذلك لن يختار النظام موردًا عشوائيًا. راجع الموردين والكميات أولًا.",
+          WHOLE_PRODUCT_RETURN_SUPPLIER_UNKNOWN: "تعذر تحديد مورد موثق للكمية الحالية من سجل التوريد. لا يمكن تنفيذ الإرجاع تلقائيًا بأمان.",
+          WHOLE_PRODUCT_RETURN_SUPPLIER_CHANGED: "تغير مورد الكمية منذ فتح النافذة. حدّث البيانات ثم أعد المحاولة.",
           SUPERVISOR_CONFIRMATION_FAILED: "كلمة مرور المشرف غير صحيحة. لم يتم تنفيذ أي تغيير.",
           LIVE_STOCK_RESPONSE_INVALID: "استجابة الرصيد الحي غير صالحة أو غير مكتملة.",
           LIVE_STOCK_BATCH_RESPONSE_INVALID: "استجابة تفاصيل الدفعات غير صالحة أو غير مكتملة.",
@@ -3281,7 +3285,7 @@ export const resources = {
             "Control whether the product remains in the operational catalog without deleting its history.",
           salesStatusTitle: "Sales status",
           confirm: "Apply change",
-          continueToHandling: "Continue to handling",
+          continueToHandling: "Continue",
           reasonChoose: "Choose a reason...",
           reasonOther: "Other reason...",
           reasonPresets: {
@@ -4145,6 +4149,9 @@ export const resources = {
           VALIDATION_ERROR: "The request data is invalid. Review the entered fields.",
           ...suppliers.en.errors,
           SUPPLIER_REQUIRED: "Choose an active supplier for this new operation.",
+          WHOLE_PRODUCT_RETURN_MULTIPLE_SUPPLIERS: "Current stock is linked to more than one supplier, so the system will not choose one arbitrarily. Review the suppliers and quantities first.",
+          WHOLE_PRODUCT_RETURN_SUPPLIER_UNKNOWN: "No recorded supplier can be linked safely to the current stock. Automatic return is blocked.",
+          WHOLE_PRODUCT_RETURN_SUPPLIER_CHANGED: "The stock supplier changed since this window was opened. Refresh and try again.",
           SUPERVISOR_CONFIRMATION_FAILED: "The supervisor password is incorrect. No changes were made.",
           RATE_LIMITED: "The request limit was exceeded. Try again later.",
           REQUEST_TOO_LARGE: "The request is larger than the allowed limit.",
