@@ -23,9 +23,6 @@ describe("Products guided sales recovery", () => {
     const panel = read("../features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx");
     const manager = read("../pages/products/lifecycle/ProductLifecycleManager.tsx");
     expect(panel).toContain("productCommercialStatus(");
-    expect(manager).toContain("subtitle={commercial ?");
-    expect(manager).toContain("t(commercial.stateKey)");
-    expect(manager).not.toContain("t(commercial.hintKey)");
     expect(manager).not.toContain("t(commercial.reasonKey)");
     expect(panel).not.toContain("products.details.lifecycleModes.${variant.lifecycle_status}");
     expect(panel).not.toContain("products.details.holdModes.${variant.operational_hold}");

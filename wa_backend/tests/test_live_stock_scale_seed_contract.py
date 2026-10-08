@@ -19,3 +19,8 @@ def test_business_provenance_is_seeded_and_repairable():
     assert "inventory_supplier_evidence" in PROVENANCE_SOURCE
     assert "inventory_cost_layers" in PROVENANCE_SOURCE
     assert "HOT_INBOUND_KEY_PREFIX" in PROVENANCE_SOURCE
+
+
+def test_business_provenance_cost_state_is_zero_safe():
+    provenance = (Path(__file__).resolve().parents[1] / "scripts" / "live_stock_scale_provenance.py").read_text(encoding="utf-8")
+    assert "CASE WHEN t.quantity > 0 THEN 0.1 ELSE 0 END" in provenance

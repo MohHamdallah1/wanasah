@@ -12,9 +12,6 @@ describe("Products status flow and warehouse-presence filter", () => {
     const panel = source("features/catalog/lifecycle/CatalogLifecycleSimplePanel.tsx");
     const manager = source("pages/products/lifecycle/ProductLifecycleManager.tsx");
 
-    expect(manager).toContain("subtitle={commercial ?");
-    expect(manager).toContain("t(commercial.stateKey)");
-    expect(manager).not.toContain("t(commercial.hintKey)");
     expect(manager).not.toContain("t(commercial.reasonKey)");
     expect(panel).not.toContain("products.commercialStatus.label");
     expect(panel).toContain("!issueScopeOpen && !selectedCommand");

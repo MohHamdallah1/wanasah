@@ -158,12 +158,6 @@ export function ProductLifecycleManager({
       isOpen={product !== null}
       onClose={close}
       title={t("products.lifecycleManager.title", { name: product.name })}
-      subtitle={commercial ? (
-        <div className="flex items-center gap-2">
-          <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${statusDotClass}`} />
-          <span className="text-xs font-semibold text-slate-600">{t(commercial.stateKey)}</span>
-        </div>
-      ) : undefined}
       maxWidth="max-w-2xl"
       bodyClassName="p-3 sm:p-4"
     >
