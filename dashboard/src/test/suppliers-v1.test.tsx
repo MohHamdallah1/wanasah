@@ -194,7 +194,7 @@ describe("durable Supplier and Inbound commands", () => {
     expect(JSON.parse(fake.fetch.mock.calls.at(-1)![1].body)).toEqual({ ...sent, confirmation_password: "fresh-credential" });
     expect(JSON.stringify(localStorage)).not.toContain("fresh-credential");
   });
-  it("replays a stored pre-Supplier quality command while the new UI exposes only selection", async () => {
+  it("replays a stored pre-Supplier quality command while new whole-product return resolves Supplier automatically", async () => {
     const old = await getOrCreateDurableCommand(durableScope(1, 2, "whole-product-quality-resolve-v2", "7:RETURN_TO_VENDOR"),
       { action: "RETURN_TO_VENDOR", reason: "Issue", recipient_name: "Legacy recipient" });
     fake.fetch.mockResolvedValue({ message: "Completed", action: "RETURN_TO_VENDOR", product_variant_id: 7, total_quantity: "4", location_count: 1, post_resolution_hold: "NONE",
@@ -205,6 +205,6 @@ describe("durable Supplier and Inbound commands", () => {
     expect(JSON.parse(fake.fetch.mock.calls[0][1].body).request_id).toBe(old.requestId);
     const source = readFileSync(resolve(process.cwd(), "src/features/inventory/quality/WholeProductQualityActionsPanel.tsx"), "utf8");
     const inbound = readFileSync(resolve(process.cwd(), "src/pages/inventory/Tab2Inbound.tsx"), "utf8");
-    expect(source).toContain("<SupplierSelector"); expect(source).not.toContain("recipientName"); expect(inbound).toContain("<SupplierSelector");
+    expect(source).not.toContain("<SupplierSelector"); expect(source).toContain("resolvedSupplier"); expect(source).not.toContain("recipientName"); expect(inbound).toContain("<SupplierSelector");
   });
 });

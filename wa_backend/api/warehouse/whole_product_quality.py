@@ -20,8 +20,9 @@ from domains.inventory_quality_handling import (
 )
 from domains.inventory_terminal_quality import confirm_final_disposal
 from domains.inventory_terminal_vendor import confirm_vendor_handover
-from domains.suppliers.public import SupplierError, select_active_supplier, require_supplier_permission
+from domains.suppliers.public import SupplierError, select_supplier_snapshot, require_supplier_permission
 from domains.inventory_supplier_evidence import record_supplier_evidence
+from domains.inventory_supplier_resolution import resolve_current_stock_suppliers
 from domains.inventory_whole_product_quality_policy import ensure_whole_product_quality_policy
 from inventory_access import InventoryAccess
 from models import Driver, InventoryBalance, InventoryLocation, ProductVariant, SystemAuditLog
@@ -148,7 +149,7 @@ async def resolve_whole_product_quality(
                 ),
             )
 
-        if payload.action == "RETURN_TO_VENDOR" and payload.supplier_id is not None:
+        if payload.action == "RETURN_TO_VENDOR":
             await require_supplier_permission(db, current_admin)
         request_hash = await quality_request_hash(
             db, payload=payload, product_variant_id=product_variant_id,
@@ -175,11 +176,16 @@ async def resolve_whole_product_quality(
             await db.rollback()
             return replay_payload
 
+        if payload.action == "RETURN_TO_VENDOR" and payload.recipient_name is not None:
+            raise HTTPException(
+                status_code=422,
+                detail=_business_detail(
+                    "SUPPLIER_REQUIRED",
+                    "Manual recipient input is not accepted for a new whole-product return.",
+                ),
+            )
+
         supplier = None
-        if payload.action == "RETURN_TO_VENDOR":
-            if payload.supplier_id is None:
-                raise HTTPException(422, detail=_business_detail("SUPPLIER_REQUIRED", "Select a supplier for every new whole-product return."))
-            supplier = await select_active_supplier(db, actor=current_admin, supplier_id=payload.supplier_id)
         handover_reference = payload.handover_reference or f"SYSTEM-{payload.request_id}"
 
         await acquire_product_lifecycle_guards(
@@ -308,6 +314,70 @@ async def resolve_whole_product_quality(
         await _require_location_authority(access, location_ids, location_names, terminal_permission)
 
         await acquire_inventory_location_guards(db, company_id, location_ids)
+
+        if payload.action == "RETURN_TO_VENDOR":
+            # Re-read the current total under location guards; never trust a client-selected
+            # Supplier or a pre-lock preview as provenance authority.
+            current_rows = (
+                await db.execute(
+                    select(
+                        InventoryBalance.batch_id,
+                        InventoryBalance.on_hand_quantity,
+                    ).where(
+                        InventoryBalance.company_id == company_id,
+                        InventoryBalance.product_variant_id == int(product_variant_id),
+                        InventoryBalance.on_hand_quantity > 0,
+                    )
+                )
+            ).all()
+            current_batches: dict[int, Decimal] = defaultdict(Decimal)
+            for batch_id, quantity in current_rows:
+                current_batches[int(batch_id)] += Decimal(quantity or 0)
+            supplier_resolution = await resolve_current_stock_suppliers(
+                db,
+                company_id=company_id,
+                product_variant_id=int(product_variant_id),
+                current_batches=current_batches,
+            )
+            if supplier_resolution.status == "MULTIPLE":
+                raise HTTPException(
+                    status_code=409,
+                    detail=_business_detail(
+                        "WHOLE_PRODUCT_RETURN_MULTIPLE_SUPPLIERS",
+                        "Current stock is linked to more than one supplier and cannot be returned to one supplier as a single whole-product action.",
+                        context={
+                            "suppliers": [
+                                {
+                                    "supplier_id": row.supplier_id,
+                                    "supplier_name": row.supplier_name,
+                                    "quantity": canonical_quantity(row.quantity) if row.quantity is not None else None,
+                                }
+                                for row in supplier_resolution.candidates
+                            ]
+                        },
+                    ),
+                )
+            if supplier_resolution.status != "SINGLE":
+                raise HTTPException(
+                    status_code=409,
+                    detail=_business_detail(
+                        "WHOLE_PRODUCT_RETURN_SUPPLIER_UNKNOWN",
+                        "The current stock cannot be linked to one supplier safely from recorded inventory evidence.",
+                    ),
+                )
+            resolved_supplier = supplier_resolution.candidates[0]
+            if payload.supplier_id is not None and payload.supplier_id != resolved_supplier.supplier_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail=_business_detail(
+                        "WHOLE_PRODUCT_RETURN_SUPPLIER_CHANGED",
+                        "The stock supplier changed since the preview. Refresh before continuing.",
+                    ),
+                )
+            supplier = await select_supplier_snapshot(
+                db, actor=current_admin, supplier_id=resolved_supplier.supplier_id
+            )
+
         policy = await ensure_whole_product_quality_policy(
             db,
             company_id=company_id,

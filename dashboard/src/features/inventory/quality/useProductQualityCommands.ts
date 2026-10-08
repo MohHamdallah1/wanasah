@@ -164,7 +164,17 @@ export function useProductQualityCommands({
       completeDurableOperation(scope, durable.requestId);
       setPending(null);
       setRecoveryRevision((value) => value + 1);
-      toast.success(t(`productQualityInline.success.${durable.payload.action}`));
+      const successMessage = t(`productQualityInline.success.${durable.payload.action}`);
+      if (durable.payload.action === "RETURN_TO_VENDOR" && durable.payload.supplier_id) {
+        toast.success(successMessage, {
+          action: {
+            label: t("productQualityInline.success.openSupplier"),
+            onClick: () => window.location.assign("/suppliers"),
+          },
+        });
+      } else {
+        toast.success(successMessage);
+      }
       await onSucceeded();
       return true;
     } catch (error) {

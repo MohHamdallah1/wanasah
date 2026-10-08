@@ -75,7 +75,9 @@ describe("V1 quality and safety workflow closure", () => {
     const inline = read("../features/inventory/quality/WholeProductQualityActionsPanel.tsx");
     const commands = read("../features/inventory/quality/useProductQualityCommands.ts");
     expect(inline).toContain("preview.data.issueReason");
-    expect(inline).toContain("<SupplierSelector");
+    expect(inline).not.toContain("<SupplierSelector");
+    expect(inline).toContain("supplierResolution");
+    expect(inline).toContain("resolvedSupplier");
     expect(inline).not.toContain("recipientName");
     expect(inline).not.toContain("handoverReference");
     expect(inline).not.toContain("evidenceReference");

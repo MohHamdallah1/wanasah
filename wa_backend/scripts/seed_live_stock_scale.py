@@ -36,6 +36,10 @@ def find_backend_root() -> Path:
 BACKEND_ROOT = find_backend_root()
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
+from scripts.live_stock_scale_provenance import (
+    cleanup_hot_business_provenance,
+    seed_hot_business_provenance,
+)
 load_dotenv(BACKEND_ROOT / ".env", override=False)
 
 
@@ -125,6 +129,9 @@ async def cleanup_hot(session, company_id: int) -> int:
         or 0
     )
 
+    await cleanup_hot_business_provenance(
+        session, company_id=company_id, product_id=product_id
+    )
     params = {"company_id": company_id, "product_id": product_id}
     child_deletes = (
         """
@@ -504,21 +511,12 @@ async def seed_hot(
             params,
         )
 
-    await execute(
+    await seed_hot_business_provenance(
         session,
-        """
-        INSERT INTO inventory_cost_states (
-            company_id, product_variant_id, quantity,
-            inventory_value, average_unit_cost, version,
-            created_at, updated_at
-        )
-        SELECT
-            :company_id, v.id, 5100, 510, 0.1, 1,
-            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-        FROM product_variants v
-        WHERE v.company_id=:company_id AND v.product_id=:product_id
-        """,
-        params,
+        company_id=company_id,
+        location_id=location_id,
+        actor_id=actor_id,
+        each_id=each_id,
     )
 
 
@@ -756,6 +754,19 @@ async def run(args: argparse.Namespace) -> None:
                 session, args.company_id, args.location_id
             )
 
+            if args.repair_hot_provenance:
+                await seed_hot_business_provenance(
+                    session, company_id=args.company_id, location_id=args.location_id,
+                    actor_id=actor_id, each_id=each_id,
+                )
+                if args.confirm_dev:
+                    await session.commit()
+                    print("REPAIR_HOT_PROVENANCE_OK")
+                else:
+                    await session.rollback()
+                    print("REPAIR_HOT_PROVENANCE_DRY_RUN_OK")
+                return
+
             if args.hot_products:
                 await seed_hot(
                     session,
@@ -820,6 +831,7 @@ def parse_args() -> argparse.Namespace:
         help="Seed synthetic reserved stock for benchmark-only scenarios.",
     )
     parser.add_argument("--cleanup-hot", action="store_true")
+    parser.add_argument("--repair-hot-provenance", action="store_true")
     parser.add_argument("--cleanup-noise", action="store_true")
     parser.add_argument("--confirm-dev", action="store_true")
     args = parser.parse_args()

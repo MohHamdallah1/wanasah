@@ -14,6 +14,13 @@ const movingAveragePreview = (): Record<string, unknown> => ({
   total_reserved_quantity: "0",
   total_book_value: "30.000000",
   average_unit_cost: "0.250000",
+  supplier_resolution: "SINGLE",
+  supplier_candidates: [{
+    supplier_id: 9,
+    supplier_name: "Supplier A",
+    supplier_code: "SUP-A",
+    quantity: "120",
+  }],
   locations: [
     {
       location_id: 7,
@@ -69,6 +76,10 @@ describe("whole-product quality financial preview", () => {
     const parsed = parseWholeProductQualityPreview(movingAveragePreview());
     expect(parsed.totalBookValue).toBe("30.000000");
     expect(parsed.averageUnitCost).toBe("0.250000");
+    expect(parsed.supplierResolution).toBe("SINGLE");
+    expect(parsed.supplierCandidates[0]).toEqual(expect.objectContaining({
+      supplierId: 9, supplierName: "Supplier A", quantity: "120",
+    }));
     expect(parsed.valuationLines[0]).toEqual(expect.objectContaining({
       unitCost: "0.250000",
       bookValue: "17.500000",
@@ -108,6 +119,18 @@ describe("whole-product quality financial preview", () => {
     const parsed = parseWholeProductQualityPreview(raw);
     expect(parsed.totalReservedQuantity).toBe("100");
     expect(parsed.blockerCodes).toEqual(["WHOLE_PRODUCT_QUALITY_RESERVED_STOCK"]);
+  });
+
+  it("preserves exact multi-supplier quantities without inventing one supplier", () => {
+    const raw = movingAveragePreview();
+    raw.supplier_resolution = "MULTIPLE";
+    raw.supplier_candidates = [
+      { supplier_id: 9, supplier_name: "Supplier A", supplier_code: "A", quantity: "70" },
+      { supplier_id: 10, supplier_name: "Supplier B", supplier_code: "B", quantity: "50" },
+    ];
+    const parsed = parseWholeProductQualityPreview(raw);
+    expect(parsed.supplierResolution).toBe("MULTIPLE");
+    expect(parsed.supplierCandidates.map((row) => row.quantity)).toEqual(["70", "50"]);
   });
 
   it("shows the larger package first and keeps loose base units exact", () => {
