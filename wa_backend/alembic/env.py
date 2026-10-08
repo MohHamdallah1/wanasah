@@ -21,10 +21,45 @@ from models import * # استيراد إجباري لكل الجداول لتف�
 from domains.offers import models as offer_models  # noqa: F401
 from domains.taxation import models as taxation_models  # noqa: F401
 from domains.sales_evidence import models as sales_evidence_models  # noqa: F401
+from domains.sales_returns import models as sales_return_models  # noqa: F401
 from domains.suppliers import models as supplier_models  # noqa: F401
 from domains import inventory_supplier_evidence  # noqa: F401
 
 target_metadata = Base.metadata
+
+# Objects intentionally owned by SQL migrations or external libraries rather
+# than SQLAlchemy metadata. Autogenerate must not propose destructive drops.
+MIGRATION_MANAGED_TABLES = {
+    "product_import_worker_registry",
+    "product_import_schedule_candidates",
+}
+MIGRATION_MANAGED_INDEXES = {
+    "ix_inventory_cost_event_purchase_latest",
+    "ix_product_barcodes_company_active_barcode_trgm",
+    "ix_product_import_job_orphan_recovery",
+    "ix_product_variants_company_search_trgm",
+    "ix_product_variant_simple_common_filters_seek",
+    "ix_products_company_name_trgm",
+    "ix_product_company_lower_name_id",
+    "ix_shops_company_tax_jurisdiction",
+}
+
+
+def include_object(obj, name, type_, reflected, compare_to):
+    table = getattr(obj, "table", None)
+    table_name = getattr(table, "name", None)
+    if type_ == "table" and (
+        name.startswith("procrastinate_") or name in MIGRATION_MANAGED_TABLES
+    ):
+        return False
+    if type_ == "index" and (
+        (table_name and table_name.startswith("procrastinate_"))
+        or table_name in MIGRATION_MANAGED_TABLES
+        or name in MIGRATION_MANAGED_INDEXES
+    ):
+        return False
+    return True
+
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -72,6 +107,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -79,7 +115,11 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        include_object=include_object,
+    )
 
     with context.begin_transaction():
         context.run_migrations()

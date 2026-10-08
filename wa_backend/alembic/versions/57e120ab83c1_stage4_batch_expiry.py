@@ -1,7 +1,7 @@
 """stage4_batch_expiry
 
 Revision ID: 57e120ab83c1
-Revises: 
+Revises: 000000000001
 Create Date: 2026-09-12 02:33:40.139835
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '57e120ab83c1'
-down_revision: Union[str, Sequence[str], None] = None
+down_revision: Union[str, Sequence[str], None] = '000000000001'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
