@@ -209,7 +209,7 @@ async def test_tenant_and_inactive_selection_fail_closed_at_direct_api(api):
     return_body = {"request_id": str(uuid4()), "action": "RETURN_TO_VENDOR", "reason": "Confirmed issue", "supplier_id": row["id"],
                    "confirmation_password": GATE_PASSWORD}
     path = f"/warehouse/quality/products/{api.gate.variants[0].id}/resolve-all"
-    assert_code(await api.client.post(path, json=return_body), "WHOLE_PRODUCT_RETURN_SUPPLIER_UNKNOWN", 409)
+    assert_code(await api.client.post(path, json=return_body), "PRODUCT_QUALITY_ISSUE_NOT_ACTIVE", 409)
     api.actor.company_id = api.gate.companies[1].id; api.actor.id = api.gate.actors[1].id
     await api.db.execute(text("SELECT set_config('app.current_tenant',:tenant,true)"), {"tenant": str(api.actor.company_id)})
     assert (await api.client.get("/suppliers")).json()["items"] == []
