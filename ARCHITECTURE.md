@@ -259,6 +259,12 @@ From now on, every mature module must have clear ownership of its schema evoluti
 
 ### Migrations
 
+- Alembic is the sole authority for application database creation and schema upgrades. A fresh PostgreSQL database must reach the current schema through `alembic upgrade head`; application startup, development reset scripts, and `Base.metadata.create_all()` must not create or repair production schema.
+- The Alembic graph owns the full database contract required by the application, including tables, indexes, PostgreSQL extensions, functions, triggers, RLS/policies, grants, and the pinned worker-queue schema where applicable.
+- Production uses a privileged migration role for DDL and a separate restricted runtime role for the application. Runtime credentials must not be promoted to schema-owner privileges.
+- Clean-bootstrap CI must prove an empty database can migrate to the current head and that `alembic check` reports no model/migration drift.
+- Development data is separate from schema creation. `wa_backend/seed_dev.py` is local-development-only and must fail closed against production/non-local databases. Production must never depend on seed data.
+- `wa_backend/bootstrap_platform_admin.py` is not a seed: it is the one-time sovereign bootstrap for the first platform-owned administrator after the database is already at Alembic head. It must use the migration role and refuse to create a second platform administrator.
 - Every schema change must identify its owning module.
 - Continue using one controlled Alembic revision graph unless there is a proven reason to change it; avoid unnecessary multi-head migration complexity.
 - Module ownership must be visible in migration naming/documentation.

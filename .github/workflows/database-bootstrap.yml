@@ -1,0 +1,252 @@
+name: Database clean bootstrap
+
+on:
+  pull_request:
+    paths:
+      - "wa_backend/alembic/**"
+      - "wa_backend/models.py"
+      - "wa_backend/domains/**"
+      - "wa_backend/bootstrap_platform_admin.py"
+      - "wa_backend/seed_dev.py"
+      - ".github/workflows/database-bootstrap.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  clean-bootstrap:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: bootstrap_gate
+          POSTGRES_DB: wanasah_bootstrap_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U bootstrap_gate -d wanasah_bootstrap_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      SECRET_KEY: BootstrapGateOnlyKeyAbc123456789012345678901234567890
+      ENVIRONMENT: test
+      DATABASE_URL: postgresql+asyncpg://wanasah_runtime@127.0.0.1:5432/wanasah_bootstrap_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://bootstrap_gate@127.0.0.1:5432/wanasah_bootstrap_test
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install backend migration dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4
+
+      - name: Create restricted runtime database role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute(
+                  "CREATE ROLE wanasah_runtime LOGIN NOSUPERUSER "
+                  "NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+          print("RUNTIME_ROLE=OK")
+          PY
+
+      - name: Build an empty database only through Alembic
+        working-directory: wa_backend
+        run: alembic upgrade head
+
+      - name: Reject model and migration drift
+        working-directory: wa_backend
+        run: alembic check
+
+      - name: Verify critical database contracts
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn) as conn:
+              assert conn.execute(
+                  "SELECT to_regprocedure('public.live_stock_search_variant_ids(integer,text[])') IS NOT NULL"
+              ).fetchone()[0]
+              assert conn.execute(
+                  "SELECT to_regclass('public.procrastinate_jobs') IS NOT NULL"
+              ).fetchone()[0]
+              assert conn.execute(
+                  "SELECT to_regclass('public.platform_admins') IS NOT NULL"
+              ).fetchone()[0]
+              assert conn.execute(
+                  "SELECT to_regprocedure('public.prevent_system_audit_log_mutation()') IS NOT NULL"
+              ).fetchone()[0]
+              assert conn.execute(
+                  "SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='ix_product_variants_company_search_trgm')"
+              ).fetchone()[0]
+
+              tenant_total, rls_enabled, rls_forced = conn.execute(
+                  """
+                  WITH tenant_tables AS (
+                      SELECT DISTINCT table_name
+                      FROM information_schema.columns
+                      WHERE table_schema='public' AND column_name='company_id'
+                  ), rls AS (
+                      SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
+                      FROM pg_class c
+                      JOIN pg_namespace n ON n.oid=c.relnamespace
+                      WHERE n.nspname='public' AND c.relkind='r'
+                  )
+                  SELECT count(*),
+                         count(*) FILTER (WHERE r.relrowsecurity),
+                         count(*) FILTER (WHERE r.relforcerowsecurity)
+                  FROM tenant_tables t JOIN rls r ON r.relname=t.table_name
+                  """
+              ).fetchone()
+              assert tenant_total > 0
+              assert tenant_total == rls_enabled == rls_forced
+
+              assert not conn.execute(
+                  "SELECT has_schema_privilege('wanasah_runtime', 'public', 'CREATE')"
+              ).fetchone()[0]
+              assert conn.execute(
+                  """
+                  SELECT count(*)
+                  FROM information_schema.tables
+                  WHERE table_schema='public'
+                    AND table_type='BASE TABLE'
+                    AND table_name <> 'alembic_version'
+                    AND NOT has_table_privilege(
+                        'wanasah_runtime',
+                        quote_ident(table_schema)||'.'||quote_ident(table_name),
+                        'SELECT'
+                    )
+                  """
+              ).fetchone()[0] == 0
+              assert conn.execute(
+                  "SELECT has_table_privilege('wanasah_runtime','public.companies','SELECT,INSERT,UPDATE,DELETE')"
+              ).fetchone()[0]
+              assert conn.execute(
+                  "SELECT has_table_privilege('wanasah_runtime','public.platform_admins','SELECT')"
+              ).fetchone()[0]
+              assert not conn.execute(
+                  "SELECT has_table_privilege('wanasah_runtime','public.platform_admins','INSERT,UPDATE,DELETE')"
+              ).fetchone()[0]
+              assert conn.execute(
+                  "SELECT has_table_privilege('wanasah_runtime','public.system_audit_logs','SELECT,INSERT')"
+              ).fetchone()[0]
+              assert not conn.execute(
+                  "SELECT has_table_privilege('wanasah_runtime','public.system_audit_logs','UPDATE,DELETE')"
+              ).fetchone()[0]
+              assert conn.execute(
+                  "SELECT count(*) FROM platform_admins"
+              ).fetchone()[0] == 0
+              assert conn.execute(
+                  "SELECT count(*) FROM uom WHERE code IN ('EACH','CARTON','CASE','PACK','BAG','SACK','TRAY','CRATE','BUNDLE','KG','G','L','ML','PALLET')"
+              ).fetchone()[0] == 14
+          print("CLEAN_BOOTSTRAP_CONTRACTS=OK")
+          PY
+
+      - name: Verify one-time platform owner bootstrap
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import asyncio
+          import os
+          import secrets
+          import bcrypt
+          import psycopg
+          from sqlalchemy.engine import make_url
+          from bootstrap_platform_admin import _bootstrap
+
+          password = secrets.token_urlsafe(24)
+
+          async def run():
+              await _bootstrap("ci_platform_owner", password)
+              try:
+                  await _bootstrap("second_owner", secrets.token_urlsafe(24))
+              except RuntimeError as exc:
+                  assert "already exists" in str(exc)
+              else:
+                  raise AssertionError("Second platform bootstrap unexpectedly succeeded")
+
+          asyncio.run(run())
+
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn) as conn:
+              username, password_hash = conn.execute(
+                  "SELECT username, password_hash FROM platform_admins"
+              ).fetchone()
+              assert username == "ci_platform_owner"
+              assert password_hash != password
+              assert bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+          print("PLATFORM_BOOTSTRAP_CONTRACT=OK")
+          PY
+
+      - name: Verify development seed fails closed outside development
+        working-directory: wa_backend
+        env:
+          ENVIRONMENT: production
+        run: |
+          python - <<'PY'
+          from seed_dev import _assert_local_development_target
+          try:
+              _assert_local_development_target()
+          except RuntimeError:
+              print("DEV_SEED_PRODUCTION_GUARD=OK")
+          else:
+              raise AssertionError("Development seed did not fail closed")
+          PY
+
+      - name: Verify clean development seed is repeatable
+        working-directory: wa_backend
+        run: |
+          python seed_dev.py
+          python seed_dev.py
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn) as conn:
+              company_id = conn.execute(
+                  "SELECT id FROM companies WHERE company_code='WNS-01'"
+              ).fetchone()[0]
+              assert conn.execute(
+                  "SELECT count(*) FROM drivers WHERE company_id=%s AND username='admin_1'",
+                  (company_id,),
+              ).fetchone()[0] == 1
+              assert conn.execute(
+                  "SELECT count(*) FROM price_books WHERE company_id=%s AND code='DEFAULT'",
+                  (company_id,),
+              ).fetchone()[0] == 1
+              assert conn.execute(
+                  "SELECT count(*) FROM price_book_assignments WHERE company_id=%s AND scope_type='COMPANY_DEFAULT'",
+                  (company_id,),
+              ).fetchone()[0] == 1
+              assert conn.execute(
+                  "SELECT count(*) FROM inventory_cost_policies WHERE company_id=%s",
+                  (company_id,),
+              ).fetchone()[0] == 1
+          print("DEV_SEED_CONTRACT=OK")
+          PY
+
+      - name: Diff whitespace gate
+        run: git diff --check
