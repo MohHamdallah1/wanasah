@@ -307,7 +307,8 @@ async def seed_hot_business_provenance(
         )
         SELECT
             :company_id, t.product_variant_id, t.quantity,
-            t.quantity * 0.1, 0.1, 1,
+            t.quantity * 0.1,
+            CASE WHEN t.quantity > 0 THEN 0.1 ELSE 0 END, 1,
             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
         FROM totals t
         ON CONFLICT (company_id, product_variant_id) DO UPDATE SET
