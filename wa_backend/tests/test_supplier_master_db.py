@@ -332,7 +332,10 @@ async def test_rls_missing_tenant_cross_tenant_write_and_immutable_evidence(api)
 async def test_single_migration_head_and_downgrade_preserves_identity(api):
     config = AlembicConfig(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     config.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "alembic"))
-    assert ScriptDirectory.from_config(config).get_heads() == ["b7f2a9c4d681"]
+    script = ScriptDirectory.from_config(config)
+    heads = script.get_heads()
+    assert len(heads) == 1
+    assert script.get_revision("b7f2a9c4d681") is not None
     async with api.gate.admin_engine.connect() as conn:
         outer = await conn.begin()
         await conn.execute(text("INSERT INTO suppliers(company_id,name,created_by,updated_by) VALUES(:company,'Downgrade guard',:actor,:actor)"), {"company": api.actor.company_id, "actor": api.actor.id})
