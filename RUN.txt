@@ -68,7 +68,7 @@ Desktop Commander فقط للتحقق المحلي.
 ما أستدعي list_processes/get_config/get_usage_stats إلا عند الحاجة الحقيقية.
 
 
-المتبقي كاملًا:
+ملاحظات تاريخية قبل الترتيب المعتمد أدناه (ليست ترتيب تنفيذ):
 إصلاح واجهة العروض بالكامل: المستخدم يختار المنتج المؤهل، المنتج/المنتجات المكافأة، ووحدة كل واحد بوضوح: حبة/كرتونة/أي UOM صالح، وكمية المكافأة لكل منتج. وتدعم بسهولة: اشترِ A وخذ A، اشترِ A وخذ B، وعدة مكافآت عند الحاجة. الـBackend يدعم uom_id + quantity_per_application حاليًا، لكن الواجهة لا ترسلهم بشكل صحيح.
 إعادة تصميم تجربة إنشاء العروض لتكون مفهومة لغير التقني: بدل مصطلحات داخلية وحقول مبعثرة، Workflow خطوة بخطوة: نوع العرض → ماذا يشتري العميل → ماذا يحصل → الكمية والوحدة → من يشمله → المدة → مراجعة النتيجة → نشر. مع الحفاظ على كل مرونة المحرك.
 
@@ -147,6 +147,7 @@ Start-Process powershell.exe -WorkingDirectory $root -ArgumentList "-NoExit","-E
 V1 EXECUTION ORDER FREEZE — 2026-10-09
 ============================================================
 هذا هو ترتيب التنفيذ المعتمد بعد Dependency Audit صغير من الكود الفعلي على main.
+هذا القسم هو المرجع الوحيد لترتيب التنفيذ داخل RUN.txt ويلغي أي ترتيب/قائمة تنفيذ أقدم في هذا الملف؛ النصوص السابقة تبقى كسجل وملاحظات فقط وليست ترتيب العمل المعتمد.
 لا يغيّر V1_SCOPE_FREEZE.md ولا ARCHITECTURE.md؛ قواعد المعمارية والنطاق تظل أعلى سلطة.
 
 Baseline confirmed before this order:
@@ -210,7 +211,7 @@ Dependency rationale:
 - Supplier Master منجز؛ لا نعيده إلى قائمة البناء.
 
 Security dependency gate (parallel, before production release):
-[ ] معالجة npm dependency advisories على فرع مستقل، بدون npm audit fix --force عشوائي.
+[ ] GitHub Issue #164 — معالجة npm dependency advisories على فرع مستقل، بدون npm audit fix --force عشوائي.
     الأولوية: xlsx/runtime-relevant advisories ثم React Router، وبعدها أدوات build/test مثل Vite/Vitest.
     أي major upgrade يحتاج focused tests + TypeScript + build قبل الدمج.
 ============================================================
