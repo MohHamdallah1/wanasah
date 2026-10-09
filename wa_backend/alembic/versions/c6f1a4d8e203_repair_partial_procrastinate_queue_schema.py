@@ -1,4 +1,4 @@
-"""Repair a partial Procrastinate 3.9 queue schema without risking queued jobs.
+"""Repair partial Procrastinate 3.9 queue schemas without risking queued jobs.
 
 Revision ID: c6f1a4d8e203
 Revises: a5d7c2e4f901
@@ -21,6 +21,7 @@ branch_labels = None
 depends_on = None
 
 _EXPECTED_PROCRASTINATE_VERSION = "3.9.0"
+_QUEUE_SCHEMAS = ("public", "worker_queue")
 _QUEUE_TABLES = (
     "procrastinate_workers",
     "procrastinate_jobs",
@@ -89,11 +90,21 @@ def _expected_function_names(schema_sql: str) -> set[str]:
     }
 
 
-def _queue_is_complete(conn: psycopg.Connection, schema_sql: str) -> bool:
+def _set_search_path(conn: psycopg.Connection, schema_name: str) -> None:
+    conn.execute(
+        sql.SQL("SET LOCAL search_path TO {}").format(sql.Identifier(schema_name))
+    )
+
+
+def _queue_is_complete(
+    conn: psycopg.Connection,
+    schema_sql: str,
+    schema_name: str,
+) -> bool:
     for table_name in _QUEUE_TABLES:
         exists = conn.execute(
             "SELECT to_regclass(%s) IS NOT NULL",
-            [f"public.{table_name}"],
+            [f"{schema_name}.{table_name}"],
         ).fetchone()[0]
         if not exists:
             return False
@@ -101,14 +112,14 @@ def _queue_is_complete(conn: psycopg.Connection, schema_sql: str) -> bool:
     for type_name in _QUEUE_TYPES:
         exists = conn.execute(
             "SELECT to_regtype(%s) IS NOT NULL",
-            [f"public.{type_name}"],
+            [f"{schema_name}.{type_name}"],
         ).fetchone()[0]
         if not exists:
             return False
 
     required_signature = conn.execute(
         "SELECT to_regprocedure(%s) IS NOT NULL",
-        [f"public.{_REQUIRED_FUNCTION}"],
+        [f"{schema_name}.{_REQUIRED_FUNCTION}"],
     ).fetchone()[0]
     if not required_signature:
         return False
@@ -121,42 +132,46 @@ def _queue_is_complete(conn: psycopg.Connection, schema_sql: str) -> bool:
             SELECT p.proname
             FROM pg_proc p
             JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'public'
+            WHERE n.nspname = %s
               AND p.proname LIKE 'procrastinate_%'
-            """
+            """,
+            [schema_name],
         ).fetchall()
     }
     return expected_functions.issubset(actual_functions)
 
 
-def _queue_row_count(conn: psycopg.Connection) -> int:
+def _queue_row_count(conn: psycopg.Connection, schema_name: str) -> int:
     total = 0
     for table_name in _QUEUE_TABLES:
         exists = conn.execute(
             "SELECT to_regclass(%s) IS NOT NULL",
-            [f"public.{table_name}"],
+            [f"{schema_name}.{table_name}"],
         ).fetchone()[0]
         if exists:
             total += int(
                 conn.execute(
-                    sql.SQL("SELECT count(*) FROM {}").format(
-                        sql.Identifier(table_name)
+                    sql.SQL("SELECT count(*) FROM {}.{}").format(
+                        sql.Identifier(schema_name),
+                        sql.Identifier(table_name),
                     )
                 ).fetchone()[0]
             )
     return total
 
 
-def _drop_partial_queue(conn: psycopg.Connection) -> None:
+def _drop_partial_queue(conn: psycopg.Connection, schema_name: str) -> None:
+    _set_search_path(conn, schema_name)
     functions = conn.execute(
         """
         SELECT p.oid::regprocedure::text
         FROM pg_proc p
         JOIN pg_namespace n ON n.oid = p.pronamespace
-        WHERE n.nspname = 'public'
+        WHERE n.nspname = %s
           AND p.proname LIKE 'procrastinate_%'
         ORDER BY p.oid
-        """
+        """,
+        [schema_name],
     ).fetchall()
     for (signature,) in functions:
         conn.execute(
@@ -167,29 +182,57 @@ def _drop_partial_queue(conn: psycopg.Connection) -> None:
 
     for table_name in reversed(_QUEUE_TABLES):
         conn.execute(
-            sql.SQL("DROP TABLE IF EXISTS {} CASCADE").format(
-                sql.Identifier(table_name)
+            sql.SQL("DROP TABLE IF EXISTS {}.{} CASCADE").format(
+                sql.Identifier(schema_name),
+                sql.Identifier(table_name),
             )
         )
 
     for type_name in _QUEUE_TYPES:
         conn.execute(
-            sql.SQL("DROP TYPE IF EXISTS {} CASCADE").format(
-                sql.Identifier(type_name)
+            sql.SQL("DROP TYPE IF EXISTS {}.{} CASCADE").format(
+                sql.Identifier(schema_name),
+                sql.Identifier(type_name),
             )
         )
 
 
-def _grant_runtime_privileges(conn: psycopg.Connection, runtime_role: str) -> None:
+def _install_queue_schema(
+    conn: psycopg.Connection,
+    schema_sql: str,
+    schema_name: str,
+) -> None:
+    _set_search_path(conn, schema_name)
+    conn.execute(schema_sql)
+
+
+def _grant_runtime_privileges(
+    conn: psycopg.Connection,
+    runtime_role: str,
+    schema_name: str,
+) -> None:
     role = sql.Identifier(runtime_role)
-    conn.execute(sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(role))
-    conn.execute(sql.SQL("REVOKE CREATE ON SCHEMA public FROM {}").format(role))
+    _set_search_path(conn, schema_name)
+    conn.execute(
+        sql.SQL("GRANT USAGE ON SCHEMA {} TO {}").format(
+            sql.Identifier(schema_name), role
+        )
+    )
+    conn.execute(
+        sql.SQL("REVOKE CREATE ON SCHEMA {} FROM {}").format(
+            sql.Identifier(schema_name), role
+        )
+    )
 
     for table_name in _QUEUE_TABLES:
         conn.execute(
             sql.SQL(
-                "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {} TO {}"
-            ).format(sql.Identifier(table_name), role)
+                "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {}.{} TO {}"
+            ).format(
+                sql.Identifier(schema_name),
+                sql.Identifier(table_name),
+                role,
+            )
         )
 
     sequences = conn.execute(
@@ -197,15 +240,20 @@ def _grant_runtime_privileges(conn: psycopg.Connection, runtime_role: str) -> No
         SELECT c.relname
         FROM pg_class c
         JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = 'public'
+        WHERE n.nspname = %s
           AND c.relkind = 'S'
           AND c.relname LIKE 'procrastinate_%'
-        """
+        """,
+        [schema_name],
     ).fetchall()
     for (sequence_name,) in sequences:
         conn.execute(
-            sql.SQL("GRANT USAGE, SELECT, UPDATE ON SEQUENCE {} TO {}").format(
-                sql.Identifier(str(sequence_name)), role
+            sql.SQL(
+                "GRANT USAGE, SELECT, UPDATE ON SEQUENCE {}.{} TO {}"
+            ).format(
+                sql.Identifier(schema_name),
+                sql.Identifier(str(sequence_name)),
+                role,
             )
         )
 
@@ -214,9 +262,10 @@ def _grant_runtime_privileges(conn: psycopg.Connection, runtime_role: str) -> No
         SELECT p.oid::regprocedure::text
         FROM pg_proc p
         JOIN pg_namespace n ON n.oid = p.pronamespace
-        WHERE n.nspname = 'public'
+        WHERE n.nspname = %s
           AND p.proname LIKE 'procrastinate_%'
-        """
+        """,
+        [schema_name],
     ).fetchall()
     for (signature,) in functions:
         conn.execute(
@@ -227,10 +276,44 @@ def _grant_runtime_privileges(conn: psycopg.Connection, runtime_role: str) -> No
 
     for type_name in _QUEUE_TYPES:
         conn.execute(
-            sql.SQL("GRANT USAGE ON TYPE {} TO {}").format(
-                sql.Identifier(type_name), role
+            sql.SQL("GRANT USAGE ON TYPE {}.{} TO {}").format(
+                sql.Identifier(schema_name),
+                sql.Identifier(type_name),
+                role,
             )
         )
+
+
+def _repair_queue_schema(
+    conn: psycopg.Connection,
+    schema_sql: str,
+    runtime_role: str,
+    schema_name: str,
+) -> None:
+    if schema_name != "public":
+        conn.execute(
+            sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(
+                sql.Identifier(schema_name)
+            )
+        )
+
+    if not _queue_is_complete(conn, schema_sql, schema_name):
+        queued_rows = _queue_row_count(conn, schema_name)
+        if queued_rows:
+            raise RuntimeError(
+                f"Refusing to rebuild incomplete Procrastinate schema {schema_name!r} "
+                f"while queue tables contain {queued_rows} rows. Drain or migrate "
+                "that queue explicitly before retrying."
+            )
+        _drop_partial_queue(conn, schema_name)
+        _install_queue_schema(conn, schema_sql, schema_name)
+
+    if not _queue_is_complete(conn, schema_sql, schema_name):
+        raise RuntimeError(
+            f"Procrastinate 3.9 queue repair did not produce a complete {schema_name!r} schema."
+        )
+
+    _grant_runtime_privileges(conn, runtime_role, schema_name)
 
 
 def upgrade() -> None:
@@ -238,23 +321,13 @@ def upgrade() -> None:
     schema_sql = _schema_sql()
 
     with psycopg.connect(migration_dsn) as conn:
-        if not _queue_is_complete(conn, schema_sql):
-            queued_rows = _queue_row_count(conn)
-            if queued_rows:
-                raise RuntimeError(
-                    "Refusing to rebuild an incomplete Procrastinate schema while "
-                    f"queue tables contain {queued_rows} rows. Drain or migrate the "
-                    "queue explicitly before retrying."
-                )
-            _drop_partial_queue(conn)
-            conn.execute(schema_sql)
-
-        if not _queue_is_complete(conn, schema_sql):
-            raise RuntimeError(
-                "Procrastinate 3.9 queue repair did not produce a complete schema."
+        for schema_name in _QUEUE_SCHEMAS:
+            _repair_queue_schema(
+                conn,
+                schema_sql,
+                runtime_role,
+                schema_name,
             )
-
-        _grant_runtime_privileges(conn, runtime_role)
 
 
 def downgrade() -> None:
