@@ -133,7 +133,7 @@ def _queue_is_complete(
             FROM pg_proc p
             JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = %s
-              AND p.proname LIKE 'procrastinate_%'
+              AND p.proname LIKE 'procrastinate_%%'
             """,
             [schema_name],
         ).fetchall()
@@ -168,7 +168,7 @@ def _drop_partial_queue(conn: psycopg.Connection, schema_name: str) -> None:
         FROM pg_proc p
         JOIN pg_namespace n ON n.oid = p.pronamespace
         WHERE n.nspname = %s
-          AND p.proname LIKE 'procrastinate_%'
+          AND p.proname LIKE 'procrastinate_%%'
         ORDER BY p.oid
         """,
         [schema_name],
@@ -242,7 +242,7 @@ def _grant_runtime_privileges(
         JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = %s
           AND c.relkind = 'S'
-          AND c.relname LIKE 'procrastinate_%'
+          AND c.relname LIKE 'procrastinate_%%'
         """,
         [schema_name],
     ).fetchall()
@@ -263,7 +263,7 @@ def _grant_runtime_privileges(
         FROM pg_proc p
         JOIN pg_namespace n ON n.oid = p.pronamespace
         WHERE n.nspname = %s
-          AND p.proname LIKE 'procrastinate_%'
+          AND p.proname LIKE 'procrastinate_%%'
         """,
         [schema_name],
     ).fetchall()
