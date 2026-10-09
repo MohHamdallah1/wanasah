@@ -143,3 +143,74 @@ Start-Process powershell.exe -WorkingDirectory $root -ArgumentList "-NoExit","-E
 Start-Process powershell.exe -WorkingDirectory $root -ArgumentList "-NoExit","-ExecutionPolicy","Bypass","-File","$root\ops\development\run_reports_worker.ps1"
 
 Start-Process powershell.exe -WorkingDirectory $root -ArgumentList "-NoExit","-ExecutionPolicy","Bypass","-File","$root\ops\development\run_product_import_worker.ps1"
+============================================================
+V1 EXECUTION ORDER FREEZE — 2026-10-09
+============================================================
+هذا هو ترتيب التنفيذ المعتمد بعد Dependency Audit صغير من الكود الفعلي على main.
+لا يغيّر V1_SCOPE_FREEZE.md ولا ARCHITECTURE.md؛ قواعد المعمارية والنطاق تظل أعلى سلطة.
+
+Baseline confirmed before this order:
+[x] Products page موجودة وقوية ضمن V1.
+[x] Suppliers page موجودة وSupplier Master مربوط بالتوريد/الأدلة.
+[x] Inventory يحتوي فعليًا: Live Stock / Batches / Inbound / Transfers / Ledger / Stocktake / Warehouses / Permissions.
+[x] Dispatch يحتوي فعليًا: Zones / Shops / Routes / Launch.
+[ ] لا توجد صفحات تشغيلية مستقلة لإدارة Users/Drivers أو Vehicles أو Reports أو Settings الدنيا.
+
+قاعدة منع التكرار:
+- لا نبني صفحة مستقلة جديدة لوظيفة موجودة أصلًا داخل Inventory أو Dispatch؛ نغلق فجواتها في مكانها الحالي.
+- كل بند جديد يبدأ من أحدث main على فرع جديد، وعند اكتماله يوضع [x] ثم يدمج إلى main ويحذف الفرع عند نقطة استقرار.
+
+الترتيب المعتمد:
+1. [ ] Users / Drivers Administration
+   إنشاء وتعديل المستخدم/المندوب، تعطيل/إعادة تفعيل، إدارة كلمة المرور، وربطه بالأدوار وصلاحيات المواقع المطلوبة.
+
+2. [ ] Vehicles Basic Administration
+   إنشاء وتعديل وتعطيل/إعادة تفعيل السيارة، وربطها بشكل authoritative بموقع مخزون VEHICLE اللازم للتوزيع.
+   لا ندخل صيانة أسطول متقدمة أو وقود/GPS في V1.
+
+3. [ ] Minimal Company Operational Settings
+   المنطقة الزمنية وما يلزم فعليًا فقط من إعدادات التشغيل الحالية. لا نبني Settings Center ضخم.
+
+4. [ ] Inventory: Inbound -> Batches & Expiry closure
+   داخل صفحات Inventory الموجودة: Supplier identity موجودة؛ نغلق lot/expiry modes، صحة الدفعات والصلاحية، idempotency، التكلفة، الجودة وsellability.
+
+5. [ ] Inventory operational closure
+   Transfers + Stocktake + Warehouse Locations/Access والعزل/التكلفة المطلوبة لرحلة V1. لا صفحات مكررة جديدة.
+
+6. [ ] Commercial + Sales/Returns V1 closure
+   إغلاق الفجوات المطلوبة فقط في pricing/offers/taxes/returns والـimmutable evidence التي يحتاجها البيع الفعلي؛ بدون فتح ميزات Advanced المؤجلة.
+
+7. [ ] Dispatch operational closure
+   Zones + Shops + Routes + vehicle loading/launch كرحلة واحدة داخل Dispatch الحالي، بعد توفر Drivers وVehicles القابلة للإدارة من الواجهة.
+
+8. [ ] Flutter + Dispatch end-to-end acceptance
+   login -> assigned route -> work session -> shop visit -> sale/collection/return -> offline/retry -> end-day/settlement.
+
+9. [ ] Shop Account Statement
+   شاشة/واجهة تشغيلية تفسر رصيد المحل: المبيعات، الدين الجديد، التحصيلات، المرتجعات/الأرصدة الدائنة، والرصيد قبل/بعد.
+
+10. [ ] Minimal Reports
+    نتائج/إنجاز الزيارات، ملخص المبيعات والتحصيل والمرتجعات، وعهدة/تسوية المندوب. نعيد استخدام Inventory بدل تكرار تقارير مخزون.
+
+11. [ ] Final minimal settings + first-company decisions
+    إغلاق أي إعداد V1 متبقٍ فقط، وحسم قرار مستند العميل (إيصال/فاتورة/مشاركة/طباعة) حسب احتياج الشركة الأولى قبل تنفيذه.
+
+12. [ ] Production / Recovery acceptance
+    قاعدة تجربة مستقلة، backup/restore، نسخة تطبيق/worker ثابتة، network-loss/retry/session/worker-restart checks، ورحلة ممثلة كاملة.
+
+13. [ ] Integrated V1 acceptance -> V1 DONE
+    شركة جديدة -> مستخدم/مندوب -> سيارة -> مستودع/توريد -> مخزون -> Route -> Flutter visit/sale/return -> settlement/report بدون Word/Excel/WhatsApp للمسار الأساسي.
+
+Dependency rationale:
+- Driver work session يعتمد على active DispatchRoute لنفس المندوب.
+- Route يجب أن يكون مربوطًا بسيارة.
+- بدء الجلسة يرفض العمل إذا لم توجد InventoryLocation فعالة من نوع VEHICLE للسيارة.
+- لذلك Users/Drivers ثم Vehicles يسبقان Dispatch/Flutter acceptance.
+- Warehouses/Inbound/Batches/Transfers/Stocktake وZones/Shops موجودة أصلًا؛ المطلوب closure/hardening لا إعادة بناء صفحات جديدة.
+- Supplier Master منجز؛ لا نعيده إلى قائمة البناء.
+
+Security dependency gate (parallel, before production release):
+[ ] معالجة npm dependency advisories على فرع مستقل، بدون npm audit fix --force عشوائي.
+    الأولوية: xlsx/runtime-relevant advisories ثم React Router، وبعدها أدوات build/test مثل Vite/Vitest.
+    أي major upgrade يحتاج focused tests + TypeScript + build قبل الدمج.
+============================================================
