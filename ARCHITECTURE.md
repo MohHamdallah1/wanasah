@@ -785,8 +785,7 @@ without a separate approved plan and proof.
 
 ## Canonical identity, actor, access-channel, and organizational scope model
 
-**Owner decision:** 2026-10-09  
-**Status:** CANONICAL — applies to all new identity, authorization, field-representative, vehicle, branch, warehouse, dashboard, and Flutter work.
+**Owner decision:** 2026-10-09`r`n**Status:** CANONICAL — applies to all new identity, authorization, field-representative, vehicle, branch, warehouse, dashboard, and Flutter work.
 
 ### Core separation rule
 
