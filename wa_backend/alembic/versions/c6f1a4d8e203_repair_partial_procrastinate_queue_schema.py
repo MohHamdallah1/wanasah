@@ -11,7 +11,9 @@ import re
 from importlib import metadata, resources
 
 import psycopg
+from alembic import op
 from psycopg import sql
+from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
 
@@ -40,7 +42,9 @@ def _plain_postgres_dsn(raw: str) -> str:
     url = make_url(raw)
     if not url.drivername.startswith("postgresql"):
         raise RuntimeError("Procrastinate queue requires PostgreSQL.")
-    return url.set(drivername="postgresql").render_as_string(hide_password=False)
+    return url.set(drivername="postgresql").render_as_string(
+        hide_password=False
+    )
 
 
 def _roles_and_dsn() -> tuple[str, str]:
@@ -61,6 +65,8 @@ def _roles_and_dsn() -> tuple[str, str]:
         raise RuntimeError(
             "Runtime and migration roles must remain separate for queue repair."
         )
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]*", runtime_role):
+        raise RuntimeError("Runtime database role could not be resolved safely.")
     return runtime_role, _plain_postgres_dsn(migration_raw)
 
 
@@ -206,88 +212,9 @@ def _install_queue_schema(
     conn.execute(schema_sql)
 
 
-def _grant_runtime_privileges(
-    conn: psycopg.Connection,
-    runtime_role: str,
-    schema_name: str,
-) -> None:
-    role = sql.Identifier(runtime_role)
-    _set_search_path(conn, schema_name)
-    conn.execute(
-        sql.SQL("GRANT USAGE ON SCHEMA {} TO {}").format(
-            sql.Identifier(schema_name), role
-        )
-    )
-    conn.execute(
-        sql.SQL("REVOKE CREATE ON SCHEMA {} FROM {}").format(
-            sql.Identifier(schema_name), role
-        )
-    )
-
-    for table_name in _QUEUE_TABLES:
-        conn.execute(
-            sql.SQL(
-                "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {}.{} TO {}"
-            ).format(
-                sql.Identifier(schema_name),
-                sql.Identifier(table_name),
-                role,
-            )
-        )
-
-    sequences = conn.execute(
-        """
-        SELECT c.relname
-        FROM pg_class c
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = %s
-          AND c.relkind = 'S'
-          AND c.relname LIKE 'procrastinate_%%'
-        """,
-        [schema_name],
-    ).fetchall()
-    for (sequence_name,) in sequences:
-        conn.execute(
-            sql.SQL(
-                "GRANT USAGE, SELECT, UPDATE ON SEQUENCE {}.{} TO {}"
-            ).format(
-                sql.Identifier(schema_name),
-                sql.Identifier(str(sequence_name)),
-                role,
-            )
-        )
-
-    functions = conn.execute(
-        """
-        SELECT p.oid::regprocedure::text
-        FROM pg_proc p
-        JOIN pg_namespace n ON n.oid = p.pronamespace
-        WHERE n.nspname = %s
-          AND p.proname LIKE 'procrastinate_%%'
-        """,
-        [schema_name],
-    ).fetchall()
-    for (signature,) in functions:
-        conn.execute(
-            sql.SQL("GRANT EXECUTE ON FUNCTION {} TO {}").format(
-                sql.SQL(str(signature)), role
-            )
-        )
-
-    for type_name in _QUEUE_TYPES:
-        conn.execute(
-            sql.SQL("GRANT USAGE ON TYPE {}.{} TO {}").format(
-                sql.Identifier(schema_name),
-                sql.Identifier(type_name),
-                role,
-            )
-        )
-
-
-def _repair_queue_schema(
+def _repair_queue_structure(
     conn: psycopg.Connection,
     schema_sql: str,
-    runtime_role: str,
     schema_name: str,
 ) -> None:
     if schema_name != "public":
@@ -313,21 +240,90 @@ def _repair_queue_schema(
             f"Procrastinate 3.9 queue repair did not produce a complete {schema_name!r} schema."
         )
 
-    _grant_runtime_privileges(conn, runtime_role, schema_name)
+
+def _quote_identifier(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
+def _grant_runtime_privileges(runtime_role: str, schema_name: str) -> None:
+    """Grant queue privileges through Alembic's own transaction.
+
+    The queue structure is installed with a privileged psycopg connection because
+    Procrastinate ships its schema as multi-statement SQL.  Grants deliberately run
+    through Alembic's current connection so a clean bootstrap never waits on locks
+    held by earlier security migrations in the same Alembic transaction.
+    """
+    bind = op.get_bind()
+    quoted_role = _quote_identifier(runtime_role)
+    quoted_schema = _quote_identifier(schema_name)
+
+    op.execute(f"GRANT USAGE ON SCHEMA {quoted_schema} TO {quoted_role}")
+    op.execute(f"REVOKE CREATE ON SCHEMA {quoted_schema} FROM {quoted_role}")
+
+    for table_name in _QUEUE_TABLES:
+        quoted_table = _quote_identifier(table_name)
+        op.execute(
+            f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "
+            f"{quoted_schema}.{quoted_table} TO {quoted_role}"
+        )
+
+    sequences = bind.execute(
+        text(
+            """
+            SELECT c.relname
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = :schema_name
+              AND c.relkind = 'S'
+              AND c.relname LIKE 'procrastinate_%'
+            ORDER BY c.relname
+            """
+        ),
+        {"schema_name": schema_name},
+    ).scalars().all()
+    for sequence_name in sequences:
+        quoted_sequence = _quote_identifier(str(sequence_name))
+        op.execute(
+            f"GRANT USAGE, SELECT, UPDATE ON SEQUENCE "
+            f"{quoted_schema}.{quoted_sequence} TO {quoted_role}"
+        )
+
+    functions = bind.execute(
+        text(
+            """
+            SELECT p.oid::regprocedure::text
+            FROM pg_proc p
+            JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = :schema_name
+              AND p.proname LIKE 'procrastinate_%'
+            ORDER BY p.oid
+            """
+        ),
+        {"schema_name": schema_name},
+    ).scalars().all()
+    for signature in functions:
+        op.execute(f"GRANT EXECUTE ON FUNCTION {signature} TO {quoted_role}")
+
+    for type_name in _QUEUE_TYPES:
+        quoted_type = _quote_identifier(type_name)
+        op.execute(
+            f"GRANT USAGE ON TYPE {quoted_schema}.{quoted_type} TO {quoted_role}"
+        )
 
 
 def upgrade() -> None:
     runtime_role, migration_dsn = _roles_and_dsn()
     schema_sql = _schema_sql()
 
+    # Structural repair uses the migration role and commits before Alembic grants
+    # privileges.  Keeping role grants out of this side connection prevents lock
+    # waits against the runtime-access migration during a fresh bootstrap.
     with psycopg.connect(migration_dsn) as conn:
         for schema_name in _QUEUE_SCHEMAS:
-            _repair_queue_schema(
-                conn,
-                schema_sql,
-                runtime_role,
-                schema_name,
-            )
+            _repair_queue_structure(conn, schema_sql, schema_name)
+
+    for schema_name in _QUEUE_SCHEMAS:
+        _grant_runtime_privileges(runtime_role, schema_name)
 
 
 def downgrade() -> None:
