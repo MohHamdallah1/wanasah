@@ -780,3 +780,116 @@ without a separate approved plan and proof.
 10. No big-bang rewrite.
 11. Future expansion must add modules without weakening today's distribution system.
 12. Architectural boundaries will become executable CI gates, not documentation-only rules.
+
+---
+
+## Canonical identity, actor, access-channel, and organizational scope model
+
+**Owner decision:** 2026-10-09
+**Status:** CANONICAL — applies to all new identity, authorization, field-representative, vehicle, branch, warehouse, dashboard, and Flutter work.
+
+### Core separation rule
+
+Wanasah must keep these concepts separate from the beginning:
+
+1. **Authentication principal** — who is signing in.
+2. **Actor/profile type** — platform operator, company owner, backoffice user, field representative, or non-human operational asset.
+3. **Access channel** — platform administration surface, company Dashboard, or Flutter field application.
+4. **Authorization** — stable capabilities/permissions granted through system-managed authority or roles.
+5. **Organizational scope** — company, branch, warehouse/location, route/territory, vehicle, team, or other approved scope.
+6. **Operational assignment** — the route, source warehouse, vehicle, territory, or work assigned for a concrete business operation/day.
+
+Do not infer one of these concepts from another. In particular, a role name, branch membership, selected UI tab, or company membership must never silently become authorization authority.
+
+### Canonical account / actor classes
+
+| Actor class | Allowed access channel | Canonical authority and behavior |
+| --- | --- | --- |
+| **Platform Owner / Platform Administrator** | Platform administration only | Separate security boundary from tenant users. May provision and administer companies through platform-owned capabilities. Platform authority does **not** imply an unlogged tenant bypass. Any future tenant-support access must be explicit, scoped, audited, and attributable. |
+| **Platform Staff / Support** | Platform administration/support surfaces only | The platform model must be ready to add trusted staff without sharing the owner account. Delegation uses platform capability-based roles. Any support action inside a company context must use an explicit support/impersonation-style session or equivalent controlled mechanism with tenant scope, actor attribution, audit evidence, and revocation. |
+| **Company Owner** | Company Dashboard | Highest authority inside exactly one company context. The primary company owner is system-managed, receives complete company capabilities, and is not an ordinary editable role. Ownership transfer is a dedicated, strongly confirmed and audited operation. Ordinary administrators cannot silently demote or replace the owner. |
+| **Backoffice User / مسؤول** | Company Dashboard only | Created and managed by authorized company actors. Receives one or more roles/capabilities plus explicit scopes. Examples include inventory, catalog, dispatch, finance/settlement, or user-management responsibilities. Dashboard access is backend-authorized; UI visibility is only UX. |
+| **Field Representative / مندوب** | Flutter field application only in V1 | A distinct field actor, created from the Dashboard by an authorized company user. Receives only field capabilities and assigned work. A field representative must not obtain Dashboard access merely because the legacy persistence model happens to share authentication infrastructure. |
+| **Vehicle** | No login; non-human operational asset | Company-wide vehicle master owned by Fleet/Dispatch. Inventory may expose a corresponding `VEHICLE` inventory/custody location through a public contract, but vehicle identity and stock authority remain separate. |
+
+### Backoffice and field identities are different domain types
+
+The legacy `Driver` model currently represents more than one human concept. That is an implementation legacy, **not** the canonical domain model.
+
+From this decision forward:
+
+- Backoffice users and field representatives are separate logical principal/profile types.
+- Dashboard login must fail closed for a field-only principal.
+- Flutter field login must fail closed for a backoffice-only principal unless a future explicitly approved workflow intentionally grants a second access channel.
+- No new business rule may infer `field representative` from a role name or infer `Dashboard administrator` from a generic `Driver` record.
+- A shared low-level company-principal/credential root is acceptable only if principal type/access channel is explicit and immutable enough to enforce the separation, with separate domain profiles and fail-closed login authorization. An untyped shared `Driver` row that can accidentally authenticate to both channels is forbidden as the target architecture.
+- Any future person who genuinely needs more than one channel must receive an explicit, reviewed dual-role/linkage design; dual access must never emerge accidentally from role reuse.
+
+This separation should be migrated incrementally and safely. Do not perform a blind big-bang rename merely for cleanliness, but do not deepen the legacy coupling in new work.
+
+### Capability-based authorization is the target authority
+
+Authorization must be based on **what the actor may do**, not on a hardcoded persona name.
+
+Target decision:
+
+`authenticated actor + capability code + applicable scope -> backend authorization decision`
+
+Examples of stable capability concepts include `representatives.manage`, `vehicles.manage`, `catalog.read`, `inventory.read`, `inbound.create`, and `transfer.execute` (exact final codes remain owned by their modules).
+
+Rules:
+
+- Roles are named bundles of capabilities; **role names themselves are not authorization contracts**.
+- The backend checks capabilities and scope on every protected read/mutation.
+- Company Owner authority resolves to the complete allowed company capability set through system-managed owner authority, not through UI tricks.
+- Platform Owner/Support use a separate platform capability namespace/security boundary.
+- `is_admin` is a legacy/transitional implementation detail and must not become the gate for new business capabilities.
+- Existing V1-required endpoints that still depend solely on `is_admin` must be migrated toward capability checks when their workflow is touched/hardened. Do not launch a speculative repository-wide rewrite of stable unrelated endpoints; migrate deliberately with focused authorization/isolation evidence.
+- Direct API access with a missing/revoked capability or wrong scope fails closed even if the button is hidden in the UI.
+
+### Company-wide master data vs operational/location scope
+
+The following master identities are **company-wide**:
+
+- Product/catalog identity.
+- Distribution zones/territories.
+- Shops/customers used by the distribution workflow.
+- Field representatives.
+- Vehicles.
+
+Company-wide master identity does **not** mean every user can see or mutate every record, and it does not make physical inventory company-global. Authorization and operational assignments may still narrow access by branch, warehouse/location, route/territory, vehicle, team, or user.
+
+Do not permanently attach a field representative or vehicle to one warehouse as its identity authority. A representative or vehicle may have optional organizational/default metadata when useful for UX, but the authoritative source warehouse belongs to the concrete operational workflow (for example, the Dispatch Route/load), where the backend validates the exact source location and permissions.
+
+### Branch and warehouse are different concepts
+
+A **Branch** is an optional organizational/business grouping. A **Warehouse / InventoryLocation** is a physical or logical inventory location owned by Inventory.
+
+Canonical rules:
+
+- A company may operate without branches, with one branch, or with many branches.
+- A branch may contain zero, one, or multiple warehouses/locations.
+- A warehouse/location may carry an optional `branch_id` when the customer uses branch organization.
+- Do not assume `one branch = one warehouse`.
+- Branch membership must never implicitly grant inventory access to every warehouse in that branch. Exact location authorization remains authoritative.
+- Products, zones, shops, representatives, and vehicles remain company-wide master data even when the company uses branches.
+
+### Operational assignment example
+
+Identity and daily assignment must remain separate. A valid model is:
+
+`Company field representative + Company vehicle + explicit source warehouse + territory/shops -> Dispatch Route / work assignment`
+
+The same representative or vehicle may be assigned from another authorized warehouse on another route/day without changing its master identity. Inventory transfers establish custody between warehouses and vehicle locations; Fleet/Dispatch does not mutate stock truth directly.
+
+### Dashboard UX rule for this model
+
+All authorization/scope complexity belongs to backend/domain contracts. The Dashboard must expose the shortest safe operator path:
+
+- simple business-language forms;
+- sensible defaults;
+- advanced scope detail only when needed;
+- no requirement for the operator to understand internal permission tables, RLS, ownership joins, or inventory-location mechanics;
+- backend remains authoritative for every capability, company, branch, location, route, and vehicle check.
+
+This is a strict application of the existing Dashboard UX constitution: **simple UI must not mean simplified security or duplicated business authority.**
