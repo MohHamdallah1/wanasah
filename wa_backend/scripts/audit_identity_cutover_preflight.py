@@ -116,7 +116,7 @@ def _tenant_report(cur: psycopg.Cursor, company_id: int) -> dict[str, object]:
         """
         SELECT rt.driver_id,
                count(*) AS total,
-               count(*) FILTER (WHERE NOT rt.revoked AND rt.expires_at > now()) AS active
+               count(*) FILTER (WHERE NOT rt.is_revoked AND rt.expires_at > now()) AS active
         FROM refresh_tokens rt
         JOIN drivers d ON d.id=rt.driver_id
         WHERE d.company_id=%s
