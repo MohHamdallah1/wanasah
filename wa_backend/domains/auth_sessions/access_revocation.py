@@ -5,7 +5,7 @@ separate so logout orchestration can keep both concerns explicit and transaction
 """
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import TokenBlacklist
@@ -24,22 +24,23 @@ async def blacklist_authenticated_access_token(
 ) -> bool:
     """Queue exact canonical access-token revocation in the caller transaction.
 
-    Returns True only when a new blacklist row is queued; repeated logout for the
-    same token is idempotent and returns False. The caller owns commit/rollback.
+    Returns True only when this call inserted the blacklist row. PostgreSQL conflict
+    handling makes repeated or concurrent logout idempotent. The caller owns the
+    surrounding commit/rollback.
     """
     if claims.token_type != "access":
         raise AccessRevocationRejected
     if not isinstance(token, str) or not token or len(token) > 500:
         raise AccessRevocationRejected
 
-    existing = await db.scalar(
-        select(TokenBlacklist.id).where(TokenBlacklist.token == token)
+    statement = (
+        pg_insert(TokenBlacklist)
+        .values(token=token)
+        .on_conflict_do_nothing(index_elements=[TokenBlacklist.token])
+        .returning(TokenBlacklist.id)
     )
-    if existing is not None:
-        return False
-
-    db.add(TokenBlacklist(token=token))
-    return True
+    inserted_id = (await db.execute(statement)).scalar_one_or_none()
+    return inserted_id is not None
 
 
 __all__ = [
