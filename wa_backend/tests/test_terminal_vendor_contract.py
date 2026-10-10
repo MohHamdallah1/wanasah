@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from domains.authorization.capabilities import COMPANY_ONLY, PERMISSIONS
 from schemas import TerminalVendorHandoverRequest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,11 +36,9 @@ def test_vendor_handover_request_requires_counterparty_evidence_and_positive_qua
 
 
 def test_vendor_handover_is_exact_location_scoped_and_idempotent():
-    access = (ROOT / "inventory_access.py").read_text(encoding="utf-8")
     api = (ROOT / "api" / "warehouse" / "transfers.py").read_text(encoding="utf-8")
-    assert "'inventory.vendor_return.confirm'" in access
-    company_only = access.split("COMPANY_ONLY = frozenset({", 1)[1].split("})", 1)[0]
-    assert "inventory.vendor_return.confirm" not in company_only
+    assert "inventory.vendor_return.confirm" in PERMISSIONS
+    assert "inventory.vendor_return.confirm" not in COMPANY_ONLY
     assert 'await access.require("inventory.vendor_return.confirm", payload.source_location_id)' in api
     assert 'operation="INVENTORY_FINAL_VENDOR_HANDOVER"' in api
     assert 'complete_idempotent_operation(idempotency_record, response_payload)' in api
