@@ -25,6 +25,7 @@ from domains.sales_returns import models as sales_return_models  # noqa: F401
 from domains.suppliers import models as supplier_models  # noqa: F401
 from domains.identity import models as identity_models  # noqa: F401
 from domains.identity.migration import models as identity_bridge_models  # noqa: F401
+from domains.auth_sessions import models as auth_session_models  # noqa: F401
 from domains import inventory_supplier_evidence  # noqa: F401
 
 target_metadata = Base.metadata
