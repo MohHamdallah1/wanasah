@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from domains.authorization.capabilities import COMPANY_ONLY, PERMISSIONS
 from schemas import TerminalDisposalConfirmRequest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,11 +42,9 @@ def test_terminal_disposal_uses_unified_source_only_movement_and_evidence():
 
 
 def test_terminal_disposal_permission_is_exact_location_scoped():
-    access = (ROOT / "inventory_access.py").read_text(encoding="utf-8")
     api = (ROOT / "api" / "warehouse" / "transfers.py").read_text(encoding="utf-8")
-    assert "'inventory.disposal.confirm'" in access
-    company_only = access.split("COMPANY_ONLY = frozenset({", 1)[1].split("})", 1)[0]
-    assert "inventory.disposal.confirm" not in company_only
+    assert "inventory.disposal.confirm" in PERMISSIONS
+    assert "inventory.disposal.confirm" not in COMPANY_ONLY
     assert 'await access.require("inventory.disposal.confirm", payload.source_location_id)' in api
 
 
