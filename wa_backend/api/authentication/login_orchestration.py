@@ -97,6 +97,22 @@ async def _enforce_attempt_limit(db: AsyncSession, *, ip_address: str) -> None:
         raise PrincipalLoginRateLimited from None
 
 
+async def _reject_dashboard_attempt(
+    db: AsyncSession,
+    *,
+    ip_address: str,
+    username: str,
+    company_code: str,
+) -> None:
+    await _record_failed_login(
+        db,
+        ip_address=ip_address,
+        username=username,
+        company_code=company_code,
+    )
+    raise PrincipalLoginRejected from None
+
+
 async def login_dashboard_principal(
     db: AsyncSession,
     *,
@@ -126,14 +142,23 @@ async def login_dashboard_principal(
             company=company,
             authentication=identity,
         )
-    except (LoginBoundaryRejected, AuthenticationRejected, DashboardAdmissionRejected):
-        await _record_failed_login(
+    except (
+        LoginBoundaryRejected,
+        AuthenticationRejected,
+        DashboardAdmissionRejected,
+        PrincipalLoginRejected,
+    ):
+        await _reject_dashboard_attempt(
             db,
             ip_address=ip_address,
             username=username,
             company_code=company_code,
         )
-        raise PrincipalLoginRejected from None
+    except Exception:
+        # This layer owns login transaction completion; unexpected persistence
+        # errors must never leak an open or partially written transaction.
+        await db.rollback()
+        raise
 
     try:
         refresh = await create_refresh_session(
@@ -202,7 +227,7 @@ async def login_field_principal(
             company=company,
             authentication=identity,
         )
-    except (LoginBoundaryRejected, AuthenticationRejected):
+    except (LoginBoundaryRejected, AuthenticationRejected, PrincipalLoginRejected):
         await _record_failed_login(
             db,
             ip_address=ip_address,
@@ -210,6 +235,9 @@ async def login_field_principal(
             company_code=company_code,
         )
         raise PrincipalLoginRejected from None
+    except Exception:
+        await db.rollback()
+        raise
 
     try:
         refresh = await create_refresh_session(
