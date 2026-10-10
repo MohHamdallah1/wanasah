@@ -738,3 +738,80 @@ Not part of this V1 plan unless separately approved:
 - [ ] multi-company user identities.
 
 Future expansion must be possible by adding explicit optional organizational assignments/scopes without changing Company as the tenant boundary or corrupting current company-wide master identities.
+
+---
+
+# Mandatory implementation boundaries — Representatives & Vehicles
+
+This section is a hard implementation constraint, not a UI suggestion.
+
+## Existing backend reality
+
+- The project already contains substantial operational representative logic: Flutter `/driver/*` workflows, sessions, visits, sales/returns-related behavior, transfers, reconciliation, dispatch assignment, and route context.
+- The project already contains substantial vehicle operational logic: `Vehicle` master model, Dispatch assignment, vehicle inventory/custody locations, live stock, transfers, reconciliation, and stocktake integration.
+- What is largely missing is a clean company-master administration module for Representatives and Vehicles (create/list/edit/lifecycle/password administration and the corresponding Dashboard experience).
+- Legacy `wa_backend/api/driver.py` and `wa_backend/api/dispatch.py` are already very large operational surfaces. New administration logic MUST NOT be piled into them.
+
+## Backend target structure
+
+After the identity/authorization prerequisite is complete, new representative administration should live under a dedicated domain/module boundary, for example:
+
+`wa_backend/domains/representatives/`
+
+with small responsibility-focused modules such as:
+
+- `models.py` or canonical profile model placement according to the identity migration contract;
+- `schemas.py` — request/response contracts;
+- `repository.py` — tenant-scoped persistence/query operations;
+- `service.py` — application orchestration;
+- `policy.py` — representative-specific domain rules/lifecycle rules;
+- `credentials.py` — field-account password/reset operations if not owned by the shared identity domain;
+- `audit.py` or shared audit integration where appropriate.
+
+HTTP routes should be thin and placed in a dedicated representative administration router rather than added to the field `driver.py` router.
+
+New vehicle administration should similarly use a dedicated boundary, for example:
+
+`wa_backend/domains/vehicles/`
+
+with separated schemas, repository/query logic, lifecycle/policy, service orchestration, and inventory-custody integration. The Dashboard CRUD router must not become part of `dispatch.py`.
+
+Exact filenames may be adjusted by the technical lead to match existing repository conventions, but the responsibility boundaries are mandatory. A worker may NOT independently change this architecture; any proposed alternative must follow `PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md` escalation.
+
+## Existing operational logic is preserved, not duplicated
+
+- Do not rewrite working Dispatch/Flutter/Inventory business rules from scratch.
+- Administration modules own master-data management.
+- Dispatch continues to own route/assignment workflow.
+- Inventory continues to own stock quantity and custody movement.
+- Shared identity/auth owns credential/session/authentication infrastructure.
+- Representatives domain owns field-representative profile/lifecycle business rules.
+- Vehicles domain owns vehicle master/lifecycle business rules.
+- Integrations call authoritative services; they must not copy validation logic.
+
+## File-size and function-design guardrails
+
+- No new mega-file.
+- No new god-function performing validation + authorization + SQL + auditing + side effects + response construction in one block.
+- Routers remain thin.
+- Complex queries get named repository/query helpers.
+- Domain state changes go through named service/policy operations.
+- Cross-domain effects use explicit service boundaries.
+- If implementation starts materially enlarging `driver.py` or `dispatch.py`, STOP and redesign the placement before continuing.
+
+## Frontend target structure
+
+The page shell and both tabs remain separated. Prefer dedicated feature folders, for example:
+
+`dashboard/src/pages/representatives-vehicles/`
+
+- page shell / tabs / page-level orchestration;
+- `representatives/` for list, filters, drawer/form, actions, contracts/hooks;
+- `vehicles/` for its later phase;
+- shared page-only primitives only when truly shared.
+
+Do not create one giant `RepresentativesVehiclesPage.tsx` containing all API calls, forms, table logic, validation, drawers, and both tabs.
+
+## Acceptance condition
+
+Representatives are not considered complete merely because the UI works. Completion requires clean module ownership, no new coupling into legacy mega-files, preservation of existing Flutter/Dispatch behavior, and focused regression coverage. Vehicles start only after Representatives are owner-accepted as required by this plan.
