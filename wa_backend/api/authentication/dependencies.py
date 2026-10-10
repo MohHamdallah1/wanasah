@@ -1,6 +1,8 @@
 """HTTP-only boundary from canonical access tokens to trusted request context."""
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select, text
@@ -9,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import Config
 from context import tenant_context
 from database import get_db
+from domains.auth_sessions.claims import CompanyTokenClaims
 from domains.auth_sessions.codec import decode_company_token
 from domains.auth_sessions.context import (
     AuthenticatedRequestContext,
@@ -23,6 +26,15 @@ _security = HTTPBearer(auto_error=False)
 _AUTH_REJECTION_DETAIL = "Authentication credentials are invalid or expired."
 
 
+@dataclass(frozen=True)
+class AuthenticatedAccessSession:
+    """One request's exact token, decoded claims and persisted trusted identity."""
+
+    token: str = field(repr=False)
+    claims: CompanyTokenClaims
+    context: AuthenticatedRequestContext
+
+
 def _authentication_rejected() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -31,7 +43,7 @@ def _authentication_rejected() -> HTTPException:
     )
 
 
-def _decode_access_token(token: str):
+def _decode_access_token(token: str) -> CompanyTokenClaims:
     try:
         return decode_company_token(
             token,
@@ -68,17 +80,18 @@ async def _reject_blacklisted_token(db: AsyncSession, *, token: str) -> None:
         raise _authentication_rejected()
 
 
-async def _resolve_http_context(
+async def _resolve_authenticated_access_session(
     *,
     token: str,
     db: AsyncSession,
-) -> AuthenticatedRequestContext:
+) -> AuthenticatedAccessSession:
     claims = _decode_access_token(token)
 
     try:
         await _establish_tenant_context(db, company_id=claims.company_id)
         await _reject_blacklisted_token(db, token=token)
-        return await resolve_access_context(db, claims)
+        current = await resolve_access_context(db, claims)
+        return AuthenticatedAccessSession(token=token, claims=claims, context=current)
     except HTTPException:
         raise
     except RequestContextRejected:
@@ -88,17 +101,36 @@ async def _resolve_http_context(
         raise _authentication_rejected() from None
 
 
-async def get_current_principal_context(
+async def _resolve_http_context(
+    *, token: str, db: AsyncSession,
+) -> AuthenticatedRequestContext:
+    """Keep the existing internal context-only boundary backed by the carrier."""
+    return (await _resolve_authenticated_access_session(token=token, db=db)).context
+
+
+async def get_authenticated_access_session(
     credentials: HTTPAuthorizationCredentials | None = Depends(_security),
     db: AsyncSession = Depends(get_db),
-) -> AuthenticatedRequestContext:
-    """Resolve a canonical company access token into persisted trusted identity."""
+) -> AuthenticatedAccessSession:
+    """Authenticate once; FastAPI shares this carrier through its request cache."""
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise _authentication_rejected()
     token = credentials.credentials
     if not token:
         raise _authentication_rejected()
-    return await _resolve_http_context(token=token, db=db)
+    return await _resolve_authenticated_access_session(token=token, db=db)
+
+
+async def get_current_principal_context(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_security),
+    db: AsyncSession = Depends(get_db),
+    *,
+    session: AuthenticatedAccessSession = Depends(get_authenticated_access_session),
+) -> AuthenticatedRequestContext:
+    """Use FastAPI's cached carrier; keep direct credentials/db callers compatible."""
+    if not isinstance(session, AuthenticatedAccessSession):
+        session = await get_authenticated_access_session(credentials=credentials, db=db)
+    return session.context
 
 
 async def get_current_backoffice_context(
@@ -120,6 +152,8 @@ async def get_current_field_context(
 
 
 __all__ = [
+    "AuthenticatedAccessSession",
+    "get_authenticated_access_session",
     "get_current_backoffice_context",
     "get_current_field_context",
     "get_current_principal_context",
