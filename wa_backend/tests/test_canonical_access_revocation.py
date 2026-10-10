@@ -11,22 +11,28 @@ import domains.auth_sessions.access_revocation as revocation_module
 from domains.auth_sessions.claims import CompanyTokenClaims
 
 
+class _FakeResult:
+    def __init__(self, inserted_id):
+        self.inserted_id = inserted_id
+
+    def scalar_one_or_none(self):
+        return self.inserted_id
+
+
 class FakeDB:
-    def __init__(self, *, existing_id=None):
-        self.existing_id = existing_id
-        self.added = []
-        self.scalar_calls = 0
+    def __init__(self, *, inserted_id=91):
+        self.inserted_id = inserted_id
+        self.execute_calls = 0
+        self.statements = []
         self.commits = 0
         self.rollbacks = 0
 
-    async def scalar(self, statement):
-        self.scalar_calls += 1
+    async def execute(self, statement):
+        self.execute_calls += 1
+        self.statements.append(statement)
         compiled = statement.compile()
         self.params = dict(compiled.params)
-        return self.existing_id
-
-    def add(self, value):
-        self.added.append(value)
+        return _FakeResult(self.inserted_id)
 
     async def commit(self):
         self.commits += 1
@@ -62,8 +68,8 @@ def refresh_claims() -> CompanyTokenClaims:
 
 
 class CanonicalAccessRevocationTests(unittest.IsolatedAsyncioTestCase):
-    async def test_new_exact_token_is_queued_once(self):
-        db = FakeDB()
+    async def test_new_exact_token_is_inserted(self):
+        db = FakeDB(inserted_id=91)
         token = "signed-access-token"
 
         created = await blacklist_authenticated_access_token(
@@ -71,19 +77,21 @@ class CanonicalAccessRevocationTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertTrue(created)
-        self.assertEqual(len(db.added), 1)
-        self.assertEqual(db.added[0].token, token)
+        self.assertEqual(db.execute_calls, 1)
         self.assertIn(token, db.params.values())
+        sql = str(db.statements[0])
+        self.assertIn("ON CONFLICT", sql.upper())
+        self.assertIn("DO NOTHING", sql.upper())
 
-    async def test_existing_blacklist_row_is_idempotent(self):
-        db = FakeDB(existing_id=91)
+    async def test_conflict_is_idempotent(self):
+        db = FakeDB(inserted_id=None)
 
         created = await blacklist_authenticated_access_token(
             db, token="signed-access-token", claims=access_claims()
         )
 
         self.assertFalse(created)
-        self.assertEqual(db.added, [])
+        self.assertEqual(db.execute_calls, 1)
 
     async def test_refresh_claims_are_rejected(self):
         db = FakeDB()
@@ -91,8 +99,7 @@ class CanonicalAccessRevocationTests(unittest.IsolatedAsyncioTestCase):
             await blacklist_authenticated_access_token(
                 db, token="signed-refresh-token", claims=refresh_claims()
             )
-        self.assertEqual(db.scalar_calls, 0)
-        self.assertEqual(db.added, [])
+        self.assertEqual(db.execute_calls, 0)
 
     async def test_empty_or_oversized_token_rejected_before_database(self):
         for token in ("", "x" * 501):
@@ -101,8 +108,7 @@ class CanonicalAccessRevocationTests(unittest.IsolatedAsyncioTestCase):
                 await blacklist_authenticated_access_token(
                     db, token=token, claims=access_claims()
                 )
-            self.assertEqual(db.scalar_calls, 0)
-            self.assertEqual(db.added, [])
+            self.assertEqual(db.execute_calls, 0)
 
     async def test_transaction_ownership_stays_with_caller(self):
         db = FakeDB()
