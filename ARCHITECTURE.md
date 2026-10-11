@@ -398,20 +398,51 @@ Strict modularity must not create needless serialization, HTTP calls, or distrib
 
 ---
 
-## 12. SECURITY AND AUTHORIZATION
+## 12. SECURITY, IDENTITY, AND AUTHORIZATION
 
-Authorization is a domain/backend responsibility, not a UI concern.
+Authentication, identity classification, authorization, and scope are backend/domain responsibilities. UI visibility, role names, token convenience claims, and legacy persona flags are never security authority.
 
-The future company-wide permission system should support:
+### Canonical company identity
 
-- platform administration separated from tenants;
-- company roles;
-- module permissions;
-- location/warehouse scope;
-- optional branch/route/vehicle/team scope where required;
-- explicit overrides with auditability.
+- `CompanyPrincipal` is the company credential/authentication root.
+- The initial canonical principal types are exactly `BACKOFFICE` and `FIELD_REPRESENTATIVE`.
+- Principal type classifies identity/access channel; it is **not** an authorization grant.
+- `BackofficeUser` and `FieldRepresentative` are separate profiles with independent IDs.
+- `CompanyPrincipal.id`, profile IDs, and legacy `Driver.id` must never be assumed equal, copied as aliases, or substituted for one another.
+- `CompanyOwner` is explicit protected Backoffice-linked authority. It is not a role name and not a boolean admin flag.
+- Platform administration remains a separate security realm from company identity and company capabilities.
 
-Inventory-specific permissions are an initial slice of this broader authorization architecture, not the final system-wide location for all roles.
+### Canonical authorization decision
+
+The permanent company authorization model is:
+
+`authenticated principal + access channel + capability + applicable scope -> backend decision`
+
+- Roles are bundles of capabilities only; role names are not authorization contracts.
+- Capabilities and grants come from persisted server authority. JWT role/capability claims must never become authorization authority.
+- Tenant, object, location, structural, lifecycle, accounting, and other business invariants remain mandatory even for Company Owner or any actor with a full capability set.
+- Branch is an organizational scope only where a workflow explicitly defines it; it is never a tenant substitute and never a warehouse/location permission substitute.
+- Any missing, revoked, cross-company, cross-channel, or wrong-scope authority fails closed.
+
+### Permanent prohibition on generic admin-flag authority
+
+`Driver.is_admin` is a deprecated migration artifact. New or modified Runtime code **MUST NEVER** use `is_admin` for any of the following:
+
+- authentication;
+- authorization;
+- Company Owner detection;
+- Backoffice-vs-Field classification;
+- representative selection;
+- tenant/company identity;
+- scope decisions.
+
+This prohibition also applies to new identity, token, API, background-worker, job, websocket, realtime, and event contracts.
+
+Do not rename the same anti-pattern. Generic shortcut booleans such as `is_superuser`, `is_manager`, `is_owner`, or another persona flag must not become business authorization authority. A domain-specific boolean is allowed only when it represents genuine domain state and does not replace capability/scope authorization.
+
+Legacy `Driver` may remain temporarily only as an old FK/operational-attribution object during the identity migration. A compatibility adapter may locate or return that legacy object only for the bounded compatibility purpose already approved; temporary adapters must not grow new business semantics, new authority, or new identity classification rules.
+
+Final canonical identity acceptance requires **zero Runtime authority or classification dependence on `is_admin`**. After Runtime reaches zero, an automated source/architecture CI gate must reject reintroduction of admin-flag authority except immutable historical migrations/evidence. That final zero-occurrence gate is intentionally deferred until the known legacy Runtime references have been removed; this paragraph is the permanent requirement to add it at that point.
 
 ---
 
