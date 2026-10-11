@@ -26,7 +26,7 @@ MIGRATION_PATH = (
     ROOT
     / "alembic"
     / "versions"
-    / "c8a41d9e6f20_inventory_minimum_stock_permission.py"
+    / "c8a41d9e6f20_inventory_minimum_stock_manage_permission.py"
 )
 CAPABILITY = "inventory.minimum_stock.manage"
 
@@ -109,7 +109,12 @@ class MinimumStockCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTes
 
         self.assertIs(result, access)
         statement = db.scalar.await_args.args[0]
-        sql = str(statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+        sql = str(
+            statement.compile(
+                dialect=postgresql.dialect(),
+                compile_kwargs={"literal_binds": True},
+            )
+        )
         self.assertIn(CAPABILITY, sql)
 
     async def test_ordinary_backoffice_without_manage_gets_403(self):
@@ -175,22 +180,24 @@ class MinimumStockCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTes
             "target_conflicts": [],
             "invalid_quantity": [],
         }
+        db = object()
 
         with (
             patch.object(stock_policy, "_require_active_warehouse", AsyncMock()) as warehouse,
-            patch.object(stock_policy, "_plan_bulk_minimum", AsyncMock(return_value=plan)) as planner,
+            patch.object(
+                stock_policy,
+                "_plan_bulk_minimum",
+                AsyncMock(return_value=plan),
+            ) as planner,
         ):
             response = await stock_policy.preview_bulk_minimum_stock(
                 payload=payload,
-                db=object(),
+                db=db,
                 access=access,
             )
 
         self.assertEqual(response["location_id"], 55)
-        warehouse.assert_awaited_once_with(object(), company_id=77, location_id=55)
-        # The DB object identity is not stable in the assertion above; verify semantic kwargs.
-        self.assertEqual(warehouse.await_args.kwargs["company_id"], 77)
-        self.assertEqual(warehouse.await_args.kwargs["location_id"], 55)
+        warehouse.assert_awaited_once_with(db, company_id=77, location_id=55)
         self.assertEqual(planner.await_args.kwargs["company_id"], 77)
         self.assertEqual(access.calls, [("inventory.read", 55, False)])
 
@@ -228,11 +235,23 @@ class MinimumStockCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTes
             db = _MutationDB()
             begin = AsyncMock(return_value=(SimpleNamespace(), None))
             with (
-                patch.object(stock_policy, "_require_active_warehouse", AsyncMock()) as warehouse,
+                patch.object(
+                    stock_policy,
+                    "_require_active_warehouse",
+                    AsyncMock(),
+                ) as warehouse,
                 patch.object(stock_policy, "begin_idempotent_operation", begin),
-                patch.object(stock_policy, "_plan_bulk_minimum", AsyncMock(return_value=plan)),
+                patch.object(
+                    stock_policy,
+                    "_plan_bulk_minimum",
+                    AsyncMock(return_value=plan),
+                ),
                 patch.object(stock_policy, "refresh_live_stock_keys", AsyncMock()),
-                patch.object(stock_policy, "complete_idempotent_operation", Mock()),
+                patch.object(
+                    stock_policy,
+                    "complete_idempotent_operation",
+                    Mock(),
+                ),
             ):
                 response = await stock_policy.apply_bulk_minimum_stock(
                     payload=payload,
@@ -246,7 +265,8 @@ class MinimumStockCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTes
             self.assertEqual(begin.await_args.kwargs["company_id"], 77)
             self.assertEqual(begin.await_args.kwargs["actor_id"], 903)
             audit = next(
-                value for value in db.added
+                value
+                for value in db.added
                 if value.__class__.__name__ == "SystemAuditLog"
             )
             observations.append((audit.company_id, audit.admin_id))
@@ -270,7 +290,12 @@ class MinimumStockCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTes
 
         self.assertEqual(caught.exception.status_code, 404)
         statement = db.execute.await_args.args[0]
-        sql = str(statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+        sql = str(
+            statement.compile(
+                dialect=postgresql.dialect(),
+                compile_kwargs={"literal_binds": True},
+            )
+        )
         self.assertIn("inventory_locations.company_id = 77", sql)
         self.assertIn("inventory_locations.id = 55", sql)
         self.assertIn("inventory_locations.location_type = 'WAREHOUSE'", sql)
@@ -310,14 +335,8 @@ class MinimumStockCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTes
             source.count("legacy_actor: Driver = Depends(get_current_driver)"),
             2,
         )
-        self.assertIn(
-            "from api.dependencies import get_current_driver",
-            source,
-        )
-        self.assertIn(
-            "require_legacy_transport_backoffice_capability",
-            source,
-        )
+        self.assertIn("from api.dependencies import get_current_driver", source)
+        self.assertIn("require_legacy_transport_backoffice_capability", source)
 
     def test_lock_idempotency_projection_and_transaction_guards_remain(self):
         source = SOURCE_PATH.read_text(encoding="utf-8")
@@ -342,7 +361,7 @@ class MinimumStockCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTes
 
         self.assertIn('revision = "c8a41d9e6f20"', source)
         self.assertIn('down_revision = "b7e3f6a1c902"', source)
-        self.assertIn("INSERT INTO permissions (code)", source)
+        self.assertIn("INSERT INTO permissions (code, description)", source)
         self.assertIn("ON CONFLICT (code) DO NOTHING", source)
         self.assertIn(CAPABILITY, source)
         self.assertNotIn("INSERT INTO role_permissions", source)
