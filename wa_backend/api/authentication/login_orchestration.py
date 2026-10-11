@@ -37,8 +37,6 @@ from .login import (
     build_dashboard_login_response,
     build_field_login_response,
     prepare_login_company,
-    require_dashboard_login_compatibility,
-    require_field_login_compatibility,
 )
 from .schemas import DashboardPrincipalLoginResponse, FieldPrincipalLoginResponse
 
@@ -137,11 +135,6 @@ async def login_dashboard_principal(
         if not isinstance(identity, DashboardAuthenticationResult):
             raise PrincipalLoginRejected
         await require_dashboard_admission(db, identity)
-        compatibility = await require_dashboard_login_compatibility(
-            db,
-            company=company,
-            authentication=identity,
-        )
     except (
         LoginBoundaryRejected,
         AuthenticationRejected,
@@ -179,7 +172,6 @@ async def login_dashboard_principal(
             authentication=identity,
             access_token=access_token,
             refresh_token=refresh.refresh_token,
-            compatibility=compatibility,
         )
         response = DashboardPrincipalLoginResponse(**payload)
         record_login_attempt(
@@ -222,11 +214,6 @@ async def login_field_principal(
         )
         if not isinstance(identity, FieldAuthenticationResult):
             raise PrincipalLoginRejected
-        compatibility = await require_field_login_compatibility(
-            db,
-            company=company,
-            authentication=identity,
-        )
     except (LoginBoundaryRejected, AuthenticationRejected, PrincipalLoginRejected):
         await _record_failed_login(
             db,
@@ -258,7 +245,6 @@ async def login_field_principal(
             authentication=identity,
             access_token=access_token,
             refresh_token=refresh.refresh_token,
-            compatibility=compatibility,
         )
         response = FieldPrincipalLoginResponse(**payload)
         record_login_attempt(

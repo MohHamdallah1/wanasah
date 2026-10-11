@@ -30,9 +30,6 @@ class PrincipalAuthHTTPContractsTests(unittest.TestCase):
             "is_company_owner": False,
             "company_id": 303,
             "company_code": "WNS-01",
-            "driver_id": 404,
-            "driver_name": "Legacy Dashboard User",
-            "is_admin": True,
             "dashboard_access": True,
         }
         payload.update(overrides)
@@ -47,9 +44,6 @@ class PrincipalAuthHTTPContractsTests(unittest.TestCase):
             "channel": "FIELD",
             "company_id": 333,
             "company_code": "WNS-02",
-            "driver_id": 444,
-            "driver_name": "Legacy Field User",
-            "is_admin": False,
         }
         payload.update(overrides)
         return payload
@@ -59,8 +53,8 @@ class PrincipalAuthHTTPContractsTests(unittest.TestCase):
         self.assertEqual(response.channel, "DASHBOARD")
         self.assertEqual(response.principal_id, 101)
         self.assertEqual(response.backoffice_user_id, 202)
-        self.assertEqual(response.driver_id, 404)
         self.assertTrue(response.dashboard_access)
+        self.assertEqual(response.model_dump(), self.dashboard_payload())
         self.assertNotIn("representative_id", response.model_dump())
 
     def test_valid_field_response(self):
@@ -68,7 +62,7 @@ class PrincipalAuthHTTPContractsTests(unittest.TestCase):
         self.assertEqual(response.channel, "FIELD")
         self.assertEqual(response.principal_id, 111)
         self.assertEqual(response.representative_id, 222)
-        self.assertEqual(response.driver_id, 444)
+        self.assertEqual(response.model_dump(), self.field_payload())
         self.assertNotIn("backoffice_user_id", response.model_dump())
 
     def test_wrong_channel_rejected(self):
@@ -77,20 +71,23 @@ class PrincipalAuthHTTPContractsTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             FieldPrincipalLoginResponse(**self.field_payload(channel="DASHBOARD"))
 
-    def test_required_compatibility_fields_enforced(self):
-        for field in ("driver_id", "driver_name", "is_admin", "dashboard_access"):
+    def test_legacy_login_fields_rejected_as_extras(self):
+        for field, value in (("driver_id", 404), ("driver_name", "Legacy User"),
+                             ("is_admin", True), ("legacy_is_admin", False)):
+            for model, payload in ((DashboardPrincipalLoginResponse, self.dashboard_payload()),
+                                   (FieldPrincipalLoginResponse, self.field_payload())):
+                with self.subTest(model=model.__name__, field=field):
+                    with self.assertRaises(ValidationError):
+                        model(**{**payload, field: value})
+
+    def test_dashboard_admission_and_owner_fields_remain_required(self):
+        for field in ("dashboard_access", "is_company_owner"):
             payload = self.dashboard_payload()
             payload.pop(field)
-            with self.subTest(model="dashboard", field=field):
-                with self.assertRaises(ValidationError):
-                    DashboardPrincipalLoginResponse(**payload)
-
-        for field in ("driver_id", "driver_name", "is_admin"):
-            payload = self.field_payload()
-            payload.pop(field)
-            with self.subTest(model="field", field=field):
-                with self.assertRaises(ValidationError):
-                    FieldPrincipalLoginResponse(**payload)
+            with self.subTest(field=field), self.assertRaises(ValidationError):
+                DashboardPrincipalLoginResponse(**payload)
+        with self.assertRaises(ValidationError):
+            DashboardPrincipalLoginResponse(**self.dashboard_payload(dashboard_access=False))
 
     def test_dashboard_and_field_identity_shapes_cannot_cross(self):
         dashboard = self.dashboard_payload(representative_id=999)
@@ -159,23 +156,19 @@ class PrincipalAuthHTTPContractsTests(unittest.TestCase):
             **self.dashboard_payload(
                 principal_id=7,
                 backoffice_user_id=7,
-                driver_id=7,
             )
         )
         self.assertEqual(dashboard.principal_id, 7)
         self.assertEqual(dashboard.backoffice_user_id, 7)
-        self.assertEqual(dashboard.driver_id, 7)
 
         field = FieldPrincipalLoginResponse(
             **self.field_payload(
                 principal_id=8,
                 representative_id=8,
-                driver_id=8,
             )
         )
         self.assertEqual(field.principal_id, 8)
         self.assertEqual(field.representative_id, 8)
-        self.assertEqual(field.driver_id, 8)
 
     def test_non_empty_tokens_and_company_code_enforced(self):
         with self.assertRaises(ValidationError):
