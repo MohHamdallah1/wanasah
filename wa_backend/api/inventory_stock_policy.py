@@ -11,13 +11,19 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.authentication.legacy_backoffice_transport import (
+    require_legacy_transport_backoffice_capability,
+)
 from api.dependencies import get_current_driver
 from database import get_db
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
 from domains.live_stock_projection.service import (
     LiveStockProjectionError,
     refresh_live_stock_keys,
 )
-from inventory_access import InventoryAccess
 from models import (
     Driver,
     InventoryLocation,
@@ -42,6 +48,9 @@ from services import (
 
 
 router = APIRouter()
+_manage_minimum_stock = require_legacy_transport_backoffice_capability(
+    "inventory.minimum_stock.manage"
+)
 
 
 def _error(code: str, message: str, *, context: dict | None = None) -> dict:
@@ -53,7 +62,7 @@ def _error(code: str, message: str, *, context: dict | None = None) -> dict:
 
 
 class MinimumStockUpdateRequest(BaseModel):
-    """Company-admin command for one warehouse/product minimum-stock threshold."""
+    """Company-authorized command for one warehouse/product minimum-stock threshold."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -146,7 +155,6 @@ async def _display_factor_to_base(
     return numerator / denominator
 
 
-
 class BulkMinimumStockBase(BaseModel):
     """Bulk minimum-stock command scoped to one warehouse."""
 
@@ -233,29 +241,16 @@ def _bulk_request_hash(payload: BulkMinimumStockApplyRequest) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-async def _require_bulk_admin(
+async def _require_active_warehouse(
     db: AsyncSession,
     *,
-    current_admin: Driver,
+    company_id: int,
     location_id: int,
-) -> int:
-    if not bool(current_admin.is_admin):
-        raise HTTPException(
-            status_code=403,
-            detail=_error(
-                "STOCK_MINIMUM_ADMIN_REQUIRED",
-                "إدارة الحد الأدنى للمخزون متاحة لمسؤول الشركة فقط.",
-            ),
-        )
-
-    company_id = int(current_admin.company_id)
-    access = InventoryAccess(db, current_admin)
-    await access.require("inventory.read", int(location_id))
-
+) -> None:
     location = (
         await db.execute(
             select(InventoryLocation.id).where(
-                InventoryLocation.company_id == company_id,
+                InventoryLocation.company_id == int(company_id),
                 InventoryLocation.id == int(location_id),
                 InventoryLocation.location_type == "WAREHOUSE",
                 InventoryLocation.is_active.is_(True),
@@ -270,7 +265,6 @@ async def _require_bulk_admin(
                 "المستودع المحدد غير موجود أو غير فعال.",
             ),
         )
-    return company_id
 
 
 async def _load_bulk_minimum_candidates(
@@ -500,11 +494,17 @@ def _bulk_plan_response(payload: BulkMinimumStockBase, plan: dict) -> dict:
 async def preview_bulk_minimum_stock(
     payload: BulkMinimumStockBase,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(_manage_minimum_stock),
 ):
-    company_id = await _require_bulk_admin(
+    company_id = access.company_id
+    try:
+        await access.require("inventory.read", location_id=int(payload.location_id))
+    except BackofficeCapabilityAccessRejected:
+        raise HTTPException(status_code=403, detail="Authorization denied.") from None
+
+    await _require_active_warehouse(
         db,
-        current_admin=current_admin,
+        company_id=company_id,
         location_id=int(payload.location_id),
     )
     try:
@@ -531,11 +531,14 @@ async def preview_bulk_minimum_stock(
 async def apply_bulk_minimum_stock(
     payload: BulkMinimumStockApplyRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(_manage_minimum_stock),
+    legacy_actor: Driver = Depends(get_current_driver),
 ):
-    company_id = await _require_bulk_admin(
+    company_id = access.company_id
+    actor_id = int(legacy_actor.id)
+    await _require_active_warehouse(
         db,
-        current_admin=current_admin,
+        company_id=company_id,
         location_id=int(payload.location_id),
     )
 
@@ -544,7 +547,7 @@ async def apply_bulk_minimum_stock(
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=int(current_admin.id),
+            actor_id=actor_id,
             operation="LIVE_STOCK_MINIMUM_BULK_UPDATE",
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -599,7 +602,7 @@ async def apply_bulk_minimum_stock(
             db.add(
                 SystemAuditLog(
                     company_id=company_id,
-                    admin_id=int(current_admin.id),
+                    admin_id=actor_id,
                     target_id=(
                         f"InventoryStockPolicy_{int(payload.location_id)}_{variant_id}"
                     ),
@@ -662,7 +665,8 @@ async def update_minimum_stock(
     product_variant_id: int,
     payload: MinimumStockUpdateRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(_manage_minimum_stock),
+    legacy_actor: Driver = Depends(get_current_driver),
 ):
     """Set the company-owned minimum stock threshold for one product/warehouse.
 
@@ -677,18 +681,8 @@ async def update_minimum_stock(
             detail=_error("STOCK_MINIMUM_PRODUCT_INVALID", "معرّف المنتج غير صالح."),
         )
 
-    if not bool(current_admin.is_admin):
-        raise HTTPException(
-            status_code=403,
-            detail=_error(
-                "STOCK_MINIMUM_ADMIN_REQUIRED",
-                "تعديل الحد الأدنى للمخزون متاح لمسؤول الشركة فقط.",
-            ),
-        )
-
-    company_id = int(current_admin.company_id)
-    access = InventoryAccess(db, current_admin)
-    await access.require("inventory.read", int(payload.location_id))
+    company_id = access.company_id
+    actor_id = int(legacy_actor.id)
 
     try:
         request_hash = _request_hash(
@@ -698,7 +692,7 @@ async def update_minimum_stock(
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=int(current_admin.id),
+            actor_id=actor_id,
             operation="LIVE_STOCK_MINIMUM_UPDATE",
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -875,7 +869,7 @@ async def update_minimum_stock(
             db.add(
                 SystemAuditLog(
                     company_id=company_id,
-                    admin_id=int(current_admin.id),
+                    admin_id=actor_id,
                     target_id=(
                         f"InventoryStockPolicy_{int(payload.location_id)}_"
                         f"{int(product_variant_id)}"
