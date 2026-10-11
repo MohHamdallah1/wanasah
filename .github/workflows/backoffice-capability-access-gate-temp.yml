@@ -1,0 +1,87 @@
+name: TEMP canonical Backoffice capability access gate
+
+on:
+  push:
+    branches:
+      - sol/canonical-backoffice-capability-access
+    paths:
+      - "wa_backend/domains/authorization/backoffice_access.py"
+      - "wa_backend/tests/test_canonical_backoffice_capability_access.py"
+      - "wa_backend/tests/run_canonical_backoffice_capability_access_gate.py"
+      - ".github/workflows/backoffice-capability-access-gate-temp.yml"
+  pull_request:
+    paths:
+      - "wa_backend/domains/authorization/backoffice_access.py"
+      - "wa_backend/tests/test_canonical_backoffice_capability_access.py"
+      - "wa_backend/tests/run_canonical_backoffice_capability_access_gate.py"
+      - ".github/workflows/backoffice-capability-access-gate-temp.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  canonical-backoffice-capability-access:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: backoffice_capability_admin
+          POSTGRES_DB: canonical_backoffice_capability_gate
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U backoffice_capability_admin -d canonical_backoffice_capability_gate"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: BackofficeCapabilityGateOnlyKeyAbc123456789012345678901234
+      DATABASE_URL: postgresql+asyncpg://backoffice_capability_runtime@127.0.0.1:5432/canonical_backoffice_capability_gate
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://backoffice_capability_admin@127.0.0.1:5432/canonical_backoffice_capability_gate
+      WANASAH_BACKOFFICE_CAPABILITY_GATE: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4
+
+      - name: Create restricted runtime database role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute(
+                  "CREATE ROLE backoffice_capability_runtime LOGIN NOSUPERUSER "
+                  "NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+          print("RESTRICTED_RUNTIME_ROLE=PASS")
+          PY
+
+      - name: Clean Alembic bootstrap
+        working-directory: wa_backend
+        run: alembic upgrade head
+
+      - name: Focused canonical Backoffice capability unit suite
+        working-directory: wa_backend
+        run: python -m unittest -v tests.test_canonical_backoffice_capability_access
+
+      - name: Real PostgreSQL canonical Backoffice capability gate
+        working-directory: wa_backend
+        run: python tests/run_canonical_backoffice_capability_access_gate.py --run
+
+      - name: Diff whitespace gate
+        run: git diff --check
