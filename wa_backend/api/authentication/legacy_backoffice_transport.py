@@ -59,15 +59,15 @@ async def get_legacy_transport_backoffice_context(
     db: AsyncSession = Depends(get_db),
 ) -> DashboardRequestContext:
     """Resolve the current live Driver token into exact canonical Backoffice identity."""
-    company_id = current_driver.company_id
+    transport_company_id = current_driver.company_id
     legacy_driver_id = current_driver.id
-    if not _positive_id(company_id) or not _positive_id(legacy_driver_id):
+    if not _positive_id(transport_company_id) or not _positive_id(legacy_driver_id):
         raise _authentication_rejected()
 
     try:
         bridge = await db.scalar(
             select(IdentityLegacyDriverMap).where(
-                IdentityLegacyDriverMap.company_id == company_id,
+                IdentityLegacyDriverMap.company_id == transport_company_id,
                 IdentityLegacyDriverMap.legacy_driver_id == legacy_driver_id,
                 IdentityLegacyDriverMap.backoffice_principal_id.is_not(None),
                 IdentityLegacyDriverMap.backoffice_user_id.is_not(None),
@@ -79,13 +79,15 @@ async def get_legacy_transport_backoffice_context(
         principal_id = bridge.backoffice_principal_id
         backoffice_user_id = bridge.backoffice_user_id
         if (
-            bridge.company_id != company_id
+            bridge.company_id != transport_company_id
             or bridge.legacy_driver_id != legacy_driver_id
+            or not _positive_id(bridge.company_id)
             or not _positive_id(principal_id)
             or not _positive_id(backoffice_user_id)
         ):
             raise _authentication_rejected()
 
+        company_id = bridge.company_id
         principal = await db.scalar(
             select(CompanyPrincipal).where(
                 CompanyPrincipal.company_id == company_id,
@@ -131,7 +133,7 @@ async def get_legacy_transport_backoffice_context(
 
         return DashboardRequestContext(
             principal_id=principal_id,
-            company_id=company_id,
+            company_id=principal.company_id,
             backoffice_user_id=backoffice_user_id,
             auth_revision=principal.auth_revision,
             is_company_owner=(
