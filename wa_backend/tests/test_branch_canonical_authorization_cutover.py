@@ -150,7 +150,7 @@ class BranchCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTestCase)
         self.assertIn("Permanent prohibition on generic admin-flag authority", architecture)
         self.assertIn("zero Runtime authority or classification dependence", architecture)
         self.assertIn("automated source/architecture CI gate", architecture)
-        self.assertIn("temporary adapters must not grow new business semantics", rules)
+        self.assertIn("compatibility adapters must not grow new business semantics", rules)
         self.assertIn("Temporary compatibility adapters must not acquire new business semantics", agents)
 
     def test_branch_capabilities_are_canonical_and_company_only(self):
