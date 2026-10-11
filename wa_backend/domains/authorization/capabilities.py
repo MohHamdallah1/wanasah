@@ -3,6 +3,7 @@
 PERMISSIONS = frozenset({
     'supplier.read', 'supplier.manage',
     'location.read', 'location.create', 'location.update', 'location.state',
+    'branch.read', 'branch.create', 'branch.update', 'branch.state',
     'inventory.read', 'inbound.create', 'ledger.read', 'ledger.adjust',
     'batch.disposition', 'inventory.status_change',
     'inventory.transfer_policy.manage', 'inventory.costing.manage',
@@ -27,7 +28,8 @@ PERMISSIONS = frozenset({
 
 COMPANY_ONLY = frozenset({
     'supplier.read', 'supplier.manage',
-    'location.create', 'catalog.manage', 'catalog.publish', 'catalog.retire',
+    'location.create', 'branch.read', 'branch.create', 'branch.update', 'branch.state',
+    'catalog.manage', 'catalog.publish', 'catalog.retire',
     'catalog.restore', 'catalog.archive', 'catalog.hold',
     'batch.disposition', 'inventory.transfer_policy.manage', 'inventory.costing.manage',
     'inventory.minimum_stock.manage',
