@@ -254,9 +254,16 @@ class LegacyBackofficeTransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("jwt.decode", source)
         self.assertNotIn("token role", source.lower())
         self.assertNotIn("role ==", source)
+        self.assertEqual(source.count("current_driver.company_id"), 1)
+        self.assertEqual(source.count("current_driver.id"), 1)
         self.assertIn("resolve_backoffice_authorization_subject", source)
-        self.assertIn("IdentityLegacyDriverMap.company_id == company_id", source)
+        self.assertIn(
+            "IdentityLegacyDriverMap.company_id == transport_company_id",
+            source,
+        )
         self.assertIn("IdentityLegacyDriverMap.legacy_driver_id == legacy_driver_id", source)
+        self.assertIn("company_id = bridge.company_id", source)
+        self.assertIn("company_id=principal.company_id", source)
         self.assertIn("CompanyOwner.company_id == company_id", source)
 
 
