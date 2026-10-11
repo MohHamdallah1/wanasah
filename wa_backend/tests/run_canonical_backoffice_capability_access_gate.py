@@ -61,15 +61,15 @@ def _seed(admin_dsn: str) -> dict[str, int]:
 
         def driver(company_id: int, username: str, *, admin: bool = False) -> int:
             return conn.execute(
-                """INSERT INTO drivers(company_id,username,password_hash,full_name,is_active,is_admin)
-                   VALUES (%s,%s,'synthetic-not-for-login',%s,true,%s) RETURNING id""",
+                """INSERT INTO drivers(company_id,username,password_hash,full_name,is_active,is_admin,created_at)
+                   VALUES (%s,%s,'synthetic-not-for-login',%s,true,%s,CURRENT_TIMESTAMP) RETURNING id""",
                 (company_id, username, username, admin),
             ).fetchone()[0]
 
         def location(company_id: int, code: str) -> int:
             return conn.execute(
-                """INSERT INTO inventory_locations(company_id,name,code,location_type,is_system_managed,version,is_active)
-                   VALUES (%s,%s,%s,'WAREHOUSE',false,1,true) RETURNING id""",
+                """INSERT INTO inventory_locations(company_id,name,code,location_type,is_system_managed,version,is_active,created_at,updated_at)
+                   VALUES (%s,%s,%s,'WAREHOUSE',false,1,true,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) RETURNING id""",
                 (company_id, code, code),
             ).fetchone()[0]
 
