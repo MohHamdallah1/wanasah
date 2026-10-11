@@ -98,6 +98,7 @@ from domains.pricing.context import (
     require_route_commercial_context,
 )
 from domains.taxation.core import TaxError, require_active_jurisdictions
+from domains.dispatch_representatives import has_canonical_field_identity
 from domains.live_stock_projection.service import (
     get_live_stock_vehicle_sources,
     refresh_live_stock_vehicle_attribution,
@@ -1067,7 +1068,9 @@ async def dispatch_init(
         select(Zone).filter_by(company_id=company_id, is_active=True).order_by(Zone.id.asc())
     )).scalars().all()
     drivers = (await db.execute(
-        select(Driver).filter_by(company_id=company_id, is_active=True, is_admin=False).order_by(Driver.id.asc())
+        select(Driver).filter_by(company_id=company_id, is_active=True).filter(
+            has_canonical_field_identity(company_id=company_id, legacy_driver_id=Driver.id)
+        ).order_by(Driver.id.asc())
     )).scalars().all()
     vehicles = (await db.execute(
         select(Vehicle).filter_by(company_id=company_id, is_active=True).filter(vehicle_filter(access, 'dispatch.read', Vehicle.id)).order_by(Vehicle.id.asc())
@@ -1388,8 +1391,8 @@ async def dispatch_route(
                     company_id=company_id,
                     id=payload.driver_id,
                     is_active=True,
-                    is_admin=False,
                 )
+                .filter(has_canonical_field_identity(company_id=company_id, legacy_driver_id=Driver.id))
                 .order_by(Driver.id.asc())
                 .with_for_update()
             )
@@ -3607,10 +3610,13 @@ async def update_route_status(
                 )
 
             driver = None
+            driver_has_field_identity = False
             if snap_driver_id is not None:
-                driver = (
+                driver_row = (
                     await db.execute(
-                        select(Driver)
+                        select(Driver, has_canonical_field_identity(
+                            company_id=company_id, legacy_driver_id=Driver.id,
+                        ))
                         .filter_by(
                             company_id=company_id,
                             id=snap_driver_id,
@@ -3618,7 +3624,9 @@ async def update_route_status(
                         .order_by(Driver.id.asc())
                         .with_for_update()
                     )
-                ).scalar_one_or_none()
+                ).one_or_none()
+                if driver_row is not None:
+                    driver, driver_has_field_identity = driver_row
                 if driver is None:
                     raise HTTPException(
                         status_code=404,
@@ -3707,7 +3715,7 @@ async def update_route_status(
                 or payload.inventory is not None
             )
             if requires_live_assets:
-                if driver is None or not driver.is_active or driver.is_admin:
+                if driver is None or not driver.is_active or not driver_has_field_identity:
                     raise HTTPException(
                         status_code=409,
                         detail="لا يمكن تشغيل/تعديل حمولة المسار لأن المندوب غير فعال حالياً.",
@@ -3737,10 +3745,13 @@ async def update_route_status(
                 if driver_id is not None
             })
             driver_map = {}
+            field_driver_ids = set()
             if driver_ids_to_lock:
                 driver_rows = (
                     await db.execute(
-                        select(Driver)
+                        select(Driver, has_canonical_field_identity(
+                            company_id=company_id, legacy_driver_id=Driver.id,
+                        ))
                         .filter(
                             Driver.company_id == company_id,
                             Driver.id.in_(driver_ids_to_lock),
@@ -3748,15 +3759,19 @@ async def update_route_status(
                         .order_by(Driver.id.asc())
                         .with_for_update()
                     )
-                ).scalars().all()
-                driver_map = {int(driver.id): driver for driver in driver_rows}
+                ).all()
+                driver_map = {int(driver.id): driver for driver, _ in driver_rows}
+                field_driver_ids = {
+                    int(driver.id) for driver, has_field_identity in driver_rows
+                    if has_field_identity
+                }
 
             if requested_driver_id is not None:
                 target_driver = driver_map.get(requested_driver_id)
                 if (
                     target_driver is None
                     or not target_driver.is_active
-                    or target_driver.is_admin
+                    or requested_driver_id not in field_driver_ids
                 ):
                     raise HTTPException(
                         status_code=404,
@@ -4297,8 +4312,8 @@ async def undo_end_work(
                     company_id=company_id,
                     id=session.driver_id,
                     is_active=True,
-                    is_admin=False,
                 )
+                .filter(has_canonical_field_identity(company_id=company_id, legacy_driver_id=Driver.id))
                 .order_by(Driver.id.asc())
                 .with_for_update()
             )
@@ -4908,12 +4923,14 @@ async def add_shortages(
 
         if driver_ids:
             drivers = (await db.execute(
-                select(Driver).filter(
+                select(Driver, has_canonical_field_identity(
+                    company_id=company_id, legacy_driver_id=Driver.id,
+                )).filter(
                     Driver.company_id == company_id,
                     Driver.id.in_(driver_ids),
                 ).order_by(Driver.id.asc()).with_for_update()
-            )).scalars().all()
-            valid = {int(d.id) for d in drivers if d.is_active and not d.is_admin}
+            )).all()
+            valid = {int(d.id) for d, has_field_identity in drivers if d.is_active and has_field_identity}
             if valid != set(driver_ids):
                 raise HTTPException(status_code=400, detail="أحد المندوبين غير موجود/غير فعال أو لا يتبع شركتك.")
 
@@ -5008,7 +5025,7 @@ async def add_shortages(
                             Driver.company_id == company_id,
                             Driver.id.in_(auto_driver_ids),
                             Driver.is_active.is_(True),
-                            Driver.is_admin.is_(False),
+                            has_canonical_field_identity(company_id=company_id, legacy_driver_id=Driver.id),
                         )
                         .order_by(Driver.id.asc())
                         .with_for_update(read=True)
