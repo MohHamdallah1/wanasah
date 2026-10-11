@@ -1,0 +1,31 @@
+name: TEMP legacy field transport canonical context gate
+
+on:
+  push:
+    branches:
+      - codex/legacy-field-transport-canonical-context
+
+permissions:
+  contents: read
+
+jobs:
+  focused-legacy-field-transport:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: LegacyFieldTransportGateOnlyKey123456789012345678901234
+      DATABASE_URL: postgresql+asyncpg://field_unit@127.0.0.1:1/field_unit
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://field_admin@127.0.0.1:1/field_unit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt
+      - name: Legacy field transport focused tests
+        working-directory: wa_backend
+        run: python -m unittest -v tests.test_legacy_field_transport tests.test_legacy_field_transport_boundary
+      - name: Diff whitespace gate
+        run: git diff --check
