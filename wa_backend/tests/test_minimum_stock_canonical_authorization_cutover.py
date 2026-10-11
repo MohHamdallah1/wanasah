@@ -361,12 +361,17 @@ class MinimumStockCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTes
 
         self.assertIn('revision = "c8a41d9e6f20"', source)
         self.assertIn('down_revision = "b7e3f6a1c902"', source)
-        self.assertIn("INSERT INTO permissions (code, description)", source)
-        self.assertIn("ON CONFLICT (code) DO NOTHING", source)
+        self.assertIn("INSERT INTO permissions (code)", source)
         self.assertIn(CAPABILITY, source)
+        self.assertIn("ON CONFLICT (code) DO NOTHING", source)
+        self.assertNotIn("permissions (code, description)", source)
+        self.assertNotIn("PERMISSION_DESCRIPTION", source)
         self.assertNotIn("INSERT INTO role_permissions", source)
-        self.assertIn("NOT EXISTS", source)
-        self.assertIn("role_permissions", source)
+        self.assertIn("def downgrade():", source)
+        self.assertIn("Permission catalog rows are retained", source)
+        self.assertIn("pass", source)
+        self.assertNotIn("NOT EXISTS", source)
+        self.assertNotIn("role_permissions", source)
 
 
 if __name__ == "__main__":
