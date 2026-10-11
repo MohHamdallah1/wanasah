@@ -13,6 +13,17 @@ changes. `ARCHITECTURE.md` is the canonical architecture constitution for the en
 The workflow-protection rule applies to the entire repository and all future tasks.
 No business workflow change is authorized without explicit prior discussion and approval from the project owner.
 
+## Canonical identity and authorization — mandatory
+
+- `CompanyPrincipal` is the company credential/authentication root. Initial company principal types are `BACKOFFICE` and `FIELD_REPRESENTATIVE`; principal type classifies identity/access channel and is never authorization authority.
+- `BackofficeUser` and `FieldRepresentative` are separate profiles with independent IDs. `CompanyPrincipal.id`, profile IDs, and legacy `Driver.id` must never be assumed equal or used as aliases.
+- `CompanyOwner` is explicit protected Backoffice-linked authority, not a role name or generic admin boolean. Platform administration is a separate security realm.
+- Backend authorization is `authenticated principal + access channel + capability + applicable scope -> decision`. Roles are bundles only; role names and JWT role/capability claims are never authority. Owner/full capability never bypasses tenant, object, location, structural, or business invariants.
+- `Driver.is_admin` is a deprecated migration artifact. New or modified Runtime code must never use it for authentication, authorization, Owner detection, Backoffice/Field classification, representative selection, tenant identity, or scope decisions. Do not replace it with `is_superuser`, `is_manager`, `is_owner`, or another generic persona boolean used as business authority.
+- A domain-specific boolean is allowed only when it represents real domain state and does not replace capability/scope authorization. No new identity, token, API, background, or realtime contract may introduce generic admin-flag authority.
+- Legacy `Driver` may exist temporarily only for old FK/operational attribution. Temporary compatibility adapters must not acquire new business semantics and must be removed at final canonical cutover.
+- Final identity acceptance requires zero Runtime authority/classification dependence on `is_admin`. Once Runtime reaches zero, add an automated source/architecture CI gate rejecting reintroduction except immutable historical migrations/evidence; do not add that gate prematurely while known legacy Runtime references remain.
+
 
 ## Mandatory internationalization and durable-command rules
 
