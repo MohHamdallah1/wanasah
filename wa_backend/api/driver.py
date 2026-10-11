@@ -7,6 +7,8 @@ from sqlalchemy.exc import IntegrityError
 from database import get_db
 from typing import List, Optional
 from api.dependencies import get_current_driver
+from api.authentication.legacy_field_transport import get_legacy_transport_field_context
+from domains.auth_sessions.context import FieldRequestContext
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from quantity import QUANTITY_MAX
@@ -142,10 +144,11 @@ router = APIRouter(tags=["Driver Operations"])
 async def start_work_session(
     payload: SessionStartRequest,
     db: AsyncSession = Depends(get_db),
-    current_driver: Driver = Depends(get_current_driver)
+    field_context: FieldRequestContext = Depends(get_legacy_transport_field_context),
+    legacy_actor: Driver = Depends(get_current_driver)
 ):
-    driver_id = current_driver.id
-    company_id = current_driver.company_id
+    driver_id = legacy_actor.id
+    company_id = field_context.company_id
 
     try:
         # Lock order يبدأ بالمندوب لمنع تشغيل جلستين متوازيتين لنفس الهوية.
@@ -439,10 +442,11 @@ async def start_work_session(
 @router.put("/driver/sessions/end", status_code=200)
 async def end_work_session(
     db: AsyncSession = Depends(get_db),
-    current_driver: Driver = Depends(get_current_driver)
+    field_context: FieldRequestContext = Depends(get_legacy_transport_field_context),
+    legacy_actor: Driver = Depends(get_current_driver)
 ):
-    company_id = current_driver.company_id
-    driver_id = current_driver.id
+    company_id = field_context.company_id
+    driver_id = legacy_actor.id
 
     try:
         active_session = (
@@ -510,10 +514,11 @@ async def end_work_session(
 async def toggle_break(
     payload: BreakToggleRequest,
     db: AsyncSession = Depends(get_db),
-    current_driver: Driver = Depends(get_current_driver)
+    field_context: FieldRequestContext = Depends(get_legacy_transport_field_context),
+    legacy_actor: Driver = Depends(get_current_driver)
 ):
-    company_id = current_driver.company_id
-    driver_id = current_driver.id
+    company_id = field_context.company_id
+    driver_id = legacy_actor.id
 
     try:
         active_session = (
