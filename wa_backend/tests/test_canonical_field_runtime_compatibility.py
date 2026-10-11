@@ -117,14 +117,16 @@ class CanonicalFieldRuntimeCompatibilityTests(unittest.IsolatedAsyncioTestCase):
     async def test_existing_subject_resolver_is_the_only_mapping_authority(self):
         current = field_context()
         driver = operational_row(id=909)
-        db, _, _ = database(None, driver)
-        db.execute.side_effect = None
-        db.execute.return_value.scalar_one_or_none.return_value = driver
+        db, _, driver_result = database(None, driver)
+        db.execute.side_effect = [driver_result]
         subject = FieldAuthorizationSubject(101, 202, 7, 909)
         with patch.object(module, "resolve_field_authorization_subject",
                           AsyncMock(return_value=subject)) as resolve:
             self.assertIs(await self.resolve(db, current), driver)
         resolve.assert_awaited_once_with(db, current)
+        db.execute.assert_awaited_once()
+        driver_result.scalar_one_or_none.assert_called_once_with()
+        self.assert_request_owns_transaction(db)
         predicates = db.execute.await_args.args[0].whereclause.clauses
         self.assertEqual([(item.left.name, item.right.value) for item in predicates],
                          [("company_id", 7), ("id", 909)])
