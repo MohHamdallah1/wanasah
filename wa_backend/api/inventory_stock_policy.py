@@ -11,8 +11,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.authentication.backoffice_authorization import require_backoffice_capability
-from api.authentication.backoffice_compatibility import get_current_backoffice_legacy_driver
+from api.authentication.legacy_backoffice_transport import (
+    require_legacy_transport_backoffice_capability,
+)
+from api.dependencies import get_current_driver
 from database import get_db
 from domains.authorization.backoffice_access import (
     BackofficeCapabilityAccess,
@@ -46,7 +48,9 @@ from services import (
 
 
 router = APIRouter()
-_manage_minimum_stock = require_backoffice_capability("inventory.minimum_stock.manage")
+_manage_minimum_stock = require_legacy_transport_backoffice_capability(
+    "inventory.minimum_stock.manage"
+)
 
 
 def _error(code: str, message: str, *, context: dict | None = None) -> dict:
@@ -528,7 +532,7 @@ async def apply_bulk_minimum_stock(
     payload: BulkMinimumStockApplyRequest,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_manage_minimum_stock),
-    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+    legacy_actor: Driver = Depends(get_current_driver),
 ):
     company_id = access.company_id
     actor_id = int(legacy_actor.id)
@@ -662,7 +666,7 @@ async def update_minimum_stock(
     payload: MinimumStockUpdateRequest,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_manage_minimum_stock),
-    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+    legacy_actor: Driver = Depends(get_current_driver),
 ):
     """Set the company-owned minimum stock threshold for one product/warehouse.
 
