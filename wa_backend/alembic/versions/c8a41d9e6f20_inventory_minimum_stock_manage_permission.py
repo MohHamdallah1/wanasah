@@ -11,28 +11,18 @@ branch_labels = None
 depends_on = None
 
 PERMISSION_CODE = "inventory.minimum_stock.manage"
-PERMISSION_DESCRIPTION = "Manage inventory minimum-stock policy"
 
 
 def upgrade():
     op.execute(
         f"""
-        INSERT INTO permissions (code, description)
-        VALUES ('{PERMISSION_CODE}', '{PERMISSION_DESCRIPTION}')
+        INSERT INTO permissions (code)
+        VALUES ('{PERMISSION_CODE}')
         ON CONFLICT (code) DO NOTHING
         """
     )
 
 
 def downgrade():
-    op.execute(
-        f"""
-        DELETE FROM permissions
-         WHERE code = '{PERMISSION_CODE}'
-           AND NOT EXISTS (
-               SELECT 1
-                 FROM role_permissions rp
-                WHERE rp.permission_id = permissions.id
-           )
-        """
-    )
+    # Permission catalog rows are retained to avoid invalidating RBAC catalog history.
+    pass
