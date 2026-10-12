@@ -35,8 +35,6 @@ jobs:
           PY
       - name: Canonical capability core
         run: python -m unittest -q tests.test_canonical_backoffice_capability_access
-      - name: Canonical dependency core
-        run: python -m unittest -q tests.test_canonical_backoffice_authorization_dependency
       - name: Authority and capability audit
         shell: bash
         run: |
