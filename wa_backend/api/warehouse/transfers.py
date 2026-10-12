@@ -12,9 +12,21 @@ from sqlalchemy import and_, case, func, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
+from api.authentication.backoffice_compatibility import (
+    get_current_backoffice_legacy_driver,
+)
 from database import get_db
-from inventory_access import InventoryAccess, require_transfer, transfer_filter
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
+from domains.authorization.guards import (
+    require_transfer as require_canonical_transfer,
+    transfer_filter,
+)
 from models import (
     Driver,
     InventoryBalance,
@@ -101,6 +113,53 @@ from ._shared import (
 
 logger = logging.getLogger("wanasah_logger")
 router = APIRouter()
+
+async def _require_transfer_capability(
+    access: BackofficeCapabilityAccess,
+    code,
+    location_id: Optional[int] = None,
+    *,
+    any_location: bool = False,
+) -> None:
+    try:
+        await access.require(
+            code,
+            location_id,
+            any_location=any_location,
+        )
+    except BackofficeCapabilityAccessRejected:
+        if location_id is not None:
+            location_exists = await access.db.scalar(
+                select(InventoryLocation.id).where(
+                    InventoryLocation.company_id == access.company_id,
+                    InventoryLocation.id == location_id,
+                )
+            )
+            if location_exists is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="الموقع غير موجود أو غير متاح.",
+                ) from None
+        raise HTTPException(
+            status_code=403,
+            detail="لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.",
+        ) from None
+
+
+async def _require_transfer_document(
+    access: BackofficeCapabilityAccess,
+    code: str,
+    header_id: int,
+    side: Optional[str] = None,
+) -> None:
+    try:
+        await require_canonical_transfer(access, code, header_id, side)
+    except BackofficeCapabilityAccessRejected:
+        raise HTTPException(
+            status_code=403,
+            detail="لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.",
+        ) from None
+
 
 
 # ====================================================
@@ -229,10 +288,12 @@ async def change_batch_disposition(
     batch_id: int,
     payload: BatchDispositionChangeRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require("batch.disposition")
+    await _require_transfer_capability(access, "batch.disposition")
 
     if batch_id <= 0:
         raise HTTPException(
@@ -244,7 +305,7 @@ async def change_batch_disposition(
             ),
         )
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
     try:
         request_hash = _stable_request_hash(
             payload,
@@ -253,7 +314,7 @@ async def change_batch_disposition(
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             operation="BATCH_DISPOSITION_CHANGE",
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -265,7 +326,7 @@ async def change_batch_disposition(
         batch = await change_product_batch_disposition(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             batch_id=batch_id,
             expected_revision=payload.expected_revision,
             target_disposition=payload.disposition,
@@ -334,18 +395,20 @@ async def change_batch_disposition(
 async def change_inventory_status(
     payload: InventoryStatusChangeRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require("inventory.status_change", payload.location_id)
+    await _require_transfer_capability(access, "inventory.status_change", payload.location_id)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
     try:
         request_hash = _stable_request_hash(payload)
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             operation="INVENTORY_STATUS_CHANGE",
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -389,7 +452,7 @@ async def change_inventory_status(
         movement = await apply_inventory_movement(
             db,
             company_id=company_id,
-            performed_by=current_admin.id,
+            performed_by=legacy_actor.id,
             product_variant_id=payload.product_variant_id,
             batch_id=payload.batch_id,
             quantity=payload.quantity,
@@ -475,12 +538,13 @@ async def list_unified_transfer_locations(
     ),
     limit: int = Query(default=50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require(('transfer.read', 'transfer.send', 'transfer.destination'), any_location=True)
+    await _require_transfer_capability(access, ('transfer.read', 'transfer.send', 'transfer.destination'), any_location=True)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
     clean_search = (search or "").strip().lower()
 
     stmt = (
@@ -561,12 +625,13 @@ async def get_unified_transfer_source_inventory(
     limit: int = Query(default=50, ge=1, le=200),
     search: Optional[str] = Query(default=None, min_length=2, max_length=100),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require('transfer.send', location_id)
+    await _require_transfer_capability(access, 'transfer.send', location_id)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
     clean_search = (search or "").strip().lower()
 
     location = (
@@ -810,12 +875,13 @@ async def get_unified_transfer_override_options(
     location_id: int = Query(..., ge=1),
     product_variant_id: int = Query(..., ge=1),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require('inventory.fefo_override', location_id)
+    await _require_transfer_capability(access, 'inventory.fefo_override', location_id)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     location_exists = (
         await db.execute(
@@ -1186,12 +1252,13 @@ async def list_unified_transfers(
     cursor: Optional[str] = Query(default=None, max_length=512),
     limit: int = Query(default=50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require('transfer.read', location_id, any_location=location_id is None)
+    await _require_transfer_capability(access, 'transfer.read', location_id, any_location=location_id is None)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     normalized_status = (status or "").strip().upper()
     normalized_direction = (direction or "all").strip().lower()
@@ -1338,12 +1405,13 @@ async def list_unified_transfers(
 async def get_unified_transfer_detail(
     header_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
-    access = InventoryAccess(db, current_admin)
-    await require_transfer(access, 'transfer.read', header_id)
+    await _require_transfer_document(access, 'transfer.read', header_id)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     header = (
         await db.execute(
@@ -1449,9 +1517,12 @@ async def get_unified_transfer_detail(
 async def special_transfer_dispatch(
     payload: SpecialTransferDispatchRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    company_id = current_admin.company_id
+    company_id = access.company_id
     purpose = str(payload.transfer_purpose).upper()
     permission_code = SPECIAL_TRANSFER_PERMISSION.get(purpose)
     if permission_code is None:
@@ -1464,16 +1535,15 @@ async def special_transfer_dispatch(
             ),
         )
 
-    access = InventoryAccess(db, current_admin)
-    await access.require(permission_code)
-    await access.require("transfer.send", payload.source_location_id)
+    await _require_transfer_capability(access, permission_code)
+    await _require_transfer_capability(access, "transfer.send", payload.source_location_id)
 
     try:
         request_hash = _stable_request_hash(payload)
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             operation="SPECIAL_TRANSFER_DISPATCH",
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -1510,7 +1580,7 @@ async def special_transfer_dispatch(
         destination_location_id = int(
             direction["destination_location_id"]
         )
-        await access.require(
+        await _require_transfer_capability(access, 
             "transfer.destination",
             destination_location_id,
         )
@@ -1555,7 +1625,7 @@ async def special_transfer_dispatch(
             tenant_policy_revision=int(
                 direction["tenant_policy_revision"]
             ),
-            dispatched_by=current_admin.id,
+            dispatched_by=legacy_actor.id,
             notes=payload.notes,
         )
         db.add(header)
@@ -1613,13 +1683,13 @@ async def special_transfer_dispatch(
         await apply_inventory_movements_batch(
             db,
             company_id=company_id,
-            performed_by=current_admin.id,
+            performed_by=legacy_actor.id,
             movements=movement_specs,
         )
 
         db.add(SystemAuditLog(
             company_id=company_id,
-            admin_id=current_admin.id,
+            admin_id=legacy_actor.id,
             target_id=f"Transfer_{header.id}",
             action_type="SPECIAL_TRANSFER_DISPATCHED",
             old_value=None,
@@ -1714,9 +1784,12 @@ async def special_transfer_dispatch(
 async def stage_inventory_quality_handling(
     payload: SpecialTransferDispatchRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    company_id = current_admin.company_id
+    company_id = access.company_id
     purpose = str(payload.transfer_purpose).upper()
     if purpose not in {"DISPOSAL", "RETURN_TO_VENDOR"}:
         raise HTTPException(
@@ -1728,16 +1801,15 @@ async def stage_inventory_quality_handling(
             ),
         )
 
-    access = InventoryAccess(db, current_admin)
-    await access.require(SPECIAL_TRANSFER_PERMISSION[purpose])
-    await access.require("transfer.send", payload.source_location_id)
+    await _require_transfer_capability(access, SPECIAL_TRANSFER_PERMISSION[purpose])
+    await _require_transfer_capability(access, "transfer.send", payload.source_location_id)
 
     try:
         request_hash = _stable_request_hash(payload)
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             operation="PRODUCT_QUALITY_HANDLING_STAGE",
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -1757,7 +1829,7 @@ async def stage_inventory_quality_handling(
             transfer_purpose=purpose,
         )
         destination_location_id = int(direction["destination_location_id"])
-        await access.require("transfer.destination", destination_location_id)
+        await _require_transfer_capability(access, "transfer.destination", destination_location_id)
 
         as_of_date = await get_company_local_date(db, company_id)
         source_lines = await validate_special_transfer_source_items_locked(
@@ -1781,7 +1853,7 @@ async def stage_inventory_quality_handling(
         response_payload = await stage_quality_handling_direct(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             source_location_id=payload.source_location_id,
             destination_location_id=destination_location_id,
             transfer_purpose=purpose,
@@ -1794,7 +1866,7 @@ async def stage_inventory_quality_handling(
         )
         db.add(SystemAuditLog(
             company_id=company_id,
-            admin_id=current_admin.id,
+            admin_id=legacy_actor.id,
             target_id=f"Transfer_{response_payload['header_id']}",
             action_type="PRODUCT_QUALITY_HANDLING_STAGED",
             old_value=None,
@@ -1856,18 +1928,20 @@ async def stage_inventory_quality_handling(
 async def confirm_inventory_disposal(
     payload: TerminalDisposalConfirmRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require("inventory.disposal.confirm", payload.source_location_id)
-    company_id = current_admin.company_id
+    await _require_transfer_capability(access, "inventory.disposal.confirm", payload.source_location_id)
+    company_id = access.company_id
 
     try:
         request_hash = _stable_request_hash(payload)
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             operation="INVENTORY_FINAL_DISPOSAL",
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -1879,7 +1953,7 @@ async def confirm_inventory_disposal(
         result = await confirm_final_disposal(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             request_id=payload.request_id,
             source_location_id=payload.source_location_id,
             product_variant_id=payload.product_variant_id,
@@ -1945,15 +2019,17 @@ async def confirm_inventory_disposal(
 async def confirm_inventory_vendor_handover(
     payload: TerminalVendorHandoverRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require("inventory.vendor_return.confirm", payload.source_location_id)
-    company_id = current_admin.company_id
+    await _require_transfer_capability(access, "inventory.vendor_return.confirm", payload.source_location_id)
+    company_id = access.company_id
     try:
         request_hash = _stable_request_hash(payload)
         idempotency_record, replay_response = await begin_idempotent_operation(
-            db, company_id=company_id, actor_id=current_admin.id,
+            db, company_id=company_id, actor_id=legacy_actor.id,
             operation="INVENTORY_FINAL_VENDOR_HANDOVER",
             request_id=str(payload.request_id), request_hash=request_hash,
         )
@@ -1961,7 +2037,7 @@ async def confirm_inventory_vendor_handover(
             await db.rollback()
             return replay_response
         result = await confirm_vendor_handover(
-            db, company_id=company_id, actor_id=current_admin.id,
+            db, company_id=company_id, actor_id=legacy_actor.id,
             request_id=payload.request_id,
             source_location_id=payload.source_location_id,
             product_variant_id=payload.product_variant_id,
@@ -2017,22 +2093,24 @@ _GENERIC_TRANSFER_PURPOSE_CAPABILITY = {
 async def unified_transfer_dispatch(
     payload: UnifiedDispatchRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver)
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require('transfer.send', payload.source_location_id)
-    await access.require('transfer.destination', payload.destination_location_id)
+    await _require_transfer_capability(access, 'transfer.send', payload.source_location_id)
+    await _require_transfer_capability(access, 'transfer.destination', payload.destination_location_id)
     if any(item.is_fefo_override for item in payload.items):
-        await access.require('inventory.fefo_override', payload.source_location_id)
+        await _require_transfer_capability(access, 'inventory.fefo_override', payload.source_location_id)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     try:
         request_hash = _stable_request_hash(payload)
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             operation="WAREHOUSE_TRANSFER_DISPATCH",
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -2163,7 +2241,7 @@ async def unified_transfer_dispatch(
 
         retiring_balancing_policy = None
         if retiring_balancing_variant_ids:
-            await access.require("transfer.warehouse_balancing_override")
+            await _require_transfer_capability(access, "transfer.warehouse_balancing_override")
             try:
                 retiring_balancing_policy = (
                     await resolve_retiring_warehouse_balancing_override_context(
@@ -2424,7 +2502,7 @@ async def unified_transfer_dispatch(
             },
             tenant_policy_id=balancing_policy_id,
             tenant_policy_revision=balancing_policy_revision,
-            dispatched_by=current_admin.id,
+            dispatched_by=legacy_actor.id,
             notes=payload.notes or None
         )
         db.add(header)
@@ -2433,7 +2511,7 @@ async def unified_transfer_dispatch(
         if retiring_balancing_policy is not None:
             db.add(SystemAuditLog(
                 company_id=company_id,
-                admin_id=current_admin.id,
+                admin_id=legacy_actor.id,
                 target_id=f"Transfer_{header.id}",
                 action_type="RETIRING_WAREHOUSE_BALANCING_OVERRIDE",
                 old_value=None,
@@ -2465,11 +2543,11 @@ async def unified_transfer_dispatch(
                 expected_rows = override_expected.get(int(item.product_variant_id), [])
                 expected_batch_id = expected_rows[0][0] if expected_rows else None
                 override_reason_id = int(item.override_reason_id)
-                override_actor_id = current_admin.id
+                override_actor_id = legacy_actor.id
                 override_note = str(reason_map[override_reason_id] or "")[:255]
                 db.add(SystemAuditLog(
                     company_id=company_id,
-                    admin_id=current_admin.id,
+                    admin_id=legacy_actor.id,
                     target_id=f"Transfer_{header.id}",
                     action_type="FEFO_OVERRIDE",
                     old_value=(
@@ -2524,7 +2602,7 @@ async def unified_transfer_dispatch(
         await apply_inventory_movements_batch(
             db,
             company_id=company_id,
-            performed_by=current_admin.id,
+            performed_by=legacy_actor.id,
             movements=movement_specs,
         )
 
@@ -2820,19 +2898,21 @@ async def _move_transfer_lines_from_transit(
 async def unified_transfer_receive(
     payload: UnifiedReceiveRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver)
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    access = InventoryAccess(db, current_admin)
-    await require_transfer(access, 'transfer.receive', payload.transfer_header_id, 'destination')
+    await _require_transfer_document(access, 'transfer.receive', payload.transfer_header_id, 'destination')
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     try:
         request_hash = _stable_request_hash(payload)
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             operation="WAREHOUSE_TRANSFER_RECEIVE",
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -2852,7 +2932,7 @@ async def unified_transfer_receive(
             str(header.transfer_purpose).upper()
         )
         if special_permission is not None:
-            await access.require(special_permission)
+            await _require_transfer_capability(access, special_permission)
 
         if header.destination_location_id != payload.destination_location_id:
             raise HTTPException(
@@ -2860,7 +2940,7 @@ async def unified_transfer_receive(
                 detail="الوجهة المرسلة لا تطابق الوجهة الأصلية للحوالة."
             )
 
-        if header.dispatched_by == current_admin.id:
+        if header.dispatched_by == legacy_actor.id:
             raise HTTPException(
                 status_code=403,
                 detail="مرفوض رقابياً: لا يمكن للمُرسل تأكيد استلام نفس الحوالة."
@@ -2870,7 +2950,7 @@ async def unified_transfer_receive(
             db,
             company_id=company_id,
             header=header,
-            performed_by=current_admin.id,
+            performed_by=legacy_actor.id,
             destination_location_id=payload.destination_location_id,
             reference_type='TRANSFER_RECEIPT',
             idempotency_prefix='TRN-REC',
@@ -2879,7 +2959,7 @@ async def unified_transfer_receive(
         )
 
         now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
-        header.received_by = current_admin.id
+        header.received_by = legacy_actor.id
         header.accepted_at = now_utc
         header.posted_at = now_utc
         header.updated_at = now_utc
@@ -2887,11 +2967,11 @@ async def unified_transfer_receive(
 
         db.add(SystemAuditLog(
             company_id=company_id,
-            admin_id=current_admin.id,
+            admin_id=legacy_actor.id,
             target_id=f"Transfer_{header.id}",
             action_type="TRANSFER_RECEIVED",
             old_value="IN_TRANSIT",
-            new_value=f"POSTED by Admin {current_admin.id}"
+            new_value=f"POSTED by Admin {legacy_actor.id}"
         ))
 
         response_payload = {
@@ -2946,12 +3026,14 @@ async def unified_transfer_cancel(
     header_id: int,
     payload: UnifiedTransferDecisionRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver)
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    access = InventoryAccess(db, current_admin)
-    await require_transfer(access, 'transfer.cancel', header_id, 'source')
+    await _require_transfer_document(access, 'transfer.cancel', header_id, 'source')
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
     reason = _validate_transfer_decision_reason(
         payload.decision_reason,
         action_label="الإلغاء"
@@ -2965,7 +3047,7 @@ async def unified_transfer_cancel(
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             operation="WAREHOUSE_TRANSFER_CANCEL",
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -2985,13 +3067,13 @@ async def unified_transfer_cancel(
             str(header.transfer_purpose).upper()
         )
         if special_permission is not None:
-            await access.require(special_permission)
+            await _require_transfer_capability(access, special_permission)
 
         await _move_transfer_lines_from_transit(
             db,
             company_id=company_id,
             header=header,
-            performed_by=current_admin.id,
+            performed_by=legacy_actor.id,
             destination_location_id=header.source_location_id,
             reference_type='TRANSFER_CANCELLED',
             idempotency_prefix='TRN-CANC',
@@ -3001,14 +3083,14 @@ async def unified_transfer_cancel(
 
         now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
         header.status = 'CANCELLED'
-        header.cancelled_by = current_admin.id
+        header.cancelled_by = legacy_actor.id
         header.cancelled_at = now_utc
         header.decision_reason = reason
         header.updated_at = now_utc
 
         db.add(SystemAuditLog(
             company_id=company_id,
-            admin_id=current_admin.id,
+            admin_id=legacy_actor.id,
             target_id=f"Transfer_{header.id}",
             action_type="TRANSFER_CANCELLED",
             old_value="IN_TRANSIT",
@@ -3063,12 +3145,14 @@ async def unified_transfer_reject(
     header_id: int,
     payload: UnifiedTransferDecisionRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver)
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    access = InventoryAccess(db, current_admin)
-    await require_transfer(access, 'transfer.reject', header_id, 'destination')
+    await _require_transfer_document(access, 'transfer.reject', header_id, 'destination')
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
     reason = _validate_transfer_decision_reason(
         payload.decision_reason,
         action_label="الرفض"
@@ -3082,7 +3166,7 @@ async def unified_transfer_reject(
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             operation="WAREHOUSE_TRANSFER_REJECT",
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -3102,9 +3186,9 @@ async def unified_transfer_reject(
             str(header.transfer_purpose).upper()
         )
         if special_permission is not None:
-            await access.require(special_permission)
+            await _require_transfer_capability(access, special_permission)
 
-        if header.dispatched_by == current_admin.id:
+        if header.dispatched_by == legacy_actor.id:
             raise HTTPException(
                 status_code=403,
                 detail="مرفوض رقابياً: لا يمكن للمُرسل رفض نفس الحوالة بصفته مستلماً."
@@ -3121,7 +3205,7 @@ async def unified_transfer_reject(
             db,
             company_id=company_id,
             header=header,
-            performed_by=current_admin.id,
+            performed_by=legacy_actor.id,
             destination_location_id=header.source_location_id,
             reference_type='TRANSFER_REJECTED',
             idempotency_prefix='TRN-REJ',
@@ -3131,14 +3215,14 @@ async def unified_transfer_reject(
 
         now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
         header.status = 'REJECTED'
-        header.received_by = current_admin.id
+        header.received_by = legacy_actor.id
         header.rejected_at = now_utc
         header.decision_reason = reason
         header.updated_at = now_utc
 
         db.add(SystemAuditLog(
             company_id=company_id,
-            admin_id=current_admin.id,
+            admin_id=legacy_actor.id,
             target_id=f"Transfer_{header.id}",
             action_type="TRANSFER_REJECTED",
             old_value="IN_TRANSIT",
