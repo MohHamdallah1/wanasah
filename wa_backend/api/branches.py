@@ -12,9 +12,12 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_admin, get_current_driver
+from api.authentication.legacy_backoffice_transport import (
+    require_legacy_transport_backoffice_capability,
+)
+from api.dependencies import get_current_driver
 from database import get_db
-from inventory_access import InventoryAccess
+from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from models import Branch, Driver, SystemAuditLog
 from schemas import (
     BranchCreateRequest,
@@ -32,6 +35,11 @@ from services import (
 
 router = APIRouter(prefix="/warehouse/branches", tags=["Warehouse Branches"])
 logger = logging.getLogger("wanasah_logger")
+
+_branch_read = require_legacy_transport_backoffice_capability("branch.read")
+_branch_create = require_legacy_transport_backoffice_capability("branch.create")
+_branch_update = require_legacy_transport_backoffice_capability("branch.update")
+_branch_state = require_legacy_transport_backoffice_capability("branch.state")
 
 
 def _stable_request_hash(payload, *, branch_id: Optional[int] = None) -> str:
@@ -183,13 +191,11 @@ async def list_branch_options(
     cursor: Optional[str] = Query(default=None, max_length=512),
     limit: int = Query(default=50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_driver: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(_branch_read),
 ):
-    access = InventoryAccess(db, current_driver)
-    await access.require(("location.create", "location.update"), any_location=True)
     return await _list_branches(
         db,
-        company_id=current_driver.company_id,
+        company_id=access.company_id,
         search=search,
         include_inactive=False,
         cursor=cursor,
@@ -205,11 +211,11 @@ async def manage_branches(
     cursor: Optional[str] = Query(default=None, max_length=512),
     limit: int = Query(default=50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    access: BackofficeCapabilityAccess = Depends(_branch_read),
 ):
     return await _list_branches(
         db,
-        company_id=current_admin.company_id,
+        company_id=access.company_id,
         search=search,
         include_inactive=include_inactive,
         cursor=cursor,
@@ -222,14 +228,16 @@ async def manage_branches(
 async def create_branch(
     payload: BranchCreateRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    access: BackofficeCapabilityAccess = Depends(_branch_create),
+    legacy_actor: Driver = Depends(get_current_driver),
 ):
-    company_id = current_admin.company_id
+    company_id = access.company_id
+    actor_id = int(legacy_actor.id)
     try:
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=actor_id,
             operation="BRANCH_CREATE",
             request_id=str(payload.request_id),
             request_hash=_stable_request_hash(payload),
@@ -258,7 +266,7 @@ async def create_branch(
         branch_data = _branch_payload(branch)
         db.add(SystemAuditLog(
             company_id=company_id,
-            admin_id=current_admin.id,
+            admin_id=actor_id,
             target_id=f"Branch_{branch.id}",
             action_type="BRANCH_CREATED",
             old_value=None,
@@ -288,14 +296,16 @@ async def update_branch(
     branch_id: int,
     payload: BranchUpdateRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    access: BackofficeCapabilityAccess = Depends(_branch_update),
+    legacy_actor: Driver = Depends(get_current_driver),
 ):
-    company_id = current_admin.company_id
+    company_id = access.company_id
+    actor_id = int(legacy_actor.id)
     try:
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=actor_id,
             operation="BRANCH_UPDATE",
             request_id=str(payload.request_id),
             request_hash=_stable_request_hash(payload, branch_id=branch_id),
@@ -330,7 +340,7 @@ async def update_branch(
         if branch_data != old_data:
             db.add(SystemAuditLog(
                 company_id=company_id,
-                admin_id=current_admin.id,
+                admin_id=actor_id,
                 target_id=f"Branch_{branch.id}",
                 action_type="BRANCH_UPDATED",
                 old_value=json.dumps(old_data, sort_keys=True, ensure_ascii=False),
@@ -361,9 +371,9 @@ async def _change_branch_state(
     payload: BranchStateRequest,
     activate: bool,
     db: AsyncSession,
-    current_admin: Driver,
+    company_id: int,
+    actor_id: int,
 ) -> dict:
-    company_id = current_admin.company_id
     reason = (payload.reason or "").strip()
     if not activate and not reason:
         raise HTTPException(status_code=422, detail="سبب تعطيل الفرع مطلوب للتدقيق.")
@@ -373,7 +383,7 @@ async def _change_branch_state(
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=actor_id,
             operation=operation,
             request_id=str(payload.request_id),
             request_hash=_stable_request_hash(payload, branch_id=branch_id),
@@ -394,7 +404,7 @@ async def _change_branch_state(
         if old_state != activate:
             db.add(SystemAuditLog(
                 company_id=company_id,
-                admin_id=current_admin.id,
+                admin_id=actor_id,
                 target_id=f"Branch_{branch.id}",
                 action_type="BRANCH_ACTIVATED" if activate else "BRANCH_DEACTIVATED",
                 old_value="active" if old_state else "inactive",
@@ -424,14 +434,16 @@ async def activate_branch(
     branch_id: int,
     payload: BranchStateRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    access: BackofficeCapabilityAccess = Depends(_branch_state),
+    legacy_actor: Driver = Depends(get_current_driver),
 ):
     return await _change_branch_state(
         branch_id=branch_id,
         payload=payload,
         activate=True,
         db=db,
-        current_admin=current_admin,
+        company_id=access.company_id,
+        actor_id=int(legacy_actor.id),
     )
 
 
@@ -440,13 +452,14 @@ async def deactivate_branch(
     branch_id: int,
     payload: BranchStateRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    access: BackofficeCapabilityAccess = Depends(_branch_state),
+    legacy_actor: Driver = Depends(get_current_driver),
 ):
     return await _change_branch_state(
         branch_id=branch_id,
         payload=payload,
         activate=False,
         db=db,
-        current_admin=current_admin,
+        company_id=access.company_id,
+        actor_id=int(legacy_actor.id),
     )
-
