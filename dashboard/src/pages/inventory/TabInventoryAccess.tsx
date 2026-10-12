@@ -6,7 +6,7 @@ import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { apiErrorMessage } from '@/lib/apiErrors';
 
 interface Role { id: number; name: string; permissions: string[]; is_system_role: boolean }
-interface User { id: number; full_name: string; is_admin: boolean; is_active: boolean }
+interface User { principal_id: number; backoffice_user_id: number; full_name: string; is_company_owner: boolean; is_active: boolean }
 interface Location { id: number; name: string; code: string; location_type: string }
 interface Grant { id: number; role_id: number; location_id: number | null }
 interface Page<T> { items: T[]; next_id: number | null }
@@ -95,9 +95,10 @@ const parseUserPage = (raw: unknown): Page<User> =>
   parsePage(raw, (value) => {
     const row = asRecord(value);
     return {
-      id: asPositiveInt(row.id),
+      principal_id: asPositiveInt(row.principal_id),
+      backoffice_user_id: asPositiveInt(row.backoffice_user_id),
       full_name: asText(row.full_name),
-      is_admin: asBoolean(row.is_admin),
+      is_company_owner: asBoolean(row.is_company_owner),
       is_active: asBoolean(row.is_active),
     };
   });
@@ -150,7 +151,7 @@ const LABELS: Record<string, string> = {
 
 export function TabInventoryAccess() {
   const fetcher = useAuthFetch();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const cache = useQueryClient();
   const [roleAfter, setRoleAfter] = useState(0);
   const [userAfter, setUserAfter] = useState(0);
@@ -159,12 +160,12 @@ export function TabInventoryAccess() {
   const [editing, setEditing] = useState<number | null>(null);
   const [name, setName] = useState('');
   const [codes, setCodes] = useState<string[]>([]);
-  const [userId, setUserId] = useState('');
+  const [backofficeUserId, setBackofficeUserId] = useState('');
   const [roleId, setRoleId] = useState('');
   const [locationId, setLocationId] = useState('');
   const [scope, setScope] = useState<'company' | 'location'>('location');
   const [busy, setBusy] = useState(false);
-  const queryPrefix = ['inventory-access-admin', localStorage.getItem('company_id'), localStorage.getItem('driver_id')];
+  const queryPrefix = ['inventory-access-admin', localStorage.getItem('company_id'), localStorage.getItem('principal_id'), localStorage.getItem('backoffice_user_id')];
   const roles = useQuery<Page<Role>>({ queryKey: [...queryPrefix, 'roles', roleAfter],
     queryFn: async ({signal}) => parseRolePage(await fetcher(`/inventory/access/roles?after_id=${roleAfter}`, {signal})) });
   const users = useQuery<Page<User>>({ queryKey: [...queryPrefix, 'users', userAfter],
@@ -173,8 +174,8 @@ export function TabInventoryAccess() {
     queryFn: async ({signal}) => parseLocationPage(await fetcher(`/inventory/access/locations?after_id=${locationAfter}`, {signal})) });
   const catalog = useQuery<PermissionCatalog>({ queryKey: [...queryPrefix, 'catalog'],
     queryFn: async ({signal}) => parsePermissionCatalog(await fetcher('/inventory/access/catalog', {signal})) });
-  const grants = useQuery<Page<Grant>>({ queryKey: [...queryPrefix, 'grants', userId, scope, grantAfter], enabled: Boolean(userId),
-    queryFn: async ({signal}) => parseGrantPage(await fetcher(`/inventory/access/users/${userId}/grants?scope=${scope}&after_id=${grantAfter}`, {signal})) });
+  const grants = useQuery<Page<Grant>>({ queryKey: [...queryPrefix, 'grants', backofficeUserId, scope, grantAfter], enabled: Boolean(backofficeUserId),
+    queryFn: async ({signal}) => parseGrantPage(await fetcher(`/inventory/access/users/${backofficeUserId}/grants?scope=${scope}&after_id=${grantAfter}`, {signal})) });
   const mutate = async (url: string, method: string, body?: unknown) => {
     if (busy) return;
     setBusy(true);
@@ -193,12 +194,12 @@ export function TabInventoryAccess() {
     </span>
   );
   const error = [roles,users,locations,catalog,grants].find(q=>q.isError)?.error;
-  return <div className="inventory-view inventory-access overflow-auto flex-1 space-y-5 p-1" dir="rtl">
+  return <div className="inventory-view inventory-access overflow-auto flex-1 space-y-5 p-1" dir={i18n.dir()}>
     <header className="glass-card inventory-section-header rounded-2xl p-5">
       <div>
-        <p className="inventory-eyebrow">التحكم بالوصول</p>
-        <h2 className="font-black text-xl text-slate-900">صلاحيات المستودعات والسيارات</h2>
-        <p className="text-sm text-slate-600 mt-1 leading-6">Admin يملك صلاحيات الشركة الكاملة. المنح المحلي يخص الموقع المحدد فقط؛ الفرع والمنطقة لا يمنحان وصولاً تلقائياً.</p>
+        <p className="inventory-eyebrow">{t('inventoryAccessAdmin.eyebrow')}</p>
+        <h2 className="font-black text-xl text-slate-900">{t('inventoryAccessAdmin.title')}</h2>
+        <p className="text-sm text-slate-600 mt-1 leading-6">{t('inventoryAccessAdmin.description')}</p>
       </div>
     </header>
 
@@ -251,12 +252,12 @@ export function TabInventoryAccess() {
 
         <div className="inventory-grant-form">
           <label className="inventory-field inventory-field--wide">
-            <span>المستخدم</span>
-            <select aria-label="المستخدم" value={userId} onChange={e=>{setUserId(e.target.value);setGrantAfter(0);}}>
-              <option value="">اختر المستخدم</option>{users.data?.items.map(user=><option key={user.id} value={user.id}>{user.full_name}{user.is_admin?' — Admin كامل الصلاحيات':''}{!user.is_active?' — موقوف':''}</option>)}
+            <span>{t('inventoryAccessAdmin.user')}</span>
+            <select aria-label={t('inventoryAccessAdmin.user')} value={backofficeUserId} onChange={e=>{setBackofficeUserId(e.target.value);setGrantAfter(0);}}>
+              <option value="">{t('inventoryAccessAdmin.chooseUser')}</option>{users.data?.items.map(user=><option key={user.backoffice_user_id} value={user.backoffice_user_id}>{user.full_name}{user.is_company_owner ? ` — ${t('inventoryAccessAdmin.companyOwner')}` : ''}{!user.is_active ? ` — ${t('inventoryAccessAdmin.inactive')}` : ''}</option>)}
             </select>
           </label>
-          {paging(users.data?.next_id,userAfter,n=>{setUserAfter(n);setUserId('');})}
+          {paging(users.data?.next_id,userAfter,n=>{setUserAfter(n);setBackofficeUserId('');})}
 
           <label className="inventory-field">
             <span>نطاق المنح</span>
@@ -281,15 +282,15 @@ export function TabInventoryAccess() {
           </div>}
         </div>
 
-        <button type="button" disabled={busy || !userId || !roleId || (scope==='location' && !locationId)} className="inventory-primary-action"
-          onClick={()=>void mutate(`/inventory/access/users/${userId}/grants`,'POST',{role_id:Number(roleId),location_id:scope==='company'?null:Number(locationId)})}>إضافة المنح</button>
+        <button type="button" disabled={busy || !backofficeUserId || !roleId || (scope==='location' && !locationId)} className="inventory-primary-action"
+          onClick={()=>void mutate(`/inventory/access/users/${backofficeUserId}/grants`,'POST',{role_id:Number(roleId),location_id:scope==='company'?null:Number(locationId)})}>إضافة المنح</button>
 
         <div className="inventory-grant-list">
-          {!userId && <p className="inventory-muted-state">اختر مستخدماً لعرض المنح الحالية.</p>}
-          {userId && grants.data?.items.length === 0 && <p className="inventory-muted-state">لا توجد منح ضمن هذا النطاق.</p>}
+          {!backofficeUserId && <p className="inventory-muted-state">اختر مستخدماً لعرض المنح الحالية.</p>}
+          {backofficeUserId && grants.data?.items.length === 0 && <p className="inventory-muted-state">لا توجد منح ضمن هذا النطاق.</p>}
           {grants.data?.items.map(grant=><div key={grant.id} className="inventory-grant-row">
             <span><strong>{roles.data?.items.find(role=>role.id===grant.role_id)?.name || `دور #${grant.role_id}`}</strong><small>{grant.location_id ? locations.data?.items.find(location=>location.id===grant.location_id)?.name || `موقع #${grant.location_id}` : 'الشركة كاملة'}</small></span>
-            <button type="button" disabled={busy} onClick={()=>void mutate(`/inventory/access/users/${userId}/grants/${grant.id}?scope=${scope}`,'DELETE')}>سحب المنح</button>
+            <button type="button" disabled={busy} onClick={()=>void mutate(`/inventory/access/users/${backofficeUserId}/grants/${grant.id}?scope=${scope}`,'DELETE')}>سحب المنح</button>
           </div>)}
         </div>
         {paging(grants.data?.next_id,grantAfter,setGrantAfter)}
