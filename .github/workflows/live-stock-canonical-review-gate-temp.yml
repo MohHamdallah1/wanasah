@@ -1,0 +1,66 @@
+name: TEMP Live Stock canonical review gate
+
+on:
+  push:
+    branches:
+      - lead/live-stock-canonical-review-gate
+
+permissions:
+  contents: read
+
+jobs:
+  focused-live-stock-canonical:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: LiveStockLeadReviewGateOnlyKey123456789012345678901234
+      DATABASE_URL: postgresql+asyncpg://live_unit@127.0.0.1:1/live_unit
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://live_admin@127.0.0.1:1/live_unit
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r wa_backend/requirements.txt pytest pytest-asyncio httpx
+      - name: Compile changed runtime and tests
+        run: |
+          python -m py_compile \
+            wa_backend/api/warehouse/live_stock.py \
+            wa_backend/tests/test_live_stock_canonical_boundary.py \
+            wa_backend/tests/test_live_stock_canonical_cutover.py \
+            wa_backend/tests/test_batch_reservation_owner_contract.py \
+            wa_backend/tests/test_whole_product_quality_issue_sources.py
+      - name: Focused Live Stock canonical tests
+        working-directory: wa_backend
+        env:
+          PYTHONPATH: .
+        run: |
+          pytest -q \
+            tests/test_live_stock_canonical_boundary.py \
+            tests/test_live_stock_canonical_cutover.py \
+            tests/test_batch_reservation_owner_contract.py \
+            tests/test_whole_product_quality_issue_sources.py \
+            tests/test_canonical_backoffice_capability_access.py \
+            tests/test_canonical_backoffice_authorization_dependency.py \
+            tests/test_inventory_access_canonical_cutover.py \
+            tests/test_inventory_multi_location_authority.py
+      - name: Live Stock forbidden-symbol and dependency audit
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          src = Path('wa_backend/api/warehouse/live_stock.py').read_text(encoding='utf-8')
+          forbidden = ('get_current_driver','get_current_admin','.is_admin','legacy_actor','legacy_backoffice_transport','InventoryAccess','Driver')
+          for token in forbidden:
+              assert token not in src, token
+          assert 'get_current_backoffice_capability_access' in src
+          assert 'BackofficeCapabilityAccess' in src
+          assert 'access.company_id' in src
+          PY
+      - name: Diff whitespace gate
+        run: git diff --check 0813f28e28138f37d530b1d5a363edfac4fbc518...HEAD
