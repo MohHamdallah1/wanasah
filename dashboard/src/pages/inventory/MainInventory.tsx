@@ -227,8 +227,8 @@ export default function MainInventory() {
     ? `inventory_selected_location:${companyId}`
     : "inventory_selected_location:anonymous";
 
-  const driverId = localStorage.getItem("driver_id") || "";
-  const warmScopeKey = inventoryWarmScopeKey(companyId, driverId);
+  const backofficeUserId = localStorage.getItem("backoffice_user_id") || "";
+  const warmScopeKey = inventoryWarmScopeKey(companyId, backofficeUserId);
   const [initialWarmShell] = useState(() =>
     readInventoryShellWarmSnapshot(warmScopeKey),
   );
@@ -1364,9 +1364,9 @@ export default function MainInventory() {
         )}
         {!locationAccess.isPending && activeTab === "inbound" && tabAllowed("inbound") && selectedLocationId !== null && locationAccess.data && (
           <Tab2Inbound
-            key={`${locationAccess.data.company_id}:${locationAccess.data.driver_id}:${selectedLocationId}`}
+            key={`${locationAccess.data.company_id}:${locationAccess.data.backoffice_user_id}:${selectedLocationId}`}
             companyId={locationAccess.data.company_id}
-            actorId={locationAccess.data.driver_id}
+            actorId={locationAccess.data.backoffice_user_id}
             locationId={selectedLocationId} // +++ تمرير الموقع لعملية الإدخال +++
             isAuditLocked={effectiveAuditLocked}
             authenticatedFetch={authFetch}
@@ -1378,9 +1378,9 @@ export default function MainInventory() {
         )}
         {!locationAccess.isPending && activeTab === "stocktake" && tabAllowed("stocktake") && selectedLocationId !== null && locationAccess.data && (
           <Tab3Stocktake
-            key={`${locationAccess.data.company_id}:${locationAccess.data.driver_id}:${selectedLocationId}`}
+            key={`${locationAccess.data.company_id}:${locationAccess.data.backoffice_user_id}:${selectedLocationId}`}
             locationId={selectedLocationId} // +++ سحق ملاحظة P1: تمرير الموقع للمحرك המوحد +++
-            companyId={`${locationAccess.data.company_id}:${locationAccess.data.driver_id}`}
+            companyId={`${locationAccess.data.company_id}:${locationAccess.data.backoffice_user_id}`}
             isAuditLocked={effectiveAuditLocked}
             authenticatedFetch={authFetch}
             onStocktakeChanged={async () => {

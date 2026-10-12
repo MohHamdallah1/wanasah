@@ -52,7 +52,7 @@ export function WholeProductQualityActionsPanel({
 
   const { read: readDraft, save: saveDraft, clear: clearDraft } = useWholeProductQualityDraft(
     access.data?.company_id,
-    access.data?.driver_id,
+    access.data?.backoffice_user_id,
     productVariantId,
   );
   const preview = useWholeProductQualityPreview(productVariantId, true);
