@@ -206,6 +206,14 @@ async def test_assignment_history_reuses_existing_guard_after_authorized_project
     assert calls == []
 
 
+def catalog_access(db):
+    from domains.authorization.backoffice_access import BackofficeCapabilityAccess
+    from domains.authorization.backoffice_subject import BackofficeAuthorizationSubject
+    return BackofficeCapabilityAccess(
+        db, BackofficeAuthorizationSubject(1010, 2020, 1, True, None),
+    )
+
+
 def preflight_endpoint(namespace):
     source = Path(__file__).parents[1] / "api/catalog.py"
     node = next(node for node in ast.parse(source.read_text(encoding="utf-8")).body
@@ -235,8 +243,12 @@ async def test_preflight_adds_hints_without_changing_archive_authority(lifecycle
         dispatch_archive_targets=AsyncMock(return_value={}),
         operations_archive_targets=AsyncMock(return_value={}),
     )
-    response = await preflight_endpoint(namespace)(101, db, access().actor)
-    permission.assert_awaited_once_with(db, access().actor, "catalog.archive")
+    current = catalog_access(db)
+    response = await preflight_endpoint(namespace)(101, db, current)
+    permission.assert_awaited_once_with(current, "catalog.archive")
+    for adapter in ("inventory_archive_targets", "dispatch_archive_targets",
+                    "operations_archive_targets"):
+        namespace[adapter].assert_awaited_once_with(db, current, 101, blockers)
     assert response["can_archive"] is expected
     assert response["version"] == 4
     assert response["blockers"] == [{**row, "owner_target": None} for row in blockers]
@@ -252,7 +264,7 @@ async def test_missing_variant_keeps_404_and_does_not_project_owner_data():
                      _error=lambda status, code, message: HTTPException(status, {"code": code}),
                      archive_blockers=read, inventory_archive_targets=read, dispatch_archive_targets=read)
     with pytest.raises(HTTPException) as failure:
-        await preflight_endpoint(namespace)(101, db, access().actor)
+        await preflight_endpoint(namespace)(101, db, catalog_access(db))
     assert failure.value.status_code == 404
     read.assert_not_awaited()
 

@@ -5,6 +5,8 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select
 
+from domains.authorization.backoffice_access import BackofficeCapabilityAccess
+from domains.authorization.backoffice_subject import BackofficeAuthorizationSubject
 from models import ProductVariant
 
 
@@ -12,8 +14,17 @@ class FakeSession:
     def __init__(self, row):
         self.row = row
 
-    async def scalar(self, _statement):
-        return self.row
+    async def scalar(self, statement):
+        # This contract isolates completion evidence; the optional inventory
+        # summary has no grant in this fixture and remains absent.
+        entity = statement.column_descriptions[0].get("entity")
+        return self.row if entity is ProductVariant else False
+
+
+def access(db):
+    return BackofficeCapabilityAccess(
+        db, BackofficeAuthorizationSubject(101, 202, 1, False, 303),
+    )
 
 
 async def allow(*_args, **_kwargs):
@@ -48,14 +59,14 @@ def endpoint(blockers):
 @pytest.mark.asyncio
 async def test_recall_readiness_uses_backend_completion_evidence():
     row = SimpleNamespace(version=7, operational_hold="RECALL")
-    actor = SimpleNamespace(company_id=1, id=17)
+    db = FakeSession(row)
     blocked = await endpoint([
         {"code": "INVENTORY_BALANCE", "count": 2, "sample_id": 4}
-    ])(101, FakeSession(row), actor)
+    ])(101, db, access(db))
     assert blocked["ready_to_resume_sales"] is False
     assert blocked["blockers"][0]["code"] == "INVENTORY_BALANCE"
 
-    ready = await endpoint([])(101, FakeSession(row), actor)
+    ready = await endpoint([])(101, db, access(db))
     assert ready["ready_to_resume_sales"] is True
     assert ready["blockers"] == []
 
@@ -63,7 +74,7 @@ async def test_recall_readiness_uses_backend_completion_evidence():
 @pytest.mark.asyncio
 async def test_recall_readiness_never_claims_ready_without_active_hold():
     row = SimpleNamespace(version=8, operational_hold="NONE")
-    actor = SimpleNamespace(company_id=1, id=17)
-    result = await endpoint([])(101, FakeSession(row), actor)
+    db = FakeSession(row)
+    result = await endpoint([])(101, db, access(db))
     assert result["ready_to_resume_sales"] is False
     assert result["blockers"] == []
