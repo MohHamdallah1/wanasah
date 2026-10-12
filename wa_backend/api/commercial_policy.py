@@ -10,15 +10,23 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
+from api.authentication.backoffice_compatibility import (
+    get_current_backoffice_legacy_driver,
+)
 from database import get_db
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
 from domains.sales_calculation.policy import (
     COMMERCIAL_ROUNDING_POLICY_CODE,
     CommercialPolicyError,
     publish_commercial_rounding_policy,
     resolve_commercial_rounding_policy,
 )
-from inventory_access import InventoryAccess
 from models import Driver, SystemAuditLog
 from services import (
     InventoryMutationError,
@@ -63,11 +71,16 @@ def _request_hash(payload: BaseModel) -> str:
 
 
 async def _require(
-    db: AsyncSession,
-    actor: Driver,
+    access: BackofficeCapabilityAccess,
     permission: str,
 ) -> None:
-    await InventoryAccess(db, actor).require(permission, any_location=True)
+    try:
+        await access.require(permission, any_location=True)
+    except BackofficeCapabilityAccessRejected:
+        raise HTTPException(
+            status_code=403,
+            detail="لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.",
+        ) from None
 
 
 def _response(resolved) -> dict[str, Any]:
@@ -90,15 +103,17 @@ def _http_error(exc: CommercialPolicyError) -> HTTPException:
 @router.get("/rounding")
 async def get_rounding_policy(
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
-    await _require(db, actor, "pricing.view")
+    await _require(access, "pricing.view")
     from datetime import datetime, timezone
 
     try:
         resolved = await resolve_commercial_rounding_policy(
             db,
-            company_id=actor.company_id,
+            company_id=access.company_id,
             as_of=datetime.now(timezone.utc),
         )
         return {"policy": _response(resolved)}
@@ -112,18 +127,22 @@ async def get_rounding_policy(
 async def publish_rounding_policy(
     payload: RoundingPolicyPublishRequest,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     # Publishing a financial calculation policy requires both management and
-    # approval authority; admins naturally satisfy both through InventoryAccess.
-    await _require(db, actor, "pricing.manage")
-    await _require(db, actor, "pricing.approve")
+    # approval authority through canonical Backoffice capability access.
+    await _require(access, "pricing.manage")
+    await _require(access, "pricing.approve")
+    company_id = access.company_id
 
     try:
         operation, replay = await begin_idempotent_operation(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=company_id,
+            actor_id=legacy_actor.id,
             operation="COMMERCIAL_ROUNDING_PUBLISH",
             request_id=str(payload.request_id),
             request_hash=_request_hash(payload),
@@ -134,8 +153,8 @@ async def publish_rounding_policy(
 
         resolved = await publish_commercial_rounding_policy(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=company_id,
+            actor_id=legacy_actor.id,
             expected_revision=payload.expected_revision,
             precision=payload.precision,
             mode=payload.mode,
@@ -143,8 +162,8 @@ async def publish_rounding_policy(
         response = {"policy": _response(resolved)}
         db.add(
             SystemAuditLog(
-                company_id=actor.company_id,
-                admin_id=actor.id,
+                company_id=company_id,
+                admin_id=legacy_actor.id,
                 target_id=f"CommercialRoundingPolicy_{resolved.policy_id}",
                 action_type="COMMERCIAL_ROUNDING_PUBLISHED",
                 old_value=None,
