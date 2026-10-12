@@ -398,7 +398,7 @@ class CanonicalBackofficeRuntimeCompatibilityTests(unittest.IsolatedAsyncioTestC
 
     async def test_fastapi_request_cache_reuses_compatibility_dependency_and_decodes_once(self):
         trusted = dashboard_context(owner=True)
-        operational = driver(admin=False)
+        operational = driver()
         db, result = driver_only_db(operational)
         locator = domain.BackofficeLegacyActorLocator(101, 202, 7, 303)
 
