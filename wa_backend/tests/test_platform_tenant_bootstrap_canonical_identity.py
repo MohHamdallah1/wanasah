@@ -138,11 +138,11 @@ class PlatformTenantBootstrapCanonicalIdentityTests(unittest.TestCase):
         self.assertEqual(ast.unparse(kw["username"]), "payload.admin_username")
         self.assertEqual(ast.unparse(kw["password_hash"]), "hashed_pw")
         self.assertEqual(ast.unparse(kw["full_name"]), "payload.admin_full_name")
-        self.assertIs(kw["is_admin"].value, False)
+        self.assertNotIn("is_admin", kw)
         self.assertIs(kw["is_active"].value, True)
         create_source = ast.unparse(self.create)
-        self.assertNotIn("is_admin=True", create_source)
-        self.assertNotIn("if admin_driver.is_admin", create_source)
+        self.assertNotIn("admin_driver.is_admin", create_source)
+        self.assertNotIn("is_admin=", create_source)
 
     def test_identity_legacy_driver_map_is_exact_backoffice_only_shape(self):
         call = _assigned_call(self.create, "identity_map")
