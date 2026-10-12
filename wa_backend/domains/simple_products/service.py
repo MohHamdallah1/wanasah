@@ -1006,27 +1006,11 @@ async def _lock_distinct_family_names(
         raise RuntimeError("Incomplete tenant-scoped family advisory lock acquisition.")
 
 
-def _resolve_service_company_id(
-    actor: Driver,
-    company_id: int | None,
-) -> int:
-    """Resolve tenant scope at the service boundary.
-
-    Canonical Backoffice callers pass ``company_id`` explicitly. Falling back to
-    Driver.company_id is temporary compatibility for Product Import callers that
-    have not yet completed their own request-transport cutover. Downstream
-    product/pricing operations receive only the resolved company id plus the
-    legacy Driver.id used for existing provenance fields.
-    """
-    if company_id is not None:
-        if type(company_id) is not int or company_id <= 0:
-            raise ValueError("A positive company_id is required.")
-        return int(company_id)
-
-    legacy_company_id = actor.company_id
-    if type(legacy_company_id) is not int or legacy_company_id <= 0:
-        raise ValueError("A positive legacy company identity is required.")
-    return int(legacy_company_id)
+def _resolve_service_company_id(company_id: int) -> int:
+    """Validate explicit canonical tenant scope at the service boundary."""
+    if type(company_id) is not int or company_id <= 0:
+        raise ValueError("A positive company_id is required.")
+    return int(company_id)
 
 
 async def _prefetch_batch_families(
@@ -1425,9 +1409,9 @@ async def create_product_structures(
     actor: Driver,
     request_id: UUID,
     specs: list[SimpleProductSpec],
-    company_id: int | None = None,
+    company_id: int,
 ):
-    company_id = _resolve_service_company_id(actor, company_id)
+    company_id = _resolve_service_company_id(company_id)
     with product_phase(db, "barcode_python"):
         normalized_barcodes: list[str] = []
         per_spec_barcodes: list[
@@ -1723,9 +1707,9 @@ async def publish_prices(
     rows,
     effective_at: datetime,
     request_id: UUID,
-    company_id: int | None = None,
+    company_id: int,
 ) -> None:
-    company_id = _resolve_service_company_id(actor, company_id)
+    company_id = _resolve_service_company_id(company_id)
     with product_phase(db, "price_publication_create"):
         direct_scope = await create_direct_publication(
             db,
@@ -1768,10 +1752,10 @@ async def publish_initial_prices(
     rows,
     effective_at: datetime,
     request_id: UUID,
-    company_id: int | None = None,
+    company_id: int,
 ) -> None:
     """Publish first-ever prices for newly created products in one row write."""
-    company_id = _resolve_service_company_id(actor, company_id)
+    company_id = _resolve_service_company_id(company_id)
     with product_phase(db, "price_publication_create"):
         direct_scope = await create_direct_publication(
             db,
@@ -1803,7 +1787,7 @@ async def create_products_and_prices(
     actor: Driver,
     request_id: UUID,
     specs: list[SimpleProductSpec],
-    company_id: int | None = None,
+    company_id: int,
 ):
     if not specs:
         raise SimpleProductError(
@@ -1812,7 +1796,7 @@ async def create_products_and_prices(
             status_code=422,
         )
 
-    company_id = _resolve_service_company_id(actor, company_id)
+    company_id = _resolve_service_company_id(company_id)
     now = datetime.now(timezone.utc)
     with product_phase(db, "pricing_policy"):
         assignment = await assert_simple_pricing_mode(
@@ -1975,9 +1959,9 @@ async def update_prices(
     variant: ProductVariant,
     package_price: Any = None,
     unit_price: Any = None,
-    company_id: int | None = None,
+    company_id: int,
 ) -> ResolvedPricePair:
-    company_id = _resolve_service_company_id(actor, company_id)
+    company_id = _resolve_service_company_id(company_id)
     now = datetime.now(timezone.utc)
     assignment = await assert_simple_pricing_mode(
         db,
