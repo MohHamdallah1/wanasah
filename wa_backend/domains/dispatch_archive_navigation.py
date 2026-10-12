@@ -6,8 +6,16 @@ Dispatch target: physical reconciliation and financial settlement are separate.
 from sqlalchemy import Integer, and_, cast, literal, select, union_all
 
 from dispatch_access import route_filter
+from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from inventory_access import InventoryAccess
 from models import DispatchLoadPlanLine, DispatchRoute, InventoryTransferHeader, InventoryTransferLine, ShortageRequest
+
+
+def _archive_access(db, access_or_actor):
+    """Prefer canonical Backoffice access; retain the old Catalog caller temporarily."""
+    if isinstance(access_or_actor, (BackofficeCapabilityAccess, InventoryAccess)):
+        return access_or_actor
+    return InventoryAccess(db, access_or_actor)
 
 
 def dispatch_archive_target_query(access, variant_id, samples):
@@ -41,18 +49,20 @@ def dispatch_archive_target_query(access, variant_id, samples):
                             InventoryTransferLine.transfer_header_id == header.id,
                             InventoryTransferLine.product_variant_id == variant_id).correlate(header).exists(),
         ))
-    if samples.get("OPEN_SHORTAGE") and access.actor.is_admin:
+    if samples.get("OPEN_SHORTAGE"):
         shortage = ShortageRequest
         statements.append(select(*columns("OPEN_SHORTAGE", "shortage", shortage.id)).where(
             shortage.company_id == access.company_id, shortage.id == samples["OPEN_SHORTAGE"],
             shortage.product_variant_id == variant_id, shortage.status == "pending",
+            access.allows("shortage.read", any_location=True),
         ))
     return union_all(*statements) if statements else None
 
 
-async def dispatch_archive_targets(db, actor, variant_id, blockers):
+async def dispatch_archive_targets(db, access_or_actor, variant_id, blockers):
+    access = _archive_access(db, access_or_actor)
     samples = {row["code"]: row["sample_id"] for row in blockers}
-    query = dispatch_archive_target_query(InventoryAccess(db, actor), variant_id, samples)
+    query = dispatch_archive_target_query(access, variant_id, samples)
     if query is None:
         return {}
     return {row["code"]: {key: value for key, value in row.items() if key != "code"}
