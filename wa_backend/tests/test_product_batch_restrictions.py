@@ -1,7 +1,8 @@
 """Read-contract acceptance on synthetic SQLite data; no production DB or workers.
 
-Execute the real SQLAlchemy read statements and existing permission predicates.
-These fixtures deliberately omit PostgreSQL RLS/FKs, which remain deployment gates.
+Execute the real SQLAlchemy aggregate statements while supplying the canonical
+Backoffice access contract directly. These fixtures deliberately omit PostgreSQL
+RLS/FKs, which remain deployment gates.
 """
 import ast
 from decimal import Decimal
@@ -10,13 +11,13 @@ from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import Column, MetaData, Table, create_engine
+from sqlalchemy import Column, MetaData, Table, create_engine, false, true
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
 from domains.inventory_batch_restrictions import BatchRestrictionSummary, load_batch_restrictions
 from domains.inventory_batch_restrictions.contracts import CurrentDispositionReason, DispositionCounts
-from models import InventoryBalance, Permission, ProductBatch, UserLocationAccess, UserRole, role_permissions
+from models import InventoryBalance, ProductBatch
 
 
 class ReadSession:
@@ -34,34 +35,35 @@ class ReadSession:
         return self.connection.execute(statement)
 
 
+class CanonicalAccess:
+    def __init__(self, *, company_id=1, inventory_read=True):
+        self.company_id = company_id
+        self.inventory_read = inventory_read
+        self.calls = []
+
+    def allows(self, permission, **scope):
+        self.calls.append((permission, scope))
+        assert permission == "inventory.read"
+        assert scope == {}
+        return true() if self.inventory_read else false()
+
+
 @pytest.fixture
 def store():
     metadata = MetaData()
+
     def table(source, names):
         return Table(source.name, metadata, *(Column(name, source.c[name].type) for name in names.split()))
+
     tables = {
         "batches": table(ProductBatch.__table__, "id company_id product_variant_id disposition disposition_reason disposition_revision is_active"),
         "balances": table(InventoryBalance.__table__, "id company_id location_id product_variant_id batch_id stock_status on_hand_quantity reserved_quantity"),
-        "permissions": table(Permission.__table__, "id code"),
-        "roles": table(UserRole.__table__, "company_id driver_id role_id"),
-        "locations": table(UserLocationAccess.__table__, "company_id driver_id role_id location_id"),
-        "grants": table(role_permissions, "company_id role_id permission_id"),
     }
     engine = create_engine("sqlite://")
     with engine.connect() as connection:
         metadata.create_all(connection)
-        connection.execute(tables["permissions"].insert(), [dict(id=1, code="inventory.read"), dict(id=2, code="catalog.read")])
         yield SimpleNamespace(db=ReadSession(connection), connection=connection, tables=tables)
     engine.dispose()
-
-
-def grant(store, *, company=1, driver=7, permission=1, location=None):
-    assignment = dict(company_id=company, driver_id=driver, role_id=20)
-    table = store.tables["roles"] if location is None else store.tables["locations"]
-    if location is not None:
-        assignment["location_id"] = location
-    store.connection.execute(table.insert(), assignment)
-    store.connection.execute(store.tables["grants"].insert(), dict(company_id=company, role_id=20, permission_id=permission))
 
 
 def batch(store, batch_id, variant=101, *, company=1, disposition="QUARANTINED", reason=None, active=True):
@@ -78,13 +80,8 @@ def balance(store, batch_id, amount, *, company=1, variant=101, location=11, sta
     ))
 
 
-def actor(*, company=1, driver=7, admin=False):
-    return SimpleNamespace(company_id=company, id=driver, is_admin=admin)
-
-
 @pytest.mark.asyncio
 async def test_counts_are_batches_not_balances_and_quantity_includes_all_locations_and_buckets(store):
-    grant(store)
     batch(store, 1, reason="بانتظار نتائج الفحص")
     batch(store, 2, disposition="BLOCKED", reason="Packaging investigation", active=False)
     batch(store, 3, disposition="RECALLED")
@@ -95,7 +92,8 @@ async def test_counts_are_batches_not_balances_and_quantity_includes_all_locatio
     balance(store, 1, "3", location=12, status="QUARANTINED")
     balance(store, 2, "5", location=12, status="DAMAGED")
     balance(store, 4, "999", status="RECALLED")  # Portion status is a separate authority.
-    result = (await load_batch_restrictions(store.db, actor=actor(), variant_ids=[101]))[101]
+    access = CanonicalAccess()
+    result = (await load_batch_restrictions(store.db, access=access, variant_ids=[101]))[101]
     assert result.affected_batch_count == 4
     assert result.counts_by_disposition.model_dump() == {"QUARANTINED": 2, "BLOCKED": 1, "RECALLED": 1}
     assert result.affected_on_hand_quantity == "19.123457"
@@ -104,12 +102,12 @@ async def test_counts_are_batches_not_balances_and_quantity_includes_all_locatio
     assert reason.batch_id == 1 and reason.disposition == "QUARANTINED" and reason.disposition_revision == 3
     assert reason.disposition_reason == "بانتظار نتائج الفحص"
     assert reason.selection == "LOWEST_BATCH_ID_WITH_CURRENT_REASON"
+    assert access.calls == [("inventory.read", {})]
     assert len(store.db.permission_reads) == len(store.db.aggregate_reads) == 1
 
 
 @pytest.mark.asyncio
 async def test_tenant_variant_predicates_exclude_foreign_batches_and_inconsistent_balances(store):
-    grant(store)
     batch(store, 1, reason="Company one")
     batch(store, 2, company=2, disposition="RECALLED", reason="SECRET")
     batch(store, 3, variant=999, reason="Other variant")
@@ -117,7 +115,7 @@ async def test_tenant_variant_predicates_exclude_foreign_batches_and_inconsisten
     balance(store, 2, "800", company=2)
     balance(store, 1, "900", company=2)  # Deliberately malformed synthetic FK data.
     balance(store, 1, "700", variant=999)
-    result = await load_batch_restrictions(store.db, actor=actor(), variant_ids=[101, 102])
+    result = await load_batch_restrictions(store.db, access=CanonicalAccess(company_id=1), variant_ids=[101, 102])
     assert set(result) == {101, 102}
     assert result[101].affected_batch_count == 1
     assert result[101].affected_on_hand_quantity == "2.000000"
@@ -127,12 +125,11 @@ async def test_tenant_variant_predicates_exclude_foreign_batches_and_inconsisten
 
 @pytest.mark.asyncio
 async def test_current_reason_selection_skips_nulls_and_never_fakes_a_reason(store):
-    grant(store)
     batch(store, 1)
     batch(store, 9, reason="Current reason of batch nine")
     batch(store, 4, reason="Current reason of batch four")
     batch(store, 2, variant=102, disposition="RECALLED")
-    result = await load_batch_restrictions(store.db, actor=actor(), variant_ids=[101, 102])
+    result = await load_batch_restrictions(store.db, access=CanonicalAccess(), variant_ids=[101, 102])
     assert result[101].representative_reason.batch_id == 4
     assert result[101].representative_reason.disposition_reason == "Current reason of batch four"
     assert result[102].affected_batch_count == 1 and result[102].representative_reason is None
@@ -140,34 +137,32 @@ async def test_current_reason_selection_skips_nulls_and_never_fakes_a_reason(sto
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("authority", ["none", "location", "catalog", "foreign_company", "foreign_driver"])
-async def test_insufficient_grants_return_unavailable_not_zero_and_do_not_read_inventory(store, authority):
-    if authority == "location": grant(store, location=11)
-    if authority == "catalog": grant(store, permission=2)
-    if authority == "foreign_company": grant(store, company=2)
-    if authority == "foreign_driver": grant(store, driver=8)
+async def test_company_wide_inventory_permission_is_required_and_denial_reads_no_inventory(store):
     batch(store, 1, reason="Private stock reason")
-    result = await load_batch_restrictions(store.db, actor=actor(), variant_ids=[101, 102])
+    access = CanonicalAccess(inventory_read=False)
+    result = await load_batch_restrictions(store.db, access=access, variant_ids=[101, 102])
     assert result == {101: None, 102: None}
+    assert access.calls == [("inventory.read", {})]
     assert len(store.db.permission_reads) == 1 and not store.db.aggregate_reads
 
 
 @pytest.mark.asyncio
-async def test_company_admin_uses_existing_authority_and_permission_revocation_is_not_cached(store):
+async def test_canonical_permission_revocation_is_not_cached(store):
     batch(store, 1)
-    assert (await load_batch_restrictions(store.db, actor=actor(admin=True), variant_ids=[101]))[101].affected_batch_count == 1
-    assert (await load_batch_restrictions(store.db, actor=actor(), variant_ids=[101]))[101] is None
-    grant(store)
-    assert (await load_batch_restrictions(store.db, actor=actor(), variant_ids=[101]))[101].affected_batch_count == 1
-    store.connection.execute(store.tables["grants"].delete())
-    assert (await load_batch_restrictions(store.db, actor=actor(), variant_ids=[101]))[101] is None
+    allowed = CanonicalAccess(inventory_read=True)
+    denied = CanonicalAccess(inventory_read=False)
+    assert (await load_batch_restrictions(store.db, access=allowed, variant_ids=[101]))[101].affected_batch_count == 1
+    assert (await load_batch_restrictions(store.db, access=denied, variant_ids=[101]))[101] is None
+    assert (await load_batch_restrictions(store.db, access=CanonicalAccess(inventory_read=True), variant_ids=[101]))[101].affected_batch_count == 1
+    assert (await load_batch_restrictions(store.db, access=CanonicalAccess(inventory_read=False), variant_ids=[101]))[101] is None
 
 
 @pytest.mark.asyncio
 async def test_empty_page_performs_no_reads_and_200_variants_still_use_one_aggregate(store):
-    assert await load_batch_restrictions(store.db, actor=actor(), variant_ids=[]) == {}
-    assert not store.db.permission_reads and not store.db.aggregate_reads
-    result = await load_batch_restrictions(store.db, actor=actor(admin=True), variant_ids=list(range(1, 201)))
+    empty_access = CanonicalAccess(inventory_read=False)
+    assert await load_batch_restrictions(store.db, access=empty_access, variant_ids=[]) == {}
+    assert not empty_access.calls and not store.db.permission_reads and not store.db.aggregate_reads
+    result = await load_batch_restrictions(store.db, access=CanonicalAccess(), variant_ids=list(range(1, 201)))
     assert len(result) == 200
     assert all(item.affected_batch_count == 0 for item in result.values())
     assert len(store.db.permission_reads) == len(store.db.aggregate_reads) == 1
@@ -176,17 +171,26 @@ async def test_empty_page_performs_no_reads_and_200_variants_still_use_one_aggre
 @pytest.mark.asyncio
 @pytest.mark.parametrize("ids", [[0], [-1], [True], ["101"], list(range(1, 202))])
 async def test_unbounded_or_invalid_variant_scope_fails_before_reads(store, ids):
+    access = CanonicalAccess()
     with pytest.raises(ValueError):
-        await load_batch_restrictions(store.db, actor=actor(), variant_ids=ids)
-    assert not store.db.permission_reads and not store.db.aggregate_reads
+        await load_batch_restrictions(store.db, access=access, variant_ids=ids)
+    assert not access.calls and not store.db.permission_reads and not store.db.aggregate_reads
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("company", [None, 0, -1, True, "1"])
-async def test_ambiguous_tenant_context_fails_closed(store, company):
-    with pytest.raises(ValueError):
-        await load_batch_restrictions(store.db, actor=actor(company=company), variant_ids=[101])
-    assert not store.db.permission_reads and not store.db.aggregate_reads
+async def test_company_scope_comes_only_from_canonical_access(store):
+    batch(store, 1, company=1, reason="company one")
+    batch(store, 2, company=2, reason="company two")
+    balance(store, 1, "3", company=1)
+    balance(store, 2, "7", company=2)
+    result = await load_batch_restrictions(
+        store.db,
+        access=CanonicalAccess(company_id=2),
+        variant_ids=[101],
+    )
+    assert result[101].affected_batch_count == 1
+    assert result[101].affected_on_hand_quantity == "7.000000"
+    assert result[101].representative_reason.disposition_reason == "company two"
 
 
 def test_contract_preserves_exact_aggregate_strings_beyond_single_balance_capacity():
@@ -205,7 +209,7 @@ def test_contract_preserves_exact_aggregate_strings_beyond_single_balance_capaci
 
 @pytest.mark.asyncio
 async def test_postgresql_statement_is_tenant_bounded_and_read_only(store):
-    await load_batch_restrictions(store.db, actor=actor(admin=True), variant_ids=[101, 102])
+    await load_batch_restrictions(store.db, access=CanonicalAccess(company_id=1), variant_ids=[101, 102])
     sql = str(store.db.aggregate_reads[0].compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
     assert "product_batches.company_id = 1" in sql and "inventory_balances.company_id = 1" in sql
     assert "product_batches.product_variant_id IN (101, 102)" in sql
@@ -222,7 +226,7 @@ async def test_read_loader_never_autoflushes_pending_orm_objects(store):
             disposition="RECALLED", disposition_reason="Pending, not committed evidence")
         session.add(pending)
         db = ReadSession(session)
-        result = await load_batch_restrictions(db, actor=actor(admin=True), variant_ids=[101])
+        result = await load_batch_restrictions(db, access=CanonicalAccess(), variant_ids=[101])
         assert result[101].affected_batch_count == 0
         assert pending in session.new and pending.id is None
 
