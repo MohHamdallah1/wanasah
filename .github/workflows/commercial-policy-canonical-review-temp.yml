@@ -23,7 +23,34 @@ jobs:
         run: pip install -r requirements.txt
       - name: Compile touched runtime and test
         run: python -m py_compile api/commercial_policy.py tests/test_commercial_policy_canonical_auth_cutover.py
-      - name: Commercial Policy focused test
+      - name: CP 1 owner
+        continue-on-error: true
+        run: pytest -q tests/test_commercial_policy_canonical_auth_cutover.py::CommercialPolicyCanonicalAuthCutoverTests::test_owner_uses_canonical_full_capability_semantics
+      - name: CP 2 ordinary grant
+        continue-on-error: true
+        run: pytest -q tests/test_commercial_policy_canonical_auth_cutover.py::CommercialPolicyCanonicalAuthCutoverTests::test_ordinary_company_grant_can_read
+      - name: CP 3 maker checker
+        continue-on-error: true
+        run: pytest -q tests/test_commercial_policy_canonical_auth_cutover.py::CommercialPolicyCanonicalAuthCutoverTests::test_publish_requires_manage_and_approve
+      - name: CP 4 read boundary
+        continue-on-error: true
+        run: pytest -q tests/test_commercial_policy_canonical_auth_cutover.py::CommercialPolicyCanonicalAuthCutoverTests::test_read_route_is_driver_free_and_uses_canonical_company
+      - name: CP 5 publish provenance
+        continue-on-error: true
+        run: pytest -q tests/test_commercial_policy_canonical_auth_cutover.py::CommercialPolicyCanonicalAuthCutoverTests::test_publish_uses_both_capabilities_and_mapped_driver_only_for_provenance
+      - name: CP 6 forbidden authority
+        continue-on-error: true
+        run: pytest -q tests/test_commercial_policy_canonical_auth_cutover.py::CommercialPolicyCanonicalAuthCutoverTests::test_no_legacy_authority_or_identity_alias_assumption
+      - name: CP 7 tenant isolation
+        continue-on-error: true
+        run: pytest -q tests/test_commercial_policy_canonical_auth_cutover.py::CommercialPolicyCanonicalAuthCutoverTests::test_cross_company_isolation_comes_from_canonical_access
+      - name: CP 8 business contracts
+        continue-on-error: true
+        run: pytest -q tests/test_commercial_policy_canonical_auth_cutover.py::CommercialPolicyCanonicalAuthCutoverTests::test_business_idempotency_audit_and_error_contracts_are_preserved
+      - name: CP 9 independent IDs
+        continue-on-error: true
+        run: pytest -q tests/test_commercial_policy_canonical_auth_cutover.py::CommercialPolicyCanonicalAuthCutoverTests::test_independent_identity_ids_and_driver_admin_flag_are_irrelevant
+      - name: Full Commercial Policy focused test
         run: pytest -q tests/test_commercial_policy_canonical_auth_cutover.py
       - name: Canonical capability core
         run: pytest -q tests/test_canonical_backoffice_capability_access.py
