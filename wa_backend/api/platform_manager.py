@@ -260,7 +260,6 @@ async def create_new_tenant(
             username=payload.admin_username,
             password_hash=hashed_pw,
             full_name=payload.admin_full_name,
-            is_admin=False,
             is_active=True,
         )
         db.add(admin_driver)
