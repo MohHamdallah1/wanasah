@@ -79,7 +79,7 @@ async def _require(
     except BackofficeCapabilityAccessRejected:
         raise HTTPException(
             status_code=403,
-            detail="Authorization denied.",
+            detail="لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.",
         ) from None
 
 
