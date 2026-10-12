@@ -39,6 +39,7 @@ router = importlib.import_module("domains.simple_products.imports.api.router")
 
 
 def _production_error_handlers():
+    # Execute the actual central handlers without importing main or its lifespan.
     source = ast.parse((Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8"))
     names = {
         "_request_id", "_error_contract", "_error_response_payload",
@@ -54,6 +55,7 @@ def _production_error_handlers():
     }
     exec(compile(ast.Module(body=definitions, type_ignores=[]), "main-error-handlers", "exec"), namespace)
     return namespace
+
 
 
 class _Result:
@@ -146,6 +148,7 @@ def _row(number, *, expired=False, values=None):
         compacted_at=datetime(2026, 1, 1) if expired else None,
         values=values if values is not None else {"name": "Original", "unit_barcode": "00123"},
         error_code="IMPORT_NAME_REQUIRED",
+        # Persistence diagnostics must never become response text.
         error_message="password SQL tenant-private diagnostic",
     )
 
@@ -155,7 +158,9 @@ class InlineCorrectionReadTests(unittest.IsolatedAsyncioTestCase):
         job_id = uuid4()
         rows = [_row(4), _row(17, expired=True), _row(29)]
         db = _Db(_job(job_id), rows)
-        result = await api_service.read_correction_rows(db, company_id=101, job_id=job_id, after_row=2, limit=2)
+        result = await api_service.read_correction_rows(
+            db, company_id=101, job_id=job_id, after_row=2, limit=2,
+        )
         self.assertEqual(result["fields"], ["name", "unit_barcode"])
         self.assertEqual(result["next_after_row"], 17)
         first, expired = result["items"]
@@ -174,7 +179,7 @@ class InlineCorrectionReadTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("product_import_rows.job_id =", str(page_query))
         self.assertIn(["INVALID", "IMPORT_FAILED"], page_query.params.values())
         self.assertIn(101, page_query.params.values())
-        self.assertIn(3, page_query.params.values())
+        self.assertIn(3, page_query.params.values())  # limit + one lookahead
         self.assertIn("jsonb_build_object", str(page_query))
         self.assertIn("octet_length", str(page_query))
         self.assertNotIn("Secret", page_query.params.values())
@@ -341,6 +346,7 @@ class InlineCorrectionHttpTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertNotIn("password", response.text)
 
+
     def test_file_transport_preserves_expired_code_and_request_id(self):
         url = f"/simple-products/imports/{self.job_id}/correction"
         from domains.simple_products.imports.domain import ProductImportTerminalError
@@ -361,6 +367,7 @@ class InlineCorrectionHttpTests(unittest.TestCase):
         self.assertEqual(response.json()["error"]["code"], error.code)
         self.assertEqual(response.json()["error"]["request_id"], "inline-test-correlation")
         self.assertNotIn("diagnostics", response.text)
+
 
 
 class InlineCorrectionAuthorityTests(unittest.IsolatedAsyncioTestCase):
@@ -423,7 +430,7 @@ class InlineCorrectionAuthorityTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(conn.events, ["BEGIN", "ROLLBACK"])
                     self.assertEqual(conn.staged, [])
                     queue.assert_not_awaited()
-        conn = _Connection(uuid4())
+        conn = _Connection(uuid4())  # foreign job/company identities are absent under scope
         with self.assertRaises(InlineCorrectionError) as caught:
             await self.invoke(conn)
         self.assertEqual(caught.exception.code, "PRODUCT_IMPORT_CORRECTION_ROW_NOT_EDITABLE")
@@ -471,6 +478,7 @@ class FileCorrectionSafetyTests(unittest.IsolatedAsyncioTestCase):
         identity = uuid4()
         workbook = correction_service.Workbook()
         sheet = workbook.active
+        # A dangerous source header must keep its metadata under the original name.
         headers = ["Product", "Price", "@Barcode"]
         sheet.append(correction_service._artifact_headers(headers))
         sheet.append([str(identity), 23, "IMPORT_NAME_REQUIRED", "name", "Safe error", "", "1.50", barcode])
