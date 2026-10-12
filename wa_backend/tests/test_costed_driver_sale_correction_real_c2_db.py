@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import unittest
+from tests.canonical_actor_fixtures import load_company_owner_fixture, seed_field_fixture
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
@@ -72,13 +73,9 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
                     {"t": self.tenant},
                 ), 0, table,
             )
-        self.actor = await self.db.scalar(
-            select(Driver).where(
-                Driver.company_id == self.tenant,
-                Driver.is_active.is_(True),
-                Driver.is_admin.is_(True),
-            ).limit(1),
-        )
+        self.owner = await load_company_owner_fixture(self.db, self.tenant)
+        self.actor = self.owner.operational_driver
+        self.field = await seed_field_fixture(self.db, self.tenant)
         self.assertIsNotNone(self.actor)
         self.warehouse_id = await self.db.scalar(
             text("SELECT id FROM inventory_locations WHERE company_id=:t "
@@ -216,7 +213,7 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         route = await self.db.scalar(
             select(DispatchRoute).where(
                 DispatchRoute.company_id == self.tenant,
-                DispatchRoute.driver_id == self.actor.id,
+                DispatchRoute.driver_id == self.field.driver.id,
             )
         )
         self.assertIsNotNone(route)
@@ -253,7 +250,7 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         )
         first = await update_visit(
             visit_id=visit_id, payload=sale, db=self.db,
-            current_driver=self.actor,
+            field_context=self.field.context, legacy_actor=self.field.driver,
         )
         self.assertEqual(first["message"], "Visit updated successfully")
         self.assertEqual(Decimal(first["new_balance"]), Decimal("0"))
@@ -292,12 +289,12 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             (await update_visit(
                 visit_id=visit_id, payload=sale,
-                db=self.db, current_driver=self.actor,
+                db=self.db, field_context=self.field.context, legacy_actor=self.field.driver,
             )), first,
         )
         # A successful idempotency replay deliberately calls session.rollback.
         # Reload our test actor via explicit async IO before its next use.
-        await self.db.refresh(self.actor)
+        await self.db.refresh(self.field.driver)
 
         correction = VisitUpdateRequest(
             request_id=uuid4(), outcome="NoSale",
@@ -312,7 +309,7 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         )
         response = await update_visit(
             visit_id=visit_id, payload=correction,
-            db=self.db, current_driver=self.actor,
+            db=self.db, field_context=self.field.context, legacy_actor=self.field.driver,
         )
         self.assertEqual(response["message"], "Visit updated successfully")
         visit = (
@@ -369,7 +366,7 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             await update_visit(
                 visit_id=visit_id, payload=correction,
-                db=self.db, current_driver=self.actor,
+                db=self.db, field_context=self.field.context, legacy_actor=self.field.driver,
             ), response,
         )
         self.assertEqual(

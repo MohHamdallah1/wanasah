@@ -70,7 +70,10 @@ class IdentitySchemaExpandTests(unittest.TestCase):
     def test_only_four_new_tables_and_no_legacy_metadata_changes(self):
         self.assertEqual(set(Base.metadata.tables) - set(_LEGACY), _TABLES)
         self.assertEqual({name: _signature(Base.metadata.tables[name]) for name in _LEGACY}, _LEGACY)
-        self.assertIn("is_admin", Base.metadata.tables["drivers"].c)
+        # Identity expansion preserves operational columns independently of any
+        # subsequently retired authentication flag.
+        self.assertTrue({"id", "company_id", "is_active"} <=
+                        set(Base.metadata.tables["drivers"].c.keys()))
         self.assertEqual({p.value for p in PrincipalType}, {"BACKOFFICE", "FIELD_REPRESENTATIVE"})
 
     def test_profiles_have_independent_pk_and_unique_principal_link(self):

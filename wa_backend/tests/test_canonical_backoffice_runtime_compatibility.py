@@ -75,12 +75,11 @@ def bridge(
     )
 
 
-def driver(*, driver_id=303, company_id=7, active=True, admin=False):
+def driver(*, driver_id=303, company_id=7, active=True):
     return Driver(
         id=driver_id,
         company_id=company_id,
         is_active=active,
-        is_admin=admin,
     )
 
 
@@ -330,7 +329,7 @@ class CanonicalBackofficeRuntimeCompatibilityTests(unittest.IsolatedAsyncioTestC
         for owner in (False, True):
             for flag in (False, True):
                 with self.subTest(owner=owner, legacy_flag=flag):
-                    operational = driver(admin=flag)
+                    operational = SimpleNamespace(id=303, company_id=7, is_active=True, is_admin=flag)
                     db, _, _ = compatibility_db(bridge(), operational)
                     returned = await api_module.get_current_backoffice_legacy_driver(
                         current=dashboard_context(owner=owner), db=db
@@ -399,7 +398,7 @@ class CanonicalBackofficeRuntimeCompatibilityTests(unittest.IsolatedAsyncioTestC
 
     async def test_fastapi_request_cache_reuses_compatibility_dependency_and_decodes_once(self):
         trusted = dashboard_context(owner=True)
-        operational = driver(admin=False)
+        operational = driver()
         db, result = driver_only_db(operational)
         locator = domain.BackofficeLegacyActorLocator(101, 202, 7, 303)
 

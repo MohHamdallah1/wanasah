@@ -21,11 +21,12 @@ from alembic.script import ScriptDirectory
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from api.dependencies import get_current_driver
+from tests.canonical_actor_fixtures import seed_company_owner_fixture
+from domains.identity.models import CompanyOwner
 from api.authentication.backoffice_authorization import get_current_backoffice_capability_access
 from api.authentication.backoffice_compatibility import get_current_backoffice_legacy_driver
 from api.suppliers import router as supplier_router
@@ -81,10 +82,9 @@ async def gate():
     async with AsyncSession(admin_engine, expire_on_commit=False) as seed:
         companies = [Company(name=f"Gate {index}", company_code=f"SG{index}") for index in (1, 2)]
         seed.add_all(companies); await seed.flush()
-        actors = [Driver(company_id=c.id, username="gate", full_name="Gate admin", password_hash="synthetic", is_admin=True) for c in companies]
-        for actor in actors:
-            actor.set_password(GATE_PASSWORD)
-        seed.add_all(actors); await seed.flush()
+        identities = [await seed_company_owner_fixture(seed, c.id, password=GATE_PASSWORD)
+                      for c in companies]
+        actors = [identity.operational_driver for identity in identities]
         uom = UOM(name="Each", code="EACH"); seed.add(uom); await seed.flush()
         products = [Product(company_id=c.id, code="P", name="Gate product") for c in companies]
         seed.add_all(products); await seed.flush()
@@ -116,7 +116,7 @@ async def gate():
         for code in PERMISSIONS:
             await conn.execute(text("INSERT INTO permissions(code) VALUES(:code) ON CONFLICT(code) DO NOTHING"), {"code": code})
     runtime_engine = create_async_engine(os.environ["DATABASE_URL"], poolclass=NullPool, connect_args=settings)
-    yield SimpleNamespace(engine=runtime_engine, admin_engine=admin_engine, companies=companies, actors=actors,
+    yield SimpleNamespace(engine=runtime_engine, admin_engine=admin_engine, companies=companies, actors=actors, identities=identities,
                           variants=variants, locations=locations, uom=uom, legacy=legacy, schema=schema)
     await runtime_engine.dispose(); await admin_engine.dispose(); await root_engine.dispose()
 
@@ -129,10 +129,9 @@ async def api(gate):
     actor = SimpleNamespace(id=gate.actors[0].id, company_id=gate.companies[0].id, is_admin=True, is_active=True,
                             password_hash=gate.actors[0].password_hash)
     auth = SimpleNamespace(
-        principal_id=100_001,
-        backoffice_user_id=200_001,
-        company_id=gate.companies[0].id,
-        is_company_owner=True,
+        principal_id=gate.identities[0].context.principal_id,
+        backoffice_user_id=gate.identities[0].context.backoffice_user_id,
+        company_id=gate.identities[0].context.company_id,
     )
     await db.execute(text("SELECT set_config('app.current_tenant',:tenant,true)"), {"tenant": str(actor.company_id)})
     app = FastAPI()
@@ -142,17 +141,20 @@ async def api(gate):
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_middleware(WanasahRawASGIMiddleware)
     app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[get_current_driver] = lambda: actor
 
     async def canonical_access():
+        owner_profile_id = await db.scalar(select(CompanyOwner.backoffice_user_id).where(
+            CompanyOwner.company_id == auth.company_id,
+            CompanyOwner.backoffice_user_id == auth.backoffice_user_id,
+        ))
         return BackofficeCapabilityAccess(
             db=db,
             subject=BackofficeAuthorizationSubject(
                 principal_id=auth.principal_id,
                 backoffice_user_id=auth.backoffice_user_id,
                 company_id=auth.company_id,
-                is_company_owner=auth.is_company_owner,
-                legacy_grant_driver_id=None if auth.is_company_owner else actor.id,
+                is_company_owner=owner_profile_id is not None,
+                legacy_grant_driver_id=None if owner_profile_id is not None else actor.id,
             ),
         )
 
@@ -237,8 +239,8 @@ async def test_tenant_and_inactive_selection_fail_closed_at_direct_api(api):
     assert_code(await api.client.post(path, json=return_body), "PRODUCT_QUALITY_ISSUE_NOT_ACTIVE", 409)
     api.actor.company_id = api.gate.companies[1].id; api.actor.id = api.gate.actors[1].id
     api.auth.company_id = api.gate.companies[1].id
-    api.auth.principal_id = 100_002
-    api.auth.backoffice_user_id = 200_002
+    api.auth.principal_id = api.gate.identities[1].context.principal_id
+    api.auth.backoffice_user_id = api.gate.identities[1].context.backoffice_user_id
     await api.db.execute(text("SELECT set_config('app.current_tenant',:tenant,true)"), {"tenant": str(api.actor.company_id)})
     assert (await api.client.get("/suppliers")).json()["items"] == []
     assert_code(await api.client.get(f"/suppliers/{row['id']}"), "SUPPLIER_NOT_FOUND", 404)
@@ -251,7 +253,10 @@ async def test_tenant_and_inactive_selection_fail_closed_at_direct_api(api):
 @pytest.mark.asyncio
 async def test_permission_separation_and_revocation_before_replay(api):
     row, body = await create(api)
-    api.auth.is_company_owner = False
+    await api.db.execute(delete(CompanyOwner).where(
+        CompanyOwner.company_id == api.auth.company_id,
+        CompanyOwner.backoffice_user_id == api.auth.backoffice_user_id,
+    ))
     assert api.actor.is_admin is True  # Deprecated Driver flag is deliberately irrelevant.
     assert_code(await api.client.get("/suppliers"), "SUPPLIER_PERMISSION_DENIED", 403)
     assert_code(await api.client.post("/suppliers", json=body), "SUPPLIER_PERMISSION_DENIED", 403)
@@ -449,7 +454,11 @@ async def test_multisupplier_stock_is_not_collapsed_to_one_operator_selected_sup
     grant = text("INSERT INTO user_location_access(company_id,driver_id,location_id,role_id) VALUES(:company,:actor,:location,:role)")
     await api.db.execute(grant, {"company": api.actor.company_id, "actor": api.actor.id, "location": api.gate.locations[0].id, "role": role_ids[1]})
     # Grant edits represent independently committed access administration.
-    await api.db.commit(); api.auth.is_company_owner = False
+    await api.db.execute(delete(CompanyOwner).where(
+        CompanyOwner.company_id == api.auth.company_id,
+        CompanyOwner.backoffice_user_id == api.auth.backoffice_user_id,
+    ))
+    await api.db.commit()
     assert api.actor.is_admin is True  # Grants, not Driver.is_admin, now control this path.
     body = {"request_id": str(uuid4()), "action": "RETURN_TO_VENDOR", "reason": "Confirmed issue", "supplier_id": supplier_a["id"],
             "confirmation_password": GATE_PASSWORD}

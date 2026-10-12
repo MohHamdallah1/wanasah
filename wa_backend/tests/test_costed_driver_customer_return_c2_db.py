@@ -12,6 +12,7 @@ from correcting an existing Sale and separate from refunding customer cash.
 """
 from __future__ import annotations
 
+from tests.canonical_actor_fixtures import load_company_owner_fixture, seed_field_fixture
 from tests.supplier_fixtures import seed_receipt_supplier
 
 import os
@@ -70,13 +71,9 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
                     {"c": self.tenant},
                 )), 0, table,
             )
-        self.actor = await self.db.scalar(
-            select(Driver).where(
-                Driver.company_id == self.tenant,
-                Driver.is_admin.is_(True),
-                Driver.is_active.is_(True),
-            ).limit(1),
-        )
+        self.owner = await load_company_owner_fixture(self.db, self.tenant)
+        self.actor = self.owner.operational_driver
+        self.field = await seed_field_fixture(self.db, self.tenant)
         self.assertIsNotNone(self.actor)
         self.supplier_id = await seed_receipt_supplier(self.db, self.actor)
         self.warehouse_id = await self.db.scalar(
@@ -138,7 +135,7 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             }],
         )
         response = await warehouse_inbound(
-            payload=inbound, db=self.db, current_admin=self.actor,
+            payload=inbound, db=self.db, access=self.owner.access(self.db), legacy_actor=self.actor,
         )
         self.assertEqual(response["message"], "INBOUND_POSTED")
         if second_purchase_price is not None:
@@ -161,7 +158,7 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
                 }],
             )
             extra_response = await warehouse_inbound(
-                payload=additional, db=self.db, current_admin=self.actor,
+                payload=additional, db=self.db, access=self.owner.access(self.db), legacy_actor=self.actor,
             )
             self.assertEqual(extra_response["message"], "INBOUND_POSTED")
         batch_id = await self.db.scalar(
@@ -202,7 +199,7 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         session = None
         if commercial_context_factory is None:
             session = WorkSession(
-                company_id=self.tenant, driver_id=self.actor.id,
+                company_id=self.tenant, driver_id=self.field.driver.id,
                 session_date=date.today(),
                 is_authorized_to_sell=True,
                 is_settled=False,
@@ -211,7 +208,7 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             await self.db.flush()
         route = DispatchRoute(
             company_id=self.tenant, zone_id=zone.id,
-            driver_id=self.actor.id,
+            driver_id=self.field.driver.id,
             vehicle_id=vehicle.id,
             work_session_id=(session.id if session is not None else None),
             source_location_id=self.warehouse_id,
@@ -224,7 +221,7 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         visit = Visit(
             id=1_700_000_000 + int(tag[:7], 16) % 300_000_000,
             company_id=self.tenant, shop_id=shop.id,
-            driver_id=self.actor.id,
+            driver_id=self.field.driver.id,
             operational_date=date.today(),
             status="Pending", outcome="Pending",
         )
@@ -256,7 +253,7 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         if commercial_context_factory is not None:
             commercial_id = await commercial_context_factory(visit.id)
             session = WorkSession(
-                company_id=self.tenant, driver_id=self.actor.id,
+                company_id=self.tenant, driver_id=self.field.driver.id,
                 commercial_context_id=commercial_id,
                 session_date=date.today(),
                 is_authorized_to_sell=True,
@@ -325,7 +322,7 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             visit_id=visit_id,
             payload=request,
             db=self.db,
-            current_driver=self.actor,
+            field_context=self.field.context, legacy_actor=self.field.driver,
         )
         self.assertEqual(response["message"], "Visit updated successfully")
         recorded = (
@@ -385,7 +382,7 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         # Retry exact visit return must not double replace/damage/count.
         replay = await update_visit(
             visit_id=visit_id, payload=request,
-            db=self.db, current_driver=self.actor,
+            db=self.db, field_context=self.field.context, legacy_actor=self.field.driver,
         )
         self.assertEqual(replay, response)
         self.assertEqual(

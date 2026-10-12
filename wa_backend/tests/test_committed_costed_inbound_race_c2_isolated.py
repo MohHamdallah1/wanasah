@@ -26,6 +26,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from fastapi import HTTPException
+from tests.canonical_actor_fixtures import load_company_owner_fixture
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
@@ -94,12 +95,8 @@ class CommittedReceiptRaceC2IsolatedTests(unittest.IsolatedAsyncioTestCase):
                     ),
                     0, "Commit gate requires a clean disposable DB: "+table,
                 )
-            actor_id = await session.scalar(
-                text(
-                    "SELECT id FROM drivers WHERE company_id=2 "
-                    "AND is_admin=true AND is_active=true LIMIT 1"
-                )
-            )
+            self.owner = await load_company_owner_fixture(session, self.tenant)
+            actor_id = self.owner.driver_id
             self.assertIsNotNone(actor_id)
             self.actor = SimpleNamespace(
                 id=int(actor_id), company_id=2, is_admin=True, is_active=True,
@@ -185,7 +182,7 @@ class CommittedReceiptRaceC2IsolatedTests(unittest.IsolatedAsyncioTestCase):
             payload=InventoryCostPolicyUpdateRequest(
                 request_id=uuid4(), method=self.method, expected_version=0,
             ),
-            db=management, current_admin=self.actor,
+            db=management, access=self.owner.access(management), legacy_actor=self.actor,
         )
         self.assertEqual(policy["method"], self.method)
         self.assertEqual(policy["version"], 1)
@@ -197,12 +194,12 @@ class CommittedReceiptRaceC2IsolatedTests(unittest.IsolatedAsyncioTestCase):
         request = self._receipt(quantity="4", cost="2")
         _, first_db = await self._session()
         initial = await warehouse_inbound(
-            payload=request, db=first_db, current_admin=self.actor,
+            payload=request, db=first_db, access=self.owner.access(first_db), legacy_actor=self.actor,
         )
         self.assertEqual(initial, {"message": "INBOUND_POSTED"})
         _, retrier = await self._session()
         replay = await warehouse_inbound(
-            payload=request, db=retrier, current_admin=self.actor,
+            payload=request, db=retrier, access=self.owner.access(retrier), legacy_actor=self.actor,
         )
         self.assertEqual(replay, initial)
         self.assertEqual(
@@ -243,11 +240,11 @@ class CommittedReceiptRaceC2IsolatedTests(unittest.IsolatedAsyncioTestCase):
         ):
             try:
                 future1 = asyncio.create_task(warehouse_inbound(
-                    payload=left, db=a, current_admin=self.actor,
+                    payload=left, db=a, access=self.owner.access(a), legacy_actor=self.actor,
                 ))
                 await asyncio.wait_for(completed_first_stock.wait(), 20)
                 future2 = asyncio.create_task(warehouse_inbound(
-                    payload=right, db=b, current_admin=self.actor,
+                    payload=right, db=b, access=self.owner.access(b), legacy_actor=self.actor,
                 ))
                 await asyncio.sleep(0.2)
                 self.assertFalse(
@@ -299,7 +296,7 @@ class CommittedReceiptRaceC2IsolatedTests(unittest.IsolatedAsyncioTestCase):
             _, fresh = await self._session()
             self.assertEqual(
                 await warehouse_inbound(
-                    payload=invoice, db=fresh, current_admin=self.actor,
+                    payload=invoice, db=fresh, access=self.owner.access(fresh), legacy_actor=self.actor,
                 ), initial,
             )
         self.assertEqual(
@@ -329,12 +326,12 @@ class CommittedReceiptRaceC2IsolatedTests(unittest.IsolatedAsyncioTestCase):
                 try:
                     first_task = asyncio.create_task(warehouse_inbound(
                         payload=first_invoice, db=race_a,
-                        current_admin=self.actor,
+                        access=self.owner.access(race_a), legacy_actor=self.actor,
                     ))
                     await asyncio.wait_for(entered.wait(), 20)
                     second_task = asyncio.create_task(warehouse_inbound(
                         payload=competing_invoice, db=race_b,
-                        current_admin=self.actor,
+                        access=self.owner.access(race_b), legacy_actor=self.actor,
                     ))
                     await asyncio.sleep(0.15)
                     self.assertFalse(

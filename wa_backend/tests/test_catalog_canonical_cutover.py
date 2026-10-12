@@ -30,10 +30,9 @@ with patch.dict(os.environ, {
     from api.authentication import dependencies as canonical
 from database import get_db
 from domains.auth_sessions.context import DashboardRequestContext, FieldRequestContext
-from domains.authorization.backoffice_access import BackofficeCapabilityAccess
+from domains.authorization.backoffice_access import BackofficeCapabilityAccess, BackofficeCapabilityAccessRejected
 from domains.authorization.backoffice_subject import BackofficeAuthorizationSubject
 from domains.authorization.capabilities import COMPANY_ONLY
-from domains.authorization.inventory_access import InventoryAccess as BaselineAccess
 from domains.identity.migration.models import IdentityLegacyDriverMap
 from models import Driver, InventoryLocation, Permission, Product, ProductVariant, UserLocationAccess, UserRole, role_permissions
 
@@ -54,6 +53,7 @@ class ReadSession:
     def __init__(self, session):
         self.session = session
         self.statements = []
+        self.legacy_flag = None
         self.variant_override = _UNSET
         self.commit = AsyncMock()
         self.rollback = AsyncMock()
@@ -61,7 +61,18 @@ class ReadSession:
 
     async def execute(self, statement):
         self.statements.append(statement)
-        return self.session.execute(statement)
+        result = self.session.execute(statement)
+        columns = getattr(statement, "column_descriptions", ())
+        if self.legacy_flag is not None and columns and columns[0].get("entity") is Driver:
+            row = result.scalar_one_or_none()
+            # The mapped SQL row has no flag dependency. Only the negative-proof
+            # sentinel returned at the operational seam carries the obsolete flag.
+            operational = None if row is None else SimpleNamespace(
+                id=row.id, company_id=row.company_id, is_active=row.is_active,
+                is_admin=self.legacy_flag,
+            )
+            return Mock(scalar_one_or_none=Mock(return_value=operational))
+        return result
 
     async def scalar(self, statement):
         self.statements.append(statement)
@@ -104,7 +115,7 @@ class CatalogCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
                       "catalog.restore", "catalog.archive", "catalog.hold", "inventory.read")
         for identifier, code in enumerate(self.codes, 1):
             self.insert(Permission, id=identifier, code=code)
-        self.insert(Driver, id=303, company_id=7, is_active=True, is_admin=False)
+        self.insert(Driver, id=303, company_id=7, is_active=True)
         self.insert(IdentityLegacyDriverMap, company_id=7, legacy_driver_id=303,
                     classification="BACKOFFICE_ONLY", backoffice_principal_id=101,
                     backoffice_user_id=202)
@@ -190,7 +201,7 @@ class CatalogCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_capability_ignores_both_driver_flag_values(self):
         for flag in (False, True):
-            self.change_driver(is_admin=flag)
+            self.db.legacy_flag = flag
             response = await self.http("/products")
             self.assertEqual(response.status_code, 403)
             self.assertEqual(response.json()["detail"],
@@ -226,19 +237,58 @@ class CatalogCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(list(self.connection.scalars(statement)), [21])
         self.assert_read_only()
 
-    async def test_grant_sql_parity_for_every_catalog_scope_and_recall_scope(self):
-        ordinary = self.access()
-        baseline = BaselineAccess(self.db, SimpleNamespace(company_id=7, id=303, is_admin=False))
-        owner = self.access(owner=True)
-        baseline_owner = BaselineAccess(self.db, SimpleNamespace(company_id=7, id=303, is_admin=True))
+    async def test_canonical_capability_contract_for_every_catalog_and_recall_scope(self):
+        ordinary, owner = self.access(), self.access(owner=True)
+        self.assertIsInstance(ordinary, BackofficeCapabilityAccess)
+        self.assertFalse(ordinary.subject.is_company_owner)
+        self.assertTrue(owner.subject.is_company_owner)
+        self.assertIsNone(owner.subject.legacy_grant_driver_id)
+        self.assertEqual((ordinary.subject.principal_id, ordinary.subject.backoffice_user_id,
+                          ordinary.subject.legacy_grant_driver_id), (101, 202, 303))
+        # These are the reviewed Catalog contracts, independent of grant-engine internals.
+        location_capabilities = {"catalog.read", "inventory.read"}
+        scopes = ({}, {"any_location": True}, {"location_id": 21}, {"location_id": 22})
+
+        def allowed(access, code, scope):
+            return bool(self.connection.scalar(select(access.allows(code, **scope))))
+
         for code in self.codes:
-            for scope in ({}, {"any_location": True}, {"location_id": 21}):
-                with self.subTest(code=code, scope=scope):
-                    old_scope = {"location": scope["location_id"]} if "location_id" in scope else scope
-                    self.assertEqual(sql(select(ordinary.allows(code, **scope))),
-                                     sql(select(baseline.allows(code, **old_scope))))
-                    self.assertEqual(sql(select(owner.allows(code, **scope))),
-                                     sql(select(baseline_owner.allows(code, **old_scope))))
+            for scope in scopes:
+                with self.subTest(code=code, scope=scope, state="ungranted"):
+                    self.assertFalse(allowed(ordinary, code, scope))
+                    self.assertTrue(allowed(owner, code, scope))
+
+            # Neither foreign company assignments nor canonical identity IDs locate grants.
+            self.grant(code, company=8)
+            self.grant(code, location=81, company=8)
+            self.grant(code, driver=101)
+            self.grant(code, driver=202)
+            for scope in scopes:
+                with self.subTest(code=code, scope=scope, state="wrong-tenant-or-locator"):
+                    self.assertFalse(allowed(ordinary, code, scope))
+
+            self.grant(code, location=21)
+            for scope in scopes:
+                expected = code in location_capabilities and (
+                    scope.get("any_location") is True or scope.get("location_id") == 21
+                )
+                with self.subTest(code=code, scope=scope, state="location-granted"):
+                    self.assertIs(allowed(ordinary, code, scope), expected)
+                    self.assertTrue(allowed(owner, code, scope))
+            self.assertFalse(allowed(ordinary, code, {"location_id": 81}))
+
+            self.grant(code)
+            for scope in scopes:
+                with self.subTest(code=code, scope=scope, state="company-granted"):
+                    self.assertTrue(allowed(ordinary, code, scope))
+                    self.assertTrue(allowed(owner, code, scope))
+
+        # Owner predicates still cannot authorize a nonexistent or foreign location
+        # through the canonical structural guard.
+        for location_id in (81, 999):
+            with self.subTest(location_id=location_id), self.assertRaises(BackofficeCapabilityAccessRejected):
+                await owner.require("inventory.read", location_id=location_id)
+        self.assert_read_only()
 
     async def test_foreign_grants_and_missing_or_wrong_context_fail_closed(self):
         self.grant("catalog.read", company=8)
@@ -269,7 +319,7 @@ class CatalogCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
         payload = {"request_id": "4e447464-7d22-4880-a0f0-e4549bf90e30",
                    "code": "NEW", "name": "New product"}
         for flag in (False, True):
-            self.change_driver(is_admin=flag)
+            self.db.legacy_flag = flag
             replay = {"message": "replayed"}
             with patch.object(module, "begin_idempotent_operation",
                               AsyncMock(return_value=(None, replay))) as begin:

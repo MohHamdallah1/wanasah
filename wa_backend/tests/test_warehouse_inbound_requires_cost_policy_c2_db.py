@@ -6,6 +6,7 @@ so this regression cannot accidentally commit a sale/receipt on a bad code path.
 """
 from __future__ import annotations
 
+from tests.canonical_actor_fixtures import load_company_owner_fixture
 from tests.supplier_fixtures import seed_receipt_supplier
 
 import os
@@ -47,13 +48,8 @@ class WarehouseInboundCostSelectionC2DatabaseTests(unittest.IsolatedAsyncioTestC
             await get_cost_policy(self.db, company_id=self.company_id),
             "Test company must have no existing costing policy.",
         )
-        self.actor = await self.db.scalar(
-            select(Driver).where(
-                Driver.company_id == self.company_id,
-                Driver.is_active.is_(True),
-                Driver.is_admin.is_(True),
-            ).limit(1)
-        )
+        self.owner = await load_company_owner_fixture(self.db, self.company_id)
+        self.actor = self.owner.operational_driver
         self.assertIsNotNone(self.actor)
         self.supplier_id = await seed_receipt_supplier(self.db, self.actor)
         self.location_id = await self.db.scalar(text(
@@ -105,7 +101,7 @@ class WarehouseInboundCostSelectionC2DatabaseTests(unittest.IsolatedAsyncioTestC
             )
             with self.assertRaises(HTTPException) as caught:
                 await warehouse_inbound(
-                    payload=payload, db=self.db, current_admin=self.actor,
+                    payload=payload, db=self.db, access=self.owner.access(self.db), legacy_actor=self.actor,
                 )
             self.assertEqual(caught.exception.status_code, 409)
             self.assertEqual(

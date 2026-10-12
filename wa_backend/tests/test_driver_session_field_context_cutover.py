@@ -217,7 +217,7 @@ class DriverSessionFieldContextCutoverTests(unittest.IsolatedAsyncioTestCase):
                     self.namespace = load_routes()
                     setup = fixture(name)
                     # Deliberately conflicting operational company: endpoint scopes remain canonical.
-                    actor = Driver(id=303, company_id=999, is_active=True, is_admin=flag)
+                    actor = SimpleNamespace(id=303, company_id=999, is_active=True, is_admin=flag)
                     await self.invoke(name, setup, actor)
                     query = setup.db.execute.await_args_list[0].args[0]
                     self.assertIn("company_id = 7", sql(query.whereclause))
@@ -352,7 +352,7 @@ class DriverSessionFieldContextCutoverTests(unittest.IsolatedAsyncioTestCase):
                 with self.subTest(endpoint=name, operational_flag=flag):
                     self.namespace = load_routes()
                     setup = fixture(name)
-                    actor = Driver(id=303, company_id=7, is_active=True, is_admin=flag)
+                    actor = SimpleNamespace(id=303, company_id=7, is_active=True, is_admin=flag)
                     mapping = Bridge(company_id=7, legacy_driver_id=303,
                                      field_principal_id=101, field_representative_id=202)
                     mapping_result, driver_result = result(mapping), result(actor)

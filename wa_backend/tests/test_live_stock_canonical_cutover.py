@@ -1,7 +1,7 @@
-"""Focused Live Stock canonical HTTP, SQL scope, and query parity acceptance.
+"""Focused Live Stock canonical HTTP, SQL scope, and query contract acceptance.
 
 Uses synthetic SQLite grant/location data and mocked readiness only. PostgreSQL
-business queries are compiled against both grant engines; RLS/deployment evidence
+business queries are compiled with canonical grant predicates; RLS/deployment evidence
 is separate. HTTP tests override only the already-trusted principal context.
 """
 import os
@@ -31,7 +31,6 @@ from database import get_db
 from domains.auth_sessions.context import DashboardRequestContext, FieldRequestContext
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from domains.authorization.backoffice_subject import BackofficeAuthorizationSubject
-from domains.authorization.inventory_access import InventoryAccess as BaselineInventoryAccess
 from domains.identity.migration.models import IdentityLegacyDriverMap
 from models import Driver, InventoryLocation, Permission, Product, ProductVariant, UserLocationAccess, UserRole, role_permissions
 
@@ -78,7 +77,7 @@ class LiveStockCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
             (Permission, "id code"),
             (UserRole, "company_id driver_id role_id"),
             (UserLocationAccess, "company_id driver_id role_id location_id"),
-            (Driver, "id company_id is_admin"),
+            (Driver, "id company_id"),
             (Product, "id company_id name code"),
             (IdentityLegacyDriverMap, " ".join(IdentityLegacyDriverMap.__table__.columns.keys())),
         )
@@ -100,7 +99,7 @@ class LiveStockCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.connection.close)
         self.db = ReadSession(self.connection)
         self.insert(Permission, id=1, code="inventory.read")
-        self.insert(Driver, id=303, company_id=7, is_admin=False)
+        self.insert(Driver, id=303, company_id=7)
         self.insert(IdentityLegacyDriverMap, company_id=7, legacy_driver_id=303,
                     classification="BACKOFFICE_ONLY", backoffice_principal_id=101,
                     backoffice_user_id=202)
@@ -202,14 +201,16 @@ class LiveStockCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_driver_flag_neither_promotes_ordinary_user_nor_demotes_company_owner(self):
         for flag in (True, False):
-            self.connection.execute(self.tables["drivers"].update().values(is_admin=flag))
+            # Legacy operational data are sentinel-only; Live Stock never loads them.
+            self.db.operational_driver = SimpleNamespace(id=303, company_id=7, is_admin=flag)
             with self.assertRaises(HTTPException) as denied:
                 await self.warehouse_read(self.access())
             self.assertEqual(denied.exception.status_code, 403)
             self.assertTrue(await self.warehouse_read(self.access(owner=True)))
         self.grant(location_id=21)
         for flag in (True, False):
-            self.connection.execute(self.tables["drivers"].update().values(is_admin=flag))
+            # Legacy operational data are sentinel-only; Live Stock never loads them.
+            self.db.operational_driver = SimpleNamespace(id=303, company_id=7, is_admin=flag)
             self.assertFalse(await self.warehouse_read(self.access()))
         self.assertTrue(all("FROM drivers" not in sql(statement) for statement in self.db.statements))
 
@@ -235,24 +236,70 @@ class LiveStockCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("ORDER BY products.name ASC, products.id ASC", query)
             self.assertIn("LIMIT 3", query)
 
-    def test_postgresql_business_queries_and_permission_predicates_match_baseline_grant_engine(self):
+    def test_postgresql_business_queries_keep_canonical_tenant_and_scope_predicates(self):
         for owner in (False, True):
-            current = self.access(owner=owner)
-            baseline = BaselineInventoryAccess(self.db, SimpleNamespace(company_id=7, id=303, is_admin=owner))
-            for make_query in (
-                lambda access: module._readable_vehicle_locations_subquery(company_id=7, access=access).select(),
-                lambda access: module._build_visible_inventory_stmt(
-                    company_id=7, location_id=21, access=access,
-                    company_wide_inventory_read=owner, limit=2, sort="name_desc",
-                    candidate_filters=(ProductVariant.id > 10,),
-                ),
-                lambda access: module._live_stock_filtered_variant_ids_stmt(
-                    company_id=7, location_id=21, access=access, company_wide_inventory_read=owner,
-                    stock_state="sellable", has_reserved=True, has_unavailable=True,
-                    has_damaged=False, has_recalled=True, has_vehicle=True, minimum_unset=False,
-                ),
-            ):
-                self.assertEqual(sql(make_query(current)), sql(make_query(baseline)))
+            access = self.access(owner=owner)
+            self.assertIsInstance(access, BackofficeCapabilityAccess)
+            self.assertIs(access.subject.is_company_owner, owner)
+            vehicle = sql(module._readable_vehicle_locations_subquery(
+                company_id=access.company_id, access=access,
+            ).select())
+            visible = sql(module._build_visible_inventory_stmt(
+                company_id=access.company_id, location_id=21, access=access,
+                company_wide_inventory_read=owner, limit=2, sort="name_desc",
+                candidate_filters=(ProductVariant.id > 10,),
+            ))
+            filtered = sql(module._live_stock_filtered_variant_ids_stmt(
+                company_id=access.company_id, location_id=21, access=access,
+                company_wide_inventory_read=owner, stock_state="sellable",
+                has_reserved=True, has_unavailable=True, has_damaged=False,
+                has_recalled=True, has_vehicle=True, minimum_unset=False,
+            ))
+
+            for rendered in (vehicle, visible, filtered):
+                with self.subTest(owner=owner, query=rendered[:80]):
+                    self.assertNotIn("drivers", rendered)
+                    self.assertNotIn("is_admin", rendered)
+                    self.assertNotIn("company_id = 8", rendered)
+                    if owner:
+                        self.assertNotIn("user_roles", rendered)
+                        self.assertNotIn("user_location_access", rendered)
+                    else:
+                        for predicate in (
+                            "user_roles.company_id = 7",
+                            "user_location_access.company_id = 7",
+                            "role_permissions.company_id = 7",
+                            "user_roles.driver_id = 303",
+                            "user_location_access.driver_id = 303",
+                            "permissions.code IN ('inventory.read')",
+                            "user_location_access.location_id = inventory_locations.id",
+                        ):
+                            self.assertIn(predicate, rendered)
+
+            for predicate in ("inventory_locations.company_id = 7",
+                              "inventory_locations.location_type = 'VEHICLE'",
+                              "inventory_locations.is_active IS true",
+                              "inventory_locations.vehicle_id IS NOT NULL"):
+                self.assertIn(predicate, vehicle)
+            self.assertIn("product_variants.company_id = 7", visible)
+            self.assertIn("product_variants.id > 10", visible)
+            self.assertIn("warehouse_location_id = 21", visible)
+            self.assertIn("LIMIT 3", visible)
+            ordering = ("product_variants.name DESC, product_variants.id DESC" if owner else
+                        "visible_inventory_candidates.variant_name DESC, visible_inventory_candidates.id DESC")
+            self.assertIn("ORDER BY " + ordering, visible)
+            self.assertIn("live_stock_filter_variant.company_id = 7", filtered)
+            self.assertIn("warehouse_location_id = 21", filtered)
+            self.assertIn("warehouse_sellable_on_hand", filtered)
+            self.assertIn("warehouse_reserved", filtered)
+            self.assertIn("recalled_packs", filtered)
+            if owner:
+                self.assertIn("vehicle_packs", filtered)
+            else:
+                for rendered in (visible, filtered):
+                    self.assertIn("inventory_balances.company_id = 7", rendered)
+                    self.assertIn("dispatch_routes.company_id = 7", rendered)
+                    self.assertIn("latest_readable_vehicle_sources.source_location_id = 21", rendered)
 
     async def http_request(self, context, path, readiness):
         app = FastAPI()

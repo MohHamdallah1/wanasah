@@ -325,8 +325,8 @@ def main():
         with psycopg.connect(**connect, user=ADMIN, autocommit=True) as conn:
             legacy_company = company(conn, "IDENTITY-LEGACY-SENTINEL")
             legacy_driver = conn.execute(
-                """INSERT INTO drivers(company_id,username,password_hash,full_name,is_active,is_admin,created_at)
-                   VALUES (%s,'legacy-sentinel','synthetic','Legacy sentinel',true,true,CURRENT_TIMESTAMP) RETURNING id""",
+                """INSERT INTO drivers(company_id,username,password_hash,full_name,is_active,created_at)
+                   VALUES (%s,'legacy-sentinel','synthetic','Legacy sentinel',true,CURRENT_TIMESTAMP) RETURNING id""",
                 (legacy_company,),
             ).fetchone()[0]
             legacy = legacy_contract(conn)
@@ -367,12 +367,12 @@ def main():
             for table in TABLES:
                 assert conn.execute("SELECT to_regclass(%s)", (table,)).fetchone()[0] is None
             assert legacy_contract(conn) == legacy
-            assert conn.execute("SELECT is_admin FROM drivers WHERE id=%s", (legacy_driver,)).fetchone() == (True,)
+            assert conn.execute("SELECT is_active FROM drivers WHERE id=%s", (legacy_driver,)).fetchone() == (True,)
         alembic("upgrade", "head")
         with psycopg.connect(**connect, user=ADMIN, autocommit=True) as conn:
             verify_schema(conn)
             assert legacy_contract(conn) == legacy
-            assert conn.execute("SELECT is_admin FROM drivers WHERE id=%s", (legacy_driver,)).fetchone() == (True,)
+            assert conn.execute("SELECT is_active FROM drivers WHERE id=%s", (legacy_driver,)).fetchone() == (True,)
         checkpoint("EMPTY_DOWNGRADE_UPGRADE_AND_LEGACY_PRESERVATION")
     except Exception as exc:
         failure = f"{type(exc).__name__}: {exc}"

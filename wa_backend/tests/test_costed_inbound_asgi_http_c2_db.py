@@ -8,6 +8,7 @@ back stock, cost, policy, idempotency and domain events.
 """
 from __future__ import annotations
 
+from tests.canonical_actor_fixtures import load_company_owner_fixture, seed_ordinary_backoffice_fixture
 from tests.supplier_fixtures import seed_receipt_supplier
 
 import os
@@ -21,7 +22,8 @@ from fastapi import FastAPI
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import get_current_backoffice_capability_access
+from api.authentication.backoffice_compatibility import get_current_backoffice_legacy_driver
 from api.warehouse.inbound import router
 from context import tenant_context
 from database import engine, get_db
@@ -60,11 +62,8 @@ class CostedInboundASGIC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
                     {"c": self.company_id},
                 ), 0, table,
             )
-        actor_id = await self.db.scalar(
-            text("SELECT id FROM drivers WHERE company_id=:c "
-                 "AND is_admin=true AND is_active=true LIMIT 1"),
-            {"c": self.company_id},
-        )
+        self.owner = await load_company_owner_fixture(self.db, self.company_id)
+        actor_id = self.owner.driver_id
         self.assertIsNotNone(actor_id)
         self.actor = SimpleNamespace(
             company_id=self.company_id, id=actor_id, is_admin=True, is_active=True,
@@ -80,7 +79,11 @@ class CostedInboundASGIC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             return self.actor
 
         self.app.dependency_overrides[get_db] = db_override
-        self.app.dependency_overrides[get_current_driver] = actor_override
+        self.app.dependency_overrides[get_current_backoffice_legacy_driver] = actor_override
+        self.access_fixture = self.owner
+        self.app.dependency_overrides[get_current_backoffice_capability_access] = (
+            lambda: self.access_fixture.access(self.db)
+        )
         self.http = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=self.app),
             base_url="http://wanasah.test",
@@ -185,11 +188,11 @@ class CostedInboundASGIC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         await self._test_http_costed_receipt("MOVING_AVERAGE")
 
     async def test_nonprivileged_actor_gets_403_before_cost_policy_access(self):
+        self.access_fixture = await seed_ordinary_backoffice_fixture(self.db, self.company_id)
+        # An ordinary canonical subject has no grants; the sentinel flag is irrelevant.
         self.actor = SimpleNamespace(
-            company_id=self.company_id,
-            id=2_147_483_647,
-            is_admin=False,
-            is_active=True,
+            company_id=self.company_id, id=self.access_fixture.driver_id,
+            is_admin=False, is_active=True,
         )
         response = await self.http.get("/warehouse/costing-policy")
         self.assertEqual(response.status_code, 403)
