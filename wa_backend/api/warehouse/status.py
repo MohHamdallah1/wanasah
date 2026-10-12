@@ -6,7 +6,10 @@ from api.authentication.backoffice_authorization import (
     get_current_backoffice_capability_access,
 )
 from database import get_db
-from domains.authorization.backoffice_access import BackofficeCapabilityAccess
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
 from models import InventoryLocation, InventoryLock
 from schemas import WarehouseStatusResponse
 
@@ -18,19 +21,21 @@ async def _require_status_access(
     access: BackofficeCapabilityAccess,
     location_id: int,
 ) -> None:
-    exists = await access.db.scalar(
-        select(InventoryLocation.id).where(
-            InventoryLocation.company_id == access.company_id,
-            InventoryLocation.id == location_id,
+    try:
+        await access.require(('location.read', 'dispatch.read'), location_id)
+    except BackofficeCapabilityAccessRejected:
+        exists = await access.db.scalar(
+            select(InventoryLocation.id).where(
+                InventoryLocation.company_id == access.company_id,
+                InventoryLocation.id == location_id,
+            )
         )
-    )
-    if exists is None:
-        raise HTTPException(404, 'الموقع غير موجود أو غير متاح.')
-    allowed = await access.db.scalar(
-        select(access.allows(('location.read', 'dispatch.read'), location_id))
-    )
-    if not bool(allowed):
-        raise HTTPException(403, 'لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.')
+        if exists is None:
+            raise HTTPException(404, 'الموقع غير موجود أو غير متاح.') from None
+        raise HTTPException(
+            403,
+            'لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.',
+        ) from None
 
 
 # =================================================================================
