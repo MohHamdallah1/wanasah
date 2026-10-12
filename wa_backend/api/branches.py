@@ -12,10 +12,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.authentication.legacy_backoffice_transport import (
-    require_legacy_transport_backoffice_capability,
-)
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import require_backoffice_capability
+from api.authentication.backoffice_compatibility import get_current_backoffice_legacy_driver
 from database import get_db
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from models import Branch, Driver, SystemAuditLog
@@ -36,10 +34,10 @@ from services import (
 router = APIRouter(prefix="/warehouse/branches", tags=["Warehouse Branches"])
 logger = logging.getLogger("wanasah_logger")
 
-_branch_read = require_legacy_transport_backoffice_capability("branch.read")
-_branch_create = require_legacy_transport_backoffice_capability("branch.create")
-_branch_update = require_legacy_transport_backoffice_capability("branch.update")
-_branch_state = require_legacy_transport_backoffice_capability("branch.state")
+_branch_read = require_backoffice_capability("branch.read")
+_branch_create = require_backoffice_capability("branch.create")
+_branch_update = require_backoffice_capability("branch.update")
+_branch_state = require_backoffice_capability("branch.state")
 
 
 def _stable_request_hash(payload, *, branch_id: Optional[int] = None) -> str:
@@ -229,7 +227,7 @@ async def create_branch(
     payload: BranchCreateRequest,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_branch_create),
-    legacy_actor: Driver = Depends(get_current_driver),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     company_id = access.company_id
     actor_id = int(legacy_actor.id)
@@ -297,7 +295,7 @@ async def update_branch(
     payload: BranchUpdateRequest,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_branch_update),
-    legacy_actor: Driver = Depends(get_current_driver),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     company_id = access.company_id
     actor_id = int(legacy_actor.id)
@@ -435,7 +433,7 @@ async def activate_branch(
     payload: BranchStateRequest,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_branch_state),
-    legacy_actor: Driver = Depends(get_current_driver),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     return await _change_branch_state(
         branch_id=branch_id,
@@ -453,7 +451,7 @@ async def deactivate_branch(
     payload: BranchStateRequest,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_branch_state),
-    legacy_actor: Driver = Depends(get_current_driver),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     return await _change_branch_state(
         branch_id=branch_id,

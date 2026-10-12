@@ -5,8 +5,8 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.authentication.legacy_backoffice_transport import require_legacy_transport_backoffice_capability
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import require_backoffice_capability
+from api.authentication.backoffice_compatibility import get_current_backoffice_legacy_driver
 from database import get_db
 from models import Driver
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
@@ -23,7 +23,7 @@ from domains.sales_returns.service import (
 
 router = APIRouter(prefix="/sales-returns", tags=["Sales Returns"])
 # V1 support reads share the creation capability and require a company grant.
-_sales_return_access = require_legacy_transport_backoffice_capability("sales_return.create")
+_sales_return_access = require_backoffice_capability("sales_return.create")
 
 
 def _http(exc: SalesReturnError) -> HTTPException:
@@ -112,7 +112,7 @@ async def post_return(
     payload: SalesReturnCreate,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_sales_return_access),
-    legacy_actor: Driver = Depends(get_current_driver),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     try:
         result = await create_sales_return(

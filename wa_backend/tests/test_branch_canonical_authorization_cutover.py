@@ -7,16 +7,12 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from fastapi import Depends, FastAPI, HTTPException
-from fastapi.testclient import TestClient
+from fastapi import HTTPException
 from sqlalchemy.dialects import postgresql
 
 from api import branches
-from api.authentication.legacy_backoffice_transport import (
-    get_legacy_transport_backoffice_capability_access,
-)
-from api.dependencies import get_current_driver
-from database import get_db
+from api.authentication.backoffice_authorization import get_current_backoffice_capability_access
+from api.authentication.backoffice_compatibility import get_current_backoffice_legacy_driver
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from domains.authorization.backoffice_subject import BackofficeAuthorizationSubject
 from domains.authorization.capabilities import COMPANY_ONLY, PERMISSIONS
@@ -58,53 +54,6 @@ class _LegacyActor:
     @property
     def company_id(self):
         raise AssertionError("legacy company_id must not be authorization authority")
-
-
-class _TransportDriver:
-    def __init__(self, *, company_id=77, driver_id=903):
-        self.company_id = company_id
-        self.id = driver_id
-
-    @property
-    def is_admin(self):
-        raise AssertionError("transport Driver.is_admin must never be read")
-
-
-class _TransportDB:
-    def __init__(self, *rows):
-        self.scalar = AsyncMock(side_effect=rows)
-
-
-def _bridge():
-    return SimpleNamespace(
-        company_id=77,
-        legacy_driver_id=903,
-        backoffice_principal_id=101,
-        backoffice_user_id=202,
-    )
-
-
-def _principal():
-    return SimpleNamespace(
-        company_id=77,
-        id=101,
-        principal_type="BACKOFFICE",
-        is_active=True,
-        auth_revision=4,
-    )
-
-
-def _profile():
-    return SimpleNamespace(
-        company_id=77,
-        id=202,
-        principal_id=101,
-        principal_type="BACKOFFICE",
-    )
-
-
-def _owner():
-    return SimpleNamespace(company_id=77, backoffice_user_id=202)
 
 
 def _ordinary_subject() -> BackofficeAuthorizationSubject:
@@ -291,7 +240,7 @@ class BranchCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTestCase)
 
         self.assertEqual(results, [{"ok": True}, {"ok": True}])
 
-    def test_source_has_zero_legacy_branch_authority(self):
+    def test_source_has_zero_legacy_branch_authority_or_transport(self):
         source = SOURCE_PATH.read_text(encoding="utf-8")
         tree = ast.parse(source)
 
@@ -300,7 +249,8 @@ class BranchCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTestCase)
         self.assertNotIn(".is_admin", source)
         self.assertNotIn("legacy_actor.company_id", source)
         self.assertNotIn("legacy_actor.is_admin", source)
-        self.assertNotIn("current_driver.company_id", source)
+        self.assertNotIn("get_current_driver", source)
+        self.assertNotIn("legacy_backoffice_transport", source)
         self.assertNotIn('"location.create"', source)
         self.assertNotIn('"location.update"', source)
         self.assertFalse(
@@ -342,46 +292,29 @@ class BranchCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTestCase)
         ):
             self.assertIn(expected, source)
 
-    def test_fastapi_caches_shared_legacy_transport_authentication_once(self):
-        app = FastAPI()
-        calls = {"driver": 0}
-        driver = _TransportDriver()
-        db = _TransportDB(_bridge(), _principal(), _profile(), _owner())
-
-        async def counted_driver():
-            calls["driver"] += 1
-            return driver
-
-        async def fake_db():
-            yield db
-
-        @app.get("/probe")
-        async def probe(
-            access: BackofficeCapabilityAccess = Depends(branches._branch_create),
-            legacy_actor=Depends(get_current_driver),
+    def test_canonical_auth_and_operational_actor_dependencies_are_separate(self):
+        for capability_dependency in (
+            branches._branch_read,
+            branches._branch_create,
+            branches._branch_update,
+            branches._branch_state,
         ):
-            return {
-                "company_id": access.company_id,
-                "actor_id": legacy_actor.id,
-            }
+            access_depends = inspect.signature(capability_dependency).parameters["access"].default
+            self.assertIs(access_depends.dependency, get_current_backoffice_capability_access)
+            self.assertTrue(access_depends.use_cache)
 
-        app.dependency_overrides[get_current_driver] = counted_driver
-        app.dependency_overrides[get_db] = fake_db
+        for endpoint in (
+            branches.create_branch,
+            branches.update_branch,
+            branches.activate_branch,
+            branches.deactivate_branch,
+        ):
+            actor_depends = inspect.signature(endpoint).parameters["legacy_actor"].default
+            self.assertIs(actor_depends.dependency, get_current_backoffice_legacy_driver)
+            self.assertTrue(actor_depends.use_cache)
 
-        response = TestClient(app).get("/probe")
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"company_id": 77, "actor_id": 903})
-        self.assertEqual(calls["driver"], 1)
-
-        access_depends = inspect.signature(
-            branches._branch_create
-        ).parameters["access"].default
-        self.assertIs(
-            access_depends.dependency,
-            get_legacy_transport_backoffice_capability_access,
-        )
-        self.assertTrue(access_depends.use_cache)
+        for endpoint in (branches.list_branch_options, branches.manage_branches):
+            self.assertNotIn("legacy_actor", inspect.signature(endpoint).parameters)
 
 
 if __name__ == "__main__":
