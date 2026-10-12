@@ -62,8 +62,12 @@ jobs:
         run: npm run lint
       - name: TypeScript
         run: npx tsc --noEmit
-      - name: Focused Vitest
-        run: npx vitest run src/test/inventory-access-canonical-contract.test.ts src/test/inventory-access.test.ts src/test/inventory-batches-expiry-semantics.test.tsx
+      - name: Canonical access contract
+        run: npx vitest run src/test/inventory-access-canonical-contract.test.ts
+      - name: Inventory permission contract only
+        run: npx vitest run src/test/inventory-access.test.ts -t "inventory permission contract"
+      - name: Batch access semantic
+        run: npx vitest run src/test/inventory-batches-expiry-semantics.test.tsx
       - name: Build
         run: npm run build
       - name: Diff whitespace gate
