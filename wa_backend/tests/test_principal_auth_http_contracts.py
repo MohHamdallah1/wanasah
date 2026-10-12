@@ -197,24 +197,10 @@ class PrincipalAuthHTTPContractsTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             PrincipalLogoutResponse(message="Logged out", token="unexpected")
 
-    def test_existing_legacy_login_response_remains_untouched(self):
-        from schemas import LoginResponse as LegacyLoginResponse
+    def test_dead_root_legacy_login_response_is_retired(self):
+        import schemas as root_schemas
 
-        self.assertEqual(
-            set(LegacyLoginResponse.model_fields),
-            {
-                "message",
-                "token",
-                "refresh_token",
-                "driver_id",
-                "driver_name",
-                "is_admin",
-                "dashboard_access",
-                "company_id",
-                "company_code",
-            },
-        )
-        self.assertIs(LegacyLoginResponse.model_fields["dashboard_access"].default, False)
+        self.assertFalse(hasattr(root_schemas, "LoginResponse"))
 
 
 if __name__ == "__main__":

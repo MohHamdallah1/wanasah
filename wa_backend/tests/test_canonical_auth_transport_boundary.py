@@ -93,7 +93,8 @@ class CanonicalAuthTransportBoundaryTests(unittest.TestCase):
             self.assertEqual((response["principal_id"], response["backoffice_user_id"],
                               response["driver_id"], response["legacy_driver_id"]), (101, 202, 303, 303))
             self.assertEqual(response["company_id"], 7)
-            self.assertIs(response["is_admin"], owner)
+            self.assertIs(response["is_company_owner"], owner)
+            self.assertNotIn("is_admin", response)
             self.assertEqual(response["display_name"], response["driver_name"])
             self.assertEqual(response["driver_name"], "Canonical display")
             self.assertEqual(response["principal_type"], "BACKOFFICE")
@@ -106,7 +107,7 @@ class CanonicalAuthTransportBoundaryTests(unittest.TestCase):
                                  company_code="WN")).model_dump()
         self.assertEqual((response["principal_id"], response["representative_id"], response["driver_id"]),
                          (101, 404, 303))
-        self.assertFalse(response["is_admin"])
+        self.assertNotIn("is_admin", response)
         self.assertFalse(response["dashboard_access"])
         self.assertEqual(response["driver_name"], "Field display")
 

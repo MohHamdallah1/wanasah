@@ -314,17 +314,6 @@ class LoginRequest(RequestModel):
         return _bcrypt_password(v)
 
 
-class LoginResponse(BaseModel):
-    message: str
-    token: str
-    refresh_token: str
-    driver_id: int
-    driver_name: str
-    is_admin: bool
-    dashboard_access: bool = False
-    company_id: int # +++ زرع الهوية لحقنها في الموبايل والداشبورد +++
-    company_code: str # +++ إجبارية لبناء ملف الـ SQLite الفيزيائي +++
-
 # ==========================================
 # 3. دروع العمليات المشتركة والمنتجات الفرعية (Shared)
 # ==========================================

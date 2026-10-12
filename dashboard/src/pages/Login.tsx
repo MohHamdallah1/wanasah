@@ -22,8 +22,10 @@ interface LoginResponsePayload {
   token: string;
   refresh_token: string;
   driver_name: string;
-  is_admin: boolean;
+  is_company_owner: boolean;
   dashboard_access: boolean;
+  principal_id: number;
+  backoffice_user_id: number;
   driver_id: number;
   company_id: number;
   company_code: string;
@@ -97,7 +99,7 @@ export default function Login() {
       }
 
       // 3. حماية اللوحة + التحقق من عقد الاستجابة
-      if (!data.is_admin && data.dashboard_access !== true) {
+      if (data.dashboard_access !== true) {
         throw new Error('عذراً، هذا الحساب غير مصرح له بالدخول للوحة التحكم');
       }
       if (
@@ -128,7 +130,7 @@ export default function Login() {
       localStorage.setItem('admin_name', data.driver_name);
 
       // 6. التوجيه
-      navigate(data.is_admin ? '/' : '/inventory');
+      navigate(data.is_company_owner ? '/' : '/inventory');
 
     } catch (err: unknown) {
       setError(
