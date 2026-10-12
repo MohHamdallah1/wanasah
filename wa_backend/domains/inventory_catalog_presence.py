@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from inventory_access import InventoryAccess
 from models import Driver, InventoryBalance, InventoryLocation
 
@@ -13,12 +14,33 @@ class InventoryCatalogPresenceForbidden(RuntimeError):
     """The caller cannot read every selected physical warehouse."""
 
 
+def _resolve_catalog_presence_access(
+    db: AsyncSession,
+    *,
+    access: BackofficeCapabilityAccess | None,
+    actor: Driver | None,
+    company_id: int | None,
+):
+    if access is not None:
+        if actor is not None:
+            raise ValueError("Use canonical access or a legacy actor, not both.")
+        tenant_company_id = int(access.company_id)
+        if company_id is not None and int(company_id) != tenant_company_id:
+            raise ValueError("Canonical access company does not match the requested tenant.")
+        return tenant_company_id, access
+
+    if actor is None or company_id is None:
+        raise ValueError("Canonical access or the legacy actor/company pair is required.")
+    return int(company_id), InventoryAccess(db, actor)
+
+
 async def variant_ids_present_in_all_warehouses(
     db: AsyncSession,
     *,
-    actor: Driver,
-    company_id: int,
     warehouse_ids: Sequence[int],
+    access: BackofficeCapabilityAccess | None = None,
+    actor: Driver | None = None,
+    company_id: int | None = None,
 ):
     """Return a permission-scoped set query for physical warehouse presence.
 
@@ -26,22 +48,30 @@ async def variant_ids_present_in_all_warehouses(
     for locations, balances and exact-location access. The returned query matches
     variants with positive physical on-hand in every selected warehouse; it does
     not expose quantities, hidden locations, or Inventory mutation authority.
+
+    Canonical Backoffice callers pass ``access``. The legacy actor/company pair is
+    retained temporarily for callers that have not completed their auth cutover.
     """
     normalized_ids = tuple(sorted({int(value) for value in warehouse_ids}))
     if not normalized_ids:
         raise ValueError("warehouse_ids cannot be empty")
 
-    access = InventoryAccess(db, actor)
+    tenant_company_id, permission_access = _resolve_catalog_presence_access(
+        db,
+        access=access,
+        actor=actor,
+        company_id=company_id,
+    )
     readable_ids = set(
         int(value)
         for value in (
             await db.scalars(
                 select(InventoryLocation.id).where(
-                    InventoryLocation.company_id == company_id,
+                    InventoryLocation.company_id == tenant_company_id,
                     InventoryLocation.id.in_(normalized_ids),
                     InventoryLocation.location_type == "WAREHOUSE",
                     InventoryLocation.is_active.is_(True),
-                    access.location_filter(
+                    permission_access.location_filter(
                         "inventory.read",
                         InventoryLocation.id,
                     ),
@@ -63,12 +93,12 @@ async def variant_ids_present_in_all_warehouses(
             ),
         )
         .where(
-            InventoryBalance.company_id == company_id,
+            InventoryBalance.company_id == tenant_company_id,
             InventoryBalance.location_id.in_(normalized_ids),
             InventoryBalance.on_hand_quantity > 0,
             InventoryLocation.is_active.is_(True),
             InventoryLocation.location_type == "WAREHOUSE",
-            access.location_filter(
+            permission_access.location_filter(
                 "inventory.read",
                 InventoryLocation.id,
             ),

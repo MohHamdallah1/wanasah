@@ -1006,10 +1006,33 @@ async def _lock_distinct_family_names(
         raise RuntimeError("Incomplete tenant-scoped family advisory lock acquisition.")
 
 
+def _resolve_service_company_id(
+    actor: Driver,
+    company_id: int | None,
+) -> int:
+    """Resolve tenant scope at the service boundary.
+
+    Canonical Backoffice callers pass ``company_id`` explicitly. Falling back to
+    Driver.company_id is temporary compatibility for Product Import callers that
+    have not yet completed their own request-transport cutover. Downstream
+    product/pricing operations receive only the resolved company id plus the
+    legacy Driver.id used for existing provenance fields.
+    """
+    if company_id is not None:
+        if type(company_id) is not int or company_id <= 0:
+            raise ValueError("A positive company_id is required.")
+        return int(company_id)
+
+    legacy_company_id = actor.company_id
+    if type(legacy_company_id) is not int or legacy_company_id <= 0:
+        raise ValueError("A positive legacy company identity is required.")
+    return int(legacy_company_id)
+
+
 async def _prefetch_batch_families(
     db: AsyncSession,
     *,
-    actor: Driver,
+    company_id: int,
     specs: list[SimpleProductSpec],
 ) -> _BatchFamilyLookup:
     """Acquire distinct existing family-name locks BEFORE one tenant SELECT.
@@ -1051,12 +1074,12 @@ async def _prefetch_batch_families(
     # permits same-name independent masters (family_mode='none').
     await _lock_distinct_family_names(
         db,
-        company_id=int(actor.company_id),
+        company_id=int(company_id),
         normalized_names=sorted(names),
     )
     rows = await _family_matches_by_normalized_names(
         db,
-        company_id=int(actor.company_id),
+        company_id=int(company_id),
         normalized_names=sorted(names),
     )
     matches: dict[str, list[Product]] = {}
@@ -1112,7 +1135,7 @@ def _plan_unique_implicit_families(
 async def _prefill_unique_implicit_families(
     db: AsyncSession,
     *,
-    actor: Driver,
+    company_id: int,
     request_id: UUID,
     specs: list[SimpleProductSpec],
     lookup: _BatchFamilyLookup,
@@ -1180,7 +1203,7 @@ async def _prefill_unique_implicit_families(
     # both sides of its family step. Later failing rows are never prefetched.
     pending = [
         Product(
-            company_id=int(actor.company_id),
+            company_id=int(company_id),
             code=_auto_code("FAM", request_id, index),
             name=family_name,
         )
@@ -1198,7 +1221,7 @@ async def _prefill_unique_implicit_families(
 async def _resolve_family(
     db: AsyncSession,
     *,
-    actor: Driver,
+    company_id: int,
     spec: SimpleProductSpec,
     request_id: UUID,
     index: int,
@@ -1222,7 +1245,7 @@ async def _resolve_family(
         assert name is not None
         # Independent master. Never reuse a same-name parent implicitly.
         row = Product(
-            company_id=int(actor.company_id),
+            company_id=int(company_id),
             code=_auto_code("FAM", request_id, index),
             name=name,
         )
@@ -1260,7 +1283,7 @@ async def _resolve_family(
     if spec.family_id is not None:
         # Resolve lazily after the original selection checks. A positive hit
         # is safe only while its same-scope key-share lock protects the FK.
-        key = (int(actor.company_id), int(spec.family_id))
+        key = (int(company_id), int(spec.family_id))
         locked_ids = (
             batch_lookup.locked_ids(db) if batch_lookup is not None else {}
         )
@@ -1311,14 +1334,14 @@ async def _resolve_family(
     else:
         await _family_name_lock(
             db,
-            company_id=int(actor.company_id),
+            company_id=int(company_id),
             family_name=family_name,
         )
         matches = [
             family
             for family, _normalized in await _family_matches_by_normalized_names(
                 db,
-                company_id=int(actor.company_id),
+                company_id=int(company_id),
                 normalized_names=[normalized],
             )
         ]
@@ -1337,7 +1360,7 @@ async def _resolve_family(
         return matches[0]
 
     row = Product(
-        company_id=int(actor.company_id),
+        company_id=int(company_id),
         code=_auto_code("FAM", request_id, index),
         name=family_name,
     )
@@ -1402,7 +1425,9 @@ async def create_product_structures(
     actor: Driver,
     request_id: UUID,
     specs: list[SimpleProductSpec],
+    company_id: int | None = None,
 ):
+    company_id = _resolve_service_company_id(actor, company_id)
     with product_phase(db, "barcode_python"):
         normalized_barcodes: list[str] = []
         per_spec_barcodes: list[
@@ -1441,7 +1466,7 @@ async def create_product_structures(
 
     await _assert_barcodes_available(
         db,
-        company_id=int(actor.company_id),
+        company_id=int(company_id),
         values=normalized_barcodes,
     )
 
@@ -1461,7 +1486,7 @@ async def create_product_structures(
     # This is a per-transaction, scoped family lookup; duplicates in the
     # same file still obey original new/none/implicit and ambiguity contracts.
     batch_family_lookup = await _prefetch_batch_families(
-        db, actor=actor, specs=specs,
+        db, company_id=company_id, specs=specs,
     )
     implicit_family_candidates = _plan_unique_implicit_families(specs)
     for index, spec in enumerate(specs, start=1):
@@ -1482,7 +1507,7 @@ async def create_product_structures(
         )
 
         await _prefill_unique_implicit_families(
-            db, actor=actor, request_id=request_id,
+            db, company_id=company_id, request_id=request_id,
             specs=specs, lookup=batch_family_lookup,
             candidates=implicit_family_candidates, start_index=index,
             uom_cache=batch_uom_cache,
@@ -1491,7 +1516,7 @@ async def create_product_structures(
         )
         family = await _resolve_family(
             db,
-            actor=actor,
+            company_id=company_id,
             spec=spec,
             request_id=request_id,
             index=index,
@@ -1502,7 +1527,7 @@ async def create_product_structures(
             if batch_tracking_defaults is None:
                 batch_tracking_defaults = await load_company_product_tracking_defaults(
                     db,
-                    company_id=int(actor.company_id),
+                    company_id=int(company_id),
                 )
             tracking = resolve_product_tracking_modes_from_defaults(
                 batch_tracking_defaults,
@@ -1529,7 +1554,7 @@ async def create_product_structures(
 
         with product_phase(db, "variant_objects"):
             variant = ProductVariant(
-                company_id=int(actor.company_id),
+                company_id=int(company_id),
                 product_id=int(family.id),
                 base_uom_id=int(shape.base_uom.id),
                 name=name,
@@ -1557,7 +1582,7 @@ async def create_product_structures(
             await create_published_variants(
                 db,
                 rows=[row[0] for row in staged_variants],
-                company_id=int(actor.company_id),
+                company_id=int(company_id),
                 actor_id=int(actor.id),
                 request_id=request_id,
             )
@@ -1576,7 +1601,7 @@ async def create_product_structures(
             if shape.package_uom is not None:
                 db.add(
                     ProductUomConversion(
-                        company_id=int(actor.company_id),
+                        company_id=int(company_id),
                         product_variant_id=int(variant.id),
                         from_uom_id=int(shape.package_uom.id),
                         to_uom_id=int(shape.base_uom.id),
@@ -1591,7 +1616,7 @@ async def create_product_structures(
             if unit_barcode:
                 db.add(
                     ProductBarcode(
-                        company_id=int(actor.company_id),
+                        company_id=int(company_id),
                         product_variant_id=int(variant.id),
                         uom_id=int(shape.base_uom.id),
                         barcode=unit_barcode,
@@ -1610,7 +1635,7 @@ async def create_product_structures(
             ):
                 db.add(
                     ProductBarcode(
-                        company_id=int(actor.company_id),
+                        company_id=int(company_id),
                         product_variant_id=int(variant.id),
                         uom_id=int(shape.package_uom.id),
                         barcode=package_barcode,
@@ -1630,7 +1655,7 @@ async def create_product_structures(
         try:
             await apply_live_stock_active_variant_delta(
                 db,
-                company_id=int(actor.company_id),
+                company_id=int(company_id),
                 delta=len(result),
             )
         except LiveStockProjectionError as exc:
@@ -1698,11 +1723,13 @@ async def publish_prices(
     rows,
     effective_at: datetime,
     request_id: UUID,
+    company_id: int | None = None,
 ) -> None:
+    company_id = _resolve_service_company_id(actor, company_id)
     with product_phase(db, "price_publication_create"):
         direct_scope = await create_direct_publication(
             db,
-            company_id=int(actor.company_id),
+            company_id=int(company_id),
             actor_id=int(actor.id),
             book_id=int(book.id),
             expected_book_version=int(book.version),
@@ -1741,12 +1768,14 @@ async def publish_initial_prices(
     rows,
     effective_at: datetime,
     request_id: UUID,
+    company_id: int | None = None,
 ) -> None:
     """Publish first-ever prices for newly created products in one row write."""
+    company_id = _resolve_service_company_id(actor, company_id)
     with product_phase(db, "price_publication_create"):
         direct_scope = await create_direct_publication(
             db,
-            company_id=int(actor.company_id),
+            company_id=int(company_id),
             actor_id=int(actor.id),
             book_id=int(book.id),
             expected_book_version=int(book.version),
@@ -1774,6 +1803,7 @@ async def create_products_and_prices(
     actor: Driver,
     request_id: UUID,
     specs: list[SimpleProductSpec],
+    company_id: int | None = None,
 ):
     if not specs:
         raise SimpleProductError(
@@ -1782,16 +1812,17 @@ async def create_products_and_prices(
             status_code=422,
         )
 
+    company_id = _resolve_service_company_id(actor, company_id)
     now = datetime.now(timezone.utc)
     with product_phase(db, "pricing_policy"):
         assignment = await assert_simple_pricing_mode(
             db,
-            company_id=int(actor.company_id),
+            company_id=int(company_id),
             as_of=now,
         )
         company, current_book = await load_company_and_current_default_book(
             db,
-            company_id=int(actor.company_id),
+            company_id=int(company_id),
             assignment=assignment,
         )
         book = (
@@ -1812,6 +1843,7 @@ async def create_products_and_prices(
             actor=actor,
             request_id=request_id,
             specs=specs,
+            company_id=company_id,
         )
     await publish_initial_prices(
         db,
@@ -1820,6 +1852,7 @@ async def create_products_and_prices(
         rows=structures,
         effective_at=now,
         request_id=request_id,
+        company_id=company_id,
     )
     return [
         (variant, prices)
@@ -1942,16 +1975,18 @@ async def update_prices(
     variant: ProductVariant,
     package_price: Any = None,
     unit_price: Any = None,
+    company_id: int | None = None,
 ) -> ResolvedPricePair:
+    company_id = _resolve_service_company_id(actor, company_id)
     now = datetime.now(timezone.utc)
     assignment = await assert_simple_pricing_mode(
         db,
-        company_id=int(actor.company_id),
+        company_id=int(company_id),
         as_of=now,
     )
     shape = await assert_simple_variant(
         db,
-        company_id=int(actor.company_id),
+        company_id=int(company_id),
         variant=variant,
     )
     prices = resolve_price_pair(
@@ -1967,7 +2002,7 @@ async def update_prices(
 
     company, current_book = await load_company_and_current_default_book(
         db,
-        company_id=int(actor.company_id),
+        company_id=int(company_id),
         assignment=assignment,
     )
     book = (
@@ -1999,6 +2034,7 @@ async def update_prices(
         rows=[(variant, spec, prices, shape)],
         effective_at=now,
         request_id=request_id,
+        company_id=company_id,
     )
     return prices
 
