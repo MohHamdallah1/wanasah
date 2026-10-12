@@ -41,8 +41,9 @@ jobs:
             tests/test_sales_returns_canonical_boundary.py \
             tests/test_sales_returns_canonical_cutover.py \
             tests/test_canonical_backoffice_runtime_compatibility.py \
-            tests/test_backoffice_capability_access.py \
-            tests/test_backoffice_authorization_dependency.py
+            tests/test_canonical_backoffice_capability_access.py \
+            tests/test_canonical_backoffice_authorization_dependency.py \
+            tests/test_canonical_backoffice_authorization_subject.py
       - name: Source authority and transport audit
         run: |
           python - <<'PY'
