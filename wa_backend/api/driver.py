@@ -6,10 +6,20 @@ from sqlalchemy.orm import joinedload, contains_eager, selectinload
 from sqlalchemy.exc import IntegrityError
 from database import get_db
 from typing import List, Optional
-from api.dependencies import get_current_driver
-from api.authentication.dependencies import get_current_field_context
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
+from api.authentication.dependencies import (
+    get_current_field_context,
+    get_current_principal_context,
+)
 from api.authentication.field_compatibility import get_current_field_legacy_driver
-from domains.auth_sessions.context import FieldRequestContext
+from domains.auth_sessions.context import (
+    AuthenticatedRequestContext,
+    DashboardRequestContext,
+    FieldRequestContext,
+)
+from domains.authorization.backoffice_access import BackofficeCapabilityAccessRejected
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from quantity import QUANTITY_MAX
@@ -3742,22 +3752,42 @@ async def get_driver_visits(
 async def get_visit_details(
     visit_id: int,
     db: AsyncSession = Depends(get_db),
-    current_driver: Driver = Depends(get_current_driver)
+    current: AuthenticatedRequestContext = Depends(get_current_principal_context),
 ):
+    field_driver_id: Optional[int] = None
+
+    if isinstance(current, FieldRequestContext):
+        legacy_actor = await get_current_field_legacy_driver(current=current, db=db)
+        company_id = current.company_id
+        field_driver_id = legacy_actor.id
+    elif isinstance(current, DashboardRequestContext):
+        access = await get_current_backoffice_capability_access(current=current, db=db)
+        try:
+            await access.require("visit.read")
+        except BackofficeCapabilityAccessRejected:
+            raise HTTPException(
+                status_code=403,
+                detail="Authorization denied.",
+            ) from None
+        company_id = access.company_id
+    else:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication credentials are invalid or expired.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     # +++ التطهير الأدائي المطلق: سحق الأصناف الملغاة داخل الـ SQL +++
     stmt = select(Visit).options(
         joinedload(Visit.shop),
         selectinload(Visit.items.and_(VisitItem.is_cancelled == False)).joinedload(VisitItem.product_variant),
         selectinload(Visit.returns.and_(VisitReturn.is_cancelled == False)) # شحن المرتجعات السليمة فقط
-    ).filter_by(company_id=current_driver.company_id, id=visit_id)
+    ).filter_by(company_id=company_id, id=visit_id)
     
     visit = (await db.execute(stmt)).scalar_one_or_none()
     
     if not visit:
         raise HTTPException(status_code=404, detail="عذراً، الزيارة المطلوبة غير موجودة.")
-    
-    # +++ الدرع الأمني المصفح: المندوب يرى فواتيره فقط، والأدمن يرى كل شيء للرقابة المحاسبية والجرد +++
-    if not current_driver.is_admin and visit.driver_id != current_driver.id:
+    if field_driver_id is not None and visit.driver_id != field_driver_id:
         raise HTTPException(status_code=403, detail="مرفوض أمنياً: غير مصرح لك بالاطلاع على فواتير المناديب الآخرين.")
         
     return visit
