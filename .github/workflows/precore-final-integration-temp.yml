@@ -1,0 +1,66 @@
+name: TEMP Pre-core final integration
+
+on:
+  push:
+    branches:
+      - lead/precore-final-integration
+
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: LeadGateKeyAa1234567890Bb1234567890Cc1234567890Dd
+      DATABASE_URL: postgresql+asyncpg://unit_user@127.0.0.1:1/unit_db
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://unit_admin@127.0.0.1:1/unit_db
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r wa_backend/requirements.txt pytest pytest-asyncio httpx
+      - name: Compile focused runtime and tests
+        run: |
+          python -m py_compile \
+            wa_backend/api/platform_manager.py \
+            wa_backend/realtime/auth.py \
+            wa_backend/api/simple_products.py \
+            wa_backend/tests/test_platform_tenant_bootstrap_canonical_identity.py \
+            wa_backend/tests/test_realtime_websocket_canonical_auth_cutover.py \
+            wa_backend/tests/test_simple_products_canonical_boundary.py \
+            wa_backend/tests/test_simple_products_canonical_cutover.py \
+            wa_backend/tests/test_product_batch_restrictions.py \
+            wa_backend/tests/test_product_catalog_summary.py
+      - name: Run focused suites
+        working-directory: wa_backend
+        env:
+          PYTHONPATH: .
+        run: |
+          pytest -q \
+            tests/test_platform_tenant_bootstrap_canonical_identity.py \
+            tests/test_realtime_websocket_canonical_auth_cutover.py \
+            tests/test_simple_products_canonical_boundary.py \
+            tests/test_simple_products_canonical_cutover.py \
+            tests/test_product_batch_restrictions.py \
+            tests/test_product_catalog_summary.py
+      - name: Authority audit
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          checks = {
+            'wa_backend/api/platform_manager.py': ['is_admin=True'],
+            'wa_backend/realtime/auth.py': ['.is_admin','Driver.company_id','select(Driver','access_token_identity'],
+            'wa_backend/api/simple_products.py': ['get_current_driver','get_current_admin','InventoryAccess','.is_admin','actor.company_id','legacy_actor.company_id'],
+          }
+          for path, tokens in checks.items():
+              text = Path(path).read_text(encoding='utf-8')
+              for token in tokens:
+                  assert token not in text, f'{token} in {path}'
+          PY
+      - name: Diff whitespace check
+        run: git diff --check origin/main...HEAD
