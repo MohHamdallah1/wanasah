@@ -358,10 +358,12 @@ class Phase7ExecutionIsolationTests(
         async def fake_execute_once(
             _db,
             *,
+            company_id,
             actor,
             job_id,
             rows,
         ) -> None:
+            self.assertEqual(company_id, 7)
             if any(
                 row.normalized_data[
                     "name"
@@ -393,9 +395,11 @@ class Phase7ExecutionIsolationTests(
             imported, failed = (
                 await _execute_rows_best_effort(
                     _FakeNestedDb(),
+                    company_id=7,
                     actor=SimpleNamespace(
                         id=1,
-                        company_id=1,
+                        company_id=999,
+                        is_admin=True,
                     ),
                     job_id=uuid4(),
                     rows=rows,
@@ -448,10 +452,12 @@ class Phase7ExecutionIsolationTests(
         async def crash(
             _db,
             *,
+            company_id,
             actor,
             job_id,
             rows,
         ) -> None:
+            self.assertEqual(company_id, 7)
             raise RuntimeError(
                 "database unavailable"
             )
@@ -466,9 +472,11 @@ class Phase7ExecutionIsolationTests(
             ):
                 await _execute_rows_best_effort(
                     _FakeNestedDb(),
+                    company_id=7,
                     actor=SimpleNamespace(
                         id=1,
-                        company_id=1,
+                        company_id=999,
+                        is_admin=False,
                     ),
                     job_id=uuid4(),
                     rows=rows,
