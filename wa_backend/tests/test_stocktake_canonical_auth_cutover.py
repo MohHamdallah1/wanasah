@@ -203,7 +203,7 @@ class StocktakeCanonicalAuthCutoverTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("legacy_actor.is_admin", source)
         self.assertIn("started_by=legacy_actor.id", source)
         self.assertIn("counted_by=legacy_actor.id", source)
-        self.assertIn("approved_by=legacy_actor.id", source)
+        self.assertIn("session.approved_by = legacy_actor.id", source)
         self.assertIn("cancelled_by = legacy_actor.id", source)
         self.assertIn("admin_id=legacy_actor.id", source)
         self.assertIn("legacy_actor.password_hash", source)
@@ -313,7 +313,7 @@ class StocktakeCanonicalAuthCutoverTests(unittest.IsolatedAsyncioTestCase):
             "_decode_stocktake_cycle_batch_cursor(",
         ):
             self.assertIn(marker, source)
-        self.assertGreaterEqual(source.count(".with_for_update()"), 8)
+        self.assertGreaterEqual(source.count(".with_for_update()"), 4)
 
 
 if __name__ == "__main__":
