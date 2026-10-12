@@ -5,8 +5,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
-from fastapi import HTTPException
-
+from domains.authorization.backoffice_access import BackofficeCapabilityAccessRejected
 from domains.simple_products.imports.application import execution_service
 from domains.simple_products.imports.application import source_service
 from domains.simple_products.imports.application.state_machine import JobStatus
@@ -177,41 +176,49 @@ class Phase17PermissionRevocationTests(
         )
         actor = SimpleNamespace(
             id=55,
+            company_id=999,
+            is_admin=True,
+        )
+        context = SimpleNamespace(
             company_id=7,
+            principal_id=701,
+            backoffice_user_id=802,
+            is_company_owner=False,
+        )
+        subject = SimpleNamespace(
+            company_id=7,
+            principal_id=701,
+            backoffice_user_id=802,
+        )
+        load_context = AsyncMock(
+            return_value=context
+        )
+        resolve_subject = AsyncMock(
+            return_value=subject
         )
         list_rows = AsyncMock()
         execute_rows = AsyncMock()
+        seen = {}
 
         class RevokedAccess:
             def __init__(
                 self,
-                _db,
-                _actor,
+                *,
+                db,
+                subject,
             ) -> None:
-                pass
+                seen["db"] = db
+                seen["subject"] = subject
 
-            async def require(
+            async def require_all(
                 self,
-                _permission,
+                codes,
                 *,
                 any_location,
             ) -> None:
-                self.assert_any_location(
-                    any_location
-                )
-                raise HTTPException(
-                    status_code=403,
-                    detail="revoked",
-                )
-
-            @staticmethod
-            def assert_any_location(
-                value,
-            ) -> None:
-                if value is not True:
-                    raise AssertionError(
-                        "permission scope changed"
-                    )
+                seen["codes"] = tuple(codes)
+                seen["any_location"] = any_location
+                raise BackofficeCapabilityAccessRejected
 
         with (
             patch.object(
@@ -245,7 +252,17 @@ class Phase17PermissionRevocationTests(
             ),
             patch.object(
                 execution_service,
-                "InventoryAccess",
+                "load_active_backoffice_context_for_legacy_actor",
+                load_context,
+            ),
+            patch.object(
+                execution_service,
+                "resolve_backoffice_authorization_subject",
+                resolve_subject,
+            ),
+            patch.object(
+                execution_service,
+                "BackofficeCapabilityAccess",
                 RevokedAccess,
             ),
             patch.object(
@@ -273,6 +290,26 @@ class Phase17PermissionRevocationTests(
                 raised.exception
             ),
         )
+        load_context.assert_awaited_once_with(
+            db,
+            company_id=7,
+            legacy_driver_id=55,
+        )
+        resolve_subject.assert_awaited_once_with(
+            db,
+            context,
+        )
+        self.assertIs(seen["db"], db)
+        self.assertIs(seen["subject"], subject)
+        self.assertEqual(
+            seen["codes"],
+            (
+                "catalog.manage",
+                "catalog.publish",
+                "pricing.manage",
+            ),
+        )
+        self.assertIs(seen["any_location"], True)
         list_rows.assert_not_awaited()
         execute_rows.assert_not_awaited()
         db.commit.assert_not_awaited()
