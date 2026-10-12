@@ -48,9 +48,9 @@ def _param_values(compiled):
 
 def test_shared_archive_adapters_accept_canonical_access_without_rewrapping():
     access = _access()
-    assert inventory_archive_access(None, access) is access
-    assert dispatch_archive_access(None, access) is access
-    assert operations_archive_access(None, access) is access
+    assert inventory_archive_access(access) is access
+    assert dispatch_archive_access(access) is access
+    assert operations_archive_access(access) is access
 
 
 def test_archive_adapters_have_no_direct_legacy_admin_or_tenant_authority():
@@ -64,6 +64,7 @@ def test_archive_adapters_have_no_direct_legacy_admin_or_tenant_authority():
         assert "actor.company_id" not in source
         assert "access.actor" not in source
         assert "BackofficeCapabilityAccess" in source
+        assert "InventoryAccess" not in source
 
 
 def test_canonical_shortage_projection_uses_explicit_shortage_read_capability():

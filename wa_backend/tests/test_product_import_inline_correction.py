@@ -22,7 +22,12 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.dialects import postgresql
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
+from api.authentication.backoffice_compatibility import (
+    get_current_backoffice_legacy_driver,
+)
 from database import get_db
 from domains.simple_products.imports.application import api_service, correction_service
 from domains.simple_products.imports.domain.inline_correction import (
@@ -211,7 +216,8 @@ class InlineCorrectionHttpTests(unittest.TestCase):
     def setUp(self):
         self.job_id, self.identity, self.request_id = uuid4(), uuid4(), uuid4()
         self.db = _Db(_job(self.job_id), [_row(23)])
-        self.actor = SimpleNamespace(company_id=101, id=11)
+        self.access = SimpleNamespace(company_id=101)
+        self.actor = SimpleNamespace(company_id=999999, id=11, is_admin=True)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         app = FastAPI()
@@ -228,11 +234,15 @@ class InlineCorrectionHttpTests(unittest.TestCase):
         async def db_override():
             yield self.db
 
+        async def access_override():
+            return self.access
+
         async def actor_override():
             return self.actor
 
         app.dependency_overrides[get_db] = db_override
-        app.dependency_overrides[get_current_driver] = actor_override
+        app.dependency_overrides[get_current_backoffice_capability_access] = access_override
+        app.dependency_overrides[get_current_backoffice_legacy_driver] = actor_override
         self.app = app
         self.client = TestClient(app)
         self.addCleanup(self.client.close)
