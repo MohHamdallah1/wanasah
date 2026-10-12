@@ -12,7 +12,16 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
+from api.authentication.backoffice_compatibility import (
+    get_current_backoffice_legacy_driver,
+)
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
 from database import get_db
 from domains.offers.core import OfferError, maker_checker_enabled
 from domains.offers.service import preview_offer_basket
@@ -47,7 +56,6 @@ from domains.offers.schemas import (
     VersionUpdate,
     PreviewRequest,
 )
-from inventory_access import InventoryAccess
 from models import Driver, ProductVariant, SystemAuditLog, UOM
 from services import (
     InventoryMutationError,
@@ -90,8 +98,14 @@ def _next_cursor(value: int) -> str:
     return base64.urlsafe_b64encode(str(value).encode("ascii")).decode("ascii").rstrip("=")
 
 
-async def _require(db: AsyncSession, actor: Driver, permission: str) -> None:
-    await InventoryAccess(db, actor).require(permission, any_location=True)
+async def _require(access: BackofficeCapabilityAccess, permission: str) -> None:
+    try:
+        await access.require(permission, any_location=True)
+    except BackofficeCapabilityAccessRejected:
+        raise HTTPException(
+            status_code=403,
+            detail="لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.",
+        ) from None
 
 
 def _offer_http_error(exc: OfferError) -> HTTPException:
@@ -100,15 +114,16 @@ def _offer_http_error(exc: OfferError) -> HTTPException:
 
 def _audit(
     db: AsyncSession,
-    actor: Driver,
+    access: BackofficeCapabilityAccess,
+    legacy_actor: Driver,
     target: str,
     action: str,
     payload: dict[str, Any],
 ) -> None:
     db.add(
         SystemAuditLog(
-            company_id=actor.company_id,
-            admin_id=actor.id,
+            company_id=access.company_id,
+            admin_id=legacy_actor.id,
             target_id=target,
             action_type=action,
             old_value=None,
@@ -363,7 +378,8 @@ async def _serialize_versions(
 async def _mutation(
     *,
     db: AsyncSession,
-    actor: Driver,
+    access: BackofficeCapabilityAccess,
+    legacy_actor: Driver,
     payload: BaseModel,
     operation: str,
     scope: dict[str, Any],
@@ -374,8 +390,8 @@ async def _mutation(
     try:
         record, replay = await begin_idempotent_operation(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             operation=operation,
             request_id=str(payload.request_id),
             request_hash=_hash(payload, **scope),
@@ -386,7 +402,8 @@ async def _mutation(
         response = await fn()
         _audit(
             db,
-            actor,
+            access,
+            legacy_actor,
             target,
             action_name,
             {
@@ -422,11 +439,11 @@ async def _mutation(
 @router.get("/policy")
 async def get_policy(
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "offers.view")
+    await _require(access, "offers.view")
     try:
-        enabled = await maker_checker_enabled(db, actor.company_id)
+        enabled = await maker_checker_enabled(db, access.company_id)
     except OfferError as exc:
         raise _offer_http_error(exc) from exc
     return {"maker_checker_enabled": enabled}
@@ -437,15 +454,15 @@ async def list_reference_variants(
     cursor: Optional[str] = Query(None, max_length=512),
     limit: int = Query(100, ge=1, le=MAX_PAGE_SIZE),
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "catalog.read")
+    await _require(access, "catalog.read")
     rows = list(
         (
             await db.scalars(
                 select(ProductVariant)
                 .where(
-                    ProductVariant.company_id == actor.company_id,
+                    ProductVariant.company_id == access.company_id,
                     ProductVariant.id > _cursor(cursor),
                 )
                 .order_by(ProductVariant.id)
@@ -456,7 +473,7 @@ async def list_reference_variants(
     page, has_more = rows[:limit], len(rows) > limit
     return {
         "items": await _reference_variant_rows(
-            db, company_id=int(actor.company_id), variants=page
+            db, company_id=int(access.company_id), variants=page
         ),
         "next_cursor": _next_cursor(page[-1].id) if has_more and page else None,
         "has_more": has_more,
@@ -467,15 +484,15 @@ async def list_reference_variants(
 async def resolve_reference_variants(
     payload: ReferenceVariantResolveRequest,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "catalog.read")
+    await _require(access, "catalog.read")
     rows = list(
         (
             await db.scalars(
                 select(ProductVariant)
                 .where(
-                    ProductVariant.company_id == actor.company_id,
+                    ProductVariant.company_id == access.company_id,
                     ProductVariant.id.in_(payload.ids),
                 )
                 .order_by(ProductVariant.id)
@@ -495,7 +512,7 @@ async def resolve_reference_variants(
         )
     return {
         "items": await _reference_variant_rows(
-            db, company_id=int(actor.company_id), variants=rows
+            db, company_id=int(access.company_id), variants=rows
         ),
         "next_cursor": None,
         "has_more": False,
@@ -507,15 +524,15 @@ async def list_definitions(
     cursor: Optional[str] = Query(None, max_length=512),
     limit: int = Query(50, ge=1, le=MAX_PAGE_SIZE),
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "offers.view")
+    await _require(access, "offers.view")
     rows = list(
         (
             await db.scalars(
                 select(OfferDefinition)
                 .where(
-                    OfferDefinition.company_id == actor.company_id,
+                    OfferDefinition.company_id == access.company_id,
                     OfferDefinition.id > _cursor(cursor),
                 )
                 .order_by(OfferDefinition.id)
@@ -535,15 +552,16 @@ async def list_definitions(
 async def add_definition(
     payload: DefinitionCreate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "offers.manage")
+    await _require(access, "offers.manage")
 
     async def run():
         row = await create_definition(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             code=payload.code,
             name=payload.name,
             description=payload.description,
@@ -552,7 +570,8 @@ async def add_definition(
 
     return await _mutation(
         db=db,
-        actor=actor,
+        access=access,
+        legacy_actor=legacy_actor,
         payload=payload,
         operation="OFFER_DEFINITION_CREATE",
         scope={},
@@ -567,14 +586,15 @@ async def edit_definition(
     definition_id: int,
     payload: DefinitionUpdate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "offers.manage")
+    await _require(access, "offers.manage")
 
     async def run():
         row = await update_definition(
             db,
-            company_id=actor.company_id,
+            company_id=access.company_id,
             definition_id=definition_id,
             expected_version=payload.expected_version,
             code=payload.code,
@@ -586,7 +606,8 @@ async def edit_definition(
 
     return await _mutation(
         db=db,
-        actor=actor,
+        access=access,
+        legacy_actor=legacy_actor,
         payload=payload,
         operation="OFFER_DEFINITION_UPDATE",
         scope={"definition_id": definition_id},
@@ -601,14 +622,15 @@ async def remove_definition(
     definition_id: int,
     payload: DefinitionDelete,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "offers.manage")
+    await _require(access, "offers.manage")
 
     async def run():
         await delete_definition(
             db,
-            company_id=actor.company_id,
+            company_id=access.company_id,
             definition_id=definition_id,
             expected_version=payload.expected_version,
         )
@@ -616,7 +638,8 @@ async def remove_definition(
 
     return await _mutation(
         db=db,
-        actor=actor,
+        access=access,
+        legacy_actor=legacy_actor,
         payload=payload,
         operation="OFFER_DEFINITION_DELETE",
         scope={"definition_id": definition_id},
@@ -632,12 +655,12 @@ async def list_versions(
     cursor: Optional[str] = Query(None, max_length=512),
     limit: int = Query(50, ge=1, le=MAX_PAGE_SIZE),
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "offers.view")
+    await _require(access, "offers.view")
     definition_exists = await db.scalar(
         select(OfferDefinition.id).where(
-            OfferDefinition.company_id == actor.company_id,
+            OfferDefinition.company_id == access.company_id,
             OfferDefinition.id == definition_id,
         )
     )
@@ -655,7 +678,7 @@ async def list_versions(
             await db.scalars(
                 select(OfferVersion)
                 .where(
-                    OfferVersion.company_id == actor.company_id,
+                    OfferVersion.company_id == access.company_id,
                     OfferVersion.offer_definition_id == definition_id,
                     OfferVersion.id > _cursor(cursor),
                 )
@@ -676,12 +699,12 @@ async def list_versions(
 async def get_version(
     version_id: int,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "offers.view")
+    await _require(access, "offers.view")
     row = await db.scalar(
         select(OfferVersion).where(
-            OfferVersion.company_id == actor.company_id,
+            OfferVersion.company_id == access.company_id,
             OfferVersion.id == version_id,
         )
     )
@@ -702,15 +725,16 @@ async def add_version(
     definition_id: int,
     payload: VersionCreate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "offers.manage")
+    await _require(access, "offers.manage")
 
     async def run():
         row = await create_draft_version(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             definition_id=definition_id,
             expected_definition_version=payload.expected_definition_version,
             request_id=payload.request_id,
@@ -728,7 +752,8 @@ async def add_version(
 
     return await _mutation(
         db=db,
-        actor=actor,
+        access=access,
+        legacy_actor=legacy_actor,
         payload=payload,
         operation="OFFER_VERSION_CREATE",
         scope={"definition_id": definition_id},
@@ -743,14 +768,15 @@ async def edit_version(
     version_id: int,
     payload: VersionUpdate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "offers.manage")
+    await _require(access, "offers.manage")
 
     async def run():
         row = await update_draft_version(
             db,
-            company_id=actor.company_id,
+            company_id=access.company_id,
             version_id=version_id,
             expected_version=payload.expected_version,
             offer_type=payload.offer_type,
@@ -767,7 +793,8 @@ async def edit_version(
 
     return await _mutation(
         db=db,
-        actor=actor,
+        access=access,
+        legacy_actor=legacy_actor,
         payload=payload,
         operation="OFFER_VERSION_UPDATE",
         scope={"version_id": version_id},
@@ -782,14 +809,15 @@ async def remove_version(
     version_id: int,
     payload: VersionDelete,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "offers.manage")
+    await _require(access, "offers.manage")
 
     async def run():
         await delete_draft_version(
             db,
-            company_id=actor.company_id,
+            company_id=access.company_id,
             version_id=version_id,
             expected_version=payload.expected_version,
         )
@@ -797,7 +825,8 @@ async def remove_version(
 
     return await _mutation(
         db=db,
-        actor=actor,
+        access=access,
+        legacy_actor=legacy_actor,
         payload=payload,
         operation="OFFER_VERSION_DELETE",
         scope={"version_id": version_id},
@@ -811,13 +840,13 @@ async def remove_version(
 async def preview_basket(
     payload: PreviewRequest,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "offers.view")
+    await _require(access, "offers.view")
     try:
         return await preview_offer_basket(
             db,
-            company_id=actor.company_id,
+            company_id=access.company_id,
             payload=payload,
         )
     except OfferError as exc:
@@ -830,12 +859,12 @@ async def preview_basket(
 async def validate_offer_version(
     version_id: int,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "offers.view")
+    await _require(access, "offers.view")
     try:
         canonical = await validate_version(
-            db, company_id=actor.company_id, version_id=version_id
+            db, company_id=access.company_id, version_id=version_id
         )
     except OfferError as exc:
         raise _offer_http_error(exc) from exc
@@ -847,23 +876,24 @@ async def _command(
     version_id: int,
     payload: VersionCommand,
     db: AsyncSession,
-    actor: Driver,
+    access: BackofficeCapabilityAccess,
+    legacy_actor: Driver,
     operation: str,
     action_name: str,
     permission: str,
     fn: Callable[..., Awaitable[OfferVersion]],
 ):
-    await _require(db, actor, permission)
+    await _require(access, permission)
 
     async def run():
         kwargs: dict[str, Any] = {
             "db": db,
-            "company_id": actor.company_id,
+            "company_id": access.company_id,
             "version_id": version_id,
             "expected_version": payload.expected_version,
         }
         if operation in {"OFFER_VERSION_PUBLISH", "OFFER_VERSION_APPROVE", "OFFER_VERSION_CANCEL"}:
-            kwargs["actor_id"] = actor.id
+            kwargs["actor_id"] = legacy_actor.id
         if operation == "OFFER_VERSION_CANCEL":
             kwargs["reason"] = payload.reason
         row = await fn(**kwargs)
@@ -871,7 +901,8 @@ async def _command(
 
     return await _mutation(
         db=db,
-        actor=actor,
+        access=access,
+        legacy_actor=legacy_actor,
         payload=payload,
         operation=operation,
         scope={"version_id": version_id},
@@ -886,13 +917,15 @@ async def submit(
     version_id: int,
     payload: VersionCommand,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     return await _command(
         version_id=version_id,
         payload=payload,
         db=db,
-        actor=actor,
+        access=access,
+        legacy_actor=legacy_actor,
         operation="OFFER_VERSION_SUBMIT",
         action_name="OFFER_VERSION_SUBMITTED",
         permission="offers.manage",
@@ -905,13 +938,15 @@ async def publish(
     version_id: int,
     payload: VersionCommand,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     return await _command(
         version_id=version_id,
         payload=payload,
         db=db,
-        actor=actor,
+        access=access,
+        legacy_actor=legacy_actor,
         operation="OFFER_VERSION_PUBLISH",
         action_name="OFFER_VERSION_PUBLISHED",
         permission="offers.manage",
@@ -924,13 +959,15 @@ async def approve(
     version_id: int,
     payload: VersionCommand,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     return await _command(
         version_id=version_id,
         payload=payload,
         db=db,
-        actor=actor,
+        access=access,
+        legacy_actor=legacy_actor,
         operation="OFFER_VERSION_APPROVE",
         action_name="OFFER_VERSION_APPROVED",
         permission="offers.approve",
@@ -943,13 +980,15 @@ async def cancel(
     version_id: int,
     payload: VersionCommand,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     return await _command(
         version_id=version_id,
         payload=payload,
         db=db,
-        actor=actor,
+        access=access,
+        legacy_actor=legacy_actor,
         operation="OFFER_VERSION_CANCEL",
         action_name="OFFER_VERSION_CANCELLED",
         permission="offers.manage",
