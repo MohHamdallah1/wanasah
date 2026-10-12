@@ -58,11 +58,11 @@ def _seed(admin_dsn: str) -> dict[str, int]:
                 (code, code),
             ).fetchone()[0]
 
-        def driver(company_id: int, username: str, *, admin: bool = False) -> int:
+        def driver(company_id: int, username: str) -> int:
             return conn.execute(
-                """INSERT INTO drivers(company_id,username,password_hash,full_name,is_active,is_admin,created_at)
-                   VALUES (%s,%s,'synthetic-not-for-login',%s,true,%s,CURRENT_TIMESTAMP) RETURNING id""",
-                (company_id, username, username, admin),
+                """INSERT INTO drivers(company_id,username,password_hash,full_name,is_active,created_at)
+                   VALUES (%s,%s,'synthetic-not-for-login',%s,true,CURRENT_TIMESTAMP) RETURNING id""",
+                (company_id, username, username),
             ).fetchone()[0]
 
         def location(company_id: int, code: str) -> int:
@@ -89,7 +89,6 @@ def _seed(admin_dsn: str) -> dict[str, int]:
             return role_id
 
         a, b = company("CAP-GATE-A"), company("CAP-GATE-B")
-        owner_driver = driver(a, "owner-storage", admin=True)
         ordinary = driver(a, "ordinary")
         local_only = driver(a, "local-only")
         empty = driver(a, "empty")
@@ -131,7 +130,6 @@ def _seed(admin_dsn: str) -> dict[str, int]:
 
         return {
             "a": a, "b": b,
-            "owner_driver": owner_driver,
             "ordinary": ordinary,
             "local_only": local_only,
             "empty": empty,
@@ -309,11 +307,12 @@ async def _run(runtime_url: str, fixture: dict[str, int]) -> None:
             assert set(local_by[fixture["a1"]]) == {"transfer.send"}
         print("CODES_BY_LOCATION_EXACT_SCOPE_AND_OMISSIONS=PASS", flush=True)
 
-        # Final source guard: no legacy authority dependency, bridge authority or ID aliasing.
+        # Final source guards: canonical access and this gate carry no legacy authority surface.
         source = (BACKEND / "domains" / "authorization" / "backoffice_access.py").read_text(encoding="utf-8")
+        legacy_admin_field = "is_" + "admin"
         forbidden = (
             "from models import Driver",
-            ".is_admin",
+            "." + legacy_admin_field,
             "legacy_full_authority",
             "classification",
             "driver_id = self.subject.principal_id",
@@ -323,6 +322,20 @@ async def _run(runtime_url: str, fixture: dict[str, int]) -> None:
         )
         for needle in forbidden:
             assert needle not in source, needle
+
+        gate_source = Path(__file__).read_text(encoding="utf-8")
+        gate_forbidden = (
+            legacy_admin_field,
+            "drivers." + legacy_admin_field,
+            "d." + legacy_admin_field,
+            "Inventory" + "Access",
+            "subject_from_" + "legacy_driver",
+            "get_current_" + "admin",
+            "current_" + "admin",
+            "admin_" + "override",
+        )
+        for needle in gate_forbidden:
+            assert needle not in gate_source, needle
         print("SOURCE_GUARDS=PASS", flush=True)
     finally:
         await engine.dispose()
