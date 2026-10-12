@@ -1,4 +1,5 @@
 """Focused canonical access administration with real SQL/dependencies and mocked persistence."""
+import inspect
 import os
 from pathlib import Path
 import sys
@@ -6,9 +7,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-from fastapi import FastAPI, HTTPException
-from httpx import ASGITransport, AsyncClient
-import jwt
+from fastapi import HTTPException
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,13 +19,13 @@ with patch.dict(os.environ, {
     "DATABASE_URL_MIGRATION": "postgresql+asyncpg://access_admin@127.0.0.1:1/access_unit",
 }):
     from api import inventory_permissions as module
-    from api import dependencies as legacy
 
-from database import get_db
+from api.authentication.backoffice_authorization import get_current_backoffice_capability_access
+from api.authentication.backoffice_compatibility import get_current_backoffice_legacy_driver
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from domains.authorization.backoffice_subject import BackofficeAuthorizationSubject
 from domains.authorization.capabilities import COMPANY_ONLY, PERMISSIONS
-from models import Driver, Role, SystemAuditLog
+from models import Role, SystemAuditLog
 
 
 class AuditActor:
@@ -150,6 +149,7 @@ class InventoryAccessCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("company_principals.principal_type = 'BACKOFFICE'", sql(canonical))
         for condition in ("company_id = 7", "backoffice_principal_id = 101", "backoffice_user_id = 202"):
             self.assertIn(condition, sql(mapping))
+        self.assertEqual(len({101, 202, 303}), 3)
         self.assert_no_transaction_mutation(db)
 
     async def test_missing_cross_company_or_mismatched_targets_and_bridges_fail_before_writes(self):
@@ -291,52 +291,28 @@ class InventoryAccessCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("catalog.manage", query)
         self.assertIn("catalog.manage", COMPANY_ONLY)
 
-    async def test_real_fastapi_owner_transport_flags_cache_and_missing_identity(self):
-        from datetime import datetime, timedelta, timezone
-        setting = patch.object(legacy.Config, "SECRET_KEY", SECRET)
-        previous = legacy.tenant_context.set(None)
-        self.addCleanup(legacy.tenant_context.reset, previous)
-        with setting:
-            for owner, flag, missing, wrong_channel in ((True, False, False, False), (True, True, False, False),
-                    (False, True, False, False), (False, False, False, False),
-                    (False, True, True, False), (False, True, False, True)):
-                with self.subTest(owner=owner, operational_flag=flag, missing=missing, wrong_channel=wrong_channel):
-                    db = database()
-                    actor = Driver(id=44, company_id=7, is_active=True, is_admin=flag)
-                    auth_result = result((actor, False))
-                    db.execute.return_value = auth_result
-                    bridge = Bridge(company_id=7, legacy_driver_id=44, backoffice_principal_id=11, backoffice_user_id=22)
-                    principal = SimpleNamespace(id=11, company_id=7,
-                        principal_type="FIELD_REPRESENTATIVE" if wrong_channel else "BACKOFFICE", is_active=True, auth_revision=3)
-                    profile = SimpleNamespace(id=22, company_id=7, principal_id=11, principal_type="BACKOFFICE")
-                    persisted_owner = SimpleNamespace(company_id=7, backoffice_user_id=22 if owner else 99)
-                    db.scalar.side_effect = [None] if missing else [bridge, principal, profile, persisted_owner, bridge]
-                    app = FastAPI()
-                    app.include_router(module.router)
+    def test_runtime_dependencies_are_canonical_and_reads_do_not_load_driver(self):
+        for endpoint in (module.capabilities, module.location_capabilities):
+            access_depends = inspect.signature(endpoint).parameters["access"].default
+            self.assertIs(access_depends.dependency, get_current_backoffice_capability_access)
+            self.assertTrue(access_depends.use_cache)
+            self.assertNotIn("legacy_actor", inspect.signature(endpoint).parameters)
 
-                    async def override_db():
-                        return db
+        owner_access = inspect.signature(module._require_company_owner).parameters["access"].default
+        self.assertIs(owner_access.dependency, get_current_backoffice_capability_access)
+        self.assertTrue(owner_access.use_cache)
 
-                    app.dependency_overrides[get_db] = override_db
-                    token = jwt.encode(dict(sub="44", company_id=7, type="access", role="Owner", is_admin=True,
-                                            exp=datetime.now(timezone.utc) + timedelta(minutes=5)), SECRET, algorithm="HS256")
-                    with patch.object(legacy.jwt, "decode", wraps=jwt.decode) as decode, \
-                         patch.object(module, "save_role", new=AsyncMock(return_value={"id": 909})) as save:
-                        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                            response = await client.post("/inventory/access/roles", json={"name": "Role", "permissions": []},
-                                                         headers={"Authorization": f"Bearer {token}"})
-                    self.assertEqual(response.status_code, 401 if missing or wrong_channel else 201 if owner else 403, response.text)
-                    decode.assert_called_once()
-                    auth_result.one_or_none.assert_called_once_with()
-                    self.assertEqual(db.execute.await_count, 1)
-                    if owner:
-                        passed_access, passed_actor = save.await_args.args[2:4]
-                        self.assertEqual((passed_access.subject.principal_id, passed_access.subject.backoffice_user_id), (11, 22))
-                        self.assertIs(passed_actor, actor)
-                    else:
-                        save.assert_not_awaited()
-                        if not missing and not wrong_channel:
-                            self.assertEqual(response.json()["detail"], "Authorization denied.")
+        for endpoint in (module.create_role, module.update_role, module.grant, module.revoke):
+            actor_depends = inspect.signature(endpoint).parameters["legacy_actor"].default
+            self.assertIs(actor_depends.dependency, get_current_backoffice_legacy_driver)
+            self.assertTrue(actor_depends.use_cache)
+
+        source = Path(module.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("get_current_driver", source)
+        self.assertNotIn("legacy_backoffice_transport", source)
+        self.assertNotIn("legacy_actor.company_id", source)
+        self.assertNotIn("legacy_actor.is_admin", source)
+        self.assertNotIn("principal_id == legacy_actor.id", source)
 
 
 if __name__ == "__main__":
