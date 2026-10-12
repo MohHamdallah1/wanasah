@@ -1,0 +1,66 @@
+name: Backoffice transport retirement temporary gate
+
+on:
+  push:
+    branches:
+      - sol/backoffice-transport-retirement
+
+jobs:
+  focused-backoffice-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install backend and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r wa_backend/requirements.txt pytest httpx
+      - name: Compile changed runtime
+        run: |
+          python -m py_compile \
+            wa_backend/api/branches.py \
+            wa_backend/api/inventory_permissions.py \
+            wa_backend/api/inventory_stock_policy.py \
+            wa_backend/api/sales_returns.py \
+            wa_backend/api/authentication/backoffice_compatibility.py \
+            wa_backend/api/authentication/backoffice_authorization.py
+      - name: Focused canonical Backoffice runtime tests
+        working-directory: wa_backend
+        env:
+          PYTHONPATH: .
+        run: |
+          pytest -q \
+            tests/test_branch_canonical_authorization_cutover.py \
+            tests/test_inventory_access_canonical_boundary.py \
+            tests/test_inventory_access_canonical_cutover.py \
+            tests/test_minimum_stock_canonical_authorization_cutover.py \
+            tests/test_sales_returns_canonical_boundary.py \
+            tests/test_sales_returns_canonical_cutover.py \
+            tests/test_canonical_backoffice_runtime_compatibility.py \
+            tests/test_backoffice_capability_access.py \
+            tests/test_backoffice_authorization_dependency.py
+      - name: Source authority and transport audit
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          targets = [
+              Path('wa_backend/api/branches.py'),
+              Path('wa_backend/api/inventory_permissions.py'),
+              Path('wa_backend/api/inventory_stock_policy.py'),
+              Path('wa_backend/api/sales_returns.py'),
+          ]
+          for path in targets:
+              text = path.read_text(encoding='utf-8')
+              for forbidden in ('legacy_backoffice_transport', 'get_current_driver', '.is_admin', 'legacy_actor.company_id'):
+                  assert forbidden not in text, (path, forbidden)
+          dispatch = Path('wa_backend/api/dispatch.py').read_text(encoding='utf-8')
+          assert 'legacy_backoffice_transport' in dispatch
+          compatibility = Path('wa_backend/api/authentication/backoffice_compatibility.py').read_text(encoding='utf-8')
+          assert 'get_current_backoffice_legacy_driver' in compatibility
+          PY
+      - name: Diff whitespace gate
+        run: git diff --check origin/main...HEAD
