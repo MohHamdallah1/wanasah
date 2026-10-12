@@ -1,0 +1,70 @@
+name: TEMP Login is_admin final review
+
+on:
+  push:
+    branches:
+      - lead/login-is-admin-final-review
+
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: LoginGateAa1234567890Bb1234567890Cc1234567890
+      DATABASE_URL: postgresql+asyncpg://unit_user@127.0.0.1:1/unit_db
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://unit_admin@127.0.0.1:1/unit_db
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r wa_backend/requirements.txt pytest pytest-asyncio httpx
+      - name: Compile changed Python files
+        run: |
+          python -m py_compile \
+            wa_backend/api/authentication/login_transport.py \
+            wa_backend/domains/identity/legacy_compatibility.py \
+            wa_backend/schemas.py \
+            wa_backend/tests/test_canonical_auth_transport_boundary.py \
+            wa_backend/tests/test_identity_login_legacy_compatibility.py \
+            wa_backend/tests/test_login_is_admin_retirement_contract.py \
+            wa_backend/tests/test_principal_auth_http_contracts.py
+      - name: Run focused backend tests
+        working-directory: wa_backend
+        env:
+          PYTHONPATH: .:tests
+        run: |
+          pytest -q \
+            tests/test_canonical_auth_transport_boundary.py \
+            tests/test_identity_login_legacy_compatibility.py \
+            tests/test_login_is_admin_retirement_contract.py \
+            tests/test_principal_auth_http_contracts.py
+      - name: Run dashboard login contract test
+        run: node dashboard/src/pages/Login.contract.test.mjs
+      - name: Source audit
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          production = [
+              Path('wa_backend/api/authentication/login_transport.py'),
+              Path('wa_backend/domains/identity/legacy_compatibility.py'),
+              Path('dashboard/src/pages/Login.tsx'),
+          ]
+          for p in production:
+              text = p.read_text(encoding='utf-8')
+              assert 'is_admin' not in text, (p, 'is_admin')
+              assert 'legacy_is_admin' not in text, (p, 'legacy_is_admin')
+          schema = Path('wa_backend/schemas.py').read_text(encoding='utf-8')
+          assert 'class LoginResponse' not in schema
+          login = Path('dashboard/src/pages/Login.tsx').read_text(encoding='utf-8')
+          assert 'is_company_owner' in login
+          assert 'dashboard_access' in login
+          assert 'driver_id' in login
+          PY
+      - name: Diff check
+        run: git diff --check origin/main...HEAD
