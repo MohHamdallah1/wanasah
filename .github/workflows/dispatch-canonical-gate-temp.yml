@@ -139,7 +139,7 @@ jobs:
               async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                   r = await client.get("/dispatch/init")
                   assert r.status_code == 403, r.text
-                  r = await client.get("/dispatch/route/1/live-inventory")
+                  r = await client.get("/dispatch/route/1/live_inventory")
                   assert r.status_code == 403, r.text
                   r = await client.post("/dispatch/route", json={})
                   assert r.status_code in {403, 422}, r.text
