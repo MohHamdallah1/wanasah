@@ -5,11 +5,13 @@ from ws_manager import dispatch_manager
 from sqlalchemy.future import select
 from sqlalchemy import delete, func, or_, and_, case, nullslast, update, cast, Float, text
 from database import get_db
-from api.authentication.legacy_backoffice_transport import (
-    get_legacy_transport_backoffice_capability_access,
-    require_legacy_transport_backoffice_capability,
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+    require_backoffice_capability,
 )
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_compatibility import (
+    get_current_backoffice_legacy_driver,
+)
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from dispatch_access import (
     require_any_location,
@@ -128,21 +130,21 @@ CreateShortageItem, BulkImportRequest, UpdateZoneRequest, RestoreZoneRequest, Fo
 # إنشاء روتر خاص بمسارات الإدارة (بتاج منفصل لتنظيم Swagger)
 router = APIRouter(tags=["Admin & Dispatch Operations"])
 
-_work_session_read = require_legacy_transport_backoffice_capability("work_session.read")
-_work_session_authorize_sale = require_legacy_transport_backoffice_capability("work_session.authorize_sale")
-_work_session_reopen = require_legacy_transport_backoffice_capability("work_session.reopen")
-_settlement_read = require_legacy_transport_backoffice_capability("settlement.read")
-_settlement_execute = require_legacy_transport_backoffice_capability("settlement.execute")
-_shortage_read = require_legacy_transport_backoffice_capability("shortage.read")
-_shortage_create = require_legacy_transport_backoffice_capability("shortage.create")
-_shortage_cancel = require_legacy_transport_backoffice_capability("shortage.cancel")
-_dispatch_company_read = require_legacy_transport_backoffice_capability("dispatch.read")
-_dispatch_company_execute = require_legacy_transport_backoffice_capability("dispatch.execute")
+_work_session_read = require_backoffice_capability("work_session.read")
+_work_session_authorize_sale = require_backoffice_capability("work_session.authorize_sale")
+_work_session_reopen = require_backoffice_capability("work_session.reopen")
+_settlement_read = require_backoffice_capability("settlement.read")
+_settlement_execute = require_backoffice_capability("settlement.execute")
+_shortage_read = require_backoffice_capability("shortage.read")
+_shortage_create = require_backoffice_capability("shortage.create")
+_shortage_cancel = require_backoffice_capability("shortage.cancel")
+_dispatch_company_read = require_backoffice_capability("dispatch.read")
+_dispatch_company_execute = require_backoffice_capability("dispatch.execute")
 
 
 async def _dispatch_read_access(
     access: BackofficeCapabilityAccess = Depends(
-        get_legacy_transport_backoffice_capability_access
+        get_current_backoffice_capability_access
     ),
 ) -> BackofficeCapabilityAccess:
     await require_any_location(access, "dispatch.read")
@@ -151,7 +153,7 @@ async def _dispatch_read_access(
 
 async def _dispatch_execute_access(
     access: BackofficeCapabilityAccess = Depends(
-        get_legacy_transport_backoffice_capability_access
+        get_current_backoffice_capability_access
     ),
 ) -> BackofficeCapabilityAccess:
     await require_any_location(access, "dispatch.execute")
@@ -169,7 +171,7 @@ async def authorize_session(
     payload: AuthorizeSessionRequest = AuthorizeSessionRequest(),
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_work_session_authorize_sale),
-    legacy_actor: Driver = Depends(get_current_driver),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
 
     # 1. جلب الجلسة مع قفل التزامن (Row-Level Lock)
@@ -942,7 +944,7 @@ async def settle_session(
     payload: SettleSessionRequest,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_settlement_execute),
-    legacy_actor: Driver = Depends(get_current_driver),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     company_id = access.company_id
 
@@ -1413,7 +1415,7 @@ async def dispatch_route(
     payload: DispatchRouteRequest,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_dispatch_execute_access),
-    legacy_actor: Driver = Depends(get_current_driver),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     await require_vehicle(access, 'dispatch.execute', payload.vehicle_id)
 
@@ -2510,7 +2512,7 @@ async def adjust_route_inventory(
     payload: AdjustRouteInventoryRequest,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_dispatch_execute_access),
-    legacy_actor: Driver = Depends(get_current_driver),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     await require_route(access, 'dispatch.execute', route_id)
 
@@ -2669,7 +2671,7 @@ async def force_cancel_handshake(
     payload: ForceCancelHandshakeRequest,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_dispatch_execute_access),
-    legacy_actor: Driver = Depends(get_current_driver),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     company_id = access.company_id
     transfer_source_location_id = await db.scalar(
@@ -3279,7 +3281,7 @@ async def admin_add_shop(
     payload: AdminAddShopRequest,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_dispatch_company_execute),
-    legacy_actor: Driver = Depends(get_current_driver),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     company_id = access.company_id
     name = payload.name.strip()
@@ -3584,7 +3586,7 @@ async def update_route_status(
     payload: UpdateRouteStatusRequest,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_dispatch_execute_access),
-    legacy_actor: Driver = Depends(get_current_driver),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     await require_route(access, 'dispatch.execute', route_id)
 
@@ -4324,7 +4326,7 @@ async def undo_end_work(
     session_id: int,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_work_session_reopen),
-    legacy_actor: Driver = Depends(get_current_driver),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     company_id = access.company_id
 
@@ -4729,7 +4731,7 @@ async def edit_shop_details(
     payload: EditShopDetailsRequest,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_dispatch_company_execute),
-    legacy_actor: Driver = Depends(get_current_driver),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     company_id = access.company_id
     clean_id_str = str(shop_id).replace("s", "")
@@ -5291,7 +5293,7 @@ async def bulk_import_shops(
     payload: BulkImportRequest,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_dispatch_company_execute),
-    legacy_actor: Driver = Depends(get_current_driver),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     company_id = access.company_id
     zone_id = int(payload.zoneId)
