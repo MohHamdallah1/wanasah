@@ -604,9 +604,11 @@ class Phase13DuplicateDeliveryTests(
         ):
             await _execute_rows_once(
                 object(),
+                company_id=8,
                 actor=SimpleNamespace(
                     id=1,
-                    company_id=8,
+                    company_id=999,
+                    is_admin=True,
                 ),
                 job_id=uuid4(),
                 rows=[
