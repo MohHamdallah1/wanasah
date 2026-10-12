@@ -1,0 +1,48 @@
+name: TEMP Commercial Policy canonical review
+
+on:
+  pull_request:
+    branches:
+      - lead/commercial-policy-canonical-review
+  workflow_dispatch:
+
+jobs:
+  focused-gate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: wa_backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: wa_backend/requirements.txt
+      - name: Install backend dependencies
+        run: pip install -r requirements.txt
+      - name: Compile touched runtime and test
+        run: python -m py_compile api/commercial_policy.py tests/test_commercial_policy_canonical_auth_cutover.py
+      - name: Commercial Policy focused test
+        run: pytest -q tests/test_commercial_policy_canonical_auth_cutover.py
+      - name: Canonical capability core
+        run: pytest -q tests/test_canonical_backoffice_capability_access.py
+      - name: Forbidden runtime authority audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          f=api/commercial_policy.py
+          ! grep -nE 'get_current_driver|get_current_admin|InventoryAccess|\.is_admin|actor\.company_id|legacy_actor\.company_id' "$f"
+          test "$(grep -o 'get_current_backoffice_legacy_driver' "$f" | wc -l)" -eq 2
+      - name: Exact capability audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          src=Path('api/commercial_policy.py').read_text()
+          got=set(re.findall(r"['\"](pricing\.[a-z]+)['\"]", src))
+          expected={'pricing.view','pricing.manage','pricing.approve'}
+          assert got == expected, (got, expected)
+          PY
