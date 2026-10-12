@@ -1,0 +1,65 @@
+name: TEMP Supplier Inbound Quality review
+
+on:
+  push:
+    branches:
+      - lead/supplier-inbound-quality-review
+
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: SupplierInboundQualityLeadGateOnlyKey123456789012345678901234
+      DATABASE_URL: postgresql+asyncpg://canonical_unit@127.0.0.1:1/canonical_unit
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://canonical_admin@127.0.0.1:1/canonical_unit
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r wa_backend/requirements.txt pytest pytest-asyncio httpx
+      - name: Compile touched runtime and focused tests
+        run: |
+          python -m py_compile \
+            wa_backend/api/suppliers.py \
+            wa_backend/domains/suppliers/public.py \
+            wa_backend/domains/suppliers/application.py \
+            wa_backend/api/warehouse/inbound.py \
+            wa_backend/api/warehouse/whole_product_quality.py \
+            wa_backend/tests/test_supplier_inbound_quality_canonical_auth_cutover.py \
+            wa_backend/tests/test_supplier_master_db.py
+      - name: Focused canonical tests
+        working-directory: wa_backend
+        env:
+          PYTHONPATH: .
+        run: |
+          pytest -q tests/test_supplier_inbound_quality_canonical_auth_cutover.py
+      - name: Authority audit
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          paths = [
+              'wa_backend/api/suppliers.py',
+              'wa_backend/domains/suppliers/public.py',
+              'wa_backend/domains/suppliers/application.py',
+              'wa_backend/api/warehouse/inbound.py',
+              'wa_backend/api/warehouse/whole_product_quality.py',
+          ]
+          forbidden = (
+              'get_current_driver', 'get_current_admin', 'InventoryAccess',
+              '.is_admin', 'actor.company_id', 'current_admin.company_id',
+              'legacy_actor.company_id',
+          )
+          for path in paths:
+              text = Path(path).read_text(encoding='utf-8')
+              for token in forbidden:
+                  assert token not in text, f'{token} in {path}'
+          PY
+      - name: Diff whitespace check
+        run: git diff --check origin/main...HEAD
