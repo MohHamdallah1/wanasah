@@ -10,9 +10,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
 from database import get_db
-from inventory_access import InventoryAccess
+from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from models import (
     Company,
     Driver,
@@ -34,6 +36,33 @@ from ._shared import _escape_like, _warehouse_array_membership
 
 logger = logging.getLogger("wanasah_logger")
 router = APIRouter()
+
+
+async def _require_ledger_access(
+    access: BackofficeCapabilityAccess,
+    *,
+    location_id: Optional[int],
+) -> None:
+    if location_id is not None:
+        exists = await access.db.scalar(
+            select(InventoryLocation.id).where(
+                InventoryLocation.company_id == access.company_id,
+                InventoryLocation.id == location_id,
+            )
+        )
+        if exists is None:
+            raise HTTPException(404, 'الموقع غير موجود أو غير متاح.')
+    allowed = await access.db.scalar(
+        select(
+            access.allows(
+                'ledger.read',
+                location_id,
+                any_location=location_id is None,
+            )
+        )
+    )
+    if not bool(allowed):
+        raise HTTPException(403, 'لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.')
 
 
 # =================================================================================
@@ -306,12 +335,11 @@ async def get_warehouse_ledger_cursor(
     reference_type: Optional[str] = Query(default=None, max_length=50),
     reference_id: Optional[str] = Query(default=None, max_length=100),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require('ledger.read', location_id, any_location=location_id is None)
+    await _require_ledger_access(access, location_id=location_id)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     clean_search = (search or "").strip().lower()
     clean_type = (reference_type or "").strip()
@@ -872,4 +900,3 @@ async def get_warehouse_ledger_cursor(
             status_code=500,
             detail="حدث خطأ داخلي أثناء جلب صفحة سجل الحركات.",
         )
-
