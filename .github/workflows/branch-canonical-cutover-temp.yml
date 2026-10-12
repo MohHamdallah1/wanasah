@@ -33,7 +33,7 @@ jobs:
     env:
       ENVIRONMENT: test
       SECRET_KEY: BranchCutoverTempSecret123456789012345678901234567890
-      DATABASE_URL: postgresql+asyncpg://branch_gate@127.0.0.1:5432/wanasah_branch_gate
+      DATABASE_URL: postgresql+asyncpg://branch_runtime@127.0.0.1:5432/wanasah_branch_gate
       DATABASE_URL_MIGRATION: postgresql+asyncpg://branch_gate@127.0.0.1:5432/wanasah_branch_gate
 
     steps:
@@ -43,6 +43,17 @@ jobs:
           python-version: "3.12"
       - name: Install backend dependencies
         run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("CREATE ROLE branch_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          print("BRANCH_RUNTIME_ROLE=OK")
+          PY
       - name: Upgrade empty database to head
         working-directory: wa_backend
         run: alembic upgrade head
