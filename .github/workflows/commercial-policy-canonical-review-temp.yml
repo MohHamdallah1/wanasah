@@ -6,6 +6,10 @@ on:
       - lead/commercial-policy-canonical-review
   workflow_dispatch:
 
+env:
+  SECRET_KEY: "WanasahCommercialPolicyReview2026TestKeyA1b2C3d4E5f6"
+  DATABASE_URL: "postgresql+asyncpg://wanasah_test:wanasah_test@127.0.0.1:5432/wanasah_test"
+
 jobs:
   focused-test:
     name: CP ${{ matrix.name }}
