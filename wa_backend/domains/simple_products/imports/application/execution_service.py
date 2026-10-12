@@ -14,9 +14,16 @@ from time import perf_counter
 from typing import Any
 from uuid import UUID, uuid5
 
-from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
+from domains.authorization.backoffice_subject import (
+    BackofficeAuthorizationSubjectRejected,
+    resolve_backoffice_authorization_subject,
+)
 from domains.simple_products.imports.application.state_machine import (
     JobStatus,
     RowStatus,
@@ -36,6 +43,7 @@ from domains.simple_products.imports.infrastructure.repository import (
     job_has_rows,
     list_job_rows,
     load_active_actor,
+    load_active_backoffice_context_for_legacy_actor,
     load_job,
     open_tenant_session,
 )
@@ -56,7 +64,6 @@ from services import (
     begin_idempotent_operation,
     complete_idempotent_operation,
 )
-from inventory_access import InventoryAccess
 
 
 # 200 products keeps one bounded execution/idempotency unit while halving
@@ -364,6 +371,7 @@ def _replayed_variant_ids(
 async def _execute_rows_once(
     db,
     *,
+    company_id: int,
     actor,
     job_id: UUID,
     rows: list[Any],
@@ -395,7 +403,7 @@ async def _execute_rows_once(
         ) = await begin_idempotent_operation(
             db,
             company_id=int(
-                actor.company_id
+                company_id
             ),
             actor_id=int(
                 actor.id
@@ -442,6 +450,7 @@ async def _execute_rows_once(
             actor=actor,
             request_id=request_id,
             specs=specs,
+            company_id=int(company_id),
         )
     )
 
@@ -491,6 +500,7 @@ async def _execute_rows_once(
 async def _execute_rows_best_effort(
     db,
     *,
+    company_id: int,
     actor,
     job_id: UUID,
     rows: list[Any],
@@ -500,6 +510,7 @@ async def _execute_rows_best_effort(
             async with db.begin_nested():
                 await _execute_rows_once(
                     db,
+                    company_id=company_id,
                     actor=actor,
                     job_id=job_id,
                     rows=rows,
@@ -539,6 +550,7 @@ async def _execute_rows_best_effort(
         left = (
             await _execute_rows_best_effort(
                 db,
+                company_id=company_id,
                 actor=actor,
                 job_id=job_id,
                 rows=rows[
@@ -549,6 +561,7 @@ async def _execute_rows_best_effort(
         right = (
             await _execute_rows_best_effort(
                 db,
+                company_id=company_id,
                 actor=actor,
                 job_id=job_id,
                 rows=rows[
@@ -655,13 +668,27 @@ async def execute_import(
                     "The import actor is no longer active."
                 )
 
-            access = InventoryAccess(
-                db,
-                actor,
+            backoffice_context = (
+                await load_active_backoffice_context_for_legacy_actor(
+                    db,
+                    company_id=company_id,
+                    legacy_driver_id=int(job.created_by),
+                )
             )
+            if backoffice_context is None:
+                raise ProductImportTerminalError(
+                    "The import actor no longer has the required permissions."
+                )
+
             try:
-                # The actor was reloaded in this transaction. The authorization
-                # owner omits only constant admin checks, not live grant reads.
+                subject = await resolve_backoffice_authorization_subject(
+                    db,
+                    backoffice_context,
+                )
+                access = BackofficeCapabilityAccess(
+                    db=db,
+                    subject=subject,
+                )
                 await access.require_all(
                     (
                         "catalog.manage",
@@ -670,7 +697,10 @@ async def execute_import(
                     ),
                     any_location=True,
                 )
-            except HTTPException as exc:
+            except (
+                BackofficeAuthorizationSubjectRejected,
+                BackofficeCapabilityAccessRejected,
+            ) as exc:
                 raise ProductImportTerminalError(
                     "The import actor no longer has the required permissions."
                 ) from exc
@@ -776,6 +806,7 @@ async def execute_import(
                 _failed_delta,
             ) = await _execute_rows_best_effort(
                 db,
+                company_id=company_id,
                 actor=actor,
                 job_id=job_id,
                 rows=rows,
