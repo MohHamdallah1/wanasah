@@ -13,6 +13,9 @@ from sqlalchemy.exc import IntegrityError
 from database import get_db
 from models import Branch, Company, Driver, LoginAttempt, PlatformAdmin, utc_now
 from config import Config
+from domains.identity.migration.models import IdentityLegacyDriverMap
+from domains.identity.models import BackofficeUser, CompanyOwner, CompanyPrincipal
+from domains.identity.types import PrincipalType
 from domains.pricing.publishing import create_assignment, create_price_book
 from domains.inventory_costing.service import provision_default_cost_policy
 import jwt
@@ -212,25 +215,73 @@ async def create_new_tenant(
         db.add(branch)
         await db.flush()
 
-        # 3. إنشاء حساب مدير الشركة (Tenant Owner)
+        # 3. Hash once; canonical credential authority is CompanyPrincipal.
         hashed_pw = await asyncio.to_thread(
             lambda: bcrypt.hashpw(
                 payload.admin_password.encode('utf-8'),
                 bcrypt.gensalt(),
             ).decode('utf-8')
         )
+
+        # 4. Canonical Backoffice credential root for the new tenant.
+        owner_principal = CompanyPrincipal(
+            company_id=company.id,
+            username=payload.admin_username,
+            password_hash=hashed_pw,
+            full_name=payload.admin_full_name,
+            principal_type=PrincipalType.BACKOFFICE.value,
+            is_active=True,
+            auth_revision=1,
+        )
+        db.add(owner_principal)
+        await db.flush()
+
+        # 5. Independent Backoffice profile; its ID is not the principal ID.
+        owner_backoffice_user = BackofficeUser(
+            company_id=company.id,
+            principal_id=owner_principal.id,
+            principal_type=PrincipalType.BACKOFFICE.value,
+        )
+        db.add(owner_backoffice_user)
+        await db.flush()
+
+        # 6. Explicit protected Company Owner relation is the sole owner authority.
+        company_owner = CompanyOwner(
+            company_id=company.id,
+            backoffice_user_id=owner_backoffice_user.id,
+        )
+        db.add(company_owner)
+        await db.flush()
+
+        # 7. Temporary legacy Driver compatibility/provenance row only.
+        # It is deliberately NOT an authorization source.
         admin_driver = Driver(
             company_id=company.id,
             username=payload.admin_username,
             password_hash=hashed_pw,
             full_name=payload.admin_full_name,
-            is_admin=True,
-            is_active=True
+            is_admin=False,
+            is_active=True,
         )
         db.add(admin_driver)
         await db.flush()
 
+        # 8. Explicit bridge from independent canonical IDs to the legacy Driver locator.
+        identity_map = IdentityLegacyDriverMap(
+            classification="BACKOFFICE_ONLY",
+            company_id=company.id,
+            legacy_driver_id=admin_driver.id,
+            backoffice_principal_id=owner_principal.id,
+            backoffice_user_id=owner_backoffice_user.id,
+            field_principal_id=None,
+            field_representative_id=None,
+        )
+        db.add(identity_map)
+        await db.flush()
+
         # Provision empty authorities only; no fake prices or fake costs.
+        # These services still persist Driver-id actor provenance, so use only
+        # the compatibility Driver locator here rather than canonical identity IDs.
         effective_from = datetime.now(timezone.utc)
         default_book = await create_price_book(
             db,

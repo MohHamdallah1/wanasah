@@ -8,6 +8,8 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
 
+from domains.authorization.backoffice_access import BackofficeCapabilityAccess
+from domains.authorization.backoffice_subject import BackofficeAuthorizationSubject
 from domains.simple_products.catalog_summary import CatalogSummaryResponse, load_catalog_summary
 
 
@@ -64,23 +66,27 @@ def route_under_test():
     assert decorator.func.attr == "get" and decorator.args[0].value == "/summary"
     assert next(item.value.id for item in decorator.keywords if item.arg == "response_model") == "CatalogSummaryResponse"
     function.decorator_list = []
-    namespace = {"Depends": lambda dependency: dependency, "get_db": object(), "get_current_driver": object(),
-                 "AsyncSession": object, "Driver": object,
+    namespace = {"Depends": lambda dependency: dependency, "get_db": object(),
+                 "get_current_backoffice_capability_access": object(),
+                 "AsyncSession": object, "BackofficeCapabilityAccess": BackofficeCapabilityAccess,
                  "_require": AsyncMock(), "load_catalog_summary": AsyncMock()}
     exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), "exec"), namespace)
     return namespace
 
 
 @pytest.mark.asyncio
-async def test_route_uses_existing_catalog_permission_before_actor_scoped_read():
+async def test_route_uses_existing_catalog_permission_before_canonical_access_scoped_read():
     route = route_under_test()
-    db, actor = object(), SimpleNamespace(company_id=38)
+    db = object()
+    access = BackofficeCapabilityAccess(
+        db, BackofficeAuthorizationSubject(101, 202, 38, False, 303),
+    )
     async def authorized_read(session, *, company_id):
-        route["_require"].assert_awaited_once_with(db, actor, "catalog.read")
+        route["_require"].assert_awaited_once_with(access, "catalog.read")
         assert session is db and company_id == 38
         return "summary"
     route["load_catalog_summary"].side_effect = authorized_read
-    assert await route["catalog_summary"](db=db, actor=actor) == "summary"
+    assert await route["catalog_summary"](db=db, access=access) == "summary"
 
 
 @pytest.mark.asyncio
@@ -88,5 +94,9 @@ async def test_permission_denial_never_runs_summary_query():
     route = route_under_test()
     route["_require"].side_effect = PermissionError("denied")
     with pytest.raises(PermissionError):
-        await route["catalog_summary"](db=object(), actor=SimpleNamespace(company_id=38))
+        await route["catalog_summary"](
+            db=object(), access=BackofficeCapabilityAccess(
+                None, BackofficeAuthorizationSubject(101, 202, 38, False, 303),
+            ),
+        )
     route["load_catalog_summary"].assert_not_awaited()
