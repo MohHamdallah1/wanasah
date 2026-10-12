@@ -2,7 +2,7 @@
 
 Load only the selected source functions so unrelated driver workflows are not
 imported. SQLAlchemy results and external business services are mocked; the
-FastAPI dependency graph and legacy transport mapping are real.
+FastAPI dependency graph and canonical operational mapping are real.
 """
 import ast
 from datetime import date, datetime, timedelta, timezone
@@ -16,7 +16,6 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from httpx import ASGITransport, AsyncClient
-import jwt
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,11 +28,11 @@ with patch.dict(os.environ, {
     "DATABASE_URL": "postgresql+asyncpg://session_unit@127.0.0.1:1/session_unit",
     "DATABASE_URL_MIGRATION": "postgresql+asyncpg://session_admin@127.0.0.1:1/session_unit",
 }):
-    from api import dependencies as legacy
     from api.authentication import dependencies as canonical
-    from api.authentication import legacy_field_transport as transport
+    from api.authentication import field_compatibility as compatibility
 
 from database import get_db
+from domains.auth_sessions.codec import issue_access_token
 from domains.auth_sessions.context import FieldRequestContext
 from domains.pricing.core import PricingError
 from models import (
@@ -79,8 +78,9 @@ def load_routes():
              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in names]
     namespace = dict(globals())
     namespace.update(
-        router=APIRouter(), logger=Mock(), get_current_driver=legacy.get_current_driver,
-        get_legacy_transport_field_context=transport.get_legacy_transport_field_context,
+        router=APIRouter(), logger=Mock(),
+        get_current_field_context=canonical.get_current_field_context,
+        get_current_field_legacy_driver=compatibility.get_current_field_legacy_driver,
         get_company_local_date=AsyncMock(return_value=LOCAL_DATE),
         require_route_commercial_context=AsyncMock(return_value=SimpleNamespace(id=1001)),
         commercial_context_payload=Mock(return_value={"id": 1001}),
@@ -104,6 +104,7 @@ def result(value=None, rows=()):
 def fixture(name):
     db = MagicMock(spec=AsyncSession)
     db.in_transaction.return_value = False
+    db.scalar.return_value = False
     session = SimpleNamespace(id=601, company_id=7, driver_id=303, end_time=None,
                               break_start_time=None, break_end_time=None, is_settled=False)
     route = SimpleNamespace(id=701, vehicle_id=801, zone_id=901, work_session_id=None)
@@ -134,11 +135,11 @@ def sql(statement):
 class DriverSessionFieldContextCutoverTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.namespace = load_routes()
-        setting = patch.object(legacy.Config, "SECRET_KEY", SECRET)
+        setting = patch.object(canonical.Config, "SECRET_KEY", SECRET)
         setting.start()
         self.addCleanup(setting.stop)
-        previous = legacy.tenant_context.set(None)
-        self.addCleanup(legacy.tenant_context.reset, previous)
+        previous = canonical.tenant_context.set(None)
+        self.addCleanup(canonical.tenant_context.reset, previous)
 
     async def invoke(self, name, setup, actor=None, action="start"):
         kwargs = dict(db=setup.db, field_context=CONTEXT,
@@ -345,26 +346,17 @@ class DriverSessionFieldContextCutoverTests(unittest.IsolatedAsyncioTestCase):
                 self.assert_transactions(setup.db, commits=0, rollbacks=1)
 
     async def test_real_fastapi_graph_authenticates_once_and_maps_canonical_field_for_every_route(self):
-        original_resolver = transport._resolve_legacy_field_context
+        original_resolver = compatibility.resolve_field_authorization_subject
         for name, (method, path, status) in ENDPOINTS.items():
             for flag in (False, True):
                 with self.subTest(endpoint=name, operational_flag=flag):
                     self.namespace = load_routes()
                     setup = fixture(name)
                     actor = Driver(id=303, company_id=7, is_active=True, is_admin=flag)
-                    auth_result = result((actor, False))
-                    mapping = Bridge(company_id=7, legacy_driver_id=303, field_principal_id=101, field_representative_id=202)
-                    identity = SimpleNamespace(representative_company_id=7, representative_id=202,
-                                               representative_principal_id=101, representative_type="FIELD_REPRESENTATIVE",
-                                               principal_company_id=7, principal_id=101, principal_type="FIELD_REPRESENTATIVE",
-                                               principal_active=True, auth_revision=13)
-                    setup.db.execute.side_effect = [auth_result, result(mapping), result(identity), *setup.results]
-                    contexts = []
-
-                    async def capture_context(db, current_driver):
-                        context = await original_resolver(db, current_driver)
-                        contexts.append(context)
-                        return context
+                    mapping = Bridge(company_id=7, legacy_driver_id=303,
+                                     field_principal_id=101, field_representative_id=202)
+                    mapping_result, driver_result = result(mapping), result(actor)
+                    setup.db.execute.side_effect = [mapping_result, driver_result, *setup.results]
 
                     async def override_db():
                         return setup.db
@@ -372,25 +364,30 @@ class DriverSessionFieldContextCutoverTests(unittest.IsolatedAsyncioTestCase):
                     app = FastAPI()
                     app.include_router(self.namespace["router"])
                     app.dependency_overrides[get_db] = override_db
-                    token = jwt.encode(dict(sub="303", company_id=7, type="access",
-                                            exp=datetime.now(timezone.utc) + timedelta(minutes=5)), SECRET, algorithm="HS256")
+                    token = issue_access_token(principal_id=101, company_id=7, channel="FIELD",
+                                               principal_type="FIELD_REPRESENTATIVE", auth_revision=13,
+                                               secret=SECRET)
                     kwargs = {"headers": {"Authorization": f"Bearer {token}"}}
                     if name == "start_work_session":
                         kwargs["json"] = {"latitude": 31.9, "longitude": 35.9}
                     elif name == "toggle_break":
                         kwargs["json"] = {"action": "start"}
-                    with patch.object(legacy.jwt, "decode", wraps=jwt.decode) as decode, \
-                         patch.object(canonical, "decode_company_token", side_effect=AssertionError("No second authentication")) as canonical_decode, \
-                         patch.object(transport, "_resolve_legacy_field_context", side_effect=capture_context) as resolve:
+                    with patch.object(canonical, "decode_company_token",
+                                      wraps=canonical.decode_company_token) as decode, \
+                         patch.object(canonical, "resolve_access_context",
+                                      AsyncMock(return_value=CONTEXT)) as context, \
+                         patch.object(compatibility, "resolve_field_authorization_subject",
+                                      wraps=original_resolver) as resolve:
                         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                             response = await client.request(method, path, **kwargs)
                     self.assertEqual(response.status_code, status, response.text)
-                    decode.assert_called_once()
-                    canonical_decode.assert_not_called()
-                    auth_result.one_or_none.assert_called_once_with()
-                    resolve.assert_awaited_once_with(setup.db, actor)
-                    self.assertEqual(contexts, [CONTEXT])
-                    self.assertEqual(setup.db.execute.await_count, 3 + len(setup.results))
+                    decode.assert_called_once_with(token, secret=SECRET, expected_type="access")
+                    context.assert_awaited_once()
+                    self.assertEqual(context.await_args.args[1].principal_id, 101)
+                    resolve.assert_awaited_once_with(setup.db, CONTEXT)
+                    mapping_result.one_or_none.assert_called_once_with()
+                    driver_result.scalar_one_or_none.assert_called_once_with()
+                    self.assertEqual(setup.db.execute.await_count, 2 + len(setup.results))
                     setup.db.connection.assert_awaited_once_with()
                     self.assert_transactions(setup.db)
 

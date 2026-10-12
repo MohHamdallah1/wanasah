@@ -7,7 +7,8 @@ from sqlalchemy.exc import IntegrityError
 from database import get_db
 from typing import List, Optional
 from api.dependencies import get_current_driver
-from api.authentication.legacy_field_transport import get_legacy_transport_field_context
+from api.authentication.dependencies import get_current_field_context
+from api.authentication.field_compatibility import get_current_field_legacy_driver
 from domains.auth_sessions.context import FieldRequestContext
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -144,8 +145,8 @@ router = APIRouter(tags=["Driver Operations"])
 async def start_work_session(
     payload: SessionStartRequest,
     db: AsyncSession = Depends(get_db),
-    field_context: FieldRequestContext = Depends(get_legacy_transport_field_context),
-    legacy_actor: Driver = Depends(get_current_driver)
+    field_context: FieldRequestContext = Depends(get_current_field_context),
+    legacy_actor: Driver = Depends(get_current_field_legacy_driver)
 ):
     driver_id = legacy_actor.id
     company_id = field_context.company_id
@@ -442,8 +443,8 @@ async def start_work_session(
 @router.put("/driver/sessions/end", status_code=200)
 async def end_work_session(
     db: AsyncSession = Depends(get_db),
-    field_context: FieldRequestContext = Depends(get_legacy_transport_field_context),
-    legacy_actor: Driver = Depends(get_current_driver)
+    field_context: FieldRequestContext = Depends(get_current_field_context),
+    legacy_actor: Driver = Depends(get_current_field_legacy_driver)
 ):
     company_id = field_context.company_id
     driver_id = legacy_actor.id
@@ -514,8 +515,8 @@ async def end_work_session(
 async def toggle_break(
     payload: BreakToggleRequest,
     db: AsyncSession = Depends(get_db),
-    field_context: FieldRequestContext = Depends(get_legacy_transport_field_context),
-    legacy_actor: Driver = Depends(get_current_driver)
+    field_context: FieldRequestContext = Depends(get_current_field_context),
+    legacy_actor: Driver = Depends(get_current_field_legacy_driver)
 ):
     company_id = field_context.company_id
     driver_id = legacy_actor.id
@@ -591,12 +592,13 @@ async def update_visit(
     visit_id: int,
     payload: VisitUpdateRequest,
     db: AsyncSession = Depends(get_db),
-    current_driver: Driver = Depends(get_current_driver)
+    field_context: FieldRequestContext = Depends(get_current_field_context),
+    legacy_actor: Driver = Depends(get_current_field_legacy_driver)
 ):
     # PATCH: DRIVER_UNIFIED_VISIT_INVENTORY
     # Workflow الميدان محفوظ؛ التغيير هنا محصور في العزل ومحرك المخزون الموحد والـidempotency.
-    company_id = current_driver.company_id
-    driver_id = current_driver.id
+    company_id = field_context.company_id
+    driver_id = legacy_actor.id
 
     canonical_payload = payload.model_dump(mode="json", exclude={"request_id"})
     # ترتيب أسطر Flutter ليس جزءاً من المعنى التجاري؛ retry مطابق لا يفشل لمجرد إعادة ترتيب القوائم.
@@ -1803,7 +1805,7 @@ async def update_visit(
                     driver_id,
                     shop.id,
                     new_debt,
-                    pre_fetched_driver=current_driver,
+                    pre_fetched_driver=legacy_actor,
                 )
                 if not is_allowed:
                     raise HTTPException(status_code=403, detail=msg)
@@ -2520,10 +2522,11 @@ def _build_handshake_movement_specs(
 @router.get("/driver/dashboard", status_code=200)
 async def get_driver_dashboard(
     db: AsyncSession = Depends(get_db),
-    current_driver: Driver = Depends(get_current_driver)
+    field_context: FieldRequestContext = Depends(get_current_field_context),
+    legacy_actor: Driver = Depends(get_current_field_legacy_driver)
 ):
-    company_id = current_driver.company_id
-    driver_id = current_driver.id
+    company_id = field_context.company_id
+    driver_id = legacy_actor.id
 
     active_session = (
         await db.execute(
@@ -2685,7 +2688,7 @@ async def get_driver_dashboard(
         ).scalar() or 0)
 
     response_data = {
-        "driver_name": current_driver.full_name,
+        "driver_name": legacy_actor.full_name,
         "assigned_region": assigned_region,
         "active_session": {
             "session_id": active_session.id,
@@ -2730,10 +2733,11 @@ async def respond_to_transfer(
     transfer_id: int,
     payload: TransferResponseRequest,
     db: AsyncSession = Depends(get_db),
-    current_driver: Driver = Depends(get_current_driver)
+    field_context: FieldRequestContext = Depends(get_current_field_context),
+    legacy_actor: Driver = Depends(get_current_field_legacy_driver)
 ):
-    company_id = current_driver.company_id
-    driver_id = current_driver.id
+    company_id = field_context.company_id
+    driver_id = legacy_actor.id
     response = payload.response
     reason = (payload.reason or "").strip() or None
 
@@ -2924,10 +2928,11 @@ async def respond_to_transfer(
 async def batch_respond_to_transfers(
     payload: BatchTransferResponseRequest,
     db: AsyncSession = Depends(get_db),
-    current_driver: Driver = Depends(get_current_driver)
+    field_context: FieldRequestContext = Depends(get_current_field_context),
+    legacy_actor: Driver = Depends(get_current_field_legacy_driver)
 ):
-    company_id = current_driver.company_id
-    driver_id = current_driver.id
+    company_id = field_context.company_id
+    driver_id = legacy_actor.id
 
     if not payload.transfers:
         raise HTTPException(status_code=400, detail="بيانات الطلب غير مكتملة.")
@@ -3155,10 +3160,11 @@ async def batch_respond_to_transfers(
 @router.get("/driver/transfers/pending", response_model=List[PendingBatchResponse], status_code=200)
 async def get_pending_transfers(
     db: AsyncSession = Depends(get_db),
-    current_driver: Driver = Depends(get_current_driver)
+    field_context: FieldRequestContext = Depends(get_current_field_context),
+    legacy_actor: Driver = Depends(get_current_field_legacy_driver)
 ):
-    company_id = current_driver.company_id
-    driver_id = current_driver.id
+    company_id = field_context.company_id
+    driver_id = legacy_actor.id
 
     active_session = (
         await db.execute(
@@ -3257,15 +3263,16 @@ async def get_pending_transfers(
 async def add_new_shop(
     payload: AddShopRequest,
     db: AsyncSession = Depends(get_db),
-    current_driver: Driver = Depends(get_current_driver)
+    field_context: FieldRequestContext = Depends(get_current_field_context),
+    legacy_actor: Driver = Depends(get_current_field_legacy_driver)
 ):
-    # 1. الدرع الأمني (IDOR) - سحب الـ ID مباشرة من التوكن
-    driver_id = current_driver.id
+    # Legacy operational ownership locator; canonical context owns authentication.
+    driver_id = legacy_actor.id
 
     # 2. جلب الجلسة النشطة (مع درع الـ Limit لتسريع الداتابيز)
     stmt_session = (
         select(WorkSession)
-        .filter_by(company_id=current_driver.company_id, driver_id=driver_id, end_time=None)
+        .filter_by(company_id=field_context.company_id, driver_id=driver_id, end_time=None)
         .order_by(WorkSession.id.desc())
         .limit(1)
         .with_for_update()
@@ -3281,7 +3288,7 @@ async def add_new_shop(
     stmt_route = (
         select(DispatchRoute)
         .filter_by(
-            company_id=current_driver.company_id,
+            company_id=field_context.company_id,
             work_session_id=active_session.id,
             driver_id=driver_id,
             status='active',
@@ -3319,13 +3326,13 @@ async def add_new_shop(
     await db.execute(
         select(
             func.pg_advisory_xact_lock(
-                current_driver.company_id,
+                field_context.company_id,
                 func.hashtext(f"shop-phone:{clean_phone}")
             )
         )
     )
     stmt_dup = select(Shop).filter_by(
-        company_id=current_driver.company_id,
+        company_id=field_context.company_id,
         phone_number=clean_phone,
     )
     existing_shop = (await db.execute(stmt_dup)).scalars().first()
@@ -3336,7 +3343,7 @@ async def add_new_shop(
     try:
         # Pydantic قام بالتنظيف المسبق للـ Whitespaces، نعين القيم مباشرة
         new_shop = Shop(
-            company_id=current_driver.company_id,
+            company_id=field_context.company_id,
             name=payload.name,
             address=payload.address,
             phone_number=payload.phone_number,
@@ -3355,7 +3362,7 @@ async def add_new_shop(
         await db.flush()
 
         new_visit = Visit(
-            company_id=current_driver.company_id,
+            company_id=field_context.company_id,
             driver_id=driver_id,
             shop_id=new_shop.id,
             work_session_id=active_session.id,
@@ -3446,10 +3453,11 @@ async def _load_driver_pricing_route(
 @router.get("/product_variants", response_model=List[ProductVariantResponse], status_code=200)
 async def get_products(
     db: AsyncSession = Depends(get_db),
-    current_driver: Driver = Depends(get_current_driver)
+    field_context: FieldRequestContext = Depends(get_current_field_context),
+    legacy_actor: Driver = Depends(get_current_field_legacy_driver)
 ):
-    company_id = int(current_driver.company_id)
-    driver_id = int(current_driver.id)
+    company_id = int(field_context.company_id)
+    driver_id = int(legacy_actor.id)
     try:
         route, active_session = await _load_driver_pricing_route(
             db,
@@ -3508,10 +3516,11 @@ async def get_products(
 @router.get("/driver/visits", response_model=GetVisitsContract, status_code=200)
 async def get_driver_visits(
     db: AsyncSession = Depends(get_db),
-    current_driver: Driver = Depends(get_current_driver)
+    field_context: FieldRequestContext = Depends(get_current_field_context),
+    legacy_actor: Driver = Depends(get_current_field_legacy_driver)
 ):
-    company_id = current_driver.company_id
-    driver_id = current_driver.id
+    company_id = field_context.company_id
+    driver_id = legacy_actor.id
 
     active_session = (
         await db.execute(
@@ -3760,13 +3769,14 @@ async def get_visit_details(
 @router.get("/driver/sessions/active", response_model=ActiveSessionResponse, status_code=200)
 async def get_active_session(
     db: AsyncSession = Depends(get_db),
-    current_driver: Driver = Depends(get_current_driver)
+    field_context: FieldRequestContext = Depends(get_current_field_context),
+    legacy_actor: Driver = Depends(get_current_field_legacy_driver)
 ):
-    driver_id = current_driver.id
+    driver_id = legacy_actor.id
         
     # 2. البحث عن الجلسة النشطة (مع حماية הـ limit)
     # +++ الدرع الفولاذي ضد كراش الـ MultipleResultsFound (بدون أقفال لأنه GET Request للقراءة فقط) +++
-    stmt_session = select(WorkSession).filter_by(company_id=current_driver.company_id, driver_id=driver_id, end_time=None).order_by(WorkSession.id.desc()).limit(1)
+    stmt_session = select(WorkSession).filter_by(company_id=field_context.company_id, driver_id=driver_id, end_time=None).order_by(WorkSession.id.desc()).limit(1)
     active_session = (await db.execute(stmt_session)).scalars().first()
     
     if active_session:

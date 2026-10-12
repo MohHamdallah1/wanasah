@@ -1,5 +1,6 @@
 """Dependency-free identity and workflow parity gates for the three session routes."""
 import ast
+import copy
 from collections import Counter
 import hashlib
 from pathlib import Path
@@ -13,11 +14,21 @@ BODY_DIGESTS = {
     "end_work_session": "7e9c926eb3e83af84d7896300006887d7dd5f4a747ab7a18bf62cea0a8b7591b",
     "toggle_break": "793da3021eca89551d710c2043d03c474f2b573ebad457a88a0d2463ba4cf42b",
 }
-UNRELATED_DIGEST = "62e4b36fc87f83ca85381d0accc0895b42010ebdafb7f83f9a7c3ea6e381c3a4"
+# Unrelated baseline: main 34d0c48f87c926e6df809d877562b7241c68997d,
+# excluding exactly the twelve target functions and the replaced transport import.
+# Keep get_current_driver and every other import/helper/mixed endpoint in the hash.
+# Normalize only absent-vs-empty Python 3.11/3.12 type_params metadata.
+UNRELATED_DIGEST = "79446986752f7cfd1954f07a7064973f488abbe4b8c5eb2523d380e382adbe73"
 
 
 def digest(nodes):
-    tree = ast.Module(body=nodes, type_ignores=[])
+    # Python 3.12 adds type_params=[] to declarations that Python 3.11 represents
+    # without that field. Remove only the empty field on a copy. Nonempty type
+    # parameters and every business AST node remain part of the fingerprint.
+    tree = copy.deepcopy(ast.Module(body=nodes, type_ignores=[]))
+    for node in ast.walk(tree):
+        if getattr(node, "type_params", None) == []:
+            del node.type_params
     return hashlib.sha256(ast.dump(tree, include_attributes=False).encode()).hexdigest()
 
 
@@ -35,8 +46,8 @@ class DriverSessionFieldContextBoundaryTests(unittest.TestCase):
                 defaults = dict(zip([arg.arg for arg in node.args.args][-len(node.args.defaults):], node.args.defaults))
                 self.assertEqual(arguments["field_context"].annotation.id, "FieldRequestContext")
                 self.assertEqual(arguments["legacy_actor"].annotation.id, "Driver")
-                for parameter, dependency in (("field_context", "get_legacy_transport_field_context"),
-                                               ("legacy_actor", "get_current_driver")):
+                for parameter, dependency in (("field_context", "get_current_field_context"),
+                                               ("legacy_actor", "get_current_field_legacy_driver")):
                     self.assertEqual(defaults[parameter].func.id, "Depends")
                     self.assertEqual(defaults[parameter].args[0].id, dependency)
                     self.assertEqual(defaults[parameter].keywords, [])
@@ -59,11 +70,20 @@ class DriverSessionFieldContextBoundaryTests(unittest.TestCase):
             self.assertEqual(digest(self.functions[name].body[2:]), expected, name)
 
     def test_no_unrelated_driver_module_or_endpoint_changes(self):
-        allowed_imports = {"api.authentication.legacy_field_transport": "get_legacy_transport_field_context",
-                           "domains.auth_sessions.context": "FieldRequestContext"}
+        # The full twelve-route cutover has its own body parity gate.
+        target_names = {
+            "start_work_session", "end_work_session", "toggle_break", "update_visit",
+            "get_driver_dashboard", "respond_to_transfer", "batch_respond_to_transfers",
+            "get_pending_transfers", "add_new_shop", "get_products",
+            "get_driver_visits", "get_active_session",
+        }
+        allowed_imports = {
+            "api.authentication.dependencies": "get_current_field_context",
+            "api.authentication.field_compatibility": "get_current_field_legacy_driver",
+        }
         remainder = []
         for node in self.tree.body:
-            if isinstance(node, ast.AsyncFunctionDef) and node.name in BODY_DIGESTS:
+            if isinstance(node, ast.AsyncFunctionDef) and node.name in target_names:
                 continue
             if isinstance(node, ast.ImportFrom) and node.module in allowed_imports:
                 self.assertEqual([alias.name for alias in node.names], [allowed_imports[node.module]])
