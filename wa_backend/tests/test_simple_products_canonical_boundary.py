@@ -199,34 +199,63 @@ class SimpleProductsCanonicalBoundaryTests(unittest.TestCase):
 
 
 class SimpleProductsLocalExecutionTests(unittest.IsolatedAsyncioTestCase):
-    async def test_canonical_shared_inputs_never_enter_driver_tenant_or_access_fallbacks(self):
+    async def test_canonical_shared_inputs_require_explicit_tenant_and_no_access_fallbacks(self):
         backend = SOURCE.parents[1]
-        cases = (
-            ("domains/simple_products/service.py", "_resolve_service_company_id"),
-            ("domains/inventory_catalog_presence.py", "_resolve_catalog_presence_access"),
-            ("domains/inventory_batch_restrictions/queries.py", "_resolve_batch_restriction_access"),
+        service_path = backend / "domains/simple_products/service.py"
+        presence_path = backend / "domains/inventory_catalog_presence.py"
+        restriction_path = backend / "domains/inventory_batch_restrictions/queries.py"
+
+        service_source = service_path.read_text(encoding="utf-8-sig")
+        service_tree = ast.parse(service_source)
+        resolver = next(
+            node for node in service_tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_resolve_service_company_id"
         )
-        class OperationalActor:
-            id = 303
-            def __getattr__(self, name):
-                raise AssertionError("Unexpected operational actor read: " + name)
-        access = SimpleNamespace(company_id=7)
-        for relative, name in cases:
-            with self.subTest(seam=name):
-                path = backend / relative
-                node = next(n for n in ast.parse(path.read_text(encoding="utf-8-sig")).body
-                            if isinstance(n, ast.FunctionDef) and n.name == name)
-                future = ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0)
-                namespace = {"InventoryAccess": Mock(side_effect=AssertionError("Legacy authorization constructed"))}
-                tree = ast.fix_missing_locations(ast.Module(body=[future, node], type_ignores=[]))
-                exec(compile(tree, str(path), "exec"), namespace)
-                if name == "_resolve_service_company_id":
-                    self.assertEqual(namespace[name](OperationalActor(), 7), 7)
-                elif name == "_resolve_catalog_presence_access":
-                    self.assertEqual(namespace[name](None, access=access, actor=None, company_id=None), (7, access))
-                else:
-                    self.assertEqual(namespace[name](None, access=access, actor=None), (7, access))
-                namespace["InventoryAccess"].assert_not_called()
+        future = ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0)
+        namespace = {}
+        tree = ast.fix_missing_locations(ast.Module(body=[future, resolver], type_ignores=[]))
+        exec(compile(tree, str(service_path), "exec"), namespace)
+        self.assertEqual(namespace["_resolve_service_company_id"](7), 7)
+        for invalid in (None, 0, -1, True):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                namespace["_resolve_service_company_id"](invalid)
+
+        self.assertNotIn("actor.company_id", service_source)
+        for path, function_name in (
+            (presence_path, "variant_ids_present_in_all_warehouses"),
+            (restriction_path, "load_batch_restrictions"),
+        ):
+            source = path.read_text(encoding="utf-8-sig")
+            with self.subTest(boundary=function_name):
+                self.assertNotIn("InventoryAccess", source)
+                self.assertNotIn("actor.company_id", source)
+                self.assertNotIn("_resolve_catalog_presence_access", source)
+                self.assertNotIn("_resolve_batch_restriction_access", source)
+                node = next(
+                    item for item in ast.parse(source).body
+                    if isinstance(item, ast.AsyncFunctionDef) and item.name == function_name
+                )
+                args = [item.arg for item in node.args.args + node.args.kwonlyargs]
+                self.assertIn("access", args)
+                self.assertNotIn("actor", args)
+                self.assertNotIn("company_id", args)
+
+        for function_name in (
+            "create_product_structures",
+            "publish_prices",
+            "publish_initial_prices",
+            "create_products_and_prices",
+            "update_prices",
+        ):
+            node = next(
+                item for item in service_tree.body
+                if isinstance(item, ast.AsyncFunctionDef) and item.name == function_name
+            )
+            kwonly = [item.arg for item in node.args.kwonlyargs]
+            self.assertIn("company_id", kwonly)
+            company_index = kwonly.index("company_id")
+            defaults = node.args.kw_defaults
+            self.assertIsNone(defaults[company_index])
 
     async def test_manage_requires_every_capability_in_order_and_stops_on_denial(self):
         api = functions({"_require", "_require_manage"},
