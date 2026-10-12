@@ -60,8 +60,8 @@ export default function ProductsPage() {
   const companyId =
     access.data?.company_id ??
     null;
-  const driverId =
-    access.data?.driver_id ??
+  const backofficeUserId =
+    access.data?.backoffice_user_id ??
     null;
   const [
     lastImportReceipt,
@@ -105,7 +105,7 @@ export default function ProductsPage() {
   const listWorkflow =
     useProductsListWorkflow({
       companyId,
-      driverId,
+      driverId: backofficeUserId,
       authFetch,
       canViewPricing,
       canFilterByWarehouse,
@@ -127,13 +127,13 @@ export default function ProductsPage() {
   const renameWorkflow =
     useProductRenameWorkflow({
       companyId,
-      driverId,
+      driverId: backofficeUserId,
     });
 
   const barcodeWorkflow =
     useProductBarcodeWorkflow({
       companyId,
-      driverId,
+      driverId: backofficeUserId,
       onChanged:
         onProductChanged,
     });
@@ -147,13 +147,13 @@ export default function ProductsPage() {
   const familiesWorkflow =
     useProductFamiliesWorkflow({
       companyId,
-      driverId,
+      driverId: backofficeUserId,
     });
 
   const familyReassignWorkflow =
     useProductFamilyReassignWorkflow({
       companyId,
-      driverId,
+      driverId: backofficeUserId,
     });
 
   const trackingDefaultsQuery =
@@ -165,7 +165,7 @@ export default function ProductsPage() {
   const createWorkflow =
     useCreateProductWorkflow({
       companyId,
-      driverId,
+      driverId: backofficeUserId,
       authFetch,
       queryClient,
       t,
@@ -182,7 +182,7 @@ export default function ProductsPage() {
   const importWorkflow =
     useImportProductWorkflow({
       companyId,
-      driverId,
+      driverId: backofficeUserId,
       authFetch,
       queryClient,
       t,
@@ -225,7 +225,7 @@ export default function ProductsPage() {
   const priceWorkflow =
     usePriceEditWorkflow({
       companyId,
-      driverId,
+      driverId: backofficeUserId,
       authFetch,
       queryClient,
       t,
@@ -235,7 +235,7 @@ export default function ProductsPage() {
   const trackingWorkflow =
     useProductTrackingWorkflow({
       companyId,
-      driverId,
+      driverId: backofficeUserId,
       authFetch,
       queryClient,
       t,
@@ -255,7 +255,7 @@ export default function ProductsPage() {
 
   useProductsIdentityScopeReset({
     companyId,
-    driverId,
+    driverId: backofficeUserId,
     list:
       listWorkflow.identityScope,
     display: {
@@ -281,7 +281,7 @@ export default function ProductsPage() {
     saveDisplayPreferences,
   } = createProductDisplayPreferenceActions({
     companyId,
-    driverId,
+    driverId: backofficeUserId,
     setDisplayPreferences,
     ...listWorkflow.displayPreferenceScope,
     setDisplayPreferencesOpen,

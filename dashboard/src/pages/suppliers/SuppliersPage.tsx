@@ -28,7 +28,7 @@ export default function SuppliersPage() {
   const { t, i18n } = useTranslation();
   const [active, setActive] = useState<boolean | null>(true);
   const search = useSupplierListSearch(active);
-  const commands = useSupplierCommands(search.access.data?.company_id, search.access.data?.driver_id);
+  const commands = useSupplierCommands(search.access.data?.company_id, search.access.data?.backoffice_user_id);
   const [editor, setEditor] = useState<{ supplier: Supplier | null } | null>(null);
   const [stateRow, setStateRow] = useState<Supplier | null>(null);
   const manage = search.access.can("supplier.manage");
@@ -128,7 +128,7 @@ export default function SuppliersPage() {
     {editor ? <SupplierEditor supplier={editor.supplier} busy={commands.busy} blocked={blocked || !manage}
       error={commands.error} blockedReason={commands.pending ? t("suppliers.pending") : !commands.online ? t("suppliers.offline") : undefined}
       onRetry={commands.pending && commands.online && manage ? () => commands.execute() : undefined}
-      storageKey={supplierDraftKey(search.access.data?.company_id, search.access.data?.driver_id, editor.supplier?.id ?? "new")}
+      storageKey={supplierDraftKey(search.access.data?.company_id, search.access.data?.backoffice_user_id, editor.supplier?.id ?? "new")}
       onClose={() => setEditor(null)} onSave={async details => {
         const saved = await commands.execute({ endpoint: editor.supplier ? `/suppliers/${editor.supplier.id}` : "/suppliers", method: editor.supplier ? "PUT" : "POST",
           body: { ...details, ...(editor.supplier ? { expected_version: editor.supplier.version } : {}) } });

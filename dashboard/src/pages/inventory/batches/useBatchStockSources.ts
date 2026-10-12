@@ -14,20 +14,20 @@ export function useBatchStockSources(
   const authFetch = useAuthFetch();
   const access = useInventoryAccess();
   const companyId = access.data?.company_id ?? null;
-  const driverId = access.data?.driver_id ?? null;
+  const backofficeUserId = access.data?.backoffice_user_id ?? null;
 
   return useQuery({
     queryKey: [
       "batch-stock-sources",
       companyId,
-      driverId,
+      backofficeUserId,
       batchId,
     ],
     enabled:
       enabled &&
       batchId !== null &&
       companyId !== null &&
-      driverId !== null,
+      backofficeUserId !== null,
     queryFn: async ({ signal }) =>
       parseBatchStockSources(
         await authFetch(

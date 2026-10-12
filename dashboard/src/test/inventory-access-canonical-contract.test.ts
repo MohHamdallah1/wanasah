@@ -15,6 +15,7 @@ const user = {
 // Fast Refresh component module or importing unrelated page behavior.
 const source = readFileSync(resolve(process.cwd(), 'src/pages/inventory/TabInventoryAccess.tsx'), 'utf8');
 const hookSource = readFileSync(resolve(process.cwd(), 'src/hooks/useInventoryAccess.ts'), 'utf8');
+const loginSource = readFileSync(resolve(process.cwd(), 'src/pages/Login.tsx'), 'utf8');
 const pureSource = source.slice(0, source.indexOf('const LABELS:')).replace(/^import .*;\r?$/gm, '');
 const javascript = transpileModule(pureSource, { compilerOptions: { target: ScriptTarget.ES2022 } }).outputText;
 const parseUserPage = new Function(javascript + '\nreturn parseUserPage;')() as (
@@ -23,7 +24,7 @@ const parseUserPage = new Function(javascript + '\nreturn parseUserPage;')() as 
 
 describe('canonical inventory access identity', () => {
   it('exposes only canonical Owner terminology in the runtime contract', () => {
-    for (const runtime of [source, hookSource]) {
+    for (const runtime of [source, hookSource, loginSource]) {
       for (const alias of ['isCompanyAdmin', 'is_company_admin', 'is_admin']) {
         expect(runtime).not.toContain(alias);
       }
@@ -58,5 +59,15 @@ describe('canonical inventory access identity', () => {
     expect(() => parseInventoryCapabilities({ company_id: 7, driver_id: 44,
       is_company_admin: true, location_id: null, permissions: [], any_permissions: [],
       location_permissions: [] })).toThrow();
+  });
+
+  it('stores independent canonical Dashboard IDs and rejects legacy login identity', () => {
+    expect(loginSource).toContain("localStorage.setItem('principal_id', String(principalId));");
+    expect(loginSource).toContain("localStorage.setItem('backoffice_user_id', String(backofficeUserId));");
+    expect(loginSource).toContain("localStorage.removeItem('driver_id');");
+    expect(loginSource).not.toContain('data.driver_id');
+    expect(loginSource).not.toContain('data.driver_name');
+    expect(loginSource).toContain("data.channel !== 'DASHBOARD'");
+    expect(loginSource).toContain("data.principal_type !== 'BACKOFFICE'");
   });
 });
