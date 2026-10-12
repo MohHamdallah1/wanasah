@@ -95,7 +95,6 @@ from domains.simple_products.imports.infrastructure.upload_stream import (
 from domains.simple_products.imports.domain.inline_correction import (
     MAX_INLINE_CORRECTION_BYTES, MAX_INLINE_CORRECTION_ROWS, InlineCorrectionError,
 )
-from inventory_access import InventoryAccess
 from models import Driver, ProductImportJob
 from realtime.auth import (
     WebSocketAuthError,
@@ -578,39 +577,14 @@ async def product_import_progress_websocket(
     try:
         identity = (
             await authenticate_websocket_user(
-                token
+                token,
+                capability="catalog.read",
+                any_location=True,
             )
         )
         async with tenant_session(
             identity.company_id
         ) as db:
-            actor = await db.scalar(
-                select(Driver).where(
-                    Driver.company_id
-                    == int(
-                        identity.company_id
-                    ),
-                    Driver.id
-                    == int(
-                        identity.driver_id
-                    ),
-                    Driver.is_active.is_(
-                        True
-                    ),
-                )
-            )
-            if actor is None:
-                raise WebSocketAuthError(
-                    "inactive websocket actor"
-                )
-
-            await InventoryAccess(
-                db,
-                actor,
-            ).require(
-                "catalog.read",
-                any_location=True,
-            )
             job_exists = await db.scalar(
                 select(
                     ProductImportJob.id

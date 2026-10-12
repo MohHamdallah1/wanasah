@@ -12,14 +12,14 @@ from domains.auth_sessions.context import (
     RequestContextRejected,
     resolve_access_context,
 )
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
 from domains.authorization.backoffice_subject import (
     BackofficeAuthorizationSubject,
     BackofficeAuthorizationSubjectRejected,
     resolve_backoffice_authorization_subject,
-)
-from domains.identity.backoffice_legacy_actor import (
-    BackofficeLegacyActorLocatorRejected,
-    resolve_backoffice_legacy_actor_locator,
 )
 from models import TokenBlacklist
 from workers.tenant import tenant_session
@@ -31,16 +31,9 @@ class WebSocketAuthError(Exception):
 
 @dataclass(frozen=True)
 class WebSocketAdminIdentity:
-    """Canonical Dashboard websocket identity with one bounded legacy field.
-
-    ``company_id`` is the persisted canonical Dashboard tenant. ``driver_id`` is
-    retained only for current consumers that still need a legacy operational/FK
-    identifier; it is resolved from the exact canonical identity mapping and is
-    never the authenticated subject.
-    """
+    """Canonical persisted Dashboard websocket identity."""
 
     company_id: int
-    driver_id: int
     token_expires_at: int
 
 
@@ -67,6 +60,9 @@ async def _reject_blacklisted_websocket_token(db, *, token: str) -> None:
 
 async def _authenticate_websocket_identity(
     token: str,
+    *,
+    capability: str | None = None,
+    any_location: bool = False,
 ) -> tuple[WebSocketAdminIdentity, BackofficeAuthorizationSubject]:
     claims = _decode_websocket_access_token(token)
 
@@ -93,38 +89,35 @@ async def _authenticate_websocket_identity(
             ):
                 raise WebSocketAuthError("websocket authorization failed")
 
-            # Bounded compatibility only: current Product Import websocket code
-            # still consumes ``driver_id``. The exact canonical mapping service
-            # validates company + principal + BackofficeUser together and never
-            # turns the legacy Driver row into authentication authority.
-            locator = await resolve_backoffice_legacy_actor_locator(
-                db,
-                context,
-            )
-            if (
-                locator.company_id != context.company_id
-                or locator.principal_id != context.principal_id
-                or locator.backoffice_user_id != context.backoffice_user_id
-            ):
-                raise WebSocketAuthError("websocket authorization failed")
+            # Capability checks run while the same canonical tenant/RLS session
+            # is still open. No DB-bound access object escapes this boundary.
+            if capability is not None:
+                await BackofficeCapabilityAccess(
+                    db,
+                    subject,
+                ).require(
+                    capability,
+                    any_location=any_location,
+                )
 
-            identity = WebSocketAdminIdentity(
-                company_id=context.company_id,
-                driver_id=locator.legacy_driver_id,
-                token_expires_at=claims.exp,
+            return (
+                WebSocketAdminIdentity(
+                    company_id=context.company_id,
+                    token_expires_at=claims.exp,
+                ),
+                subject,
             )
-            return identity, subject
     except WebSocketAuthError:
         raise
     except (
         RequestContextRejected,
         BackofficeAuthorizationSubjectRejected,
-        BackofficeLegacyActorLocatorRejected,
+        BackofficeCapabilityAccessRejected,
     ) as exc:
         raise WebSocketAuthError("websocket authorization failed") from exc
     except Exception as exc:
-        # Persistence, tenant/RLS and mapping failures all fail closed without
-        # exposing internal identity state to websocket clients.
+        # Persistence, tenant/RLS and authorization failures all fail closed
+        # without exposing internal identity state to websocket clients.
         raise WebSocketAuthError("websocket authorization failed") from exc
 
 
@@ -140,7 +133,14 @@ async def authenticate_websocket_admin(
 
 async def authenticate_websocket_user(
     token: str,
+    *,
+    capability: str | None = None,
+    any_location: bool = False,
 ) -> WebSocketAdminIdentity:
-    """Authenticate a persisted Dashboard/Backoffice identity; routes scope access."""
-    identity, _subject = await _authenticate_websocket_identity(token)
+    """Authenticate Dashboard identity and optionally require a capability in-session."""
+    identity, _subject = await _authenticate_websocket_identity(
+        token,
+        capability=capability,
+        any_location=any_location,
+    )
     return identity
