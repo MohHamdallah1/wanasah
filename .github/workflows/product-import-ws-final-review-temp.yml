@@ -1,0 +1,59 @@
+name: TEMP Product Import WS final review
+
+on:
+  push:
+    branches:
+      - lead/product-import-ws-final-review
+
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: ProductImportWsGateAa1234567890Bb1234567890Cc1234567890
+      DATABASE_URL: postgresql+asyncpg://unit_user@127.0.0.1:1/unit_db
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://unit_admin@127.0.0.1:1/unit_db
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r wa_backend/requirements.txt pytest pytest-asyncio httpx
+      - name: Compile focused runtime and tests
+        run: |
+          python -m py_compile \
+            wa_backend/realtime/auth.py \
+            wa_backend/domains/simple_products/imports/api/router.py \
+            wa_backend/tests/test_realtime_websocket_canonical_auth_cutover.py \
+            wa_backend/tests/test_product_import_websocket_canonical_cutover.py
+      - name: Run focused suites
+        working-directory: wa_backend
+        env:
+          PYTHONPATH: .:tests
+        run: |
+          pytest -q \
+            tests/test_realtime_websocket_canonical_auth_cutover.py \
+            tests/test_product_import_websocket_canonical_cutover.py
+      - name: Source audit
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          router = Path('wa_backend/domains/simple_products/imports/api/router.py').read_text(encoding='utf-8')
+          realtime = Path('wa_backend/realtime/auth.py').read_text(encoding='utf-8')
+          ws = router[router.index('@router.websocket("/imports/{job_id}/ws")'):router.index('@router.post(', router.index('@router.websocket("/imports/{job_id}/ws")'))]
+          for token in ('InventoryAccess', 'identity.driver_id', '.is_admin', 'Driver.company_id', 'Driver.id', 'Driver.is_active'):
+              assert token not in ws, token
+          for token in ('driver_id', 'resolve_backoffice_legacy_actor_locator', '.is_admin'):
+              assert token not in realtime, token
+          assert 'capability="catalog.read"' in ws
+          assert 'any_location=True' in ws
+          assert 'BackofficeCapabilityAccess' in realtime
+          assert 'ProductImportJob.company_id' in ws
+          PY
+      - name: Diff check
+        run: git diff --check origin/main...HEAD
