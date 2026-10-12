@@ -4,6 +4,7 @@ import asyncio
 import ast
 import inspect
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
@@ -12,12 +13,11 @@ import pytest
 from fastapi import HTTPException
 
 BACKEND = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BACKEND))
 
 import api.product_tracking as product_tracking
-from domains.authorization.backoffice_access import (
-    BackofficeCapabilityAccess,
-    BackofficeCapabilityAccessRejected,
-)
+import domains.product_tracking as product_tracking_domain
+from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from domains.authorization.backoffice_subject import BackofficeAuthorizationSubject
 from domains.product_tracking import ProductTrackingError, normalize_tracking_mode
 
@@ -315,9 +315,20 @@ def test_variant_write_passes_canonical_tenant_and_legacy_actor_to_domain_event_
     assert db.added[0].admin_id == 99009
     complete.assert_called_once_with(idem, response)
 
-    domain_source = inspect.getsource(product_tracking.update_product_tracking_modes)
+    domain_source = inspect.getsource(
+        product_tracking_domain.update_product_tracking_modes
+    )
     assert "record_domain_event" in domain_source
     assert "actor_id=actor_id" in domain_source
+
+
+def test_cross_company_variant_fence_remains_company_scoped():
+    domain_source = inspect.getsource(
+        product_tracking_domain.update_product_tracking_modes
+    )
+    assert "ProductVariant.company_id == company_id" in domain_source
+    assert "ProductVariant.id == product_variant_id" in domain_source
+    assert '"PRODUCT_TRACKING_VARIANT_NOT_FOUND"' in domain_source
 
 
 def test_version_conflict_remains_409_and_rolls_back(monkeypatch):
