@@ -102,17 +102,24 @@ class CanonicalFieldRuntimeCompatibilityTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_canonical_field_context_returns_exact_orm_object_with_independent_ids(self):
+        driver = Driver(id=303, company_id=7, is_active=True)
+        await self.assert_independent_operational_identity(driver)
+
+    async def test_legacy_flags_have_no_effect_on_canonical_field_mapping(self):
         for flag in (False, True):
             with self.subTest(legacy_flag=flag):
-                driver = Driver(id=303, company_id=7, is_active=True, is_admin=flag)
-                db, _, result = database(bridge(), driver)
-                self.assertIs(await self.resolve(db), driver)
-                self.assertEqual((field_context().principal_id, field_context().representative_id, driver.id),
-                                 (101, 202, 303))
-                self.assertEqual(db.execute.await_count, 2)
-                result.scalar_one_or_none.assert_called_once_with()
-                self.assert_request_owns_transaction(db)
-                db.connection.assert_not_called()
+                driver = SimpleNamespace(id=303, company_id=7, is_active=True, is_admin=flag)
+                await self.assert_independent_operational_identity(driver)
+
+    async def assert_independent_operational_identity(self, driver):
+        db, _, result = database(bridge(), driver)
+        self.assertIs(await self.resolve(db), driver)
+        self.assertEqual((field_context().principal_id, field_context().representative_id, driver.id),
+                         (101, 202, 303))
+        self.assertEqual(db.execute.await_count, 2)
+        result.scalar_one_or_none.assert_called_once_with()
+        self.assert_request_owns_transaction(db)
+        db.connection.assert_not_called()
 
     async def test_existing_subject_resolver_is_the_only_mapping_authority(self):
         current = field_context()

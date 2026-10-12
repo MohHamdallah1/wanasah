@@ -45,12 +45,24 @@ def sql(query):
 class ReadSession:
     def __init__(self, session):
         self.session, self.statements = session, []
+        self.legacy_flag = None
         self.commit, self.rollback = AsyncMock(), AsyncMock()
         self.begin, self.add = Mock(), Mock()
 
     async def execute(self, query):
         self.statements.append(query)
-        return self.session.execute(query)
+        result = self.session.execute(query)
+        columns = getattr(query, "column_descriptions", ())
+        if self.legacy_flag is not None and columns and columns[0].get("entity") is Driver:
+            row = result.scalar_one_or_none()
+            # The mapped SQL row has no flag dependency. Only the negative-proof
+            # sentinel returned at the operational seam carries the obsolete flag.
+            operational = None if row is None else SimpleNamespace(
+                id=row.id, company_id=row.company_id, is_active=row.is_active,
+                is_admin=self.legacy_flag,
+            )
+            return Mock(scalar_one_or_none=Mock(return_value=operational))
+        return result
 
     async def scalar(self, query):
         self.statements.append(query)
@@ -94,7 +106,7 @@ class SimpleProductsCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
                       "pricing.view", "inventory.read")
         for identifier, code in enumerate(self.codes, 1):
             self.insert(Permission, id=identifier, code=code)
-        self.insert(Driver, id=303, company_id=7, is_active=True, is_admin=False)
+        self.insert(Driver, id=303, company_id=7, is_active=True)
         self.insert(IdentityLegacyDriverMap, company_id=7, legacy_driver_id=303,
                     classification="BACKOFFICE_ONLY", backoffice_principal_id=101, backoffice_user_id=202)
         for identifier, company, name in ((1, 7, "Alpha"), (2, 7, "Beta"), (81, 8, "Foreign")):
@@ -188,8 +200,7 @@ class SimpleProductsCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_driver_flags_never_supply_missing_capabilities(self):
         for flag in (False, True):
-            self.connection.execute(self.tables[Driver.__table__.name].update().values(is_admin=flag))
-            self.session.expire_all()
+            self.db.legacy_flag = flag
             self.assertEqual((await self.http("/families")).status_code, 403)
         self.grant("catalog.read")
         self.assertEqual((await self.http("/families")).status_code, 200)
@@ -299,8 +310,7 @@ class SimpleProductsCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
         payload = dict(request_id="4e447464-7d22-4880-a0f0-e4549bf90e30", name="Juice",
                        family_mode="none", package_uom_code=None, units_per_package=1, unit_price="1.5")
         for flag in (False, True):
-            self.connection.execute(self.tables[Driver.__table__.name].update().values(is_admin=flag))
-            self.session.expire_all()
+            self.db.legacy_flag = flag
             with patch.object(module, "begin_idempotent_operation",
                               AsyncMock(return_value=(object(), {"replayed": True}))) as begin, \
                     patch.object(module, "create_products_and_prices", AsyncMock()) as create:

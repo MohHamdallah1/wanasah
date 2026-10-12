@@ -9,6 +9,7 @@ transaction. Do not run this against production or use shared customer data.
 """
 from __future__ import annotations
 
+from tests.canonical_actor_fixtures import load_company_owner_fixture
 from tests.supplier_fixtures import seed_receipt_supplier
 
 import os
@@ -69,13 +70,8 @@ class CostedInboundC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             "operation_idempotency",
         ):
             self.assertEqual(await self._count(table), 0, table)
-        actor = await self.db.scalar(
-            text(
-                "SELECT id FROM drivers WHERE company_id=:company_id "
-                "AND is_admin=true AND is_active=true ORDER BY id LIMIT 1"
-            ),
-            {"company_id": self.company_id},
-        )
+        self.owner = await load_company_owner_fixture(self.db, self.company_id)
+        actor = self.owner.driver_id
         self.assertIsNotNone(actor)
         self.actor = SimpleNamespace(
             company_id=self.company_id, id=actor,
@@ -131,7 +127,7 @@ class CostedInboundC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             request_id=uuid4(), method=method, expected_version=0,
         )
         selected = await update_warehouse_costing_policy(
-            payload=request, db=self.db, current_admin=self.actor,
+            payload=request, db=self.db, access=self.owner.access(self.db), legacy_actor=self.actor,
         )
         self.assertEqual(selected["method"], method)
         self.assertEqual(selected["selection_status"], "SELECTED")
@@ -185,7 +181,7 @@ class CostedInboundC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         batch = "C2-ONE-" + uid.hex[:16]
         receipt = self._inbound(uid, reference, batch)
         first = await warehouse_inbound(
-            payload=receipt, db=self.db, current_admin=self.actor,
+            payload=receipt, db=self.db, access=self.owner.access(self.db), legacy_actor=self.actor,
         )
         self.assertEqual(first, {"message": "INBOUND_POSTED"})
         self.assertEqual(await self._count("inventory_movements"), 1)
@@ -223,7 +219,7 @@ class CostedInboundC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         # Retry after the first write has committed its SAVEPOINT. Returned
         # evidence must be identical and there must be NO duplicate movement.
         replayed = await warehouse_inbound(
-            payload=receipt, db=self.db, current_admin=self.actor,
+            payload=receipt, db=self.db, access=self.owner.access(self.db), legacy_actor=self.actor,
         )
         self.assertEqual(replayed, first)
         self.assertEqual(await self._count("inventory_movements"), 1)
@@ -233,7 +229,7 @@ class CostedInboundC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         changed = self._inbound(uid, reference, batch, price="3")
         with self.assertRaises(HTTPException) as caught:
             await warehouse_inbound(
-                payload=changed, db=self.db, current_admin=self.actor,
+                payload=changed, db=self.db, access=self.owner.access(self.db), legacy_actor=self.actor,
             )
         self.assertEqual(caught.exception.status_code, 409)
         self.assertEqual(await self._count("inventory_cost_events"), 1)
@@ -243,7 +239,7 @@ class CostedInboundC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         duplicate_ref = self._inbound(uuid4(), reference, batch)
         with self.assertRaises(HTTPException) as caught_ref:
             await warehouse_inbound(
-                payload=duplicate_ref, db=self.db, current_admin=self.actor,
+                payload=duplicate_ref, db=self.db, access=self.owner.access(self.db), legacy_actor=self.actor,
             )
         self.assertEqual(caught_ref.exception.status_code, 409)
         self.assertEqual(caught_ref.exception.detail["code"], "INBOUND_REFERENCE_DUPLICATE")
@@ -267,7 +263,7 @@ class CostedInboundC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
                     quantity=quantity, price=price,
                 ),
                 db=self.db,
-                current_admin=self.actor,
+                access=self.owner.access(self.db), legacy_actor=self.actor,
             )
             self.assertEqual(posted, {"message": "INBOUND_POSTED"})
 
@@ -328,8 +324,8 @@ class CostedInboundC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         # First purchased lot expires LATER; physical expiry-based withdrawal
         # deliberately chooses the second lot. Accounting FIFO must still
         # consume the first acquisition cost layer.
-        await warehouse_inbound(payload=first, db=self.db, current_admin=self.actor)
-        await warehouse_inbound(payload=second, db=self.db, current_admin=self.actor)
+        await warehouse_inbound(payload=first, db=self.db, access=self.owner.access(self.db), legacy_actor=self.actor)
+        await warehouse_inbound(payload=second, db=self.db, access=self.owner.access(self.db), legacy_actor=self.actor)
         physical_lots = (
             await self.db.execute(
                 text(
@@ -499,7 +495,7 @@ class CostedInboundC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         ) as injected:
             with self.assertRaises(HTTPException) as caught:
                 await warehouse_inbound(
-                    payload=payload, db=self.db, current_admin=self.actor,
+                    payload=payload, db=self.db, access=self.owner.access(self.db), legacy_actor=self.actor,
                 )
         self.assertEqual(caught.exception.status_code, 500)
         self.assertEqual(caught.exception.detail["code"], "INBOUND_INTERNAL_ERROR")
@@ -547,7 +543,7 @@ class CostedInboundC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         # Retry same request_id with ORIGINAL payload when transient injected
         # error has gone away; there is no poisoned/pending idempotency row.
         response = await warehouse_inbound(
-            payload=payload, db=self.db, current_admin=self.actor,
+            payload=payload, db=self.db, access=self.owner.access(self.db), legacy_actor=self.actor,
         )
         self.assertEqual(response, {"message": "INBOUND_POSTED"})
         self.assertEqual(await self._count("inventory_movements"), 1)
@@ -571,7 +567,7 @@ class CostedInboundC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             Decimal("21"),
         )
         replay = await warehouse_inbound(
-            payload=payload, db=self.db, current_admin=self.actor,
+            payload=payload, db=self.db, access=self.owner.access(self.db), legacy_actor=self.actor,
         )
         self.assertEqual(replay, response)
         self.assertEqual(await self._count("inventory_cost_events"), 1)

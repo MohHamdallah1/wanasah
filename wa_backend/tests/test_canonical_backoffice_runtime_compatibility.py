@@ -75,12 +75,11 @@ def bridge(
     )
 
 
-def driver(*, driver_id=303, company_id=7, active=True, admin=False):
+def driver(*, driver_id=303, company_id=7, active=True):
     return Driver(
         id=driver_id,
         company_id=company_id,
         is_active=active,
-        is_admin=admin,
     )
 
 
@@ -330,7 +329,7 @@ class CanonicalBackofficeRuntimeCompatibilityTests(unittest.IsolatedAsyncioTestC
         for owner in (False, True):
             for flag in (False, True):
                 with self.subTest(owner=owner, legacy_flag=flag):
-                    operational = driver(admin=flag)
+                    operational = SimpleNamespace(id=303, company_id=7, is_active=True, is_admin=flag)
                     db, _, _ = compatibility_db(bridge(), operational)
                     returned = await api_module.get_current_backoffice_legacy_driver(
                         current=dashboard_context(owner=owner), db=db

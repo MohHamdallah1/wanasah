@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import unittest
+from tests.canonical_actor_fixtures import load_company_owner_fixture
 from decimal import Decimal
 from uuid import uuid4
 from unittest.mock import AsyncMock, patch
@@ -59,9 +60,8 @@ class FamilyBatchDatabaseB37(unittest.IsolatedAsyncioTestCase):
             await self.db.scalar(text("SELECT current_database()")),
             os.environ["WANASAH_B37_FAMILIES_EXPECTED_DB"],
         )
-        self.actor=await self.db.scalar(select(Driver).where(
-            Driver.company_id==2,Driver.is_admin.is_(True)
-        ))
+        self.owner = await load_company_owner_fixture(self.db, 2)
+        self.actor = self.owner.operational_driver
         self.assertIsNotNone(self.actor)
         self.request_id=uuid4()
 

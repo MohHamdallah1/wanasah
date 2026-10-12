@@ -78,7 +78,7 @@ class LiveStockCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
             (Permission, "id code"),
             (UserRole, "company_id driver_id role_id"),
             (UserLocationAccess, "company_id driver_id role_id location_id"),
-            (Driver, "id company_id is_admin"),
+            (Driver, "id company_id"),
             (Product, "id company_id name code"),
             (IdentityLegacyDriverMap, " ".join(IdentityLegacyDriverMap.__table__.columns.keys())),
         )
@@ -100,7 +100,7 @@ class LiveStockCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.connection.close)
         self.db = ReadSession(self.connection)
         self.insert(Permission, id=1, code="inventory.read")
-        self.insert(Driver, id=303, company_id=7, is_admin=False)
+        self.insert(Driver, id=303, company_id=7)
         self.insert(IdentityLegacyDriverMap, company_id=7, legacy_driver_id=303,
                     classification="BACKOFFICE_ONLY", backoffice_principal_id=101,
                     backoffice_user_id=202)
@@ -202,14 +202,16 @@ class LiveStockCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_driver_flag_neither_promotes_ordinary_user_nor_demotes_company_owner(self):
         for flag in (True, False):
-            self.connection.execute(self.tables["drivers"].update().values(is_admin=flag))
+            # Legacy operational data are sentinel-only; Live Stock never loads them.
+            self.db.operational_driver = SimpleNamespace(id=303, company_id=7, is_admin=flag)
             with self.assertRaises(HTTPException) as denied:
                 await self.warehouse_read(self.access())
             self.assertEqual(denied.exception.status_code, 403)
             self.assertTrue(await self.warehouse_read(self.access(owner=True)))
         self.grant(location_id=21)
         for flag in (True, False):
-            self.connection.execute(self.tables["drivers"].update().values(is_admin=flag))
+            # Legacy operational data are sentinel-only; Live Stock never loads them.
+            self.db.operational_driver = SimpleNamespace(id=303, company_id=7, is_admin=flag)
             self.assertFalse(await self.warehouse_read(self.access()))
         self.assertTrue(all("FROM drivers" not in sql(statement) for statement in self.db.statements))
 

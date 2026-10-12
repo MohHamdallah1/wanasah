@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import unittest
 
+from tests.canonical_actor_fixtures import load_company_owner_fixture
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,10 +52,8 @@ class CostPolicyLockContentionC2Tests(unittest.IsolatedAsyncioTestCase):
                 ),
                 0,
             )
-            actor = await db1.scalar(
-                text("SELECT id FROM drivers WHERE company_id=:c AND is_admin=true "
-                     "AND is_active=true LIMIT 1"), {"c": company},
-            )
+            owner = await load_company_owner_fixture(db1, company)
+            actor = owner.driver_id
             self.assertIsNotNone(actor)
             first = await set_cost_policy(
                 db1, company_id=company, actor_id=actor,

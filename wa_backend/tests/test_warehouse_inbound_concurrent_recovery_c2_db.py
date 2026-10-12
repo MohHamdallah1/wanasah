@@ -8,6 +8,7 @@ not real simultaneous committed invoices or an actual dropped TCP socket.
 """
 from __future__ import annotations
 
+from tests.canonical_actor_fixtures import load_company_owner_fixture
 from tests.supplier_fixtures import seed_receipt_supplier
 
 import asyncio
@@ -59,13 +60,8 @@ class InflightWarehouseContentionC2Tests(unittest.IsolatedAsyncioTestCase):
             "operation_idempotency",
         ):
             self.assertEqual(await self._count(table), 0, table)
-        actor_id = await self.db.scalar(
-            text(
-                "SELECT id FROM drivers WHERE company_id=:c AND is_admin=true "
-                "AND is_active=true ORDER BY id LIMIT 1"
-            ),
-            {"c": self.company_id},
-        )
+        self.owner = await load_company_owner_fixture(self.db, self.company_id)
+        actor_id = self.owner.driver_id
         self.assertIsNotNone(actor_id)
         self.actor = SimpleNamespace(
             id=actor_id, company_id=self.company_id,
@@ -189,7 +185,7 @@ class InflightWarehouseContentionC2Tests(unittest.IsolatedAsyncioTestCase):
             try:
                 first = asyncio.create_task(
                     warehouse_inbound(
-                        payload=request, db=self.db, current_admin=self.actor,
+                        payload=request, db=self.db, access=self.owner.access(self.db), legacy_actor=self.actor,
                     )
                 )
                 await asyncio.wait_for(reached_stock_write.wait(), timeout=12)
@@ -213,7 +209,7 @@ class InflightWarehouseContentionC2Tests(unittest.IsolatedAsyncioTestCase):
                         warehouse_inbound(
                             payload=competing,
                             db=self.secondary_db,
-                            current_admin=self.actor,
+                            access=self.owner.access(self.secondary_db), legacy_actor=self.actor,
                         ),
                         timeout=8,
                     )
@@ -233,14 +229,14 @@ class InflightWarehouseContentionC2Tests(unittest.IsolatedAsyncioTestCase):
         if different_request_same_invoice:
             with self.assertRaises(HTTPException) as retry:
                 await warehouse_inbound(
-                    payload=competing, db=self.db, current_admin=self.actor,
+                    payload=competing, db=self.db, access=self.owner.access(self.db), legacy_actor=self.actor,
                 )
             self.assertEqual(
                 retry.exception.detail["code"], "INBOUND_REFERENCE_DUPLICATE"
             )
         else:
             replay = await warehouse_inbound(
-                payload=competing, db=self.db, current_admin=self.actor,
+                payload=competing, db=self.db, access=self.owner.access(self.db), legacy_actor=self.actor,
             )
             self.assertEqual(replay, {"message": "INBOUND_POSTED"})
         self.assertEqual(await self._count("inventory_movements"), 1)
@@ -277,7 +273,7 @@ class InflightWarehouseContentionC2Tests(unittest.IsolatedAsyncioTestCase):
         ):
             task = asyncio.create_task(
                 warehouse_inbound(
-                    payload=payload, db=self.db, current_admin=self.actor,
+                    payload=payload, db=self.db, access=self.owner.access(self.db), legacy_actor=self.actor,
                 )
             )
             try:
@@ -311,7 +307,7 @@ class InflightWarehouseContentionC2Tests(unittest.IsolatedAsyncioTestCase):
             0,
         )
         accepted = await warehouse_inbound(
-            payload=payload, db=self.db, current_admin=self.actor,
+            payload=payload, db=self.db, access=self.owner.access(self.db), legacy_actor=self.actor,
         )
         self.assertEqual(accepted, {"message": "INBOUND_POSTED"})
         self.assertEqual(await self._count("inventory_cost_events"), 1)

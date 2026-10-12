@@ -173,7 +173,7 @@ class FieldRuntimeTransportCutoverTests(unittest.IsolatedAsyncioTestCase):
         for name in TARGETS:
             for flag in (False, True):
                 with self.subTest(endpoint=name, operational_flag=flag):
-                    current = Driver(id=303, company_id=7, is_active=True, is_admin=flag)
+                    current = SimpleNamespace(id=303, company_id=7, is_active=True, is_admin=flag)
                     setup = database(bridge(), current)
                     raw = token()
                     with patch.object(canonical, "decode_company_token",

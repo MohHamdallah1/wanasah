@@ -54,6 +54,7 @@ class ReadSession:
     def __init__(self, session):
         self.session = session
         self.statements = []
+        self.legacy_flag = None
         self.variant_override = _UNSET
         self.commit = AsyncMock()
         self.rollback = AsyncMock()
@@ -61,7 +62,18 @@ class ReadSession:
 
     async def execute(self, statement):
         self.statements.append(statement)
-        return self.session.execute(statement)
+        result = self.session.execute(statement)
+        columns = getattr(statement, "column_descriptions", ())
+        if self.legacy_flag is not None and columns and columns[0].get("entity") is Driver:
+            row = result.scalar_one_or_none()
+            # The mapped SQL row has no flag dependency. Only the negative-proof
+            # sentinel returned at the operational seam carries the obsolete flag.
+            operational = None if row is None else SimpleNamespace(
+                id=row.id, company_id=row.company_id, is_active=row.is_active,
+                is_admin=self.legacy_flag,
+            )
+            return Mock(scalar_one_or_none=Mock(return_value=operational))
+        return result
 
     async def scalar(self, statement):
         self.statements.append(statement)
@@ -104,7 +116,7 @@ class CatalogCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
                       "catalog.restore", "catalog.archive", "catalog.hold", "inventory.read")
         for identifier, code in enumerate(self.codes, 1):
             self.insert(Permission, id=identifier, code=code)
-        self.insert(Driver, id=303, company_id=7, is_active=True, is_admin=False)
+        self.insert(Driver, id=303, company_id=7, is_active=True)
         self.insert(IdentityLegacyDriverMap, company_id=7, legacy_driver_id=303,
                     classification="BACKOFFICE_ONLY", backoffice_principal_id=101,
                     backoffice_user_id=202)
@@ -190,7 +202,7 @@ class CatalogCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_capability_ignores_both_driver_flag_values(self):
         for flag in (False, True):
-            self.change_driver(is_admin=flag)
+            self.db.legacy_flag = flag
             response = await self.http("/products")
             self.assertEqual(response.status_code, 403)
             self.assertEqual(response.json()["detail"],
@@ -269,7 +281,7 @@ class CatalogCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
         payload = {"request_id": "4e447464-7d22-4880-a0f0-e4549bf90e30",
                    "code": "NEW", "name": "New product"}
         for flag in (False, True):
-            self.change_driver(is_admin=flag)
+            self.db.legacy_flag = flag
             replay = {"message": "replayed"}
             with patch.object(module, "begin_idempotent_operation",
                               AsyncMock(return_value=(None, replay))) as begin:

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import unittest
+from tests.canonical_actor_fixtures import load_company_owner_fixture
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
@@ -51,11 +52,8 @@ class BulkPricingB3DatabaseTests(unittest.IsolatedAsyncioTestCase):
                 "SELECT COUNT(*) FROM price_books WHERE company_id=2"
             )), 0,
         )
-        self.actor_id = int(await self.db.scalar(
-            select(Driver.id).where(
-                Driver.company_id == 2, Driver.is_admin.is_(True)
-            ).limit(1)
-        ))
+        self.owner = await load_company_owner_fixture(self.db, 2)
+        self.actor_id = self.owner.driver_id
         self.each = int(await self.db.scalar(
             select(UOM.id).where(UOM.code == "EACH")
         ))
