@@ -145,11 +145,13 @@ class DispatchCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTestCas
         self.assertNotIn("reconciliation.execute", COMPANY_ONLY)
         self.assertNotIn("dispatch.read", COMPANY_ONLY)
         self.assertNotIn("dispatch.execute", COMPANY_ONLY)
+        self.assertIn("sales_return.create", PERMISSIONS)
+        self.assertNotIn("sales_return.create", COMPANY_ONLY)
 
     def test_permission_migration_persists_only_missing_frozen_codes_without_grants(self):
         source = MIGRATION_PATH.read_text(encoding="utf-8")
         self.assertIn('revision = "e4c8a1d6b203"', source)
-        self.assertIn('down_revision = "d3b7e1a4c920"', source)
+        self.assertIn('down_revision = "e6f2a8c9d410"', source)
         self.assertIn("INSERT INTO permissions (code) VALUES", source)
         self.assertIn("ON CONFLICT (code) DO NOTHING", source)
         for code in sorted(PERSISTED_CODES):
