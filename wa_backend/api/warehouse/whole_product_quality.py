@@ -11,8 +11,17 @@ from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
+from api.authentication.backoffice_compatibility import (
+    get_current_backoffice_legacy_driver,
+)
 from database import get_db
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
 from domains.credential_confirmation import verify_actor_password
 from domains.inventory_quality_handling import (
     quality_stage_target_status,
@@ -24,7 +33,6 @@ from domains.suppliers.public import SupplierError, select_supplier_snapshot, re
 from domains.inventory_supplier_evidence import record_supplier_evidence
 from domains.inventory_supplier_resolution import resolve_current_stock_suppliers
 from domains.inventory_whole_product_quality_policy import ensure_whole_product_quality_policy
-from inventory_access import InventoryAccess
 from models import Driver, InventoryBalance, InventoryLocation, ProductVariant, SystemAuditLog
 from product_lifecycle import (
     ProductLifecycleTransitionError,
@@ -102,6 +110,19 @@ def _business_detail(code: str, message: str, *, context: dict | None = None):
     return inventory_business_error(code, message, context=context or {})
 
 
+async def _require_quality_access(
+    access: BackofficeCapabilityAccess,
+    permission: str,
+) -> None:
+    try:
+        await access.require(permission)
+    except BackofficeCapabilityAccessRejected as exc:
+        raise HTTPException(
+            status_code=403,
+            detail='لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.',
+        ) from exc
+
+
 async def _require_location_authority(access, location_ids, location_names, terminal_permission):
     codes_by_location = await access.codes_by_location(location_ids)
     required_location_codes = {"inventory.read", "transfer.send", terminal_permission}
@@ -126,10 +147,13 @@ async def resolve_whole_product_quality(
     product_variant_id: int,
     payload: WholeProductQualityResolveRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    company_id = int(current_admin.company_id)
-    actor_id = int(current_admin.id)
+    company_id = int(access.company_id)
+    actor_id = int(legacy_actor.id)
     purpose = "DISPOSAL" if payload.action == "DISPOSE" else "RETURN_TO_VENDOR"
     terminal_permission = (
         "inventory.disposal.confirm"
@@ -137,10 +161,9 @@ async def resolve_whole_product_quality(
         else "inventory.vendor_return.confirm"
     )
 
-    access = InventoryAccess(db, current_admin)
-    await access.require(SPECIAL_TRANSFER_PERMISSION[purpose])
+    await _require_quality_access(access, SPECIAL_TRANSFER_PERMISSION[purpose])
     try:
-        if not await verify_actor_password(current_admin, payload.confirmation_password.get_secret_value()):
+        if not await verify_actor_password(legacy_actor, payload.confirmation_password.get_secret_value()):
             raise HTTPException(
                 status_code=403,
                 detail=_business_detail(
@@ -150,7 +173,7 @@ async def resolve_whole_product_quality(
             )
 
         if payload.action == "RETURN_TO_VENDOR":
-            await require_supplier_permission(db, current_admin)
+            await require_supplier_permission(access)
         request_hash = await quality_request_hash(
             db, payload=payload, product_variant_id=product_variant_id,
             company_id=company_id, actor_id=actor_id,
@@ -375,7 +398,9 @@ async def resolve_whole_product_quality(
                     ),
                 )
             supplier = await select_supplier_snapshot(
-                db, actor=current_admin, supplier_id=resolved_supplier.supplier_id
+                db,
+                access=access,
+                supplier_id=resolved_supplier.supplier_id,
             )
 
         policy = await ensure_whole_product_quality_policy(
