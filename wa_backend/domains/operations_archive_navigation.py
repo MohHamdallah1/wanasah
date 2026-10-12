@@ -21,6 +21,10 @@ def operations_archive_target_query(access_or_actor, variant_id, samples):
     if not samples.get("OPEN_CUSTODY"):
         return None
     access = _archive_access(None, access_or_actor)
+    # Preserve the old Catalog caller's full-authority-only projection until it
+    # passes canonical Backoffice access. Canonical callers use settlement.read.
+    if isinstance(access, InventoryAccess) and not access.subject.legacy_full_authority:
+        return None
     snapshot, session = SessionInventorySnapshot, WorkSession
     return select(session.id.label("operation_id")).select_from(snapshot).join(
         session, and_(session.company_id == snapshot.company_id, session.id == snapshot.work_session_id),
