@@ -17,7 +17,8 @@ from sqlalchemy.dialects import postgresql
 from domains.batch_reservation_contracts import OWNER_PREVIEW_LIMIT, ReservationEvidence
 from domains.batch_reservation_evidence import reservation_evidence
 from domains.dispatch_reservations import reservation_owner_projection
-from inventory_access import InventoryAccess
+from domains.authorization.backoffice_access import BackofficeCapabilityAccess, BackofficeCapabilityAccessRejected
+from domains.authorization.backoffice_subject import BackofficeAuthorizationSubject
 from models import (
     Company, DispatchRoute, InventoryBalance, InventoryLocation, InventoryMovement, InventoryStockPolicy,
     InventoryTransferHeader, InventoryTransferLine, Permission, ProductBatch,
@@ -101,7 +102,7 @@ def endpoint():
     for arg in node.args.args:
         arg.annotation = None
     namespace = dict(
-        InventoryAccess=InventoryAccess, ProductBatch=ProductBatch,
+        ProductBatch=ProductBatch,
         ProductVariant=ProductVariant, InventoryLocation=InventoryLocation,
         InventoryBalance=InventoryBalance, InventoryStockPolicy=InventoryStockPolicy, UOM=UOM, Company=Company,
         select=select, and_=and_, func=_EndpointFunc, Date=Date,
@@ -119,7 +120,12 @@ def endpoint():
         inventory_quality_action_availability=no_quality_action_availability,
         inventory_business_error=lambda code, message: {"code": code, "message": message},
     )
-    exec(compile(ast.Module(body=[node], type_ignores=[]), str(path), "exec"), namespace)
+    gate = next(n for n in ast.parse(path.read_text(encoding="utf-8")).body
+                if isinstance(n, ast.AsyncFunctionDef)
+                and n.name == "_require_live_stock_any_location_read")
+    gate.args.args[0].annotation = None
+    namespace["BackofficeCapabilityAccessRejected"] = BackofficeCapabilityAccessRejected
+    exec(compile(ast.Module(body=[gate, node], type_ignores=[]), str(path), "exec"), namespace)
     return namespace["get_batch_stock_sources"]
 
 
@@ -199,8 +205,12 @@ def store():
     engine.dispose()
 
 
-def actor(*, admin=True, company=1):
-    return SimpleNamespace(company_id=company, id=17, is_admin=admin)
+def subject(*, is_company_owner=True, company=1):
+    return BackofficeAuthorizationSubject(
+        principal_id=1010, backoffice_user_id=2020, company_id=company,
+        is_company_owner=is_company_owner,
+        legacy_grant_driver_id=None if is_company_owner else 17,
+    )
 
 
 def grant(store, code, location=None):
@@ -242,7 +252,8 @@ def owner(store, transfer=21, quantity="3.250000", *, location=1, company=1,
 
 
 async def read(store, user=None):
-    response = await endpoint()(11, store.db, user or actor())
+    access = BackofficeCapabilityAccess(store.db, user or subject())
+    response = await endpoint()(11, store.db, access)
     return WarehouseBatchStockSourcesResponse.model_validate(response).model_dump(mode="json")
 
 
@@ -266,7 +277,8 @@ async def test_multiple_owners_explain_exact_quantity_without_multiplying_balanc
                          route_id=7, expected_receiver_id=9, created_by=17, quantity="2",
                          operation_status="PENDING", navigation_target="DISPATCH_ROUTE_TRANSFERS",
                          action="FORCE_CANCEL_HANDSHAKE")
-    assert len(store.db.statements) == 4  # Existing permission/batch/global/source reads only.
+    assert len(store.db.statements) == 3  # Canonical Owner skips the former SELECT true admission.
+    # Batch/global/source business queries are unchanged; no reservation-owner query per row.
     sql = str(store.db.statements[-1].compile(dialect=postgresql.dialect()))
     assert "inventory_balances" in sql and "inventory_movements" in sql and "row_number()" in sql
     assert "FOR UPDATE" not in sql
@@ -302,7 +314,7 @@ async def test_inventory_permission_alone_does_not_reveal_dispatch_identity(stor
     grant(store, "inventory.read", 1)
     balance(store)
     owner(store)
-    evidence = (await read(store, actor(admin=False)))["sources"][0]["statuses"][0]["reservation_evidence"]
+    evidence = (await read(store, subject(is_company_owner=False)))["sources"][0]["statuses"][0]["reservation_evidence"]
     assert evidence["owners"] == [] and evidence["reason"] == "OWNER_EVIDENCE_UNAVAILABLE"
 
 
@@ -316,7 +328,7 @@ async def test_route_and_exact_source_permissions_drive_navigation_and_action(st
     grant(store, "transfer.cancel", 1 if cancel else 2)
     balance(store)
     owner(store)
-    first = (await read(store, actor(admin=False)))["sources"][0]["statuses"][0]["reservation_evidence"]["owners"][0]
+    first = (await read(store, subject(is_company_owner=False)))["sources"][0]["statuses"][0]["reservation_evidence"]["owners"][0]
     assert first["navigation_target"] == "DISPATCH_ROUTE_TRANSFERS"
     assert first["action"] == ("FORCE_CANCEL_HANDSHAKE" if cancel else None)
 
@@ -327,7 +339,7 @@ async def test_missing_route_vehicle_permission_hides_owner(store):
     grant(store, "dispatch.read", 1)
     balance(store)
     owner(store)
-    evidence = (await read(store, actor(admin=False)))["sources"][0]["statuses"][0]["reservation_evidence"]
+    evidence = (await read(store, subject(is_company_owner=False)))["sources"][0]["statuses"][0]["reservation_evidence"]
     assert not evidence["owners"]
 
 
@@ -339,7 +351,7 @@ async def test_hidden_source_never_leaks_even_with_company_dispatch_permission(s
     balance(store, location=2)
     owner(store)
     owner(store, transfer=22, location=2, purpose="ROUTE_RETURN")
-    response = await read(store, actor(admin=False))
+    response = await read(store, subject(is_company_owner=False))
     assert [s["location_id"] for s in response["sources"]] == [1]
     assert [o["transfer_id"] for o in response["sources"][0]["statuses"][0]["reservation_evidence"]["owners"]] == [21]
 
@@ -355,7 +367,7 @@ async def test_preview_is_bounded_and_reports_omitted_quantity(store):
     assert len(evidence["owners"]) == 20 and evidence["owners_truncated"] is True
     assert evidence["coverage"] == "PARTIAL" and evidence["reason"] == "OWNER_PREVIEW_LIMIT"
     assert evidence["unattributed_quantity"] == "1"
-    assert len(store.db.statements) == 4
+    assert len(store.db.statements) == 3  # Same three business reads with a bounded Owner preview.
 
 
 @pytest.mark.asyncio
@@ -383,10 +395,10 @@ async def test_zero_and_unsupported_stock_status_have_explicit_coverage(store):
 @pytest.mark.asyncio
 async def test_foreign_tenant_and_inventory_denial_fail_closed(store):
     with pytest.raises(HTTPException) as foreign:
-        await read(store, actor(company=2))
+        await read(store, subject(company=2))
     assert foreign.value.status_code == 404
     with pytest.raises(HTTPException) as denied:
-        await read(store, actor(admin=False))
+        await read(store, subject(is_company_owner=False))
     assert denied.value.status_code == 403
 
 

@@ -8,9 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlalchemy import Date, Integer, String, and_, bindparam, case, func, or_, select, true, tuple_, union, union_all
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import get_current_backoffice_capability_access
 from database import get_db
-from inventory_access import InventoryAccess
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
 from domains.batch_reservation_contracts import OWNER_PREVIEW_LIMIT
 from domains.batch_reservation_evidence import reservation_evidence
 from domains.dispatch_reservations import (
@@ -24,7 +27,6 @@ from domains.inventory_terminal_provenance import (
 from models import (
     Company,
     DispatchRoute,
-    Driver,
     InventoryBalance,
     InventoryCostEvent,
     InventoryCostState,
@@ -177,7 +179,7 @@ async def _require_live_stock_read_model_ready(
 def _readable_vehicle_locations_subquery(
     *,
     company_id: int,
-    access: InventoryAccess,
+    access: BackofficeCapabilityAccess,
 ):
     return (
         select(InventoryLocation.id, InventoryLocation.vehicle_id)
@@ -218,18 +220,15 @@ async def _require_live_stock_warehouse_read(
     *,
     company_id: int,
     location_id: int,
-    access: InventoryAccess,
-    actor: Driver,
+    access: BackofficeCapabilityAccess,
+    owner_not_found_detail: dict | None = None,
 ) -> bool:
-    """Validate inventory.read authority for the selected warehouse.
+    """Validate the active tenant warehouse before canonical inventory.read.
 
-    Company admins need no separate location SQL on the success path because
-    the readiness query already joins the active warehouse. Restricted actors
-    keep explicit location + permission checks to preserve authorization.
+    Canonical Owner authority is resolved by access.allows; it never skips the
+    structural warehouse check. The optional detail preserves the batch-product
+    Owner error contract, and does not participate in the authorization decision.
     """
-    if bool(actor.is_admin):
-        return True
-
     location_exists = await db.scalar(
         select(InventoryLocation.id).where(
             InventoryLocation.company_id == company_id,
@@ -239,9 +238,10 @@ async def _require_live_stock_warehouse_read(
         )
     )
     if location_exists is None:
+        detail = owner_not_found_detail if access.subject.is_company_owner else None
         raise HTTPException(
             status_code=404,
-            detail="المستودع غير موجود أو لا يتبع شركتك.",
+            detail=detail if detail is not None else "المستودع غير موجود أو لا يتبع شركتك.",
         )
 
     permission_row = (
@@ -263,6 +263,19 @@ async def _require_live_stock_warehouse_read(
             detail="لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.",
         )
     return bool(permission_row.company_wide_allowed)
+
+
+async def _require_live_stock_any_location_read(
+    access: BackofficeCapabilityAccess,
+) -> None:
+    """Keep the existing any-location read denial at this HTTP boundary."""
+    try:
+        await access.require("inventory.read", any_location=True)
+    except BackofficeCapabilityAccessRejected:
+        raise HTTPException(
+            status_code=403,
+            detail='لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.',
+        ) from None
 
 
 # تحديد ترتيب نتائج الرصيد الحي حسب خيار الفرز المطلوب.
@@ -328,7 +341,7 @@ def _display_uom_one_subquery(
 
 # بناء استعلام المرشحين المرئيين في الرصيد الحي حسب الصلاحيات وحضور المخزون.
 def _build_visible_inventory_stmt(
-    *, company_id: int, location_id: int, access: InventoryAccess,
+    *, company_id: int, location_id: int, access: BackofficeCapabilityAccess,
     company_wide_inventory_read: bool,
     candidate_filters=(), limit: Optional[int] = None,
     sort: str = "name_asc",
@@ -583,7 +596,7 @@ def _live_stock_filtered_variant_ids_stmt(
     *,
     company_id: int,
     location_id: int,
-    access: InventoryAccess,
+    access: BackofficeCapabilityAccess,
     company_wide_inventory_read: bool,
     stock_state: str,
     has_reserved: bool,
@@ -713,16 +726,14 @@ def _live_stock_filtered_variant_ids_stmt(
 async def get_warehouse_inventory_alert_summary(
     location_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    access = InventoryAccess(db, current_admin)
-    company_id = current_admin.company_id
+    company_id = access.company_id
     await _require_live_stock_warehouse_read(
         db,
         company_id=company_id,
         location_id=location_id,
         access=access,
-        actor=current_admin,
     )
 
     readiness = await _require_live_stock_read_model_ready(
@@ -738,17 +749,15 @@ async def get_warehouse_inventory_alert_summary(
 async def get_warehouse_inventory_summary(
     location_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    access = InventoryAccess(db, current_admin)
-    company_id = current_admin.company_id
+    company_id = access.company_id
     company_wide_inventory_read = (
         await _require_live_stock_warehouse_read(
             db,
             company_id=company_id,
             location_id=location_id,
             access=access,
-            actor=current_admin,
         )
     )
 
@@ -858,16 +867,14 @@ async def get_warehouse_inventory_families(
     search: Optional[str] = Query(default=None, max_length=100),
     limit: int = Query(default=50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    access = InventoryAccess(db, current_admin)
-    company_id = current_admin.company_id
+    company_id = access.company_id
     await _require_live_stock_warehouse_read(
         db,
         company_id=company_id,
         location_id=location_id,
         access=access,
-        actor=current_admin,
     )
 
     clean_search = " ".join((search or "").strip().lower().split())
@@ -932,17 +939,19 @@ async def get_warehouse_inventory_batch_products(
     limit: int = Query(default=50, ge=1, le=200),
     search: Optional[str] = Query(default=None, max_length=100),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    access = InventoryAccess(db, current_admin)
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     await _require_live_stock_warehouse_read(
         db,
         company_id=company_id,
         location_id=location_id,
         access=access,
-        actor=current_admin,
+        owner_not_found_detail=inventory_business_error(
+            "LIVE_STOCK_LOCATION_NOT_FOUND",
+            "The selected warehouse is unavailable.",
+        ),
     )
 
     warehouse_exists = await db.scalar(
@@ -1166,10 +1175,9 @@ async def get_warehouse_inventory(
     minimum_unset: bool = False,
     sort: Literal["name_asc", "name_desc"] = "name_asc",
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    access = InventoryAccess(db, current_admin)
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     try:
         company_wide_inventory_read = (
@@ -1178,7 +1186,6 @@ async def get_warehouse_inventory(
                 company_id=company_id,
                 location_id=location_id,
                 access=access,
-                actor=current_admin,
             )
         )
 
@@ -1807,10 +1814,9 @@ async def get_warehouse_inventory_batches(
         Query(ge=1, le=200),
     ] = 100,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    access = InventoryAccess(db, current_admin)
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     try:
         if type(limit) is not int or not 1 <= limit <= 200:
@@ -2441,16 +2447,15 @@ async def get_quality_batch_candidates(
     cursor: Optional[int] = Query(default=None, ge=1),
     limit: int = Query(default=25, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
     """List this product's physical batches across all readable warehouses/vehicles."""
     if product_variant_id <= 0:
         raise HTTPException(status_code=422, detail="Invalid product variant id.")
-    access = InventoryAccess(db, current_admin)
-    await access.require("inventory.read", any_location=True)
+    await _require_live_stock_any_location_read(access)
     result = await read_quality_batch_candidates(
         db,
-        company_id=current_admin.company_id,
+        company_id=access.company_id,
         product_variant_id=product_variant_id,
         readable_location_filter=access.location_filter(
             "inventory.read", InventoryLocation.id
@@ -2479,7 +2484,7 @@ async def get_whole_product_quality_issue_sources(
     cursor: Optional[int] = Query(default=None, ge=1),
     limit: int = Query(default=25, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
     """Return one bounded page of readable physical sources for a product-wide issue.
 
@@ -2490,9 +2495,8 @@ async def get_whole_product_quality_issue_sources(
     if product_variant_id <= 0:
         raise HTTPException(status_code=422, detail="Invalid product variant id.")
 
-    access = InventoryAccess(db, current_admin)
-    company_id = current_admin.company_id
-    await access.require("inventory.read", any_location=True)
+    company_id = access.company_id
+    await _require_live_stock_any_location_read(access)
 
     variant_row = (
         await db.execute(
@@ -2857,7 +2861,7 @@ async def get_whole_product_quality_issue_sources(
 async def get_batch_stock_sources(
     batch_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
     """Return readable physical sources for one batch, including vehicles.
 
@@ -2868,9 +2872,8 @@ async def get_batch_stock_sources(
     if batch_id <= 0:
         raise HTTPException(status_code=422, detail="Invalid batch id.")
 
-    access = InventoryAccess(db, current_admin)
-    company_id = current_admin.company_id
-    await access.require("inventory.read", any_location=True)
+    company_id = access.company_id
+    await _require_live_stock_any_location_read(access)
 
     batch_row = (
         await db.execute(
