@@ -49,7 +49,7 @@ export function useProductQualityCommands({
   const isOnline = useNetworkStatus();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const companyId = access.data?.company_id ?? null;
-  const driverId = access.data?.driver_id ?? null;
+  const backofficeUserId = access.data?.backoffice_user_id ?? null;
   const [pending, setPending] = useState<QualityPending | null>(null);
   const [recoveryBlocked, setRecoveryBlocked] = useState(false);
   const [recoveryReady, setRecoveryReady] = useState(false);
@@ -61,12 +61,12 @@ export function useProductQualityCommands({
     setRecoveryReady(false);
     setPending(null);
     setRecoveryBlocked(false);
-    if (companyId === null || driverId === null) return;
+    if (companyId === null || backofficeUserId === null) return;
 
     const scopes = [
-      durableScope(companyId, driverId, "whole-product-quality-resolve-v3", productVariantId),
+      durableScope(companyId, backofficeUserId, "whole-product-quality-resolve-v3", productVariantId),
       ...(["DISPOSE", "RETURN_TO_VENDOR"] as const).map((action) =>
-        durableScope(companyId, driverId, "whole-product-quality-resolve-v2", `${productVariantId}:${action}`),
+        durableScope(companyId, backofficeUserId, "whole-product-quality-resolve-v2", `${productVariantId}:${action}`),
       ),
     ];
 
@@ -89,7 +89,7 @@ export function useProductQualityCommands({
     return () => {
       live = false;
     };
-  }, [companyId, driverId, productVariantId, recoveryRevision]);
+  }, [companyId, backofficeUserId, productVariantId, recoveryRevision]);
 
   const resolveAll = async ({
     action,
@@ -110,7 +110,7 @@ export function useProductQualityCommands({
       !confirmationPassword
       || !isOnline
       || companyId === null
-      || driverId === null
+      || backofficeUserId === null
       || running.current
       || recoveryBlocked
       || !recoveryReady
@@ -128,7 +128,7 @@ export function useProductQualityCommands({
     };
     const expectedHold = payload.post_resolution_hold ?? "NONE";
     const scope = stored?.scope
-      ?? durableScope(companyId, driverId, "whole-product-quality-resolve-v3", productVariantId);
+      ?? durableScope(companyId, backofficeUserId, "whole-product-quality-resolve-v3", productVariantId);
 
     setBusyKey(key);
     running.current = true;
@@ -158,7 +158,7 @@ export function useProductQualityCommands({
         raw,
         productVariantId,
         durable.payload.action,
-        durable.payload.post_resolution_hold ?? "NONE",
+        expectedHold,
       );
 
       completeDurableOperation(scope, durable.requestId);

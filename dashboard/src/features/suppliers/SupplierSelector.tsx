@@ -23,7 +23,7 @@ export function SupplierSelector({ value, onChange, disabled = false }: {
   const search = useSupplierSearch(true);
   const authFetch = useAuthFetch();
   const selected = useQuery({
-    queryKey: ["supplier-selection", search.access.data?.company_id, search.access.data?.driver_id, value],
+    queryKey: ["supplier-selection", search.access.data?.company_id, search.access.data?.backoffice_user_id, value],
     enabled: value !== null && search.access.can("supplier.read"),
     retry: false,
     staleTime: 0,

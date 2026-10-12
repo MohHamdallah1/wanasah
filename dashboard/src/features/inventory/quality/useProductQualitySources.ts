@@ -9,10 +9,10 @@ export function useProductQualitySources(productVariantId: number | null) {
   const authFetch = useAuthFetch();
   const access = useInventoryAccess();
   const companyId = access.data?.company_id ?? null;
-  const driverId = access.data?.driver_id ?? null;
+  const backofficeUserId = access.data?.backoffice_user_id ?? null;
   const query = useInfiniteQuery({
-    queryKey: ["inline-product-quality-sources", companyId, driverId, productVariantId],
-    enabled: productVariantId !== null && companyId !== null && driverId !== null,
+    queryKey: ["inline-product-quality-sources", companyId, backofficeUserId, productVariantId],
+    enabled: productVariantId !== null && companyId !== null && backofficeUserId !== null,
     initialPageParam: null as number | null,
     queryFn: async ({ pageParam, signal }) => {
       const params = new URLSearchParams({ limit: "50" });

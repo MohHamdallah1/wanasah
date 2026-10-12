@@ -37,12 +37,12 @@ export function useBatchTerminalAction({ batch, productVariantId, baseUomCode, o
   const isOnline = useNetworkStatus();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const companyId = access.data?.company_id ?? null;
-  const driverId = access.data?.driver_id ?? null;
+  const backofficeUserId = access.data?.backoffice_user_id ?? null;
 
   const run = async (command: TerminalCommand) => {
-    if (!isOnline || companyId === null || driverId === null || busyKey !== null) return false;
+    if (!isOnline || companyId === null || backofficeUserId === null || busyKey !== null) return false;
     const key = [batch.batch_id, command.sourceLocationId, command.sourceStatus, command.action].join(":");
-    const scope = durableScope(companyId, driverId, "batch-terminal-quality-v1", key);
+    const scope = durableScope(companyId, backofficeUserId, "batch-terminal-quality-v1", key);
     const common = {
       source_location_id: command.sourceLocationId,
       product_variant_id: productVariantId,

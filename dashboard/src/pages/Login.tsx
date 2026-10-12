@@ -1,6 +1,7 @@
 import { currentLocale } from "@/i18n";
 import { useTranslation } from "react-i18next";
 import {
+  migrateLegacyBackofficeIdentityStorage,
   readLastCompanyCode,
   rememberLastCompanyCode,
 } from "@/lib/authStorage";
@@ -21,14 +22,15 @@ const TENANT_SCOPED_STORAGE_KEYS = [
 interface LoginResponsePayload {
   token: string;
   refresh_token: string;
-  driver_name: string;
-  is_company_owner: boolean;
-  dashboard_access: boolean;
   principal_id: number;
   backoffice_user_id: number;
-  driver_id: number;
+  channel: 'DASHBOARD';
+  principal_type: 'BACKOFFICE';
+  is_company_owner: boolean;
+  dashboard_access: boolean;
   company_id: number;
   company_code: string;
+  display_name: string;
   message?: string;
 }
 
@@ -98,38 +100,58 @@ export default function Login() {
         throw new Error(data.message || 'فشل تسجيل الدخول، تأكد من البيانات');
       }
 
-      // 3. حماية اللوحة + التحقق من عقد الاستجابة
+      // 3. حماية اللوحة + التحقق من عقد الاستجابة canonical
       if (data.dashboard_access !== true) {
         throw new Error('عذراً، هذا الحساب غير مصرح له بالدخول للوحة التحكم');
       }
+      const companyId = data.company_id;
+      const principalId = data.principal_id;
+      const backofficeUserId = data.backoffice_user_id;
       if (
         !data.token ||
         !data.refresh_token ||
-        !data.company_id ||
-        !data.company_code ||
-        !data.driver_name ||
-        !Number.isSafeInteger(data.driver_id) || Number(data.driver_id) <= 0
+        data.channel !== 'DASHBOARD' ||
+        data.principal_type !== 'BACKOFFICE' ||
+        typeof data.is_company_owner !== 'boolean' ||
+        typeof companyId !== 'number' ||
+        !Number.isSafeInteger(companyId) ||
+        companyId <= 0 ||
+        typeof principalId !== 'number' ||
+        !Number.isSafeInteger(principalId) ||
+        principalId <= 0 ||
+        typeof backofficeUserId !== 'number' ||
+        !Number.isSafeInteger(backofficeUserId) ||
+        backofficeUserId <= 0 ||
+        typeof data.company_code !== 'string' ||
+        !data.company_code.trim() ||
+        typeof data.display_name !== 'string' ||
+        !data.display_name.trim()
       ) {
         throw new Error('استجابة تسجيل الدخول غير مكتملة من السيرفر');
       }
 
-      // 4. عزل حالة الواجهة بين الشركات على نفس المتصفح
+      // 4. retire persisted Backoffice Driver identity before canonical storage.
+      migrateLegacyBackofficeIdentityStorage();
+
+      // 5. عزل حالة الواجهة بين الشركات على نفس المتصفح
       const previousCompanyId = localStorage.getItem('company_id');
-      const nextCompanyId = String(data.company_id);
+      const nextCompanyId = String(companyId);
       if (previousCompanyId && previousCompanyId !== nextCompanyId) {
         TENANT_SCOPED_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
       }
 
-      // 5. حفظ بيانات الجلسة
+      // 6. حفظ هوية Backoffice canonical فقط. driver_id القديم لا يمثل هوية اللوحة.
       localStorage.setItem('admin_token', data.token);
       localStorage.setItem('refresh_token', data.refresh_token);
       localStorage.setItem('company_id', nextCompanyId);
-      localStorage.setItem('driver_id', String(data.driver_id));
+      localStorage.setItem('principal_id', String(principalId));
+      localStorage.setItem('backoffice_user_id', String(backofficeUserId));
+      localStorage.removeItem('driver_id');
       localStorage.setItem('company_code', data.company_code);
       rememberLastCompanyCode(data.company_code);
-      localStorage.setItem('admin_name', data.driver_name);
+      localStorage.setItem('admin_name', data.display_name);
 
-      // 6. التوجيه
+      // 7. التوجيه من حالة Owner canonical فقط
       navigate(data.is_company_owner ? '/' : '/inventory');
 
     } catch (err: unknown) {

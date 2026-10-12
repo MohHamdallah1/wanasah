@@ -1,11 +1,22 @@
 const LAST_COMPANY_CODE_KEY =
   "wanasah_last_company_code";
+const CANONICAL_BACKOFFICE_IDENTITY_MIGRATION_KEY =
+  "wanasah:backoffice-identity:v1";
 
 const PERSISTENT_LOCAL_STORAGE_PREFIXES =
   [
     "wanasah:products:display:v",
     "wanasah:layout:",
+    "wanasah:backoffice-identity:",
   ] as const;
+
+const LEGACY_BACKOFFICE_IDENTITY_PREFIXES = [
+  "wanasah:durable:v1:",
+  "wanasah:products:display:v",
+  "wanasah:product-draft:",
+  "wanasah:product-import:",
+  "wanasah:supplier-draft:",
+] as const;
 
 export const readLastCompanyCode = (): string =>
   localStorage.getItem(
@@ -26,6 +37,36 @@ export const rememberLastCompanyCode = (
   localStorage.setItem(
     LAST_COMPANY_CODE_KEY,
     normalized,
+  );
+};
+
+export const migrateLegacyBackofficeIdentityStorage = (): void => {
+  if (
+    localStorage.getItem(
+      CANONICAL_BACKOFFICE_IDENTITY_MIGRATION_KEY,
+    ) === "done"
+  ) {
+    return;
+  }
+
+  const staleKeys = Array.from(
+    { length: localStorage.length },
+    (_, index) => localStorage.key(index),
+  ).filter(
+    (key): key is string =>
+      key !== null &&
+      LEGACY_BACKOFFICE_IDENTITY_PREFIXES.some(
+        (prefix) => key.startsWith(prefix),
+      ),
+  );
+
+  for (const key of staleKeys) {
+    localStorage.removeItem(key);
+  }
+  localStorage.removeItem("driver_id");
+  localStorage.setItem(
+    CANONICAL_BACKOFFICE_IDENTITY_MIGRATION_KEY,
+    "done",
   );
 };
 

@@ -11,16 +11,16 @@ export function useWholeProductQualityPreview(
   const authFetch = useAuthFetch();
   const access = useInventoryAccess();
   const companyId = access.data?.company_id ?? null;
-  const driverId = access.data?.driver_id ?? null;
+  const backofficeUserId = access.data?.backoffice_user_id ?? null;
 
   return useQuery({
     queryKey: [
       "whole-product-quality-resolve-preview",
       companyId,
-      driverId,
+      backofficeUserId,
       productVariantId,
     ],
-    enabled: enabled && companyId !== null && driverId !== null,
+    enabled: enabled && companyId !== null && backofficeUserId !== null,
     queryFn: async ({ signal }) => parseWholeProductQualityPreview(
       await authFetch(
         `/warehouse/quality/products/${productVariantId}/resolve-preview`,
