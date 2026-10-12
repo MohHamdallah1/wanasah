@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import inspect
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +13,8 @@ from fastapi import HTTPException
 from sqlalchemy.dialects import postgresql
 
 from api import inventory_stock_policy as stock_policy
+from api.authentication.backoffice_authorization import get_current_backoffice_capability_access
+from api.authentication.backoffice_compatibility import get_current_backoffice_legacy_driver
 from domains.authorization.backoffice_access import (
     BackofficeCapabilityAccess,
     BackofficeCapabilityAccessRejected,
@@ -136,13 +139,10 @@ class MinimumStockCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTes
     async def test_inventory_read_alone_cannot_authorize_mutation(self):
         source = SOURCE_PATH.read_text(encoding="utf-8")
         self.assertIn(
-            '_manage_minimum_stock = require_legacy_transport_backoffice_capability(\n    "inventory.minimum_stock.manage"\n)',
+            '_manage_minimum_stock = require_backoffice_capability(\n    "inventory.minimum_stock.manage"\n)',
             source,
         )
-        self.assertNotIn(
-            'require_legacy_transport_backoffice_capability("inventory.read")',
-            source,
-        )
+        self.assertNotIn('require_backoffice_capability("inventory.read")', source)
 
     async def test_preview_requires_exact_selected_location_inventory_read(self):
         access = _PreviewAccess(reject_visibility=True)
@@ -301,21 +301,22 @@ class MinimumStockCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTes
         self.assertIn("inventory_locations.location_type = 'WAREHOUSE'", sql)
         self.assertIn("inventory_locations.is_active IS true", sql)
 
-    def test_source_has_zero_is_admin_and_zero_legacy_inventory_access_authority(self):
+    def test_source_has_zero_is_admin_zero_legacy_inventory_access_and_canonical_transport(self):
         source = SOURCE_PATH.read_text(encoding="utf-8")
         tree = ast.parse(source)
 
         self.assertNotIn(".is_admin", source)
         self.assertNotIn("InventoryAccess", source)
+        self.assertNotIn("legacy_backoffice_transport", source)
+        self.assertNotIn("get_current_driver", source)
+        self.assertIn("require_backoffice_capability", source)
+        self.assertIn("get_current_backoffice_legacy_driver", source)
         self.assertFalse(
             any(
                 isinstance(node, ast.Attribute) and node.attr == "is_admin"
                 for node in ast.walk(tree)
             )
         )
-        self.assertNotIn("get_current_backoffice_context", source)
-        self.assertNotIn("get_current_backoffice_capability_access", source)
-        self.assertNotIn("require_backoffice_capability", source)
 
     def test_company_authority_and_legacy_actor_usage_are_separated(self):
         source = SOURCE_PATH.read_text(encoding="utf-8")
@@ -328,15 +329,17 @@ class MinimumStockCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTes
         self.assertIn("actor_id=actor_id", source)
         self.assertIn("admin_id=actor_id", source)
 
-    def test_apply_and_single_use_same_live_legacy_transport_dependency(self):
-        source = SOURCE_PATH.read_text(encoding="utf-8")
+    def test_apply_and_single_use_canonical_operational_actor_dependency(self):
+        for endpoint in (stock_policy.apply_bulk_minimum_stock, stock_policy.update_minimum_stock):
+            actor_depends = inspect.signature(endpoint).parameters["legacy_actor"].default
+            self.assertIs(actor_depends.dependency, get_current_backoffice_legacy_driver)
+            self.assertTrue(actor_depends.use_cache)
 
-        self.assertEqual(
-            source.count("legacy_actor: Driver = Depends(get_current_driver)"),
-            2,
-        )
-        self.assertIn("from api.dependencies import get_current_driver", source)
-        self.assertIn("require_legacy_transport_backoffice_capability", source)
+        capability_depends = inspect.signature(stock_policy._manage_minimum_stock).parameters["access"].default
+        self.assertIs(capability_depends.dependency, get_current_backoffice_capability_access)
+        self.assertTrue(capability_depends.use_cache)
+
+        self.assertNotIn("legacy_actor", inspect.signature(stock_policy.preview_bulk_minimum_stock).parameters)
 
     def test_lock_idempotency_projection_and_transaction_guards_remain(self):
         source = SOURCE_PATH.read_text(encoding="utf-8")
