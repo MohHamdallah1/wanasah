@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import inspect
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -9,8 +10,11 @@ from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from realtime.auth import WebSocketAuthError
-from domains.simple_products.imports.api import router as import_router
 
+
+import_router = importlib.import_module(
+    "domains.simple_products.imports.api.router"
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 ROUTER_PATH = ROOT / "domains" / "simple_products" / "imports" / "api" / "router.py"
