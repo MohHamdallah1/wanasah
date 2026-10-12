@@ -9,7 +9,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from dotenv import load_dotenv
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 DEMO_PRODUCT_CODE_PREFIX = "__UI_LIVE_STOCK_DEMO__"
@@ -49,7 +49,6 @@ load_dotenv(BACKEND_ROOT / ".env", override=False)
 from domains.live_stock_projection.service import refresh_live_stock_keys  # noqa: E402
 from models import (  # noqa: E402
     Company,
-    Driver,
     InventoryBalance,
     InventoryLocation,
     InventoryStockPolicy,
@@ -236,14 +235,30 @@ async def seed(
                 "Demo data already exists. Run --cleanup first, then seed again."
             )
 
-        actor = await session.scalar(
-            select(Driver)
-            .where(Driver.company_id == company_id, Driver.is_active.is_(True))
-            .order_by(Driver.is_admin.desc(), Driver.id.asc())
-            .limit(1)
+        legacy_actor_id = await session.scalar(
+            text(
+                """
+                SELECT m.legacy_driver_id
+                FROM company_owners AS o
+                JOIN identity_legacy_driver_map AS m
+                  ON m.company_id = o.company_id
+                 AND m.backoffice_user_id = o.backoffice_user_id
+                JOIN drivers AS d
+                  ON d.company_id = m.company_id
+                 AND d.id = m.legacy_driver_id
+                WHERE o.company_id = :company_id
+                  AND m.classification IN ('BACKOFFICE_ONLY', 'DUAL_SPLIT')
+                  AND d.is_active IS TRUE
+                ORDER BY m.legacy_driver_id ASC
+                LIMIT 1
+                """
+            ),
+            {"company_id": company_id},
         )
-        if actor is None:
-            raise RuntimeError("No active driver/admin exists for this company")
+        if legacy_actor_id is None:
+            raise RuntimeError(
+                "No canonical CompanyOwner legacy actor mapping exists for this company"
+            )
 
         each = await session.scalar(select(UOM).where(UOM.code == "EACH"))
         carton = await session.scalar(select(UOM).where(UOM.code == "CARTON"))
@@ -313,7 +328,7 @@ async def seed(
                         "inbound_enabled": True,
                         "outbound_enabled": True,
                     },
-                    created_by=actor.id,
+                    created_by=int(legacy_actor_id),
                 )
             )
 
