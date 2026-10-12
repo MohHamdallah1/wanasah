@@ -50,15 +50,15 @@ def empty_targets(conn):
 def seed(conn):
     a, b = fixture_tools.company(conn, "BACKFILL-A"), fixture_tools.company(conn, "BACKFILL-B")
     drivers = {}
-    specs = [(a, "owner", True, True, False, "0.000"), (a, "field", False, True, True, "321.123"),
-             (a, "dual", True, True, True, "456.789"), (a, "granted", False, True, False, "0.000"),
-             (a, "weak", False, False, True, "999.999"), (b, "owner", True, True, False, "0.000"),
-             (b, "field", False, True, False, "0.000")]
-    for company_id, username, admin, active, debt, limit in specs:
+    specs = [(a, "owner", True, False, "0.000"), (a, "field", True, True, "321.123"),
+             (a, "dual", True, True, "456.789"), (a, "granted", True, False, "0.000"),
+             (a, "weak", False, True, "999.999"), (b, "owner", True, False, "0.000"),
+             (b, "field", True, False, "0.000")]
+    for company_id, username, active, debt, limit in specs:
         driver_id = conn.execute(
-            "INSERT INTO drivers(company_id,username,password_hash,full_name,phone_number,is_admin,is_active,can_allow_debt,max_debt_limit,created_at) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP) RETURNING id",
-            (company_id, username, SECRET, "Synthetic " + username, "+96200000", admin, active, debt, limit),
+            "INSERT INTO drivers(company_id,username,password_hash,full_name,phone_number,is_active,can_allow_debt,max_debt_limit,created_at) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP) RETURNING id",
+            (company_id, username, SECRET, "Synthetic " + username, "+96200000", active, debt, limit),
         ).fetchone()[0]
         drivers[(company_id, username)] = driver_id
     # Generate visibly independent IDs through each table's normal sequence.

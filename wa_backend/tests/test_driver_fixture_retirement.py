@@ -1,7 +1,7 @@
-"""Physical-column fixture boundary; runs without importing the application.
+"""Post-drop physical-column census across all backend tests, without app imports.
 
-Reserved script/core gates are reported separately, never silently counted as
-clean. Sentinel flags, rejected token claims and absence assertions remain valid.
+Sentinel flags, rejected token claims, historical migration assertions and
+source-audit corpora remain valid; executable Driver-column dependencies do not.
 """
 import ast
 from pathlib import Path
@@ -13,12 +13,7 @@ from uuid import uuid4
 
 
 TESTS = Path(__file__).resolve().parent
-RESERVED = {
-    "run_identity_legacy_backfill_gate.py",  # CHAT 1 script gate
-    "run_canonical_backoffice_capability_access_gate.py",  # CHAT 3 core gate
-    "test_authorization_core_compatibility.py",  # CHAT 3
-    "test_identity_migration_tooling_is_admin_retirement.py",  # accepted tooling
-}
+
 
 
 RETIREMENT_FILES = (
@@ -59,6 +54,11 @@ def physical_references(source):
         return (isinstance(node, ast.Name) and node.id in aliases) or (
             isinstance(node, ast.Attribute) and node.attr == "Driver")
 
+    def driver_table(node):
+        return any(isinstance(part, ast.Subscript) and isinstance(part.slice, ast.Constant)
+                   and part.slice.value == "drivers" and isinstance(part.value, ast.Attribute)
+                   and part.value.attr == "tables" for part in ast.walk(node))
+
     real_rows = set()
     literal_dicts = {}
     for node in ast.walk(tree):
@@ -87,13 +87,37 @@ def physical_references(source):
             isinstance(key, ast.Constant) and key.value == "is_admin" for key in node.keys
         )
 
+    sql_literals = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = node.func.attr if isinstance(node.func, ast.Attribute) else (
+            node.func.id if isinstance(node.func, ast.Name) else None
+        )
+        if name in {"execute", "executemany", "scalar", "scalars", "text", "SQL"} and node.args:
+            query = node.args[0]
+            if isinstance(query, ast.Name):
+                # Resolve literal SQL assigned before an execute/text call.
+                query = next((n.value for n in ast.walk(tree)
+                              if isinstance(n, ast.Assign) and any(
+                                  isinstance(t, ast.Name) and t.id == query.id for t in n.targets)
+                              and isinstance(n.value, (ast.Constant, ast.JoinedStr, ast.BinOp))), query)
+            sql_literals.update(id(n) for n in ast.walk(query) if isinstance(n, ast.Constant))
+
     references = []
     for node in ast.walk(tree):
         if (isinstance(node, ast.Attribute) and node.attr == "is_admin"
                 and (driver(node.value) or ast.unparse(node.value) in real_rows
-                     or "drivers" in ast.unparse(node.value))):
+                     or driver_table(node.value)
+                     or any(driver(part) for part in ast.walk(node.value)))):
             references.append((node.lineno, "ORM attribute"))
         if isinstance(node, ast.Call):
+            if (isinstance(node.func, ast.Name) and (
+                    node.func.id == "setattr" or (node.func.id == "getattr" and len(node.args) == 2))
+                    and len(node.args) >= 2 and isinstance(node.args[1], ast.Constant)
+                    and node.args[1].value == "is_admin"
+                    and (driver(node.args[0]) or ast.unparse(node.args[0]) in real_rows)):
+                references.append((node.lineno, "ORM reflected attribute"))
             constructor = driver(node.func) or (node.args and driver(node.args[0]))
             if constructor and any(k.arg == "is_admin" or
                                    (k.arg is None and flag_dictionary(k.value))
@@ -113,16 +137,17 @@ def physical_references(source):
                 references.append((node.lineno, "SQL table update"))
         if (isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant)
                 and node.slice.value == "is_admin"
-                and ("drivers" in ast.unparse(node.value)
+                and (driver_table(node.value)
                      or any(driver(part) for part in ast.walk(node.value)))):
             references.append((node.lineno, "ORM column lookup"))
         if isinstance(node, ast.Tuple) and any(driver(item) for item in node.elts):
             if any(isinstance(item, ast.Constant) and isinstance(item.value, str)
                    and "is_admin" in item.value.split() for item in node.elts):
                 references.append((node.lineno, "Driver column projection"))
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            if re.search(r"\b(?:SELECT|INSERT|UPDATE)\b.*\bdrivers\b.*\bis_admin\b|"
-                         r"\bSELECT\b.*\bis_admin\b.*\bdrivers\b", node.value, re.I | re.S):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) in sql_literals:
+            if (re.search(r"\b(?:FROM|INTO|UPDATE|JOIN)\s+(?:public\.)?drivers\b",
+                          node.value, re.I)
+                    and re.search(r"\bis_admin\b", node.value, re.I)):
                 references.append((node.lineno, "physical Driver SQL"))
     return sorted(set(references))
 
@@ -148,13 +173,49 @@ class FlagFreeDriver(SimpleNamespace):
 
 
 class DriverFixtureRetirementTests(unittest.IsolatedAsyncioTestCase):
-    def test_owned_fixture_census_has_no_physical_dependencies(self):
+    def test_backfill_seed_preserves_operational_rows_without_removed_column(self):
+        path = TESTS / "run_identity_legacy_backfill_gate.py"
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        seed = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                    and node.name == "seed")
+        namespace = {"SECRET": "synthetic-seed-only", "IDENTITY": (
+            "company_principals", "backoffice_users", "field_representatives", "company_owners",
+        ), "fixture_tools": SimpleNamespace(company=lambda conn, code: 7 if code == "BACKFILL-A" else 8)}
+        exec(compile(ast.Module(body=[seed], type_ignores=[]), str(path), "exec"), namespace)
+
+        class Connection:
+            def __init__(self):
+                self.calls = []
+
+            def execute(self, query, params=()):
+                if query.count("%s") != len(params):
+                    raise AssertionError("Seed column/parameter alignment changed")
+                self.calls.append((query, params))
+                return SimpleNamespace(fetchone=lambda: (len(self.calls),))
+
+        connection = Connection()
+        fixture = namespace["seed"](connection)
+        rows = []
+        for query, params in connection.calls:
+            if query.startswith("INSERT INTO drivers("):
+                columns = query.split("(", 1)[1].split(")", 1)[0].split(",")
+                self.assertNotIn("is_admin", columns)
+                self.assertEqual(columns[-1], "created_at")
+                rows.append(dict(zip(columns[:-1], params)))
+        self.assertEqual([(row["company_id"], row["username"], row["is_active"],
+                           row["can_allow_debt"], row["max_debt_limit"]) for row in rows], [
+            (7, "owner", True, False, "0.000"), (7, "field", True, True, "321.123"),
+            (7, "dual", True, True, "456.789"), (7, "granted", True, False, "0.000"),
+            (7, "weak", False, True, "999.999"), (8, "owner", True, False, "0.000"),
+            (8, "field", True, False, "0.000"),
+        ])
+        self.assertEqual(set(fixture["drivers"]), {(row["company_id"], row["username"]) for row in rows})
+        self.assertEqual(len(set(fixture["drivers"].values())), 7)
+
+    def test_all_backend_fixture_census_has_no_physical_dependencies(self):
         violations = {}
         for path in sorted(TESTS.rglob("*.py")):
             source = path.read_text(encoding="utf-8-sig")
-            # Direct tests of scripts stay with CHAT 1, even when not named above.
-            if path == Path(__file__).resolve() or path.name in RESERVED or re.search(r"from scripts[. ]|scripts/", source):
-                continue
             hits = physical_references(source)
             if hits:
                 violations[str(path.relative_to(TESTS))] = hits
@@ -184,6 +245,10 @@ class DriverFixtureRetirementTests(unittest.IsolatedAsyncioTestCase):
             "Driver(id=303, is_admin=True)", "Driver.is_admin.is_(True)",
             "row = Driver(id=303)\nrow.is_admin = True",
             "row = db.scalar(select(Driver))\nassert row.is_admin",
+            "row = Driver(id=303)\nsetattr(row, 'is_admin', True)",
+            "row = Driver(id=303)\ngetattr(row, 'is_admin')",
+            "from models import Driver as Actor\nrow = Actor(id=303)\nsetattr(row, 'is_admin', False)",
+            "Driver.__table__.c.is_admin",
             "Driver(**{'id': 303, 'is_admin': False})",
             "values = {'is_admin': True}\nDriver(**values)",
             'Driver.__table__.c["is_admin"]',
@@ -193,6 +258,9 @@ class DriverFixtureRetirementTests(unittest.IsolatedAsyncioTestCase):
             '(Driver, "id company_id is_admin")',
             'text("SELECT id FROM drivers WHERE is_admin=true")',
             'text("SELECT is_admin FROM drivers WHERE id=:id")',
+            'conn.execute("SELECT d.is_admin FROM drivers AS d WHERE d.id=%s", (303,))',
+            'conn.execute("UPDATE drivers AS d SET is_admin=false WHERE d.id=%s", (303,))',
+            'query = "SELECT drivers.is_admin FROM drivers"\nconn.execute(query)',
             'self.assertIn("is_admin", Base.metadata.tables["drivers"].c)',
         ):
             with self.subTest(source=source):
@@ -202,6 +270,14 @@ class DriverFixtureRetirementTests(unittest.IsolatedAsyncioTestCase):
             'self.assertNotIn("Driver.is_admin", source)',
             'claims = {"is_admin": True}',
             'historical_source = {"is_admin": True}',
+            "sentinel = SimpleNamespace(id=303)\nsetattr(sentinel, 'is_admin', True)",
+            'self.assertNotIn("SELECT d.is_admin FROM drivers AS d", source)',
+            'self.assertIn("ALTER TABLE drivers DROP COLUMN is_admin", historical_upgrade_sql)',
+            'sample = "Driver(id=303, is_admin=True)"',
+            'sample = "SELECT is_admin FROM drivers"',
+            "drivers = SimpleNamespace(is_admin=True)\nassert drivers.is_admin",
+            "row = Driver(id=303)\nself.assertIsNone(getattr(row, 'is_admin', None))",
+            'text("SELECT column_name FROM information_schema.columns WHERE table_name=\'drivers\' AND column_name=\'is_admin\'")',
         ):
             with self.subTest(source=source):
                 self.assertEqual(physical_references(source), [])
