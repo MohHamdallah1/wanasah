@@ -5,6 +5,7 @@ from typing import get_args
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from inventory_access import InventoryAccess
 from models import Driver, InventoryBalance, ProductBatch
 from .contracts import BatchRestrictionSummary, CurrentDispositionReason, DispositionCounts, RestrictedDisposition
@@ -73,8 +74,30 @@ def _summary_statement(company_id: int, variant_ids: Sequence[int]):
     )).execution_options(autoflush=False)
 
 
+def _resolve_batch_restriction_access(
+    db: AsyncSession,
+    *,
+    access: BackofficeCapabilityAccess | None,
+    actor: Driver | None,
+):
+    if access is not None:
+        if actor is not None:
+            raise ValueError("Use canonical access or a legacy actor, not both.")
+        return int(access.company_id), access
+
+    if actor is None:
+        raise ValueError("Canonical access or a legacy actor is required.")
+    if type(actor.company_id) is not int or actor.company_id <= 0:
+        raise ValueError("A positive authenticated company identity is required.")
+    return int(actor.company_id), InventoryAccess(db, actor)
+
+
 async def load_batch_restrictions(
-    db: AsyncSession, *, actor: Driver, variant_ids: Sequence[int],
+    db: AsyncSession,
+    *,
+    variant_ids: Sequence[int],
+    access: BackofficeCapabilityAccess | None = None,
+    actor: Driver | None = None,
 ) -> dict[int, BatchRestrictionSummary | None]:
     """Read the already-authorized catalog page, never derive Product state.
 
@@ -82,19 +105,30 @@ async def load_batch_restrictions(
     Location-only grants must not reveal counts, quantities or reasons elsewhere.
     None means unavailable by permission; a zero DTO means a visible clear result.
     Caller retains catalog.read, the tenant/RLS session and page identity authority.
+
+    Canonical Backoffice callers pass ``access``. ``actor`` remains a temporary
+    compatibility seam for request families that have not completed their cutover.
     """
-    if type(actor.company_id) is not int or actor.company_id <= 0:
-        raise ValueError("A positive authenticated company identity is required.")
     if len(variant_ids) > 200 or any(type(value) is not int or value <= 0 for value in variant_ids):
         raise ValueError("Expected at most 200 positive variant IDs.")
     ids = sorted(set(variant_ids))
     if not ids:
         return {}
-    access = InventoryAccess(db, actor)
-    if not bool(await db.scalar(select(access.allows("inventory.read")).execution_options(autoflush=False))):
+
+    company_id, permission_access = _resolve_batch_restriction_access(
+        db,
+        access=access,
+        actor=actor,
+    )
+    if not bool(
+        await db.scalar(
+            select(permission_access.allows("inventory.read"))
+            .execution_options(autoflush=False)
+        )
+    ):
         return dict.fromkeys(ids)
 
-    rows = (await db.execute(_summary_statement(actor.company_id, ids))).mappings().all()
+    rows = (await db.execute(_summary_statement(company_id, ids))).mappings().all()
     summaries = {variant_id: BatchRestrictionSummary(
         affected_batch_count=0, affected_on_hand_quantity="0.000000",
         counts_by_disposition=DispositionCounts(),
