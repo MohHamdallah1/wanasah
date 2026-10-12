@@ -30,20 +30,14 @@ class _FakeDB:
 
 
 class IdentityLoginLegacyCompatibilityTests(unittest.IsolatedAsyncioTestCase):
-    def _row(self, *, company_id=7, legacy_driver_id=44, is_admin=True):
+    def _row(self, *, company_id=7, legacy_driver_id=44):
         bridge = SimpleNamespace(
             company_id=company_id,
             legacy_driver_id=legacy_driver_id,
             backoffice_user_id=101,
             field_representative_id=202,
         )
-        driver = SimpleNamespace(
-            id=legacy_driver_id,
-            company_id=company_id,
-            is_admin=is_admin,
-            full_name="Legacy Name",
-        )
-        return bridge, driver
+        return bridge, legacy_driver_id, company_id, "Legacy Name"
 
     async def test_dashboard_resolves_exact_reviewed_legacy_row(self):
         db = _FakeDB(self._row())
@@ -58,7 +52,6 @@ class IdentityLoginLegacyCompatibilityTests(unittest.IsolatedAsyncioTestCase):
             result,
             LegacyLoginCompatibility(
                 legacy_driver_id=44,
-                legacy_is_admin=True,
                 legacy_driver_name="Legacy Name",
             ),
         )
@@ -67,7 +60,7 @@ class IdentityLoginLegacyCompatibilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("company_id", sql)
 
     async def test_field_resolves_exact_reviewed_legacy_row(self):
-        db = _FakeDB(self._row(is_admin=False))
+        db = _FakeDB(self._row())
 
         result = await load_field_login_compatibility(
             db,
@@ -76,9 +69,10 @@ class IdentityLoginLegacyCompatibilityTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result.legacy_driver_id, 44)
-        self.assertFalse(result.legacy_is_admin)
+        self.assertEqual(result.legacy_driver_name, "Legacy Name")
         sql = str(db.statements[0])
         self.assertIn("field_representative_id", sql)
+        self.assertNotIn("is_admin", sql)
 
     async def test_missing_bridge_fails_closed(self):
         with self.assertRaises(LegacyLoginCompatibilityMissing):
@@ -89,29 +83,27 @@ class IdentityLoginLegacyCompatibilityTests(unittest.IsolatedAsyncioTestCase):
             )
 
     async def test_cross_company_or_mismatched_driver_fails_closed(self):
-        bridge, driver = self._row(company_id=7)
-        driver.company_id = 8
+        bridge, driver_id, _driver_company_id, driver_name = self._row(company_id=7)
         with self.assertRaises(LegacyLoginCompatibilityMissing):
             await load_field_login_compatibility(
-                _FakeDB((bridge, driver)),
+                _FakeDB((bridge, driver_id, 8, driver_name)),
                 company_id=7,
                 representative_id=202,
             )
 
-        bridge, driver = self._row(company_id=7)
-        driver.id = 999
+        bridge, _driver_id, driver_company_id, driver_name = self._row(company_id=7)
         with self.assertRaises(LegacyLoginCompatibilityMissing):
             await load_field_login_compatibility(
-                _FakeDB((bridge, driver)),
+                _FakeDB((bridge, 999, driver_company_id, driver_name)),
                 company_id=7,
                 representative_id=202,
             )
 
     async def test_adapter_does_not_use_bridge_classification_as_authority(self):
-        bridge, driver = self._row()
+        bridge, driver_id, driver_company_id, driver_name = self._row()
         bridge.classification = "DUAL_SPLIT"
         result = await load_dashboard_login_compatibility(
-            _FakeDB((bridge, driver)),
+            _FakeDB((bridge, driver_id, driver_company_id, driver_name)),
             company_id=7,
             backoffice_user_id=101,
         )

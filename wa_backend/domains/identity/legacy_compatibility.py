@@ -23,7 +23,6 @@ class LegacyLoginCompatibilityMissing(Exception):
 @dataclass(frozen=True)
 class LegacyLoginCompatibility:
     legacy_driver_id: int
-    legacy_is_admin: bool
     legacy_driver_name: str
 
 
@@ -36,7 +35,12 @@ async def _load_legacy_login_compatibility(
 ) -> LegacyLoginCompatibility:
     row = (
         await db.execute(
-            select(IdentityLegacyDriverMap, Driver)
+            select(
+                IdentityLegacyDriverMap,
+                Driver.id,
+                Driver.company_id,
+                Driver.full_name,
+            )
             .join(
                 Driver,
                 and_(
@@ -53,18 +57,17 @@ async def _load_legacy_login_compatibility(
     if row is None:
         raise LegacyLoginCompatibilityMissing
 
-    bridge, driver = row
+    bridge, driver_id, driver_company_id, driver_full_name = row
     if (
         bridge.company_id != company_id
-        or driver.company_id != company_id
-        or driver.id != bridge.legacy_driver_id
+        or driver_company_id != company_id
+        or driver_id != bridge.legacy_driver_id
     ):
         raise LegacyLoginCompatibilityMissing
 
     return LegacyLoginCompatibility(
-        legacy_driver_id=driver.id,
-        legacy_is_admin=bool(driver.is_admin),
-        legacy_driver_name=driver.full_name,
+        legacy_driver_id=driver_id,
+        legacy_driver_name=driver_full_name,
     )
 
 

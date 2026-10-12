@@ -24,7 +24,6 @@ class DashboardLoginTransportResponse(DashboardPrincipalLoginResponse):
     legacy_driver_id: PositiveId
     driver_id: PositiveId
     driver_name: str
-    is_admin: bool
 
 
 class FieldLoginTransportResponse(FieldPrincipalLoginResponse):
@@ -34,7 +33,6 @@ class FieldLoginTransportResponse(FieldPrincipalLoginResponse):
     legacy_driver_id: PositiveId
     driver_id: PositiveId
     driver_name: str
-    is_admin: Literal[False] = False
     dashboard_access: Literal[False] = False
 
 
@@ -54,7 +52,7 @@ async def prepare_dashboard_transport(db: AsyncSession, identity: DashboardAuthe
         return DashboardLoginTransportResponse(
             **response.model_dump(), display_name=identity.full_name,
             legacy_driver_id=legacy_driver_id, driver_id=legacy_driver_id,
-            driver_name=identity.full_name, is_admin=identity.is_company_owner,
+            driver_name=identity.full_name,
         )
 
     return adapt
