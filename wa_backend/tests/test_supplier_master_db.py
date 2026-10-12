@@ -239,8 +239,8 @@ async def test_tenant_and_inactive_selection_fail_closed_at_direct_api(api):
     assert_code(await api.client.post(path, json=return_body), "PRODUCT_QUALITY_ISSUE_NOT_ACTIVE", 409)
     api.actor.company_id = api.gate.companies[1].id; api.actor.id = api.gate.actors[1].id
     api.auth.company_id = api.gate.companies[1].id
-    api.auth.principal_id = 100_002
-    api.auth.backoffice_user_id = 200_002
+    api.auth.principal_id = api.gate.identities[1].context.principal_id
+    api.auth.backoffice_user_id = api.gate.identities[1].context.backoffice_user_id
     await api.db.execute(text("SELECT set_config('app.current_tenant',:tenant,true)"), {"tenant": str(api.actor.company_id)})
     assert (await api.client.get("/suppliers")).json()["items"] == []
     assert_code(await api.client.get(f"/suppliers/{row['id']}"), "SUPPLIER_NOT_FOUND", 404)
