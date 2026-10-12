@@ -7,39 +7,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  focused-test:
-    name: WL ${{ matrix.name }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: no-legacy-authority
-            node: tests/test_warehouse_locations_canonical_auth_cutover.py::test_runtime_has_no_legacy_request_authority
-          - name: exact-capabilities
-            node: tests/test_warehouse_locations_canonical_auth_cutover.py::test_runtime_uses_only_exact_warehouse_location_capabilities
-          - name: read-routes
-            node: tests/test_warehouse_locations_canonical_auth_cutover.py::test_read_routes_use_canonical_access_without_loading_legacy_driver
-          - name: write-provenance
-            node: tests/test_warehouse_locations_canonical_auth_cutover.py::test_write_routes_use_legacy_driver_only_for_existing_driver_id_provenance
-          - name: pre-pagination
-            node: tests/test_warehouse_locations_canonical_auth_cutover.py::test_location_filter_stays_before_cursor_pagination_and_allows_stays_sql
-          - name: http-adapter
-            node: tests/test_warehouse_locations_canonical_auth_cutover.py::test_canonical_require_adapter_preserves_location_http_contract
-    defaults:
-      run:
-        working-directory: wa_backend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: wa_backend/requirements.txt
-      - run: pip install -r requirements.txt
-      - run: pytest -q "${{ matrix.node }}"
-
-  structural-gate:
+  focused-gate:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -52,8 +20,23 @@ jobs:
           cache: 'pip'
           cache-dependency-path: wa_backend/requirements.txt
       - run: pip install -r requirements.txt
-      - run: python -m py_compile api/warehouse/locations.py tests/test_warehouse_locations_canonical_auth_cutover.py
-      - run: pytest -q tests/test_canonical_backoffice_capability_access.py tests/test_canonical_backoffice_authorization_dependency.py
+      - name: Compile touched files
+        run: python -m py_compile api/warehouse/locations.py tests/test_warehouse_locations_canonical_auth_cutover.py
+      - name: Run Warehouse Locations focused source contracts directly
+        run: |
+          python - <<'PY'
+          import runpy
+          scope = runpy.run_path('tests/test_warehouse_locations_canonical_auth_cutover.py')
+          names = sorted(name for name in scope if name.startswith('test_'))
+          assert len(names) == 6, names
+          for name in names:
+              scope[name]()
+          print(f'{len(names)} Warehouse Locations focused tests passed')
+          PY
+      - name: Canonical capability core
+        run: python -m unittest -q tests.test_canonical_backoffice_capability_access
+      - name: Canonical dependency core
+        run: python -m unittest -q tests.test_canonical_backoffice_authorization_dependency
       - name: Authority and capability audit
         shell: bash
         run: |
