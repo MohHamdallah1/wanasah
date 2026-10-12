@@ -1,5 +1,6 @@
 """Dependency-free identity and workflow parity gates for the three session routes."""
 import ast
+import copy
 from collections import Counter
 import hashlib
 from pathlib import Path
@@ -13,11 +14,21 @@ BODY_DIGESTS = {
     "end_work_session": "7e9c926eb3e83af84d7896300006887d7dd5f4a747ab7a18bf62cea0a8b7591b",
     "toggle_break": "793da3021eca89551d710c2043d03c474f2b573ebad457a88a0d2463ba4cf42b",
 }
-UNRELATED_DIGEST = "c3f3affe9e4652f3056ffbec6086036d79157498622bf0a6f58f2ee234da57a0"
+# Unrelated baseline: main 34d0c48f87c926e6df809d877562b7241c68997d,
+# excluding exactly the twelve target functions and the replaced transport import.
+# Keep get_current_driver and every other import/helper/mixed endpoint in the hash.
+# Normalize only absent-vs-empty Python 3.11/3.12 type_params metadata.
+UNRELATED_DIGEST = "79446986752f7cfd1954f07a7064973f488abbe4b8c5eb2523d380e382adbe73"
 
 
 def digest(nodes):
-    tree = ast.Module(body=nodes, type_ignores=[])
+    # Python 3.12 adds type_params=[] to declarations that Python 3.11 represents
+    # without that field. Remove only the empty field on a copy. Nonempty type
+    # parameters and every business AST node remain part of the fingerprint.
+    tree = copy.deepcopy(ast.Module(body=nodes, type_ignores=[]))
+    for node in ast.walk(tree):
+        if getattr(node, "type_params", None) == []:
+            del node.type_params
     return hashlib.sha256(ast.dump(tree, include_attributes=False).encode()).hexdigest()
 
 

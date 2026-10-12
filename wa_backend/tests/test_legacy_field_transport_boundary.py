@@ -1,5 +1,6 @@
 """Field transport retirement and parity gates without third-party dependencies."""
 import ast
+import copy
 import hashlib
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,13 +9,17 @@ import unittest
 
 BACKEND = Path(__file__).resolve().parents[1]
 SOURCE = BACKEND / "api" / "driver.py"
-# Full bodies from main 34d0c48f, after only the approved identity substitutions:
-# current_driver.company_id -> field_context.company_id; operational actor -> legacy_actor.
+# Independently derived from main 34d0c48f87c926e6df809d877562b7241c68997d.
+# Body transformation only: current_driver.company_id -> field_context.company_id;
+# current_driver.id/full_name -> legacy_actor.id/full_name; and the existing
+# pre_fetched_driver=current_driver argument -> pre_fetched_driver=legacy_actor.
+# Signatures/imports are checked separately; no business statements are removed.
+# Empty Python 3.12 type_params fields are normalized to the Python 3.11 shape.
 BODY_DIGESTS = {
     "start_work_session": "2eae84610521865086466f42a1669e3c670f8f6bd1f815d6ace5c7b605088c26",
     "end_work_session": "3c7f77bb096680299bac6f3bcd6c3630035cf57b7003a35c5e0399e25b0e9802",
     "toggle_break": "c149c98ff6f37632247f4beeee18e62fb2f48306bace1bb79e00bcc2a5ee16a7",
-    "update_visit": "b7c171059b201d35009717ff87d7eb34782cb3d24e0f28be2fd01762bd8e0a5b",
+    "update_visit": "9249c41cf0596547bee823c5e991269961cb96723dddc9066b0bcd4f732cb9ce",
     "get_driver_dashboard": "9e61e61a834026d7290a16cfb38ca0fd641002c01a001eb160d921122628c42f",
     "respond_to_transfer": "397985b70b64782004c664acc600af9d89720f0b9c203b63881a76b66c394b69",
     "batch_respond_to_transfers": "0f243c093513bcfc875b620f44592c9b3c81810e6127443b3f62d0b8d5a5aab5",
@@ -62,13 +67,18 @@ ROUTES = {
         "router.get('/driver/sessions/active', response_model=ActiveSessionResponse, status_code=200)"
     ]
 }
-UNRELATED_DIGEST = "c3f3affe9e4652f3056ffbec6086036d79157498622bf0a6f58f2ee234da57a0"
+UNRELATED_DIGEST = "79446986752f7cfd1954f07a7064973f488abbe4b8c5eb2523d380e382adbe73"
 
 
 def digest(nodes):
-    return hashlib.sha256(ast.dump(
-        ast.Module(body=nodes, type_ignores=[]), include_attributes=False
-    ).encode()).hexdigest()
+    # Python 3.12 adds type_params=[] to declarations that Python 3.11 represents
+    # without that field. Remove only the empty field on a copy. Nonempty type
+    # parameters and every business AST node remain part of the fingerprint.
+    tree = copy.deepcopy(ast.Module(body=nodes, type_ignores=[]))
+    for node in ast.walk(tree):
+        if getattr(node, "type_params", None) == []:
+            del node.type_params
+    return hashlib.sha256(ast.dump(tree, include_attributes=False).encode()).hexdigest()
 
 
 class OperationalLocator:
@@ -91,6 +101,27 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
                           if isinstance(node, ast.AsyncFunctionDef)
                           and node.name in BODY_DIGESTS}
         self.assertEqual(set(self.functions), set(BODY_DIGESTS))
+
+    def test_digest_ignores_only_absent_versus_empty_type_parameter_metadata(self):
+        declaration = ast.parse("def nested(): return 1").body[0]
+        without = copy.deepcopy(declaration)
+        without._fields = tuple(field for field in without._fields if field != "type_params")
+        if hasattr(without, "type_params"):
+            del without.type_params
+        empty = copy.deepcopy(without)
+        empty._fields += ("type_params",)
+        empty.type_params = []
+        populated = copy.deepcopy(empty)
+        populated.type_params = [ast.Name(id="T", ctx=ast.Load())]
+        self.assertEqual(digest([without]), digest([empty]))
+        self.assertNotEqual(digest([empty]), digest([populated]))
+        # Fingerprinting must not mutate the source AST used by other gates.
+        self.assertEqual(empty.type_params, [])
+
+    def test_digest_still_detects_a_nested_business_statement_change(self):
+        original = ast.parse("def nested(): return 1").body
+        changed = ast.parse("def nested(): return 2").body
+        self.assertNotEqual(digest(original), digest(changed))
 
     def test_all_twelve_routes_use_cached_canonical_field_and_operational_dependencies(self):
         for name, node in self.functions.items():
