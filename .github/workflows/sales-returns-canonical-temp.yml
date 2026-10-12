@@ -1,0 +1,47 @@
+name: Sales returns canonical temp gate
+
+on:
+  pull_request:
+    paths:
+      - "wa_backend/api/sales_returns.py"
+      - "wa_backend/domains/authorization/capabilities.py"
+      - "wa_backend/alembic/versions/e6f2a8c9d410_sales_return_create_permission.py"
+      - "wa_backend/tests/test_sales_returns_canonical_boundary.py"
+      - "wa_backend/tests/test_sales_returns_canonical_cutover.py"
+      - ".github/workflows/sales-returns-canonical-temp.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: SalesReturnCanonicalTempSecret123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://return_unit@127.0.0.1:1/return_unit
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://return_admin@127.0.0.1:1/return_unit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt
+      - name: Run focused Sales Return tests
+        working-directory: wa_backend
+        run: |
+          python -m unittest -v \
+            tests.test_sales_returns_canonical_boundary \
+            tests.test_sales_returns_canonical_cutover
+      - name: Compile touched Python
+        run: |
+          python -m py_compile \
+            wa_backend/api/sales_returns.py \
+            wa_backend/domains/authorization/capabilities.py \
+            wa_backend/alembic/versions/e6f2a8c9d410_sales_return_create_permission.py \
+            wa_backend/tests/test_sales_returns_canonical_boundary.py \
+            wa_backend/tests/test_sales_returns_canonical_cutover.py
+      - name: Diff whitespace gate
+        run: git diff --check
