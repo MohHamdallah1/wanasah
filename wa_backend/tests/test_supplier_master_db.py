@@ -26,12 +26,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import get_current_backoffice_capability_access
+from api.authentication.backoffice_compatibility import get_current_backoffice_legacy_driver
 from api.suppliers import router as supplier_router
 from api.warehouse.inbound import router as inbound_router
 from api.warehouse.whole_product_quality import router as quality_router
 from api.warehouse.ledger import router as ledger_router
 from database import get_db
-from inventory_access import PERMISSIONS
+from domains.authorization.backoffice_access import BackofficeCapabilityAccess
+from domains.authorization.backoffice_subject import BackofficeAuthorizationSubject
+from domains.authorization.capabilities import PERMISSIONS
 from main import WanasahRawASGIMiddleware, custom_http_exception_handler, validation_exception_handler
 from models import (Base, Company, Driver, InventoryLocation, Product, ProductVariant,
                     ProductBatch, InventoryMovement, UOM, utc_now, DomainAuditEvent)
@@ -124,6 +128,12 @@ async def api(gate):
     db = AsyncSession(bind=conn, expire_on_commit=False, join_transaction_mode="create_savepoint")
     actor = SimpleNamespace(id=gate.actors[0].id, company_id=gate.companies[0].id, is_admin=True, is_active=True,
                             password_hash=gate.actors[0].password_hash)
+    auth = SimpleNamespace(
+        principal_id=100_001,
+        backoffice_user_id=200_001,
+        company_id=gate.companies[0].id,
+        is_company_owner=True,
+    )
     await db.execute(text("SELECT set_config('app.current_tenant',:tenant,true)"), {"tenant": str(actor.company_id)})
     app = FastAPI()
     for router in (supplier_router, inbound_router, quality_router, ledger_router):
@@ -133,8 +143,23 @@ async def api(gate):
     app.add_middleware(WanasahRawASGIMiddleware)
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_current_driver] = lambda: actor
+
+    async def canonical_access():
+        return BackofficeCapabilityAccess(
+            db=db,
+            subject=BackofficeAuthorizationSubject(
+                principal_id=auth.principal_id,
+                backoffice_user_id=auth.backoffice_user_id,
+                company_id=auth.company_id,
+                is_company_owner=auth.is_company_owner,
+                legacy_grant_driver_id=None if auth.is_company_owner else actor.id,
+            ),
+        )
+
+    app.dependency_overrides[get_current_backoffice_capability_access] = canonical_access
+    app.dependency_overrides[get_current_backoffice_legacy_driver] = lambda: actor
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://supplier-gate") as client:
-        yield SimpleNamespace(client=client, db=db, actor=actor, gate=gate)
+        yield SimpleNamespace(client=client, db=db, actor=actor, auth=auth, gate=gate)
     await db.close(); await outer.rollback(); await conn.close()
 
 
@@ -211,6 +236,9 @@ async def test_tenant_and_inactive_selection_fail_closed_at_direct_api(api):
     path = f"/warehouse/quality/products/{api.gate.variants[0].id}/resolve-all"
     assert_code(await api.client.post(path, json=return_body), "PRODUCT_QUALITY_ISSUE_NOT_ACTIVE", 409)
     api.actor.company_id = api.gate.companies[1].id; api.actor.id = api.gate.actors[1].id
+    api.auth.company_id = api.gate.companies[1].id
+    api.auth.principal_id = 100_002
+    api.auth.backoffice_user_id = 200_002
     await api.db.execute(text("SELECT set_config('app.current_tenant',:tenant,true)"), {"tenant": str(api.actor.company_id)})
     assert (await api.client.get("/suppliers")).json()["items"] == []
     assert_code(await api.client.get(f"/suppliers/{row['id']}"), "SUPPLIER_NOT_FOUND", 404)
@@ -223,7 +251,8 @@ async def test_tenant_and_inactive_selection_fail_closed_at_direct_api(api):
 @pytest.mark.asyncio
 async def test_permission_separation_and_revocation_before_replay(api):
     row, body = await create(api)
-    api.actor.is_admin = False
+    api.auth.is_company_owner = False
+    assert api.actor.is_admin is True  # Deprecated Driver flag is deliberately irrelevant.
     assert_code(await api.client.get("/suppliers"), "SUPPLIER_PERMISSION_DENIED", 403)
     assert_code(await api.client.post("/suppliers", json=body), "SUPPLIER_PERMISSION_DENIED", 403)
     await api.db.execute(text("INSERT INTO roles(company_id,name,is_system_role) VALUES(:company,'Supplier reader',false)"), {"company": api.actor.company_id})
@@ -420,7 +449,8 @@ async def test_multisupplier_stock_is_not_collapsed_to_one_operator_selected_sup
     grant = text("INSERT INTO user_location_access(company_id,driver_id,location_id,role_id) VALUES(:company,:actor,:location,:role)")
     await api.db.execute(grant, {"company": api.actor.company_id, "actor": api.actor.id, "location": api.gate.locations[0].id, "role": role_ids[1]})
     # Grant edits represent independently committed access administration.
-    await api.db.commit(); api.actor.is_admin = False
+    await api.db.commit(); api.auth.is_company_owner = False
+    assert api.actor.is_admin is True  # Grants, not Driver.is_admin, now control this path.
     body = {"request_id": str(uuid4()), "action": "RETURN_TO_VENDOR", "reason": "Confirmed issue", "supplier_id": supplier_a["id"],
             "confirmation_password": GATE_PASSWORD}
     path = f"/warehouse/quality/products/{api.gate.variants[0].id}/resolve-all"
