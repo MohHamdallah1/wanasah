@@ -270,15 +270,15 @@ export function CatalogLifecycleActions({
   const companyId =
     access.data?.company_id ??
     null;
-  const driverId =
-    access.data?.driver_id ??
+  const backofficeUserId =
+    access.data?.backoffice_user_id ??
     null;
   const scope =
     companyId !== null &&
-    driverId !== null
+    backofficeUserId !== null
       ? durableScope(
           companyId,
-          driverId,
+          backofficeUserId,
           "catalog-lifecycle-command-v1",
           variant.id,
         )
