@@ -5,9 +5,11 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_admin
+from api.authentication.legacy_backoffice_transport import require_legacy_transport_backoffice_capability
+from api.dependencies import get_current_driver
 from database import get_db
 from models import Driver
+from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from domains.sales_returns.core import SalesReturnError
 from domains.sales_returns.schemas import SalesReturnCreate
 from domains.sales_returns.service import (
@@ -20,6 +22,8 @@ from domains.sales_returns.service import (
 
 
 router = APIRouter(prefix="/sales-returns", tags=["Sales Returns"])
+# V1 support reads share the creation capability and require a company grant.
+_sales_return_access = require_legacy_transport_backoffice_capability("sales_return.create")
 
 
 def _http(exc: SalesReturnError) -> HTTPException:
@@ -34,12 +38,12 @@ async def list_returns(
     limit: int = Query(50, ge=1, le=100),
     before_id: int | None = Query(None, gt=0),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    access: BackofficeCapabilityAccess = Depends(_sales_return_access),
 ):
     try:
         return await list_sales_returns(
             db,
-            company_id=int(current_admin.company_id),
+            company_id=access.company_id,
             limit=limit,
             before_id=before_id,
         )
@@ -55,12 +59,12 @@ async def returnable_sales(
     before_revision_id: int | None = Query(None, gt=0),
     limit: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    access: BackofficeCapabilityAccess = Depends(_sales_return_access),
 ):
     try:
         return await list_returnable_sales(
             db,
-            company_id=int(current_admin.company_id),
+            company_id=access.company_id,
             search=search,
             date_from=date_from,
             date_to=date_to,
@@ -75,12 +79,12 @@ async def returnable_sales(
 async def return_source(
     visit_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    access: BackofficeCapabilityAccess = Depends(_sales_return_access),
 ):
     try:
         return await source_summary(
             db,
-            company_id=int(current_admin.company_id),
+            company_id=access.company_id,
             visit_id=visit_id,
         )
     except SalesReturnError as exc:
@@ -91,12 +95,12 @@ async def return_source(
 async def return_detail(
     return_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    access: BackofficeCapabilityAccess = Depends(_sales_return_access),
 ):
     try:
         return await get_sales_return(
             db,
-            company_id=int(current_admin.company_id),
+            company_id=access.company_id,
             return_id=return_id,
         )
     except SalesReturnError as exc:
@@ -107,13 +111,14 @@ async def return_detail(
 async def post_return(
     payload: SalesReturnCreate,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    access: BackofficeCapabilityAccess = Depends(_sales_return_access),
+    legacy_actor: Driver = Depends(get_current_driver),
 ):
     try:
         result = await create_sales_return(
             db,
-            company_id=int(current_admin.company_id),
-            actor_id=int(current_admin.id),
+            company_id=access.company_id,
+            actor_id=int(legacy_actor.id),
             payload=payload,
         )
         await db.commit()

@@ -24,6 +24,7 @@ PERMISSIONS = frozenset({
     'stocktake.read', 'stocktake.start', 'stocktake.count', 'stocktake.review',
     'stocktake.approve', 'stocktake.recount', 'stocktake.cancel',
     'dispatch.read', 'dispatch.execute',
+    'sales_return.create',
 })
 
 COMPANY_ONLY = frozenset({
