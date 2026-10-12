@@ -41,7 +41,7 @@ jobs:
       - name: Run Codex focused auth core suites
         working-directory: wa_backend
         env:
-          PYTHONPATH: .
+          PYTHONPATH: .:tests
         run: |
           pytest -q \
             tests/test_canonical_auth_core_boundary.py \
