@@ -225,7 +225,6 @@ class Driver(Base):
     full_name     = Column(String(120), nullable=False)
     phone_number  = Column(String(20),  nullable=True)
     is_active     = Column(Boolean,     nullable=False, default=True, server_default='true')
-    is_admin      = Column(Boolean,     nullable=False, default=False, server_default='false')
     can_allow_debt  = Column(Boolean,       nullable=False, default=False, server_default='false')
     # +++ الدرع المحاسبي: حماية الدقة من تآكل الـ Float ومنع سقف الدين من الانقلاب لقيمة سالبة +++
     max_debt_limit  = Column(Numeric(12, 3), CheckConstraint('max_debt_limit >= 0', name='chk_driver_max_debt'), nullable=False, default=Decimal('0.000'), server_default='0.000')
@@ -997,7 +996,6 @@ class Vehicle(Base):
     license_expiry_date = Column(Date,      nullable=True)
     maintenance_status = Column(String(50), nullable=False, default='Active')  # Active | In_Maintenance
     is_active          = Column(Boolean,    nullable=False, default=True)
-
 
 # =================================================================================
 # ⑥ جلسات العمل (المحرك الموحد: العهدة أصبحت تدار عبر InventoryBalance لموقع السيارة)
