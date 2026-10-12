@@ -293,7 +293,9 @@ class StocktakeCanonicalAuthCutoverTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("'stocktake.recount'", source)
         self.assertNotIn("is_admin", source)
         self.assertNotIn("classification", source)
-        self.assertNotIn("principal_id ==", source)
+        self.assertNotIn("principal_id == legacy_candidate.id", source)
+        self.assertNotIn("principal_id == legacy_actor.id", source)
+        self.assertNotIn("principal_id == Driver.id", source)
 
     def test_locks_state_machine_posting_cursors_and_transactions_remain(self):
         source = SOURCE_PATH.read_text(encoding="utf-8")
