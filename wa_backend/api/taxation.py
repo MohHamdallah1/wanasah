@@ -12,8 +12,17 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
+from api.authentication.backoffice_compatibility import (
+    get_current_backoffice_legacy_driver,
+)
 from database import get_db
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
 from domains.taxation.core import TaxError, maker_checker_enabled
 from domains.taxation.service import preview_tax_document
 from domains.taxation.models import (
@@ -51,7 +60,6 @@ from domains.taxation.schemas import (
     VersionUpdate,
     TaxPreviewRequest,
 )
-from inventory_access import InventoryAccess
 from models import Driver, SystemAuditLog
 from services import (
     InventoryMutationError,
@@ -94,8 +102,11 @@ def _next_cursor(value: int) -> str:
     return base64.urlsafe_b64encode(str(value).encode("ascii")).decode("ascii").rstrip("=")
 
 
-async def _require(db: AsyncSession, actor: Driver, permission: str) -> None:
-    await InventoryAccess(db, actor).require(permission, any_location=True)
+async def _require(access: BackofficeCapabilityAccess, permission: str) -> None:
+    try:
+        await access.require(permission, any_location=True)
+    except BackofficeCapabilityAccessRejected:
+        raise HTTPException(403, detail="Authorization denied.") from None
 
 
 def _http_error(exc: TaxError) -> HTTPException:
@@ -104,15 +115,16 @@ def _http_error(exc: TaxError) -> HTTPException:
 
 def _audit(
     db: AsyncSession,
-    actor: Driver,
+    access: BackofficeCapabilityAccess,
+    legacy_actor: Driver,
     target: str,
     action: str,
     payload: dict[str, Any],
 ) -> None:
     db.add(
         SystemAuditLog(
-            company_id=actor.company_id,
-            admin_id=actor.id,
+            company_id=access.company_id,
+            admin_id=legacy_actor.id,
             target_id=target,
             action_type=action,
             old_value=None,
@@ -124,7 +136,8 @@ def _audit(
 async def _mutation(
     *,
     db: AsyncSession,
-    actor: Driver,
+    access: BackofficeCapabilityAccess,
+    legacy_actor: Driver,
     payload: BaseModel,
     operation: str,
     scope: dict[str, Any],
@@ -135,8 +148,8 @@ async def _mutation(
     try:
         record, replay = await begin_idempotent_operation(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             operation=operation,
             request_id=str(payload.request_id),
             request_hash=_hash(payload, **scope),
@@ -147,7 +160,8 @@ async def _mutation(
         response = await fn()
         _audit(
             db,
-            actor,
+            access,
+            legacy_actor,
             target,
             action_name,
             {
@@ -312,11 +326,11 @@ async def _serialize_versions(
 @router.get("/policy")
 async def get_policy(
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "tax.view")
+    await _require(access, "tax.view")
     try:
-        enabled = await maker_checker_enabled(db, actor.company_id)
+        enabled = await maker_checker_enabled(db, access.company_id)
     except TaxError as exc:
         raise _http_error(exc) from exc
     return {"maker_checker_enabled": enabled}
@@ -326,13 +340,13 @@ async def get_policy(
 async def preview_tax(
     payload: TaxPreviewRequest,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "tax.view")
+    await _require(access, "tax.view")
     try:
         return await preview_tax_document(
             db,
-            company_id=actor.company_id,
+            company_id=access.company_id,
             payload=payload,
         )
     except TaxError as exc:
@@ -344,15 +358,15 @@ async def list_jurisdictions(
     cursor: Optional[str] = Query(None, max_length=512),
     limit: int = Query(50, ge=1, le=MAX_PAGE_SIZE),
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "tax.view")
+    await _require(access, "tax.view")
     rows = list(
         (
             await db.scalars(
                 select(TaxJurisdiction)
                 .where(
-                    TaxJurisdiction.company_id == actor.company_id,
+                    TaxJurisdiction.company_id == access.company_id,
                     TaxJurisdiction.id > _cursor(cursor),
                 )
                 .order_by(TaxJurisdiction.id)
@@ -372,15 +386,16 @@ async def list_jurisdictions(
 async def add_jurisdiction(
     payload: JurisdictionCreate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "tax.manage")
+    await _require(access, "tax.manage")
 
     async def run():
         row = await create_jurisdiction(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             code=payload.code,
             name=payload.name,
             jurisdiction_type=payload.jurisdiction_type,
@@ -392,7 +407,7 @@ async def add_jurisdiction(
         return {"jurisdiction": _jurisdiction_row(row)}
 
     return await _mutation(
-        db=db, actor=actor, payload=payload,
+        db=db, access=access, legacy_actor=legacy_actor, payload=payload,
         operation="TAX_JURISDICTION_CREATE", scope={},
         target="TaxJurisdiction", action_name="TAX_JURISDICTION_CREATED", fn=run,
     )
@@ -403,9 +418,10 @@ async def edit_jurisdiction(
     jurisdiction_id: int,
     payload: JurisdictionUpdate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "tax.manage")
+    await _require(access, "tax.manage")
 
     async def run():
         values = payload.model_dump(
@@ -414,7 +430,7 @@ async def edit_jurisdiction(
         )
         row = await update_jurisdiction(
             db,
-            company_id=actor.company_id,
+            company_id=access.company_id,
             jurisdiction_id=jurisdiction_id,
             expected_version=payload.expected_version,
             values=values,
@@ -422,7 +438,7 @@ async def edit_jurisdiction(
         return {"jurisdiction": _jurisdiction_row(row)}
 
     return await _mutation(
-        db=db, actor=actor, payload=payload,
+        db=db, access=access, legacy_actor=legacy_actor, payload=payload,
         operation="TAX_JURISDICTION_UPDATE",
         scope={"jurisdiction_id": jurisdiction_id},
         target=f"TaxJurisdiction_{jurisdiction_id}",
@@ -435,21 +451,22 @@ async def remove_jurisdiction(
     jurisdiction_id: int,
     payload: DeleteCommand,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "tax.manage")
+    await _require(access, "tax.manage")
 
     async def run():
         await delete_jurisdiction(
             db,
-            company_id=actor.company_id,
+            company_id=access.company_id,
             jurisdiction_id=jurisdiction_id,
             expected_version=payload.expected_version,
         )
         return {"deleted": True, "jurisdiction_id": jurisdiction_id}
 
     return await _mutation(
-        db=db, actor=actor, payload=payload,
+        db=db, access=access, legacy_actor=legacy_actor, payload=payload,
         operation="TAX_JURISDICTION_DELETE",
         scope={"jurisdiction_id": jurisdiction_id},
         target=f"TaxJurisdiction_{jurisdiction_id}",
@@ -462,15 +479,15 @@ async def list_rule_sets(
     cursor: Optional[str] = Query(None, max_length=512),
     limit: int = Query(50, ge=1, le=MAX_PAGE_SIZE),
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "tax.view")
+    await _require(access, "tax.view")
     rows = list(
         (
             await db.scalars(
                 select(TaxRuleSet)
                 .where(
-                    TaxRuleSet.company_id == actor.company_id,
+                    TaxRuleSet.company_id == access.company_id,
                     TaxRuleSet.id > _cursor(cursor),
                 )
                 .order_by(TaxRuleSet.id)
@@ -490,15 +507,16 @@ async def list_rule_sets(
 async def add_rule_set(
     payload: RuleSetCreate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "tax.manage")
+    await _require(access, "tax.manage")
 
     async def run():
         row = await create_rule_set(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             code=payload.code,
             name=payload.name,
             description=payload.description,
@@ -506,7 +524,7 @@ async def add_rule_set(
         return {"rule_set": _rule_set_row(row)}
 
     return await _mutation(
-        db=db, actor=actor, payload=payload,
+        db=db, access=access, legacy_actor=legacy_actor, payload=payload,
         operation="TAX_RULE_SET_CREATE", scope={},
         target="TaxRuleSet", action_name="TAX_RULE_SET_CREATED", fn=run,
     )
@@ -517,9 +535,10 @@ async def edit_rule_set(
     rule_set_id: int,
     payload: RuleSetUpdate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "tax.manage")
+    await _require(access, "tax.manage")
 
     async def run():
         values = payload.model_dump(
@@ -528,7 +547,7 @@ async def edit_rule_set(
         )
         row = await update_rule_set(
             db,
-            company_id=actor.company_id,
+            company_id=access.company_id,
             rule_set_id=rule_set_id,
             expected_version=payload.expected_version,
             values=values,
@@ -536,7 +555,7 @@ async def edit_rule_set(
         return {"rule_set": _rule_set_row(row)}
 
     return await _mutation(
-        db=db, actor=actor, payload=payload,
+        db=db, access=access, legacy_actor=legacy_actor, payload=payload,
         operation="TAX_RULE_SET_UPDATE",
         scope={"rule_set_id": rule_set_id},
         target=f"TaxRuleSet_{rule_set_id}",
@@ -549,21 +568,22 @@ async def remove_rule_set(
     rule_set_id: int,
     payload: DeleteCommand,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "tax.manage")
+    await _require(access, "tax.manage")
 
     async def run():
         await delete_rule_set(
             db,
-            company_id=actor.company_id,
+            company_id=access.company_id,
             rule_set_id=rule_set_id,
             expected_version=payload.expected_version,
         )
         return {"deleted": True, "rule_set_id": rule_set_id}
 
     return await _mutation(
-        db=db, actor=actor, payload=payload,
+        db=db, access=access, legacy_actor=legacy_actor, payload=payload,
         operation="TAX_RULE_SET_DELETE",
         scope={"rule_set_id": rule_set_id},
         target=f"TaxRuleSet_{rule_set_id}",
@@ -577,12 +597,12 @@ async def list_versions(
     cursor: Optional[str] = Query(None, max_length=512),
     limit: int = Query(50, ge=1, le=MAX_PAGE_SIZE),
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "tax.view")
+    await _require(access, "tax.view")
     exists = await db.scalar(
         select(TaxRuleSet.id).where(
-            TaxRuleSet.company_id == actor.company_id,
+            TaxRuleSet.company_id == access.company_id,
             TaxRuleSet.id == rule_set_id,
         )
     )
@@ -600,7 +620,7 @@ async def list_versions(
             await db.scalars(
                 select(TaxRuleSetVersion)
                 .where(
-                    TaxRuleSetVersion.company_id == actor.company_id,
+                    TaxRuleSetVersion.company_id == access.company_id,
                     TaxRuleSetVersion.tax_rule_set_id == rule_set_id,
                     TaxRuleSetVersion.id > _cursor(cursor),
                 )
@@ -621,12 +641,12 @@ async def list_versions(
 async def get_version(
     version_id: int,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "tax.view")
+    await _require(access, "tax.view")
     row = await db.scalar(
         select(TaxRuleSetVersion).where(
-            TaxRuleSetVersion.company_id == actor.company_id,
+            TaxRuleSetVersion.company_id == access.company_id,
             TaxRuleSetVersion.id == version_id,
         )
     )
@@ -647,15 +667,16 @@ async def add_version(
     rule_set_id: int,
     payload: VersionCreate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "tax.manage")
+    await _require(access, "tax.manage")
 
     async def run():
         row = await create_draft_version(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             rule_set_id=rule_set_id,
             expected_rule_set_version=payload.expected_rule_set_version,
             request_id=payload.request_id,
@@ -669,7 +690,7 @@ async def add_version(
         return {"version": (await _serialize_versions(db, [row]))[0]}
 
     return await _mutation(
-        db=db, actor=actor, payload=payload,
+        db=db, access=access, legacy_actor=legacy_actor, payload=payload,
         operation="TAX_VERSION_CREATE",
         scope={"rule_set_id": rule_set_id},
         target=f"TaxRuleSet_{rule_set_id}",
@@ -682,14 +703,15 @@ async def edit_version(
     version_id: int,
     payload: VersionUpdate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "tax.manage")
+    await _require(access, "tax.manage")
 
     async def run():
         row = await update_draft_version(
             db,
-            company_id=actor.company_id,
+            company_id=access.company_id,
             version_id=version_id,
             expected_version=payload.expected_version,
             priority=payload.priority,
@@ -702,7 +724,7 @@ async def edit_version(
         return {"version": (await _serialize_versions(db, [row]))[0]}
 
     return await _mutation(
-        db=db, actor=actor, payload=payload,
+        db=db, access=access, legacy_actor=legacy_actor, payload=payload,
         operation="TAX_VERSION_UPDATE",
         scope={"version_id": version_id},
         target=f"TaxVersion_{version_id}",
@@ -715,21 +737,22 @@ async def remove_version(
     version_id: int,
     payload: VersionDelete,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "tax.manage")
+    await _require(access, "tax.manage")
 
     async def run():
         await delete_draft_version(
             db,
-            company_id=actor.company_id,
+            company_id=access.company_id,
             version_id=version_id,
             expected_version=payload.expected_version,
         )
         return {"deleted": True, "version_id": version_id}
 
     return await _mutation(
-        db=db, actor=actor, payload=payload,
+        db=db, access=access, legacy_actor=legacy_actor, payload=payload,
         operation="TAX_VERSION_DELETE",
         scope={"version_id": version_id},
         target=f"TaxVersion_{version_id}",
@@ -741,13 +764,13 @@ async def remove_version(
 async def validate_tax_version(
     version_id: int,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "tax.view")
+    await _require(access, "tax.view")
     try:
         result = await validate_version(
             db,
-            company_id=actor.company_id,
+            company_id=access.company_id,
             version_id=version_id,
         )
     except TaxError as exc:
@@ -760,41 +783,42 @@ async def _version_command(
     version_id: int,
     payload: VersionCommand,
     db: AsyncSession,
-    actor: Driver,
+    access: BackofficeCapabilityAccess,
+    legacy_actor: Driver,
     action: str,
 ) -> dict[str, Any]:
     permission = "tax.approve" if action == "approve" else "tax.manage"
-    await _require(db, actor, permission)
+    await _require(access, permission)
 
     async def run():
         if action == "submit":
             row = await submit_version(
                 db,
-                company_id=actor.company_id,
+                company_id=access.company_id,
                 version_id=version_id,
                 expected_version=payload.expected_version,
             )
         elif action == "publish":
             row = await publish_version(
                 db,
-                company_id=actor.company_id,
-                actor_id=actor.id,
+                company_id=access.company_id,
+                actor_id=legacy_actor.id,
                 version_id=version_id,
                 expected_version=payload.expected_version,
             )
         elif action == "approve":
             row = await approve_version(
                 db,
-                company_id=actor.company_id,
-                actor_id=actor.id,
+                company_id=access.company_id,
+                actor_id=legacy_actor.id,
                 version_id=version_id,
                 expected_version=payload.expected_version,
             )
         elif action == "cancel":
             row = await cancel_version(
                 db,
-                company_id=actor.company_id,
-                actor_id=actor.id,
+                company_id=access.company_id,
+                actor_id=legacy_actor.id,
                 version_id=version_id,
                 expected_version=payload.expected_version,
                 reason=payload.reason,
@@ -811,7 +835,7 @@ async def _version_command(
     }
     return await _mutation(
         db=db,
-        actor=actor,
+        access=access, legacy_actor=legacy_actor,
         payload=payload,
         operation=f"TAX_VERSION_{action.upper()}",
         scope={"version_id": version_id},
@@ -826,10 +850,16 @@ async def submit_tax_version(
     version_id: int,
     payload: VersionCommand,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     return await _version_command(
-        version_id=version_id, payload=payload, db=db, actor=actor, action="submit"
+        version_id=version_id,
+        payload=payload,
+        db=db,
+        access=access,
+        legacy_actor=legacy_actor,
+        action="submit",
     )
 
 
@@ -838,10 +868,16 @@ async def publish_tax_version(
     version_id: int,
     payload: VersionCommand,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     return await _version_command(
-        version_id=version_id, payload=payload, db=db, actor=actor, action="publish"
+        version_id=version_id,
+        payload=payload,
+        db=db,
+        access=access,
+        legacy_actor=legacy_actor,
+        action="publish",
     )
 
 
@@ -850,10 +886,16 @@ async def approve_tax_version(
     version_id: int,
     payload: VersionCommand,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     return await _version_command(
-        version_id=version_id, payload=payload, db=db, actor=actor, action="approve"
+        version_id=version_id,
+        payload=payload,
+        db=db,
+        access=access,
+        legacy_actor=legacy_actor,
+        action="approve",
     )
 
 
@@ -862,8 +904,14 @@ async def cancel_tax_version_endpoint(
     version_id: int,
     payload: VersionCommand,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     return await _version_command(
-        version_id=version_id, payload=payload, db=db, actor=actor, action="cancel"
+        version_id=version_id,
+        payload=payload,
+        db=db,
+        access=access,
+        legacy_actor=legacy_actor,
+        action="cancel",
     )
