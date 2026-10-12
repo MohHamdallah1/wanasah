@@ -11,9 +11,17 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
+from api.authentication.backoffice_compatibility import (
+    get_current_backoffice_legacy_driver,
+)
 from database import get_db
-from inventory_access import InventoryAccess
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
 from models import (
     Company,
     Driver,
@@ -60,12 +68,44 @@ from domains.suppliers.public import SupplierError, select_active_supplier, requ
 from domains.inventory_supplier_evidence import record_supplier_evidence
 
 
-
 from ._shared import _stable_request_hash
 
 
 logger = logging.getLogger("wanasah_logger")
 router = APIRouter()
+
+
+async def _require_inbound_access(
+    access: BackofficeCapabilityAccess,
+    permission: str,
+    location_id: int | None = None,
+    *,
+    any_location: bool = False,
+) -> None:
+    """Preserve the legacy inventory transport contract over canonical access."""
+    try:
+        await access.require(
+            permission,
+            location_id,
+            any_location=any_location,
+        )
+    except BackofficeCapabilityAccessRejected as exc:
+        if location_id is not None:
+            exists = await access.db.scalar(
+                select(InventoryLocation.id).where(
+                    InventoryLocation.company_id == access.company_id,
+                    InventoryLocation.id == location_id,
+                )
+            )
+            if exists is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail='الموقع غير موجود أو غير متاح.',
+                ) from exc
+        raise HTTPException(
+            status_code=403,
+            detail='لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.',
+        ) from exc
 
 
 # ====================================================
@@ -279,7 +319,6 @@ async def _ensure_first_inbound_product_locations(
     }
 
 
-
 # ====================================================
 # 1.4 جلب خيارات وحدات القياس والعملات اللازمة لنموذج التوريد
 # ====================================================
@@ -287,11 +326,12 @@ async def _ensure_first_inbound_product_locations(
 async def warehouse_inbound_options(
     payload: InboundOptionsRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require('inbound.create', any_location=True)
-    company_id = current_admin.company_id
+    await _require_inbound_access(access, 'inbound.create', any_location=True)
+    company_id = int(access.company_id)
 
     base_by_variant, factors, uom_map = await _resolve_inbound_uom_options(
         db,
@@ -343,17 +383,18 @@ async def warehouse_inbound_options(
 @router.get("/warehouse/costing-policy", status_code=200)
 async def warehouse_costing_policy(
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require('inbound.create', any_location=True)
+    await _require_inbound_access(access, 'inbound.create', any_location=True)
     can_change = bool(
         await db.scalar(select(access.allows('inventory.costing.manage')))
     )
     try:
         return await cost_policy_payload(
             db,
-            company_id=current_admin.company_id,
+            company_id=access.company_id,
             can_change=can_change,
         )
     except CostingError as exc:
@@ -370,17 +411,20 @@ async def warehouse_costing_policy(
 async def update_warehouse_costing_policy(
     payload: InventoryCostPolicyUpdateRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require('inventory.costing.manage')
-    company_id = current_admin.company_id
+    await _require_inbound_access(access, 'inventory.costing.manage')
+    company_id = int(access.company_id)
+    actor_id = int(legacy_actor.id)
     try:
         request_hash = _stable_request_hash(payload)
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=actor_id,
             operation="INVENTORY_COST_POLICY_UPDATE",
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -392,7 +436,7 @@ async def update_warehouse_costing_policy(
         await set_cost_policy(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=actor_id,
             method=payload.method,
             expected_version=payload.expected_version,
         )
@@ -422,22 +466,25 @@ async def update_warehouse_costing_policy(
 async def warehouse_inbound(
     payload: UpgradedInboundRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver)
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require('inbound.create', any_location=True)
+    await _require_inbound_access(access, 'inbound.create', any_location=True)
 
-    company_id = current_admin.company_id
+    company_id = int(access.company_id)
+    actor_id = int(legacy_actor.id)
     await _require_active_warehouse_setup(db, company_id)
-    await access.require('inbound.create', payload.location_id)
+    await _require_inbound_access(access, 'inbound.create', payload.location_id)
     try:
         if payload.supplier_id is not None:
-            await require_supplier_permission(db, current_admin)
+            await require_supplier_permission(access)
         request_hash = _stable_request_hash(payload, exclude_fields={"supplier_id"} if payload.supplier_id is None else None)
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=actor_id,
             operation="WAREHOUSE_INBOUND",
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -451,7 +498,11 @@ async def warehouse_inbound(
 
         if payload.supplier_id is None:
             raise HTTPException(422, detail=inventory_business_error("SUPPLIER_REQUIRED", "Select a supplier for every new receipt."))
-        supplier = await select_active_supplier(db, actor=current_admin, supplier_id=payload.supplier_id)
+        supplier = await select_active_supplier(
+            db,
+            access=access,
+            supplier_id=payload.supplier_id,
+        )
 
         reference_id = payload.reference_id
         if not reference_id or not reference_id.strip() or reference_id == "بدون فاتورة":
@@ -560,7 +611,7 @@ async def warehouse_inbound(
                 company_id=company_id,
                 location_id=payload.location_id,
                 variant_ids=missing_location_variant_ids,
-                actor_id=current_admin.id,
+                actor_id=actor_id,
                 request_id=payload.request_id,
             )
 
@@ -838,7 +889,7 @@ async def warehouse_inbound(
         await activate_costing_for_first_receipt(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=actor_id,
         )
 
         movement_specs = []
@@ -879,7 +930,7 @@ async def warehouse_inbound(
         posted_movements = await apply_inventory_movements_batch(
             db,
             company_id=company_id,
-            performed_by=current_admin.id,
+            performed_by=actor_id,
             movements=movement_specs,
         )
         record_supplier_evidence(
@@ -963,5 +1014,3 @@ async def warehouse_inbound(
                 "Supplier inbound could not be completed.",
             ),
         ) from exc
-
-
