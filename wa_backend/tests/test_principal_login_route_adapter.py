@@ -53,9 +53,6 @@ class PrincipalLoginRouteAdapterTests(unittest.IsolatedAsyncioTestCase):
             is_company_owner=False,
             company_id=7,
             company_code="WNS-01",
-            driver_id=303,
-            driver_name="Legacy User",
-            is_admin=False,
             dashboard_access=True,
         )
 
@@ -69,9 +66,6 @@ class PrincipalLoginRouteAdapterTests(unittest.IsolatedAsyncioTestCase):
             channel="FIELD",
             company_id=7,
             company_code="WNS-01",
-            driver_id=333,
-            driver_name="Legacy Rep",
-            is_admin=False,
         )
 
     def _fake_main(self, ip: str = "198.51.100.25"):

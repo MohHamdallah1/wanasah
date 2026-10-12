@@ -27,12 +27,6 @@ class DashboardPrincipalLoginResponse(_StrictPrincipalResponse):
     is_company_owner: bool
     company_id: PositiveId
     company_code: CompanyCode
-
-    # Bounded compatibility window only. These values remain legacy Driver data
-    # and are intentionally not related by validators to canonical identity IDs.
-    driver_id: PositiveId
-    driver_name: NonEmptyText
-    is_admin: bool
     dashboard_access: Literal[True]
 
 
@@ -44,11 +38,6 @@ class FieldPrincipalLoginResponse(_StrictPrincipalResponse):
     channel: Literal["FIELD"]
     company_id: PositiveId
     company_code: CompanyCode
-
-    # Bounded compatibility window only; never authority and never an alias.
-    driver_id: PositiveId
-    driver_name: NonEmptyText
-    is_admin: bool
 
 
 class PrincipalTokenPairResponse(_StrictPrincipalResponse):

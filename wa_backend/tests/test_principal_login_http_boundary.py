@@ -1,16 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import replace
+import inspect
 import unittest
-from unittest.mock import AsyncMock, patch
 
 from context import tenant_context
 from domains.identity.contracts import (
     DashboardAuthenticationResult,
     FieldAuthenticationResult,
-)
-from domains.identity.legacy_compatibility import (
-    LegacyLoginCompatibility,
-    LegacyLoginCompatibilityMissing,
 )
 from api.authentication.login import (
     LoginBoundaryRejected,
@@ -18,8 +15,6 @@ from api.authentication.login import (
     build_dashboard_login_response,
     build_field_login_response,
     prepare_login_company,
-    require_dashboard_login_compatibility,
-    require_field_login_compatibility,
 )
 
 
@@ -58,11 +53,6 @@ class PrincipalLoginHTTPBoundaryTests(unittest.IsolatedAsyncioTestCase):
             full_name="Canonical Field",
             auth_revision=8,
         )
-        self.compatibility = LegacyLoginCompatibility(
-            legacy_driver_id=9001,
-            legacy_is_admin=False,
-            legacy_driver_name="Legacy Driver",
-        )
 
     def tearDown(self):
         tenant_context.set(None)
@@ -95,7 +85,6 @@ class PrincipalLoginHTTPBoundaryTests(unittest.IsolatedAsyncioTestCase):
             authentication=self.dashboard,
             access_token="access-dashboard",
             refresh_token="refresh-dashboard",
-            compatibility=self.compatibility,
         )
 
         self.assertEqual(response["token"], "access-dashboard")
@@ -114,7 +103,6 @@ class PrincipalLoginHTTPBoundaryTests(unittest.IsolatedAsyncioTestCase):
             authentication=self.field,
             access_token="access-field",
             refresh_token="refresh-field",
-            compatibility=self.compatibility,
         )
 
         self.assertEqual(response["token"], "access-field")
@@ -125,72 +113,37 @@ class PrincipalLoginHTTPBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response["company_id"], 7)
         self.assertEqual(response["company_code"], "WNS-01")
 
-    def test_exact_legacy_compatibility_ids_preserved(self):
+    def test_both_responses_have_no_legacy_identity_or_authority_fields(self):
+        for builder, identity in ((build_dashboard_login_response, self.dashboard),
+                                  (build_field_login_response, self.field)):
+            with self.subTest(channel=identity.channel):
+                response = builder(company=self.company, authentication=identity,
+                                   access_token="a", refresh_token="r")
+                self.assertTrue({"driver_id", "driver_name", "is_admin", "legacy_is_admin"}.isdisjoint(response))
+
+    def test_principal_and_profile_ids_remain_independent(self):
         dashboard = build_dashboard_login_response(
-            company=self.company,
-            authentication=self.dashboard,
-            access_token="a",
-            refresh_token="r",
-            compatibility=self.compatibility,
+            company=self.company, authentication=self.dashboard,
+            access_token="a", refresh_token="r",
         )
         field = build_field_login_response(
-            company=self.company,
-            authentication=self.field,
-            access_token="a",
-            refresh_token="r",
-            compatibility=self.compatibility,
+            company=self.company, authentication=self.field,
+            access_token="a", refresh_token="r",
         )
+        self.assertEqual((dashboard["principal_id"], dashboard["backoffice_user_id"]), (101, 301))
+        self.assertEqual((field["principal_id"], field["representative_id"]), (102, 401))
 
-        self.assertEqual(dashboard["driver_id"], 9001)
-        self.assertEqual(field["driver_id"], 9001)
-        self.assertEqual(dashboard["driver_name"], "Legacy Driver")
-        self.assertEqual(field["driver_name"], "Legacy Driver")
-
-    def test_principal_and_profile_ids_never_substitute_driver_id(self):
-        response = build_field_login_response(
-            company=self.company,
-            authentication=self.field,
-            access_token="a",
-            refresh_token="r",
-            compatibility=LegacyLoginCompatibility(
-                legacy_driver_id=9999,
-                legacy_is_admin=False,
-                legacy_driver_name="Legacy",
-            ),
-        )
-
-        self.assertEqual(response["driver_id"], 9999)
-        self.assertNotEqual(response["driver_id"], response["principal_id"])
-        self.assertNotEqual(response["driver_id"], response["representative_id"])
-
-    def test_compatibility_is_admin_cannot_change_canonical_identity(self):
-        false_response = build_dashboard_login_response(
-            company=self.company,
-            authentication=self.dashboard,
-            access_token="a",
-            refresh_token="r",
-            compatibility=LegacyLoginCompatibility(9001, False, "Legacy"),
-        )
-        true_response = build_dashboard_login_response(
-            company=self.company,
-            authentication=self.dashboard,
-            access_token="a",
-            refresh_token="r",
-            compatibility=LegacyLoginCompatibility(9001, True, "Legacy"),
-        )
-
-        for key in (
-            "principal_id",
-            "backoffice_user_id",
-            "channel",
-            "company_id",
-            "company_code",
-            "is_company_owner",
-        ):
-            self.assertEqual(false_response[key], true_response[key])
-        self.assertFalse(false_response["is_admin"])
-        self.assertTrue(true_response["is_admin"])
-        self.assertEqual(self.dashboard.principal_type.value, "BACKOFFICE")
+    def test_company_owner_is_explicit_canonical_state(self):
+        for owner in (False, True):
+            identity = replace(self.dashboard, is_company_owner=owner)
+            response = build_dashboard_login_response(
+                company=self.company, authentication=identity,
+                access_token="a", refresh_token="r",
+            )
+            self.assertIs(response["is_company_owner"], owner)
+            self.assertEqual(response["principal_id"], 101)
+            self.assertEqual(response["backoffice_user_id"], 301)
+            self.assertTrue(response["dashboard_access"])
 
     def test_no_credential_material_in_response(self):
         response = build_dashboard_login_response(
@@ -198,7 +151,6 @@ class PrincipalLoginHTTPBoundaryTests(unittest.IsolatedAsyncioTestCase):
             authentication=self.dashboard,
             access_token="a",
             refresh_token="r",
-            compatibility=self.compatibility,
         )
 
         self.assertEqual(
@@ -212,9 +164,6 @@ class PrincipalLoginHTTPBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 "is_company_owner",
                 "company_id",
                 "company_code",
-                "driver_id",
-                "driver_name",
-                "is_admin",
                 "dashboard_access",
             },
         )
@@ -223,54 +172,29 @@ class PrincipalLoginHTTPBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("password_hash", response)
         self.assertNotIn("full_name", response)
 
-    def test_missing_compatibility_mapping_fails_closed(self):
+    def test_builders_have_no_compatibility_argument(self):
+        for builder in (build_dashboard_login_response, build_field_login_response):
+            self.assertEqual(set(inspect.signature(builder).parameters),
+                             {"company", "authentication", "access_token", "refresh_token"})
+            with self.assertRaises(TypeError):
+                builder(company=self.company, authentication=self.dashboard,
+                        access_token="a", refresh_token="r", compatibility=None)
+
+    def test_cross_company_authentication_fails_closed_for_both_builders(self):
+        for builder, identity in ((build_dashboard_login_response, self.dashboard),
+                                  (build_field_login_response, self.field)):
+            with self.subTest(channel=identity.channel), self.assertRaises(LoginBoundaryRejected):
+                builder(company=self.company, authentication=replace(identity, company_id=8),
+                        access_token="a", refresh_token="r")
+
+    async def test_company_seed_failure_restores_tenant_context(self):
+        class FailingDB(FakeLoginDB):
+            async def execute(self, statement, params=None):
+                raise RuntimeError("synthetic RLS seed failure")
+
         with self.assertRaises(LoginBoundaryRejected):
-            build_dashboard_login_response(
-                company=self.company,
-                authentication=self.dashboard,
-                access_token="a",
-                refresh_token="r",
-                compatibility=None,
-            )
-
-    async def test_dashboard_compatibility_uses_existing_adapter_only(self):
-        db = object()
-        expected = LegacyLoginCompatibility(777, True, "Legacy Admin")
-        with patch(
-            "api.authentication.login.load_dashboard_login_compatibility",
-            new=AsyncMock(return_value=expected),
-        ) as loader:
-            result = await require_dashboard_login_compatibility(
-                db,
-                company=self.company,
-                authentication=self.dashboard,
-            )
-
-        self.assertEqual(result, expected)
-        loader.assert_awaited_once_with(
-            db,
-            company_id=7,
-            backoffice_user_id=301,
-        )
-
-    async def test_compatibility_adapter_missing_mapping_is_rejected(self):
-        db = object()
-        with patch(
-            "api.authentication.login.load_field_login_compatibility",
-            new=AsyncMock(side_effect=LegacyLoginCompatibilityMissing),
-        ) as loader:
-            with self.assertRaises(LoginBoundaryRejected):
-                await require_field_login_compatibility(
-                    db,
-                    company=self.company,
-                    authentication=self.field,
-                )
-
-        loader.assert_awaited_once_with(
-            db,
-            company_id=7,
-            representative_id=401,
-        )
+            await prepare_login_company(FailingDB(company_id=41), company_code="TENANT-41")
+        self.assertIsNone(tenant_context.get())
 
 
 if __name__ == "__main__":

@@ -134,6 +134,21 @@ class IdentityAuthenticationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.is_company_owner)
         self.assertFalse(hasattr(result, "password_hash"))
 
+    async def test_owner_requires_exact_company_owner_relation_regardless_of_role_or_flag(self):
+        for owner_id, flag in ((None, True), (999, True), (20, False)):
+            with self.subTest(owner_id=owner_id, legacy_flag=flag):
+                db = self.dashboard_db(owner=False)
+                principal = db.values[CompanyPrincipal]
+                principal.is_admin = flag
+                principal.role = "Owner" if flag else "Ordinary"
+                if owner_id is not None:
+                    db.values[CompanyOwner] = SimpleNamespace(company_id=1, backoffice_user_id=owner_id)
+                result = await authenticate_identity(
+                    db, company_id=1, username="owner", password=self.password,
+                    channel=IdentityChannel.DASHBOARD,
+                )
+                self.assertIs(result.is_company_owner, owner_id == 20)
+
     async def test_field_requires_field_profile_and_keeps_profile_id_distinct(self):
         result = await authenticate_identity(
             self.field_db(), company_id=1, username="rep",

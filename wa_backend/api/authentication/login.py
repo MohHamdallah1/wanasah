@@ -2,7 +2,7 @@
 
 This module does not authenticate passwords, issue tokens, persist sessions, or
 make authorization decisions. It prepares the tenant boundary and formats the
-future dual canonical/legacy login responses.
+canonical login responses.
 """
 from __future__ import annotations
 
@@ -17,12 +17,6 @@ from models import Company
 from domains.identity.contracts import (
     DashboardAuthenticationResult,
     FieldAuthenticationResult,
-)
-from domains.identity.legacy_compatibility import (
-    LegacyLoginCompatibility,
-    LegacyLoginCompatibilityMissing,
-    load_dashboard_login_compatibility,
-    load_field_login_compatibility,
 )
 
 
@@ -45,9 +39,6 @@ class DashboardLoginResponse(TypedDict):
     is_company_owner: bool
     company_id: int
     company_code: str
-    driver_id: int
-    driver_name: str
-    is_admin: bool
     dashboard_access: Literal[True]
 
 
@@ -59,9 +50,6 @@ class FieldLoginResponse(TypedDict):
     channel: Literal["FIELD"]
     company_id: int
     company_code: str
-    driver_id: int
-    driver_name: str
-    is_admin: bool
 
 
 async def prepare_login_company(
@@ -106,54 +94,15 @@ def _require_same_company(
         raise LoginBoundaryRejected
 
 
-async def require_dashboard_login_compatibility(
-    db: AsyncSession,
-    *,
-    company: LoginCompanyContext,
-    authentication: DashboardAuthenticationResult,
-) -> LegacyLoginCompatibility:
-    """Resolve the temporary Dashboard fields through the reviewed bridge only."""
-    _require_same_company(company, authentication)
-    try:
-        return await load_dashboard_login_compatibility(
-            db,
-            company_id=company.company_id,
-            backoffice_user_id=authentication.backoffice_user_id,
-        )
-    except LegacyLoginCompatibilityMissing as exc:
-        raise LoginBoundaryRejected from exc
-
-
-async def require_field_login_compatibility(
-    db: AsyncSession,
-    *,
-    company: LoginCompanyContext,
-    authentication: FieldAuthenticationResult,
-) -> LegacyLoginCompatibility:
-    """Resolve the temporary Field fields through the reviewed bridge only."""
-    _require_same_company(company, authentication)
-    try:
-        return await load_field_login_compatibility(
-            db,
-            company_id=company.company_id,
-            representative_id=authentication.representative_id,
-        )
-    except LegacyLoginCompatibilityMissing as exc:
-        raise LoginBoundaryRejected from exc
-
-
 def build_dashboard_login_response(
     *,
     company: LoginCompanyContext,
     authentication: DashboardAuthenticationResult,
     access_token: str,
     refresh_token: str,
-    compatibility: LegacyLoginCompatibility | None,
 ) -> DashboardLoginResponse:
-    """Build the future Dashboard dual response without side effects."""
+    """Build the canonical Dashboard response without side effects."""
     _require_same_company(company, authentication)
-    if compatibility is None:
-        raise LoginBoundaryRejected
 
     return {
         "token": access_token,
@@ -164,9 +113,6 @@ def build_dashboard_login_response(
         "is_company_owner": authentication.is_company_owner,
         "company_id": authentication.company_id,
         "company_code": company.company_code,
-        "driver_id": compatibility.legacy_driver_id,
-        "driver_name": compatibility.legacy_driver_name,
-        "is_admin": compatibility.legacy_is_admin,
         "dashboard_access": True,
     }
 
@@ -177,12 +123,9 @@ def build_field_login_response(
     authentication: FieldAuthenticationResult,
     access_token: str,
     refresh_token: str,
-    compatibility: LegacyLoginCompatibility | None,
 ) -> FieldLoginResponse:
-    """Build the future Field dual response without side effects."""
+    """Build the canonical Field response without side effects."""
     _require_same_company(company, authentication)
-    if compatibility is None:
-        raise LoginBoundaryRejected
 
     return {
         "token": access_token,
@@ -192,9 +135,6 @@ def build_field_login_response(
         "channel": "FIELD",
         "company_id": authentication.company_id,
         "company_code": company.company_code,
-        "driver_id": compatibility.legacy_driver_id,
-        "driver_name": compatibility.legacy_driver_name,
-        "is_admin": compatibility.legacy_is_admin,
     }
 
 
@@ -206,6 +146,4 @@ __all__ = [
     "build_dashboard_login_response",
     "build_field_login_response",
     "prepare_login_company",
-    "require_dashboard_login_compatibility",
-    "require_field_login_compatibility",
 ]
