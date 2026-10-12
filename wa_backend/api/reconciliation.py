@@ -10,7 +10,9 @@ import json
 import logging
 
 from database import get_db
-from api.dependencies import get_current_driver
+from api.authentication.dependencies import get_current_field_context
+from api.authentication.field_compatibility import get_current_field_legacy_driver
+from domains.auth_sessions.context import FieldRequestContext
 from schemas import NonNegativeQuantity
 from quantity import QUANTITY_MAX, QuantityError, validate_variant_quantity
 from models import (
@@ -75,7 +77,8 @@ async def reconcile_driver_end_of_day(
     session_id: int,
     payload: VehicleReconciliationRequest,
     db: AsyncSession = Depends(get_db),
-    current_driver: Driver = Depends(get_current_driver),
+    field_context: FieldRequestContext = Depends(get_current_field_context),
+    legacy_actor: Driver = Depends(get_current_field_legacy_driver),
 ):
     """
     تسوية عهدة نهاية اليوم بدون إجبار المندوب على Batch count عندما تكون الإجماليات مطابقة.
@@ -84,8 +87,8 @@ async def reconcile_driver_end_of_day(
     - المطابقة التامة: يثبت Ending Snapshot ويختم التسوية المخزنية فقط؛ التسوية المالية تبقى للمحاسب.
     - وجود فرق: يفتح VEHICLE_RECON موجهاً فقط للأصناف المختلفة؛ لا يخمّن Batch الفرق.
     """
-    company_id = int(current_driver.company_id)
-    driver_id = int(current_driver.id)
+    company_id = int(field_context.company_id)
+    driver_id = int(legacy_actor.id)
     if session_id <= 0 or session_id > _DB_INT_MAX:
         raise HTTPException(status_code=422, detail="session_id خارج النطاق الصحيح لقاعدة البيانات.")
 

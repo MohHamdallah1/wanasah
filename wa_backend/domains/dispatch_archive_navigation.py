@@ -7,15 +7,13 @@ from sqlalchemy import Integer, and_, cast, literal, select, union_all
 
 from dispatch_access import route_filter
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
-from inventory_access import InventoryAccess
 from models import DispatchLoadPlanLine, DispatchRoute, InventoryTransferHeader, InventoryTransferLine, ShortageRequest
 
 
-def _archive_access(db, access_or_actor):
-    """Prefer canonical Backoffice access; retain the old Catalog caller temporarily."""
-    if isinstance(access_or_actor, (BackofficeCapabilityAccess, InventoryAccess)):
-        return access_or_actor
-    return InventoryAccess(db, access_or_actor)
+def _archive_access(
+    access: BackofficeCapabilityAccess,
+) -> BackofficeCapabilityAccess:
+    return access
 
 
 def dispatch_archive_target_query(access, variant_id, samples):
@@ -50,21 +48,17 @@ def dispatch_archive_target_query(access, variant_id, samples):
                             InventoryTransferLine.product_variant_id == variant_id).correlate(header).exists(),
         ))
     if samples.get("OPEN_SHORTAGE"):
-        # The legacy caller exposed shortages only to its full-authority persona.
-        # Canonical callers instead use the reviewed shortage.read capability.
-        legacy_restricted = isinstance(access, InventoryAccess) and not access.subject.legacy_full_authority
-        if not legacy_restricted:
-            shortage = ShortageRequest
-            statements.append(select(*columns("OPEN_SHORTAGE", "shortage", shortage.id)).where(
-                shortage.company_id == access.company_id, shortage.id == samples["OPEN_SHORTAGE"],
-                shortage.product_variant_id == variant_id, shortage.status == "pending",
-                access.allows("shortage.read", any_location=True),
-            ))
+        shortage = ShortageRequest
+        statements.append(select(*columns("OPEN_SHORTAGE", "shortage", shortage.id)).where(
+            shortage.company_id == access.company_id, shortage.id == samples["OPEN_SHORTAGE"],
+            shortage.product_variant_id == variant_id, shortage.status == "pending",
+            access.allows("shortage.read", any_location=True),
+        ))
     return union_all(*statements) if statements else None
 
 
-async def dispatch_archive_targets(db, access_or_actor, variant_id, blockers):
-    access = _archive_access(db, access_or_actor)
+async def dispatch_archive_targets(db, access: BackofficeCapabilityAccess, variant_id, blockers):
+    access = _archive_access(access)
     samples = {row["code"]: row["sample_id"] for row in blockers}
     query = dispatch_archive_target_query(access, variant_id, samples)
     if query is None:

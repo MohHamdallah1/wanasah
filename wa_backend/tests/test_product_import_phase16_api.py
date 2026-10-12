@@ -10,7 +10,12 @@ from uuid import UUID, uuid4
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
+from api.authentication.backoffice_compatibility import (
+    get_current_backoffice_legacy_driver,
+)
 from database import get_db
 
 router_module = importlib.import_module(
@@ -76,10 +81,11 @@ class ProductImportPhase16ApiLifecycleTests(
     ) -> None:
         self.company_id = 101
         self.actor_id = 11
+        self.access = SimpleNamespace(company_id=self.company_id)
         self.actor = SimpleNamespace(
-            company_id=
-                self.company_id,
+            company_id=999999,
             id=self.actor_id,
+            is_admin=True,
         )
         self.db = _FakeDb()
 
@@ -91,6 +97,9 @@ class ProductImportPhase16ApiLifecycleTests(
         async def db_override():
             yield self.db
 
+        async def access_override():
+            return self.access
+
         async def actor_override():
             return self.actor
 
@@ -98,7 +107,10 @@ class ProductImportPhase16ApiLifecycleTests(
             get_db
         ] = db_override
         app.dependency_overrides[
-            get_current_driver
+            get_current_backoffice_capability_access
+        ] = access_override
+        app.dependency_overrides[
+            get_current_backoffice_legacy_driver
         ] = actor_override
         self.client = TestClient(
             app
@@ -580,11 +592,8 @@ class ProductImportPhase16TenantIsolationTests(
             foreign_job_id=
                 self.job_b,
         )
-        self.actor = SimpleNamespace(
-            company_id=
-                self.company_a,
-            id=11,
-        )
+        self.access = SimpleNamespace(company_id=self.company_a)
+        self.actor = SimpleNamespace(company_id=999999, id=11, is_admin=True)
 
         app = FastAPI()
         app.include_router(
@@ -594,6 +603,9 @@ class ProductImportPhase16TenantIsolationTests(
         async def db_override():
             yield self.db
 
+        async def access_override():
+            return self.access
+
         async def actor_override():
             return self.actor
 
@@ -601,7 +613,10 @@ class ProductImportPhase16TenantIsolationTests(
             get_db
         ] = db_override
         app.dependency_overrides[
-            get_current_driver
+            get_current_backoffice_capability_access
+        ] = access_override
+        app.dependency_overrides[
+            get_current_backoffice_legacy_driver
         ] = actor_override
         self.client = TestClient(
             app
