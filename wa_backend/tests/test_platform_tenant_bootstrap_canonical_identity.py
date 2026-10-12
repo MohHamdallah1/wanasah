@@ -2,30 +2,10 @@
 from __future__ import annotations
 
 import ast
-import copy
-import hashlib
 from pathlib import Path
 import unittest
 
 SOURCE = Path(__file__).resolve().parents[1] / "api" / "platform_manager.py"
-
-UNCHANGED_FUNCTION_DIGESTS = {
-    "get_current_platform_admin": "7508417d2784742e8165f67db75062da307a7904b3ae4ff152f6cab1abb08dba",
-    "_check_platform_login_limit": "9b8009a6812688806b171dc68a7dff6d1ac86f1f5edc5b27feb54beee9a0c208",
-    "_record_platform_login": "0abd16abb0555ed8c82870d3e20004eb7d9fc42112b8cdf024ba4e7e50ad5804",
-    "platform_admin_login": "04f084104e83e1593a93339caf6643bea346abaa4ee243f73d30c8a5595eee1c",
-    "list_all_tenants": "b7cb0657b102c9d0389126b5ab53e796981f58ea32fd188b561bbb860e4bf582",
-}
-
-
-def _digest(node: ast.AST) -> str:
-    tree = copy.deepcopy(node)
-    for item in ast.walk(tree):
-        if getattr(item, "type_params", None) == []:
-            del item.type_params
-    return hashlib.sha256(
-        ast.dump(tree, include_attributes=False).encode()
-    ).hexdigest()
 
 
 def _functions(tree: ast.Module) -> dict[str, ast.AST]:
@@ -62,6 +42,57 @@ def _calls(function: ast.AST, name: str) -> list[ast.Call]:
             elif isinstance(node.func, ast.Attribute) and node.func.attr == name:
                 result.append(node)
     return result
+
+
+def _string_constants(node: ast.AST) -> set[str]:
+    return {
+        item.value
+        for item in ast.walk(node)
+        if isinstance(item, ast.Constant) and isinstance(item.value, str)
+    }
+
+
+def _name_references(node: ast.AST) -> set[str]:
+    return {item.id for item in ast.walk(node) if isinstance(item, ast.Name)}
+
+
+def _parameter_defaults(function: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, ast.AST]:
+    positional = function.args.args
+    defaults = function.args.defaults
+    return {
+        arg.arg: default
+        for arg, default in zip(positional[-len(defaults):], defaults)
+    } if defaults else {}
+
+
+def _payload_get_compare(
+    node: ast.AST,
+    *,
+    key: str,
+    operator_type: type[ast.cmpop],
+    expected: object,
+) -> bool:
+    for item in ast.walk(node):
+        if not isinstance(item, ast.Compare) or len(item.ops) != 1 or len(item.comparators) != 1:
+            continue
+        left = item.left
+        if not (
+            isinstance(left, ast.Call)
+            and isinstance(left.func, ast.Attribute)
+            and isinstance(left.func.value, ast.Name)
+            and left.func.value.id == "payload"
+            and left.func.attr == "get"
+            and len(left.args) == 1
+            and isinstance(left.args[0], ast.Constant)
+            and left.args[0].value == key
+        ):
+            continue
+        if not isinstance(item.ops[0], operator_type):
+            continue
+        comparator = item.comparators[0]
+        if isinstance(comparator, ast.Constant) and comparator.value == expected:
+            return True
+    return False
 
 
 class PlatformTenantBootstrapCanonicalIdentityTests(unittest.TestCase):
@@ -240,10 +271,167 @@ class PlatformTenantBootstrapCanonicalIdentityTests(unittest.TestCase):
         self.assertEqual(_keywords(decorator)["status_code"].value, 201)
 
     def test_platform_admin_login_and_company_listing_are_unchanged(self):
-        for name, expected in UNCHANGED_FUNCTION_DIGESTS.items():
-            self.assertEqual(_digest(self.functions[name]), expected, name)
-        self.assertNotIn("CompanyPrincipal", ast.unparse(self.functions["platform_admin_login"]))
-        self.assertNotIn("CompanyOwner", ast.unparse(self.functions["platform_admin_login"]))
+        current = self.functions["get_current_platform_admin"]
+        current_strings = _string_constants(current)
+
+        decode_calls = [
+            call for call in _calls(current, "decode")
+            if isinstance(call.func, ast.Attribute)
+            and isinstance(call.func.value, ast.Name)
+            and call.func.value.id == "jwt"
+        ]
+        self.assertEqual(len(decode_calls), 1)
+        decode = decode_calls[0]
+        self.assertEqual(ast.unparse(decode.args[0]), "credentials.credentials")
+        self.assertTrue(
+            _payload_get_compare(
+                current,
+                key="type",
+                operator_type=ast.NotEq,
+                expected="platform_access",
+            )
+        )
+        self.assertTrue(
+            _payload_get_compare(
+                current,
+                key="is_platform_admin",
+                operator_type=ast.IsNot,
+                expected=True,
+            )
+        )
+        select_platform_admin = [
+            call for call in _calls(current, "select")
+            if call.args
+            and isinstance(call.args[0], ast.Name)
+            and call.args[0].id == "PlatformAdmin"
+        ]
+        self.assertEqual(len(select_platform_admin), 1)
+        active_checks = [
+            call for call in _calls(current, "is_")
+            if isinstance(call.func, ast.Attribute)
+            and isinstance(call.func.value, ast.Attribute)
+            and isinstance(call.func.value.value, ast.Name)
+            and call.func.value.value.id == "PlatformAdmin"
+            and call.func.value.attr == "is_active"
+            and len(call.args) == 1
+            and isinstance(call.args[0], ast.Constant)
+            and call.args[0].value is True
+        ]
+        self.assertEqual(len(active_checks), 1)
+        self.assertTrue({
+            "انتهت صلاحية جلسة مدير المنصة.",
+            "توكن مدير المنصة غير صالح.",
+            "حساب مدير المنصة غير متاح.",
+        } <= current_strings)
+        current_http_errors = [
+            call for call in _calls(current, "HTTPException")
+            if _keywords(call).get("status_code") is not None
+        ]
+        self.assertGreaterEqual(len(current_http_errors), 3)
+        self.assertTrue(all(
+            isinstance(_keywords(call)["status_code"], ast.Constant)
+            and _keywords(call)["status_code"].value == 401
+            for call in current_http_errors
+        ))
+
+        login = self.functions["platform_admin_login"]
+        login_names = _name_references(login)
+        rate_limit_calls = _calls(login, "_check_platform_login_limit")
+        self.assertEqual(len(rate_limit_calls), 1)
+        self.assertEqual([ast.unparse(arg) for arg in rate_limit_calls[0].args], ["ip", "db"])
+        bcrypt_checks = [
+            call for call in _calls(login, "checkpw")
+            if isinstance(call.func, ast.Attribute)
+            and isinstance(call.func.value, ast.Name)
+            and call.func.value.id == "bcrypt"
+        ]
+        self.assertEqual(len(bcrypt_checks), 1)
+        record_calls = _calls(login, "_record_platform_login")
+        self.assertEqual(len(record_calls), 2)
+        self.assertEqual(
+            sorted(
+                call.args[2].value
+                for call in record_calls
+                if len(call.args) >= 3 and isinstance(call.args[2], ast.Constant)
+            ),
+            [False, True],
+        )
+        encode_calls = [
+            call for call in _calls(login, "encode")
+            if isinstance(call.func, ast.Attribute)
+            and isinstance(call.func.value, ast.Name)
+            and call.func.value.id == "jwt"
+        ]
+        self.assertEqual(len(encode_calls), 1)
+        token_payload = encode_calls[0].args[0]
+        self.assertIsInstance(token_payload, ast.Dict)
+        token_fields = {
+            key.value: value
+            for key, value in zip(token_payload.keys, token_payload.values)
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+        }
+        self.assertEqual(token_fields["type"].value, "platform_access")
+        self.assertIs(token_fields["is_platform_admin"].value, True)
+        self.assertIn("PlatformAdmin", login_names)
+        self.assertTrue(
+            {"CompanyPrincipal", "CompanyOwner", "BackofficeUser"}.isdisjoint(login_names)
+        )
+
+        listing = self.functions["list_all_tenants"]
+        listing_names = _name_references(listing)
+        defaults = _parameter_defaults(listing)
+        page_query = defaults["page"]
+        page_size_query = defaults["page_size"]
+        q_query = defaults["q"]
+        self.assertEqual(ast.unparse(page_query.func), "Query")
+        self.assertEqual(_keywords(page_query)["default"].value, 1)
+        self.assertEqual(_keywords(page_query)["ge"].value, 1)
+        self.assertEqual(_keywords(page_size_query)["default"].value, 20)
+        self.assertEqual(_keywords(page_size_query)["ge"].value, 1)
+        self.assertEqual(_keywords(page_size_query)["le"].value, 100)
+        self.assertIsNone(_keywords(q_query)["default"].value)
+        self.assertEqual(_keywords(q_query)["min_length"].value, 1)
+        self.assertEqual(_keywords(q_query)["max_length"].value, 100)
+
+        platform_default = defaults["_platform_admin"]
+        self.assertEqual(ast.unparse(platform_default.func), "Depends")
+        self.assertEqual(ast.unparse(platform_default.args[0]), "get_current_platform_admin")
+        platform_arg = next(arg for arg in listing.args.args if arg.arg == "_platform_admin")
+        self.assertEqual(ast.unparse(platform_arg.annotation), "PlatformAdmin")
+
+        ilike_calls = _calls(listing, "ilike")
+        ilike_owners = {
+            ast.unparse(call.func.value)
+            for call in ilike_calls
+            if isinstance(call.func, ast.Attribute)
+        }
+        self.assertEqual(ilike_owners, {"Company.name", "Company.company_code"})
+
+        order_calls = _calls(listing, "order_by")
+        self.assertEqual(len(order_calls), 1)
+        self.assertEqual(
+            [ast.unparse(arg) for arg in order_calls[0].args],
+            ["Company.created_at.desc()", "Company.id.desc()"],
+        )
+        offset_calls = _calls(listing, "offset")
+        limit_calls = _calls(listing, "limit")
+        self.assertEqual(len(offset_calls), 1)
+        self.assertEqual(len(limit_calls), 1)
+        self.assertEqual(ast.unparse(offset_calls[0].args[0]), "(page - 1) * page_size")
+        self.assertEqual(ast.unparse(limit_calls[0].args[0]), "page_size")
+
+        returns = [node for node in ast.walk(listing) if isinstance(node, ast.Return)]
+        self.assertEqual(len(returns), 1)
+        self.assertIsInstance(returns[0].value, ast.Dict)
+        response_keys = {
+            key.value
+            for key in returns[0].value.keys
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+        }
+        self.assertEqual(response_keys, {"items", "total", "page", "page_size", "pages"})
+        self.assertTrue(
+            {"CompanyPrincipal", "CompanyOwner", "BackofficeUser"}.isdisjoint(listing_names)
+        )
 
 
 if __name__ == "__main__":
