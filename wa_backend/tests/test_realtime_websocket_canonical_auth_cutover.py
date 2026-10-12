@@ -122,8 +122,18 @@ class RealtimeWebSocketCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
     ):
         claims = claims or _claims()
         context = context or _dashboard()
-        subject = subject or _subject(context)
-        locator = locator or _locator(context)
+        if subject is None:
+            subject = (
+                _subject(context)
+                if isinstance(context, DashboardRequestContext)
+                else SimpleNamespace()
+            )
+        if locator is None:
+            locator = (
+                _locator(context)
+                if isinstance(context, DashboardRequestContext)
+                else SimpleNamespace()
+            )
         db = _FakeDB(blacklisted=blacklisted)
         opened_companies = []
 
