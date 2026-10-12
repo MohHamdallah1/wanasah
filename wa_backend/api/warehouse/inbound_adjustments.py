@@ -10,9 +10,18 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
+from api.authentication.backoffice_compatibility import (
+    get_current_backoffice_legacy_driver,
+)
 from database import get_db
-from inventory_access import InventoryAccess, require_inbound_adjustment
+from domains.authorization import require_inbound_adjustment
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
 from models import (
     Driver,
     InventoryLocation,
@@ -29,6 +38,19 @@ logger = logging.getLogger("wanasah_logger")
 router = APIRouter()
 
 
+async def _require_inbound_adjustment_access(
+    access: BackofficeCapabilityAccess,
+    entry_id: int,
+) -> None:
+    try:
+        await require_inbound_adjustment(access, entry_id)
+    except BackofficeCapabilityAccessRejected:
+        raise HTTPException(
+            status_code=403,
+            detail="لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.",
+        ) from None
+
+
 # ====================================================
 # 8. تعديل فاتورة توريد - Correction append-only على المحرك الموحد
 # ====================================================
@@ -41,24 +63,26 @@ async def adjust_warehouse_entry(
     entry_id: int,
     payload: AdjustWarehouseEntryRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver)
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    access = InventoryAccess(db, current_admin)
-    await require_inbound_adjustment(access, entry_id)
+    await _require_inbound_adjustment_access(access, entry_id)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     password_ok = await asyncio.to_thread(
         bcrypt.checkpw,
         payload.password.encode('utf-8'),
-        current_admin.password_hash.encode('utf-8')
+        legacy_actor.password_hash.encode('utf-8')
     )
 
     if not password_ok:
         try:
             db.add(SystemAuditLog(
                 company_id=company_id,
-                admin_id=current_admin.id,
+                admin_id=legacy_actor.id,
                 target_id=f"InventoryMovement_{entry_id}",
                 action_type='UNAUTHORIZED_ADJUSTMENT',
                 old_value='Wrong Password',
@@ -308,7 +332,7 @@ async def adjust_warehouse_entry(
         correction_movement = await apply_inventory_movement(
             db,
             company_id=company_id,
-            performed_by=current_admin.id,
+            performed_by=legacy_actor.id,
             product_variant_id=original.product_variant_id,
             batch_id=batch_id,
             quantity=abs(delta),
@@ -341,7 +365,7 @@ async def adjust_warehouse_entry(
 
         db.add(SystemAuditLog(
             company_id=company_id,
-            admin_id=current_admin.id,
+            admin_id=legacy_actor.id,
             target_id=f"InventoryMovement_{correction_movement.id}",
             action_type='INBOUND_ADJUSTMENT',
             old_value=json.dumps(
