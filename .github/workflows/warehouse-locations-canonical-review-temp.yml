@@ -23,12 +23,12 @@ jobs:
         run: pip install -r requirements.txt
       - name: Compile touched runtime and test
         run: python -m py_compile api/warehouse/locations.py tests/test_warehouse_locations_canonical_auth_cutover.py
-      - name: Focused authorization gate
-        run: >-
-          pytest -q
-          tests/test_warehouse_locations_canonical_auth_cutover.py
-          tests/test_canonical_backoffice_capability_access.py
-          tests/test_canonical_backoffice_authorization_dependency.py
+      - name: Worker focused test
+        run: pytest -q tests/test_warehouse_locations_canonical_auth_cutover.py
+      - name: Canonical capability core
+        run: pytest -q tests/test_canonical_backoffice_capability_access.py
+      - name: Canonical dependency core
+        run: pytest -q tests/test_canonical_backoffice_authorization_dependency.py
       - name: Forbidden runtime authority audit
         shell: bash
         run: |
