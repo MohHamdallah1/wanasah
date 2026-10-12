@@ -16,11 +16,19 @@ from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
+from api.authentication.backoffice_compatibility import (
+    get_current_backoffice_legacy_driver,
+)
 from config import Config
 from database import get_db
 from gs1 import Gs1ParseError, parse_gs1
-from inventory_access import InventoryAccess
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
 from domains.inventory_archive_navigation import inventory_archive_targets
 from domains.inventory_quality_reads import read_variant_inventory_issue_summary
 from domains.dispatch_archive_navigation import dispatch_archive_targets
@@ -282,8 +290,14 @@ def _barcode_update_valid_to(
     return current if current > row_valid_from else None
 
 
-async def _require(db: AsyncSession, actor: Driver, permission: str) -> None:
-    await InventoryAccess(db, actor).require(permission, any_location=True)
+async def _require(access: BackofficeCapabilityAccess, permission: str) -> None:
+    try:
+        await access.require(permission, any_location=True)
+    except BackofficeCapabilityAccessRejected:
+        raise HTTPException(
+            status_code=403,
+            detail="لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.",
+        ) from None
 
 
 async def _uom_ids(db: AsyncSession, ids: set[int]) -> set[int]:
@@ -571,9 +585,12 @@ def _barcode_row(row: ProductBarcode, uom: UOM) -> dict:
     }
 
 
-def _audit(db: AsyncSession, actor: Driver, target: str, action: str, old: Any, new: Any) -> None:
+def _audit(
+    db: AsyncSession, access: BackofficeCapabilityAccess, legacy_actor: Driver,
+    target: str, action: str, old: Any, new: Any,
+) -> None:
     db.add(SystemAuditLog(
-        company_id=actor.company_id, admin_id=actor.id, target_id=target, action_type=action,
+        company_id=access.company_id, admin_id=legacy_actor.id, target_id=target, action_type=action,
         old_value=json.dumps(old, ensure_ascii=False, default=str) if old is not None else None,
         new_value=json.dumps(new, ensure_ascii=False, default=str) if new is not None else None,
     ))
@@ -581,9 +598,10 @@ def _audit(db: AsyncSession, actor: Driver, target: str, action: str, old: Any, 
 
 @router.get("/uoms")
 async def list_uoms(
-    db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver),
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "catalog.read")
+    await _require(access, "catalog.read")
     rows = (await db.scalars(select(UOM).order_by(UOM.code.asc()))).all()
     return {"items": [{"id": row.id, "code": row.code, "name": row.name} for row in rows]}
 
@@ -593,11 +611,12 @@ async def list_products(
     search: Optional[str] = Query(None, min_length=2, max_length=100),
     cursor: Optional[str] = Query(None, max_length=512),
     limit: int = Query(50, ge=1, le=200),
-    db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver),
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "catalog.read")
+    await _require(access, "catalog.read")
     after_id = _cursor(cursor)
-    stmt = select(Product).where(Product.company_id == actor.company_id, Product.id > after_id)
+    stmt = select(Product).where(Product.company_id == access.company_id, Product.id > after_id)
     if search:
         pattern = _search_pattern(search)
         stmt = stmt.where(or_(func.lower(Product.name).like(pattern, escape="\\"), func.lower(Product.code).like(pattern, escape="\\")))
@@ -608,19 +627,22 @@ async def list_products(
 
 @router.post("/products", status_code=201)
 async def create_product(
-    payload: ProductCreate, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver),
+    payload: ProductCreate,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "catalog.manage")
+    await _require(access, "catalog.manage")
     try:
-        record, replay = await begin_idempotent_operation(db, company_id=actor.company_id, actor_id=actor.id, operation="CATALOG_PRODUCT_CREATE", request_id=str(payload.request_id), request_hash=_request_hash(payload))
+        record, replay = await begin_idempotent_operation(db, company_id=access.company_id, actor_id=legacy_actor.id, operation="CATALOG_PRODUCT_CREATE", request_id=str(payload.request_id), request_hash=_request_hash(payload))
         if replay is not None:
             await db.rollback()
             return replay
-        row = Product(company_id=actor.company_id, code=payload.code, name=payload.name, description=payload.description, brand=payload.brand, category=payload.category)
+        row = Product(company_id=access.company_id, code=payload.code, name=payload.name, description=payload.description, brand=payload.brand, category=payload.category)
         db.add(row)
         await db.flush()
         response = {"message": "تم إنشاء عائلة المنتج كبيانات مرجعية.", "product": _product_row(row)}
-        _audit(db, actor, f"Product_{row.id}", "CATALOG_PRODUCT_CREATED", None, response["product"])
+        _audit(db, access, legacy_actor, f"Product_{row.id}", "CATALOG_PRODUCT_CREATED", None, response["product"])
         complete_idempotent_operation(record, response)
         await db.commit()
         return response
@@ -634,15 +656,19 @@ async def create_product(
 
 @router.patch("/products/{product_id}")
 async def update_product(
-    product_id: int, payload: ProductUpdate, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver),
+    product_id: int,
+    payload: ProductUpdate,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "catalog.manage")
+    await _require(access, "catalog.manage")
     try:
-        record, replay = await begin_idempotent_operation(db, company_id=actor.company_id, actor_id=actor.id, operation="CATALOG_PRODUCT_UPDATE", request_id=str(payload.request_id), request_hash=_request_hash(payload, product_id=product_id))
+        record, replay = await begin_idempotent_operation(db, company_id=access.company_id, actor_id=legacy_actor.id, operation="CATALOG_PRODUCT_UPDATE", request_id=str(payload.request_id), request_hash=_request_hash(payload, product_id=product_id))
         if replay is not None:
             await db.rollback()
             return replay
-        row = await db.scalar(select(Product).where(Product.company_id == actor.company_id, Product.id == product_id).with_for_update())
+        row = await db.scalar(select(Product).where(Product.company_id == access.company_id, Product.id == product_id).with_for_update())
         if row is None:
             raise _error(404, "PRODUCT_NOT_FOUND", "المنتج غير موجود.")
         if row.version != payload.expected_version:
@@ -653,7 +679,7 @@ async def update_product(
         row.version += 1
         await db.flush()
         response = {"message": "تم تحديث بيانات المنتج.", "product": _product_row(row)}
-        _audit(db, actor, f"Product_{row.id}", "CATALOG_PRODUCT_UPDATED", old, response["product"])
+        _audit(db, access, legacy_actor, f"Product_{row.id}", "CATALOG_PRODUCT_UPDATED", old, response["product"])
         complete_idempotent_operation(record, response)
         await db.commit()
         return response
@@ -670,11 +696,13 @@ async def list_variants(
     product_id: Optional[int] = Query(None, gt=0),
     lifecycle_status: Optional[Literal["DRAFT", "ACTIVE", "RETIRING", "ARCHIVED"]] = Query(None),
     search: Optional[str] = Query(None, min_length=2, max_length=100),
-    cursor: Optional[str] = Query(None, max_length=512), limit: int = Query(50, ge=1, le=200),
-    db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver),
+    cursor: Optional[str] = Query(None, max_length=512),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "catalog.read")
-    stmt = select(ProductVariant, UOM).join(UOM, UOM.id == ProductVariant.base_uom_id).where(ProductVariant.company_id == actor.company_id, ProductVariant.id > _cursor(cursor))
+    await _require(access, "catalog.read")
+    stmt = select(ProductVariant, UOM).join(UOM, UOM.id == ProductVariant.base_uom_id).where(ProductVariant.company_id == access.company_id, ProductVariant.id > _cursor(cursor))
     if product_id is not None:
         stmt = stmt.where(ProductVariant.product_id == product_id)
     if lifecycle_status is not None:
@@ -691,15 +719,15 @@ async def list_variants(
 async def resolve_variants(
     payload: VariantResolveRequest,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "catalog.read")
+    await _require(access, "catalog.read")
     rows = (
         await db.execute(
             select(ProductVariant, UOM)
             .join(UOM, UOM.id == ProductVariant.base_uom_id)
             .where(
-                ProductVariant.company_id == actor.company_id,
+                ProductVariant.company_id == access.company_id,
                 ProductVariant.id.in_(payload.ids),
             )
             .order_by(ProductVariant.id.asc())
@@ -714,20 +742,23 @@ async def resolve_variants(
 
 @router.post("/variants", status_code=201)
 async def create_variant(
-    payload: VariantCreate, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver),
+    payload: VariantCreate,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "catalog.manage")
+    await _require(access, "catalog.manage")
     try:
-        record, replay = await begin_idempotent_operation(db, company_id=actor.company_id, actor_id=actor.id, operation="CATALOG_VARIANT_CREATE", request_id=str(payload.request_id), request_hash=_request_hash(payload))
+        record, replay = await begin_idempotent_operation(db, company_id=access.company_id, actor_id=legacy_actor.id, operation="CATALOG_VARIANT_CREATE", request_id=str(payload.request_id), request_hash=_request_hash(payload))
         if replay is not None:
             await db.rollback()
             return replay
-        if await db.scalar(select(Product.id).where(Product.company_id == actor.company_id, Product.id == payload.product_id)) is None:
+        if await db.scalar(select(Product.id).where(Product.company_id == access.company_id, Product.id == payload.product_id)) is None:
             raise _error(404, "PRODUCT_NOT_FOUND", "عائلة المنتج غير موجودة.")
         if payload.base_uom_id not in await _uom_ids(db, {payload.base_uom_id}):
             raise _error(422, "UOM_NOT_FOUND", "وحدة الأساس غير موجودة.")
         row = ProductVariant(
-            company_id=actor.company_id, product_id=payload.product_id, sku=payload.sku, gtin=payload.gtin,
+            company_id=access.company_id, product_id=payload.product_id, sku=payload.sku, gtin=payload.gtin,
             name=payload.name, base_uom_id=payload.base_uom_id, quantity_scale=payload.quantity_scale,
             quantity_step=payload.quantity_step, lot_control_mode=payload.lot_control_mode,
             expiry_control_mode=payload.expiry_control_mode, lifecycle_status="DRAFT", operational_hold="NONE",
@@ -737,7 +768,7 @@ async def create_variant(
         await db.flush()
         uom = await db.get(UOM, row.base_uom_id)
         response = {"message": "تم إنشاء SKU بحالة مسودة دون سعر أو ربط مستودع.", "variant": _variant_row(row, uom)}
-        _audit(db, actor, f"ProductVariant_{row.id}", "CATALOG_VARIANT_CREATED", None, response["variant"])
+        _audit(db, access, legacy_actor, f"ProductVariant_{row.id}", "CATALOG_VARIANT_CREATED", None, response["variant"])
         complete_idempotent_operation(record, response)
         await db.commit()
         return response
@@ -754,22 +785,26 @@ async def create_variant(
 
 @router.patch("/variants/{variant_id}")
 async def update_variant(
-    variant_id: int, payload: VariantUpdate, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver),
+    variant_id: int,
+    payload: VariantUpdate,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "catalog.manage")
+    await _require(access, "catalog.manage")
     try:
-        record, replay = await begin_idempotent_operation(db, company_id=actor.company_id, actor_id=actor.id, operation="CATALOG_VARIANT_UPDATE", request_id=str(payload.request_id), request_hash=_request_hash(payload, variant_id=variant_id))
+        record, replay = await begin_idempotent_operation(db, company_id=access.company_id, actor_id=legacy_actor.id, operation="CATALOG_VARIANT_UPDATE", request_id=str(payload.request_id), request_hash=_request_hash(payload, variant_id=variant_id))
         if replay is not None:
             await db.rollback()
             return replay
-        row = await db.scalar(select(ProductVariant).where(ProductVariant.company_id == actor.company_id, ProductVariant.id == variant_id).with_for_update())
+        row = await db.scalar(select(ProductVariant).where(ProductVariant.company_id == access.company_id, ProductVariant.id == variant_id).with_for_update())
         if row is None:
             raise _error(404, "VARIANT_NOT_FOUND", "الصنف غير موجود.")
         if row.version != payload.expected_version:
             raise _error(409, "VARIANT_VERSION_CONFLICT", "تغير الصنف؛ حدّث البيانات وأعد المحاولة.", current_version=row.version)
         if row.lifecycle_status != "DRAFT":
             raise _error(409, "VARIANT_STRUCTURE_LOCKED", "الحقول البنيوية قابلة للتعديل في DRAFT فقط.")
-        if await db.scalar(select(Product.id).where(Product.company_id == actor.company_id, Product.id == payload.product_id)) is None:
+        if await db.scalar(select(Product.id).where(Product.company_id == access.company_id, Product.id == payload.product_id)) is None:
             raise _error(404, "PRODUCT_NOT_FOUND", "عائلة المنتج غير موجودة.")
         if payload.base_uom_id not in await _uom_ids(db, {payload.base_uom_id}):
             raise _error(422, "UOM_NOT_FOUND", "وحدة الأساس غير موجودة.")
@@ -780,7 +815,7 @@ async def update_variant(
         await db.flush()
         uom = await db.get(UOM, row.base_uom_id)
         response = {"message": "تم تحديث بنية الـSKU المسودة.", "variant": _variant_row(row, uom)}
-        _audit(db, actor, f"ProductVariant_{row.id}", "CATALOG_VARIANT_UPDATED", old, response["variant"])
+        _audit(db, access, legacy_actor, f"ProductVariant_{row.id}", "CATALOG_VARIANT_UPDATED", old, response["variant"])
         complete_idempotent_operation(record, response)
         await db.commit()
         return response
@@ -797,14 +832,15 @@ async def rename_variant_name(
     variant_id: int,
     payload: VariantNameUpdate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "catalog.manage")
+    await _require(access, "catalog.manage")
     try:
         idem, replay = await begin_idempotent_operation(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             operation="CATALOG_VARIANT_NAME_UPDATE_V1",
             request_id=str(payload.request_id),
             request_hash=_request_hash(
@@ -818,8 +854,8 @@ async def rename_variant_name(
 
         result = await rename_published_product(
             db,
-            company_id=int(actor.company_id),
-            actor_id=int(actor.id),
+            company_id=int(access.company_id),
+            actor_id=int(legacy_actor.id),
             request_id=payload.request_id,
             product_variant_id=int(variant_id),
             expected_version=int(payload.expected_version),
@@ -829,7 +865,7 @@ async def rename_variant_name(
         if result.changed:
             await refresh_live_stock_variants(
                 db,
-                company_id=int(actor.company_id),
+                company_id=int(access.company_id),
                 variant_ids=[int(variant_id)],
             )
 
@@ -876,14 +912,15 @@ async def reassign_variant_family(
     variant_id: int,
     payload: VariantFamilyUpdate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "catalog.manage")
+    await _require(access, "catalog.manage")
     try:
         idem, replay = await begin_idempotent_operation(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             operation="CATALOG_VARIANT_FAMILY_REASSIGN_V1",
             request_id=str(payload.request_id),
             request_hash=_request_hash(
@@ -897,8 +934,8 @@ async def reassign_variant_family(
 
         result = await reassign_published_product_family(
             db,
-            company_id=int(actor.company_id),
-            actor_id=int(actor.id),
+            company_id=int(access.company_id),
+            actor_id=int(legacy_actor.id),
             request_id=payload.request_id,
             product_variant_id=int(variant_id),
             expected_version=int(payload.expected_version),
@@ -947,33 +984,43 @@ async def _draft_variant(db: AsyncSession, company_id: int, variant_id: int) -> 
 
 
 @router.get("/variants/{variant_id}/conversions")
-async def list_conversions(variant_id: int, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver)):
-    await _require(db, actor, "catalog.read")
-    if await db.scalar(select(ProductVariant.id).where(ProductVariant.company_id == actor.company_id, ProductVariant.id == variant_id)) is None:
+async def list_conversions(
+    variant_id: int,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+):
+    await _require(access, "catalog.read")
+    if await db.scalar(select(ProductVariant.id).where(ProductVariant.company_id == access.company_id, ProductVariant.id == variant_id)) is None:
         raise _error(404, "VARIANT_NOT_FOUND", "الصنف غير موجود.")
     # SQLAlchemy cannot disambiguate the same UOM entity twice without aliases; resolve the bounded UOM catalog once.
-    conversions = (await db.scalars(select(ProductUomConversion).where(ProductUomConversion.company_id == actor.company_id, ProductUomConversion.product_variant_id == variant_id).order_by(ProductUomConversion.id))).all()
+    conversions = (await db.scalars(select(ProductUomConversion).where(ProductUomConversion.company_id == access.company_id, ProductUomConversion.product_variant_id == variant_id).order_by(ProductUomConversion.id))).all()
     uoms = {row.id: row for row in (await db.scalars(select(UOM).where(UOM.id.in_({u for c in conversions for u in (c.from_uom_id, c.to_uom_id)})))).all()} if conversions else {}
     return {"items": [_conversion_row(row, uoms[row.from_uom_id], uoms[row.to_uom_id]) for row in conversions]}
 
 
 @router.post("/variants/{variant_id}/conversions", status_code=201)
-async def create_conversion(variant_id: int, payload: ConversionCreate, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver)):
-    await _require(db, actor, "catalog.manage")
+async def create_conversion(
+    variant_id: int,
+    payload: ConversionCreate,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    await _require(access, "catalog.manage")
     try:
-        record, replay = await begin_idempotent_operation(db, company_id=actor.company_id, actor_id=actor.id, operation="CATALOG_UOM_CONVERSION_CREATE", request_id=str(payload.request_id), request_hash=_request_hash(payload, variant_id=variant_id))
+        record, replay = await begin_idempotent_operation(db, company_id=access.company_id, actor_id=legacy_actor.id, operation="CATALOG_UOM_CONVERSION_CREATE", request_id=str(payload.request_id), request_hash=_request_hash(payload, variant_id=variant_id))
         if replay is not None:
             await db.rollback()
             return replay
-        await _draft_variant(db, actor.company_id, variant_id)
+        await _draft_variant(db, access.company_id, variant_id)
         if await _uom_ids(db, {payload.from_uom_id, payload.to_uom_id}) != {payload.from_uom_id, payload.to_uom_id}:
             raise _error(422, "UOM_NOT_FOUND", "إحدى وحدات التحويل غير موجودة.")
-        row = ProductUomConversion(company_id=actor.company_id, product_variant_id=variant_id, from_uom_id=payload.from_uom_id, to_uom_id=payload.to_uom_id, numerator=payload.numerator, denominator=payload.denominator, quantity_scale=payload.quantity_scale)
+        row = ProductUomConversion(company_id=access.company_id, product_variant_id=variant_id, from_uom_id=payload.from_uom_id, to_uom_id=payload.to_uom_id, numerator=payload.numerator, denominator=payload.denominator, quantity_scale=payload.quantity_scale)
         db.add(row)
         await db.flush()
         from_uom, to_uom = await db.get(UOM, row.from_uom_id), await db.get(UOM, row.to_uom_id)
         response = {"message": "تمت إضافة تحويل UOM إلى المسودة.", "conversion": _conversion_row(row, from_uom, to_uom)}
-        _audit(db, actor, f"ProductUomConversion_{row.id}", "CATALOG_UOM_CONVERSION_CREATED", None, response["conversion"])
+        _audit(db, access, legacy_actor, f"ProductUomConversion_{row.id}", "CATALOG_UOM_CONVERSION_CREATED", None, response["conversion"])
         complete_idempotent_operation(record, response)
         await db.commit()
         return response
@@ -990,14 +1037,15 @@ async def update_conversion(
     conversion_id: int,
     payload: ConversionUpdate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "catalog.manage")
+    await _require(access, "catalog.manage")
     try:
         record, replay = await begin_idempotent_operation(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             operation="CATALOG_UOM_CONVERSION_UPDATE",
             request_id=str(payload.request_id),
             request_hash=_request_hash(payload, conversion_id=conversion_id),
@@ -1007,13 +1055,13 @@ async def update_conversion(
             return replay
         row = await db.scalar(
             select(ProductUomConversion).where(
-                ProductUomConversion.company_id == actor.company_id,
+                ProductUomConversion.company_id == access.company_id,
                 ProductUomConversion.id == conversion_id,
             ).with_for_update()
         )
         if row is None:
             raise _error(404, "UOM_CONVERSION_NOT_FOUND", "تحويل UOM غير موجود.")
-        await _draft_variant(db, actor.company_id, row.product_variant_id)
+        await _draft_variant(db, access.company_id, row.product_variant_id)
         if row.version != payload.expected_version:
             raise _error(
                 409,
@@ -1047,7 +1095,8 @@ async def update_conversion(
         }
         _audit(
             db,
-            actor,
+            access,
+            legacy_actor,
             f"ProductUomConversion_{row.id}",
             "CATALOG_UOM_CONVERSION_UPDATED",
             old,
@@ -1070,12 +1119,12 @@ async def list_barcodes(
     cursor: Optional[str] = Query(None, max_length=512),
     limit: int = Query(100, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "catalog.read")
+    await _require(access, "catalog.read")
     if await db.scalar(
         select(ProductVariant.id).where(
-            ProductVariant.company_id == actor.company_id,
+            ProductVariant.company_id == access.company_id,
             ProductVariant.id == variant_id,
         )
     ) is None:
@@ -1083,7 +1132,7 @@ async def list_barcodes(
 
     after_id = _barcode_cursor(
         cursor,
-        company_id=actor.company_id,
+        company_id=access.company_id,
         variant_id=variant_id,
         limit=limit,
     )
@@ -1092,7 +1141,7 @@ async def list_barcodes(
             select(ProductBarcode, UOM)
             .join(UOM, UOM.id == ProductBarcode.uom_id)
             .where(
-                ProductBarcode.company_id == actor.company_id,
+                ProductBarcode.company_id == access.company_id,
                 ProductBarcode.product_variant_id == variant_id,
                 ProductBarcode.id > after_id,
             )
@@ -1109,7 +1158,7 @@ async def list_barcodes(
         "next_cursor": (
             _barcode_next_cursor(
                 page[-1][0].id,
-                company_id=actor.company_id,
+                company_id=access.company_id,
                 variant_id=variant_id,
                 limit=limit,
             )
@@ -1121,14 +1170,20 @@ async def list_barcodes(
 
 
 @router.post("/variants/{variant_id}/barcodes", status_code=201)
-async def create_barcode(variant_id: int, payload: BarcodeCreate, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver)):
-    await _require(db, actor, "catalog.manage")
+async def create_barcode(
+    variant_id: int,
+    payload: BarcodeCreate,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    await _require(access, "catalog.manage")
     try:
-        record, replay = await begin_idempotent_operation(db, company_id=actor.company_id, actor_id=actor.id, operation="CATALOG_BARCODE_CREATE", request_id=str(payload.request_id), request_hash=_request_hash(payload, variant_id=variant_id))
+        record, replay = await begin_idempotent_operation(db, company_id=access.company_id, actor_id=legacy_actor.id, operation="CATALOG_BARCODE_CREATE", request_id=str(payload.request_id), request_hash=_request_hash(payload, variant_id=variant_id))
         if replay is not None:
             await db.rollback()
             return replay
-        if await db.scalar(select(ProductVariant.id).where(ProductVariant.company_id == actor.company_id, ProductVariant.id == variant_id).with_for_update()) is None:
+        if await db.scalar(select(ProductVariant.id).where(ProductVariant.company_id == access.company_id, ProductVariant.id == variant_id).with_for_update()) is None:
             raise _error(404, "VARIANT_NOT_FOUND", "الصنف غير موجود.")
         if payload.uom_id not in await _uom_ids(db, {payload.uom_id}):
             raise _error(422, "UOM_NOT_FOUND", "وحدة الباركود غير موجودة.")
@@ -1143,12 +1198,12 @@ async def create_barcode(variant_id: int, payload: BarcodeCreate, db: AsyncSessi
                 tzinfo=None
             )
         )
-        row = ProductBarcode(company_id=actor.company_id, product_variant_id=variant_id, uom_id=payload.uom_id, barcode=payload.barcode, barcode_type=payload.barcode_type, is_primary=payload.is_primary, valid_from=valid_from, valid_to=_utc_naive(payload.valid_to), is_active=True)
+        row = ProductBarcode(company_id=access.company_id, product_variant_id=variant_id, uom_id=payload.uom_id, barcode=payload.barcode, barcode_type=payload.barcode_type, is_primary=payload.is_primary, valid_from=valid_from, valid_to=_utc_naive(payload.valid_to), is_active=True)
         db.add(row)
         await db.flush()
         uom = await db.get(UOM, row.uom_id)
         response = {"message": "تمت إضافة الباركود.", "barcode": _barcode_row(row, uom)}
-        _audit(db, actor, f"ProductBarcode_{row.id}", "CATALOG_BARCODE_CREATED", None, response["barcode"])
+        _audit(db, access, legacy_actor, f"ProductBarcode_{row.id}", "CATALOG_BARCODE_CREATED", None, response["barcode"])
         complete_idempotent_operation(record, response)
         await db.commit()
         return response
@@ -1168,14 +1223,15 @@ async def replace_variant_primary_barcode(
     variant_id: int,
     payload: PrimaryBarcodeReplace,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "catalog.manage")
+    await _require(access, "catalog.manage")
     try:
         record, replay = await begin_idempotent_operation(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             operation="CATALOG_BARCODE_REPLACE_PRIMARY",
             request_id=str(payload.request_id),
             request_hash=_request_hash(
@@ -1189,7 +1245,7 @@ async def replace_variant_primary_barcode(
 
         result = await replace_primary_barcode(
             db,
-            company_id=int(actor.company_id),
+            company_id=int(access.company_id),
             product_variant_id=int(variant_id),
             uom_id=int(payload.uom_id),
             barcode=payload.barcode,
@@ -1221,7 +1277,8 @@ async def replace_variant_primary_barcode(
         if result.changed:
             _audit(
                 db,
-                actor,
+                access,
+                legacy_actor,
                 f"ProductVariant_{variant_id}",
                 "CATALOG_PRIMARY_BARCODE_REPLACED",
                 {
@@ -1267,14 +1324,15 @@ async def set_variant_package_barcode_independent(
     variant_id: int,
     payload: IndependentPackageBarcode,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "catalog.manage")
+    await _require(access, "catalog.manage")
     try:
         record, replay = await begin_idempotent_operation(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             operation="CATALOG_PACKAGE_BARCODE_INDEPENDENT",
             request_id=str(payload.request_id),
             request_hash=_request_hash(
@@ -1288,7 +1346,7 @@ async def set_variant_package_barcode_independent(
 
         result = await assign_independent_package_barcode(
             db,
-            company_id=int(actor.company_id),
+            company_id=int(access.company_id),
             product_variant_id=int(variant_id),
             package_uom_id=int(payload.package_uom_id),
             barcode=payload.barcode,
@@ -1311,7 +1369,8 @@ async def set_variant_package_barcode_independent(
         }
         _audit(
             db,
-            actor,
+            access,
+            legacy_actor,
             f"ProductVariant_{variant_id}",
             "CATALOG_PACKAGE_BARCODE_MADE_INDEPENDENT",
             {
@@ -1349,14 +1408,20 @@ async def set_variant_package_barcode_independent(
 
 
 @router.patch("/barcodes/{barcode_id}")
-async def update_barcode(barcode_id: int, payload: BarcodeUpdate, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver)):
-    await _require(db, actor, "catalog.manage")
+async def update_barcode(
+    barcode_id: int,
+    payload: BarcodeUpdate,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    await _require(access, "catalog.manage")
     try:
-        record, replay = await begin_idempotent_operation(db, company_id=actor.company_id, actor_id=actor.id, operation="CATALOG_BARCODE_UPDATE", request_id=str(payload.request_id), request_hash=_request_hash(payload, barcode_id=barcode_id))
+        record, replay = await begin_idempotent_operation(db, company_id=access.company_id, actor_id=legacy_actor.id, operation="CATALOG_BARCODE_UPDATE", request_id=str(payload.request_id), request_hash=_request_hash(payload, barcode_id=barcode_id))
         if replay is not None:
             await db.rollback()
             return replay
-        row = await db.scalar(select(ProductBarcode).where(ProductBarcode.company_id == actor.company_id, ProductBarcode.id == barcode_id).with_for_update())
+        row = await db.scalar(select(ProductBarcode).where(ProductBarcode.company_id == access.company_id, ProductBarcode.id == barcode_id).with_for_update())
         if row is None:
             raise _error(404, "BARCODE_NOT_FOUND", "الباركود غير موجود.")
         if row.version != payload.expected_version:
@@ -1374,7 +1439,7 @@ async def update_barcode(barcode_id: int, payload: BarcodeUpdate, db: AsyncSessi
         await db.flush()
         uom = await db.get(UOM, row.uom_id)
         response = {"message": "تم تحديث صلاحية الباركود دون حذف تاريخه.", "barcode": _barcode_row(row, uom)}
-        _audit(db, actor, f"ProductBarcode_{row.id}", "CATALOG_BARCODE_UPDATED", old, response["barcode"])
+        _audit(db, access, legacy_actor, f"ProductBarcode_{row.id}", "CATALOG_BARCODE_UPDATED", old, response["barcode"])
         complete_idempotent_operation(record, response)
         await db.commit()
         return response
@@ -1387,8 +1452,12 @@ async def update_barcode(barcode_id: int, payload: BarcodeUpdate, db: AsyncSessi
 
 
 @router.post("/gs1/parse")
-async def parse_gs1_endpoint(payload: Gs1Request, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver)):
-    await _require(db, actor, "catalog.read")
+async def parse_gs1_endpoint(
+    payload: Gs1Request,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+):
+    await _require(access, "catalog.read")
     try:
         parsed = parse_gs1(payload.value)
     except Gs1ParseError as exc:
@@ -1403,16 +1472,17 @@ async def _run_variant_state_command(
     command: str,
     permission: str,
     db: AsyncSession,
-    actor: Driver,
+    access: BackofficeCapabilityAccess,
+    legacy_actor: Driver,
 ) -> dict:
-    await _require(db, actor, permission)
+    await _require(access, permission)
     operation = f"CATALOG_VARIANT_{command.upper().replace('-', '_')}"
     request_hash = _request_hash(payload, variant_id=variant_id, command=command)
     try:
         idem, replay = await begin_idempotent_operation(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             operation=operation,
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -1422,11 +1492,11 @@ async def _run_variant_state_command(
             return replay
 
         await acquire_product_lifecycle_guards(
-            db, actor.company_id, [variant_id], exclusive=True,
+            db, access.company_id, [variant_id], exclusive=True,
         )
         row = await db.scalar(
             select(ProductVariant).where(
-                ProductVariant.company_id == actor.company_id,
+                ProductVariant.company_id == access.company_id,
                 ProductVariant.id == variant_id,
             ).with_for_update()
         )
@@ -1482,7 +1552,7 @@ async def _run_variant_state_command(
                 raise _error(409, "PRODUCT_ARCHIVE_TRANSITION_INVALID", "الأرشفة مسموحة من RETIRING فقط.")
             if row.operational_hold != "NONE":
                 raise _error(409, "PRODUCT_HOLD_OPEN", "يجب إغلاق الإيقاف التشغيلي قبل الأرشفة.")
-            blockers = await archive_blockers(db, actor.company_id, variant_id)
+            blockers = await archive_blockers(db, access.company_id, variant_id)
             if blockers:
                 raise _error(
                     409,
@@ -1510,7 +1580,7 @@ async def _run_variant_state_command(
             has_current_stock = await db.scalar(
                 select(InventoryBalance.id)
                 .where(
-                    InventoryBalance.company_id == actor.company_id,
+                    InventoryBalance.company_id == access.company_id,
                     InventoryBalance.product_variant_id == variant_id,
                     InventoryBalance.on_hand_quantity > 0,
                 )
@@ -1530,7 +1600,7 @@ async def _run_variant_state_command(
                 raise _error(409, "PRODUCT_RECALL_CANCEL_INVALID", "لا يوجد استدعاء مفتوح يمكن إلغاؤه.")
             if await recall_has_terminal_activity(
                 db,
-                company_id=actor.company_id,
+                company_id=access.company_id,
                 variant_id=variant_id,
                 lifecycle_revision=int(row.lifecycle_revision),
             ):
@@ -1549,7 +1619,7 @@ async def _run_variant_state_command(
             if row.operational_hold != "RECALL":
                 raise _error(409, "PRODUCT_RECALL_CLOSE_INVALID", "لا يوجد استدعاء مفتوح.")
             completion_blockers = await recall_completion_blockers(
-                db, actor.company_id, variant_id
+                db, access.company_id, variant_id
             )
             if completion_blockers:
                 raise _error(
@@ -1570,8 +1640,8 @@ async def _run_variant_state_command(
         after = variant_snapshot(row)
         record_domain_event(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             request_id=payload.request_id,
             event_type=event_type,
             entity_type="ProductVariant",
@@ -1585,12 +1655,12 @@ async def _run_variant_state_command(
         if was_active != is_active_now:
             await apply_live_stock_active_variant_delta(
                 db,
-                company_id=actor.company_id,
+                company_id=access.company_id,
                 delta=1 if is_active_now else -1,
             )
         await refresh_live_stock_variants(
             db,
-            company_id=actor.company_id,
+            company_id=access.company_id,
             variant_ids=[row.id],
         )
         uom = await db.get(UOM, row.base_uom_id)
@@ -1617,8 +1687,14 @@ async def _run_variant_state_command(
 
 
 @router.post("/variants/{variant_id}/publish")
-async def publish_variant(variant_id: int, payload: LifecycleCommand, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver)):
-    return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="publish", permission="catalog.publish", db=db, actor=actor)
+async def publish_variant(
+    variant_id: int,
+    payload: LifecycleCommand,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="publish", permission="catalog.publish", db=db, access=access, legacy_actor=legacy_actor)
 
 
 def _draft_delete_state_blockers(
@@ -1657,12 +1733,12 @@ def _draft_delete_state_blockers(
 async def variant_delete_draft_preflight(
     variant_id: int,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "catalog.manage")
+    await _require(access, "catalog.manage")
     row = await db.scalar(
         select(ProductVariant).where(
-            ProductVariant.company_id == actor.company_id,
+            ProductVariant.company_id == access.company_id,
             ProductVariant.id == variant_id,
         )
     )
@@ -1676,7 +1752,7 @@ async def variant_delete_draft_preflight(
     blockers.extend(
         await draft_delete_blockers(
             db,
-            actor.company_id,
+            access.company_id,
             variant_id,
         )
     )
@@ -1695,14 +1771,15 @@ async def delete_draft_variant(
     variant_id: int,
     payload: LifecycleCommand,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "catalog.manage")
+    await _require(access, "catalog.manage")
     try:
         idem, replay = await begin_idempotent_operation(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             operation="CATALOG_VARIANT_DELETE_DRAFT",
             request_id=str(payload.request_id),
             request_hash=_request_hash(payload, variant_id=variant_id),
@@ -1711,11 +1788,11 @@ async def delete_draft_variant(
             await db.rollback()
             return replay
         await acquire_product_lifecycle_guards(
-            db, actor.company_id, [variant_id], exclusive=True,
+            db, access.company_id, [variant_id], exclusive=True,
         )
         row = await db.scalar(
             select(ProductVariant).where(
-                ProductVariant.company_id == actor.company_id,
+                ProductVariant.company_id == access.company_id,
                 ProductVariant.id == variant_id,
             ).with_for_update()
         )
@@ -1738,7 +1815,7 @@ async def delete_draft_variant(
             )
         blockers = await draft_delete_blockers(
             db,
-            actor.company_id,
+            access.company_id,
             variant_id,
         )
         if blockers:
@@ -1751,18 +1828,18 @@ async def delete_draft_variant(
             )
         before = variant_snapshot(row)
         await db.execute(delete(ProductBarcode).where(
-            ProductBarcode.company_id == actor.company_id,
+            ProductBarcode.company_id == access.company_id,
             ProductBarcode.product_variant_id == variant_id,
         ))
         await db.execute(delete(ProductUomConversion).where(
-            ProductUomConversion.company_id == actor.company_id,
+            ProductUomConversion.company_id == access.company_id,
             ProductUomConversion.product_variant_id == variant_id,
         ))
         await db.delete(row)
         record_domain_event(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             request_id=payload.request_id,
             event_type="ProductDraftDeleted",
             entity_type="ProductVariant",
@@ -1790,42 +1867,53 @@ async def delete_draft_variant(
 
 
 @router.post("/variants/{variant_id}/retire")
-async def retire_variant(variant_id: int, payload: LifecycleCommand, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver)):
-    return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="retire", permission="catalog.retire", db=db, actor=actor)
+async def retire_variant(
+    variant_id: int,
+    payload: LifecycleCommand,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="retire", permission="catalog.retire", db=db, access=access, legacy_actor=legacy_actor)
 
 
 @router.post("/variants/{variant_id}/restore")
-async def restore_variant(variant_id: int, payload: LifecycleCommand, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver)):
-    return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="restore", permission="catalog.restore", db=db, actor=actor)
+async def restore_variant(
+    variant_id: int,
+    payload: LifecycleCommand,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="restore", permission="catalog.restore", db=db, access=access, legacy_actor=legacy_actor)
 
 
 @router.get("/variants/{variant_id}/recall-readiness")
 async def variant_recall_readiness(
     variant_id: int,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "catalog.hold")
+    await _require(access, "catalog.hold")
     row = await db.scalar(
         select(ProductVariant).where(
-            ProductVariant.company_id == actor.company_id,
+            ProductVariant.company_id == access.company_id,
             ProductVariant.id == variant_id,
         )
     )
     if row is None:
         raise _error(404, "VARIANT_NOT_FOUND", "الصنف غير موجود.")
     blockers = (
-        await recall_completion_blockers(db, actor.company_id, variant_id)
+        await recall_completion_blockers(db, access.company_id, variant_id)
         if row.operational_hold == "RECALL"
         else []
     )
     inventory_summary = None
     if row.operational_hold == "RECALL":
-        inventory_access = InventoryAccess(db, actor)
         can_read_inventory = bool(
             await db.scalar(
                 select(
-                    inventory_access.allows(
+                    access.allows(
                         "inventory.read",
                         any_location=True,
                     )
@@ -1835,9 +1923,9 @@ async def variant_recall_readiness(
         if can_read_inventory:
             inventory_summary = await read_variant_inventory_issue_summary(
                 db,
-                company_id=actor.company_id,
+                company_id=access.company_id,
                 product_variant_id=variant_id,
-                readable_location_filter=inventory_access.location_filter(
+                readable_location_filter=access.location_filter(
                     "inventory.read"
                 ),
             )
@@ -1854,15 +1942,19 @@ async def variant_recall_readiness(
 
 
 @router.get("/variants/{variant_id}/archive-preflight")
-async def variant_archive_preflight(variant_id: int, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver)):
-    await _require(db, actor, "catalog.archive")
-    row = await db.scalar(select(ProductVariant).where(ProductVariant.company_id == actor.company_id, ProductVariant.id == variant_id))
+async def variant_archive_preflight(
+    variant_id: int,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+):
+    await _require(access, "catalog.archive")
+    row = await db.scalar(select(ProductVariant).where(ProductVariant.company_id == access.company_id, ProductVariant.id == variant_id))
     if row is None:
         raise _error(404, "VARIANT_NOT_FOUND", "الصنف غير موجود.")
-    blockers = await archive_blockers(db, actor.company_id, variant_id)
-    owner_targets = await inventory_archive_targets(db, actor, variant_id, blockers)
-    owner_targets.update(await dispatch_archive_targets(db, actor, variant_id, blockers))
-    owner_targets.update(await operations_archive_targets(db, actor, variant_id, blockers))
+    blockers = await archive_blockers(db, access.company_id, variant_id)
+    owner_targets = await inventory_archive_targets(db, access, variant_id, blockers)
+    owner_targets.update(await dispatch_archive_targets(db, access, variant_id, blockers))
+    owner_targets.update(await operations_archive_targets(db, access, variant_id, blockers))
     return {
         "variant_id": variant_id,
         "lifecycle_status": row.lifecycle_status,
@@ -1873,30 +1965,48 @@ async def variant_archive_preflight(variant_id: int, db: AsyncSession = Depends(
 
 
 @router.post("/variants/{variant_id}/archive")
-async def archive_variant(variant_id: int, payload: LifecycleCommand, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver)):
-    return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="archive", permission="catalog.archive", db=db, actor=actor)
+async def archive_variant(
+    variant_id: int,
+    payload: LifecycleCommand,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="archive", permission="catalog.archive", db=db, access=access, legacy_actor=legacy_actor)
 
 
 @router.post("/variants/{variant_id}/sales-hold")
-async def place_variant_sales_hold(variant_id: int, payload: LifecycleCommand, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver)):
-    return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="sales-hold", permission="catalog.hold", db=db, actor=actor)
+async def place_variant_sales_hold(
+    variant_id: int,
+    payload: LifecycleCommand,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="sales-hold", permission="catalog.hold", db=db, access=access, legacy_actor=legacy_actor)
 
 
 @router.post("/variants/{variant_id}/release-sales-hold")
-async def release_variant_sales_hold(variant_id: int, payload: LifecycleCommand, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver)):
-    return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="release-sales-hold", permission="catalog.hold", db=db, actor=actor)
+async def release_variant_sales_hold(
+    variant_id: int,
+    payload: LifecycleCommand,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="release-sales-hold", permission="catalog.hold", db=db, access=access, legacy_actor=legacy_actor)
 
 
 @router.get("/variants/{variant_id}/recall-preflight")
 async def recall_variant_preflight(
     variant_id: int,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "catalog.hold")
+    await _require(access, "catalog.hold")
     row = await db.scalar(
         select(ProductVariant).where(
-            ProductVariant.company_id == actor.company_id,
+            ProductVariant.company_id == access.company_id,
             ProductVariant.id == variant_id,
         )
     )
@@ -1905,7 +2015,7 @@ async def recall_variant_preflight(
     has_current_stock = await db.scalar(
         select(InventoryBalance.id)
         .where(
-            InventoryBalance.company_id == actor.company_id,
+            InventoryBalance.company_id == access.company_id,
             InventoryBalance.product_variant_id == variant_id,
             InventoryBalance.on_hand_quantity > 0,
         )
@@ -1919,15 +2029,33 @@ async def recall_variant_preflight(
 
 
 @router.post("/variants/{variant_id}/recall")
-async def recall_variant(variant_id: int, payload: LifecycleCommand, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver)):
-    return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="recall", permission="catalog.hold", db=db, actor=actor)
+async def recall_variant(
+    variant_id: int,
+    payload: LifecycleCommand,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="recall", permission="catalog.hold", db=db, access=access, legacy_actor=legacy_actor)
 
 
 @router.post("/variants/{variant_id}/cancel-recall")
-async def cancel_variant_recall(variant_id: int, payload: LifecycleCommand, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver)):
-    return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="cancel-recall", permission="catalog.hold", db=db, actor=actor)
+async def cancel_variant_recall(
+    variant_id: int,
+    payload: LifecycleCommand,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="cancel-recall", permission="catalog.hold", db=db, access=access, legacy_actor=legacy_actor)
 
 
 @router.post("/variants/{variant_id}/close-recall")
-async def close_variant_recall(variant_id: int, payload: CloseRecallCommand, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver)):
-    return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="close-recall", permission="catalog.hold", db=db, actor=actor)
+async def close_variant_recall(
+    variant_id: int,
+    payload: CloseRecallCommand,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="close-recall", permission="catalog.hold", db=db, access=access, legacy_actor=legacy_actor)
