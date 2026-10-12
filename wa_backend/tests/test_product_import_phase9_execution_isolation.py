@@ -83,10 +83,12 @@ class Phase9ExecutionIsolationTests(
         async def execute(
             _db,
             *,
+            company_id,
             actor,
             job_id,
             rows,
         ) -> None:
+            self.assertEqual(company_id, 7)
             if any(
                 row.row_identity
                 == bad_identity
@@ -123,10 +125,12 @@ class Phase9ExecutionIsolationTests(
             ) = (
                 await _execute_rows_best_effort(
                     _FakeNestedDb(),
+                    company_id=7,
                     actor=
                         SimpleNamespace(
                             id=1,
-                            company_id=1,
+                            company_id=999,
+                            is_admin=True,
                         ),
                     job_id=
                         uuid4(),
@@ -172,10 +176,12 @@ class Phase9ExecutionIsolationTests(
         async def outage(
             _db,
             *,
+            company_id,
             actor,
             job_id,
             rows,
         ) -> None:
+            self.assertEqual(company_id, 7)
             raise OperationalError(
                 "INSERT products",
                 {},
@@ -193,10 +199,12 @@ class Phase9ExecutionIsolationTests(
             ) as raised:
                 await _execute_rows_best_effort(
                     _FakeNestedDb(),
+                    company_id=7,
                     actor=
                         SimpleNamespace(
                             id=1,
-                            company_id=1,
+                            company_id=999,
+                            is_admin=False,
                         ),
                     job_id=
                         uuid4(),
