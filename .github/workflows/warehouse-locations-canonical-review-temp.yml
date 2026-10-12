@@ -7,7 +7,39 @@ on:
   workflow_dispatch:
 
 jobs:
-  focused-gate:
+  focused-test:
+    name: WL ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: no-legacy-authority
+            node: tests/test_warehouse_locations_canonical_auth_cutover.py::test_runtime_has_no_legacy_request_authority
+          - name: exact-capabilities
+            node: tests/test_warehouse_locations_canonical_auth_cutover.py::test_runtime_uses_only_exact_warehouse_location_capabilities
+          - name: read-routes
+            node: tests/test_warehouse_locations_canonical_auth_cutover.py::test_read_routes_use_canonical_access_without_loading_legacy_driver
+          - name: write-provenance
+            node: tests/test_warehouse_locations_canonical_auth_cutover.py::test_write_routes_use_legacy_driver_only_for_existing_driver_id_provenance
+          - name: pre-pagination
+            node: tests/test_warehouse_locations_canonical_auth_cutover.py::test_location_filter_stays_before_cursor_pagination_and_allows_stays_sql
+          - name: http-adapter
+            node: tests/test_warehouse_locations_canonical_auth_cutover.py::test_canonical_require_adapter_preserves_location_http_contract
+    defaults:
+      run:
+        working-directory: wa_backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: wa_backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - run: pytest -q "${{ matrix.node }}"
+
+  structural-gate:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -19,43 +51,19 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
           cache-dependency-path: wa_backend/requirements.txt
-      - name: Install backend dependencies
-        run: pip install -r requirements.txt
-      - name: Compile touched runtime and test
-        run: python -m py_compile api/warehouse/locations.py tests/test_warehouse_locations_canonical_auth_cutover.py
-      - name: Token get_current_driver
-        continue-on-error: true
-        run: python -c "from pathlib import Path; s=Path('api/warehouse/locations.py').read_text(); assert 'get_current_driver' not in s"
-      - name: Token InventoryAccess
-        continue-on-error: true
-        run: python -c "from pathlib import Path; s=Path('api/warehouse/locations.py').read_text(); assert 'InventoryAccess' not in s"
-      - name: Token current_admin
-        continue-on-error: true
-        run: python -c "from pathlib import Path; s=Path('api/warehouse/locations.py').read_text(); assert 'current_admin' not in s"
-      - name: Token is_admin
-        continue-on-error: true
-        run: python -c "from pathlib import Path; s=Path('api/warehouse/locations.py').read_text(); assert '.is_admin' not in s"
-      - name: Token legacy_actor company
-        continue-on-error: true
-        run: python -c "from pathlib import Path; s=Path('api/warehouse/locations.py').read_text(); assert 'legacy_actor.company_id' not in s"
-      - name: Worker focused tests
-        run: pytest -q tests/test_warehouse_locations_canonical_auth_cutover.py
-      - name: Canonical capability core
-        run: pytest -q tests/test_canonical_backoffice_capability_access.py
-      - name: Canonical dependency core
-        run: pytest -q tests/test_canonical_backoffice_authorization_dependency.py
-      - name: Legacy dependency count
-        shell: bash
-        run: test "$(grep -o 'get_current_backoffice_legacy_driver' api/warehouse/locations.py | wc -l)" -eq 5
-      - name: Exact capability audit
+      - run: pip install -r requirements.txt
+      - run: python -m py_compile api/warehouse/locations.py tests/test_warehouse_locations_canonical_auth_cutover.py
+      - run: pytest -q tests/test_canonical_backoffice_capability_access.py tests/test_canonical_backoffice_authorization_dependency.py
+      - name: Authority and capability audit
         shell: bash
         run: |
           set -euo pipefail
+          f=api/warehouse/locations.py
+          ! grep -nE 'get_current_driver|InventoryAccess|current_admin|\.is_admin|legacy_actor\.company_id|actor\.company_id' "$f"
+          test "$(grep -o 'get_current_backoffice_legacy_driver' "$f" | wc -l)" -eq 5
           python - <<'PY'
           import re
           from pathlib import Path
           src=Path('api/warehouse/locations.py').read_text()
-          got=set(re.findall(r"['\"](location\.[a-z]+)['\"]", src))
-          expected={'location.read','location.create','location.update','location.state'}
-          assert got == expected, (got, expected)
+          assert set(re.findall(r"['\"](location\.[a-z]+)['\"]", src)) == {'location.read','location.create','location.update','location.state'}
           PY
