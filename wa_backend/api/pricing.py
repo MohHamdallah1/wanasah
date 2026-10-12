@@ -14,7 +14,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
+from api.authentication.backoffice_compatibility import (
+    get_current_backoffice_legacy_driver,
+)
 from database import get_db
 from domains.pricing.core import PricingError, maker_checker_enabled
 from domains.pricing.publishing import (
@@ -30,7 +35,10 @@ from domains.pricing.publishing import (
     update_draft_entry,
 )
 from domains.pricing.resolver import resolve_price
-from inventory_access import InventoryAccess
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
 from models import (
     Driver,
     PriceBook,
@@ -102,22 +110,29 @@ def _canonical_money(value: Decimal) -> str:
 
 
 async def _require(
-    db: AsyncSession, actor: Driver, permission: str
+    access: BackofficeCapabilityAccess, permission: str
 ) -> None:
-    await InventoryAccess(db, actor).require(permission, any_location=True)
+    try:
+        await access.require(permission, any_location=True)
+    except BackofficeCapabilityAccessRejected:
+        raise HTTPException(
+            status_code=403,
+            detail="لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.",
+        ) from None
 
 
 def _audit(
     db: AsyncSession,
-    actor: Driver,
+    company_id: int,
+    actor_id: int,
     target: str,
     action: str,
     payload: dict[str, Any],
 ) -> None:
     db.add(
         SystemAuditLog(
-            company_id=actor.company_id,
-            admin_id=actor.id,
+            company_id=company_id,
+            admin_id=actor_id,
             target_id=target,
             action_type=action,
             old_value=None,
@@ -310,11 +325,11 @@ class ResolvePreview(StrictRequest):
 @router.get("/policy")
 async def get_pricing_policy(
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "pricing.view")
+    await _require(access, "pricing.view")
     try:
-        enabled = await maker_checker_enabled(db, actor.company_id)
+        enabled = await maker_checker_enabled(db, access.company_id)
     except PricingError as exc:
         raise _pricing_http_error(exc) from exc
     return {"maker_checker_enabled": enabled}
@@ -325,15 +340,15 @@ async def list_books(
     cursor: Optional[str] = Query(None, max_length=512),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "pricing.view")
+    await _require(access, "pricing.view")
     rows = list(
         (
             await db.scalars(
                 select(PriceBook)
                 .where(
-                    PriceBook.company_id == actor.company_id,
+                    PriceBook.company_id == access.company_id,
                     PriceBook.id > _cursor(cursor),
                 )
                 .order_by(PriceBook.id.asc())
@@ -355,14 +370,15 @@ async def list_books(
 async def add_book(
     payload: PriceBookCreate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "pricing.manage")
+    await _require(access, "pricing.manage")
     try:
         record, replay = await begin_idempotent_operation(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             operation="PRICING_BOOK_CREATE",
             request_id=str(payload.request_id),
             request_hash=_request_hash(payload),
@@ -372,15 +388,15 @@ async def add_book(
             return replay
         row = await create_price_book(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             code=payload.code,
             name=payload.name,
             currency_code=payload.currency_code,
             applicability_metadata=payload.applicability_metadata,
         )
         response = {"price_book": _book_row(row)}
-        _audit(db, actor, f"PriceBook_{row.id}", "PRICE_BOOK_CREATED", response)
+        _audit(db, access.company_id, legacy_actor.id, f"PriceBook_{row.id}", "PRICE_BOOK_CREATED", response)
         complete_idempotent_operation(record, response)
         await db.commit()
         return response
@@ -415,12 +431,12 @@ async def list_publications(
     cursor: Optional[str] = Query(None, max_length=512),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "pricing.view")
+    await _require(access, "pricing.view")
     if await db.scalar(
         select(PriceBook.id).where(
-            PriceBook.company_id == actor.company_id,
+            PriceBook.company_id == access.company_id,
             PriceBook.id == book_id,
         )
     ) is None:
@@ -437,7 +453,7 @@ async def list_publications(
             await db.scalars(
                 select(PricePublication)
                 .where(
-                    PricePublication.company_id == actor.company_id,
+                    PricePublication.company_id == access.company_id,
                     PricePublication.price_book_id == book_id,
                     PricePublication.id > _cursor(cursor),
                 )
@@ -461,14 +477,15 @@ async def add_publication(
     book_id: int,
     payload: PublicationCreate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "pricing.manage")
+    await _require(access, "pricing.manage")
     try:
         record, replay = await begin_idempotent_operation(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             operation="PRICING_PUBLICATION_CREATE",
             request_id=str(payload.request_id),
             request_hash=_request_hash(payload, book_id=book_id),
@@ -478,8 +495,8 @@ async def add_publication(
             return replay
         row = await create_publication(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             book_id=book_id,
             expected_book_version=payload.expected_book_version,
             effective_at=payload.effective_at,
@@ -488,7 +505,8 @@ async def add_publication(
         response = {"publication": _publication_row(row)}
         _audit(
             db,
-            actor,
+            access.company_id,
+            legacy_actor.id,
             f"PricePublication_{row.id}",
             "PRICE_PUBLICATION_CREATED",
             response,
@@ -519,12 +537,12 @@ async def list_entries(
     cursor: Optional[str] = Query(None, max_length=512),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "pricing.view")
+    await _require(access, "pricing.view")
     if await db.scalar(
         select(PricePublication.id).where(
-            PricePublication.company_id == actor.company_id,
+            PricePublication.company_id == access.company_id,
             PricePublication.id == publication_id,
         )
     ) is None:
@@ -541,7 +559,7 @@ async def list_entries(
             await db.scalars(
                 select(PriceBookEntry)
                 .where(
-                    PriceBookEntry.company_id == actor.company_id,
+                    PriceBookEntry.company_id == access.company_id,
                     PriceBookEntry.publication_id == publication_id,
                     PriceBookEntry.id > _cursor(cursor),
                 )
@@ -565,14 +583,15 @@ async def add_entry(
     publication_id: int,
     payload: EntryCreate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "pricing.manage")
+    await _require(access, "pricing.manage")
     try:
         record, replay = await begin_idempotent_operation(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             operation="PRICING_ENTRY_CREATE",
             request_id=str(payload.request_id),
             request_hash=_request_hash(
@@ -584,7 +603,7 @@ async def add_entry(
             return replay
         row = await create_draft_entry(
             db,
-            company_id=actor.company_id,
+            company_id=access.company_id,
             publication_id=publication_id,
             expected_publication_version=payload.expected_publication_version,
             product_variant_id=payload.product_variant_id,
@@ -596,7 +615,7 @@ async def add_entry(
             metadata=payload.metadata,
         )
         response = {"entry": _entry_row(row)}
-        _audit(db, actor, f"PriceEntry_{row.id}", "PRICE_ENTRY_CREATED", response)
+        _audit(db, access.company_id, legacy_actor.id, f"PriceEntry_{row.id}", "PRICE_ENTRY_CREATED", response)
         complete_idempotent_operation(record, response)
         await db.commit()
         return response
@@ -622,14 +641,15 @@ async def edit_entry(
     entry_id: int,
     payload: EntryUpdate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "pricing.manage")
+    await _require(access, "pricing.manage")
     try:
         record, replay = await begin_idempotent_operation(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             operation="PRICING_ENTRY_UPDATE",
             request_id=str(payload.request_id),
             request_hash=_request_hash(payload, entry_id=entry_id),
@@ -639,7 +659,7 @@ async def edit_entry(
             return replay
         row = await update_draft_entry(
             db,
-            company_id=actor.company_id,
+            company_id=access.company_id,
             entry_id=entry_id,
             expected_entry_version=payload.expected_entry_version,
             expected_publication_version=payload.expected_publication_version,
@@ -650,7 +670,7 @@ async def edit_entry(
             metadata=payload.metadata,
         )
         response = {"entry": _entry_row(row)}
-        _audit(db, actor, f"PriceEntry_{row.id}", "PRICE_ENTRY_UPDATED", response)
+        _audit(db, access.company_id, legacy_actor.id, f"PriceEntry_{row.id}", "PRICE_ENTRY_UPDATED", response)
         complete_idempotent_operation(record, response)
         await db.commit()
         return response
@@ -676,14 +696,15 @@ async def remove_entry(
     entry_id: int,
     payload: EntryDelete,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "pricing.manage")
+    await _require(access, "pricing.manage")
     try:
         record, replay = await begin_idempotent_operation(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             operation="PRICING_ENTRY_DELETE",
             request_id=str(payload.request_id),
             request_hash=_request_hash(payload, entry_id=entry_id),
@@ -693,7 +714,7 @@ async def remove_entry(
             return replay
         publication_version = await delete_draft_entry(
             db,
-            company_id=actor.company_id,
+            company_id=access.company_id,
             entry_id=entry_id,
             expected_entry_version=payload.expected_entry_version,
             expected_publication_version=payload.expected_publication_version,
@@ -702,7 +723,7 @@ async def remove_entry(
             "deleted_entry_id": entry_id,
             "publication_version": publication_version,
         }
-        _audit(db, actor, f"PriceEntry_{entry_id}", "PRICE_ENTRY_DELETED", response)
+        _audit(db, access.company_id, legacy_actor.id, f"PriceEntry_{entry_id}", "PRICE_ENTRY_DELETED", response)
         complete_idempotent_operation(record, response)
         await db.commit()
         return response
@@ -730,14 +751,15 @@ async def _publication_command(
     publication_id: int,
     payload: PublicationCommand,
     db: AsyncSession,
-    actor: Driver,
+    access: BackofficeCapabilityAccess,
+    legacy_actor: Driver,
 ):
-    await _require(db, actor, permission)
+    await _require(access, permission)
     try:
         record, replay = await begin_idempotent_operation(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             operation=operation,
             request_id=str(payload.request_id),
             request_hash=_request_hash(
@@ -749,15 +771,16 @@ async def _publication_command(
             return replay
         row = await fn(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             publication_id=publication_id,
             expected_version=payload.expected_version,
         )
         response = {"publication": _publication_row(row)}
         _audit(
             db,
-            actor,
+            access.company_id,
+            legacy_actor.id,
             f"PricePublication_{row.id}",
             action_type,
             {"reason": payload.reason, **response},
@@ -795,7 +818,8 @@ async def submit(
     publication_id: int,
     payload: PublicationCommand,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     return await _publication_command(
         operation="PRICING_PUBLICATION_SUBMIT",
@@ -805,7 +829,8 @@ async def submit(
         publication_id=publication_id,
         payload=payload,
         db=db,
-        actor=actor,
+        access=access,
+        legacy_actor=legacy_actor,
     )
 
 
@@ -814,7 +839,8 @@ async def approve(
     publication_id: int,
     payload: PublicationCommand,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     return await _publication_command(
         operation="PRICING_PUBLICATION_APPROVE",
@@ -824,7 +850,8 @@ async def approve(
         publication_id=publication_id,
         payload=payload,
         db=db,
-        actor=actor,
+        access=access,
+        legacy_actor=legacy_actor,
     )
 
 
@@ -833,7 +860,8 @@ async def publish(
     publication_id: int,
     payload: PublicationCommand,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     return await _publication_command(
         operation="PRICING_PUBLICATION_PUBLISH",
@@ -843,7 +871,8 @@ async def publish(
         publication_id=publication_id,
         payload=payload,
         db=db,
-        actor=actor,
+        access=access,
+        legacy_actor=legacy_actor,
     )
 
 
@@ -852,14 +881,15 @@ async def cancel(
     publication_id: int,
     payload: PublicationCommand,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "pricing.manage")
+    await _require(access, "pricing.manage")
     try:
         record, replay = await begin_idempotent_operation(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             operation="PRICING_PUBLICATION_CANCEL",
             request_id=str(payload.request_id),
             request_hash=_request_hash(
@@ -871,14 +901,15 @@ async def cancel(
             return replay
         row = await cancel_publication(
             db,
-            company_id=actor.company_id,
+            company_id=access.company_id,
             publication_id=publication_id,
             expected_version=payload.expected_version,
         )
         response = {"publication": _publication_row(row)}
         _audit(
             db,
-            actor,
+            access.company_id,
+            legacy_actor.id,
             f"PricePublication_{row.id}",
             "PRICE_PUBLICATION_CANCELLED",
             {"reason": payload.reason, **response},
@@ -906,15 +937,15 @@ async def list_assignments(
     cursor: Optional[str] = Query(None, max_length=512),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "pricing.view")
+    await _require(access, "pricing.view")
     rows = list(
         (
             await db.scalars(
                 select(PriceBookAssignment)
                 .where(
-                    PriceBookAssignment.company_id == actor.company_id,
+                    PriceBookAssignment.company_id == access.company_id,
                     PriceBookAssignment.id > _cursor(cursor),
                 )
                 .order_by(PriceBookAssignment.id.asc())
@@ -936,14 +967,15 @@ async def list_assignments(
 async def add_assignment(
     payload: AssignmentCreate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require(db, actor, "pricing.manage")
+    await _require(access, "pricing.manage")
     try:
         record, replay = await begin_idempotent_operation(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             operation="PRICING_ASSIGNMENT_CREATE",
             request_id=str(payload.request_id),
             request_hash=_request_hash(payload),
@@ -953,8 +985,8 @@ async def add_assignment(
             return replay
         row = await create_assignment(
             db,
-            company_id=actor.company_id,
-            actor_id=actor.id,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
             price_book_id=payload.price_book_id,
             scope_type=payload.scope_type,
             scope_id=payload.scope_id,
@@ -966,7 +998,8 @@ async def add_assignment(
         response = {"assignment": _assignment_row(row)}
         _audit(
             db,
-            actor,
+            access.company_id,
+            legacy_actor.id,
             f"PriceBookAssignment_{row.id}",
             "PRICE_ASSIGNMENT_CREATED",
             response,
@@ -995,13 +1028,13 @@ async def add_assignment(
 async def resolve_preview(
     payload: ResolvePreview,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "pricing.view")
+    await _require(access, "pricing.view")
     try:
         row = await resolve_price(
             db,
-            company_id=actor.company_id,
+            company_id=access.company_id,
             product_variant_id=payload.product_variant_id,
             uom_id=payload.uom_id,
             customer_id=payload.customer_id,
