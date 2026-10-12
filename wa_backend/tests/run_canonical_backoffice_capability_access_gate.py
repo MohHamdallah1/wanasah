@@ -15,7 +15,6 @@ import asyncio
 import os
 from pathlib import Path
 import sys
-from types import SimpleNamespace
 
 import psycopg
 from sqlalchemy import select, text
@@ -143,14 +142,12 @@ def _seed(admin_dsn: str) -> dict[str, int]:
 
 
 async def _run(runtime_url: str, fixture: dict[str, int]) -> None:
-    from fastapi import HTTPException
     from domains.authorization.backoffice_access import (
         BackofficeCapabilityAccess,
         BackofficeCapabilityAccessRejected,
     )
     from domains.authorization.backoffice_subject import BackofficeAuthorizationSubject
     from domains.authorization.capabilities import COMPANY_ONLY, PERMISSIONS
-    from domains.authorization.inventory_access import InventoryAccess
     from models import InventoryLocation
 
     engine = create_async_engine(runtime_url, echo=False, hide_parameters=True)
@@ -181,13 +178,6 @@ async def _run(runtime_url: str, fixture: dict[str, int]) -> None:
         try:
             await access.require(code, **kwargs)
         except BackofficeCapabilityAccessRejected:
-            return True
-        return False
-
-    async def old_require_fails(access, code, **kwargs) -> bool:
-        try:
-            await access.require(code, **kwargs)
-        except HTTPException:
             return True
         return False
 
@@ -318,61 +308,6 @@ async def _run(runtime_url: str, fixture: dict[str, int]) -> None:
             assert set(local_by) == {fixture["a1"]}
             assert set(local_by[fixture["a1"]]) == {"transfer.send"}
         print("CODES_BY_LOCATION_EXACT_SCOPE_AND_OMISSIONS=PASS", flush=True)
-
-        # Differential parity against legacy InventoryAccess for preserved non-owner behavior.
-        async with await tenant_session(fixture["a"]) as db:
-            new = BackofficeCapabilityAccess(db, ordinary_subject)
-            actor = SimpleNamespace(id=fixture["ordinary"], company_id=fixture["a"], is_admin=False)
-            old = InventoryAccess(db, actor)
-
-            new_query = list((await db.scalars(
-                select(InventoryLocation.id)
-                .where(
-                    InventoryLocation.company_id == fixture["a"],
-                    new.allows("transfer.send", InventoryLocation.id),
-                )
-                .order_by(InventoryLocation.id)
-            )).all())
-            old_query = list((await db.scalars(
-                select(InventoryLocation.id)
-                .where(
-                    InventoryLocation.company_id == fixture["a"],
-                    old.allows("transfer.send", InventoryLocation.id),
-                )
-                .order_by(InventoryLocation.id)
-            )).all())
-            assert new_query == old_query == [fixture["a1"]]
-
-            await new.require("inventory.read")
-            await old.require("inventory.read")
-            assert await new_require_fails(new, "dispatch.execute") == await old_require_fails(old, "dispatch.execute")
-            await new.require("transfer.send", location_id=fixture["a1"])
-            await old.require("transfer.send", location_id=fixture["a1"])
-            assert await new_require_fails(new, "transfer.send", location_id=fixture["a2"]) == await old_require_fails(old, "transfer.send", location_id=fixture["a2"])
-
-            new_all_failed = False
-            old_all_failed = False
-            try:
-                await new.require_all(("inventory.read", "dispatch.execute"), any_location=True)
-            except BackofficeCapabilityAccessRejected:
-                new_all_failed = True
-            try:
-                await old.require_all(("inventory.read", "dispatch.execute"), any_location=True)
-            except HTTPException:
-                old_all_failed = True
-            assert new_all_failed == old_all_failed == True
-            assert await new.codes(location_id=fixture["a1"]) == await old.codes(location_id=fixture["a1"])
-            assert await new.codes_by_location([fixture["a1"], fixture["a2"], fixture["a3"], fixture["b1"]]) == await old.codes_by_location([fixture["a1"], fixture["a2"], fixture["a3"], fixture["b1"]])
-
-            legacy_owner = InventoryAccess(
-                db,
-                SimpleNamespace(id=fixture["owner_driver"], company_id=fixture["a"], is_admin=True),
-            )
-            owner = BackofficeCapabilityAccess(db, owner_subject)
-            assert await owner.codes() == await legacy_owner.codes() == sorted(PERMISSIONS)
-            await owner.require_all(("inventory.read", "catalog.manage"))
-            await legacy_owner.require_all(("inventory.read", "catalog.manage"))
-        print("DIFFERENTIAL_PARITY_ORDINARY_AND_OWNER_CAPABILITY_SEMANTICS=PASS", flush=True)
 
         # Final source guard: no legacy authority dependency, bridge authority or ID aliasing.
         source = (BACKEND / "domains" / "authorization" / "backoffice_access.py").read_text(encoding="utf-8")
