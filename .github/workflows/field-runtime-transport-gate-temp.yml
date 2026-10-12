@@ -36,11 +36,13 @@ jobs:
             tests/test_legacy_field_transport.py \
             tests/test_legacy_field_transport_boundary.py \
             tests/test_canonical_field_runtime_compatibility.py \
-            tests/test_field_authorization_subject.py
+            tests/test_canonical_field_runtime_compatibility_boundary.py \
+            tests/test_canonical_field_authorization_subject.py
       - name: Source transport and authority audit
         run: |
           python - <<'PY'
           from pathlib import Path
+          import ast
           driver = Path('wa_backend/api/driver.py').read_text(encoding='utf-8')
           assert 'legacy_field_transport' not in driver
           assert 'get_legacy_transport_field_context' not in driver
@@ -51,7 +53,6 @@ jobs:
               'get_driver_dashboard','respond_to_transfer','batch_respond_to_transfers',
               'get_pending_transfers','add_new_shop','get_products','get_driver_visits','get_active_session',
           ]
-          import ast
           tree = ast.parse(driver)
           funcs = {n.name:n for n in ast.walk(tree) if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef))}
           for name in target_names:
