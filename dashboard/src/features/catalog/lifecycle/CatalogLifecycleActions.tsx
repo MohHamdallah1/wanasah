@@ -287,7 +287,7 @@ export function CatalogLifecycleActions({
   const can = (
     permission: string,
   ) =>
-    access.isCompanyAdmin ||
+    access.isCompanyOwner ||
     access.can(permission);
   const canHoldPermission = can("catalog.hold");
 

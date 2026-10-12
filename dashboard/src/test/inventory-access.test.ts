@@ -21,7 +21,7 @@ import {
 } from '@/pages/inventory/ledger/contracts';
 
 const capabilities = {
-  company_id: 1, driver_id: 7, is_company_admin: false, location_id: 101,
+  company_id: 1, principal_id: 7, backoffice_user_id: 17, is_company_owner: false, location_id: 101,
   permissions: ['catalog.read'], any_permissions: ['catalog.read', 'stocktake.count'],
   location_permissions: ['stocktake.count'],
 };
@@ -39,8 +39,8 @@ describe('inventory permission contract', () => {
     expect(hasInventoryPermission(data, 'stocktake.count')).toBe(false);
   });
   it.each([
-    {...capabilities, company_id: '1'}, {...capabilities, driver_id: 0},
-    {...capabilities, is_company_admin: 'true'}, {...capabilities, location_id: -1},
+    {...capabilities, company_id: '1'}, {...capabilities, principal_id: 0},
+    {...capabilities, backoffice_user_id: 0}, {...capabilities, is_company_owner: 'true'}, {...capabilities, location_id: -1},
     {...capabilities, permissions: null}, {...capabilities, any_permissions: [true]},
     {...capabilities, location_permissions: [true]},
   ])('rejects malformed authority contracts', raw => {

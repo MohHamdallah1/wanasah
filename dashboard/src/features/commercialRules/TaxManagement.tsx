@@ -16,7 +16,7 @@ function LoadMore({ visible, pending, onClick }: { visible: boolean; pending: bo
 
 export default function TaxManagement() {
   const authFetch = useAuthFetch(); const queryClient = useQueryClient(); const access = useInventoryAccess();
-  const canManage = access.isCompanyAdmin || access.canAny("tax.manage"); const canApprove = access.isCompanyAdmin || access.canAny("tax.approve"); const catalogAvailable = access.isCompanyAdmin || access.canAny("catalog.read");
+  const canManage = access.isCompanyOwner || access.canAny("tax.manage"); const canApprove = access.isCompanyOwner || access.canAny("tax.approve"); const catalogAvailable = access.isCompanyOwner || access.canAny("catalog.read");
   const policy = useTaxPolicy(); const jurisdictions = useTaxJurisdictions(); const ruleSets = useTaxRuleSets(); const catalog = useCatalogVariants(catalogAvailable);
   const [selectedId, setSelectedId] = useState<number | null>(null); const versions = useTaxVersions(selectedId); const selected = ruleSets.items.find((row) => row.id === selectedId) ?? null;
   const [jurisdictionEditor, setJurisdictionEditor] = useState<TaxJurisdiction | "new" | null>(null); const [ruleSetEditor, setRuleSetEditor] = useState<TaxRuleSet | "new" | null>(null); const [versionEditor, setVersionEditor] = useState<TaxVersion | "new" | null>(null);

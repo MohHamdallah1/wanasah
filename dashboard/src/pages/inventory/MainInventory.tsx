@@ -303,14 +303,14 @@ export default function MainInventory() {
   const locationAccess = useInventoryAccess(selectedLocationId);
   const canReadStock = locationAccess.can('inventory.read');
   const canReadStatus = locationAccess.can('location.read');
-  const { isCompanyAdmin, canAny } = access;
+  const { isCompanyOwner, canAny } = access;
   const { can: canAtLocation } = locationAccess;
   const tabAllowed = useCallback((id: TabId) => {
-    if (id === 'permissions') return isCompanyAdmin;
+    if (id === 'permissions') return isCompanyOwner;
     if (id === 'warehouses' || selectedLocationId === null) return canAny(TAB_PERMISSION[id]);
     if (id === 'inbound') return canAtLocation('inbound.create') && canAtLocation('catalog.read');
     return canAtLocation(TAB_PERMISSION[id]);
-  }, [isCompanyAdmin, canAny, canAtLocation, selectedLocationId]);
+  }, [isCompanyOwner, canAny, canAtLocation, selectedLocationId]);
   useEffect(() => {
     if (
       !access.isSuccess ||
@@ -1415,7 +1415,7 @@ export default function MainInventory() {
           />
         )}
 
-        {activeTab === "permissions" && access.isCompanyAdmin && <TabInventoryAccess />}
+        {activeTab === "permissions" && access.isCompanyOwner && <TabInventoryAccess />}
         {activeTab === "warehouses" && tabAllowed("warehouses") && (
           <TabWarehouseLocations
             selectedLocationId={selectedLocationId}

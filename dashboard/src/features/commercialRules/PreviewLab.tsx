@@ -29,7 +29,7 @@ const previewMoney = (value: string) => {
   return clean;
 };
 export default function PreviewLab({ canOffers, canTax }: { canOffers: boolean; canTax: boolean }) {
-  const authFetch = useAuthFetch(); const access = useInventoryAccess(); const catalogAvailable = access.isCompanyAdmin || access.canAny("catalog.read");
+  const authFetch = useAuthFetch(); const access = useInventoryAccess(); const catalogAvailable = access.isCompanyOwner || access.canAny("catalog.read");
   const catalog = useCatalogVariants(catalogAvailable); const offerCatalog = useOfferCatalogVariants(catalogAvailable && canOffers); const jurisdictions = useTaxJurisdictions(canTax);
   const [mode, setMode] = useState<"offers" | "tax">(canOffers ? "offers" : "tax"); const [productId, setProductId] = useState(""); const [uomId, setUomId] = useState(""); const [quantity, setQuantity] = useState("1"); const [amount, setAmount] = useState("0.000000"); const [customerId, setCustomerId] = useState(""); const [branchId, setBranchId] = useState(""); const [channel, setChannel] = useState(""); const [jurisdictionId, setJurisdictionId] = useState(""); const [documentType, setDocumentType] = useState("SALE");
   const [offerResult, setOfferResult] = useState<OfferPreview | null>(null); const [taxResult, setTaxResult] = useState<TaxPreview | null>(null);

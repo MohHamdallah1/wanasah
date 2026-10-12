@@ -276,7 +276,7 @@ describe("products tracking UI contracts", () => {
     );
 
     expect(capabilities).toContain(
-      'const canManageCatalog = isCompanyAdmin || canAny("catalog.manage");',
+      'const canManageCatalog = isCompanyOwner || canAny("catalog.manage");',
     );
     expect(page).toContain(
       "canEditTracking: canManageCatalog",

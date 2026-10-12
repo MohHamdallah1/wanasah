@@ -23,7 +23,7 @@ export function BatchFocusWorkspace({ identity, onConsumed, onClose, onOpenTrans
   const { t, i18n } = useTranslation();
   const access = useInventoryAccess();
   const canManageQualitySettings =
-    access.isCompanyAdmin || access.can("inventory.transfer_policy.manage");
+    access.isCompanyOwner || access.can("inventory.transfer_policy.manage");
   const query = useBatchStockSources(identity.batchId);
   const consumed = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -75,7 +75,7 @@ export function BatchFocusWorkspace({ identity, onConsumed, onClose, onOpenTrans
             : t("batchFocus.noReadableStock")}</p>
         <div className="mt-3 flex flex-wrap gap-2">
           <button type="button" onClick={() => void refresh()} disabled={query.isFetching} className="rounded-lg border px-3 py-2 text-sm focus-visible:ring-2">{t("common.refresh")}</button>
-          {(access.isCompanyAdmin || access.can("batch.disposition")) && <button type="button" onClick={() => setEditingDisposition(true)} className="rounded-lg border px-3 py-2 text-sm focus-visible:ring-2">{t("batchFocus.changeDisposition")}</button>}
+          {(access.isCompanyOwner || access.can("batch.disposition")) && <button type="button" onClick={() => setEditingDisposition(true)} className="rounded-lg border px-3 py-2 text-sm focus-visible:ring-2">{t("batchFocus.changeDisposition")}</button>}
         </div>
       </div>
       <BatchQuantityActions batch={data.batch} productVariantId={data.product_variant_id} baseUomCode={data.base_uom_code}

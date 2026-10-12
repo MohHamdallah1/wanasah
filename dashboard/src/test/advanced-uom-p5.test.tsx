@@ -39,7 +39,7 @@ vi.mock("@/hooks/useNetworkStatus", () => ({
 vi.mock("@/hooks/useInventoryAccess", () => ({
   useInventoryAccess: () => ({
     isSuccess: true,
-    isCompanyAdmin: false,
+    isCompanyOwner: false,
     data: {
       company_id: 1,
       driver_id: 2,

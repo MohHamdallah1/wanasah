@@ -1844,6 +1844,13 @@ export const resources = {
       },
       inventoryAccessAdmin: {
         saved: "تم حفظ الصلاحيات.",
+        eyebrow: "التحكم بالوصول",
+        title: "صلاحيات المستودعات والسيارات",
+        description: "مالك الشركة يملك صلاحيات الشركة الكاملة. المنح المحلي يخص الموقع المحدد فقط؛ الفرع والمنطقة لا يمنحان وصولاً تلقائياً.",
+        user: "المستخدم",
+        chooseUser: "اختر المستخدم",
+        companyOwner: "مالك الشركة",
+        inactive: "موقوف",
         errors: {
           loadFailed: "تعذر تحميل بيانات الصلاحيات.",
           saveFailed: "تعذر حفظ الصلاحيات.",
@@ -4071,6 +4078,13 @@ export const resources = {
       },
       inventoryAccessAdmin: {
         saved: "Permissions were saved.",
+        eyebrow: "Access control",
+        title: "Warehouse and vehicle permissions",
+        description: "The Company Owner has the complete company capability set. Local grants apply only to the selected location; branches and territories do not grant access automatically.",
+        user: "User",
+        chooseUser: "Choose a user",
+        companyOwner: "Company Owner",
+        inactive: "Inactive",
         errors: {
           loadFailed: "Could not load permission data.",
           saveFailed: "Could not save permissions.",

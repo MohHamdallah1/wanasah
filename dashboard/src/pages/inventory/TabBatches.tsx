@@ -82,7 +82,7 @@ export function TabBatches({
   const { t, i18n } = useTranslation();
   const locale = resolveI18nLocale(i18n);
   const canManageDisposition =
-    access.isCompanyAdmin || access.can("batch.disposition");
+    access.isCompanyOwner || access.can("batch.disposition");
   const [focusVariantId, setFocusVariantId] = useState<number | null>(
     focus?.variantId ?? null,
   );

@@ -16,7 +16,7 @@ function LoadMore({ visible, pending, onClick }: { visible: boolean; pending: bo
 
 export default function OfferManagement() {
   const authFetch = useAuthFetch(); const queryClient = useQueryClient(); const access = useInventoryAccess();
-  const canManage = access.isCompanyAdmin || access.canAny("offers.manage"); const canApprove = access.isCompanyAdmin || access.canAny("offers.approve"); const catalogAvailable = access.isCompanyAdmin || access.canAny("catalog.read");
+  const canManage = access.isCompanyOwner || access.canAny("offers.manage"); const canApprove = access.isCompanyOwner || access.canAny("offers.approve"); const catalogAvailable = access.isCompanyOwner || access.canAny("catalog.read");
   const policy = useOfferPolicy(); const definitions = useOfferDefinitions();
   const [selectedId, setSelectedId] = useState<number | null>(null); const versions = useOfferVersions(selectedId); const selected = definitions.items.find((row) => row.id === selectedId) ?? null;
   const [definitionEditor, setDefinitionEditor] = useState<OfferDefinition | "new" | null>(null); const [versionEditor, setVersionEditor] = useState<OfferVersion | "new" | null>(null);

@@ -27,8 +27,8 @@ export const batchFocusPayload = (sources = [batchSource(11, "Warehouse A")]) =>
   base_uom_id: 7, base_uom_code: "EACH", operational_hold: "NONE", sources,
 });
 
-export const inventoryReadAccess = (admin = true) => ({
-  company_id: 1, driver_id: 7, is_company_admin: admin, location_id: null,
-  permissions: admin ? ["inventory.read", "batch.disposition", "transfer.special.quarantine"] : [],
+export const inventoryReadAccess = (owner = true) => ({
+  company_id: 1, principal_id: 7, backoffice_user_id: 17, is_company_owner: owner, location_id: null,
+  permissions: owner ? ["inventory.read", "batch.disposition", "transfer.special.quarantine"] : [],
   any_permissions: ["inventory.read"], location_permissions: [],
 });
