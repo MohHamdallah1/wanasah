@@ -5,8 +5,8 @@ from sqlalchemy import select, delete, func, and_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
-from api.dependencies import get_current_driver
-from api.authentication.legacy_backoffice_transport import get_legacy_transport_backoffice_capability_access
+from api.authentication.backoffice_authorization import get_current_backoffice_capability_access
+from api.authentication.backoffice_compatibility import get_current_backoffice_legacy_driver
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from domains.authorization.capabilities import PERMISSIONS, COMPANY_ONLY
 from domains.identity.models import BackofficeUser, CompanyOwner, CompanyPrincipal
@@ -31,7 +31,7 @@ class GrantInput(BaseModel):
 
 
 async def _require_company_owner(
-    access: BackofficeCapabilityAccess = Depends(get_legacy_transport_backoffice_capability_access),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ) -> BackofficeCapabilityAccess:
     # Owner state comes from the persisted canonical CompanyOwner relation.
     if access.subject.is_company_owner is not True:
@@ -50,7 +50,7 @@ def audit(db, company_id, legacy_actor_id, target, action, old, new):
 @router.get('/me')
 async def capabilities(location_id: int | None = Query(None, gt=0),
                        db: AsyncSession = Depends(get_db),
-                       access: BackofficeCapabilityAccess = Depends(get_legacy_transport_backoffice_capability_access)):
+                       access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access)):
     if location_id is not None:
         location = await db.scalar(select(InventoryLocation.id).where(
             InventoryLocation.company_id == access.company_id, InventoryLocation.id == location_id))
@@ -72,7 +72,7 @@ class LocationCapabilitiesInput(BaseModel):
 
 @router.post('/locations/capabilities')
 async def location_capabilities(payload: LocationCapabilitiesInput,
-        access: BackofficeCapabilityAccess = Depends(get_legacy_transport_backoffice_capability_access)):
+        access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access)):
     if any(type(value) is not int or not 0 < value <= 2147483647 for value in payload.location_ids):
         raise HTTPException(422, 'معرف الموقع غير صالح.')
     return {'locations': await access.codes_by_location(payload.location_ids)}
@@ -149,14 +149,14 @@ async def save_role(payload, db, access, legacy_actor, role_id=None):
 @router.post('/roles', status_code=201)
 async def create_role(payload: RoleInput, db: AsyncSession = Depends(get_db),
                       access: BackofficeCapabilityAccess = Depends(_require_company_owner),
-                      legacy_actor: Driver = Depends(get_current_driver)):
+                      legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver)):
     return await save_role(payload, db, access, legacy_actor)
 
 
 @router.put('/roles/{role_id}')
 async def update_role(role_id: int, payload: RoleInput, db: AsyncSession = Depends(get_db),
                       access: BackofficeCapabilityAccess = Depends(_require_company_owner),
-                      legacy_actor: Driver = Depends(get_current_driver)):
+                      legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver)):
     return await save_role(payload, db, access, legacy_actor, role_id)
 
 
@@ -241,7 +241,7 @@ async def user_grants(user_id: int, scope: str = Query('location', pattern='^(lo
 @router.post('/users/{user_id}/grants', status_code=201)
 async def grant(user_id: int, payload: GrantInput, db: AsyncSession = Depends(get_db),
                 access: BackofficeCapabilityAccess = Depends(_require_company_owner),
-                legacy_actor: Driver = Depends(get_current_driver)):
+                legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver)):
     legacy_grant_driver_id = await target_legacy_grant_driver_id(db, access, user_id)
     role = await db.scalar(select(Role).where(Role.company_id == access.company_id, Role.id == payload.role_id).with_for_update())
     if role is None:
@@ -265,7 +265,7 @@ async def grant(user_id: int, payload: GrantInput, db: AsyncSession = Depends(ge
 @router.delete('/users/{user_id}/grants/{grant_id}')
 async def revoke(user_id: int, grant_id: int, scope: str = Query(..., pattern='^(location|company)$'),
                  db: AsyncSession = Depends(get_db), access: BackofficeCapabilityAccess = Depends(_require_company_owner),
-                 legacy_actor: Driver = Depends(get_current_driver)):
+                 legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver)):
     legacy_grant_driver_id = await target_legacy_grant_driver_id(db, access, user_id)
     model = UserRole if scope == 'company' else UserLocationAccess
     row = await db.scalar(select(model).where(model.company_id == access.company_id,
