@@ -66,12 +66,13 @@ def test_company_owner_and_ordinary_users_are_resolved_by_canonical_access_only(
 
 def test_ledger_exact_location_any_location_and_missing_permission_contracts() -> None:
     helper = _function_source(LEDGER, LEDGER_TREE, "_require_ledger_access")
-    assert "InventoryLocation.company_id == access.company_id" in helper
-    assert "InventoryLocation.id == location_id" in helper
+    assert "await access.require(" in helper
     assert "'ledger.read'" in helper
     assert "location_id," in helper
     assert "any_location=location_id is None" in helper
-    assert "if not bool(allowed)" in helper
+    assert "BackofficeCapabilityAccessRejected" in helper
+    assert "InventoryLocation.company_id == access.company_id" in helper
+    assert "InventoryLocation.id == location_id" in helper
     assert "HTTPException(403" in helper
     assert "HTTPException(404" in helper
 
@@ -164,10 +165,10 @@ def test_ledger_product_uom_balance_batch_cost_supplier_evidence_paths_remain() 
 
 def test_status_preserves_location_read_or_dispatch_read_exact_location_semantics() -> None:
     helper = _function_source(STATUS, STATUS_TREE, "_require_status_access")
+    assert "await access.require(('location.read', 'dispatch.read'), location_id)" in helper
+    assert "BackofficeCapabilityAccessRejected" in helper
     assert "InventoryLocation.company_id == access.company_id" in helper
     assert "InventoryLocation.id == location_id" in helper
-    assert "access.allows(('location.read', 'dispatch.read'), location_id)" in helper
-    assert "if not bool(allowed)" in helper
     assert "HTTPException(403" in helper
     assert "HTTPException(404" in helper
 
@@ -176,6 +177,16 @@ def test_status_preserves_location_read_or_dispatch_read_exact_location_semantic
     assert "company_id=access.company_id" in route
     assert "InventoryLock.company_id == access.company_id" in route
     assert '"AUDIT_LOCK" if active_lock is not None else "ACTIVE"' in route
+
+
+def test_status_cross_company_location_is_rejected_without_foreign_lock_scope() -> None:
+    helper = _function_source(STATUS, STATUS_TREE, "_require_status_access")
+    route = _function_source(STATUS, STATUS_TREE, "get_warehouse_status")
+    assert "InventoryLocation.company_id == access.company_id" in helper
+    assert "InventoryLocation.id == location_id" in helper
+    assert "company_id=access.company_id" in route
+    assert "InventoryLock.company_id == access.company_id" in route
+    assert "InventoryLock.location_id == location_id" in route
 
 
 def test_identity_ids_and_driver_admin_flags_are_irrelevant_to_these_routes() -> None:
