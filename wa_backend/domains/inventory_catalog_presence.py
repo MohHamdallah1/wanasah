@@ -6,41 +6,18 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
-from inventory_access import InventoryAccess
-from models import Driver, InventoryBalance, InventoryLocation
+from models import InventoryBalance, InventoryLocation
 
 
 class InventoryCatalogPresenceForbidden(RuntimeError):
     """The caller cannot read every selected physical warehouse."""
 
 
-def _resolve_catalog_presence_access(
-    db: AsyncSession,
-    *,
-    access: BackofficeCapabilityAccess | None,
-    actor: Driver | None,
-    company_id: int | None,
-):
-    if access is not None:
-        if actor is not None:
-            raise ValueError("Use canonical access or a legacy actor, not both.")
-        tenant_company_id = int(access.company_id)
-        if company_id is not None and int(company_id) != tenant_company_id:
-            raise ValueError("Canonical access company does not match the requested tenant.")
-        return tenant_company_id, access
-
-    if actor is None or company_id is None:
-        raise ValueError("Canonical access or the legacy actor/company pair is required.")
-    return int(company_id), InventoryAccess(db, actor)
-
-
 async def variant_ids_present_in_all_warehouses(
     db: AsyncSession,
     *,
     warehouse_ids: Sequence[int],
-    access: BackofficeCapabilityAccess | None = None,
-    actor: Driver | None = None,
-    company_id: int | None = None,
+    access: BackofficeCapabilityAccess,
 ):
     """Return a permission-scoped set query for physical warehouse presence.
 
@@ -49,19 +26,13 @@ async def variant_ids_present_in_all_warehouses(
     variants with positive physical on-hand in every selected warehouse; it does
     not expose quantities, hidden locations, or Inventory mutation authority.
 
-    Canonical Backoffice callers pass ``access``. The legacy actor/company pair is
-    retained temporarily for callers that have not completed their auth cutover.
+    Tenant scope and location authority come only from canonical Backoffice access.
     """
     normalized_ids = tuple(sorted({int(value) for value in warehouse_ids}))
     if not normalized_ids:
         raise ValueError("warehouse_ids cannot be empty")
 
-    tenant_company_id, permission_access = _resolve_catalog_presence_access(
-        db,
-        access=access,
-        actor=actor,
-        company_id=company_id,
-    )
+    tenant_company_id = int(access.company_id)
     readable_ids = set(
         int(value)
         for value in (
@@ -71,7 +42,7 @@ async def variant_ids_present_in_all_warehouses(
                     InventoryLocation.id.in_(normalized_ids),
                     InventoryLocation.location_type == "WAREHOUSE",
                     InventoryLocation.is_active.is_(True),
-                    permission_access.location_filter(
+                    access.location_filter(
                         "inventory.read",
                         InventoryLocation.id,
                     ),
@@ -98,7 +69,7 @@ async def variant_ids_present_in_all_warehouses(
             InventoryBalance.on_hand_quantity > 0,
             InventoryLocation.is_active.is_(True),
             InventoryLocation.location_type == "WAREHOUSE",
-            permission_access.location_filter(
+            access.location_filter(
                 "inventory.read",
                 InventoryLocation.id,
             ),
