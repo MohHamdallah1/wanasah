@@ -7,9 +7,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
 from database import get_db
-from models import Company, Country, Driver, SystemSetting
+from domains.authorization.backoffice_access import BackofficeCapabilityAccess
+from models import Company, Country, SystemSetting
 
 
 router = APIRouter(prefix="/tenant", tags=["Tenant Identity"])
@@ -42,9 +45,11 @@ def _positive_setting_id(raw: Optional[str]) -> Optional[int]:
 @router.get("/identity", response_model=TenantIdentityResponse, status_code=200)
 async def tenant_identity(
     db: AsyncSession = Depends(get_db),
-    current_driver: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
-    company_id = int(current_driver.company_id)
+    company_id = access.company_id
     company = (
         await db.execute(
             select(
