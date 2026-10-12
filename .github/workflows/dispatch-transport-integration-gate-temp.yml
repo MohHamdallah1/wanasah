@@ -1,0 +1,85 @@
+name: TEMP dispatch transport integration gate
+
+on:
+  push:
+    branches:
+      - lead/dispatch-transport-integration-gate
+
+permissions:
+  contents: read
+
+jobs:
+  focused-dispatch-transport:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: DispatchTransportIntegrationGateOnlyKey123456789012345678901234
+      DATABASE_URL: postgresql+asyncpg://dispatch_unit@127.0.0.1:1/dispatch_unit
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://dispatch_admin@127.0.0.1:1/dispatch_unit
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r wa_backend/requirements.txt pytest pytest-asyncio httpx
+      - name: Compile changed canonical runtime
+        run: |
+          python -m py_compile \
+            wa_backend/api/dispatch.py \
+            wa_backend/api/authentication/backoffice_authorization.py \
+            wa_backend/api/authentication/backoffice_compatibility.py \
+            wa_backend/api/authentication/dependencies.py \
+            wa_backend/domains/authorization/backoffice_subject.py \
+            wa_backend/domains/authorization/backoffice_access.py
+      - name: Focused Dispatch and canonical Backoffice tests
+        working-directory: wa_backend
+        env:
+          PYTHONPATH: .
+        run: |
+          pytest -q \
+            tests/test_dispatch_canonical_authorization_cutover.py \
+            tests/test_dispatch_representatives.py \
+            tests/test_dispatch_representatives_boundary.py \
+            tests/test_canonical_backoffice_authorization_dependency.py \
+            tests/test_canonical_backoffice_authorization_subject.py \
+            tests/test_canonical_backoffice_capability_access.py \
+            tests/test_canonical_backoffice_runtime_compatibility.py
+      - name: Retired transport and authority source audit
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          retired = (
+              'legacy_backoffice_transport',
+              'get_legacy_transport_backoffice_context',
+              'get_legacy_transport_backoffice_capability_access',
+              'require_legacy_transport_backoffice_capability',
+          )
+          root = Path('wa_backend')
+          hits = []
+          for path in root.rglob('*.py'):
+              rel = path.relative_to(root)
+              if any(part in {'tests', 'alembic', 'scripts', 'perf_reports', '__pycache__'} for part in rel.parts):
+                  continue
+              source = path.read_text(encoding='utf-8-sig')
+              for symbol in retired:
+                  if symbol in source:
+                      hits.append(f'{rel}:{symbol}')
+          assert hits == [], hits
+          dispatch = Path('wa_backend/api/dispatch.py').read_text(encoding='utf-8')
+          for forbidden in ('get_current_driver', '.is_admin', 'legacy_actor.company_id', 'legacy_backoffice_transport'):
+              assert forbidden not in dispatch, forbidden
+          assert 'get_current_backoffice_capability_access' in dispatch
+          assert 'get_current_backoffice_legacy_driver' in dispatch
+          assert not Path('wa_backend/api/authentication/legacy_backoffice_transport.py').exists()
+          compat = Path('wa_backend/api/authentication/backoffice_compatibility.py').read_text(encoding='utf-8')
+          assert '.is_admin' not in compat
+          assert 'get_current_backoffice_context' in compat
+          PY
+      - name: Diff whitespace gate
+        run: git diff --check bff908187bce5c0f46257f7587044f355f9f0842...HEAD
