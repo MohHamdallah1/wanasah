@@ -1580,7 +1580,7 @@ async def special_transfer_dispatch(
         destination_location_id = int(
             direction["destination_location_id"]
         )
-        await _require_transfer_capability(access, 
+        await _require_transfer_capability(access,
             "transfer.destination",
             destination_location_id,
         )
