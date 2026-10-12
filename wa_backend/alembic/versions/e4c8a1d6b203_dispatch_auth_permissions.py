@@ -1,12 +1,12 @@
 """Persist frozen Dispatch/session/settlement/shortage authorization permissions.
 
 Revision ID: e4c8a1d6b203
-Revises: d3b7e1a4c920
+Revises: e6f2a8c9d410
 """
 from alembic import op
 
 revision = "e4c8a1d6b203"
-down_revision = "d3b7e1a4c920"
+down_revision = "e6f2a8c9d410"
 branch_labels = None
 depends_on = None
 
