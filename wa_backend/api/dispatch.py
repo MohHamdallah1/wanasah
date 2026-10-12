@@ -5,9 +5,20 @@ from ws_manager import dispatch_manager
 from sqlalchemy.future import select
 from sqlalchemy import delete, func, or_, and_, case, nullslast, update, cast, Float, text
 from database import get_db
-from api.dependencies import get_current_admin, get_current_driver
-from inventory_access import InventoryAccess, require_transfer
-from dispatch_access import require_vehicle, require_route, route_filter, vehicle_filter
+from api.authentication.legacy_backoffice_transport import (
+    get_legacy_transport_backoffice_capability_access,
+    require_legacy_transport_backoffice_capability,
+)
+from api.dependencies import get_current_driver
+from domains.authorization.backoffice_access import BackofficeCapabilityAccess
+from dispatch_access import (
+    require_any_location,
+    require_location,
+    require_vehicle,
+    require_route,
+    route_filter,
+    vehicle_filter,
+)
 from datetime import timedelta, datetime, timezone
 from sqlalchemy.orm import joinedload
 from sqlalchemy.exc import IntegrityError
@@ -117,6 +128,35 @@ CreateShortageItem, BulkImportRequest, UpdateZoneRequest, RestoreZoneRequest, Fo
 # إنشاء روتر خاص بمسارات الإدارة (بتاج منفصل لتنظيم Swagger)
 router = APIRouter(tags=["Admin & Dispatch Operations"])
 
+_work_session_read = require_legacy_transport_backoffice_capability("work_session.read")
+_work_session_authorize_sale = require_legacy_transport_backoffice_capability("work_session.authorize_sale")
+_work_session_reopen = require_legacy_transport_backoffice_capability("work_session.reopen")
+_settlement_read = require_legacy_transport_backoffice_capability("settlement.read")
+_settlement_execute = require_legacy_transport_backoffice_capability("settlement.execute")
+_shortage_read = require_legacy_transport_backoffice_capability("shortage.read")
+_shortage_create = require_legacy_transport_backoffice_capability("shortage.create")
+_shortage_cancel = require_legacy_transport_backoffice_capability("shortage.cancel")
+_dispatch_company_read = require_legacy_transport_backoffice_capability("dispatch.read")
+_dispatch_company_execute = require_legacy_transport_backoffice_capability("dispatch.execute")
+
+
+async def _dispatch_read_access(
+    access: BackofficeCapabilityAccess = Depends(
+        get_legacy_transport_backoffice_capability_access
+    ),
+) -> BackofficeCapabilityAccess:
+    await require_any_location(access, "dispatch.read")
+    return access
+
+
+async def _dispatch_execute_access(
+    access: BackofficeCapabilityAccess = Depends(
+        get_legacy_transport_backoffice_capability_access
+    ),
+) -> BackofficeCapabilityAccess:
+    await require_any_location(access, "dispatch.execute")
+    return access
+
 # PATCH: DISPATCH_FINAL_INTEGRITY_GATE
 
 # =========================================
@@ -128,13 +168,14 @@ async def authorize_session(
     # +++ الدرع الفولاذي: تهيئة كائن Pydantic كقيمة افتراضية صريحة للوفاء بعقود الـ React القديمة ومنع الـ 422 والـ 500 +++
     payload: AuthorizeSessionRequest = AuthorizeSessionRequest(),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    access: BackofficeCapabilityAccess = Depends(_work_session_authorize_sale),
+    legacy_actor: Driver = Depends(get_current_driver),
 ):
 
     # 1. جلب الجلسة مع قفل التزامن (Row-Level Lock)
     stmt = select(WorkSession).filter_by(
     id=session_id,
-    company_id=current_admin.company_id
+    company_id=access.company_id
 ).order_by(WorkSession.id.asc()).with_for_update()
     session = (await db.execute(stmt)).scalar_one_or_none()
 
@@ -148,7 +189,7 @@ async def authorize_session(
         raise HTTPException(status_code=400, detail="مرفوض: لا يمكن تعديل صلاحيات جلسة مغلقة أو تمت تسويتها ماليًا.")
 
     # 3. +++ الدرع الرقابي (Conflict of Interest): منع المشرف من إعطاء الصلاحية لنفسه +++
-    if session.driver_id == current_admin.id:
+    if session.driver_id == legacy_actor.id:
         await db.rollback()
         raise HTTPException(status_code=403, detail="مرفوض رقابياً: لا يمكنك منح صلاحية البيع لجلسة تخصك (تضارب مصالح).")
 
@@ -159,8 +200,8 @@ async def authorize_session(
             
             # 4. الدرع السيادي (Audit Trail): توثيق الحركة إجبارياً
             audit_log = SystemAuditLog(
-                company_id=current_admin.company_id,
-                admin_id=current_admin.id,
+                company_id=access.company_id,
+                admin_id=legacy_actor.id,
                 target_id=f"Session_{session.id}_Driver_{session.driver_id}",
                 action_type="AUTHORIZATION_TOGGLE",
                 old_value=f"is_authorized: {old_val}",
@@ -614,10 +655,10 @@ async def _dispatch_vehicle_location_ids(
 @router.get("/admin/sessions/today", response_model=List[AdminDashboardDriverResponse], status_code=200)
 async def get_admin_dashboard_data(
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    access: BackofficeCapabilityAccess = Depends(_work_session_read),
     session_id: int | None = Query(None, gt=0),
 ):
-    company_id = current_admin.company_id
+    company_id = access.company_id
     company_local_date = await get_company_local_date(db, company_id)
 
     # لا نخفي أي ذمة غير مسواة مهما كان عمرها أو حالة حساب المندوب.
@@ -767,9 +808,9 @@ async def get_admin_dashboard_data(
 async def get_session_settlement_report(
     session_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    access: BackofficeCapabilityAccess = Depends(_settlement_read),
 ):
-    company_id = current_admin.company_id
+    company_id = access.company_id
     session = (
         await db.execute(
             select(WorkSession)
@@ -900,9 +941,10 @@ async def settle_session(
     session_id: int,
     payload: SettleSessionRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    access: BackofficeCapabilityAccess = Depends(_settlement_execute),
+    legacy_actor: Driver = Depends(get_current_driver),
 ):
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     try:
         session = (
@@ -1022,7 +1064,7 @@ async def settle_session(
         session.is_settled = True
         db.add(SystemAuditLog(
             company_id=company_id,
-            admin_id=current_admin.id,
+            admin_id=legacy_actor.id,
             target_id=f"Session_{session.id}_Driver_{session.driver_id}",
             action_type="FINANCIAL_SETTLEMENT",
             old_value="is_settled=False",
@@ -1058,12 +1100,10 @@ async def settle_session(
 @router.get("/dispatch/init", response_model=DispatchInitResponse, status_code=200)
 async def dispatch_init(
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver)
+    access: BackofficeCapabilityAccess = Depends(_dispatch_read_access),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require('dispatch.read', any_location=True)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
     zones = (await db.execute(
         select(Zone).filter_by(company_id=company_id, is_active=True).order_by(Zone.id.asc())
     )).scalars().all()
@@ -1372,13 +1412,12 @@ async def _dispatch_set_load_plan_target(
 async def dispatch_route(
     payload: DispatchRouteRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(_dispatch_execute_access),
+    legacy_actor: Driver = Depends(get_current_driver),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require('dispatch.execute', any_location=True)
     await require_vehicle(access, 'dispatch.execute', payload.vehicle_id)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     try:
         company_local_date = await get_company_local_date(db, company_id)
@@ -1460,7 +1499,7 @@ async def dispatch_route(
             company_id=company_id,
             vehicle_ids=[payload.vehicle_id],
         )
-        await access.require('dispatch.execute', int(source_location.id))
+        await require_location(access, 'dispatch.execute', int(source_location.id))
         await _dispatch_assert_vehicle_custody_reconciled(
             db,
             company_id=company_id,
@@ -1616,7 +1655,7 @@ async def dispatch_route(
                 route_id=route.id,
                 product_variant_id=product_variant_id,
                 target_quantity_packs=target_packs,
-                updated_by=current_admin.id,
+                updated_by=legacy_actor.id,
             )
 
             if delta_packs == 0:
@@ -1701,7 +1740,7 @@ async def dispatch_route(
             await apply_inventory_movements_batch(
                 db,
                 company_id=company_id,
-                performed_by=current_admin.id,
+                performed_by=legacy_actor.id,
                 movements=movement_specs,
             )
 
@@ -1832,12 +1871,11 @@ async def dispatch_route(
 async def get_vehicle_inventory(
     vehicle_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(_dispatch_read_access),
 ):
-    access = InventoryAccess(db, current_admin)
     await require_vehicle(access, 'dispatch.read', vehicle_id)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
     vehicle_exists = (
         await db.execute(
             select(Vehicle.id).filter_by(
@@ -1912,12 +1950,11 @@ async def get_vehicle_inventory(
 async def get_route_live_inventory(
     route_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(_dispatch_read_access),
 ):
-    access = InventoryAccess(db, current_admin)
     await require_route(access, 'dispatch.read', route_id)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
     route = (
         await db.execute(
             select(DispatchRoute).filter_by(
@@ -2103,7 +2140,7 @@ async def _dispatch_apply_pack_deltas(
     *,
     company_id: int,
     route: DispatchRoute,
-    admin: Driver,
+    legacy_actor_id: int,
     session,
     variants,
     pack_deltas,
@@ -2229,7 +2266,7 @@ async def _dispatch_apply_pack_deltas(
                 },
                 work_session_id=session.id,
                 expected_receiver_id=route.driver_id,
-                dispatched_by=admin.id,
+                dispatched_by=legacy_actor_id,
                 notes=batch_token,
             )
             db.add(header)
@@ -2267,7 +2304,7 @@ async def _dispatch_apply_pack_deltas(
         if len(specs) > 10_000:
             raise HTTPException(status_code=400, detail="تعديل الحمولة يتجاوز الحد الآمن.")
         await apply_inventory_movements_batch(
-            db, company_id=company_id, performed_by=admin.id, movements=specs
+            db, company_id=company_id, performed_by=legacy_actor_id, movements=specs
         )
         mode = "HANDSHAKE"
 
@@ -2325,7 +2362,7 @@ async def _dispatch_apply_pack_deltas(
         if len(specs) > 10_000:
             raise HTTPException(status_code=400, detail="تعديل الحمولة يتجاوز الحد الآمن.")
         await apply_inventory_movements_batch(
-            db, company_id=company_id, performed_by=admin.id, movements=specs
+            db, company_id=company_id, performed_by=legacy_actor_id, movements=specs
         )
         mode = "DIRECT"
 
@@ -2336,7 +2373,7 @@ async def _dispatch_apply_pack_deltas(
             route_id=route.id,
             product_variant_id=int(pid),
             target_quantity_packs=int(target),
-            updated_by=admin.id,
+            updated_by=legacy_actor_id,
         )
 
     if deltas:
@@ -2346,7 +2383,7 @@ async def _dispatch_apply_pack_deltas(
         )[:4000]
         db.add(SystemAuditLog(
             company_id=company_id,
-            admin_id=admin.id,
+            admin_id=legacy_actor_id,
             target_id=f"Route_{route.id}",
             action_type=audit_action,
             old_value="InventoryBalance لا يُعدّل مباشرة",
@@ -2360,7 +2397,7 @@ async def _dispatch_absolute_targets(
     *,
     company_id: int,
     route: DispatchRoute,
-    admin: Driver,
+    legacy_actor_id: int,
     session,
     inventory,
 ):
@@ -2472,12 +2509,12 @@ async def adjust_route_inventory(
     route_id: int,
     payload: AdjustRouteInventoryRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(_dispatch_execute_access),
+    legacy_actor: Driver = Depends(get_current_driver),
 ):
-    access = InventoryAccess(db, current_admin)
     await require_route(access, 'dispatch.execute', route_id)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
     canonical_deltas = sorted(
         (
             {
@@ -2501,7 +2538,7 @@ async def adjust_route_inventory(
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             operation="DISPATCH_ADJUST_ROUTE_INVENTORY",
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -2578,7 +2615,7 @@ async def adjust_route_inventory(
             db,
             company_id=company_id,
             route=route,
-            admin=current_admin,
+            legacy_actor_id=legacy_actor.id,
             session=session,
             variants=variants,
             pack_deltas=deltas,
@@ -2631,12 +2668,22 @@ async def force_cancel_handshake(
     transfer_id: int,
     payload: ForceCancelHandshakeRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(_dispatch_execute_access),
+    legacy_actor: Driver = Depends(get_current_driver),
 ):
-    access = InventoryAccess(db, current_admin)
-    await require_transfer(access, 'transfer.cancel', transfer_id, 'source')
-
-    company_id = current_admin.company_id
+    company_id = access.company_id
+    transfer_source_location_id = await db.scalar(
+        select(InventoryTransferHeader.source_location_id).where(
+            InventoryTransferHeader.company_id == company_id,
+            InventoryTransferHeader.id == transfer_id,
+            InventoryTransferHeader.workflow_type == "HANDSHAKE",
+        )
+    )
+    if transfer_source_location_id is None:
+        raise HTTPException(status_code=404, detail="المصافحة غير موجودة داخل الشركة.")
+    await require_location(
+        access, "dispatch.execute", int(transfer_source_location_id)
+    )
     request_hash = hashlib.sha256(
         json.dumps(
             {"transfer_id": int(transfer_id), "reason": payload.reason.strip()},
@@ -2649,7 +2696,7 @@ async def force_cancel_handshake(
         idem, replay = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             operation="DISPATCH_FORCE_CANCEL_HANDSHAKE",
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -2699,19 +2746,19 @@ async def force_cancel_handshake(
         await apply_inventory_movements_batch(
             db,
             company_id=company_id,
-            performed_by=current_admin.id,
+            performed_by=legacy_actor.id,
             movements=specs,
         )
 
         now = get_utc_now()
         header.status = "CANCELLED"
-        header.cancelled_by = current_admin.id
+        header.cancelled_by = legacy_actor.id
         header.cancelled_at = now
         header.updated_at = now
         header.decision_reason = payload.reason.strip()
         db.add(SystemAuditLog(
             company_id=company_id,
-            admin_id=current_admin.id,
+            admin_id=legacy_actor.id,
             target_id=f"Transfer_{header.id}",
             action_type="HANDSHAKE_FORCE_CANCELLED",
             old_value="PENDING",
@@ -2748,12 +2795,11 @@ async def force_cancel_handshake(
 async def get_route_transfers(
     route_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(_dispatch_read_access),
 ):
-    access = InventoryAccess(db, current_admin)
     await require_route(access, 'dispatch.read', route_id)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
     route = (
         await db.execute(
             select(DispatchRoute).filter_by(
@@ -2780,7 +2826,7 @@ async def get_route_transfers(
             select(
                 InventoryTransferHeader,
                 access.allows(
-                    'transfer.cancel',
+                    'dispatch.execute',
                     InventoryTransferHeader.source_location_id,
                 ).label("can_force_cancel"),
             )
@@ -2904,16 +2950,14 @@ async def get_route_transfers(
 @router.get("/dispatch/shops", response_model=List[DispatchShopResponse], status_code=200)
 async def get_dispatch_shops(
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver)
+    access: BackofficeCapabilityAccess = Depends(_dispatch_read_access),
 ):
     
     # تحذير هندسي: تم إزالة  ـ limit(2000) الكارثي لأن يسبب اختلاف المحلات (Data Truncation)
     # ملاحظة: يجب تطبيق Pagination 진ية لاحقاً، ولكن حالياً نجلب المحلات النشطة لoids كوارث التوزيع
-    access = InventoryAccess(db, current_admin)
-    await access.require('dispatch.read', any_location=True)
 
     stmt = select(Shop).filter(
-    Shop.company_id == current_admin.company_id,
+    Shop.company_id == access.company_id,
     Shop.is_active == True,
 ).order_by(nullslast(Shop.sequence.asc()), Shop.id.asc())
     shops = (await db.execute(stmt)).scalars().all()
@@ -3073,9 +3117,9 @@ async def _dispatch_blocking_shop_zone_move_ids(
 async def bulk_update_shops(
     payload: List[BulkUpdateShopItem],
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    access: BackofficeCapabilityAccess = Depends(_dispatch_company_execute),
 ):
-    company_id = current_admin.company_id
+    company_id = access.company_id
     shop_ids = [int(item.id) for item in payload if item.id]
     if not shop_ids:
         return {"message": "لا توجد بيانات للتحديث"}
@@ -3234,9 +3278,10 @@ async def bulk_update_shops(
 async def admin_add_shop(
     payload: AdminAddShopRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    access: BackofficeCapabilityAccess = Depends(_dispatch_company_execute),
+    legacy_actor: Driver = Depends(get_current_driver),
 ):
-    company_id = current_admin.company_id
+    company_id = access.company_id
     name = payload.name.strip()
     phone = payload.phone.strip() if payload.phone and payload.phone.strip() else None
     map_link = payload.mapLink.strip() if payload.mapLink else ""
@@ -3363,7 +3408,7 @@ async def admin_add_shop(
             is_archived=False,
             current_balance=payload.initialDebt,
             max_debt_limit=payload.maxDebtLimit,
-            added_by_driver_id=current_admin.id,
+            added_by_driver_id=legacy_actor.id,
             sequence=int(payload.sequence),
         )
         db.add(new_shop)
@@ -3395,13 +3440,11 @@ async def admin_add_shop(
 @router.get("/dispatch/active_routes", response_model=List[ActiveRouteResponse], status_code=200)
 async def get_active_routes(
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(_dispatch_read_access),
     route_id: int | None = Query(None, gt=0),
 ):
     
         
-    access = InventoryAccess(db, current_admin)
-    await access.require('dispatch.read', any_location=True)
 
     stmt_routes = (
         select(
@@ -3417,7 +3460,7 @@ async def get_active_routes(
             ),
         )
         .filter(
-            DispatchRoute.company_id == current_admin.company_id,
+            DispatchRoute.company_id == access.company_id,
             route_filter(access, 'dispatch.read'),
             DispatchRoute.status.in_(['active', 'waiting', 'postponed']),
         )
@@ -3442,7 +3485,7 @@ async def get_active_routes(
     zones_map = {}
     if zone_ids:
         stmt_zones = select(Zone.id, Zone.name).filter(
-            Zone.company_id == current_admin.company_id,
+            Zone.company_id == access.company_id,
             Zone.id.in_(zone_ids)
         )
         zones_map = {z_id: z_name for z_id, z_name in (await db.execute(stmt_zones)).all()}
@@ -3450,7 +3493,7 @@ async def get_active_routes(
     drivers_map = {}
     if driver_ids:
         stmt_drivers = select(Driver.id, Driver.full_name).filter(
-            Driver.company_id == current_admin.company_id,
+            Driver.company_id == access.company_id,
             Driver.id.in_(driver_ids)
         )
         drivers_map = {d_id: d_name for d_id, d_name in (await db.execute(stmt_drivers)).all()}
@@ -3467,8 +3510,8 @@ async def get_active_routes(
             stmt_pending = select(Visit.driver_id, func.count(Visit.id).label('pending_count')).join(
                 Shop, Visit.shop_id == Shop.id
             ).filter(
-                Visit.company_id == current_admin.company_id,
-                Shop.company_id == current_admin.company_id,
+                Visit.company_id == access.company_id,
+                Shop.company_id == access.company_id,
                 Visit.driver_id.in_(driver_ids),
                 Visit.status == 'Pending',
                 or_(Shop.zone_id.in_(active_zone_ids), Visit.is_emergency == True)
@@ -3481,7 +3524,7 @@ async def get_active_routes(
         # +++ جلب حالات نهاية الجلسة O(1) +++
         if session_ids:
             stmt_sessions = select(WorkSession.id, WorkSession.end_time).filter(
-                WorkSession.company_id == current_admin.company_id,
+                WorkSession.company_id == access.company_id,
                 WorkSession.id.in_(session_ids)
             )
             sessions_info = (await db.execute(stmt_sessions)).all()
@@ -3492,8 +3535,8 @@ async def get_active_routes(
     stmt_shop_counts = select(Shop.zone_id, func.count(Visit.id)).join(
         Visit, Shop.id == Visit.shop_id
     ).filter(
-        Shop.company_id == current_admin.company_id,
-        Visit.company_id == current_admin.company_id,
+        Shop.company_id == access.company_id,
+        Visit.company_id == access.company_id,
         Shop.is_active == True,
         Shop.is_archived == False,
         Visit.status == 'Pending',
@@ -3540,12 +3583,12 @@ async def update_route_status(
     route_id: int,
     payload: UpdateRouteStatusRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(_dispatch_execute_access),
+    legacy_actor: Driver = Depends(get_current_driver),
 ):
-    access = InventoryAccess(db, current_admin)
     await require_route(access, 'dispatch.execute', route_id)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
     operational_statuses = {"active", "waiting", "postponed"}
 
     try:
@@ -3977,7 +4020,7 @@ async def update_route_status(
                     db,
                     company_id=company_id,
                     route=route,
-                    updated_by=current_admin.id,
+                    updated_by=legacy_actor.id,
                 )
 
         inventory_mode = "NO_CHANGE"
@@ -3991,7 +4034,7 @@ async def update_route_status(
                 db,
                 company_id=company_id,
                 route=route,
-                admin=current_admin,
+                legacy_actor_id=legacy_actor.id,
                 session=active_session,
                 inventory=payload.inventory,
             )
@@ -4216,7 +4259,7 @@ async def update_route_status(
             db.add(
                 SystemAuditLog(
                     company_id=company_id,
-                    admin_id=current_admin.id,
+                    admin_id=legacy_actor.id,
                     target_id=f"Route_{route.id}",
                     action_type="DISPATCH_ROUTE_UPDATE",
                     old_value=(
@@ -4280,9 +4323,10 @@ async def update_route_status(
 async def undo_end_work(
     session_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    access: BackofficeCapabilityAccess = Depends(_work_session_reopen),
+    legacy_actor: Driver = Depends(get_current_driver),
 ):
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     try:
         session = (
@@ -4394,7 +4438,7 @@ async def undo_end_work(
         session.end_time = None
         db.add(SystemAuditLog(
             company_id=company_id,
-            admin_id=current_admin.id,
+            admin_id=legacy_actor.id,
             target_id=f"Session_{session.id}_Driver_{session.driver_id}",
             action_type="UNDO_END_WORK",
             old_value=f"end_time={old_end_time}",
@@ -4419,9 +4463,9 @@ async def undo_end_work(
 async def add_zone(
     payload: AddZoneRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    access: BackofficeCapabilityAccess = Depends(_dispatch_company_execute),
 ):
-    company_id = current_admin.company_id
+    company_id = access.company_id
     name = payload.name.strip()
     try:
         await _dispatch_advisory_locks(db, company_id=company_id, keys=[f"zone-name:{name}"])
@@ -4479,9 +4523,9 @@ async def add_zone(
 async def archive_zone(
     zone_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    access: BackofficeCapabilityAccess = Depends(_dispatch_company_execute),
 ):
-    company_id = current_admin.company_id
+    company_id = access.company_id
     try:
         zone = (await db.execute(
             select(Zone).filter_by(id=zone_id, company_id=company_id).order_by(Zone.id.asc()).with_for_update()
@@ -4544,9 +4588,9 @@ async def update_zone(
     zone_id: int,
     payload: UpdateZoneRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    access: BackofficeCapabilityAccess = Depends(_dispatch_company_execute),
 ):
-    company_id = current_admin.company_id
+    company_id = access.company_id
     new_name = payload.name.strip() if payload.name else None
     try:
         if new_name:
@@ -4604,13 +4648,13 @@ async def update_zone(
 @router.get("/dispatch/zones/archived", response_model=List[ArchivedZoneResponse], status_code=200)
 async def get_archived_zones(
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    access: BackofficeCapabilityAccess = Depends(_dispatch_company_read),
 ):
     
 
     # جلب المناطق الميتة فقط بـ O(1)
     stmt = select(Zone).filter_by(
-        company_id=current_admin.company_id,
+        company_id=access.company_id,
         is_active=False
     )
     zones = (await db.execute(stmt)).scalars().all()
@@ -4626,9 +4670,9 @@ async def restore_zone(
     zone_id: int,
     payload: RestoreZoneRequest = RestoreZoneRequest(),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    access: BackofficeCapabilityAccess = Depends(_dispatch_company_execute),
 ):
-    company_id = current_admin.company_id
+    company_id = access.company_id
     try:
         zone = (await db.execute(
             select(Zone).filter_by(id=zone_id, company_id=company_id).order_by(Zone.id.asc()).with_for_update()
@@ -4684,9 +4728,10 @@ async def edit_shop_details(
     shop_id: str,
     payload: EditShopDetailsRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    access: BackofficeCapabilityAccess = Depends(_dispatch_company_execute),
+    legacy_actor: Driver = Depends(get_current_driver),
 ):
-    company_id = current_admin.company_id
+    company_id = access.company_id
     clean_id_str = str(shop_id).replace("s", "")
     if not clean_id_str.isdigit():
         raise HTTPException(status_code=400, detail="معرف المحل غير صالح.")
@@ -4828,7 +4873,7 @@ async def edit_shop_details(
                 shop.current_balance = new_balance
                 db.add(SystemAuditLog(
                     company_id=company_id,
-                    admin_id=current_admin.id,
+                    admin_id=legacy_actor.id,
                     target_id=f"Shop_{shop.id}",
                     action_type="SHOP_BALANCE_MANUAL_EDIT",
                     old_value=str(old_balance),
@@ -4860,7 +4905,7 @@ async def edit_shop_details(
 @router.get("/dispatch/shortages", response_model=List[ShortageResponseItem], status_code=200)
 async def get_shortages(
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    access: BackofficeCapabilityAccess = Depends(_shortage_read),
     shortage_id: int | None = Query(None, gt=0),
 ):
     
@@ -4872,7 +4917,7 @@ async def get_shortages(
         joinedload(ShortageRequest.driver),
         joinedload(ShortageRequest.product_variant)
     ).filter_by(
-        company_id=current_admin.company_id,
+        company_id=access.company_id,
         status='pending'
     ).order_by(ShortageRequest.created_at.asc())
     
@@ -4907,11 +4952,11 @@ async def get_shortages(
 async def add_shortages(
     payload: List[CreateShortageItem],
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    access: BackofficeCapabilityAccess = Depends(_shortage_create),
 ):
     if not payload:
         raise HTTPException(status_code=400, detail="لا توجد بيانات لإضافتها.")
-    company_id = current_admin.company_id
+    company_id = access.company_id
     try:
         shop_ids = sorted({int(item.shopId) for item in payload})
         product_ids = sorted({int(item.product_variant_id) for item in payload})
@@ -5150,9 +5195,9 @@ async def add_shortages(
 async def delete_shortage(
     shortage_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    access: BackofficeCapabilityAccess = Depends(_shortage_cancel),
 ):
-    company_id = current_admin.company_id
+    company_id = access.company_id
     try:
         pre = (await db.execute(
             select(ShortageRequest.shop_id, ShortageRequest.zone_id, ShortageRequest.driver_id).filter(
@@ -5245,9 +5290,10 @@ async def delete_shortage(
 async def bulk_import_shops(
     payload: BulkImportRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    access: BackofficeCapabilityAccess = Depends(_dispatch_company_execute),
+    legacy_actor: Driver = Depends(get_current_driver),
 ):
-    company_id = current_admin.company_id
+    company_id = access.company_id
     zone_id = int(payload.zoneId)
     shops_list = payload.shops
     file_name = payload.fileName
@@ -5281,7 +5327,7 @@ async def bulk_import_shops(
 
         import_log = ImportLog(
             company_id=company_id,
-            admin_id=current_admin.id,
+            admin_id=legacy_actor.id,
             zone_id=zone_id,
             file_name=file_name,
             total_records=len(shops_list),
@@ -5422,7 +5468,7 @@ async def bulk_import_shops(
                 is_active=True,
                 is_archived=False,
                 current_balance=s.initialDebt,
-                added_by_driver_id=current_admin.id,
+                added_by_driver_id=legacy_actor.id,
                 sequence=int(s.sequence),
             )
             new_shops.append(new_shop)
