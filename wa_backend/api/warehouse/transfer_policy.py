@@ -1,13 +1,22 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
+from api.authentication.backoffice_compatibility import (
+    get_current_backoffice_legacy_driver,
+)
 from database import get_db
-from inventory_access import InventoryAccess
-from models import Driver, TenantOperationalPolicy
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
+from models import Driver, InventoryLocation, TenantOperationalPolicy
 from schemas import (
     TransferDestinationPolicyMutationResponse,
     TransferDestinationPolicyPublishRequest,
@@ -26,11 +35,42 @@ from services import (
 )
 
 
-
 from ._shared import _stable_request_hash
 
 
 router = APIRouter()
+
+
+async def _require_transfer_policy_capability(
+    access: BackofficeCapabilityAccess,
+    code,
+    location_id: Optional[int] = None,
+    *,
+    any_location: bool = False,
+) -> None:
+    try:
+        await access.require(
+            code,
+            location_id,
+            any_location=any_location,
+        )
+    except BackofficeCapabilityAccessRejected:
+        if location_id is not None:
+            location_exists = await access.db.scalar(
+                select(InventoryLocation.id).where(
+                    InventoryLocation.company_id == access.company_id,
+                    InventoryLocation.id == location_id,
+                )
+            )
+            if location_exists is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="الموقع غير موجود أو غير متاح.",
+                ) from None
+        raise HTTPException(
+            status_code=403,
+            detail="لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.",
+        ) from None
 
 
 # ====================================================
@@ -87,7 +127,7 @@ def _transfer_policy_to_payload(policy: Optional[TenantOperationalPolicy]):
 # 9.2 التحقق من صلاحية قراءة المواقع المشار إليها في السياسة
 # ====================================================
 async def _require_transfer_policy_location_access(
-    access: InventoryAccess,
+    access: BackofficeCapabilityAccess,
     validated_payload: dict,
 ) -> None:
     location_ids = sorted({
@@ -98,7 +138,8 @@ async def _require_transfer_policy_location_access(
     for location_id in location_ids:
         # Policy administration itself is company-scoped; referenced locations
         # must still be visible to the actor through the normal location ACL.
-        await access.require(
+        await _require_transfer_policy_capability(
+            access,
             "location.read",
             location_id,
         )
@@ -114,15 +155,20 @@ async def _require_transfer_policy_location_access(
 )
 async def get_transfer_destination_policy(
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require("inventory.transfer_policy.manage", any_location=True)
+    await _require_transfer_policy_capability(
+        access,
+        "inventory.transfer_policy.manage",
+        any_location=True,
+    )
 
     try:
         draft, published = await get_transfer_destination_policy_state(
             db,
-            company_id=current_admin.company_id,
+            company_id=access.company_id,
         )
         return {
             "draft": _transfer_policy_to_payload(draft),
@@ -149,18 +195,24 @@ async def get_transfer_destination_policy(
 async def save_transfer_destination_policy(
     payload: TransferDestinationPolicySaveRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require("inventory.transfer_policy.manage", any_location=True)
-    company_id = current_admin.company_id
+    await _require_transfer_policy_capability(
+        access,
+        "inventory.transfer_policy.manage",
+        any_location=True,
+    )
+    company_id = access.company_id
 
     try:
         request_hash = _stable_request_hash(payload)
         idem, replay = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             operation="TRANSFER_DESTINATION_POLICY_DRAFT_SAVE",
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -172,7 +224,7 @@ async def save_transfer_destination_policy(
         policy = await save_transfer_destination_policy_draft(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             request_id=payload.request_id,
             expected_revision=payload.expected_revision,
             payload=payload.payload.model_dump(mode="python"),
@@ -236,11 +288,17 @@ async def publish_transfer_destination_policy_endpoint(
     policy_id: int,
     payload: TransferDestinationPolicyPublishRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require("inventory.transfer_policy.manage", any_location=True)
-    company_id = current_admin.company_id
+    await _require_transfer_policy_capability(
+        access,
+        "inventory.transfer_policy.manage",
+        any_location=True,
+    )
+    company_id = access.company_id
 
     try:
         request_hash = _stable_request_hash(
@@ -250,7 +308,7 @@ async def publish_transfer_destination_policy_endpoint(
         idem, replay = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             operation="TRANSFER_DESTINATION_POLICY_PUBLISH",
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -262,7 +320,7 @@ async def publish_transfer_destination_policy_endpoint(
         policy = await publish_transfer_destination_policy(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             policy_id=policy_id,
             expected_revision=payload.expected_revision,
             request_id=payload.request_id,
