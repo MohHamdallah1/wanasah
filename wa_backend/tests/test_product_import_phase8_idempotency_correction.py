@@ -247,9 +247,11 @@ class Phase8ExecutionIdempotencyTests(
         ):
             await _execute_rows_once(
                 object(),
+                company_id=7,
                 actor=SimpleNamespace(
                     id=1,
-                    company_id=7,
+                    company_id=999,
+                    is_admin=True,
                 ),
                 job_id=job_id,
                 rows=[
@@ -337,9 +339,11 @@ class Phase8ExecutionIdempotencyTests(
         ):
             await _execute_rows_once(
                 object(),
+                company_id=7,
                 actor=SimpleNamespace(
                     id=1,
-                    company_id=7,
+                    company_id=999,
+                    is_admin=False,
                 ),
                 job_id=job_id,
                 rows=[
@@ -348,9 +352,11 @@ class Phase8ExecutionIdempotencyTests(
             )
             await _execute_rows_once(
                 object(),
+                company_id=7,
                 actor=SimpleNamespace(
                     id=1,
-                    company_id=7,
+                    company_id=999,
+                    is_admin=True,
                 ),
                 job_id=job_id,
                 rows=[
