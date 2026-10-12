@@ -6,6 +6,8 @@ runtime behavior until the explicit router cutover.
 """
 from __future__ import annotations
 
+from typing import Awaitable, Callable
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domains.authorization.dashboard_admission import (
@@ -119,6 +121,10 @@ async def login_dashboard_principal(
     password: str,
     ip_address: str,
     secret: str,
+    prepare_response: Callable[
+        [AsyncSession, DashboardAuthenticationResult],
+        Awaitable[Callable[[DashboardPrincipalLoginResponse], DashboardPrincipalLoginResponse]],
+    ] | None = None,
 ) -> DashboardPrincipalLoginResponse:
     """Compose canonical Dashboard login without mounting a runtime route."""
     await _enforce_attempt_limit(db, ip_address=ip_address)
@@ -135,6 +141,9 @@ async def login_dashboard_principal(
         if not isinstance(identity, DashboardAuthenticationResult):
             raise PrincipalLoginRejected
         await require_dashboard_admission(db, identity)
+        # A public transport adapter may need reviewed operational identity data.
+        # Prepare it before any session write; failure follows the failed-attempt path.
+        response_adapter = await prepare_response(db, identity) if prepare_response else None
     except (
         LoginBoundaryRejected,
         AuthenticationRejected,
@@ -174,6 +183,8 @@ async def login_dashboard_principal(
             refresh_token=refresh.refresh_token,
         )
         response = DashboardPrincipalLoginResponse(**payload)
+        if response_adapter is not None:
+            response = response_adapter(response)
         record_login_attempt(
             db,
             ip_address=ip_address,
@@ -199,6 +210,10 @@ async def login_field_principal(
     password: str,
     ip_address: str,
     secret: str,
+    prepare_response: Callable[
+        [AsyncSession, FieldAuthenticationResult],
+        Awaitable[Callable[[FieldPrincipalLoginResponse], FieldPrincipalLoginResponse]],
+    ] | None = None,
 ) -> FieldPrincipalLoginResponse:
     """Compose canonical Field login without mounting a runtime route."""
     await _enforce_attempt_limit(db, ip_address=ip_address)
@@ -214,6 +229,7 @@ async def login_field_principal(
         )
         if not isinstance(identity, FieldAuthenticationResult):
             raise PrincipalLoginRejected
+        response_adapter = await prepare_response(db, identity) if prepare_response else None
     except (LoginBoundaryRejected, AuthenticationRejected, PrincipalLoginRejected):
         await _record_failed_login(
             db,
@@ -247,6 +263,8 @@ async def login_field_principal(
             refresh_token=refresh.refresh_token,
         )
         response = FieldPrincipalLoginResponse(**payload)
+        if response_adapter is not None:
+            response = response_adapter(response)
         record_login_attempt(
             db,
             ip_address=ip_address,

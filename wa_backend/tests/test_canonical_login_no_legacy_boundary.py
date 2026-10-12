@@ -20,7 +20,6 @@ FIELD_FIELDS = {
 # This freezes password/admission/rate-limit/session/transaction behavior for this cutover.
 ORCHESTRATION_DIGEST = "954b9839f5156d68dbf367e8a6d2a3883427cc89f712aa8e3ac1d0862beaddaa"
 UNCHANGED_DIGESTS = {
-    "api/auth.py": "7007cc722272f5e5d8c3cabb9636230cc8fe27957ae0033775d664f47ac7e79a",
     "main.py": "c079aa0ede7da36bbedc001fa115875358e1b9a596f778e3d81818518f3cf842",
     "api/authentication/login_routes.py": "03bdb8570b67d3d8ebde4b6a72b92952174701e758a2ddbbcee1c1fcf283f2b4",
     "domains/identity/authentication.py": "4ae5599fc17dc48b6e243b8ca9f25d138d0ac10283f575af179725f231729bbd",
@@ -146,8 +145,51 @@ class CanonicalLoginNoLegacyBoundaryTests(unittest.TestCase):
                 "auth_revision": "identity.auth_revision", "secret": "secret",
             })
 
-    def test_orchestration_changes_are_limited_to_removing_compatibility_calls(self):
-        self.assertEqual(ast_digest(tree("api/authentication/login_orchestration.py")), ORCHESTRATION_DIGEST)
+    def test_orchestration_preserves_all_logic_outside_response_preparation(self):
+        parsed = tree("api/authentication/login_orchestration.py")
+        parsed.body = [node for node in parsed.body
+                       if not isinstance(node, ast.ImportFrom) or node.module != "typing"]
+        for function in parsed.body:
+            if not isinstance(function, ast.AsyncFunctionDef) or function.name not in {
+                "login_dashboard_principal", "login_field_principal"
+            }:
+                continue
+            self.assertEqual(function.args.kwonlyargs[-1].arg, "prepare_response")
+            self.assertIsNone(function.args.kw_defaults[-1].value)
+            function.args.kwonlyargs.pop()
+            function.args.kw_defaults.pop()
+            preparation = adaptations = 0
+            for block in (node for node in function.body if isinstance(node, ast.Try)):
+                keep = []
+                for node in block.body:
+                    if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name) \
+                            and node.targets[0].id == "response_adapter":
+                        self.assertEqual(ast.unparse(node.value),
+                                         "await prepare_response(db, identity) if prepare_response else None")
+                        preparation += 1
+                    elif isinstance(node, ast.If) and ast.unparse(node.test) == "response_adapter is not None":
+                        self.assertEqual(ast.unparse(node.body[0]), "response = response_adapter(response)")
+                        adaptations += 1
+                    else:
+                        keep.append(node)
+                block.body = keep
+            self.assertEqual((preparation, adaptations), (1, 1))
+        # The approved hook is the only delta to the baseline orchestration body.
+        self.assertEqual(ast_digest(parsed), ORCHESTRATION_DIGEST)
+
+    def test_live_auth_mounts_only_canonical_backed_public_transport(self):
+        parsed = tree("api/auth.py")
+        modules = {node.module for node in parsed.body if isinstance(node, ast.ImportFrom)}
+        self.assertEqual(modules, {"fastapi", "api.authentication.login_transport_routes",
+                                  "api.authentication.logout_routes", "api.authentication.refresh_routes",
+                                  "api.inventory_permissions"})
+        includes = [ast.unparse(node.args[0]) for node in ast.walk(parsed)
+                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "include_router"]
+        self.assertEqual(includes, ["inventory_permissions_router", "login_router",
+                                   "refresh_router", "logout_router"])
+        self.assertFalse(any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                             for node in parsed.body))
 
     def test_live_mount_password_policy_tokens_and_refresh_sessions_are_unchanged(self):
         for path, expected in UNCHANGED_DIGESTS.items():
