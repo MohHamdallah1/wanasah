@@ -8,7 +8,10 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 import domains.authorization as authorization
-from domains.authorization.backoffice_access import BackofficeCapabilityAccess
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
 from domains.authorization.backoffice_subject import BackofficeAuthorizationSubject
 from domains.authorization.capabilities import COMPANY_ONLY, PERMISSIONS
 from domains.authorization.guards import (
@@ -235,7 +238,7 @@ class AuthorizationCoreRetirementTests(unittest.IsolatedAsyncioTestCase):
         await owner.require_all(("inventory.read", "catalog.manage"))
 
         ordinary = BackofficeCapabilityAccess(_GuardDb(scalar=[False]), _subject())
-        with self.assertRaises(Exception):
+        with self.assertRaises(BackofficeCapabilityAccessRejected):
             await ordinary.require("inventory.read")
 
     async def test_capability_catalog_keeps_location_scoped_terminal_permissions(self):
