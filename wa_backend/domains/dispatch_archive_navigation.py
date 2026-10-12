@@ -50,12 +50,16 @@ def dispatch_archive_target_query(access, variant_id, samples):
                             InventoryTransferLine.product_variant_id == variant_id).correlate(header).exists(),
         ))
     if samples.get("OPEN_SHORTAGE"):
-        shortage = ShortageRequest
-        statements.append(select(*columns("OPEN_SHORTAGE", "shortage", shortage.id)).where(
-            shortage.company_id == access.company_id, shortage.id == samples["OPEN_SHORTAGE"],
-            shortage.product_variant_id == variant_id, shortage.status == "pending",
-            access.allows("shortage.read", any_location=True),
-        ))
+        # The legacy caller exposed shortages only to its full-authority persona.
+        # Canonical callers instead use the reviewed shortage.read capability.
+        legacy_restricted = isinstance(access, InventoryAccess) and not access.subject.legacy_full_authority
+        if not legacy_restricted:
+            shortage = ShortageRequest
+            statements.append(select(*columns("OPEN_SHORTAGE", "shortage", shortage.id)).where(
+                shortage.company_id == access.company_id, shortage.id == samples["OPEN_SHORTAGE"],
+                shortage.product_variant_id == variant_id, shortage.status == "pending",
+                access.allows("shortage.read", any_location=True),
+            ))
     return union_all(*statements) if statements else None
 
 
