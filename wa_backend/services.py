@@ -4398,7 +4398,7 @@ async def open_vehicle_reconciliation_stocktake(
 
     actor = (
         await db_session.execute(
-            select(Driver.id, Driver.is_admin).filter_by(
+            select(Driver.id).filter_by(
                 company_id=company_id,
                 id=started_by,
                 is_active=True,
@@ -4427,7 +4427,7 @@ async def open_vehicle_reconciliation_stocktake(
         work_session_id=work_session_id,
         vehicle_id=int(location.vehicle_id),
     )
-    if started_by != work_session.driver_id and not bool(actor.is_admin):
+    if started_by != work_session.driver_id:
         raise InventoryMutationError("لا يجوز لمندوب آخر فتح تسوية عهدة هذه الجلسة.")
 
     valid_variant_ids = set((
@@ -4585,7 +4585,7 @@ async def finalize_vehicle_inventory_reconciliation(
 
     actor = (
         await db_session.execute(
-            select(Driver.id, Driver.is_admin).filter_by(
+            select(Driver.id).filter_by(
                 company_id=company_id,
                 id=settled_by,
                 is_active=True,
@@ -4607,9 +4607,33 @@ async def finalize_vehicle_inventory_reconciliation(
         raise InventoryMutationError("جلسة العمل غير موجودة أو لا تتبع الشركة.")
     if work_session.end_time is None:
         raise InventoryMutationError("لا يمكن تسوية عهدة جلسة عمل لم تنتهِ بعد.")
-    if settled_by != work_session.driver_id and not bool(actor.is_admin):
-        raise InventoryMutationError("تثبيت عهدة الجلسة مسموح لصاحب الجلسة أو لمشرف فعال من نفس الشركة فقط.")
+    if settled_by != work_session.driver_id:
+        raise InventoryMutationError("تثبيت عهدة الجلسة مسموح لصاحب الجلسة فقط.")
 
+    return await _seal_vehicle_inventory_reconciliation(
+        db_session,
+        company_id=company_id,
+        work_session=work_session,
+        vehicle_location_id=vehicle_location_id,
+        settled_by=settled_by,
+    )
+
+
+async def _seal_vehicle_inventory_reconciliation(
+    db_session: AsyncSession,
+    *,
+    company_id: int,
+    work_session: WorkSession,
+    vehicle_location_id: int,
+    settled_by: int,
+) -> WorkSession:
+    """Seal inventory for an already validated, locked WorkSession.
+
+    Field finalization enforces exact self ownership before calling this helper.
+    Approved Stocktake posting uses its own validated session and retains the
+    operational approver ID for provenance; capability authority stays at its
+    canonical caller. This private effect grants no request authority.
+    """
     # ترتيب الأقفال الرسمي لـ VEHICLE_RECON: WorkSession -> inventory-location guard.
     await acquire_inventory_location_guard(
         db_session,
@@ -4785,13 +4809,12 @@ async def post_approved_stocktake_adjustments(
                 company_id=company_id,
                 id=performed_by,
                 is_active=True,
-                is_admin=True,
             ).with_for_update(read=True)
         )
     ).scalar_one_or_none()
     if actor_id is None:
         raise InventoryMutationError(
-            "ترحيل الجرد يتطلب مشرفاً فعالاً من نفس الشركة."
+            "منفذ ترحيل الجرد غير موجود/غير فعال أو خارج الشركة."
         )
 
     probe = (
@@ -4903,7 +4926,7 @@ async def post_approved_stocktake_adjustments(
             raise InventoryMutationError(
                 "موقع VEHICLE_RECON لا يحمل vehicle_id صالحاً."
             )
-        await validate_vehicle_recon_work_session(
+        vehicle_work_session = await validate_vehicle_recon_work_session(
             db_session,
             company_id=company_id,
             work_session_id=session.related_work_session_id,
@@ -5486,10 +5509,10 @@ async def post_approved_stocktake_adjustments(
     # VEHICLE_RECON لا يكتمل مخزنياً قبل تثبيت Ending Snapshot وختم inventory_reconciled_*.
     # التسوية المالية (WorkSession.is_settled) لا تتم هنا.
     if session.stocktake_type == "VEHICLE_RECON":
-        await finalize_vehicle_inventory_reconciliation(
+        await _seal_vehicle_inventory_reconciliation(
             db_session,
             company_id=company_id,
-            work_session_id=session.related_work_session_id,
+            work_session=vehicle_work_session,
             vehicle_location_id=session.location_id,
             settled_by=performed_by,
         )
