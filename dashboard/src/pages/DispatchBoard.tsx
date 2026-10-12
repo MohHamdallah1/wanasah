@@ -247,10 +247,10 @@ export default function DispatchBoard() {
   useEffect(() => { localStorage.setItem("activeTab", activeTab); }, [activeTab]);
 
   const authenticatedFetch = useAuthFetch();
-  const { isCompanyAdmin } = useInventoryAccess();
+  const { isCompanyOwner } = useInventoryAccess();
   useEffect(() => {
-    if (!isCompanyAdmin && activeTab === 'zones') setActiveTab('routes');
-  }, [isCompanyAdmin, activeTab]);
+    if (!isCompanyOwner && activeTab === 'zones') setActiveTab('routes');
+  }, [isCompanyOwner, activeTab]);
 
   const [zones, setZones] = useState<Zone[]>([]);
   const [drivers, setDrivers] = useState<{ id: string; name: string }[]>([]);
@@ -440,12 +440,12 @@ export default function DispatchBoard() {
     authenticatedFetch("/dispatch/active_routes", { signal })
       .then(data => setPendingRoutes(Array.isArray(data) ? data : []))
       .catch(err => { if (err.name !== 'AbortError') console.error(err); });
-    if (isCompanyAdmin) authenticatedFetch("/dispatch/shortages", { signal })
+    if (isCompanyOwner) authenticatedFetch("/dispatch/shortages", { signal })
       .then(data => setShortages(Array.isArray(data) ? data : []))
       .catch(err => { if (err.name !== 'AbortError') console.error(err); });
 
     return controller;
-  }, [authenticatedFetch, isCompanyAdmin]); // +++ E-04: إضافة authenticatedFetch كـ Dependency لتجنب تحذيرات وتسريبات الذاكرة +++
+  }, [authenticatedFetch, isCompanyOwner]); // +++ E-04: إضافة authenticatedFetch كـ Dependency لتجنب تحذيرات وتسريبات الذاكرة +++
 
   // Warehouse lock is scoped to the explicitly selected source warehouse.
   useEffect(() => {
@@ -484,7 +484,7 @@ export default function DispatchBoard() {
   // and coalesce event bursts into one dashboard refresh.
   useEffect(() => {
     const controller = fetchInitialData();
-    if (!isCompanyAdmin) {
+    if (!isCompanyOwner) {
       // Company-wide websocket events remain admin-only. Scoped readers refresh
       // through authorized HTTP queries without joining the company event stream.
       let pending: AbortController | undefined;
@@ -620,7 +620,7 @@ export default function DispatchBoard() {
         ws.close();
       }
     };
-  }, [fetchInitialData, isCompanyAdmin]);
+  }, [fetchInitialData, isCompanyOwner]);
 
   useEffect(() => {
     if (!selectedVehicleId) {
@@ -1386,7 +1386,7 @@ export default function DispatchBoard() {
               { id: "routes", label: "الخطوط النشطة", icon: Truck },
               { id: "launch", label: "إطلاق خط جديد", icon: Plus },
               { id: "zones", label: "هيكلة المناطق", icon: LayoutGrid }
-            ] as const).filter(tab => isCompanyAdmin || tab.id !== 'zones').map(tab => (
+            ] as const).filter(tab => isCompanyOwner || tab.id !== 'zones').map(tab => (
               <button key={tab.id} role="tab" aria-selected={activeTab === tab.id} onClick={() => handleTabChange(tab.id)} className={`dispatch-tab flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === tab.id ? "bg-white text-[#1e87bb] shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
                 <tab.icon className="w-4 h-4" /> {tab.label}
               </button>
@@ -1394,7 +1394,7 @@ export default function DispatchBoard() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {isCompanyAdmin && activeTab === "routes" && <button onClick={() => setIsShortageModalOpen(true)} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm ${shortages.length > 0 ? "bg-amber-500 text-white animate-pulse" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}><ClipboardList className="w-4 h-4" /> 📦 طلبات ونواقص</button>}
+          {isCompanyOwner && activeTab === "routes" && <button onClick={() => setIsShortageModalOpen(true)} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm ${shortages.length > 0 ? "bg-amber-500 text-white animate-pulse" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}><ClipboardList className="w-4 h-4" /> 📦 طلبات ونواقص</button>}
           {activeTab === "zones" && <button onClick={() => { setSchedulingType("bulk"); setSelectedBulkZoneIds(zones.map(z => z.id)); setIsSchedulingModalOpen(true); }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors shadow-sm"><Calendar className="w-4 h-4" /> 🗓️ الجدولة الشاملة</button>}
         </div>
       </div>

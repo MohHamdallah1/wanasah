@@ -270,8 +270,8 @@ export default function PricingDashboard() {
   const queryClient = useQueryClient();
   const access = useInventoryAccess();
   const tenantIdentity = useTenantIdentity();
-  const canManage = access.isCompanyAdmin || access.canAny("pricing.manage");
-  const canApprove = access.isCompanyAdmin || access.canAny("pricing.approve");
+  const canManage = access.isCompanyOwner || access.canAny("pricing.manage");
+  const canApprove = access.isCompanyOwner || access.canAny("pricing.approve");
 
   const [selectedBookId, setSelectedBookId] = useState<number | null>(null);
   const [selectedPublicationId, setSelectedPublicationId] = useState<number | null>(

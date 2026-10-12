@@ -12,8 +12,9 @@ const inventoryAccessContractError = (code: string): never => {
 
 export interface InventoryCapabilities {
   company_id: number;
-  driver_id: number;
-  is_company_admin: boolean;
+  principal_id: number;
+  backoffice_user_id: number;
+  is_company_owner: boolean;
   location_id: number | null;
   permissions: string[];
   any_permissions: string[];
@@ -50,18 +51,22 @@ export function parseInventoryCapabilities(raw: unknown): InventoryCapabilities 
   }
   const value = raw as Record<string, unknown>;
   const companyId = value.company_id;
-  const driverId = value.driver_id;
-  const isCompanyAdmin = value.is_company_admin;
+  const principalId = value.principal_id;
+  const backofficeUserId = value.backoffice_user_id;
+  const isCompanyOwner = value.is_company_owner;
   const locationId = value.location_id;
 
   if (
     typeof companyId !== 'number' ||
     !Number.isSafeInteger(companyId) ||
     companyId <= 0 ||
-    typeof driverId !== 'number' ||
-    !Number.isSafeInteger(driverId) ||
-    driverId <= 0 ||
-    typeof isCompanyAdmin !== 'boolean' ||
+    typeof principalId !== 'number' ||
+    !Number.isSafeInteger(principalId) ||
+    principalId <= 0 ||
+    typeof backofficeUserId !== 'number' ||
+    !Number.isSafeInteger(backofficeUserId) ||
+    backofficeUserId <= 0 ||
+    typeof isCompanyOwner !== 'boolean' ||
     (
       locationId !== null &&
       (
@@ -76,8 +81,9 @@ export function parseInventoryCapabilities(raw: unknown): InventoryCapabilities 
 
   return {
     company_id: companyId as number,
-    driver_id: driverId as number,
-    is_company_admin: isCompanyAdmin as boolean,
+    principal_id: principalId as number,
+    backoffice_user_id: backofficeUserId as number,
+    is_company_owner: isCompanyOwner as boolean,
     location_id: locationId as number | null,
     permissions: parsePermissionCodes(value.permissions),
     any_permissions: parsePermissionCodes(value.any_permissions),
@@ -116,7 +122,7 @@ export function useInventoryAccess(locationId: number | null = null) {
   const authFetch = useAuthFetch();
   // Cache partitioning is UX only; the server independently verifies the token.
   const company = localStorage.getItem('company_id');
-  const user = localStorage.getItem('driver_id');
+  const user = localStorage.getItem('principal_id');
   const query = useQuery({
     queryKey: ['inventory-access', company, user, locationId],
     queryFn: async ({ signal }) => {
@@ -140,7 +146,8 @@ export function useInventoryAccess(locationId: number | null = null) {
     data.permissions.includes(code) || (locationId !== null && data.location_permissions.includes(code))
   )), [data, locationId]);
   const canAny = useCallback((code: string) => Boolean(data?.any_permissions.includes(code)), [data]);
-  return { ...query, data, can, canAny, isCompanyAdmin: data?.is_company_admin === true };
+  // The existing consumer property now reflects only persisted canonical Owner state.
+  return { ...query, data, can, canAny, isCompanyOwner: data?.is_company_owner === true };
 }
 
 
@@ -148,7 +155,7 @@ export function useLocationCapabilities(locationIds: number[]) {
   const authFetch = useAuthFetch();
   const ids = [...new Set(locationIds)].sort((a, b) => a - b);
   const query = useQuery({
-    queryKey: ['inventory-access', localStorage.getItem('company_id'), localStorage.getItem('driver_id'), 'batch', ids],
+    queryKey: ['inventory-access', localStorage.getItem('company_id'), localStorage.getItem('principal_id'), 'batch', ids],
     enabled: ids.length > 0,
     queryFn: async ({ signal }) =>
       parseInventoryLocationCapabilities(

@@ -89,7 +89,7 @@ export function BatchDispositionManager({
   const { t } = useTranslation();
   const access = useInventoryAccess();
   const canChange =
-    access.isCompanyAdmin ||
+    access.isCompanyOwner ||
     access.can("batch.disposition");
   const targets = batch?.allowed_disposition_targets ?? [];
   const command = useBatchDispositionCommand({

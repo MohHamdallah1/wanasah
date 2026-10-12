@@ -61,8 +61,9 @@ describe("Inventory batch expiry semantics", () => {
         if (path === "/inventory/access/me") {
           return {
             company_id: 1,
-            driver_id: 7,
-            is_company_admin: true,
+            principal_id: 7,
+            backoffice_user_id: 17,
+            is_company_owner: true,
             location_id: null,
             permissions: [],
             any_permissions: [],

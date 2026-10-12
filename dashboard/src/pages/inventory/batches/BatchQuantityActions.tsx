@@ -315,7 +315,7 @@ export function BatchQuantityActions({
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {purposes.map((purpose) => {
                       const permitted =
-                        access.isCompanyAdmin ||
+                        access.isCompanyOwner ||
                         access.can(purposePermission[purpose]);
                       return (
                         <button

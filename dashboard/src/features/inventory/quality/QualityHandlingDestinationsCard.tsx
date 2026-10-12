@@ -109,7 +109,7 @@ export function QualityHandlingDestinationsCard({ compact = false, onSaved }: { 
   const { t } = useTranslation();
   const authFetch = useAuthFetch();
   const access = useInventoryAccess();
-  const canManage = access.isCompanyAdmin || access.can("inventory.transfer_policy.manage");
+  const canManage = access.isCompanyOwner || access.can("inventory.transfer_policy.manage");
   const [policy, setPolicy] = useState<PolicyState>({ draft: null, published: null });
   const [form, setForm] = useState<FormState>(() => emptyForm());
   const [knownLocations, setKnownLocations] = useState<Record<number, LocationOption>>({});
