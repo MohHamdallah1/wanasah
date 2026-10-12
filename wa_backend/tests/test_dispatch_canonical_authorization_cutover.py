@@ -9,11 +9,13 @@ from types import SimpleNamespace
 from fastapi import HTTPException
 
 from api import dispatch
-from api.authentication.legacy_backoffice_transport import (
-    get_legacy_transport_backoffice_capability_access,
-    get_legacy_transport_backoffice_context,
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
 )
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_compatibility import (
+    get_current_backoffice_legacy_driver,
+)
+from api.authentication.dependencies import get_current_backoffice_context
 from domains.authorization.backoffice_access import (
     BackofficeCapabilityAccess,
     BackofficeCapabilityAccessRejected,
@@ -137,6 +139,9 @@ class DispatchCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTestCas
         self.assertNotIn("InventoryAccess", dispatch_source)
         self.assertNotIn("legacy_full_authority", dispatch_source)
         self.assertNotIn("legacy_full_authority", access_source)
+        self.assertNotIn("legacy_backoffice_transport", dispatch_source)
+        self.assertNotIn("get_current_driver", dispatch_source)
+        self.assertIn("get_current_backoffice_legacy_driver", dispatch_source)
 
     def test_frozen_dispatch_related_capabilities_are_catalogued_with_exact_scope(self):
         self.assertTrue(COMPANY_CAPABILITIES <= PERMISSIONS)
@@ -176,23 +181,23 @@ class DispatchCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTestCas
 
         source = DISPATCH_PATH.read_text(encoding="utf-8")
         self.assertIn(
-            'require_legacy_transport_backoffice_capability("work_session.authorize_sale")',
+            'require_backoffice_capability("work_session.authorize_sale")',
             source,
         )
         self.assertIn(
-            'require_legacy_transport_backoffice_capability("work_session.read")',
+            'require_backoffice_capability("work_session.read")',
             source,
         )
         self.assertIn(
-            'require_legacy_transport_backoffice_capability("work_session.reopen")',
+            'require_backoffice_capability("work_session.reopen")',
             source,
         )
         self.assertIn(
-            'require_legacy_transport_backoffice_capability("settlement.read")',
+            'require_backoffice_capability("settlement.read")',
             source,
         )
         self.assertIn(
-            'require_legacy_transport_backoffice_capability("settlement.execute")',
+            'require_backoffice_capability("settlement.execute")',
             source,
         )
 
@@ -388,7 +393,7 @@ class DispatchCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTestCas
         self.assertIn("inventory_reconciled_at", source)
         self.assertIn("is_settled", source)
 
-    def test_fastapi_dependency_cache_reuses_same_legacy_transport_authentication(self):
+    def test_fastapi_dependency_cache_reuses_same_canonical_authentication(self):
         endpoint_access, endpoint_access_cache = _depends_target(
             dispatch.dispatch_route, "access"
         )
@@ -396,30 +401,26 @@ class DispatchCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTestCas
             dispatch.dispatch_route, "legacy_actor"
         )
         self.assertIs(endpoint_access, dispatch._dispatch_execute_access)
-        self.assertIs(endpoint_actor, get_current_driver)
+        self.assertIs(endpoint_actor, get_current_backoffice_legacy_driver)
         self.assertTrue(endpoint_access_cache)
         self.assertTrue(endpoint_actor_cache)
 
-        access_transport, access_transport_cache = _depends_target(
+        access_target, access_cache = _depends_target(
             dispatch._dispatch_execute_access, "access"
         )
-        self.assertIs(
-            access_transport,
-            get_legacy_transport_backoffice_capability_access,
-        )
-        self.assertTrue(access_transport_cache)
+        self.assertIs(access_target, get_current_backoffice_capability_access)
+        self.assertTrue(access_cache)
 
-        context_target, context_cache = _depends_target(
-            get_legacy_transport_backoffice_capability_access, "current"
+        capability_context, capability_context_cache = _depends_target(
+            get_current_backoffice_capability_access, "current"
         )
-        self.assertIs(context_target, get_legacy_transport_backoffice_context)
-        self.assertTrue(context_cache)
-
-        driver_target, driver_cache = _depends_target(
-            get_legacy_transport_backoffice_context, "current_driver"
+        actor_context, actor_context_cache = _depends_target(
+            get_current_backoffice_legacy_driver, "current"
         )
-        self.assertIs(driver_target, get_current_driver)
-        self.assertTrue(driver_cache)
+        self.assertIs(capability_context, get_current_backoffice_context)
+        self.assertIs(actor_context, get_current_backoffice_context)
+        self.assertTrue(capability_context_cache)
+        self.assertTrue(actor_context_cache)
 
         source = (
             DISPATCH_PATH.read_text(encoding="utf-8")
@@ -427,6 +428,45 @@ class DispatchCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTestCas
         ).lower()
         self.assertNotIn("decode_company_token", source)
         self.assertNotIn("jwt.decode", source)
+
+    def test_dispatch_transport_is_retired_globally_from_active_runtime(self):
+        retired_symbols = (
+            "legacy_backoffice_transport",
+            "get_legacy_transport_backoffice_context",
+            "get_legacy_transport_backoffice_capability_access",
+            "require_legacy_transport_backoffice_capability",
+        )
+        hits = []
+        runtime_root = REPO_ROOT / "wa_backend"
+        for path in runtime_root.rglob("*.py"):
+            relative = path.relative_to(runtime_root)
+            if "tests" in relative.parts or "alembic" in relative.parts:
+                continue
+            source = path.read_text(encoding="utf-8")
+            for symbol in retired_symbols:
+                if symbol in source:
+                    hits.append(f"{relative}:{symbol}")
+        self.assertEqual(hits, [])
+
+        auth_dir = REPO_ROOT / "wa_backend" / "api" / "authentication"
+        self.assertFalse((auth_dir / "legacy_backoffice_transport.py").exists())
+        compatibility = (auth_dir / "backoffice_compatibility.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("get_current_backoffice_legacy_driver", compatibility)
+        self.assertIn("resolve_backoffice_legacy_actor_locator", compatibility)
+        self.assertNotIn(".is_admin", compatibility)
+
+    def test_canonical_and_legacy_identity_ids_are_independent(self):
+        subject = _ordinary_subject()
+        legacy_driver_id = 903
+        self.assertEqual(
+            len({subject.principal_id, subject.backoffice_user_id, legacy_driver_id}),
+            3,
+        )
+        source = DISPATCH_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("principal_id == legacy_actor.id", source)
+        self.assertNotIn("principal_id == Driver.id", source)
 
 
 if __name__ == "__main__":
