@@ -52,6 +52,8 @@ class InventoryAccessCanonicalBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.functions = {node.name: node for node in self.tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
     def test_no_legacy_authority_or_generic_access_management_capability(self):
+        self.assertNotIn("legacy_backoffice_transport", self.source)
+        self.assertNotIn("get_current_driver", self.source)
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Name):
                 self.assertNotIn(node.id, {"get_current_admin", "InventoryAccess"})
@@ -64,22 +66,22 @@ class InventoryAccessCanonicalBoundaryTests(unittest.IsolatedAsyncioTestCase):
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
                 self.assertFalse(node.value.startswith(("authorization.", "access.", "admin.", "supervisor.", "manager.")))
 
-    def test_all_management_routes_are_owner_only_and_both_introspection_routes_are_not(self):
+    def test_all_management_routes_are_owner_only_and_both_introspection_routes_use_canonical_access(self):
         routes = {name for name, node in self.functions.items() if node.decorator_list}
         self.assertEqual(routes, ADMIN | {"capabilities", "location_capabilities"})
         for name in routes:
             node = self.functions[name]
             defaults = dict(zip([arg.arg for arg in node.args.args][-len(node.args.defaults):], node.args.defaults))
             dependency = defaults["access"]
-            expected = "_require_company_owner" if name in ADMIN else "get_legacy_transport_backoffice_capability_access"
+            expected = "_require_company_owner" if name in ADMIN else "get_current_backoffice_capability_access"
             self.assertEqual(ast.unparse(dependency), f"Depends({expected})")
             if name in MUTATIONS:
-                self.assertEqual(ast.unparse(defaults["legacy_actor"]), "Depends(get_current_driver)")
+                self.assertEqual(ast.unparse(defaults["legacy_actor"]), "Depends(get_current_backoffice_legacy_driver)")
         self.assertNotIn(".require(", self.source)
 
     async def test_exact_owner_decision_rejects_false_or_truthy_non_owner_state(self):
         namespace = {"BackofficeCapabilityAccess": object, "Depends": lambda dependency: None,
-                     "get_legacy_transport_backoffice_capability_access": object, "HTTPException": Rejection}
+                     "get_current_backoffice_capability_access": object, "HTTPException": Rejection}
         exec(compile(ast.Module(body=[self.functions["_require_company_owner"]], type_ignores=[]), "owner_gate", "exec"), namespace)
         for state in (False, 1, "Owner", None):
             with self.assertRaises(Rejection) as denied:
@@ -96,6 +98,8 @@ class InventoryAccessCanonicalBoundaryTests(unittest.IsolatedAsyncioTestCase):
         imports = [node for node in self.tree.body if isinstance(node, ast.ImportFrom)]
         self.assertTrue(any(node.module == "domains.authorization.capabilities" for node in imports))
         self.assertTrue(any(node.module == "domains.authorization.backoffice_access" for node in imports))
+        self.assertTrue(any(node.module == "api.authentication.backoffice_authorization" for node in imports))
+        self.assertTrue(any(node.module == "api.authentication.backoffice_compatibility" for node in imports))
 
     def test_canonical_target_mapping_and_storage_columns_keep_ids_independent(self):
         target = ast.unparse(self.functions["target_legacy_grant_driver_id"])
@@ -112,7 +116,6 @@ class InventoryAccessCanonicalBoundaryTests(unittest.IsolatedAsyncioTestCase):
 
     def test_locks_role_rules_location_validation_pagination_and_transactions_are_preserved(self):
         for name, expected in WORKFLOWS.items():
-            # Parse afresh because the normalization mutates its input.
             node = next(node for node in ast.parse(self.source).body if isinstance(node, ast.AsyncFunctionDef) and node.name == name)
             normalized = Workflow().visit(ast.Module(body=node.body, type_ignores=[]))
             actual = hashlib.sha256(ast.dump(normalized, include_attributes=False).encode()).hexdigest()
