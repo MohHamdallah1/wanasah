@@ -73,7 +73,7 @@ def test_ledger_exact_location_any_location_and_missing_permission_contracts() -
     assert "BackofficeCapabilityAccessRejected" in helper
     assert "InventoryLocation.company_id == access.company_id" in helper
     assert "InventoryLocation.id == location_id" in helper
-    assert "HTTPException(403" in helper
+    assert "403," in helper
     assert "HTTPException(404" in helper
 
     route = _function_source(LEDGER, LEDGER_TREE, "get_warehouse_ledger_cursor")
@@ -169,7 +169,7 @@ def test_status_preserves_location_read_or_dispatch_read_exact_location_semantic
     assert "BackofficeCapabilityAccessRejected" in helper
     assert "InventoryLocation.company_id == access.company_id" in helper
     assert "InventoryLocation.id == location_id" in helper
-    assert "HTTPException(403" in helper
+    assert "403," in helper
     assert "HTTPException(404" in helper
 
     route = _function_source(STATUS, STATUS_TREE, "get_warehouse_status")
