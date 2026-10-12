@@ -111,10 +111,7 @@ class PlatformTenantBootstrapCanonicalIdentityTests(unittest.TestCase):
         self.assertEqual(ast.unparse(kw["username"]), "payload.admin_username")
         self.assertEqual(ast.unparse(kw["password_hash"]), "hashed_pw")
         self.assertEqual(ast.unparse(kw["full_name"]), "payload.admin_full_name")
-        self.assertEqual(
-            ast.unparse(kw["principal_type"]),
-            "PrincipalType.BACKOFFICE.value",
-        )
+        self.assertEqual(ast.unparse(kw["principal_type"]), "PrincipalType.BACKOFFICE.value")
         self.assertIs(kw["is_active"].value, True)
         self.assertEqual(kw["auth_revision"].value, 1)
 
@@ -124,20 +121,14 @@ class PlatformTenantBootstrapCanonicalIdentityTests(unittest.TestCase):
         kw = _keywords(call)
         self.assertEqual(ast.unparse(kw["company_id"]), "company.id")
         self.assertEqual(ast.unparse(kw["principal_id"]), "owner_principal.id")
-        self.assertEqual(
-            ast.unparse(kw["principal_type"]),
-            "PrincipalType.BACKOFFICE.value",
-        )
+        self.assertEqual(ast.unparse(kw["principal_type"]), "PrincipalType.BACKOFFICE.value")
 
     def test_creates_explicit_company_owner(self):
         call = _assigned_call(self.create, "company_owner")
         self.assertEqual(ast.unparse(call.func), "CompanyOwner")
         kw = _keywords(call)
         self.assertEqual(ast.unparse(kw["company_id"]), "company.id")
-        self.assertEqual(
-            ast.unparse(kw["backoffice_user_id"]),
-            "owner_backoffice_user.id",
-        )
+        self.assertEqual(ast.unparse(kw["backoffice_user_id"]), "owner_backoffice_user.id")
 
     def test_legacy_driver_is_compatibility_only_and_not_owner_authority(self):
         call = _assigned_call(self.create, "admin_driver")
@@ -160,14 +151,8 @@ class PlatformTenantBootstrapCanonicalIdentityTests(unittest.TestCase):
         self.assertEqual(kw["classification"].value, "BACKOFFICE_ONLY")
         self.assertEqual(ast.unparse(kw["company_id"]), "company.id")
         self.assertEqual(ast.unparse(kw["legacy_driver_id"]), "admin_driver.id")
-        self.assertEqual(
-            ast.unparse(kw["backoffice_principal_id"]),
-            "owner_principal.id",
-        )
-        self.assertEqual(
-            ast.unparse(kw["backoffice_user_id"]),
-            "owner_backoffice_user.id",
-        )
+        self.assertEqual(ast.unparse(kw["backoffice_principal_id"]), "owner_principal.id")
+        self.assertEqual(ast.unparse(kw["backoffice_user_id"]), "owner_backoffice_user.id")
         self.assertIsInstance(kw["field_principal_id"], ast.Constant)
         self.assertIsNone(kw["field_principal_id"].value)
         self.assertIsInstance(kw["field_representative_id"], ast.Constant)
@@ -190,28 +175,14 @@ class PlatformTenantBootstrapCanonicalIdentityTests(unittest.TestCase):
 
     def test_all_canonical_identity_rows_share_new_company_and_no_field_identity_created(self):
         source = ast.unparse(self.create)
-        for variable in (
-            "owner_principal",
-            "owner_backoffice_user",
-            "company_owner",
-            "admin_driver",
-            "identity_map",
-        ):
+        for variable in ("owner_principal", "owner_backoffice_user", "company_owner", "admin_driver", "identity_map"):
             call = _assigned_call(self.create, variable)
-            self.assertEqual(
-                ast.unparse(_keywords(call)["company_id"]),
-                "company.id",
-                variable,
-            )
+            self.assertEqual(ast.unparse(_keywords(call)["company_id"]), "company.id", variable)
         self.assertNotIn("FieldRepresentative(", source)
         self.assertNotIn("FIELD_REPRESENTATIVE", source)
 
     def test_existing_price_assignment_and_cost_provenance_use_legacy_driver_id(self):
-        for name in (
-            "create_price_book",
-            "create_assignment",
-            "provision_default_cost_policy",
-        ):
+        for name in ("create_price_book", "create_assignment", "provision_default_cost_policy"):
             calls = _calls(self.create, name)
             self.assertEqual(len(calls), 1, name)
             kw = _keywords(calls[0])
@@ -226,10 +197,7 @@ class PlatformTenantBootstrapCanonicalIdentityTests(unittest.TestCase):
         first_try = next(i for i, node in enumerate(body) if isinstance(node, ast.Try))
         pre_try = ast.unparse(ast.Module(body=body[:first_try], type_ignores=[]))
         self.assertIn("select(Company.id).filter_by(company_code=payload.company_code)", pre_try)
-        self.assertIn(
-            "HTTPException(status_code=409, detail='رمز الشركة (company_code) مستخدم بالفعل.')",
-            pre_try,
-        )
+        self.assertIn("HTTPException(status_code=409, detail='رمز الشركة (company_code) مستخدم بالفعل.')", pre_try)
         self.assertNotIn("db.add(", pre_try)
         self.assertNotIn("db.commit(", pre_try)
 
@@ -246,9 +214,7 @@ class PlatformTenantBootstrapCanonicalIdentityTests(unittest.TestCase):
         self.assertEqual(source.count("await db.rollback()"), 2)
         handlers = next(node for node in self.create.body if isinstance(node, ast.Try)).handlers
         self.assertEqual(len(handlers), 2)
-        self.assertTrue(
-            all("await db.rollback()" in ast.unparse(handler) for handler in handlers)
-        )
+        self.assertTrue(all("await db.rollback()" in ast.unparse(handler) for handler in handlers))
 
     def test_rls_branch_subscription_currency_password_and_response_contracts_remain(self):
         source = ast.unparse(self.create)
@@ -283,27 +249,12 @@ class PlatformTenantBootstrapCanonicalIdentityTests(unittest.TestCase):
         self.assertEqual(len(decode_calls), 1)
         decode = decode_calls[0]
         self.assertEqual(ast.unparse(decode.args[0]), "credentials.credentials")
-        self.assertTrue(
-            _payload_get_compare(
-                current,
-                key="type",
-                operator_type=ast.NotEq,
-                expected="platform_access",
-            )
-        )
-        self.assertTrue(
-            _payload_get_compare(
-                current,
-                key="is_platform_admin",
-                operator_type=ast.IsNot,
-                expected=True,
-            )
-        )
+        self.assertTrue(_payload_get_compare(current, key="type", operator_type=ast.NotEq, expected="platform_access"))
+        self.assertTrue(_payload_get_compare(current, key="is_platform_admin", operator_type=ast.IsNot, expected=True))
+
         select_platform_admin = [
             call for call in _calls(current, "select")
-            if call.args
-            and isinstance(call.args[0], ast.Name)
-            and call.args[0].id == "PlatformAdmin"
+            if call.args and isinstance(call.args[0], ast.Name) and call.args[0].id == "PlatformAdmin"
         ]
         self.assertEqual(len(select_platform_admin), 1)
         active_checks = [
@@ -339,21 +290,23 @@ class PlatformTenantBootstrapCanonicalIdentityTests(unittest.TestCase):
         rate_limit_calls = _calls(login, "_check_platform_login_limit")
         self.assertEqual(len(rate_limit_calls), 1)
         self.assertEqual([ast.unparse(arg) for arg in rate_limit_calls[0].args], ["ip", "db"])
-        bcrypt_checks = [
-            call for call in _calls(login, "checkpw")
+        to_thread_calls = [
+            call for call in _calls(login, "to_thread")
             if isinstance(call.func, ast.Attribute)
             and isinstance(call.func.value, ast.Name)
-            and call.func.value.id == "bcrypt"
+            and call.func.value.id == "asyncio"
         ]
-        self.assertEqual(len(bcrypt_checks), 1)
+        self.assertEqual(len(to_thread_calls), 1)
+        self.assertGreaterEqual(len(to_thread_calls[0].args), 1)
+        password_checker = to_thread_calls[0].args[0]
+        self.assertIsInstance(password_checker, ast.Attribute)
+        self.assertIsInstance(password_checker.value, ast.Name)
+        self.assertEqual(password_checker.value.id, "bcrypt")
+        self.assertEqual(password_checker.attr, "checkpw")
         record_calls = _calls(login, "_record_platform_login")
         self.assertEqual(len(record_calls), 2)
         self.assertEqual(
-            sorted(
-                call.args[2].value
-                for call in record_calls
-                if len(call.args) >= 3 and isinstance(call.args[2], ast.Constant)
-            ),
+            sorted(call.args[2].value for call in record_calls if len(call.args) >= 3 and isinstance(call.args[2], ast.Constant)),
             [False, True],
         )
         encode_calls = [
@@ -373,9 +326,7 @@ class PlatformTenantBootstrapCanonicalIdentityTests(unittest.TestCase):
         self.assertEqual(token_fields["type"].value, "platform_access")
         self.assertIs(token_fields["is_platform_admin"].value, True)
         self.assertIn("PlatformAdmin", login_names)
-        self.assertTrue(
-            {"CompanyPrincipal", "CompanyOwner", "BackofficeUser"}.isdisjoint(login_names)
-        )
+        self.assertTrue({"CompanyPrincipal", "CompanyOwner", "BackofficeUser"}.isdisjoint(login_names))
 
         listing = self.functions["list_all_tenants"]
         listing_names = _name_references(listing)
@@ -429,9 +380,7 @@ class PlatformTenantBootstrapCanonicalIdentityTests(unittest.TestCase):
             if isinstance(key, ast.Constant) and isinstance(key.value, str)
         }
         self.assertEqual(response_keys, {"items", "total", "page", "page_size", "pages"})
-        self.assertTrue(
-            {"CompanyPrincipal", "CompanyOwner", "BackofficeUser"}.isdisjoint(listing_names)
-        )
+        self.assertTrue({"CompanyPrincipal", "CompanyOwner", "BackofficeUser"}.isdisjoint(listing_names))
 
 
 if __name__ == "__main__":
