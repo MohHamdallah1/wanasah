@@ -123,7 +123,7 @@ class SalesReturnsCanonicalBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(routes), set(ROUTES))
         factories = [node for node in ast.walk(self.tree) if isinstance(node, ast.Call)
                      and isinstance(node.func, ast.Name)
-                     and node.func.id == "require_legacy_transport_backoffice_capability"]
+                     and node.func.id == "require_backoffice_capability"]
         self.assertEqual(len(factories), 1)
         self.assertEqual(ast.literal_eval(factories[0].args[0]), CAPABILITY)
         for name, node in routes.items():
@@ -133,16 +133,17 @@ class SalesReturnsCanonicalBoundaryTests(unittest.IsolatedAsyncioTestCase):
                                 node.args.defaults))
             self.assertEqual(ast.unparse(defaults["access"]), "Depends(_sales_return_access)")
             if name == "post_return":
-                self.assertEqual(ast.unparse(defaults["legacy_actor"]), "Depends(get_current_driver)")
+                self.assertEqual(ast.unparse(defaults["legacy_actor"]), "Depends(get_current_backoffice_legacy_driver)")
             else:
                 self.assertEqual(set(defaults) & {"legacy_actor", "current_admin"}, set())
                 self.assertFalse(any(ast.unparse(arg.annotation) == "Driver" for arg in node.args.args
                                      if arg.annotation is not None))
 
-    def test_api_has_no_legacy_authority_token_decode_or_arbitrary_scope(self):
+    def test_api_has_no_legacy_authority_transport_token_decode_or_arbitrary_scope(self):
         for forbidden in ("get_current_admin", ".is_admin", "classification", "jwt.decode",
                           "legacy_actor.company_id", "sales_return.read", "sales_return.manage",
-                          "sales_return.admin", "location_id", "use_cache=False"):
+                          "sales_return.admin", "location_id", "use_cache=False",
+                          "legacy_backoffice_transport", "get_current_driver"):
             self.assertNotIn(forbidden, self.source)
         attributes = [node for node in ast.walk(self.tree) if isinstance(node, ast.Attribute)
                       and isinstance(node.value, ast.Name) and node.value.id == "legacy_actor"]
