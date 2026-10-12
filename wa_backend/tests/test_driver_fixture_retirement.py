@@ -21,6 +21,32 @@ RESERVED = {
 }
 
 
+RETIREMENT_FILES = (
+    'run_identity_schema_expand_gate.py',
+    'test_canonical_backoffice_runtime_compatibility.py',
+    'test_canonical_field_runtime_compatibility.py',
+    'test_catalog_canonical_cutover.py',
+    'test_catalog_family_batch_b37_db.py',
+    'test_committed_costed_inbound_race_c2_isolated.py',
+    'test_cost_policy_lock_contention_c2_db.py',
+    'test_costed_driver_customer_return_c2_db.py',
+    'test_costed_driver_sale_correction_real_c2_db.py',
+    'test_costed_inbound_asgi_http_c2_db.py',
+    'test_driver_session_field_context_cutover.py',
+    'test_identity_schema_expand.py',
+    'test_legacy_field_transport.py',
+    'test_live_stock_canonical_cutover.py',
+    'test_pricing_bulk_catalog_b3_db.py',
+    'test_simple_products_canonical_cutover.py',
+    'test_supplier_master_db.py',
+    'test_warehouse_costed_inbound_c2_db.py',
+    'test_warehouse_inbound_concurrent_recovery_c2_db.py',
+    'test_warehouse_inbound_requires_cost_policy_c2_db.py',
+    'canonical_actor_fixtures.py',
+    'test_driver_fixture_retirement.py',
+)
+
+
 def physical_references(source):
     """Classify ORM constructors/attributes, SQL, and explicit column contracts."""
     tree = ast.parse(source)
@@ -133,6 +159,25 @@ class DriverFixtureRetirementTests(unittest.IsolatedAsyncioTestCase):
             if hits:
                 violations[str(path.relative_to(TESTS))] = hits
         self.assertEqual(violations, {})
+
+    def test_all_retirement_files_have_no_deleted_legacy_authorization_dependency(self):
+        forbidden_modules = {"inventory_access", "domains.authorization.inventory_access"}
+        forbidden_names = {"InventoryAccess", "subject_from_legacy_driver", "AuthorizationSubject"}
+        for filename in RETIREMENT_FILES:
+            tree = ast.parse((TESTS / filename).read_text(encoding="utf-8-sig"))
+            with self.subTest(file=filename):
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Import):
+                        self.assertTrue(forbidden_modules.isdisjoint(a.name for a in node.names))
+                    elif isinstance(node, ast.ImportFrom):
+                        self.assertNotIn(node.module, forbidden_modules)
+                        self.assertTrue((forbidden_names | {"inventory_access"}).isdisjoint(
+                            a.name for a in node.names))
+                    elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+                        self.assertNotIn(node.id, forbidden_names)
+                    elif isinstance(node, ast.Attribute):
+                        self.assertNotIn(node.attr, forbidden_names)
+        # Source-audit strings and historical evidence are intentionally not imports.
 
     def test_census_distinguishes_real_column_dependencies_from_negative_proof(self):
         for source in (
