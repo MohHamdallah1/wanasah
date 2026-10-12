@@ -186,15 +186,16 @@ class PrincipalLoginRouteAdapterTests(unittest.IsolatedAsyncioTestCase):
         ):
             self.assertNotIn(forbidden, source)
 
-    def test_existing_runtime_routes_remain_untouched_and_unmounted(self):
+    def test_runtime_uses_bounded_public_transport_and_keeps_internal_adapter(self):
         auth_source = (
             Path(__file__).resolve().parents[1] / "api" / "auth.py"
         ).read_text(encoding="utf-8")
-        self.assertIn('@router.post("/login", response_model=LoginResponse)', auth_source)
-        self.assertIn(
-            '@router.post("/driver/login", response_model=LoginResponse)', auth_source
-        )
-        self.assertNotIn("login_routes", auth_source)
+        self.assertIn("from api.authentication.login_transport_routes import router as login_router", auth_source)
+        self.assertIn("router.include_router(login_router)", auth_source)
+        self.assertNotIn("response_model=LoginResponse", auth_source)
+        # The internal canonical route/DTO seam remains separately strict.
+        self.assertIs({route.path: route for route in login_routes.router.routes}["/login"].response_model,
+                      DashboardPrincipalLoginResponse)
 
 
 if __name__ == "__main__":
