@@ -85,7 +85,10 @@ class CommercialPolicyCanonicalAuthCutoverTests(unittest.IsolatedAsyncioTestCase
                     await _require(denied, "pricing.manage")
                     await _require(denied, "pricing.approve")
                 self.assertEqual(caught.exception.status_code, 403)
-                self.assertEqual(caught.exception.detail, "Authorization denied.")
+                self.assertEqual(
+                    caught.exception.detail,
+                    "لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.",
+                )
 
     def test_read_route_is_driver_free_and_uses_canonical_company(self):
         body = _function_source("get_rounding_policy")
