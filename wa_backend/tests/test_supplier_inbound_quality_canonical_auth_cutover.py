@@ -283,17 +283,18 @@ class WholeProductQualityCanonicalAccessTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_special_transfer_permission_missing_is_403(self):
+        permission = whole_product_quality.SPECIAL_TRANSFER_PERMISSION["DISPOSAL"]
         allowed_db = _ScalarDB(True)
         await whole_product_quality._require_quality_access(
             _ordinary_access(allowed_db),
-            "inventory.disposal",
+            permission,
         )
 
         denied_db = _ScalarDB(False)
         with self.assertRaises(HTTPException) as caught:
             await whole_product_quality._require_quality_access(
                 _ordinary_access(denied_db),
-                "inventory.disposal",
+                permission,
             )
         self.assertEqual(caught.exception.status_code, 403)
 
