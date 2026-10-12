@@ -12,10 +12,15 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import delete, func, insert, select, text
+from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from context import tenant_context
 from database import AsyncSessionLocal
+from domains.auth_sessions.context import DashboardRequestContext
+from domains.identity.migration.models import IdentityLegacyDriverMap
+from domains.identity.models import BackofficeUser, CompanyOwner, CompanyPrincipal
+from domains.identity.types import PrincipalType
 from domains.simple_products.imports.domain import (
     ProductImportTerminalError,
 )
@@ -35,7 +40,8 @@ from models import (
 
 async def open_tenant_session(
     company_id: int,
-    *, io_guard: StagingIOGuard | None = None,
+    *,
+    io_guard: StagingIOGuard | None = None,
 ):
     token = tenant_context.set(
         int(company_id)
@@ -77,7 +83,8 @@ async def open_tenant_session(
 async def close_tenant_session(
     token,
     db: AsyncSession,
-    *, io_guard: StagingIOGuard | None = None,
+    *,
+    io_guard: StagingIOGuard | None = None,
 ) -> None:
     try:
         if io_guard is None:
@@ -629,6 +636,95 @@ async def load_active_actor(
             == int(actor_id),
             Driver.is_active.is_(True),
         )
+    )
+
+
+async def load_active_backoffice_context_for_legacy_actor(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    legacy_driver_id: int,
+) -> DashboardRequestContext | None:
+    """Reverse-map one legacy operational Driver to an active canonical Backoffice identity."""
+    company_id = int(company_id)
+    legacy_driver_id = int(legacy_driver_id)
+    try:
+        bridge = (
+            await db.execute(
+                select(IdentityLegacyDriverMap).where(
+                    IdentityLegacyDriverMap.company_id == company_id,
+                    IdentityLegacyDriverMap.legacy_driver_id == legacy_driver_id,
+                    IdentityLegacyDriverMap.backoffice_principal_id.is_not(None),
+                    IdentityLegacyDriverMap.backoffice_user_id.is_not(None),
+                )
+            )
+        ).scalar_one_or_none()
+    except MultipleResultsFound:
+        return None
+
+    if (
+        bridge is None
+        or bridge.company_id != company_id
+        or bridge.legacy_driver_id != legacy_driver_id
+        or type(bridge.backoffice_principal_id) is not int
+        or bridge.backoffice_principal_id <= 0
+        or type(bridge.backoffice_user_id) is not int
+        or bridge.backoffice_user_id <= 0
+    ):
+        return None
+
+    try:
+        principal = (
+            await db.execute(
+                select(CompanyPrincipal).where(
+                    CompanyPrincipal.company_id == company_id,
+                    CompanyPrincipal.id == bridge.backoffice_principal_id,
+                )
+            )
+        ).scalar_one_or_none()
+        profile = (
+            await db.execute(
+                select(BackofficeUser).where(
+                    BackofficeUser.company_id == company_id,
+                    BackofficeUser.id == bridge.backoffice_user_id,
+                    BackofficeUser.principal_id == bridge.backoffice_principal_id,
+                )
+            )
+        ).scalar_one_or_none()
+        owner = (
+            await db.execute(
+                select(CompanyOwner).where(
+                    CompanyOwner.company_id == company_id,
+                )
+            )
+        ).scalar_one_or_none()
+    except MultipleResultsFound:
+        return None
+
+    if (
+        principal is None
+        or principal.company_id != company_id
+        or principal.id != bridge.backoffice_principal_id
+        or principal.principal_type != PrincipalType.BACKOFFICE.value
+        or principal.is_active is not True
+        or profile is None
+        or profile.company_id != company_id
+        or profile.id != bridge.backoffice_user_id
+        or profile.principal_id != bridge.backoffice_principal_id
+        or profile.principal_type != PrincipalType.BACKOFFICE.value
+        or (owner is not None and owner.company_id != company_id)
+    ):
+        return None
+
+    return DashboardRequestContext(
+        principal_id=int(principal.id),
+        company_id=company_id,
+        backoffice_user_id=int(profile.id),
+        auth_revision=int(principal.auth_revision),
+        is_company_owner=(
+            owner is not None
+            and owner.backoffice_user_id == profile.id
+        ),
     )
 
 
