@@ -5,20 +5,28 @@ import json
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
+from api.authentication.backoffice_compatibility import (
+    get_current_backoffice_legacy_driver,
+)
 from database import get_db
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
 from domains.product_tracking import (
     ProductTrackingError,
     load_company_product_tracking_defaults_state,
     save_company_product_tracking_defaults_serialized,
     update_product_tracking_modes,
 )
-from inventory_access import InventoryAccess
 from models import Driver, SystemAuditLog
 from services import (
     InventoryMutationError,
@@ -96,23 +104,26 @@ def _request_hash(
 
 
 async def _require(
-    db: AsyncSession,
-    actor: Driver,
+    access: BackofficeCapabilityAccess,
     permission: str,
 ) -> None:
-    await InventoryAccess(
-        db,
-        actor,
-    ).require(
-        permission,
-        any_location=True,
-    )
+    try:
+        await access.require(
+            permission,
+            any_location=True,
+        )
+    except BackofficeCapabilityAccessRejected:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Authorization denied.",
+        ) from None
 
 
 def _audit_change(
     db: AsyncSession,
     *,
-    actor: Driver,
+    company_id: int,
+    actor_id: int,
     target: str,
     action: str,
     before: dict[str, Any],
@@ -120,8 +131,8 @@ def _audit_change(
 ) -> None:
     db.add(
         SystemAuditLog(
-            company_id=int(actor.company_id),
-            admin_id=int(actor.id),
+            company_id=company_id,
+            admin_id=actor_id,
             target_id=target,
             action_type=action,
             old_value=json.dumps(
@@ -152,18 +163,19 @@ def _defaults_payload(state) -> dict[str, str]:
 @router.get("/defaults")
 async def get_product_tracking_defaults(
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
     await _require(
-        db,
-        actor,
+        access,
         "catalog.read",
     )
     try:
         state = (
             await load_company_product_tracking_defaults_state(
                 db,
-                company_id=int(actor.company_id),
+                company_id=int(access.company_id),
             )
         )
         return _defaults_payload(state)
@@ -175,19 +187,25 @@ async def get_product_tracking_defaults(
 async def update_product_tracking_defaults(
     payload: ProductTrackingDefaultsUpdate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(
+        get_current_backoffice_legacy_driver
+    ),
 ):
     await _require(
-        db,
-        actor,
+        access,
         "catalog.manage",
     )
 
+    company_id = int(access.company_id)
+    actor_id = int(legacy_actor.id)
     try:
         idem, replay = await begin_idempotent_operation(
             db,
-            company_id=int(actor.company_id),
-            actor_id=int(actor.id),
+            company_id=company_id,
+            actor_id=actor_id,
             operation="PRODUCT_TRACKING_DEFAULTS_UPDATE_V1",
             request_id=str(payload.request_id),
             request_hash=_request_hash(payload),
@@ -199,13 +217,13 @@ async def update_product_tracking_defaults(
         before_state = (
             await load_company_product_tracking_defaults_state(
                 db,
-                company_id=int(actor.company_id),
+                company_id=company_id,
             )
         )
         after_state = (
             await save_company_product_tracking_defaults_serialized(
                 db,
-                company_id=int(actor.company_id),
+                company_id=company_id,
                 lot_control_mode=payload.lot_control_mode,
                 expiry_control_mode=payload.expiry_control_mode,
             )
@@ -216,8 +234,9 @@ async def update_product_tracking_defaults(
         if before != after:
             _audit_change(
                 db,
-                actor=actor,
-                target=f"Company_{int(actor.company_id)}",
+                company_id=company_id,
+                actor_id=actor_id,
+                target=f"Company_{company_id}",
                 action="PRODUCT_TRACKING_DEFAULTS_UPDATED_V1",
                 before=before,
                 after=after,
@@ -256,19 +275,25 @@ async def update_variant_product_tracking(
     variant_id: int,
     payload: ProductTrackingUpdate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(
+        get_current_backoffice_legacy_driver
+    ),
 ):
     await _require(
-        db,
-        actor,
+        access,
         "catalog.manage",
     )
 
+    company_id = int(access.company_id)
+    actor_id = int(legacy_actor.id)
     try:
         idem, replay = await begin_idempotent_operation(
             db,
-            company_id=int(actor.company_id),
-            actor_id=int(actor.id),
+            company_id=company_id,
+            actor_id=actor_id,
             operation="PRODUCT_TRACKING_UPDATE_V1",
             request_id=str(payload.request_id),
             request_hash=_request_hash(
@@ -282,8 +307,8 @@ async def update_variant_product_tracking(
 
         result = await update_product_tracking_modes(
             db,
-            company_id=int(actor.company_id),
-            actor_id=int(actor.id),
+            company_id=company_id,
+            actor_id=actor_id,
             request_id=payload.request_id,
             product_variant_id=int(variant_id),
             expected_version=int(
@@ -303,7 +328,8 @@ async def update_variant_product_tracking(
         if result.changed:
             _audit_change(
                 db,
-                actor=actor,
+                company_id=company_id,
+                actor_id=actor_id,
                 target=(
                     f"ProductVariant_{result.product_variant_id}"
                 ),
