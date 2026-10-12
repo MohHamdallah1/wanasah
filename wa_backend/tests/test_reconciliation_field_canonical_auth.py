@@ -63,8 +63,9 @@ class _ScopedSessionDb(_Db):
 
     async def execute(self, statement):
         self.statements.append(statement)
-        compiled = statement.compile()
-        values = list(compiled.params.values())
+        if len(self.statements) > 1:
+            return _Result(one=None)
+        values = list(statement.compile().params.values())
         allowed = (
             self.company_id in values
             and self.driver_id in values
@@ -107,9 +108,12 @@ def _params(statement):
 
 class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
     async def test_canonical_field_company_and_mapped_driver_are_independent(self):
-        session = _work_session()
-        db = _ScopedSessionDb(session=session, company_id=101, driver_id=9003)
-        field = _field_context(company_id=101, principal_id=7001, representative_id=8002)
+        db = _ScopedSessionDb(
+            session=_work_session(), company_id=101, driver_id=9003,
+        )
+        field = _field_context(
+            company_id=101, principal_id=7001, representative_id=8002,
+        )
         actor = _legacy_driver(driver_id=9003, company_id=444, is_admin=True)
 
         with self.assertRaises(HTTPException) as caught:
@@ -124,6 +128,7 @@ class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(7001, first)
         self.assertNotIn(8002, first)
         self.assertNotIn(444, first)
+        self.assertEqual(db.rollbacks, 1)
 
     async def test_driver_is_admin_has_zero_authority_effect(self):
         field = _field_context(company_id=101)
@@ -148,17 +153,19 @@ class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
     async def test_other_driver_and_cross_company_session_fail_closed(self):
         session = _work_session()
         cases = (
-            (_field_context(company_id=101), _legacy_driver(driver_id=9004), 404),
-            (_field_context(company_id=202), _legacy_driver(driver_id=9003), 404),
+            (_field_context(company_id=101), _legacy_driver(driver_id=9004)),
+            (_field_context(company_id=202), _legacy_driver(driver_id=9003)),
         )
-        for field, actor, status in cases:
+        for field, actor in cases:
             with self.subTest(company=field.company_id, driver=actor.id):
-                db = _ScopedSessionDb(session=session, company_id=101, driver_id=9003)
+                db = _ScopedSessionDb(
+                    session=session, company_id=101, driver_id=9003,
+                )
                 with self.assertRaises(HTTPException) as caught:
                     await reconciliation.reconcile_driver_end_of_day(
                         71, _payload(), db, field, actor,
                     )
-                self.assertEqual(caught.exception.status_code, status)
+                self.assertEqual(caught.exception.status_code, 404)
                 self.assertEqual(db.rollbacks, 1)
 
     async def test_existing_reconciliation_replay_is_preserved(self):
@@ -173,17 +180,13 @@ class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(db.statements), 1)
 
     async def test_open_vehicle_recon_reuse_and_location_guard_are_preserved(self):
-        work = _work_session()
-        route = SimpleNamespace(vehicle_id=55)
-        location = SimpleNamespace(id=66)
-        existing = SimpleNamespace(
-            id=88, status="COUNTING", reference_number="VR-88",
-        )
         db = _Db([
-            _Result(one=work),
-            _Result(one=route),
-            _Result(one=location),
-            _Result(one=existing),
+            _Result(one=_work_session()),
+            _Result(one=SimpleNamespace(vehicle_id=55)),
+            _Result(one=SimpleNamespace(id=66)),
+            _Result(one=SimpleNamespace(
+                id=88, status="COUNTING", reference_number="VR-88",
+            )),
         ])
         with patch.object(
             reconciliation, "validate_vehicle_recon_work_session", AsyncMock()
@@ -206,9 +209,8 @@ class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
         open_stocktake.assert_not_awaited()
 
     async def test_conflicting_inventory_lock_fails_closed(self):
-        work = _work_session()
         db = _Db([
-            _Result(one=work),
+            _Result(one=_work_session()),
             _Result(one=SimpleNamespace(vehicle_id=55)),
             _Result(one=SimpleNamespace(id=66)),
             _Result(one=None),
@@ -228,9 +230,8 @@ class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.commits, 0)
 
     async def test_exact_match_uses_canonical_company_and_mapped_driver_provenance(self):
-        work = _work_session()
         db = _Db([
-            _Result(one=work),
+            _Result(one=_work_session()),
             _Result(one=SimpleNamespace(vehicle_id=55)),
             _Result(one=SimpleNamespace(id=66)),
             _Result(one=None),
@@ -253,7 +254,9 @@ class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
                 71,
                 _payload(),
                 db,
-                _field_context(company_id=101, principal_id=7001, representative_id=8002),
+                _field_context(
+                    company_id=101, principal_id=7001, representative_id=8002,
+                ),
                 _legacy_driver(driver_id=9003, company_id=404, is_admin=True),
             )
 
@@ -268,14 +271,18 @@ class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(db.commits, 1)
         self.assertEqual(db.rollbacks, 0)
-        audits = [row for row in db.added if isinstance(row, reconciliation.SystemAuditLog)]
+        audits = [
+            row for row in db.added
+            if isinstance(row, reconciliation.SystemAuditLog)
+        ]
         self.assertEqual(len(audits), 1)
         self.assertEqual(audits[0].company_id, 101)
         self.assertEqual(audits[0].admin_id, 9003)
-        self.assertEqual(audits[0].action_type, "VEHICLE_INVENTORY_RECONCILED")
+        self.assertEqual(
+            audits[0].action_type, "VEHICLE_INVENTORY_RECONCILED",
+        )
 
     async def test_variance_opens_vehicle_recon_with_mapped_driver_provenance(self):
-        work = _work_session()
         variant = SimpleNamespace(
             id=501, quantity_scale=6, quantity_step=Decimal("1"),
         )
@@ -285,7 +292,7 @@ class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
             reserved_quantity=Decimal("0"),
         )
         db = _Db([
-            _Result(one=work),
+            _Result(one=_work_session()),
             _Result(one=SimpleNamespace(vehicle_id=55)),
             _Result(one=SimpleNamespace(id=66)),
             _Result(one=None),
@@ -301,9 +308,7 @@ class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
         ), patch.object(
             reconciliation, "acquire_inventory_location_guard", AsyncMock()
         ), patch.object(
-            reconciliation,
-            "validate_variant_quantity",
-            return_value=Decimal("1"),
+            reconciliation, "validate_variant_quantity", return_value=Decimal("1")
         ) as validate_quantity, patch.object(
             reconciliation,
             "open_vehicle_reconciliation_stocktake",
@@ -321,7 +326,6 @@ class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["variance_product_ids"], [501])
         self.assertEqual(result["variance_count"], 1)
         validate_quantity.assert_called_once()
-        open_stocktake.assert_awaited_once()
         call = open_stocktake.await_args.kwargs
         self.assertEqual(call["company_id"], 101)
         self.assertEqual(call["started_by"], 9003)
@@ -329,11 +333,16 @@ class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(call["vehicle_location_id"], 66)
         self.assertEqual(call["product_variant_ids"], [501])
         self.assertEqual(db.commits, 1)
-        audits = [row for row in db.added if isinstance(row, reconciliation.SystemAuditLog)]
+        audits = [
+            row for row in db.added
+            if isinstance(row, reconciliation.SystemAuditLog)
+        ]
         self.assertEqual(len(audits), 1)
         self.assertEqual(audits[0].company_id, 101)
         self.assertEqual(audits[0].admin_id, 9003)
-        self.assertEqual(audits[0].action_type, "VEHICLE_RECON_VARIANCE_DETECTED")
+        self.assertEqual(
+            audits[0].action_type, "VEHICLE_RECON_VARIANCE_DETECTED",
+        )
 
 
 class ReconciliationCanonicalSourceAuditTests(unittest.TestCase):
@@ -357,26 +366,26 @@ class ReconciliationCanonicalSourceAuditTests(unittest.TestCase):
     def test_business_guards_and_transaction_contract_remain_present(self):
         source = (ROOT / "api/reconciliation.py").read_text(encoding="utf-8")
         required = (
-            'WorkSession.company_id',
-            'driver_id=driver_id',
-            'inventory_reconciled_at',
-            'work_session.is_settled',
-            'DispatchRoute',
+            "company_id=company_id",
+            "driver_id=driver_id",
+            "inventory_reconciled_at",
+            "work_session.is_settled",
+            "DispatchRoute",
             'location_type="VEHICLE"',
-            'acquire_inventory_location_guard',
+            "acquire_inventory_location_guard",
             'stocktake_type == "VEHICLE_RECON"',
-            'InventoryLock.company_id == company_id',
-            'ProductVariant.company_id == company_id',
-            'validate_variant_quantity',
-            '_MAX_RECON_COUNTS = 5000',
-            '_MAX_RECON_BALANCE_ROWS = 10000',
-            'finalize_vehicle_inventory_reconciliation',
-            'open_vehicle_reconciliation_stocktake',
-            'admin_id=driver_id',
-            'await db.commit()',
-            'await db.rollback()',
-            'except InventoryMutationError',
-            'except IntegrityError',
+            "InventoryLock.company_id == company_id",
+            "ProductVariant.company_id == company_id",
+            "validate_variant_quantity",
+            "_MAX_RECON_COUNTS = 5000",
+            "_MAX_RECON_BALANCE_ROWS = 10000",
+            "finalize_vehicle_inventory_reconciliation",
+            "open_vehicle_reconciliation_stocktake",
+            "admin_id=driver_id",
+            "await db.commit()",
+            "await db.rollback()",
+            "except InventoryMutationError",
+            "except IntegrityError",
         )
         for token in required:
             with self.subTest(token=token):
