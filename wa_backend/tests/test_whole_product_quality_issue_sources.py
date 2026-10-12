@@ -11,7 +11,8 @@ from sqlalchemy import func as sa_func, Column, Date, MetaData, Table, and_, cre
 from domains.batch_reservation_contracts import OWNER_PREVIEW_LIMIT
 from domains.batch_reservation_evidence import reservation_evidence
 from domains.dispatch_reservations import variant_reservation_owner_projection
-from inventory_access import InventoryAccess
+from domains.authorization.backoffice_access import BackofficeCapabilityAccess, BackofficeCapabilityAccessRejected
+from domains.authorization.backoffice_subject import BackofficeAuthorizationSubject
 from models import (
     Company, DispatchRoute, InventoryBalance, InventoryLocation, InventoryMovement, InventoryStockPolicy,
     InventoryTransferHeader, InventoryTransferLine, Permission, ProductBatch,
@@ -104,7 +105,6 @@ def endpoint(blocker_reader=no_completion_blockers):
     for arg in node.args.args:
         arg.annotation = None
     namespace = dict(
-        InventoryAccess=InventoryAccess,
         ProductVariant=ProductVariant,
         ProductBatch=ProductBatch,
         InventoryLocation=InventoryLocation,
@@ -138,7 +138,12 @@ def endpoint(blocker_reader=no_completion_blockers):
             "context": context,
         },
     )
-    exec(compile(ast.Module(body=[node], type_ignores=[]), str(path), "exec"), namespace)
+    gate = next(n for n in ast.parse(path.read_text(encoding="utf-8")).body
+                if isinstance(n, ast.AsyncFunctionDef)
+                and n.name == "_require_live_stock_any_location_read")
+    gate.args.args[0].annotation = None
+    namespace["BackofficeCapabilityAccessRejected"] = BackofficeCapabilityAccessRejected
+    exec(compile(ast.Module(body=[gate, node], type_ignores=[]), str(path), "exec"), namespace)
     return namespace["get_whole_product_quality_issue_sources"]
 
 
@@ -224,8 +229,12 @@ def store():
     engine.dispose()
 
 
-def actor(*, admin=True):
-    return SimpleNamespace(company_id=1, id=17, is_admin=admin)
+def subject(*, is_company_owner=True):
+    return BackofficeAuthorizationSubject(
+        principal_id=1010, backoffice_user_id=2020, company_id=1,
+        is_company_owner=is_company_owner,
+        legacy_grant_driver_id=None if is_company_owner else 17,
+    )
 
 
 def grant(store, code, location):
@@ -239,13 +248,14 @@ def grant(store, code, location):
 
 
 async def read(store, *, user=None, cursor=None, limit=25, blocker_reader=no_completion_blockers):
-    raw = await endpoint(blocker_reader)(101, cursor, limit, store.db, user or actor())
+    access = BackofficeCapabilityAccess(store.db, user or subject())
+    raw = await endpoint(blocker_reader)(101, cursor, limit, store.db, access)
     return WarehouseWholeProductIssueSourcesResponse.model_validate(raw).model_dump(mode="json")
 
 
 async def read_candidates(store, *, user=None, cursor=None, limit=25, source_preview_limit=6):
-    principal = user or actor()
-    access = InventoryAccess(store.db, principal)
+    principal = user or subject()
+    access = BackofficeCapabilityAccess(store.db, principal)
     raw = await read_quality_batch_candidates(
         store.db,
         company_id=principal.company_id,
@@ -284,7 +294,7 @@ async def test_whole_product_issue_lists_warehouse_and_vehicle_separately(store)
 @pytest.mark.asyncio
 async def test_whole_product_issue_respects_location_permissions_and_backend_readiness(store):
     grant(store, "inventory.read", 1)
-    result = await read(store, user=actor(admin=False), blocker_reader=inventory_completion_blocker)
+    result = await read(store, user=subject(is_company_owner=False), blocker_reader=inventory_completion_blocker)
     assert [item["batch_id"] for item in result["batches"]] == [11]
     assert [item["location_id"] for item in result["batches"][0]["sources"]] == [1]
     assert result["inventory_summary"]["total_on_hand_quantity"] == "10"
@@ -321,7 +331,7 @@ async def test_quality_batch_candidates_are_company_wide_and_show_all_readable_s
 @pytest.mark.asyncio
 async def test_quality_batch_candidates_respect_location_permissions(store):
     grant(store, "inventory.read", 1)
-    result = await read_candidates(store, user=actor(admin=False))
+    result = await read_candidates(store, user=subject(is_company_owner=False))
     assert [item["batch_id"] for item in result["items"]] == [11]
     first = result["items"][0]
     assert first["total_on_hand_quantity"] == "10"
