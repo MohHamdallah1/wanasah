@@ -2,14 +2,40 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
 from database import get_db
-from inventory_access import InventoryAccess
-from models import Driver, InventoryLocation, InventoryLock
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
+from models import InventoryLocation, InventoryLock
 from schemas import WarehouseStatusResponse
 
 
 router = APIRouter()
+
+
+async def _require_status_access(
+    access: BackofficeCapabilityAccess,
+    location_id: int,
+) -> None:
+    try:
+        await access.require(('location.read', 'dispatch.read'), location_id)
+    except BackofficeCapabilityAccessRejected:
+        exists = await access.db.scalar(
+            select(InventoryLocation.id).where(
+                InventoryLocation.company_id == access.company_id,
+                InventoryLocation.id == location_id,
+            )
+        )
+        if exists is None:
+            raise HTTPException(404, 'الموقع غير موجود أو غير متاح.') from None
+        raise HTTPException(
+            403,
+            'لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.',
+        ) from None
 
 
 # =================================================================================
@@ -20,14 +46,13 @@ router = APIRouter()
 async def get_warehouse_status(
     location_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver)
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require(('location.read', 'dispatch.read'), location_id)
+    await _require_status_access(access, location_id)
 
     stmt_location = select(InventoryLocation.id).filter_by(
         id=location_id,
-        company_id=current_admin.company_id,
+        company_id=access.company_id,
         location_type='WAREHOUSE',
         is_active=True
     )
@@ -40,7 +65,7 @@ async def get_warehouse_status(
         )
 
     stmt_lock = select(InventoryLock.id).filter(
-        InventoryLock.company_id == current_admin.company_id,
+        InventoryLock.company_id == access.company_id,
         InventoryLock.location_id == location_id,
         InventoryLock.product_variant_id.is_(None),
         InventoryLock.batch_id.is_(None),
@@ -52,5 +77,4 @@ async def get_warehouse_status(
     return {
         "status": "AUDIT_LOCK" if active_lock is not None else "ACTIVE"
     }
-
 

@@ -9,15 +9,16 @@ from pydantic import BaseModel
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
 from database import get_db
+from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from domains.inventory_costing.service import get_cost_policy, money6
 from domains.inventory_supplier_resolution import resolve_current_stock_suppliers
-from inventory_access import InventoryAccess
 from models import (
     Company,
     DomainAuditEvent,
-    Driver,
     InventoryBalance,
     InventoryCostLayer,
     InventoryCostState,
@@ -128,10 +129,11 @@ async def _current_recall_reason(
 async def get_whole_product_quality_preview(
     product_variant_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
-    company_id = int(current_admin.company_id)
-    access = InventoryAccess(db, current_admin)
+    company_id = int(access.company_id)
 
     variant = (
         await db.execute(
