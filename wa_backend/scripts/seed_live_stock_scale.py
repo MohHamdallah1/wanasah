@@ -97,16 +97,26 @@ async def ensure_target(session, company_id: int, location_id: int) -> tuple[int
     actor_id = await scalar(
         session,
         """
-        SELECT id
-        FROM drivers
-        WHERE company_id=:company_id AND is_active IS TRUE
-        ORDER BY is_admin DESC, id ASC
+        SELECT m.legacy_driver_id
+        FROM company_owners AS o
+        JOIN identity_legacy_driver_map AS m
+          ON m.company_id=o.company_id
+         AND m.backoffice_user_id=o.backoffice_user_id
+        JOIN drivers AS d
+          ON d.company_id=m.company_id
+         AND d.id=m.legacy_driver_id
+        WHERE o.company_id=:company_id
+          AND m.classification IN ('BACKOFFICE_ONLY', 'DUAL_SPLIT')
+          AND d.is_active IS TRUE
+        ORDER BY m.legacy_driver_id ASC
         LIMIT 1
         """,
         {"company_id": company_id},
     )
     if each_id is None or carton_id is None or actor_id is None:
-        raise RuntimeError("Target company must have EACH, CARTON and one active driver/admin")
+        raise RuntimeError(
+            "Target company must have EACH, CARTON and a canonical CompanyOwner legacy actor mapping"
+        )
 
     return int(each_id), int(carton_id), int(actor_id)
 

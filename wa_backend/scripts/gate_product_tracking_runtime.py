@@ -363,39 +363,42 @@ async def seed() -> dict[str, object]:
                 ).scalar_one()
             )
 
-        async def driver(
+        async def backoffice_owner_legacy_actor(
             company_id: int,
             name: str,
         ) -> int:
-            return int(
-                (
-                    await su.execute(
-                        text(
-                            "INSERT INTO drivers "
-                            "(company_id, username, password_hash, "
-                            "full_name, phone_number, is_active, "
-                            "is_admin, created_at) "
-                            "VALUES "
-                            "(:company_id, :username, "
-                            "'$2b$12$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', "
-                            ":name, :phone, true, true, NOW()) "
-                            "RETURNING id"
-                        ),
-                        {
-                            "company_id": company_id,
-                            "username": (
-                                "ptrk_"
-                                + uuid4().hex[:10]
-                            ),
-                            "name": name,
-                            "phone": (
-                                "+9627"
-                                + uuid4().hex[:7]
-                            ),
-                        },
-                    )
-                ).scalar_one()
+            username = "ptrk_" + uuid4().hex[:10]
+            legacy_username = "ptrk_legacy_" + uuid4().hex[:10]
+            password_hash = (
+                "$2b$12$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
             )
+            principal_id = int((await su.execute(text(
+                "INSERT INTO company_principals "
+                "(company_id, username, password_hash, full_name, principal_type, is_active, auth_revision) "
+                "VALUES (:company_id, :username, :password_hash, :name, 'BACKOFFICE', true, 1) RETURNING id"
+            ), {"company_id": company_id, "username": username, "password_hash": password_hash, "name": name})).scalar_one())
+            backoffice_user_id = int((await su.execute(text(
+                "INSERT INTO backoffice_users (company_id, principal_id, principal_type) "
+                "VALUES (:company_id, :principal_id, 'BACKOFFICE') RETURNING id"
+            ), {"company_id": company_id, "principal_id": principal_id})).scalar_one())
+            await su.execute(text(
+                "INSERT INTO company_owners (company_id, backoffice_user_id) "
+                "VALUES (:company_id, :backoffice_user_id)"
+            ), {"company_id": company_id, "backoffice_user_id": backoffice_user_id})
+            legacy_driver_id = int((await su.execute(text(
+                "INSERT INTO drivers "
+                "(company_id, username, password_hash, full_name, phone_number, is_active, created_at) "
+                "VALUES (:company_id, :username, :password_hash, :name, :phone, true, NOW()) RETURNING id"
+            ), {"company_id": company_id, "username": legacy_username, "password_hash": password_hash,
+                "name": name + " Legacy Actor", "phone": "+9627" + uuid4().hex[:7]})).scalar_one())
+            await su.execute(text(
+                "INSERT INTO identity_legacy_driver_map "
+                "(classification, company_id, legacy_driver_id, backoffice_principal_id, backoffice_user_id, "
+                "field_principal_id, field_representative_id) "
+                "VALUES ('BACKOFFICE_ONLY', :company_id, :legacy_driver_id, :principal_id, :backoffice_user_id, NULL, NULL)"
+            ), {"company_id": company_id, "legacy_driver_id": legacy_driver_id, "principal_id": principal_id,
+                "backoffice_user_id": backoffice_user_id})
+            return legacy_driver_id
 
         async def product(
             company_id: int,
@@ -469,11 +472,11 @@ async def seed() -> dict[str, object]:
         b = await company(
             "Product Tracking Runtime B"
         )
-        a_driver = await driver(
+        a_driver = await backoffice_owner_legacy_actor(
             a,
             "Tracking Admin A",
         )
-        b_driver = await driver(
+        b_driver = await backoffice_owner_legacy_actor(
             b,
             "Tracking Admin B",
         )
