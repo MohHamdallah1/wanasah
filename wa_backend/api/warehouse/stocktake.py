@@ -12,11 +12,30 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, MultipleResultsFound
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
+from api.authentication.backoffice_compatibility import (
+    get_current_backoffice_legacy_driver,
+)
 from database import get_db
-from inventory_access import InventoryAccess, require_stocktake
+from domains.auth_sessions.context import DashboardRequestContext
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
+from domains.authorization.backoffice_subject import (
+    BackofficeAuthorizationSubjectRejected,
+    resolve_backoffice_authorization_subject,
+)
+from domains.authorization.guards import (
+    require_stocktake as require_canonical_stocktake,
+)
+from domains.identity.migration.models import IdentityLegacyDriverMap
+from domains.identity.models import BackofficeUser, CompanyOwner, CompanyPrincipal
+from domains.identity.types import PrincipalType
 from services import (
     InventoryMutationError,
     acquire_inventory_location_guard,
@@ -51,6 +70,44 @@ from ._shared import _escape_like
 
 logger = logging.getLogger("wanasah_logger")
 router = APIRouter()
+
+
+def _stocktake_authorization_rejected() -> HTTPException:
+    return HTTPException(status_code=403, detail="Authorization denied.")
+
+
+async def _require_location_capability(
+    access: BackofficeCapabilityAccess,
+    code: str,
+    location_id: int,
+    *,
+    any_location: bool = False,
+) -> None:
+    try:
+        await access.require(code, location_id, any_location=any_location)
+    except BackofficeCapabilityAccessRejected:
+        raise _stocktake_authorization_rejected() from None
+
+
+async def _require_any_location_capability(
+    access: BackofficeCapabilityAccess,
+    code: str,
+) -> None:
+    try:
+        await access.require(code, any_location=True)
+    except BackofficeCapabilityAccessRejected:
+        raise _stocktake_authorization_rejected() from None
+
+
+async def _require_stocktake_capability(
+    access: BackofficeCapabilityAccess,
+    code: str,
+    session_id: int,
+) -> None:
+    try:
+        await require_canonical_stocktake(access, code, session_id)
+    except BackofficeCapabilityAccessRejected:
+        raise _stocktake_authorization_rejected() from None
 
 
 # ====================================================
@@ -134,28 +191,118 @@ async def _verify_stocktake_admin_credentials(
     password: str,
     location_id: int,
 ) -> Optional[Driver]:
-    stmt = select(Driver).filter_by(
-        company_id=company_id,
-        username=username.strip(),
-        is_active=True,
-    )
-    admin = (await db.execute(stmt)).scalar_one_or_none()
+    try:
+        legacy_candidate = (
+            await db.execute(
+                select(Driver).filter_by(
+                    company_id=company_id,
+                    username=username.strip(),
+                    is_active=True,
+                )
+            )
+        ).scalar_one_or_none()
+    except MultipleResultsFound:
+        return None
 
-    if not admin:
+    if legacy_candidate is None:
         return None
 
     password_ok = await asyncio.to_thread(
         bcrypt.checkpw,
         password.encode('utf-8'),
-        admin.password_hash.encode('utf-8')
+        legacy_candidate.password_hash.encode('utf-8'),
     )
     if not password_ok:
         return None
+
     try:
-        await InventoryAccess(db, admin).require('stocktake.recount', location_id)
-    except HTTPException:
+        bridge = (
+            await db.execute(
+                select(IdentityLegacyDriverMap).where(
+                    IdentityLegacyDriverMap.company_id == company_id,
+                    IdentityLegacyDriverMap.legacy_driver_id == legacy_candidate.id,
+                    IdentityLegacyDriverMap.backoffice_principal_id.is_not(None),
+                    IdentityLegacyDriverMap.backoffice_user_id.is_not(None),
+                )
+            )
+        ).scalar_one_or_none()
+    except MultipleResultsFound:
         return None
-    return admin
+
+    if (
+        bridge is None
+        or bridge.company_id != company_id
+        or bridge.legacy_driver_id != legacy_candidate.id
+        or type(bridge.backoffice_principal_id) is not int
+        or bridge.backoffice_principal_id <= 0
+        or type(bridge.backoffice_user_id) is not int
+        or bridge.backoffice_user_id <= 0
+    ):
+        return None
+
+    try:
+        principal = (
+            await db.execute(
+                select(CompanyPrincipal).where(
+                    CompanyPrincipal.company_id == company_id,
+                    CompanyPrincipal.id == bridge.backoffice_principal_id,
+                )
+            )
+        ).scalar_one_or_none()
+        profile = (
+            await db.execute(
+                select(BackofficeUser).where(
+                    BackofficeUser.company_id == company_id,
+                    BackofficeUser.id == bridge.backoffice_user_id,
+                    BackofficeUser.principal_id == bridge.backoffice_principal_id,
+                )
+            )
+        ).scalar_one_or_none()
+        owner = (
+            await db.execute(
+                select(CompanyOwner).where(
+                    CompanyOwner.company_id == company_id,
+                )
+            )
+        ).scalar_one_or_none()
+    except MultipleResultsFound:
+        return None
+
+    if (
+        principal is None
+        or principal.company_id != company_id
+        or principal.id != bridge.backoffice_principal_id
+        or principal.principal_type != PrincipalType.BACKOFFICE.value
+        or principal.is_active is not True
+        or profile is None
+        or profile.company_id != company_id
+        or profile.id != bridge.backoffice_user_id
+        or profile.principal_id != bridge.backoffice_principal_id
+        or profile.principal_type != PrincipalType.BACKOFFICE.value
+        or (owner is not None and owner.company_id != company_id)
+    ):
+        return None
+
+    context = DashboardRequestContext(
+        principal_id=principal.id,
+        company_id=company_id,
+        backoffice_user_id=profile.id,
+        auth_revision=principal.auth_revision,
+        is_company_owner=(
+            owner is not None
+            and owner.backoffice_user_id == profile.id
+        ),
+    )
+    try:
+        subject = await resolve_backoffice_authorization_subject(db, context)
+        access = BackofficeCapabilityAccess(db=db, subject=subject)
+        await access.require('stocktake.recount', location_id)
+    except (
+        BackofficeAuthorizationSubjectRejected,
+        BackofficeCapabilityAccessRejected,
+    ):
+        return None
+    return legacy_candidate
 
 
 # تحديد ما إذا كان العجز يتطلب إعادة عد مستقلة؛ الوضع الافتراضي الآمن يعتبر أي عجز مادياً حتى تضبط الشركة حدودها.
@@ -443,12 +590,11 @@ async def list_stocktake_cycle_batches(
     cursor: Optional[str] = Query(default=None, max_length=1024),
     limit: int = Query(default=50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require('stocktake.start', location_id)
+    await _require_location_capability(access, 'stocktake.start', location_id)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     location_exists = (
         await db.execute(
@@ -672,15 +818,12 @@ async def list_vehicle_recon_candidates(
         le=100,
     ),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(
-        get_current_driver
-    ),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require('location.read', source_location_id)
-    await access.require('stocktake.start', any_location=True)
+    await _require_location_capability(access, 'location.read', source_location_id)
+    await _require_any_location_capability(access, 'stocktake.start')
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     source_exists = (
         await db.execute(
@@ -1015,12 +1158,11 @@ async def list_active_stocktake_sessions(
     cursor: Optional[str] = Query(default=None, max_length=1024),
     limit: int = Query(default=50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require('stocktake.read', location_id)
+    await _require_location_capability(access, 'stocktake.read', location_id)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     location_exists = (
         await db.execute(
@@ -1187,15 +1329,12 @@ async def get_stocktake_session_context(
         ge=1,
     ),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(
-        get_current_driver
-    ),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require('location.read', anchor_location_id)
-    await require_stocktake(access, 'stocktake.read', session_id)
+    await _require_location_capability(access, 'location.read', anchor_location_id)
+    await _require_stocktake_capability(access, 'stocktake.read', session_id)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     anchor_exists = (
         await db.execute(
@@ -1376,13 +1515,13 @@ async def get_stocktake_session_context(
 async def start_unified_stocktake(
     payload: UnifiedStocktakeStartRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     """فتح الجلسة وأخذ Snapshot ثابت وإنشاء Lock مطابق للنطاق."""
-    access = InventoryAccess(db, current_admin)
-    await access.require('stocktake.start', payload.location_id)
+    await _require_location_capability(access, 'stocktake.start', payload.location_id)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     try:
         expected_location_type = 'VEHICLE' if payload.stocktake_type == 'VEHICLE_RECON' else 'WAREHOUSE'
@@ -1529,7 +1668,7 @@ async def start_unified_stocktake(
             scope_product_variant_id=payload.product_variant_id if payload.stocktake_type == 'CYCLE_COUNT' else None,
             scope_batch_id=payload.batch_id if payload.stocktake_type == 'CYCLE_COUNT' else None,
             related_work_session_id=payload.related_work_session_id if payload.stocktake_type == 'VEHICLE_RECON' else None,
-            started_by=current_admin.id,
+            started_by=legacy_actor.id,
             notes=payload.notes,
         )
         db.add(session)
@@ -1541,7 +1680,7 @@ async def start_unified_stocktake(
             location_id=payload.location_id,
             product_variant_id=payload.product_variant_id if payload.stocktake_type == 'CYCLE_COUNT' else None,
             batch_id=payload.batch_id if payload.stocktake_type == 'CYCLE_COUNT' else None,
-            created_by=current_admin.id,
+            created_by=legacy_actor.id,
         ))
         await db.flush()
 
@@ -1624,12 +1763,12 @@ async def start_unified_stocktake(
 async def get_stocktake_count_sheet(
     session_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    access = InventoryAccess(db, current_admin)
-    await require_stocktake(access, 'stocktake.count', session_id)
+    await _require_stocktake_capability(access, 'stocktake.count', session_id)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
     session = await _load_stocktake_session(db, company_id, session_id)
 
     if session.status not in {'COUNTING', 'RECOUNT_REQUIRED'}:
@@ -1637,7 +1776,7 @@ async def get_stocktake_count_sheet(
 
     if session.status == 'RECOUNT_REQUIRED' and session.pending_independent_recount_required:
         previous_attempt = await _latest_stocktake_attempt(db, company_id, session.id)
-        if previous_attempt is not None and previous_attempt.counted_by == current_admin.id:
+        if previous_attempt is not None and previous_attempt.counted_by == legacy_actor.id:
             raise HTTPException(status_code=403, detail="إعادة العد المستقلة يجب أن ينفذها مستخدم آخر.")
 
     rows = (
@@ -1713,13 +1852,13 @@ async def submit_stocktake_count(
     session_id: int,
     payload: UnifiedStocktakeCountRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     """Attempt immutable + DISCOVERED lines معروفة في ProductBatch."""
-    access = InventoryAccess(db, current_admin)
-    await require_stocktake(access, 'stocktake.count', session_id)
+    await _require_stocktake_capability(access, 'stocktake.count', session_id)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     try:
         session = await _load_stocktake_session(db, company_id, session_id, for_update=True)
@@ -1735,7 +1874,7 @@ async def submit_stocktake_count(
                 raise HTTPException(status_code=409, detail="إعادة العد لا تحمل تفويضاً موثقاً.")
             if previous_attempt is None:
                 raise HTTPException(status_code=409, detail="RECOUNT_REQUIRED بدون محاولة سابقة.")
-            if session.pending_independent_recount_required and previous_attempt.counted_by == current_admin.id:
+            if session.pending_independent_recount_required and previous_attempt.counted_by == legacy_actor.id:
                 raise HTTPException(status_code=403, detail="إعادة العد المستقلة يجب أن ينفذها مستخدم آخر.")
 
         existing_lines = (
@@ -1919,7 +2058,7 @@ async def submit_stocktake_count(
                     stock_status=stock_status,
                     line_origin='DISCOVERED',
                     expected_quantity=0,
-                    discovered_by=current_admin.id,
+                    discovered_by=legacy_actor.id,
                     discovered_at=_utc_naive_now(),
                     notes="تم اكتشافه أثناء العد الفعلي.",
                 )
@@ -1944,7 +2083,7 @@ async def submit_stocktake_count(
             stocktake_session_id=session.id,
             attempt_number=attempt_number,
             recount_of_attempt_id=previous_attempt.id if is_recount else None,
-            counted_by=current_admin.id,
+            counted_by=legacy_actor.id,
             authorized_by=session.pending_recount_authorized_by if is_recount else None,
             recount_reason=session.pending_recount_reason if is_recount else None,
         )
@@ -1983,14 +2122,14 @@ async def submit_stocktake_count(
 
         db.add(SystemAuditLog(
             company_id=company_id,
-            admin_id=current_admin.id,
+            admin_id=legacy_actor.id,
             target_id=f"Stocktake_{session.id}",
             action_type="STOCKTAKE_COUNT_SUBMITTED",
             old_value=f"previous_attempt={previous_attempt.id if previous_attempt else None}",
             new_value=json.dumps({
                 "attempt_id": attempt.id,
                 "attempt_number": attempt_number,
-                "counted_by": current_admin.id,
+                "counted_by": legacy_actor.id,
                 "recount_of_attempt_id": attempt.recount_of_attempt_id,
                 "requires_independent_recount": requires_independent,
                 "line_count": len(all_lines),
@@ -2029,14 +2168,11 @@ async def submit_stocktake_count(
 async def get_stocktake_review(
     session_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    access = InventoryAccess(db, current_admin)
-    await require_stocktake(access, 'stocktake.review', session_id)
+    await _require_stocktake_capability(access, 'stocktake.review', session_id)
 
-    company_id = current_admin.company_id
-    if not current_admin.is_admin:
-        raise HTTPException(status_code=403, detail="مراجعة الجرد تتطلب صلاحية مشرف.")
+    company_id = access.company_id
 
     session = await _load_stocktake_session(db, company_id, session_id)
     if session.status != 'PENDING_REVIEW':
@@ -2210,23 +2346,23 @@ async def approve_stocktake_session(
     session_id: int,
     payload: StocktakeApprovalRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     """Optimistic approval ثم posting حصراً عبر post_approved_stocktake_adjustments."""
-    access = InventoryAccess(db, current_admin)
-    await require_stocktake(access, 'stocktake.approve', session_id)
+    await _require_stocktake_capability(access, 'stocktake.approve', session_id)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     password_ok = await asyncio.to_thread(
         bcrypt.checkpw,
         payload.password.encode('utf-8'),
-        current_admin.password_hash.encode('utf-8'),
+        legacy_actor.password_hash.encode('utf-8'),
     )
     if not password_ok:
         db.add(SystemAuditLog(
             company_id=company_id,
-            admin_id=current_admin.id,
+            admin_id=legacy_actor.id,
             target_id=f"Stocktake_{session_id}",
             action_type="STOCKTAKE_APPROVAL_REJECTED",
             old_value="PENDING_REVIEW",
@@ -2254,7 +2390,7 @@ async def approve_stocktake_session(
 
         approved_at = _utc_naive_now()
         session.status = 'APPROVED'
-        session.approved_by = current_admin.id
+        session.approved_by = legacy_actor.id
         session.approved_at = approved_at
         session.updated_at = approved_at
         if payload.notes:
@@ -2266,12 +2402,12 @@ async def approve_stocktake_session(
             company_id=company_id,
             stocktake_session_id=session.id,
             stocktake_count_attempt_id=latest_attempt.id,
-            performed_by=current_admin.id,
+            performed_by=legacy_actor.id,
         )
 
         db.add(SystemAuditLog(
             company_id=company_id,
-            admin_id=current_admin.id,
+            admin_id=legacy_actor.id,
             target_id=f"Stocktake_{session.id}",
             action_type="STOCKTAKE_APPROVED_AND_POSTED",
             old_value=json.dumps({
@@ -2281,7 +2417,7 @@ async def approve_stocktake_session(
             }, ensure_ascii=False),
             new_value=json.dumps({
                 "status": "POSTED",
-                "approved_by": current_admin.id,
+                "approved_by": legacy_actor.id,
                 "movement_count": len(movements),
             }, ensure_ascii=False),
         ))
@@ -2319,13 +2455,13 @@ async def recount_stocktake_session(
     session_id: int,
     payload: StocktakeRecountRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     """تفويض Recount مرتبط بمحاولة العد التي شاهدها المشرف."""
-    access = InventoryAccess(db, current_admin)
-    await require_stocktake(access, 'stocktake.recount', session_id)
+    await _require_stocktake_capability(access, 'stocktake.recount', session_id)
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     try:
         session = await _load_stocktake_session(db, company_id, session_id, for_update=True)
@@ -2348,7 +2484,7 @@ async def recount_stocktake_session(
         if authorizer is None:
             db.add(SystemAuditLog(
                 company_id=company_id,
-                admin_id=current_admin.id,
+                admin_id=legacy_actor.id,
                 target_id=f"Stocktake_{session.id}",
                 action_type="STOCKTAKE_RECOUNT_AUTH_REJECTED",
                 old_value=f"attempt={latest_attempt.id}",
@@ -2371,7 +2507,7 @@ async def recount_stocktake_session(
 
         db.add(SystemAuditLog(
             company_id=company_id,
-            admin_id=current_admin.id,
+            admin_id=legacy_actor.id,
             target_id=f"Stocktake_{session.id}",
             action_type="STOCKTAKE_RECOUNT_AUTHORIZED",
             old_value=json.dumps({
@@ -2419,25 +2555,23 @@ async def cancel_stocktake_session(
     session_id: int,
     payload: StocktakeCancelRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     """إلغاء موثق مع تحرير كامل Metadata للقفل."""
-    access = InventoryAccess(db, current_admin)
-    await require_stocktake(access, 'stocktake.cancel', session_id)
+    await _require_stocktake_capability(access, 'stocktake.cancel', session_id)
 
-    company_id = current_admin.company_id
-    if not current_admin.is_admin:
-        raise HTTPException(status_code=403, detail="إلغاء الجرد يتطلب صلاحية مشرف.")
+    company_id = access.company_id
 
     password_ok = await asyncio.to_thread(
         bcrypt.checkpw,
         payload.password.encode('utf-8'),
-        current_admin.password_hash.encode('utf-8'),
+        legacy_actor.password_hash.encode('utf-8'),
     )
     if not password_ok:
         db.add(SystemAuditLog(
             company_id=company_id,
-            admin_id=current_admin.id,
+            admin_id=legacy_actor.id,
             target_id=f"Stocktake_{session_id}",
             action_type="STOCKTAKE_CANCEL_REJECTED",
             old_value="ACTIVE_STOCKTAKE",
@@ -2462,7 +2596,7 @@ async def cancel_stocktake_session(
                 InventoryLock.stocktake_session_id == session.id,
                 InventoryLock.released_at.is_(None),
             ).values(
-                released_by=current_admin.id,
+                released_by=legacy_actor.id,
                 released_at=now,
                 release_reason="STOCKTAKE_CANCELLED",
             )
@@ -2470,7 +2604,7 @@ async def cancel_stocktake_session(
         released_lock_count = int(release_result.rowcount or 0)
 
         session.status = 'CANCELLED'
-        session.cancelled_by = current_admin.id
+        session.cancelled_by = legacy_actor.id
         session.cancelled_at = now
         session.cancellation_reason = payload.reason
         session.pending_recount_authorized_by = None
@@ -2480,7 +2614,7 @@ async def cancel_stocktake_session(
 
         db.add(SystemAuditLog(
             company_id=company_id,
-            admin_id=current_admin.id,
+            admin_id=legacy_actor.id,
             target_id=f"Stocktake_{session.id}",
             action_type="STOCKTAKE_CANCELLED",
             old_value=previous_status,
@@ -2509,4 +2643,3 @@ async def cancel_stocktake_session(
         await db.rollback()
         logger.error(f"خطأ في إلغاء الجرد: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="خطأ داخلي أثناء إلغاء الجرد.")
-
