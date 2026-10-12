@@ -10,9 +10,17 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
+from api.authentication.backoffice_compatibility import (
+    get_current_backoffice_legacy_driver,
+)
 from database import get_db
-from inventory_access import InventoryAccess
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
 from models import (
     Branch,
     DispatchRoute,
@@ -55,6 +63,39 @@ from ._shared import _escape_like, _stable_request_hash
 
 logger = logging.getLogger("wanasah_logger")
 router = APIRouter()
+
+
+# ====================================================
+# 0.0 تطبيق صلاحيات Backoffice مع الحفاظ على عقد HTTP الحالي
+# ====================================================
+async def _require_location_capability(
+    access: BackofficeCapabilityAccess,
+    capability_code: str,
+    *,
+    location_id: Optional[int] = None,
+    any_location: bool = False,
+) -> None:
+    if location_id is not None:
+        exists = await access.db.scalar(
+            select(InventoryLocation.id).where(
+                InventoryLocation.company_id == access.company_id,
+                InventoryLocation.id == location_id,
+            )
+        )
+        if exists is None:
+            raise HTTPException(404, "الموقع غير موجود أو غير متاح.")
+
+    try:
+        await access.require(
+            capability_code,
+            location_id=location_id,
+            any_location=any_location,
+        )
+    except BackofficeCapabilityAccessRejected as exc:
+        raise HTTPException(
+            403,
+            "لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.",
+        ) from exc
 
 
 # ====================================================
@@ -229,11 +270,16 @@ async def _load_locked_warehouse_location(
 )
 async def get_warehouse_setup_status(
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require('location.read', any_location=True)
-    company_id = current_admin.company_id
+    await _require_location_capability(
+        access,
+        'location.read',
+        any_location=True,
+    )
+    company_id = access.company_id
 
     active_scope = (
         InventoryLocation.company_id == company_id,
@@ -277,12 +323,17 @@ async def manage_warehouse_locations(
     cursor: Optional[str] = Query(default=None, max_length=512),
     limit: int = Query(default=50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require('location.read', any_location=True)
+    await _require_location_capability(
+        access,
+        'location.read',
+        any_location=True,
+    )
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
     clean_search = (search or "").strip().lower()
 
     scope = (
@@ -381,19 +432,21 @@ async def manage_warehouse_locations(
 async def create_warehouse_location(
     payload: WarehouseLocationCreateRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require('location.create')
+    await _require_location_capability(access, 'location.create')
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     try:
         request_hash = _stable_request_hash(payload)
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             operation="WAREHOUSE_LOCATION_CREATE",
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -464,7 +517,7 @@ async def create_warehouse_location(
 
         db.add(SystemAuditLog(
             company_id=company_id,
-            admin_id=current_admin.id,
+            admin_id=legacy_actor.id,
             target_id=f"InventoryLocation_{location.id}",
             action_type="WAREHOUSE_LOCATION_CREATED",
             old_value=None,
@@ -520,19 +573,25 @@ async def update_warehouse_location(
     location_id: int,
     payload: WarehouseLocationUpdateRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require('location.update', location_id)
+    await _require_location_capability(
+        access,
+        'location.update',
+        location_id=location_id,
+    )
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     try:
         request_hash = _stable_request_hash(payload, context={"location_id": int(location_id)})
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             operation="WAREHOUSE_LOCATION_UPDATE",
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -627,7 +686,7 @@ async def update_warehouse_location(
 
         db.add(SystemAuditLog(
             company_id=company_id,
-            admin_id=current_admin.id,
+            admin_id=legacy_actor.id,
             target_id=f"InventoryLocation_{location.id}",
             action_type="WAREHOUSE_LOCATION_UPDATED",
             old_value=json.dumps(old_payload, sort_keys=True, ensure_ascii=False),
@@ -669,19 +728,25 @@ async def activate_warehouse_location(
     location_id: int,
     payload: WarehouseLocationStateRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require('location.state', location_id)
+    await _require_location_capability(
+        access,
+        'location.state',
+        location_id=location_id,
+    )
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
 
     try:
         request_hash = _stable_request_hash(payload, context={"location_id": int(location_id)})
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             operation="WAREHOUSE_LOCATION_ACTIVATE",
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -728,7 +793,7 @@ async def activate_warehouse_location(
             location.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
             db.add(SystemAuditLog(
                 company_id=company_id,
-                admin_id=current_admin.id,
+                admin_id=legacy_actor.id,
                 target_id=f"InventoryLocation_{location.id}",
                 action_type="WAREHOUSE_LOCATION_ACTIVATED",
                 old_value="inactive",
@@ -790,12 +855,18 @@ async def deactivate_warehouse_location(
     location_id: int,
     payload: WarehouseLocationStateRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    access = InventoryAccess(db, current_admin)
-    await access.require('location.state', location_id)
+    await _require_location_capability(
+        access,
+        'location.state',
+        location_id=location_id,
+    )
 
-    company_id = current_admin.company_id
+    company_id = access.company_id
     reason = (payload.reason or "").strip()
     if not reason:
         raise HTTPException(status_code=422, detail="سبب تعطيل المستودع مطلوب للتدقيق.")
@@ -805,7 +876,7 @@ async def deactivate_warehouse_location(
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
-            actor_id=current_admin.id,
+            actor_id=legacy_actor.id,
             operation="WAREHOUSE_LOCATION_DEACTIVATE",
             request_id=str(payload.request_id),
             request_hash=request_hash,
@@ -1005,7 +1076,7 @@ async def deactivate_warehouse_location(
             location.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
             db.add(SystemAuditLog(
                 company_id=company_id,
-                admin_id=current_admin.id,
+                admin_id=legacy_actor.id,
                 target_id=f"InventoryLocation_{location.id}",
                 action_type="WAREHOUSE_LOCATION_DEACTIVATED",
                 old_value="active",
@@ -1053,5 +1124,3 @@ async def deactivate_warehouse_location(
         await db.rollback()
         logger.error(f"خطأ في تعطيل المستودع: {str(exc)}", exc_info=True)
         raise HTTPException(status_code=500, detail="خطأ داخلي أثناء تعطيل المستودع.")
-
-
