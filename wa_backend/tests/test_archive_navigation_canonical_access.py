@@ -36,6 +36,16 @@ def _access(*, owner: bool = False) -> BackofficeCapabilityAccess:
     )
 
 
+def _param_values(compiled):
+    values = []
+    for value in compiled.params.values():
+        if isinstance(value, (list, tuple, set, frozenset)):
+            values.extend(value)
+        else:
+            values.append(value)
+    return values
+
+
 def test_shared_archive_adapters_accept_canonical_access_without_rewrapping():
     access = _access()
     assert inventory_archive_access(None, access) is access
@@ -63,8 +73,9 @@ def test_canonical_shortage_projection_uses_explicit_shortage_read_capability():
         {"OPEN_SHORTAGE": 90},
     )
     assert query is not None
-    sql = str(query.compile(dialect=postgresql.dialect()))
-    params = set(query.compile(dialect=postgresql.dialect()).params.values())
+    compiled = query.compile(dialect=postgresql.dialect())
+    sql = str(compiled)
+    params = _param_values(compiled)
     assert "shortage_requests" in sql
     assert "permissions" in sql
     assert "shortage.read" in params
@@ -81,7 +92,7 @@ def test_canonical_custody_projection_uses_explicit_settlement_read_capability()
     assert query is not None
     compiled = query.compile(dialect=postgresql.dialect())
     sql = str(compiled)
-    params = set(compiled.params.values())
+    params = _param_values(compiled)
     assert "session_inventory_snapshots" in sql
     assert "permissions" in sql
     assert "settlement.read" in params
@@ -99,4 +110,4 @@ def test_canonical_owner_needs_no_legacy_grant_driver_for_archive_projection():
     assert inventory is not None
     for query in (shortage, custody, inventory):
         compiled = query.compile(dialect=postgresql.dialect())
-        assert 77 in set(compiled.params.values())
+        assert 77 in _param_values(compiled)
