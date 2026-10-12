@@ -23,8 +23,18 @@ jobs:
         run: pip install -r requirements.txt
       - name: Compile touched runtime and test
         run: python -m py_compile api/warehouse/locations.py tests/test_warehouse_locations_canonical_auth_cutover.py
-      - name: Worker focused test
-        run: pytest -q tests/test_warehouse_locations_canonical_auth_cutover.py
+      - name: Worker assertion 1 legacy authority
+        run: pytest -q tests/test_warehouse_locations_canonical_auth_cutover.py::test_runtime_has_no_legacy_request_authority
+      - name: Worker assertion 2 exact capabilities
+        run: pytest -q tests/test_warehouse_locations_canonical_auth_cutover.py::test_runtime_uses_only_exact_warehouse_location_capabilities
+      - name: Worker assertion 3 read routes
+        run: pytest -q tests/test_warehouse_locations_canonical_auth_cutover.py::test_read_routes_use_canonical_access_without_loading_legacy_driver
+      - name: Worker assertion 4 write provenance
+        run: pytest -q tests/test_warehouse_locations_canonical_auth_cutover.py::test_write_routes_use_legacy_driver_only_for_existing_driver_id_provenance
+      - name: Worker assertion 5 pre-pagination filter
+        run: pytest -q tests/test_warehouse_locations_canonical_auth_cutover.py::test_location_filter_stays_before_cursor_pagination_and_allows_stays_sql
+      - name: Worker assertion 6 HTTP adapter
+        run: pytest -q tests/test_warehouse_locations_canonical_auth_cutover.py::test_canonical_require_adapter_preserves_location_http_contract
       - name: Canonical capability core
         run: pytest -q tests/test_canonical_backoffice_capability_access.py
       - name: Canonical dependency core
