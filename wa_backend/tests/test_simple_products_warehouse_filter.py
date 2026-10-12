@@ -1,5 +1,4 @@
 import os
-from types import SimpleNamespace
 
 os.environ.setdefault("SECRET_KEY", "WarehouseFilterTestSecretKeyAa1234567890")
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
@@ -37,22 +36,20 @@ class _Db:
 
 
 class _Access:
-    def __init__(self, _db, _actor):
-        pass
+    company_id = 2
 
-    def location_filter(self, _permission, _column=None):
+    def location_filter(self, permission, _column=None):
+        assert permission == "inventory.read"
         return true()
 
 
 @pytest.mark.asyncio
-async def test_multi_warehouse_filter_is_permission_scoped_set_intersection(monkeypatch):
-    monkeypatch.setattr(inventory_presence, "InventoryAccess", _Access)
+async def test_multi_warehouse_filter_is_permission_scoped_set_intersection():
     db = _Db([3, 7])
 
     statement = await inventory_presence.variant_ids_present_in_all_warehouses(
         db,
-        actor=SimpleNamespace(company_id=2, id=9, is_admin=False),
-        company_id=2,
+        access=_Access(),
         warehouse_ids=(3, 7),
     )
 
@@ -77,14 +74,12 @@ async def test_multi_warehouse_filter_is_permission_scoped_set_intersection(monk
 
 
 @pytest.mark.asyncio
-async def test_multi_warehouse_filter_refuses_any_unreadable_selected_location(monkeypatch):
-    monkeypatch.setattr(inventory_presence, "InventoryAccess", _Access)
+async def test_multi_warehouse_filter_refuses_any_unreadable_selected_location():
     db = _Db([3])
     with pytest.raises(inventory_presence.InventoryCatalogPresenceForbidden) as exc:
         await inventory_presence.variant_ids_present_in_all_warehouses(
             db,
-            actor=SimpleNamespace(company_id=2, id=9, is_admin=False),
-            company_id=2,
+            access=_Access(),
             warehouse_ids=(3, 7),
         )
     assert isinstance(exc.value, inventory_presence.InventoryCatalogPresenceForbidden)
