@@ -87,7 +87,7 @@ const DashboardLayout = () => {
   }
 
   if (
-    !access.isCompanyAdmin &&
+    !access.isCompanyOwner &&
     location.pathname === "/"
   ) {
     return (
@@ -98,7 +98,7 @@ const DashboardLayout = () => {
     );
   }
   if (
-    !access.isCompanyAdmin &&
+    !access.isCompanyOwner &&
     location.pathname ===
       "/dispatch" &&
     !access.canAny("dispatch.read")
@@ -111,7 +111,7 @@ const DashboardLayout = () => {
     );
   }
   if (
-    !access.isCompanyAdmin &&
+    !access.isCompanyOwner &&
     location.pathname ===
       "/products" &&
     !access.canAny("catalog.read")
@@ -124,7 +124,7 @@ const DashboardLayout = () => {
     );
   }
   if (
-    !access.isCompanyAdmin &&
+    !access.isCompanyOwner &&
     location.pathname ===
       "/pricing" &&
     !access.canAny("pricing.view")
@@ -137,7 +137,7 @@ const DashboardLayout = () => {
     );
   }
   if (
-    !access.isCompanyAdmin &&
+    !access.isCompanyOwner &&
     location.pathname ===
       "/commercial-rules" &&
     !(
@@ -153,7 +153,7 @@ const DashboardLayout = () => {
     );
   }
   if (
-    !access.isCompanyAdmin &&
+    !access.isCompanyOwner &&
     location.pathname ===
       "/sales-returns"
   ) {

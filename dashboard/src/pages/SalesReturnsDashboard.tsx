@@ -276,13 +276,13 @@ export default function SalesReturnsDashboard() {
         beforeRevisionId: sourceCursor,
         limit: 50,
       }),
-    enabled: access.isCompanyAdmin,
+    enabled: access.isCompanyOwner,
   });
 
   const returnsQuery = useQuery({
     queryKey: ["sales-returns"],
     queryFn: () => fetchSalesReturns(authFetch),
-    enabled: access.isCompanyAdmin,
+    enabled: access.isCompanyOwner,
   });
 
   const sourceMutation = useMutation({
@@ -341,7 +341,7 @@ export default function SalesReturnsDashboard() {
 
   const selectedCount = selectedComponents.length;
 
-  if (!access.isCompanyAdmin) {
+  if (!access.isCompanyOwner) {
     return (
       <div className="flex h-full items-center justify-center" dir="rtl">
         <div className="rounded-3xl border border-white/60 bg-white/80 p-8 text-center shadow-sm backdrop-blur-xl">

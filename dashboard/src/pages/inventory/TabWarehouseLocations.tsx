@@ -447,13 +447,13 @@ export function TabWarehouseLocations({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {access.isCompanyAdmin && selectedLocationId !== null && (
+          {access.isCompanyOwner && selectedLocationId !== null && (
             <StockMinimumManager
               locationId={selectedLocationId}
               onApplied={onMinimumApplied}
             />
           )}
-          {access.isCompanyAdmin && (
+          {access.isCompanyOwner && (
             <button
               type="button"
               onClick={() => setBranchManagerOpen(true)}
@@ -647,7 +647,7 @@ export function TabWarehouseLocations({
         </div>
       </Modal>
 
-      {access.isCompanyAdmin && (
+      {access.isCompanyOwner && (
         <BranchManagementModal
           isOpen={branchManagerOpen}
           onClose={() => setBranchManagerOpen(false)}

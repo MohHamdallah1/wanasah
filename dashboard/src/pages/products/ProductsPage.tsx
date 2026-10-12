@@ -82,8 +82,8 @@ export default function ProductsPage() {
     canEditSimplePrice,
     canManageLifecycle,
   } = deriveProductsCapabilities({
-    isCompanyAdmin:
-      access.isCompanyAdmin,
+    isCompanyOwner:
+      access.isCompanyOwner,
     can: access.can,
     canAny: access.canAny,
   });
@@ -99,7 +99,7 @@ export default function ProductsPage() {
     useProductDisplayPreferencesState();
 
   const canFilterByWarehouse =
-    access.isCompanyAdmin ||
+    access.isCompanyOwner ||
     (access.canAny("location.read") && access.canAny("inventory.read"));
 
   const listWorkflow =

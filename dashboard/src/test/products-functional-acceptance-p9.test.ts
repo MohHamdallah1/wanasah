@@ -43,7 +43,7 @@ const capabilities = (
   const set =
     new Set(permissions);
   return deriveProductsCapabilities({
-    isCompanyAdmin: admin,
+    isCompanyOwner: admin,
     can: (code) =>
       set.has(code),
     canAny: (code) =>

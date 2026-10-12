@@ -1,28 +1,28 @@
 type Params = {
-  isCompanyAdmin: boolean;
+  isCompanyOwner: boolean;
   can: (code: string) => boolean;
   canAny: (code: string) => boolean;
 };
 
 export function deriveProductsCapabilities({
-  isCompanyAdmin,
+  isCompanyOwner,
   can,
   canAny,
 }: Params) {
   const canManageCatalog =
-    isCompanyAdmin ||
+    isCompanyOwner ||
     canAny("catalog.manage");
   const canViewPricing =
-    isCompanyAdmin ||
+    isCompanyOwner ||
     canAny("pricing.view");
   const canPublishCatalog =
-    isCompanyAdmin ||
+    isCompanyOwner ||
     canAny("catalog.publish");
   const canManagePricing =
-    isCompanyAdmin ||
+    isCompanyOwner ||
     canAny("pricing.manage");
   const canCreateSimpleProduct =
-    isCompanyAdmin ||
+    isCompanyOwner ||
     (
       canManageCatalog &&
       canPublishCatalog &&
@@ -42,7 +42,7 @@ export function deriveProductsCapabilities({
     canEditSimplePrice:
       canManagePricing,
     canManageLifecycle:
-      isCompanyAdmin ||
+      isCompanyOwner ||
       can("catalog.retire") ||
       can("catalog.restore") ||
       can("catalog.archive") ||

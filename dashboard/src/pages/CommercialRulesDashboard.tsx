@@ -12,8 +12,8 @@ import "@/components/operations/commercial-rules.css";
 
 export default function CommercialRulesDashboard() {
   const access = useInventoryAccess();
-  const canOffers = access.isCompanyAdmin || access.canAny("offers.view");
-  const canTax = access.isCompanyAdmin || access.canAny("tax.view");
+  const canOffers = access.isCompanyOwner || access.canAny("offers.view");
+  const canTax = access.isCompanyOwner || access.canAny("tax.view");
 
   if (!canOffers && !canTax) {
     return (

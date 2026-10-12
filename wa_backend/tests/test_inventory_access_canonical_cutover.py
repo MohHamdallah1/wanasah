@@ -272,7 +272,10 @@ class InventoryAccessCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(role.is_system_role)
         self.assertEqual((role.company_id, audit.company_id, audit.admin_id), (7, 7, 44))
         lock = db.execute.await_args_list[0].args[0]
-        self.assertEqual(lock.compile().params["pg_advisory_xact_lock_1"], 7)
+        lock_values = lock.compile().params.values()
+        self.assertIn(7, lock_values)
+        self.assertIn("inventory-rbac", lock_values)
+        self.assertIn("pg_advisory_xact_lock", sql(lock))
         self.assertIn("inventory-rbac", sql(lock))
         self.assertIn("ON CONFLICT", sql(db.execute.await_args_list[1].args[0]))
         db.commit.assert_awaited_once_with()

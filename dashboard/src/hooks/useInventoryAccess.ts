@@ -147,7 +147,7 @@ export function useInventoryAccess(locationId: number | null = null) {
   )), [data, locationId]);
   const canAny = useCallback((code: string) => Boolean(data?.any_permissions.includes(code)), [data]);
   // The existing consumer property now reflects only persisted canonical Owner state.
-  return { ...query, data, can, canAny, isCompanyAdmin: data?.is_company_owner === true };
+  return { ...query, data, can, canAny, isCompanyOwner: data?.is_company_owner === true };
 }
 
 

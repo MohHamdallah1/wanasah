@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { transpileModule, ScriptTarget } from 'typescript';
 
 vi.mock('@/hooks/useAuthFetch', () => ({ useAuthFetch: vi.fn() }));
@@ -12,7 +13,8 @@ const user = {
 
 // Exercise the exact private parser without adding non-component exports to a
 // Fast Refresh component module or importing unrelated page behavior.
-const source = readFileSync(new URL('../pages/inventory/TabInventoryAccess.tsx', import.meta.url), 'utf8');
+const source = readFileSync(resolve(process.cwd(), 'src/pages/inventory/TabInventoryAccess.tsx'), 'utf8');
+const hookSource = readFileSync(resolve(process.cwd(), 'src/hooks/useInventoryAccess.ts'), 'utf8');
 const pureSource = source.slice(0, source.indexOf('const LABELS:')).replace(/^import .*;\r?$/gm, '');
 const javascript = transpileModule(pureSource, { compilerOptions: { target: ScriptTarget.ES2022 } }).outputText;
 const parseUserPage = new Function(javascript + '\nreturn parseUserPage;')() as (
@@ -20,6 +22,15 @@ const parseUserPage = new Function(javascript + '\nreturn parseUserPage;')() as 
 ) => { items: Array<typeof user>; next_id: number | null };
 
 describe('canonical inventory access identity', () => {
+  it('exposes only canonical Owner terminology in the runtime contract', () => {
+    for (const runtime of [source, hookSource]) {
+      for (const alias of ['isCompanyAdmin', 'is_company_admin', 'is_admin']) {
+        expect(runtime).not.toContain(alias);
+      }
+    }
+    expect(hookSource).toContain('isCompanyOwner: data?.is_company_owner === true');
+  });
+
   it('addresses an independent Backoffice profile without a legacy user ID', () => {
     const page = parseUserPage({ items: [user], next_id: 202 });
     expect(page.items).toEqual([user]);

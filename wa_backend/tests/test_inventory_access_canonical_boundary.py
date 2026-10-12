@@ -135,7 +135,14 @@ class InventoryAccessCanonicalBoundaryTests(unittest.IsolatedAsyncioTestCase):
         for forbidden in ("is_admin", "Admin كامل الصلاحيات", "driver_id"):
             self.assertNotIn(forbidden, page)
         self.assertNotIn("driver_id", hook)
-        self.assertNotIn("is_company_admin", hook)
+        for forbidden in ("isCompanyAdmin", "is_company_admin", "is_admin"):
+            self.assertNotIn(forbidden, page)
+            self.assertNotIn(forbidden, hook)
+        self.assertIn("isCompanyOwner: data?.is_company_owner === true", hook)
+        dashboard = ROOT / "dashboard/src"
+        for runtime in dashboard.rglob("*"):
+            if runtime.suffix in {".ts", ".tsx"} and "test" not in runtime.relative_to(dashboard).parts:
+                self.assertNotIn("isCompanyAdmin", runtime.read_text(encoding="utf-8"), str(runtime))
         self.assertIn("key={user.backoffice_user_id} value={user.backoffice_user_id}", page)
         self.assertIn("/inventory/access/users/${backofficeUserId}/grants", page)
         self.assertIn("t('inventoryAccessAdmin.companyOwner')", page)

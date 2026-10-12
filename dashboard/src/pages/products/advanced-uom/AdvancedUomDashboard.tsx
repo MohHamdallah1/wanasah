@@ -205,10 +205,10 @@ export default function AdvancedUomDashboard() {
   const driverId =
     access.data?.driver_id ?? null;
   const canRead =
-    access.isCompanyAdmin ||
+    access.isCompanyOwner ||
     access.canAny("catalog.read");
   const canManage =
-    access.isCompanyAdmin ||
+    access.isCompanyOwner ||
     access.canAny("catalog.manage");
 
   const selectedVariantId =

@@ -301,7 +301,7 @@ export function OperationsSidebar({
                   {adminName}
                 </span>
                 <span className="max-w-full truncate text-[10px] font-bold text-muted-foreground">
-                  {access.isCompanyAdmin
+                  {access.isCompanyOwner
                     ? t(
                         "nav.systemAdmin"
                       )
@@ -398,7 +398,7 @@ export function OperationsSidebar({
           {navItems
             .filter(
               (item) =>
-                access.isCompanyAdmin ||
+                access.isCompanyOwner ||
                 (item.path === "/suppliers" && access.can("supplier.read")) ||
                 item.path ===
                   "/inventory" ||
