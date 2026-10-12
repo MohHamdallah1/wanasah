@@ -8,7 +8,6 @@ from sqlalchemy import Integer, String, and_, case, cast, literal, or_, select, 
 from sqlalchemy.orm import aliased
 
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
-from inventory_access import InventoryAccess
 from product_lifecycle import product_location_delete_blockers
 from models import (
     DispatchRoute, InventoryBalance, InventoryLocation, InventoryLock,
@@ -16,11 +15,10 @@ from models import (
 )
 
 
-def _archive_access(db, access_or_actor):
-    """Prefer canonical Backoffice access; retain the old Catalog caller temporarily."""
-    if isinstance(access_or_actor, (BackofficeCapabilityAccess, InventoryAccess)):
-        return access_or_actor
-    return InventoryAccess(db, access_or_actor)
+def _archive_access(
+    access: BackofficeCapabilityAccess,
+) -> BackofficeCapabilityAccess:
+    return access
 
 
 def inventory_archive_target_query(access, variant_id, samples):
@@ -138,8 +136,8 @@ def inventory_archive_target_query(access, variant_id, samples):
     return union_all(*statements) if statements else None
 
 
-async def inventory_archive_targets(db, access_or_actor, variant_id, blockers):
-    access = _archive_access(db, access_or_actor)
+async def inventory_archive_targets(db, access: BackofficeCapabilityAccess, variant_id, blockers):
+    access = _archive_access(access)
     samples = {row["code"]: row["sample_id"] for row in blockers}
     query = inventory_archive_target_query(access, variant_id, samples)
     if query is None:

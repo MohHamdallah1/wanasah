@@ -6,24 +6,19 @@ identity only; Operations' debrief/report remains the readiness authority.
 from sqlalchemy import and_, select
 
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
-from inventory_access import InventoryAccess
 from models import SessionInventorySnapshot, WorkSession
 
 
-def _archive_access(db, access_or_actor):
-    """Prefer canonical Backoffice access; retain the old Catalog caller temporarily."""
-    if isinstance(access_or_actor, (BackofficeCapabilityAccess, InventoryAccess)):
-        return access_or_actor
-    return InventoryAccess(db, access_or_actor)
+def _archive_access(
+    access: BackofficeCapabilityAccess,
+) -> BackofficeCapabilityAccess:
+    return access
 
 
-def operations_archive_target_query(access_or_actor, variant_id, samples):
+def operations_archive_target_query(
+    access: BackofficeCapabilityAccess, variant_id, samples,
+):
     if not samples.get("OPEN_CUSTODY"):
-        return None
-    access = _archive_access(None, access_or_actor)
-    # Preserve the old Catalog caller's full-authority-only projection until it
-    # passes canonical Backoffice access. Canonical callers use settlement.read.
-    if isinstance(access, InventoryAccess) and not access.subject.legacy_full_authority:
         return None
     snapshot, session = SessionInventorySnapshot, WorkSession
     return select(session.id.label("operation_id")).select_from(snapshot).join(
@@ -37,8 +32,8 @@ def operations_archive_target_query(access_or_actor, variant_id, samples):
     )
 
 
-async def operations_archive_targets(db, access_or_actor, variant_id, blockers):
-    access = _archive_access(db, access_or_actor)
+async def operations_archive_targets(db, access: BackofficeCapabilityAccess, variant_id, blockers):
+    access = _archive_access(access)
     query = operations_archive_target_query(
         access,
         variant_id,

@@ -25,8 +25,17 @@ from fastapi import (
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
+from api.authentication.backoffice_compatibility import (
+    get_current_backoffice_legacy_driver,
+)
 from database import get_db
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
 from domains.product_tracking import ProductTrackingError
 from domains.simple_products.imports.api.schemas import (
     ImportActionResponse,
@@ -441,22 +450,23 @@ async def _parse_correction_upload(
 
 
 async def _require(
-    db: AsyncSession,
-    actor: Driver,
+    access: BackofficeCapabilityAccess,
     permission: str,
 ) -> None:
-    await InventoryAccess(
-        db,
-        actor,
-    ).require(
-        permission,
-        any_location=True,
-    )
+    try:
+        await access.require(
+            permission,
+            any_location=True,
+        )
+    except BackofficeCapabilityAccessRejected:
+        raise HTTPException(
+            403,
+            'لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.',
+        ) from None
 
 
 async def _require_manage(
-    db: AsyncSession,
-    actor: Driver,
+    access: BackofficeCapabilityAccess,
 ) -> None:
     for permission in (
         "catalog.manage",
@@ -464,8 +474,7 @@ async def _require_manage(
         "pricing.manage",
     ):
         await _require(
-            db,
-            actor,
+            access,
             permission,
         )
 
@@ -485,9 +494,11 @@ async def get_product_import_template(
         ),
     ),
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
-    await _require_manage(db, actor)
+    await _require_manage(access)
 
     payload = build_product_import_template(
         locale=locale,
@@ -512,12 +523,11 @@ async def get_product_import_template(
 async def get_product_import_worker_readiness(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
-    await _require_manage(
-        db,
-        actor,
-    )
+    await _require_manage(access)
     try:
         metrics = (
             await read_product_import_runtime_metrics()
@@ -667,12 +677,14 @@ async def create_product_import(
     default_expiry_control_mode: str | None = Form(None),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(
+        get_current_backoffice_legacy_driver
+    ),
 ):
-    await _require_manage(
-        db,
-        actor,
-    )
+    await _require_manage(access)
     (
         file_name,
         content_type,
@@ -686,10 +698,10 @@ async def create_product_import(
         result = await create_import(
             db,
             company_id=int(
-                actor.company_id
+                access.company_id
             ),
             actor_id=int(
-                actor.id
+                legacy_actor.id
             ),
             request_id=request_id,
             file_name=file_name,
@@ -807,18 +819,19 @@ async def get_product_import(
     job_id: UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
     await _require(
-        db,
-        actor,
+        access,
         "catalog.read",
     )
     try:
         result = await read_import_status(
             db,
             company_id=int(
-                actor.company_id
+                access.company_id
             ),
             job_id=job_id,
         )
@@ -844,18 +857,19 @@ async def get_product_import_errors(
     after_row: int = Query(0, ge=0),
     limit: int = Query(1000, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
     await _require(
-        db,
-        actor,
+        access,
         "catalog.read",
     )
     try:
         result = await read_import_errors(
             db,
             company_id=int(
-                actor.company_id
+                access.company_id
             ),
             job_id=job_id,
             after_row=after_row,
@@ -888,16 +902,15 @@ async def get_product_import_lineage(
         le=200,
     ),
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
-    await _require_manage(
-        db,
-        actor,
-    )
+    await _require_manage(access)
 
     lineage = await get_import_lineage(
         company_id=int(
-            actor.company_id
+            access.company_id
         ),
         job_id=job_id,
         after_row_number=
@@ -938,17 +951,16 @@ async def get_product_import_correction(
         pattern="^[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*$",
     ),
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
-    await _require_manage(
-        db,
-        actor,
-    )
+    await _require_manage(access)
     try:
         artifact = await download_correction(
             db,
             company_id=int(
-                actor.company_id
+                access.company_id
             ),
             job_id=job_id,
             file_format=file_format,
@@ -1005,17 +1017,19 @@ async def upload_product_import_correction(
     request_id: UUID = Form(...),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(
+        get_current_backoffice_legacy_driver
+    ),
 ):
-    await _require_manage(
-        db,
-        actor,
-    )
+    await _require_manage(access)
     try:
         await ensure_import_job_access(
             db,
             company_id=int(
-                actor.company_id
+                access.company_id
             ),
             job_id=job_id,
         )
@@ -1039,10 +1053,10 @@ async def upload_product_import_correction(
         result = await apply_correction(
             db,
             company_id=int(
-                actor.company_id
+                access.company_id
             ),
             actor_id=int(
-                actor.id
+                legacy_actor.id
             ),
             job_id=job_id,
             request_id=request_id,
@@ -1129,17 +1143,16 @@ async def set_product_import_mapping(
     payload: ImportMappingRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
-    await _require_manage(
-        db,
-        actor,
-    )
+    await _require_manage(access)
     try:
         result = await set_import_mapping(
             db,
             company_id=int(
-                actor.company_id
+                access.company_id
             ),
             job_id=job_id,
             mapping=payload.mapping,
@@ -1211,17 +1224,16 @@ async def cancel_product_import(
     job_id: UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
-    await _require_manage(
-        db,
-        actor,
-    )
+    await _require_manage(access)
     try:
         result = await cancel_import(
             db,
             company_id=int(
-                actor.company_id
+                access.company_id
             ),
             job_id=job_id,
         )
@@ -1246,17 +1258,16 @@ async def retry_product_import(
     job_id: UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
-    await _require_manage(
-        db,
-        actor,
-    )
+    await _require_manage(access)
     try:
         result = await retry_import(
             db,
             company_id=int(
-                actor.company_id
+                access.company_id
             ),
             job_id=job_id,
         )
@@ -1379,12 +1390,14 @@ async def get_product_import_correction_rows(
     limit: int = Query(50, ge=1, le=MAX_INLINE_CORRECTION_ROWS),
     expected_job_version: int | None = Query(None, ge=1),
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
 ):
-    await _require_manage(db, actor)
+    await _require_manage(access)
     try:
         result = await read_correction_rows(
-            db, company_id=int(actor.company_id), job_id=job_id,
+            db, company_id=int(access.company_id), job_id=job_id,
             after_row=after_row, limit=limit, expected_job_version=expected_job_version,
         )
     except ProductImportTerminalError as exc:
@@ -1410,17 +1423,22 @@ async def patch_product_import_correction_rows(
     job_id: UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(
+        get_current_backoffice_legacy_driver
+    ),
 ):
-    await _require_manage(db, actor)
+    await _require_manage(access)
     try:
-        await ensure_import_job_access(db, company_id=int(actor.company_id), job_id=job_id)
+        await ensure_import_job_access(db, company_id=int(access.company_id), job_id=job_id)
     except ProductImportTerminalError as exc:
         _raise_terminal_http(request, exc, job_id=job_id)
     body = await _parse_inline_correction_request(request)
     try:
         result = await apply_inline_correction(
-            db, company_id=int(actor.company_id), actor_id=int(actor.id), job_id=job_id,
+            db, company_id=int(access.company_id), actor_id=int(legacy_actor.id), job_id=job_id,
             request_id=body.request_id, expected_job_version=body.expected_job_version,
             rows=[row.model_dump(mode="json") for row in body.rows],
         )
