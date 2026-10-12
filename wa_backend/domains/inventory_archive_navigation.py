@@ -7,12 +7,20 @@ No lifecycle decision, lock, write, or inferred cleanup operation belongs here.
 from sqlalchemy import Integer, String, and_, case, cast, literal, or_, select, union_all
 from sqlalchemy.orm import aliased
 
+from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from inventory_access import InventoryAccess
 from product_lifecycle import product_location_delete_blockers
 from models import (
     DispatchRoute, InventoryBalance, InventoryLocation, InventoryLock,
     InventoryTransferHeader, InventoryTransferLine, ProductLocation, StocktakeLine, StocktakeSession,
 )
+
+
+def _archive_access(db, access_or_actor):
+    """Prefer canonical Backoffice access; retain the old Catalog caller temporarily."""
+    if isinstance(access_or_actor, (BackofficeCapabilityAccess, InventoryAccess)):
+        return access_or_actor
+    return InventoryAccess(db, access_or_actor)
 
 
 def inventory_archive_target_query(access, variant_id, samples):
@@ -130,15 +138,16 @@ def inventory_archive_target_query(access, variant_id, samples):
     return union_all(*statements) if statements else None
 
 
-async def inventory_archive_targets(db, actor, variant_id, blockers):
+async def inventory_archive_targets(db, access_or_actor, variant_id, blockers):
+    access = _archive_access(db, access_or_actor)
     samples = {row["code"]: row["sample_id"] for row in blockers}
-    query = inventory_archive_target_query(InventoryAccess(db, actor), variant_id, samples)
+    query = inventory_archive_target_query(access, variant_id, samples)
     if query is None:
         return {}
     targets = {row["code"]: {key: value for key, value in row.items() if key != "code"}
                for row in (await db.execute(query)).mappings()}
     assignment = targets.get("PRODUCT_LOCATION")
-    if assignment and await product_location_delete_blockers(db, actor.company_id, assignment["location_id"], variant_id):
+    if assignment and await product_location_delete_blockers(db, access.company_id, assignment["location_id"], variant_id):
         # Reuse the deletion guard rather than promising an impossible removal.
         targets["PRODUCT_LOCATION"] = {"kind": "capability-gap", "reason": "PRODUCT_LOCATION_REFERENCES"}
     return targets
