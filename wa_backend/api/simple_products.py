@@ -37,7 +37,12 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_driver
+from api.authentication.backoffice_authorization import (
+    get_current_backoffice_capability_access,
+)
+from api.authentication.backoffice_compatibility import (
+    get_current_backoffice_legacy_driver,
+)
 from config import Config
 from database import get_db
 from domains.inventory_batch_restrictions import load_batch_restrictions
@@ -76,7 +81,10 @@ from domains.simple_products.service import (
     simple_price_exists_clause,
     update_prices,
 )
-from inventory_access import InventoryAccess
+from domains.authorization.backoffice_access import (
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
 from models import (
     Driver,
     Product,
@@ -1050,15 +1058,16 @@ def _family_next_cursor(
 
 def _audit(
     db: AsyncSession,
-    actor: Driver,
+    access: BackofficeCapabilityAccess,
+    legacy_actor: Driver,
     target: str,
     action: str,
     payload: dict[str, Any],
 ) -> None:
     db.add(
         SystemAuditLog(
-            company_id=actor.company_id,
-            admin_id=actor.id,
+            company_id=access.company_id,
+            admin_id=legacy_actor.id,
             target_id=target,
             action_type=action,
             old_value=None,
@@ -1073,22 +1082,20 @@ def _audit(
 
 
 async def _require(
-    db: AsyncSession,
-    actor: Driver,
+    access: BackofficeCapabilityAccess,
     permission: str,
 ) -> None:
-    await InventoryAccess(
-        db,
-        actor,
-    ).require(
-        permission,
-        any_location=True,
-    )
+    try:
+        await access.require(permission, any_location=True)
+    except BackofficeCapabilityAccessRejected:
+        raise HTTPException(
+            status_code=403,
+            detail="لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.",
+        ) from None
 
 
 async def _require_manage(
-    db: AsyncSession,
-    actor: Driver,
+    access: BackofficeCapabilityAccess,
 ) -> None:
     for permission in (
         "catalog.manage",
@@ -1096,8 +1103,7 @@ async def _require_manage(
         "pricing.manage",
     ):
         await _require(
-            db,
-            actor,
+            access,
             permission,
         )
 
@@ -1105,11 +1111,10 @@ async def _require_manage(
 @router.get("/package-uoms")
 async def package_uoms(
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
     await _require(
-        db,
-        actor,
+        access,
         "catalog.read",
     )
     try:
@@ -1136,14 +1141,13 @@ async def families(
         le=200,
     ),
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
     await _require(
-        db,
-        actor,
+        access,
         "catalog.read",
     )
-    company_id = int(actor.company_id)
+    company_id = int(access.company_id)
     after_name, after_id = _family_cursor(
         cursor,
         company_id=company_id,
@@ -1196,18 +1200,18 @@ async def families(
 async def create_product_family(
     payload: FamilyCreate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     await _require(
-        db,
-        actor,
+        access,
         "catalog.manage",
     )
     try:
         idem, replay = await begin_idempotent_operation(
             db,
-            company_id=int(actor.company_id),
-            actor_id=int(actor.id),
+            company_id=int(access.company_id),
+            actor_id=int(legacy_actor.id),
             operation="SIMPLE_PRODUCT_FAMILY_CREATE_V1",
             request_id=str(payload.request_id),
             request_hash=_request_hash(payload),
@@ -1218,7 +1222,7 @@ async def create_product_family(
 
         row = await create_family(
             db,
-            company_id=int(actor.company_id),
+            company_id=int(access.company_id),
             request_id=payload.request_id,
             name=payload.name,
         )
@@ -1230,7 +1234,8 @@ async def create_product_family(
         }
         _audit(
             db,
-            actor,
+            access,
+            legacy_actor,
             f"Product_{row.id}",
             "SIMPLE_PRODUCT_FAMILY_CREATED",
             response,
@@ -1264,18 +1269,18 @@ async def update_product_family(
     family_id: int,
     payload: FamilyUpdate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     await _require(
-        db,
-        actor,
+        access,
         "catalog.manage",
     )
     try:
         idem, replay = await begin_idempotent_operation(
             db,
-            company_id=int(actor.company_id),
-            actor_id=int(actor.id),
+            company_id=int(access.company_id),
+            actor_id=int(legacy_actor.id),
             operation="SIMPLE_PRODUCT_FAMILY_RENAME_V1",
             request_id=str(payload.request_id),
             request_hash=_request_hash(
@@ -1289,7 +1294,7 @@ async def update_product_family(
 
         row = await rename_family(
             db,
-            company_id=int(actor.company_id),
+            company_id=int(access.company_id),
             family_id=int(family_id),
             expected_version=int(
                 payload.expected_version
@@ -1303,7 +1308,8 @@ async def update_product_family(
         }
         _audit(
             db,
-            actor,
+            access,
+            legacy_actor,
             f"Product_{row.id}",
             "SIMPLE_PRODUCT_FAMILY_RENAMED",
             response,
@@ -1334,18 +1340,18 @@ async def delete_product_family(
     family_id: int,
     payload: FamilyDelete,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     await _require(
-        db,
-        actor,
+        access,
         "catalog.manage",
     )
     try:
         idem, replay = await begin_idempotent_operation(
             db,
-            company_id=int(actor.company_id),
-            actor_id=int(actor.id),
+            company_id=int(access.company_id),
+            actor_id=int(legacy_actor.id),
             operation="SIMPLE_PRODUCT_FAMILY_DELETE_V1",
             request_id=str(payload.request_id),
             request_hash=_request_hash(
@@ -1359,7 +1365,7 @@ async def delete_product_family(
 
         row = await delete_family(
             db,
-            company_id=int(actor.company_id),
+            company_id=int(access.company_id),
             family_id=int(family_id),
             expected_version=int(
                 payload.expected_version
@@ -1373,7 +1379,8 @@ async def delete_product_family(
         }
         _audit(
             db,
-            actor,
+            access,
+            legacy_actor,
             f"Product_{row.id}",
             "SIMPLE_PRODUCT_FAMILY_DELETED",
             response,
@@ -1410,10 +1417,10 @@ async def delete_product_family(
 @router.get("/summary", response_model=CatalogSummaryResponse)
 async def catalog_summary(
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
-    await _require(db, actor, "catalog.read")
-    return await load_catalog_summary(db, company_id=int(actor.company_id))
+    await _require(access, "catalog.read")
+    return await load_catalog_summary(db, company_id=int(access.company_id))
 
 
 @router.get("")
@@ -1444,11 +1451,10 @@ async def list_simple_products(
     sort_by: str = "id",
     sort_dir: str = "asc",
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
     await _require(
-        db,
-        actor,
+        access,
         "catalog.read",
     )
 
@@ -1497,8 +1503,7 @@ async def list_simple_products(
     assert sort_dir_value is not None
 
     try:
-        company_id = int(actor.company_id)
-        access = InventoryAccess(db, actor)
+        company_id = int(access.company_id)
         can_view_pricing = bool(
             await db.scalar(
                 select(
@@ -1620,8 +1625,7 @@ async def list_simple_products(
             try:
                 warehouse_variant_ids = await variant_ids_present_in_all_warehouses(
                     db,
-                    actor=actor,
-                    company_id=company_id,
+                    access=access,
                     warehouse_ids=warehouse_ids,
                 )
             except InventoryCatalogPresenceForbidden as exc:
@@ -1871,7 +1875,7 @@ async def list_simple_products(
         ]
 
         batch_restrictions = await load_batch_restrictions(
-            db, actor=actor, variant_ids=[int(variant.id) for variant in variants],
+            db, access=access, variant_ids=[int(variant.id) for variant in variants],
         )
         status_reasons = await load_current_product_status_reasons(
             db,
@@ -2055,15 +2059,16 @@ async def list_simple_products(
 async def create_simple_product(
     payload: SimpleProductCreate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    await _require_manage(db, actor)
+    await _require_manage(access)
 
     try:
         idem, replay = await begin_idempotent_operation(
             db,
-            company_id=int(actor.company_id),
-            actor_id=int(actor.id),
+            company_id=int(access.company_id),
+            actor_id=int(legacy_actor.id),
             operation="SIMPLE_PRODUCT_CREATE_V3",
             request_id=str(payload.request_id),
             request_hash=_request_hash(payload),
@@ -2074,7 +2079,8 @@ async def create_simple_product(
 
         created = await create_products_and_prices(
             db,
-            actor=actor,
+            actor=legacy_actor,
+            company_id=access.company_id,
             request_id=payload.request_id,
             specs=[
                 SimpleProductSpec(
@@ -2118,7 +2124,8 @@ async def create_simple_product(
         }
         _audit(
             db,
-            actor,
+            access,
+            legacy_actor,
             f"ProductVariant_{variant.id}",
             "SIMPLE_PRODUCT_CREATED_V3",
             response,
@@ -2158,19 +2165,19 @@ async def update_simple_product_price(
     variant_id: int,
     payload: SimplePriceUpdate,
     db: AsyncSession = Depends(get_db),
-    actor: Driver = Depends(get_current_driver),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     await _require(
-        db,
-        actor,
+        access,
         "pricing.manage",
     )
 
     try:
         idem, replay = await begin_idempotent_operation(
             db,
-            company_id=int(actor.company_id),
-            actor_id=int(actor.id),
+            company_id=int(access.company_id),
+            actor_id=int(legacy_actor.id),
             operation="SIMPLE_PRODUCT_PRICE_UPDATE_V3",
             request_id=str(payload.request_id),
             request_hash=_request_hash(
@@ -2186,7 +2193,7 @@ async def update_simple_product_price(
             select(ProductVariant)
             .where(
                 ProductVariant.company_id
-                == int(actor.company_id),
+                == int(access.company_id),
                 ProductVariant.id
                 == int(variant_id),
                 ProductVariant.lifecycle_status.in_(
@@ -2207,7 +2214,8 @@ async def update_simple_product_price(
 
         prices = await update_prices(
             db,
-            actor=actor,
+            actor=legacy_actor,
+            company_id=access.company_id,
             request_id=payload.request_id,
             variant=variant,
             package_price=payload.package_price,
@@ -2231,7 +2239,8 @@ async def update_simple_product_price(
         }
         _audit(
             db,
-            actor,
+            access,
+            legacy_actor,
             f"ProductVariant_{variant.id}",
             "SIMPLE_PRODUCT_PRICE_UPDATED_V3",
             response,

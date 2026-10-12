@@ -232,9 +232,12 @@ def test_actual_products_payload_adds_read_evidence_without_relabeling_lifecycle
     tree = ast.parse(source.read_text(encoding="utf-8"))
     route = next(node for node in tree.body if isinstance(node, ast.AsyncFunctionDef) and node.name == "list_simple_products")
     gate = route.body[0].value.value
-    assert gate.func.id == "_require" and gate.args[2].value == "catalog.read"
+    assert gate.func.id == "_require" and gate.args[1].value == "catalog.read"
+    assert gate.args[0].id == "access"
     calls = [node for node in ast.walk(route) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "load_batch_restrictions"]
     assert len(calls) == 1
+    keywords = {item.arg: item.value for item in calls[0].keywords}
+    assert keywords["access"].id == "access" and "actor" not in keywords
     payload = next(node for node in ast.walk(route) if isinstance(node, ast.Dict)
         and any(isinstance(key, ast.Constant) and key.value == "batch_restrictions" for key in node.keys))
     variant = SimpleNamespace(id=101, name="SKU", sku="SKU", packs_per_carton=1, base_uom_id=1,
