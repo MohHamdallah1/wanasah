@@ -12,5 +12,6 @@ sentry-sdk==2.66.1
 procrastinate==3.9.0
 psycopg[binary]==3.3.5
 psycopg-pool==3.2.8
+alembic==1.18.4
 python-multipart==0.0.20
 openpyxl==3.1.5
