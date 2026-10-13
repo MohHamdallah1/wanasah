@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from config import Config
 from domains.identity.credentials import (
     CompanyCredentialValidationError,
     hash_company_password,
@@ -31,7 +30,7 @@ def validate_initial_password(password: str) -> str:
 
 
 async def hash_initial_password(password: str) -> str:
-    """Delegate canonical bcrypt hashing to Identity."""
+    """Delegate canonical password hashing to Identity."""
     try:
         return await hash_company_password(password)
     except CompanyCredentialValidationError as exc:
@@ -39,12 +38,11 @@ async def hash_initial_password(password: str) -> str:
 
 
 def fingerprint_initial_password(password: str) -> str:
-    """Return only a keyed password fingerprint for create idempotency identity."""
+    """Delegate secret-keyed idempotency fingerprinting fully to Identity."""
     safe_password = validate_initial_password(password)
     return sensitive_value_fingerprint(
         safe_password,
         purpose=_CREATE_PASSWORD_FINGERPRINT_PURPOSE,
-        secret=Config.SECRET_KEY,
     )
 
 
