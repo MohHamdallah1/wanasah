@@ -70,3 +70,5 @@ jobs:
             printf 'Unexpected files outside Dashboard ownership:\n%s\n' "$unexpected"
             exit 1
           fi
+
+# rerun after runner-safe source-gate fix
