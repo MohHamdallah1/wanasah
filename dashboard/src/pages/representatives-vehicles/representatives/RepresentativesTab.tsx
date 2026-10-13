@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { type InfiniteData, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Plus, RefreshCw, Search, UsersRound, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -7,16 +7,28 @@ import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
-import { createRepresentative } from "./api";
-import type { CreateRepresentativeInput, Representative, RepresentativeStatusFilter } from "./contracts";
-import { RepresentativeDrawer } from "./RepresentativeDrawer";
+import { createRepresentative, updateRepresentative } from "./api";
+import type {
+  CreateRepresentativeInput,
+  Representative,
+  RepresentativeListResult,
+  RepresentativeStatusFilter,
+  UpdateRepresentativeInput,
+} from "./contracts";
+import { RepresentativeCredentialAction } from "./RepresentativeCredentialAction";
 import { representativeErrorMessage } from "./representativeErrorMessage";
 import { RepresentativeForm } from "./RepresentativeForm";
+import { RepresentativeLifecycleActions } from "./RepresentativeLifecycleActions";
 import { RepresentativeTable } from "./RepresentativeTable";
 import { useRepresentativeInfiniteScroll } from "./useRepresentativeInfiniteScroll";
 import { useRepresentatives } from "./useRepresentatives";
 
 const filters: RepresentativeStatusFilter[] = ["all", "active", "inactive"];
+
+type RepresentativeAction = {
+  type: "edit" | "lifecycle" | "credentials";
+  representative: Representative;
+};
 
 export function RepresentativesTab() {
   const { t } = useTranslation();
@@ -26,7 +38,8 @@ export function RepresentativesTab() {
   const representatives = useRepresentatives();
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [selected, setSelected] = useState<Representative | null>(null);
+  const [action, setAction] = useState<RepresentativeAction | null>(null);
+  const [editing, setEditing] = useState(false);
 
   const canManage = Boolean(
     access.isCompanyOwner || access.can("representative.manage"),
@@ -49,6 +62,11 @@ export function RepresentativesTab() {
     setCreateOpen(false);
   };
 
+  const closeEdit = () => {
+    if (editing) return;
+    setAction(null);
+  };
+
   const create = async (input: CreateRepresentativeInput, requestId: string) => {
     setCreating(true);
     try {
@@ -65,6 +83,44 @@ export function RepresentativesTab() {
       );
     } finally {
       setCreating(false);
+    }
+  };
+
+  const replaceRepresentativeInCachedLists = (updated: Representative) => {
+    queryClient.setQueriesData<InfiniteData<RepresentativeListResult>>(
+      { queryKey: ["representatives"] },
+      (cached) => {
+        if (!cached) return cached;
+        return {
+          ...cached,
+          pages: cached.pages.map((page) => ({
+            ...page,
+            items: page.items.map((item) => item.id === updated.id ? updated : item),
+          })),
+        };
+      },
+    );
+  };
+
+  const saveEdit = async (input: UpdateRepresentativeInput, requestId: string) => {
+    const target = action?.type === "edit" ? action.representative : null;
+    if (!target) return;
+    setEditing(true);
+    try {
+      const updated = await updateRepresentative(authFetch, target.id, input, requestId);
+      replaceRepresentativeInCachedLists(updated);
+      await queryClient.invalidateQueries({ queryKey: ["representatives"] });
+      toast.success(t("representativesVehicles.representatives.updateSuccess"));
+      setAction(null);
+    } catch (error) {
+      toast.error(
+        representativeErrorMessage(
+          error,
+          t("representativesVehicles.representatives.saveFailed"),
+        ),
+      );
+    } finally {
+      setEditing(false);
     }
   };
 
@@ -160,7 +216,21 @@ export function RepresentativesTab() {
           </div>
         ) : (
           <div className="min-h-0 flex-1 overflow-auto">
-            <RepresentativeTable items={representatives.items} loading={representatives.query.isFetching && representatives.items.length === 0} onOpen={setSelected} />
+            <RepresentativeTable
+              items={representatives.items}
+              loading={representatives.query.isFetching && representatives.items.length === 0}
+              canManage={canManage}
+              canResetCredentials={canResetCredentials}
+              onEdit={(representative) => {
+                if (canManage) setAction({ type: "edit", representative });
+              }}
+              onLifecycle={(representative) => {
+                if (canManage) setAction({ type: "lifecycle", representative });
+              }}
+              onResetCredentials={(representative) => {
+                if (canResetCredentials) setAction({ type: "credentials", representative });
+              }}
+            />
             {representatives.query.hasNextPage || representatives.query.isFetchingNextPage || hasRetainedDataError ? (
               <div className="border-t border-slate-100 p-2 text-center">
                 <div ref={infiniteScroll.sentinelRef} className="h-px w-full" aria-hidden="true" />
@@ -196,13 +266,43 @@ export function RepresentativesTab() {
         <RepresentativeForm busy={creating} onCancel={closeCreate} onSubmit={(input, requestId) => create(input as CreateRepresentativeInput, requestId)} />
       </Modal>
 
-      <RepresentativeDrawer
-        representative={selected}
-        open={Boolean(selected)}
-        canManage={canManage}
-        canResetCredentials={canResetCredentials}
-        onOpenChange={(open) => { if (!open) setSelected(null); }}
-      />
+      <Modal
+        isOpen={action?.type === "edit"}
+        onClose={closeEdit}
+        title={t("representativesVehicles.representatives.edit")}
+        maxWidth="max-w-lg"
+      >
+        {action?.type === "edit" ? (
+          <RepresentativeForm
+            representative={action.representative}
+            busy={editing}
+            onCancel={closeEdit}
+            onSubmit={(input, requestId) => saveEdit(input as UpdateRepresentativeInput, requestId)}
+          />
+        ) : null}
+      </Modal>
+
+      {action?.type === "lifecycle" ? (
+        <RepresentativeLifecycleActions
+          representative={action.representative}
+          allowed={canManage}
+          open
+          onOpenChange={(open) => {
+            if (!open) setAction(null);
+          }}
+        />
+      ) : null}
+
+      {action?.type === "credentials" ? (
+        <RepresentativeCredentialAction
+          representative={action.representative}
+          allowed={canResetCredentials}
+          open
+          onOpenChange={(open) => {
+            if (!open) setAction(null);
+          }}
+        />
+      ) : null}
     </section>
   );
 }
