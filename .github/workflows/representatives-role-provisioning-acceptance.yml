@@ -62,7 +62,7 @@ jobs:
               "dashboard/src/i18n/representativesVehicles.ts",
               "dashboard/src/pages/inventory/TabInventoryAccess.tsx",
               "dashboard/src/pages/inventory/TabInventoryAccess.representatives.test.ts",
-              "wa_backend/tests/test_representatives_role_provisioning_db.py",
+              "wa_backend/tests/test_representatives_role_provisioning_runtime_db.py",
           }
           changed = set(subprocess.check_output(
               ["git", "diff", "--name-only", os.environ["BASE_SHA"], "HEAD"], text=True
@@ -103,7 +103,7 @@ jobs:
 
       - name: PostgreSQL Representative role provisioning acceptance
         working-directory: wa_backend
-        run: python -m pytest -q tests/test_representatives_role_provisioning_db.py
+        run: python -m pytest -q tests/test_representatives_role_provisioning_runtime_db.py
 
       - name: Focused role and authorization regressions
         working-directory: wa_backend
@@ -122,7 +122,7 @@ jobs:
           api/inventory_permissions.py
           api/representatives
           domains/authorization
-          tests/test_representatives_role_provisioning_db.py
+          tests/test_representatives_role_provisioning_runtime_db.py
 
       - name: Install locked Dashboard dependencies
         working-directory: dashboard
@@ -171,7 +171,7 @@ jobs:
               "dashboard/src/i18n/representativesVehicles.ts",
               "dashboard/src/pages/inventory/TabInventoryAccess.tsx",
               "dashboard/src/pages/inventory/TabInventoryAccess.representatives.test.ts",
-              "wa_backend/tests/test_representatives_role_provisioning_db.py",
+              "wa_backend/tests/test_representatives_role_provisioning_runtime_db.py",
           }
           changed = set(subprocess.check_output(
               ["git", "diff", "--name-only", os.environ["BASE_SHA"], "HEAD"], text=True
