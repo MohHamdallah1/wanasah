@@ -15,17 +15,15 @@ export default function RepresentativesVehiclesPage() {
       </div>
 
       <WorkspaceTopBar variant="page" className="shrink-0">
-        <header className="min-w-0">
-          <h1 className="text-lg font-black leading-6 text-white sm:text-xl">{t("representativesVehicles.title")}</h1>
-          <p className="mt-0.5 hidden text-[11px] font-semibold leading-5 text-slate-300/80 sm:block">{t("representativesVehicles.subtitle")}</p>
-        </header>
-      </WorkspaceTopBar>
+        <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 sm:flex-nowrap">
+          <header className="min-w-0">
+            <h1 className="text-lg font-black leading-6 text-white sm:text-xl">{t("representativesVehicles.title")}</h1>
+            <p className="mt-0.5 hidden text-[11px] font-semibold leading-5 text-slate-300/80 sm:block">{t("representativesVehicles.subtitle")}</p>
+          </header>
 
-      <div className="relative z-10 flex min-h-0 flex-1 flex-col px-3 pb-3 pt-3 sm:px-4">
-        <div className="mx-auto flex min-h-0 w-full max-w-[1500px] flex-1 flex-col gap-3">
-          <div className="inline-flex w-fit items-center rounded-2xl border border-white/80 bg-white/65 p-1 shadow-sm backdrop-blur-xl" role="tablist" aria-label={t("representativesVehicles.title")}>
+          <div className="inline-flex shrink-0 items-center rounded-xl border border-white/15 bg-white/10 p-1 shadow-sm backdrop-blur" role="tablist" aria-label={t("representativesVehicles.title")}>
             <button type="button" role="tab" aria-selected="true"
-              className="inline-flex h-9 items-center gap-2 rounded-xl bg-slate-900 px-4 text-xs font-black text-white shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
+              className="inline-flex h-8 items-center gap-2 rounded-lg bg-white px-3 text-xs font-black text-slate-900 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">
               <UsersRound className="h-4 w-4" />{t("representativesVehicles.tabs.representatives")}
             </button>
             <button
@@ -36,14 +34,18 @@ export default function RepresentativesVehiclesPage() {
               aria-describedby="vehicles-gated-description"
               disabled
               title={t("representativesVehicles.vehicles.hint")}
-              className="inline-flex h-9 items-center gap-2 rounded-xl px-4 text-xs font-black text-slate-400 opacity-70"
+              className="inline-flex h-8 items-center gap-2 rounded-lg px-3 text-xs font-black text-slate-300 opacity-75"
             >
               <CarFront className="h-4 w-4" />{t("representativesVehicles.tabs.vehicles")}
-              <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[9px] font-black text-slate-500">{t("representativesVehicles.vehicles.gated")}</span>
+              <span className="hidden rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-black text-slate-300 sm:inline">{t("representativesVehicles.vehicles.gated")}</span>
             </button>
             <span id="vehicles-gated-description" className="sr-only">{t("representativesVehicles.vehicles.hint")}</span>
           </div>
+        </div>
+      </WorkspaceTopBar>
 
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col px-3 pb-3 pt-2 sm:px-4">
+        <div className="mx-auto flex min-h-0 w-full max-w-[1500px] flex-1 flex-col">
           <RepresentativesTab />
         </div>
       </div>

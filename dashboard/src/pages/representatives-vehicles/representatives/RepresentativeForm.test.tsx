@@ -196,4 +196,24 @@ describe("RepresentativeForm", () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(3));
     expect(onSubmit.mock.calls[2]?.[1]).not.toBe(requestUuid);
   });
+
+  it("disables credit authority without destroying the stored per-sale limit", async () => {
+    const onSubmit = vi.fn();
+    const { container } = render(
+      <RepresentativeForm representative={representative} onCancel={() => undefined} onSubmit={onSubmit} />,
+    );
+
+    expect(screen.getByLabelText("representativesVehicles.representatives.fields.debtLimit")).toBeTruthy();
+    fireEvent.click(
+      screen.getByLabelText("representativesVehicles.representatives.fields.debtPermission"),
+    );
+
+    expect(screen.queryByLabelText("representativesVehicles.representatives.fields.debtLimit")).toBeNull();
+    expect(screen.getByText("representativesVehicles.representatives.form.debtDisabled")).toBeTruthy();
+
+    fireEvent.submit(container.querySelector("form")!);
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledWith({ can_allow_debt: false }, requestUuid);
+    });
+  });
 });

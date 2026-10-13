@@ -80,7 +80,7 @@ export function RepresentativeForm({
     const normalizedName = normalizeRepresentativeText(fullName);
     const normalizedUsername = normalizeRepresentativeText(username);
     const normalizedPhone = normalizeOptionalPhone(phone);
-    const normalizedDebt = normalizeDebtLimit(canAllowDebt ? maxDebtLimit : "0.000");
+    const normalizedDebt = normalizeDebtLimit(maxDebtLimit);
 
     if (!normalizedName || !normalizedUsername) {
       setValidation(t("representativesVehicles.representatives.form.required"));
@@ -178,17 +178,22 @@ export function RepresentativeForm({
             onChange={(event) => {
               resetOperation();
               setCanAllowDebt(event.target.checked);
-              if (!event.target.checked) setMaxDebtLimit("0.000");
             }}
             disabled={busy}
             className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-cyan-400"
           />
         </label>
-        <div className="mt-3 space-y-1.5">
-          <label htmlFor="representative-debt-limit" className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.debtLimit")}</label>
-          <input id="representative-debt-limit" dir="ltr" inputMode="decimal" value={maxDebtLimit} onChange={(event) => { resetOperation(); setMaxDebtLimit(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.debtLimitPlaceholder")} className={inputClass} disabled={busy || !canAllowDebt} autoComplete="off" />
-          <p className="text-[11px] font-semibold leading-5 text-slate-500">{t("representativesVehicles.representatives.form.debtHint")}</p>
-        </div>
+        {canAllowDebt ? (
+          <div className="mt-3 space-y-1.5">
+            <label htmlFor="representative-debt-limit" className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.debtLimit")}</label>
+            <input id="representative-debt-limit" dir="ltr" inputMode="decimal" value={maxDebtLimit} onChange={(event) => { resetOperation(); setMaxDebtLimit(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.debtLimitPlaceholder")} className={inputClass} disabled={busy} autoComplete="off" />
+            <p className="text-[11px] font-semibold leading-5 text-slate-500">{t("representativesVehicles.representatives.form.debtHint")}</p>
+          </div>
+        ) : (
+          <p className="mt-3 rounded-xl bg-white px-3 py-2 text-xs font-black text-slate-500 ring-1 ring-slate-200">
+            {t("representativesVehicles.representatives.form.debtDisabled")}
+          </p>
+        )}
       </div>
 
       {validation ? <p role="alert" className="text-xs font-bold text-rose-700">{validation}</p> : null}
