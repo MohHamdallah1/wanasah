@@ -51,6 +51,15 @@ Final Representative credit-policy closure validated on the acceptance branch (p
 - [x] Credit policy has **no daily reset**; persisted canonical Representative policy is re-read for each new-credit decision so disable/limit changes take effect on the next attempt without FIELD re-login.
 - [x] Legacy `Driver.id` is only an operational locator through the company-scoped `FIELD_ONLY` mapping; legacy Driver credit flags/limits are not financial-policy authority.
 
+Final Representative form/credential identity UX closure validated on the acceptance branch (pending merge):
+
+- [x] Representative phone is required on create and cannot be cleared on update; historical nullable storage remains migration-free for compatibility.
+- [x] Representative username accepts Arabic or Latin letters with digits and `. _ -`, rejects mixed Arabic+Latin scripts, digits-only, separator-only, and internal whitespace on both Backend and Dashboard.
+- [x] Create requires Dashboard-only password confirmation; confirmation is never sent, stored, or included in request identity.
+- [x] Create and credential reset use application-owned stable password visibility controls; visibility is local-only and resets hidden on reopen.
+- [x] Canonical password policy remains minimum 8 Unicode characters and maximum 72 UTF-8 bytes, including Arabic/Latin/mixed/symbol passwords.
+- [x] Accepted per-sale credit-limit semantics remain unchanged.
+
 Still pending before Representatives owner-complete gate:
 
 - [ ] Final owner acceptance of Representative behavior/wording/density/forms/actions.
