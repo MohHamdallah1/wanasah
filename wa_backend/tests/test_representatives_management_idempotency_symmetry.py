@@ -100,7 +100,7 @@ class RepresentativeManagementIdempotencySymmetryTests(unittest.IsolatedAsyncioT
             full_name="Rep",
             username="rep",
             password="Password123",
-            phone_number=None,
+            phone_number="0790000000",
             can_allow_debt=False,
             max_debt_limit=Decimal("0.000"),
         )
