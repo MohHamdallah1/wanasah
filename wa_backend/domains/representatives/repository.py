@@ -2,20 +2,30 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal
+from uuid import UUID
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domains.identity.migration.models import IdentityLegacyDriverMap
 from domains.identity.models import CompanyPrincipal, FieldRepresentative
 from domains.identity.types import PrincipalType
-from models import Driver, SystemAuditLog
+from models import Driver, OperationIdempotency, SystemAuditLog
 
 from .contracts import RepresentativeError
 
 
 MONEY_MAX = Decimal("999999999.999")
 MONEY_QUANT = Decimal("0.001")
+_REPRESENTATIVE_IDEMPOTENT_OPERATIONS = frozenset(
+    {
+        "REPRESENTATIVE_CREATE",
+        "REPRESENTATIVE_UPDATE",
+        "REPRESENTATIVE_DEACTIVATE",
+        "REPRESENTATIVE_REACTIVATE",
+        "REPRESENTATIVE_CREDENTIAL_RESET",
+    }
+)
 
 
 def normalize_debt_limit(value: Decimal) -> Decimal:
@@ -42,6 +52,65 @@ def normalize_debt_limit(value: Decimal) -> Decimal:
             status_code=422,
         )
     return normalized
+
+
+async def guard_representative_request_identity(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    request_id: str,
+    operation: str,
+) -> str:
+    """Serialize Representative command request ids across operation types.
+
+    The project-wide idempotency table is keyed by operation as well as request id.
+    Representative lifecycle/reset additionally freezes one request id to one
+    Representative operation so a lost-response retry cannot be reinterpreted as
+    another lifecycle or credential command.
+    """
+    if operation not in _REPRESENTATIVE_IDEMPOTENT_OPERATIONS:
+        raise ValueError("Unsupported Representative idempotency operation")
+    try:
+        canonical_request_id = str(UUID(str(request_id)))
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise RepresentativeError(
+            "REPRESENTATIVE_REQUEST_ID_INVALID",
+            "Representative request id is invalid.",
+            status_code=422,
+        ) from exc
+
+    await db.execute(
+        select(
+            func.pg_advisory_xact_lock(
+                int(company_id),
+                func.hashtext(f"representative-request:{canonical_request_id}"),
+            )
+        )
+    )
+    existing_operations = list(
+        (
+            await db.execute(
+                select(OperationIdempotency.operation)
+                .where(
+                    OperationIdempotency.company_id == int(company_id),
+                    OperationIdempotency.request_id == canonical_request_id,
+                    OperationIdempotency.operation.in_(
+                        tuple(sorted(_REPRESENTATIVE_IDEMPOTENT_OPERATIONS))
+                    ),
+                )
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if any(str(existing) != operation for existing in existing_operations):
+        raise RepresentativeError(
+            "REPRESENTATIVE_IDEMPOTENCY_CONFLICT",
+            "The request identity conflicts with a previous representative command.",
+            status_code=409,
+        )
+    return canonical_request_id
 
 
 async def username_exists(
@@ -282,6 +351,7 @@ __all__ = [
     "add_representative_audit",
     "apply_representative_fields",
     "create_representative_persistence",
+    "guard_representative_request_identity",
     "load_management_row",
     "normalize_debt_limit",
     "require_operational_compatibility",
