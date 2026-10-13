@@ -16,6 +16,8 @@ jobs:
     timeout-minutes: 30
     env:
       BASE_HEAD: 2a064c157854de842d976716f736b85b38cd8fae
+      SECRET_KEY: RepresentativeFormIdentityGateSyntheticSecret123456789
+      DATABASE_URL: postgresql+asyncpg://contract@127.0.0.1:1/representatives_contract_unavailable
     steps:
       - uses: actions/checkout@v4
         with:
