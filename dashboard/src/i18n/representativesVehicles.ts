@@ -26,6 +26,10 @@ export const representativesVehicles = {
       saveFailed: "تعذر حفظ بيانات المندوب.",
       actions: "الإجراءات",
       openDetails: "فتح التفاصيل",
+      permissions: {
+        manageRequired: "يمكنك عرض بيانات المندوبين، لكن حسابك لا يملك صلاحية إدارتهم.",
+        credentialsRequired: "حسابك لا يملك صلاحية تغيير بيانات دخول المندوب.",
+      },
       fields: {
         name: "اسم المندوب",
         username: "اسم المستخدم",
@@ -103,6 +107,10 @@ export const representativesVehicles = {
       saveFailed: "Could not save representative details.",
       actions: "Actions",
       openDetails: "Open details",
+      permissions: {
+        manageRequired: "You can view representatives, but your account cannot manage them.",
+        credentialsRequired: "Your account cannot change representative sign-in access.",
+      },
       fields: {
         name: "Representative name",
         username: "Username",
