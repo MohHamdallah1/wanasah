@@ -1,4 +1,4 @@
-name: Temporary representatives credit policy inspection
+name: Temporary representatives credit policy patch
 
 on:
   push:
@@ -8,31 +8,63 @@ on:
       - ".github/workflows/representatives-credit-policy-inspect-temp.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  inspect:
+  patch:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: sol/representatives-credit-policy-ui-finalization
           fetch-depth: 0
-      - name: Inspect backend model and dashboard tests
+      - name: Patch smallest canonical debt-policy seam
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== MODEL DEFINITIONS ==='
-          for cls in Company Driver Shop; do
-            line="$(grep -n "^class ${cls}(Base)" wa_backend/models.py | cut -d: -f1 | head -n1)"
-            echo "--- ${cls} @ ${line} ---"
-            sed -n "${line},$((line+95))p" wa_backend/models.py
-          done
-          echo '=== REPRESENTATIVE REPOSITORY CREDIT WRITES ==='
-          grep -n -C 12 "can_allow_debt\|max_debt_limit" wa_backend/domains/representatives/repository.py | head -n 260 || true
-          echo '=== REPRESENTATIVE FORM TEST ==='
-          cat dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm.test.tsx
-          echo '=== PAGE TEST ==='
-          cat dashboard/src/pages/representatives-vehicles/RepresentativesVehiclesPage.test.tsx
-          echo '=== DRAWER CREDIT SECTION ==='
-          grep -n -C 5 "debtPermission\|debtLimit" dashboard/src/pages/representatives-vehicles/representatives/RepresentativeDrawer.tsx || true
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('wa_backend/services.py')
+          source = path.read_text(encoding='utf-8')
+
+          import_marker = '''from domains.live_stock_projection.service import (\n    LiveStockProjectionError,\n    apply_live_stock_balance_impacts,\n    refresh_live_stock_variants,\n)\n'''
+          canonical_imports = '''from domains.identity.models import CompanyPrincipal, FieldRepresentative\nfrom domains.identity.migration.models import IdentityLegacyDriverMap\n'''
+          if canonical_imports not in source:
+              if import_marker not in source:
+                  raise SystemExit('identity import insertion marker not found')
+              source = source.replace(import_marker, import_marker + canonical_imports, 1)
+
+          start = source.index('async def check_debt_limits(')
+          end = source.index('\nclass InventoryMutationError', start)
+          replacement = '''async def check_debt_limits(\n    db_session: AsyncSession,\n    company_id: int,\n    driver_id: int,\n    shop_id: int,\n    new_debt_amount: Decimal,\n    pre_fetched_driver: Optional[Driver] = None,\n) -> Tuple[bool, str]:\n    try:\n        company_id = _strict_int(company_id, "company_id", minimum=1)\n        driver_id = _strict_int(driver_id, "driver_id", minimum=1)\n        shop_id = _strict_int(shop_id, "shop_id", minimum=1)\n        new_debt = _money_12_3(\n            new_debt_amount,\n            "new_debt_amount",\n        )\n    except ValueError as exc:\n        return False, str(exc)\n\n    # A fully cash sale creates no new receivable and is outside this policy.\n    if new_debt == Decimal("0"):\n        return True, ""\n\n    # The legacy Driver object is only a bounded operational locator. It must\n    # never supply credit authority or credit limits. A mismatched locator is\n    # still rejected before canonical resolution to preserve tenant isolation.\n    if pre_fetched_driver is not None and (\n        pre_fetched_driver.id != driver_id\n        or pre_fetched_driver.company_id != company_id\n    ):\n        return False, "المندوب غير صالح لهذه الشركة."\n\n    mapping_stmt = (\n        select(IdentityLegacyDriverMap)\n        .execution_options(populate_existing=True)\n        .where(\n            IdentityLegacyDriverMap.company_id == company_id,\n            IdentityLegacyDriverMap.legacy_driver_id == driver_id,\n            IdentityLegacyDriverMap.classification == "FIELD_ONLY",\n        )\n    )\n    mapping = (await db_session.execute(mapping_stmt)).scalar_one_or_none()\n    if (\n        mapping is None\n        or mapping.field_principal_id is None\n        or mapping.field_representative_id is None\n    ):\n        return False, "المندوب غير مخول بالبيع بالذمم."\n\n    representative_stmt = (\n        select(FieldRepresentative)\n        .join(\n            CompanyPrincipal,\n            and_(\n                CompanyPrincipal.company_id == FieldRepresentative.company_id,\n                CompanyPrincipal.id == FieldRepresentative.principal_id,\n                CompanyPrincipal.principal_type == FieldRepresentative.principal_type,\n            ),\n        )\n        .execution_options(populate_existing=True)\n        .where(\n            FieldRepresentative.company_id == company_id,\n            FieldRepresentative.id == mapping.field_representative_id,\n            FieldRepresentative.principal_id == mapping.field_principal_id,\n            FieldRepresentative.principal_type == "FIELD_REPRESENTATIVE",\n            CompanyPrincipal.company_id == company_id,\n            CompanyPrincipal.id == mapping.field_principal_id,\n            CompanyPrincipal.principal_type == "FIELD_REPRESENTATIVE",\n            CompanyPrincipal.is_active.is_(True),\n        )\n        .with_for_update(read=True)\n    )\n    representative = (\n        await db_session.execute(representative_stmt)\n    ).scalar_one_or_none()\n    if representative is None or representative.can_allow_debt is not True:\n        return False, "المندوب غير مخول بالبيع بالذمم."\n\n    try:\n        representative_limit = _money_12_3(\n            representative.max_debt_limit or "0.0",\n            "representative.max_debt_limit",\n        )\n    except ValueError as exc:\n        return False, str(exc)\n\n    if representative_limit == Decimal("0"):\n        return False, "حد الذمم لكل عملية بيع لدى المندوب لا يسمح بإنشاء ذمم جديدة."\n    if new_debt > representative_limit:\n        return False, "مبلغ الذمم الجديد يتجاوز حد الذمم المسموح للمندوب في عملية بيع واحدة."\n\n    # Shop exposure is a separate cumulative guard. Always lock and re-read the\n    # persisted shop row after canonical representative policy has passed.\n    shop_stmt = (\n        select(Shop)\n        .execution_options(populate_existing=True)\n        .where(\n            Shop.id == shop_id,\n            Shop.company_id == company_id,\n        )\n        .with_for_update()\n    )\n    shop = (await db_session.execute(shop_stmt)).scalar_one_or_none()\n    if shop is None:\n        return False, "المحل غير موجود."\n    if not getattr(shop, "is_active", False) or getattr(shop, "is_archived", False):\n        return False, "المحل غير فعال أو مؤرشف ولا يمكن فتح ذمة جديدة له."\n\n    try:\n        shop_limit = _money_12_3(\n            shop.max_debt_limit or "0.0",\n            "shop.max_debt_limit",\n        )\n        current_balance = _money_12_3(\n            shop.current_balance or "0.0",\n            "shop.current_balance",\n        )\n    except ValueError as exc:\n        return False, str(exc)\n\n    if shop_limit == Decimal("0"):\n        return False, "هذا المحل غير مسموح له بالبيع بالذمم لأن سقف ذمته يساوي صفراً."\n    if current_balance + new_debt > shop_limit:\n        return False, "إجمالي ذمة المحل بعد العملية سيتجاوز سقف الذمة المسموح له."\n\n    return True, ""\n'''
+          source = source[:start] + replacement + source[end:]
+          path.write_text(source, encoding='utf-8')
+          PY
+          python -m compileall -q wa_backend/services.py
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('wa_backend/services.py').read_text(encoding='utf-8')
+          start = source.index('async def check_debt_limits(')
+          end = source.index('\nclass InventoryMutationError', start)
+          block = source[start:end]
+          assert 'select(Driver)' not in block
+          assert 'Driver.can_allow_debt' not in block
+          assert 'driver.max_debt_limit' not in block
+          assert 'IdentityLegacyDriverMap.classification == "FIELD_ONLY"' in block
+          assert 'FieldRepresentative.can_allow_debt' not in block  # policy is read from hydrated canonical row
+          assert 'representative.can_allow_debt' in block
+          assert 'representative.max_debt_limit' in block
+          assert '.with_for_update()' in block
+          PY
+          git diff --check
+      - name: Commit canonical debt policy seam
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add wa_backend/services.py
+          git commit -m "fix(field): enforce canonical representative credit policy"
+          git push origin HEAD:sol/representatives-credit-policy-ui-finalization
