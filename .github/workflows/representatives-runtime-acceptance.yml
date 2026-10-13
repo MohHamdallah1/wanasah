@@ -9,7 +9,7 @@ permissions:
 jobs:
   acceptance:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:16
@@ -36,24 +36,40 @@ jobs:
           python-version: "3.12"
       - name: Install backend and test dependencies
         run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
-      - name: Representatives blocker model preflight
+      - name: PostgreSQL-backed Representatives acceptance
         working-directory: wa_backend
-        run: |
-          python - <<'PY'
-          import models
-          targets = [models.Company, models.Zone, models.WorkSession, models.DispatchRoute,
-                     models.InventoryTransferHeader, models.StocktakeSession,
-                     models.InventoryLocation, models.OperationIdempotency, models.SystemAuditLog]
-          for model in targets:
-              table = model.__table__
-              print(f"MODEL {model.__name__} TABLE {model.__tablename__}")
-              for column in table.columns:
-                  fks = ",".join(str(fk.target_fullname) for fk in column.foreign_keys)
-                  print(f"  COL {column.name}|{column.type}|nullable={column.nullable}|default={column.default}|server_default={column.server_default}|fk={fks}")
-              for constraint in table.constraints:
-                  print(f"  CONSTRAINT {constraint}")
-              for index in table.indexes:
-                  print(f"  INDEX {index}")
-          PY
+        run: python -m pytest -q tests/test_representatives_runtime_db.py
+      - name: Complete focused Representatives tests
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_representatives*.py --ignore=tests/test_representatives_runtime_db.py
+      - name: Canonical auth and session regressions
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_principal_session_invalidation.py
+          tests/test_auth_session_token_contract.py
+          tests/test_principal_refresh_sessions.py
+          tests/test_driver_session_field_context_cutover.py
+      - name: Compile Representatives backend
+        working-directory: wa_backend
+        run: python -m compileall -q api/representatives domains/representatives tests/test_representatives_runtime_db.py
       - name: Diff whitespace gate
         run: git diff --check 5b39474702e1a60347315e8c50cc08bb780a9ce2 HEAD
+      - name: Branch scope gate
+        shell: bash
+        run: |
+          python - <<'PY'
+          import subprocess
+          base = "5b39474702e1a60347315e8c50cc08bb780a9ce2"
+          allowed = {
+              ".github/workflows/representatives-runtime-acceptance.yml",
+              "wa_backend/tests/test_representatives_runtime_db.py",
+          }
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only", base, "HEAD"], text=True
+          ).splitlines())
+          unexpected = sorted(changed - allowed)
+          print("changed:", *sorted(changed), sep="\n- ")
+          if unexpected:
+              raise SystemExit(f"Unexpected branch scope: {unexpected}")
+          PY
