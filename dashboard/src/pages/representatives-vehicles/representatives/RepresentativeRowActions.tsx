@@ -35,7 +35,7 @@ export function RepresentativeRowActions({
   const credentialsBlocked = t("representativesVehicles.representatives.permissions.credentialsRequired");
 
   return (
-    <DropdownMenu dir={direction}>
+    <DropdownMenu dir={direction} modal={false}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
