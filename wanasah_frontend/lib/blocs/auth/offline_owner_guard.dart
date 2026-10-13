@@ -14,7 +14,10 @@ OfflineOwnerLoginDecision classifyOfflineOwnerLogin({
   final companyCode = ownerCompanyCode?.trim();
   final driverId = int.tryParse(ownerDriverId?.trim() ?? '');
 
-  if (companyCode == null || companyCode.isEmpty || driverId == null || driverId <= 0) {
+  if (companyCode == null ||
+      companyCode.isEmpty ||
+      driverId == null ||
+      driverId <= 0) {
     return OfflineOwnerLoginDecision.noOwner;
   }
   if (companyCode != returnedCompanyCode) {
