@@ -27,10 +27,10 @@ Completed on merged `main`:
 - [x] Mutation idempotency implemented for create/update/lifecycle/credential reset, including conflict semantics.
 - [x] Company tenant isolation/fail-closed cross-company behavior implemented/tested.
 - [x] Dashboard `/representatives-vehicles` page and capability-gated sidebar navigation implemented.
-- [x] Representative create/edit/detail Dashboard flows implemented.
+- [x] Representative create/edit and direct row-action Dashboard flows implemented; the redundant duplicate details drawer is removed.
 - [x] Search, active/inactive/all filters, cursor pagination, and duplicate-safe infinite scrolling implemented.
 - [x] Dashboard capability UX implemented for read/manage/credential-reset authority.
-- [x] Dashboard lifecycle and credential-reset UI implemented.
+- [x] Dashboard lifecycle and credential-reset UI is launched directly from the capability-gated row action menu.
 - [x] Arabic and English Representative UI resources implemented with RTL/LTR-aware rendering.
 - [x] Representative password validation enforces minimum length plus the canonical 72-byte UTF-8 ceiling using byte length, not character count alone.
 - [x] Vehicles tab remains visible but explicitly disabled/gated; Vehicles implementation has not started.
@@ -138,9 +138,10 @@ dashboard/src/pages/representatives-vehicles/
     RepresentativesTab.tsx           # tab composition only
     RepresentativeTable.tsx          # list/table rendering only
     RepresentativeForm.tsx           # create/edit form only
-    RepresentativeDrawer.tsx         # details/actions composition only
-    RepresentativeLifecycleActions.tsx
-    RepresentativeCredentialAction.tsx
+    RepresentativeRowActions.tsx     # portal row action menu only
+    representativeMoney.ts              # exact-string Representative money presentation only
+    RepresentativeLifecycleActions.tsx  # lifecycle modal/controller only
+    RepresentativeCredentialAction.tsx  # credential-reset modal/controller only
   vehicles/
     VehiclesTabPlaceholder.tsx       # visible gated placeholder until Representatives acceptance
 ```
