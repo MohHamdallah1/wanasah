@@ -1,24 +1,30 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { Representative } from "./contracts";
+import { formatRepresentativeMoney } from "./representativeMoney";
+import { RepresentativeRowActions } from "./RepresentativeRowActions";
 
 interface RepresentativeTableProps {
   items: Representative[];
   loading?: boolean;
-  onOpen: (representative: Representative) => void;
+  canManage: boolean;
+  canResetCredentials: boolean;
+  onEdit: (representative: Representative) => void;
+  onLifecycle: (representative: Representative) => void;
+  onResetCredentials: (representative: Representative) => void;
 }
 
-function formatDebtLimit(value: string) {
-  const [whole = "0", fraction = ""] = value.split(".");
-  const groupedWhole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  const exactFraction = fraction.padEnd(3, "0").slice(0, 3);
-  return `${groupedWhole}.${exactFraction}`;
-}
-
-export function RepresentativeTable({ items, loading = false, onOpen }: RepresentativeTableProps) {
-  const { t, i18n } = useTranslation();
-  const OpenIcon = i18n.dir() === "rtl" ? ChevronLeft : ChevronRight;
+export function RepresentativeTable({
+  items,
+  loading = false,
+  canManage,
+  canResetCredentials,
+  onEdit,
+  onLifecycle,
+  onResetCredentials,
+}: RepresentativeTableProps) {
+  const { t } = useTranslation();
+  const jodLabel = t("representativesVehicles.representatives.currency.jod");
 
   if (loading && items.length === 0) {
     return (
@@ -58,7 +64,11 @@ export function RepresentativeTable({ items, loading = false, onOpen }: Represen
             <td className="border-b border-slate-100 px-4 py-3 text-start font-semibold text-slate-600"><bdi dir="ltr">{representative.phone_number || "—"}</bdi></td>
             <td className="border-b border-slate-100 px-4 py-3 text-start font-semibold text-slate-600">
               {representative.can_allow_debt
-                ? t("representativesVehicles.representatives.fields.creditAllowed", { limit: formatDebtLimit(representative.max_debt_limit) })
+                ? t("representativesVehicles.representatives.fields.creditAllowed", {
+                    limit: formatRepresentativeMoney(representative.max_debt_limit, {
+                      currencyLabel: jodLabel,
+                    }),
+                  })
                 : t("representativesVehicles.representatives.fields.creditDisabled")}
             </td>
             <td className="border-b border-slate-100 px-4 py-3 text-start">
@@ -67,15 +77,14 @@ export function RepresentativeTable({ items, loading = false, onOpen }: Represen
               </span>
             </td>
             <td className="border-b border-slate-100 px-4 py-2 text-center">
-              <button
-                type="button"
-                onClick={() => onOpen(representative)}
-                aria-label={`${t("representativesVehicles.representatives.openDetails")} — ${representative.full_name}`}
-                title={t("representativesVehicles.representatives.openDetails")}
-                className="inline-grid h-9 w-9 place-items-center rounded-xl text-slate-500 transition hover:bg-white hover:text-slate-900 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
-              >
-                <OpenIcon className="h-4 w-4" />
-              </button>
+              <RepresentativeRowActions
+                representative={representative}
+                canManage={canManage}
+                canResetCredentials={canResetCredentials}
+                onEdit={onEdit}
+                onLifecycle={onLifecycle}
+                onResetCredentials={onResetCredentials}
+              />
             </td>
           </tr>
         ))}

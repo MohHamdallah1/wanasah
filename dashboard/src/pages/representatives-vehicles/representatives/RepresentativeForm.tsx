@@ -10,6 +10,7 @@ import {
   type UpdateRepresentativeInput,
 } from "./contracts";
 import { isRepresentativePasswordValid } from "./passwordPolicy";
+import { formatRepresentativeMoney } from "./representativeMoney";
 
 interface RepresentativeFormProps {
   representative?: Representative | null;
@@ -26,6 +27,11 @@ type PendingFormOperation = {
   requestId: string;
 };
 
+const editableDebtLimit = (representative?: Representative | null) =>
+  representative
+    ? formatRepresentativeMoney(representative.max_debt_limit, { groupThousands: false })
+    : "";
+
 export function RepresentativeForm({
   representative = null,
   busy = false,
@@ -38,7 +44,7 @@ export function RepresentativeForm({
   const [phone, setPhone] = useState(representative?.phone_number ?? "");
   const [password, setPassword] = useState("");
   const [canAllowDebt, setCanAllowDebt] = useState(representative?.can_allow_debt ?? false);
-  const [maxDebtLimit, setMaxDebtLimit] = useState(representative?.max_debt_limit ?? "");
+  const [maxDebtLimit, setMaxDebtLimit] = useState(editableDebtLimit(representative));
   const [validation, setValidation] = useState("");
   const operation = useRef<PendingFormOperation | null>(null);
   const debtSelectionHandled = useRef(false);
@@ -52,7 +58,7 @@ export function RepresentativeForm({
     setPhone(representative?.phone_number ?? "");
     setPassword("");
     setCanAllowDebt(representative?.can_allow_debt ?? false);
-    setMaxDebtLimit(representative?.max_debt_limit ?? "");
+    setMaxDebtLimit(editableDebtLimit(representative));
     setValidation("");
     operation.current = null;
     debtSelectionHandled.current = false;

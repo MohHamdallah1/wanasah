@@ -110,6 +110,29 @@ describe("RepresentativeForm", () => {
     });
   });
 
+  it("saves edited representative name and username together", async () => {
+  const onSubmit = vi.fn();
+  const { container } = render(<RepresentativeForm representative={representative} onCancel={() => undefined} onSubmit={onSubmit} />);
+  fireEvent.change(screen.getByLabelText("representativesVehicles.representatives.fields.name"), { target: { value: "Ahmad Updated" } });
+  fireEvent.change(screen.getByLabelText("representativesVehicles.representatives.fields.username"), { target: { value: "rep-updated" } });
+  fireEvent.submit(container.querySelector("form")!);
+  await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ full_name: "Ahmad Updated", username: "rep-updated" }, requestUuid));
+});
+
+it.each([
+  ["50.000", "50"],
+  ["50.500", "50.5"],
+  ["50.005", "50.005"],
+])("shows stored edit debt %s as %s without mutating its normalized meaning", (stored, displayed) => {
+  const onSubmit = vi.fn();
+  const { container } = render(<RepresentativeForm representative={{ ...representative, max_debt_limit: stored }} onCancel={() => undefined} onSubmit={onSubmit} />);
+  const limit = screen.getByLabelText("representativesVehicles.representatives.fields.debtLimit") as HTMLInputElement;
+  expect(limit.value).toBe(displayed);
+  fireEvent.submit(container.querySelector("form")!);
+  expect(onSubmit).not.toHaveBeenCalled();
+  expect(screen.getByRole("alert")).toHaveTextContent("representativesVehicles.representatives.form.noChanges");
+});
+
   it("sends explicit null when an existing phone number is cleared", async () => {
     const onSubmit = vi.fn();
     const { container } = render(
@@ -256,12 +279,12 @@ describe("RepresentativeForm", () => {
   it("preserves the stored edit value and selects it only for the first editing focus", () => {
     render(<RepresentativeForm representative={representative} onCancel={() => undefined} onSubmit={vi.fn()} />);
     const limit = screen.getByLabelText("representativesVehicles.representatives.fields.debtLimit") as HTMLInputElement;
-    expect(limit.value).toBe("25.500");
+    expect(limit.value).toBe("25.5");
 
     fireEvent.focus(limit);
-    expect(limit.value).toBe("25.500");
+    expect(limit.value).toBe("25.5");
     expect(limit.selectionStart).toBe(0);
-    expect(limit.selectionEnd).toBe("25.500".length);
+    expect(limit.selectionEnd).toBe("25.5".length);
 
     fireEvent.change(limit, { target: { value: "50.000" } });
     fireEvent.blur(limit);

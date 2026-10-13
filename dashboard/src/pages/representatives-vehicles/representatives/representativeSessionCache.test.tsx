@@ -3,12 +3,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), detail: vi.fn() }));
+const mocks = vi.hoisted(() => ({ list: vi.fn() }));
 vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => vi.fn() }));
-vi.mock("./api", () => ({ listRepresentatives: mocks.list, getRepresentative: mocks.detail }));
+vi.mock("./api", () => ({ listRepresentatives: mocks.list }));
 
 import { useRepresentatives } from "./useRepresentatives";
-import { useRepresentativeDetail } from "./useRepresentativeDetail";
 
 const row = { id: 17, full_name: "Previous session", username: "previous", phone_number: null,
   is_active: true, can_allow_debt: false, max_debt_limit: "0.000" };
@@ -37,25 +36,6 @@ describe("Representative session cache isolation", () => {
       await waitFor(() => expect(current.result.current.query.isError).toBe(true));
       expect(current.result.current.items).toEqual([]);
       current.unmount();
-      client.clear();
-    }
-  });
-
-  it("never reuses a previous identity's open drawer data when the target is now forbidden", async () => {
-    for (const next of [["2", "21"], ["1", "12"]]) {
-      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-      const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-      session("1", "11");
-      mocks.detail.mockResolvedValue(row);
-      const detail = renderHook(() => useRepresentativeDetail(17), { wrapper });
-      await waitFor(() => expect(detail.result.current.data).toEqual(row));
-      session(next[0], next[1]);
-      mocks.detail.mockRejectedValue({ status: 404, code: "REPRESENTATIVE_NOT_FOUND" });
-      detail.rerender();
-      expect(detail.result.current.data).toBeUndefined();
-      await waitFor(() => expect(detail.result.current.isError).toBe(true));
-      expect(detail.result.current.data).toBeUndefined();
-      detail.unmount();
       client.clear();
     }
   });
