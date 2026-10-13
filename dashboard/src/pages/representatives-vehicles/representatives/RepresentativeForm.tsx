@@ -230,7 +230,7 @@ export function RepresentativeForm({
                 placeholder={t("representativesVehicles.representatives.form.passwordPlaceholder")}
                 className={inputClass}
                 disabled={busy}
-                resetSignal={representative?.id ?? "create"}
+                resetSignal="create"
               />
             </div>
             <div className="min-w-0 space-y-1.5 sm:col-span-2">
@@ -242,7 +242,7 @@ export function RepresentativeForm({
                 placeholder={t("representativesVehicles.representatives.form.confirmPasswordPlaceholder")}
                 className={inputClass}
                 disabled={busy}
-                resetSignal={representative?.id ?? "create"}
+                resetSignal="create"
               />
             </div>
           </>
