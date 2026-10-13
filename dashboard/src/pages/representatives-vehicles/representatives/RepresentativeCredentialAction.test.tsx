@@ -86,6 +86,34 @@ afterEach(() => {
 });
 
 describe("RepresentativeCredentialAction", () => {
+  it("uses stable application-owned visibility controls for both reset password fields", () => {
+    renderAction();
+    changePassword("newpass88");
+
+    const newPassword = screen.getByLabelText("representativesVehicles.representatives.fields.newPassword") as HTMLInputElement;
+    const confirmPassword = screen.getByLabelText("representativesVehicles.representatives.fields.confirmPassword") as HTMLInputElement;
+    expect(newPassword.type).toBe("password");
+    expect(confirmPassword.type).toBe("password");
+
+    const showButtons = screen.getAllByRole("button", {
+      name: "representativesVehicles.representatives.passwordVisibility.show",
+    });
+    expect(showButtons).toHaveLength(2);
+    fireEvent.click(showButtons[0]);
+    expect(newPassword.type).toBe("text");
+    expect(newPassword.value).toBe("newpass88");
+
+    fireEvent.blur(newPassword);
+    expect(screen.getByRole("button", {
+      name: "representativesVehicles.representatives.passwordVisibility.hide",
+    })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", {
+      name: "representativesVehicles.representatives.passwordVisibility.hide",
+    }));
+    expect(newPassword.type).toBe("password");
+    expect(confirmPassword.type).toBe("password");
+  });
+
   it.each(["ع".repeat(37), "😀".repeat(4)])("rejects a reset password outside canonical character/UTF-8 bounds", (password) => {
     renderAction();
 
