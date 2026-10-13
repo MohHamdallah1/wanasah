@@ -42,6 +42,15 @@ Completed on merged `main`:
 - [x] Final FIELD/Flutter compatibility acceptance merged, including canonical FIELD login/session behavior and fail-closed preservation of unsynced offline work across account switching.
 - [x] Representative audit/security acceptance merged; mutation audit atomicity, replay behavior, tenant isolation, secret redaction, and bcrypt traceback redaction are proven.
 
+Final Representative credit-policy closure validated on the acceptance branch (pending merge):
+
+- [x] `FieldRepresentative.can_allow_debt` is the authoritative switch for whether a Representative may create any new credit sale.
+- [x] `FieldRepresentative.max_debt_limit` is the maximum **new credit amount in one sale transaction**; it is not daily, monthly, cumulative, or auto-resetting.
+- [x] `Shop.max_debt_limit` remains the independent **cumulative outstanding receivable ceiling** for that Shop.
+- [x] Every new-credit decision requires **both** the canonical Representative guard and the locked current Shop guard to pass.
+- [x] Credit policy has **no daily reset**; persisted canonical Representative policy is re-read for each new-credit decision so disable/limit changes take effect on the next attempt without FIELD re-login.
+- [x] Legacy `Driver.id` is only an operational locator through the company-scoped `FIELD_ONLY` mapping; legacy Driver credit flags/limits are not financial-policy authority.
+
 Still pending before Representatives owner-complete gate:
 
 - [ ] Final owner acceptance of Representative behavior/wording/density/forms/actions.
