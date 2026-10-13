@@ -39,7 +39,6 @@ from realtime.ws_security import (
 from domains.simple_products.imports.infrastructure.realtime_relay import (
     product_import_event_relay,
 )
-from domains.simple_products.imports.infrastructure.queue import app as product_import_app
 from observability.http_errors import log_http_server_error
 
 # ═══ S-01: Hardened IP extraction (trusted proxy CIDRs) ═══
@@ -84,16 +83,17 @@ async def lifespan(app: FastAPI):
     # the first user request never pays PostgreSQL connection cold-start cost.
     await warm_database_pool()
 
-    # Queue connector is opened for atomic defer only; the heavy worker is a separate process.
-    async with product_import_app.open_async():
+    # Product Import queue-pool ownership belongs to dedicated worker processes.
+    # HTTP defers use explicit psycopg connections inside their business transaction.
+    # Realtime relays own independent connection lifecycles.
+    try:
         await worker_event_relay.start()
         await product_import_event_relay.start()
-        try:
-            yield
-        finally:
-            await product_import_event_relay.stop()
-            await worker_event_relay.stop()
-            await engine.dispose()
+        yield
+    finally:
+        await product_import_event_relay.stop()
+        await worker_event_relay.stop()
+        await engine.dispose()
 
 # S-05: Default to safe (production), enable docs only via explicit opt-in
 ENV = os.getenv("ENVIRONMENT", "production")

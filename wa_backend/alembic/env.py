@@ -1,5 +1,6 @@
 import asyncio
 from logging.config import fileConfig
+from pathlib import Path
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
@@ -10,8 +11,8 @@ import sys
 import os
 from dotenv import load_dotenv
 
-# Load .env variables so Alembic can read DATABASE_URL
-load_dotenv()
+# Load the backend-local .env without overriding an explicitly supplied process environment.
+load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
 
 sys.path.append(os.getcwd())
 
@@ -68,26 +69,33 @@ def include_object(obj, name, type_, reflected, compare_to):
 # access to the values within the .ini file in use.
 config = context.config
 
-# Dynamic override from .env — Alembic MUST run as the superuser (DATABASE_URL_MIGRATION)
-# because it creates roles, grants privileges, and manages RLS policies that a
-# restricted app user is not allowed to execute. Falls back to DATABASE_URL only
-# when the migration URL is absent (e.g., legacy local setups).
-db_url = os.getenv("DATABASE_URL_MIGRATION") or os.getenv("DATABASE_URL")
-if db_url:
-    # +++ درع السحاب: ضمان توافق البروتوكول مع asyncpg مهما كان صيغ الرابط +++
-    if db_url.startswith("postgres://"):
-        db_url = db_url.replace("postgres://", "postgresql://", 1)
-    if db_url.startswith("postgresql://") and "asyncpg" not in db_url:
-        db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-    config.set_main_option("sqlalchemy.url", db_url)
+# Alembic database selection is environment-only. Prefer the migration/admin
+# URL because migrations may create roles, grants and RLS policies; fall back to
+# the runtime DATABASE_URL only for environments that intentionally use one role.
+db_url = (
+    os.getenv("DATABASE_URL_MIGRATION")
+    or os.getenv("DATABASE_URL")
+    or ""
+).strip()
+if not db_url:
+    raise RuntimeError(
+        "Alembic requires DATABASE_URL_MIGRATION or DATABASE_URL; "
+        "no alembic.ini database fallback is permitted."
+    )
+
+# +++ درع السحاب: ضمان توافق البروتوكول مع asyncpg مهما كان صيغ الرابط +++
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+if db_url.startswith("postgresql://") and "asyncpg" not in db_url:
+    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+config.set_main_option("sqlalchemy.url", db_url)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
+# other values from the config, defined by the needs of env.py, can be acquired:
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
@@ -100,8 +108,7 @@ def run_migrations_offline() -> None:
     here as well.  By skipping the Engine creation
     we don't even need a DBAPI to be available.
 
-    Calls to context.execute() here emit the given string to the
-    script output.
+    Calls to context.execute() here emit the given string to the script output.
 
     """
     url = config.get_main_option("sqlalchemy.url")
