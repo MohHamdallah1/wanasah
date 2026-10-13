@@ -6,6 +6,8 @@ on:
       - sol/representatives-audit-security-acceptance
     paths:
       - ".github/workflows/representatives-audit-security-acceptance.yml"
+      - "wa_backend/observability/http_errors.py"
+      - "wa_backend/tests/test_http_error_bcrypt_redaction.py"
       - "wa_backend/tests/test_representatives_audit_security_runtime_db.py"
 
 permissions:
@@ -53,9 +55,10 @@ jobs:
           python - <<'PY'
           import os
           import subprocess
-
           allowed = {
               ".github/workflows/representatives-audit-security-acceptance.yml",
+              "wa_backend/observability/http_errors.py",
+              "wa_backend/tests/test_http_error_bcrypt_redaction.py",
               "wa_backend/tests/test_representatives_audit_security_runtime_db.py",
           }
           changed = set(subprocess.check_output(
@@ -76,10 +79,7 @@ jobs:
           import os
           import psycopg
           from sqlalchemy.engine import make_url
-
-          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
-              drivername="postgresql"
-          ).render_as_string(hide_password=False)
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
           with psycopg.connect(dsn, autocommit=True) as conn:
               conn.execute(
                   "CREATE ROLE representatives_runtime LOGIN NOSUPERUSER "
@@ -99,6 +99,10 @@ jobs:
         working-directory: wa_backend
         run: python -m pytest -q tests/test_representatives_audit_security_runtime_db.py
 
+      - name: HTTP error secret-redaction regression
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_http_error_bcrypt_redaction.py
+
       - name: Focused Representative and session regressions
         working-directory: wa_backend
         run: >-
@@ -112,7 +116,13 @@ jobs:
 
       - name: Compile affected backend
         working-directory: wa_backend
-        run: python -m compileall -q domains/representatives api/representatives tests/test_representatives_audit_security_runtime_db.py
+        run: >-
+          python -m compileall -q
+          domains/representatives
+          api/representatives
+          observability/http_errors.py
+          tests/test_representatives_audit_security_runtime_db.py
+          tests/test_http_error_bcrypt_redaction.py
 
       - name: Diff whitespace gate
         run: git diff --check "$BASE_SHA" HEAD
@@ -122,9 +132,10 @@ jobs:
           python - <<'PY'
           import os
           import subprocess
-
           allowed = {
               ".github/workflows/representatives-audit-security-acceptance.yml",
+              "wa_backend/observability/http_errors.py",
+              "wa_backend/tests/test_http_error_bcrypt_redaction.py",
               "wa_backend/tests/test_representatives_audit_security_runtime_db.py",
           }
           changed = set(subprocess.check_output(
