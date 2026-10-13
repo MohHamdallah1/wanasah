@@ -220,8 +220,21 @@ The architecture gate must eventually define:
 
 ---
 
-## 5. DATA OWNERSHIP
+### Mandatory decomposition discipline for all new work
 
+This rule is binding for every new page, workflow, backend capability, and future extraction from legacy large files.
+
+- **Single Responsibility Principle is mandatory.** A function, hook, component, service, repository/query object, or router should own one cohesive responsibility. If a unit starts coordinating unrelated validation, persistence, authorization, UI state, lifecycle, credentials, reporting, and side effects, split those responsibilities behind explicit contracts instead of growing a god-function.
+- New pages/features must start in the **target modular structure**, not in a temporary mega-file that will need a full rewrite later. Page shells, feature submodules, contracts, data access, forms/actions, lifecycle commands, credentials, read models, and domain/application logic belong in their own responsibility-focused files/folders.
+- API/router files are transport adapters. They may validate transport shape, resolve canonical access context, call one application use case, and map errors/responses; they must not become the home of business workflows.
+- Query/read-model code must remain separate from mutation/state-transition code when the responsibilities differ materially. Credential operations, lifecycle transitions, persistence/query code, and UI orchestration must not be collapsed into one service/hook/component merely for convenience.
+- **Legacy mega-files are a shrinking compatibility surface, not an extension point.** New business logic must not be added to large legacy files such as `wa_backend/api/driver.py` or `wa_backend/api/dispatch.py`. If a new feature needs behavior currently buried there, extract the smallest cohesive seam into the correct owning module first, preserve the public route/transaction/lock semantics, and make the legacy file delegate to the extracted module. The touched legacy area should stay the same size or shrink in business responsibility; it must not grow.
+- Physical file movement alone is not considered architectural completion. Copy/pasting a long god-function into a new file may be an acceptable temporary behavior-preserving extraction step only when the active plan explicitly stages it that way; the final module boundary must still decompose materially different responsibilities instead of preserving a new mega-file under a different path.
+- Future Driver/Dispatch modularization follows incremental Strangler extraction: freeze behavior -> extract one cohesive seam -> verify -> merge -> continue. New Representatives/Vehicles work must build directly on the future target boundaries so that later Driver/Dispatch splitting removes legacy coupling rather than forcing another rewrite.
+- Review must reject any change that creates a new mega-file, god-hook, god-service, generic `shared.py` business dumping ground, or cross-domain shortcut even when the code is functionally correct.
+
+---
+## 5. DATA OWNERSHIP
 Each business concept has one authoritative owner.
 
 Examples:

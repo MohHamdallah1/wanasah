@@ -37,8 +37,86 @@
 
 ---
 
-# 1. Final page concept
+## 0.1 Frozen implementation structure — mandatory
 
+These decisions are approved architecture for this plan. Workers may not replace them with a simpler mega-file layout without lead approval.
+
+- [x] Single Responsibility Principle is mandatory for every backend function/service and every Dashboard component/hook.
+- [x] Representatives/Vehicles are built in their own first-class modules from day one; they are not appended to `driver.py`, `dispatch.py`, `OperationsDashboard.tsx`, or `DispatchBoard.tsx`.
+- [x] `driver.py` and `dispatch.py` are **shrinking compatibility surfaces**. Representatives/Vehicles work may add only thin delegation/wiring there when absolutely unavoidable. Any required business logic currently buried there must be extracted to the correct module rather than extended in place.
+- [x] No new god-function, mega-component, god-hook, generic `shared.py`, or cross-domain dumping module is permitted.
+- [x] Copy-paste-only relocation is not the final architecture. Behavior-preserving extraction may be staged, but long/multi-responsibility functions must ultimately be decomposed by responsibility under the Driver/Dispatch modularization plan.
+- [x] New Representatives/Vehicles modules are intentionally the **target architecture** that future Driver/Dispatch extraction will consume, so this work must reduce future refactor cost rather than create another one.
+
+### Frozen backend module ownership
+
+```text
+wa_backend/domains/representatives/
+  __init__.py
+  contracts.py        # public domain/application contracts only
+  repository.py       # representative-owned persistence/query primitives only
+  queries.py          # list/detail/search read models only
+  management.py       # create/update orchestration only
+  lifecycle.py        # deactivate/reactivate safety transitions only
+  credentials.py      # representative credential operations; delegates auth/identity authority
+
+wa_backend/api/representatives/
+  __init__.py         # aggregated router only
+  schemas.py          # HTTP request/response schemas only
+  read.py             # GET endpoints only
+  management.py       # create/update endpoints only
+  lifecycle.py        # deactivate/reactivate endpoints only
+  credentials.py      # credential-reset endpoint only
+```
+
+Identity remains authoritative for `CompanyPrincipal` credentials/session semantics. Representatives owns the Field Representative master-management use cases. Dispatch consumes representative contracts; it does not own Representative CRUD.
+
+### Frozen Dashboard module ownership
+
+```text
+dashboard/src/pages/representatives-vehicles/
+  RepresentativesVehiclesPage.tsx   # page shell/tabs only
+  representatives/
+    contracts.ts                     # view/API types only
+    api.ts                           # representative HTTP client only
+    useRepresentatives.ts            # list/query state only
+    RepresentativesTab.tsx           # tab composition only
+    RepresentativeTable.tsx          # list/table rendering only
+    RepresentativeForm.tsx           # create/edit form only
+    RepresentativeDrawer.tsx         # details/actions composition only
+    RepresentativeLifecycleActions.tsx
+    RepresentativeCredentialAction.tsx
+  vehicles/
+    VehiclesTabPlaceholder.tsx       # visible gated placeholder until Representatives acceptance
+```
+
+Exact filenames may change only by technical-lead approval when repository conventions prove a better equivalent; responsibility boundaries may not be collapsed.
+
+### Frozen V1 Representative capabilities
+
+All are company-scoped capabilities resolved through canonical Backoffice authorization:
+
+- [x] `representative.read` — list/detail/search.
+- [x] `representative.manage` — create/update/deactivate/reactivate.
+- [x] `representative.credentials.reset` — explicit credential reset.
+
+Company Owner receives these through canonical owner authority. Backoffice users receive them through Roles. Field Representatives never receive Dashboard management authority merely because they are field representatives.
+
+### Frozen V1 Representative HTTP surface
+
+- [x] `GET /representatives` — bounded cursor list/search/filter.
+- [x] `GET /representatives/{representative_id}` — detail.
+- [x] `POST /representatives` — create.
+- [x] `PATCH /representatives/{representative_id}` — update allowed profile fields.
+- [x] `POST /representatives/{representative_id}/deactivate` — lifecycle transition.
+- [x] `POST /representatives/{representative_id}/reactivate` — lifecycle transition.
+- [x] `POST /representatives/{representative_id}/credentials/reset` — explicit credential reset.
+- [x] No hard-delete route.
+
+List/detail use `representative.read`; create/update/lifecycle use `representative.manage`; reset uses `representative.credentials.reset`. Tenant authority always comes from the canonical Backoffice access context, never from a request body/query `company_id`.
+
+---
+# 1. Final page concept
 ## 1.1 Navigation
 
 Recommended current sidebar label:
@@ -149,11 +227,11 @@ Operational relationships remain owned by Dispatch/Inventory workflows.
 
 # 4. Representatives — capability and security model
 
-Proposed capability family; exact names must be finalized against the global permission catalog before migration/seed work:
+Capability names are frozen by section 0.1 and must be added to the canonical global permission catalog as company-scoped authorities:
 
-- [ ] representative read capability.
-- [ ] representative create/update/lifecycle management capability.
-- [ ] representative credential-reset capability if separated from general management.
+- [ ] `representative.read` wired and seeded/grantable.
+- [ ] `representative.manage` wired and seeded/grantable.
+- [ ] `representative.credentials.reset` wired and seeded/grantable.
 
 Rules:
 

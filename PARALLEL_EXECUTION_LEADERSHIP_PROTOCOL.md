@@ -1,4 +1,4 @@
-﻿# Wanasah Parallel Execution & Leadership Protocol
+# Wanasah Parallel Execution & Leadership Protocol
 
 **Status:** CANONICAL WORKFLOW
 **Purpose:** This file lets a new ChatGPT conversation immediately assume the project-lead role without the owner re-explaining the collaboration model.
@@ -182,8 +182,14 @@ Do not skip the owner and do not let the worker self-approve the decision.
 - Do not perform broad refactors solely for aesthetics during a bounded feature unless the active plan explicitly requires them.
 - Reuse one authoritative domain service instead of copying rules into Dashboard, Flutter, and multiple APIs.
 
-## 11. Testing philosophy
+### Permanent structure rule for new features and legacy seams
 
+- The lead freezes the target folder/file ownership before parallel implementation begins. Workers implement inside that structure; they do not invent alternate dumping files because they are faster.
+- Single Responsibility Principle outranks convenience: no worker may solve a bounded task by creating a large component, hook, router, service, or function that mixes materially different responsibilities.
+- New business logic must never enlarge a known legacy mega-file. When a required behavior currently lives inside a legacy mega-file, the assigned worker either consumes an existing clean seam or extracts the smallest cohesive seam into the approved target module while preserving behavior.
+- A worker must not perform a copy-paste-only relocation and call the architecture complete. A behavior-preserving move may be an intermediate extraction step only when the active plan explicitly permits it; the lead owns the later decomposition gate.
+- Reviews must check both correctness **and structural direction**: file placement, dependency direction, function responsibility, router thinness, domain ownership, and whether the change makes the future Modulith easier rather than harder to complete.
+## 11. Testing philosophy
 - Analyze code and identify the actual risk first.
 - Tests prove the implementation; they do not replace understanding the code.
 - Prefer focused, high-value tests over large blind suites.
