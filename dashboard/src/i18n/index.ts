@@ -6,6 +6,7 @@ import {
   supportedLanguages,
   type SupportedLanguage,
 } from "./resources";
+import { representativesVehicles } from "./representativesVehicles";
 import {
   resolveI18nLocale,
 } from "@/lib/locale";
@@ -36,6 +37,21 @@ void i18n.use(initReactI18next).init({
   },
   returnNull: false,
 });
+
+i18n.addResourceBundle(
+  "ar",
+  "translation",
+  { representativesVehicles: representativesVehicles.ar },
+  true,
+  true,
+);
+i18n.addResourceBundle(
+  "en",
+  "translation",
+  { representativesVehicles: representativesVehicles.en },
+  true,
+  true,
+);
 
 const applyDocumentLocale = (
   language: string
