@@ -16,13 +16,13 @@ jobs:
     timeout-minutes: 20
     env:
       VITE_API_URL: http://127.0.0.1:8000
-      TARGET_SHA: d7532fb2156e4001dfba297aadc646655c53ea80
+      TARGET_SHA: 64de085e3818ccd46a59355088a2b89fa36f86c0
       MAIN_SHA: 5b39474702e1a60347315e8c50cc08bb780a9ce2
     steps:
       - name: Checkout exact final code
         uses: actions/checkout@v4
         with:
-          ref: d7532fb2156e4001dfba297aadc646655c53ea80
+          ref: 64de085e3818ccd46a59355088a2b89fa36f86c0
           fetch-depth: 0
 
       - name: Verify exact checkout
