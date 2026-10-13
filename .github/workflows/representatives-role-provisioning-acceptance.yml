@@ -1,3 +1,4 @@
+# Temporary acceptance gate; remove after a fully green run.
 name: Representatives role provisioning acceptance
 
 on:
