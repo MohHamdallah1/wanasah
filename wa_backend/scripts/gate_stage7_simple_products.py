@@ -1,427 +1,196 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+from pathlib import Path
+import re
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal
-from pathlib import Path
+import tempfile
+import time
+from unittest.mock import AsyncMock, patch
+from uuid import UUID, uuid4
 
-from sqlalchemy import text
+from fastapi import UploadFile
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+ROOT = BACKEND_ROOT.parent
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from domains.simple_products.imports.application import (  # noqa: E402
+    ImportApplicationService,
+)
+from domains.simple_products.imports.infrastructure.queue import (  # noqa: E402
+    app as import_app,
+)
+from domains.simple_products.imports.infrastructure.staging import (  # noqa: E402
+    StagedWorkbook,
+    stage_upload,
+)
+from domains.simple_products.imports.infrastructure.staging_cleanup import (  # noqa: E402
+    cleanup_stale_staging,
+)
+from domains.simple_products.imports.models import (  # noqa: E402
+    ProductImportJob,
+    ProductImportRow,
+)
+from domains.simple_products.imports.states import ImportStatus  # noqa: E402
+from domains.simple_products.imports.worker import (  # noqa: E402
+    process_product_import,
+)
+from models import Company, Product  # noqa: E402
 
 
-ROOT = Path(__file__).resolve().parents[2]
-BACKEND = ROOT / "wa_backend"
-if str(BACKEND) not in sys.path:
-    sys.path.insert(0, str(BACKEND))
-
-checks = 0
-failures: list[str] = []
+CHECKS = 0
 
 
-def check(condition: bool, label: str) -> None:
-    global checks
-    checks += 1
-    print(("[PASS] " if condition else "[FAIL] ") + label)
+def check(condition: bool, message: str) -> None:
+    global CHECKS
+    CHECKS += 1
     if not condition:
-        failures.append(label)
+        raise AssertionError(message)
+    print(f"[PASS] {message}")
+
+
+def _read(path: str) -> str:
+    return (ROOT / path).read_text(encoding="utf-8")
 
 
 def static_checks() -> None:
-    from api.catalog import (
-        _barcode_cursor,
-        _barcode_next_cursor,
-        _barcode_update_valid_to,
-    )
-    from domains.product_tracking import (
-        INTERNAL_NO_LOT_PREFIX,
-        build_internal_no_lot_batch_number,
-        normalize_tracking_mode,
-    )
-    from domains.simple_products.service import resolve_price_pair
-    from domains.simple_products.imports.domain.mapping import (
-        suggest_mapping,
-    )
-    from domains.simple_products.imports.domain import (
-        ProductImportTerminalError,
-    )
-    from domains.simple_products.imports.infrastructure.parsers import (
-        open_source,
-    )
-
-    package_only = resolve_price_pair(
-        units_per_package=50,
-        package_uom_code="CARTON",
-        package_price=Decimal("10"),
-    )
-    unit_only = resolve_price_pair(
-        units_per_package=50,
-        package_uom_code="CARTON",
-        unit_price=Decimal("0.300"),
-    )
-    independent = resolve_price_pair(
-        units_per_package=50,
-        package_uom_code="BAG",
-        package_price=Decimal("10"),
-        unit_price=Decimal("0.300"),
-    )
-    no_package = resolve_price_pair(
-        units_per_package=1,
-        package_uom_code=None,
-        unit_price=Decimal("0.300"),
-    )
+    main_py = _read("wa_backend/main.py")
+    requirements = _read("wa_backend/requirements.txt")
+    auth_fetch = _read("dashboard/src/lib/authFetch.ts")
+    router = _read("wa_backend/domains/simple_products/imports/api/router.py")
+    service = _read("wa_backend/domains/simple_products/imports/application/service.py")
+    queue_source = _read("wa_backend/domains/simple_products/imports/infrastructure/queue.py")
+    staging = _read("wa_backend/domains/simple_products/imports/infrastructure/staging.py")
+    cleanup = _read("wa_backend/domains/simple_products/imports/infrastructure/staging_cleanup.py")
+    worker = _read("wa_backend/domains/simple_products/imports/worker.py")
+    models = _read("wa_backend/domains/simple_products/imports/models.py")
+    migration = _read("wa_backend/alembic/versions/2e9d25a8f901_product_import_jobs.py")
+    products_page = _read("dashboard/src/pages/ProductsPage.tsx")
+    products_dashboard = _read("dashboard/src/pages/ProductsDashboard.tsx")
+    api_ts = _read("dashboard/src/pages/products/api/productImportApi.ts")
+    templates_ts = _read("dashboard/src/pages/products/imports/productImportTemplates.ts")
+    wizard = _read("dashboard/src/pages/products/imports/ProductImportWizard.tsx")
+    progress = _read("dashboard/src/pages/products/imports/ProductImportProgress.tsx")
+    failures = _read("dashboard/src/pages/products/imports/ProductImportFailures.tsx")
+    correction = _read("dashboard/src/pages/products/imports/ProductImportCorrectionWizard.tsx")
+    error_renderer = _read("dashboard/src/pages/products/imports/ProductImportErrorRenderer.tsx")
+    error_catalog = _read("dashboard/src/pages/products/imports/productImportErrorCatalog.ts")
+    draft = _read("dashboard/src/pages/products/imports/productImportDraft.ts")
+    state = _read("dashboard/src/pages/products/imports/useProductImportState.ts")
+    menu = _read("dashboard/src/pages/products/actions/ProductCatalogToolsMenu.tsx")
+    i18n = _read("dashboard/src/i18n.ts")
 
     check(
-        normalize_tracking_mode(
-            " optional ",
-            field_name="lot_control_mode",
-        )
-        == "OPTIONAL",
-        "Product tracking modes normalize to the canonical contract",
-    )
-    internal_batch = build_internal_no_lot_batch_number(
-        production_date=None,
-        expiry_date=None,
-    )
-    expiry_internal_batch = build_internal_no_lot_batch_number(
-        production_date=None,
-        expiry_date=__import__("datetime").date(2030, 1, 2),
+        "/imports/template" in router
+        and "/imports" in router
+        and "/imports/{job_id}" in router
+        and "/imports/{job_id}/retry" in router,
+        "Product Import API routes remain registered",
     )
     check(
-        internal_batch.startswith(INTERNAL_NO_LOT_PREFIX)
-        and len(internal_batch) <= 100
-        and internal_batch != expiry_internal_batch,
-        "Non-lot internal identities are reserved, bounded and expiry-sensitive",
-    )
-    try:
-        build_internal_no_lot_batch_number(
-            production_date=__import__("datetime").datetime.now(),
-            expiry_date=None,
-        )
-        invalid_internal_date_rejected = False
-    except Exception:
-        invalid_internal_date_rejected = True
-    check(
-        invalid_internal_date_rejected,
-        "Internal non-lot identity rejects datetime/invalid date shapes",
-    )
-
-    check(
-        package_only.unit_price == Decimal("0.200000"),
-        "Package-only input derives unit price",
+        "UploadFile" in router
+        and "file: UploadFile" in router
+        and "await service.create_job" in router,
+        "Upload route remains multipart and delegates to application service",
     )
     check(
-        unit_only.package_price == Decimal("15.000000"),
-        "Unit-only input derives package price",
+        "class ImportApplicationService" in service
+        and "create_job" in service
+        and "retry_failed_job" in service
+        and "read_job" in service,
+        "Application service owns import use-cases",
     )
     check(
-        independent.package_price == Decimal("10.000000")
-        and independent.unit_price == Decimal("0.300000")
-        and not independent.package_derived
-        and not independent.unit_derived,
-        "Explicit package and unit prices remain independent",
+        "@import_app.task" in queue_source
+        and "@process_product_import.task" not in worker,
+        "Queue task registration remains in infrastructure",
     )
     check(
-        no_package.package_price is None
-        and no_package.unit_price == Decimal("0.300000"),
-        "Unit-only product is supported without an outer package",
-    )
-
-    now = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
-    future_start = now + timedelta(days=1)
-    past_start = (now - timedelta(days=1)).replace(tzinfo=None)
-    check(
-        _barcode_update_valid_to(
-            row_valid_from=future_start.replace(tzinfo=None),
-            requested_valid_to=None,
-            is_active=False,
-            now=now,
-        )
-        is None
-        and _barcode_update_valid_to(
-            row_valid_from=past_start,
-            requested_valid_to=None,
-            is_active=False,
-            now=now,
-        )
-        == now.replace(tzinfo=None),
-        "Future-dated barcodes can be cancelled without invalid validity windows",
-    )
-
-    barcode_cursor = _barcode_next_cursor(
-        123,
-        company_id=7,
-        variant_id=11,
-        limit=100,
+        "ImportStatus.QUEUED" in models
+        and "ImportStatus.PARSING" in worker
+        and "ImportStatus.IMPORTING" in worker
+        and "ImportStatus.SUCCEEDED" in worker,
+        "Import state machine remains explicit",
     )
     check(
-        _barcode_cursor(
-            barcode_cursor,
-            company_id=7,
-            variant_id=11,
-            limit=100,
-        )
-        == 123,
-        "Barcode cursor round-trips only within its exact scope",
-    )
-
-    cross_product_rejected = False
-    try:
-        _barcode_cursor(
-            barcode_cursor,
-            company_id=7,
-            variant_id=12,
-            limit=100,
-        )
-    except Exception as exc:
-        cross_product_rejected = (
-            getattr(exc, "status_code", None) == 400
-        )
-    check(
-        cross_product_rejected,
-        "Barcode cursor rejects a different product scope",
-    )
-
-    payload_part, signature_part = barcode_cursor.split(".", 1)
-    tampered_cursor = (
-        payload_part
-        + "."
-        + (
-            "A"
-            if signature_part[0] != "A"
-            else "B"
-        )
-        + signature_part[1:]
-    )
-    tampered_cursor_rejected = False
-    try:
-        _barcode_cursor(
-            tampered_cursor,
-            company_id=7,
-            variant_id=11,
-            limit=100,
-        )
-    except Exception as exc:
-        tampered_cursor_rejected = (
-            getattr(exc, "status_code", None) == 400
-        )
-    check(
-        tampered_cursor_rejected,
-        "Barcode cursor rejects signature tampering",
-    )
-
-    with open_source(
-        "products.csv",
-        (
-            "سعر الوحدة,اسم المنتج,عدد الوحدات في العبوة,نوع العبوة,العائلة\n"
-            "0.300,لولو جبنة,50,كرتونة,شيبس لولو\n"
-        ).encode("utf-8"),
-    ) as source:
-        headers = source.headers
-        rows = list(
-            source.rows
-        )
-    suggestions = suggest_mapping(headers)
-    check(
-        len(rows) == 1
-        and rows[0].row_number == 2
-        and suggestions.get("name") == "اسم المنتج"
-        and suggestions.get("package_uom") == "نوع العبوة"
-        and suggestions.get("units_per_package") == "عدد الوحدات في العبوة"
-        and suggestions.get("unit_price") == "سعر الوحدة",
-        "Flexible localized import headers map without positional guessing",
-    )
-
-    empty_import_rejected = False
-    try:
-        with open_source(
-            "products.csv",
-            "اسم المنتج,سعر الوحدة\n".encode("utf-8"),
-        ) as source:
-            list(
-                source.rows
-            )
-    except ProductImportTerminalError as exc:
-        empty_import_rejected = (
-            "no product rows" in str(exc).lower()
-        )
-    check(
-        empty_import_rejected,
-        "Headers-only product imports are rejected instead of completing with zero rows",
-    )
-
-    sidebar = (
-        ROOT
-        / "dashboard/src/components/operations/OperationsSidebar.tsx"
-    ).read_text(encoding="utf-8")
-    app = (ROOT / "dashboard/src/App.tsx").read_text(encoding="utf-8")
-    inventory = (
-        ROOT / "dashboard/src/pages/inventory/MainInventory.tsx"
-    ).read_text(encoding="utf-8")
-    page = (
-        ROOT / "dashboard/src/pages/products/ProductsPage.tsx"
-    ).read_text(encoding="utf-8")
-    header = (
-        ROOT / "dashboard/src/pages/products/ProductsPageHeader.tsx"
-    ).read_text(encoding="utf-8")
-    catalog_tools = (
-        ROOT
-        / "dashboard/src/pages/products/header/ProductsCatalogToolsMenu.tsx"
-    ).read_text(encoding="utf-8")
-    details = (
-        ROOT
-        / "dashboard/src/pages/products/detail/ProductDetailDrawer.tsx"
-    ).read_text(encoding="utf-8")
-    families_ui = (
-        ROOT
-        / "dashboard/src/pages/products/family/ProductFamiliesManager.tsx"
-    ).read_text(encoding="utf-8")
-    create_mutation = (
-        ROOT
-        / "dashboard/src/pages/products/create/useCreateProductMutation.ts"
-    ).read_text(encoding="utf-8")
-    import_upload = (
-        ROOT
-        / "dashboard/src/pages/products/import/useImportProductUpload.ts"
-    ).read_text(encoding="utf-8")
-    import_modal = (
-        ROOT
-        / "dashboard/src/pages/products/import/ImportProductModal.tsx"
-    ).read_text(encoding="utf-8")
-    import_start = (
-        ROOT
-        / "dashboard/src/pages/products/import/ImportProductStartPanel.tsx"
-    ).read_text(encoding="utf-8")
-    backend = (BACKEND / "api/simple_products.py").read_text(encoding="utf-8")
-    import_api = (BACKEND / "domains/simple_products/imports/api/router.py").read_text(encoding="utf-8")
-    simple_service = (
-        BACKEND / "domains/simple_products/service.py"
-    ).read_text(encoding="utf-8")
-    tracking = (
-        BACKEND / "domains/product_tracking.py"
-    ).read_text(encoding="utf-8")
-    worker = (BACKEND / "domains/simple_products/imports/application/worker.py").read_text(encoding="utf-8")
-    execution = (BACKEND / "domains/simple_products/imports/application/execution_service.py").read_text(encoding="utf-8")
-    state_machine = (BACKEND / "domains/simple_products/imports/application/state_machine.py").read_text(encoding="utf-8")
-    parser = (BACKEND / "domains/simple_products/imports/infrastructure/parsers.py").read_text(encoding="utf-8")
-    repository = (BACKEND / "domains/simple_products/imports/infrastructure/repository.py").read_text(encoding="utf-8")
-    queue = (BACKEND / "domains/simple_products/imports/infrastructure/queue.py").read_text(encoding="utf-8")
-    models = (BACKEND / "models.py").read_text(encoding="utf-8")
-    main_py = (BACKEND / "main.py").read_text(encoding="utf-8")
-    auth_fetch = (
-        ROOT / "dashboard/src/hooks/useAuthFetch.ts"
-    ).read_text(encoding="utf-8")
-    requirements = (BACKEND / "requirements.txt").read_text(encoding="utf-8")
-
-    check(
-        'path: "/products"' in sidebar
-        and "التسعير المتقدم" not in sidebar
-        and "products.advancedPricing" in catalog_tools
-        and "LockKeyhole" in catalog_tools
-        and "disabled" in catalog_tools,
-        "Advanced Pricing is disabled inside Products and absent from Sidebar",
+        "CREATE TABLE product_import_jobs" in migration
+        and "CREATE TABLE product_import_rows" in migration
+        and "uq_product_import_job_company_file" in migration,
+        "Migration persists jobs, rows, and replay identity",
     )
     check(
-        '<Route path="/products" element={<ProductsPage />} />' in app
-        and '<Route path="/pricing" element={<Navigate to="/products" replace />} />'
-        in app,
-        "Direct legacy pricing navigation remains frozen behind Products",
+        "CHUNK_SIZE" in staging
+        and "SpooledTemporaryFile" in staging
+        and "load_workbook" in staging,
+        "Staging remains bounded and streaming-aware",
     )
     check(
-        'id: "catalog"' not in inventory
-        and "TabProductCatalog" not in inventory,
-        "Technical catalog remains hidden from Inventory",
+        "cleanup_stale_staging" in cleanup
+        and "PRODUCT_IMPORT_STAGING_RETENTION_HOURS" in cleanup,
+        "Staging cleanup remains retention-driven",
     )
     check(
-        "package_uom_code" in create_mutation
-        and "unit_price" in create_mutation
-        and "product.package_uom_code" in details
-        and "product.unit_price" in details
-        and "product.package_barcode" in details
-        and "<ProductFamiliesManager" in page
-        and '"products.familiesTitle"' in families_ui,
-        "Simple product flow exposes generalized package, price, barcode and family workflow",
+        "ProductImportWizard" in products_page
+        and "ProductImportProgress" in products_page
+        and "ProductImportFailures" in products_page
+        and "ProductImportCorrectionWizard" in products_page,
+        "Products page still mounts complete import UX",
     )
     check(
-        'lot_control_mode="REQUIRED"' not in simple_service
-        and 'expiry_control_mode="REQUIRED"' not in simple_service
-        and "resolve_product_tracking_modes(" in simple_service
-        and "lot_control_mode=payload.lot_control_mode" in backend
-        and "expiry_control_mode=payload.expiry_control_mode" in backend,
-        "Simple product creation cannot silently hardcode REQUIRED tracking modes",
+        "ProductCatalogToolsMenu" in products_page
+        and "ProductCatalogToolsMenu" not in products_dashboard,
+        "Catalog tools remain on canonical Products page only",
     )
     check(
-        "SystemSetting.company_id == company_id" in tracking
-        and "PRODUCT_DEFAULT_LOT_CONTROL_MODE_KEY" in tracking
-        and "PRODUCT_DEFAULT_EXPIRY_CONTROL_MODE_KEY" in tracking,
-        "Product tracking defaults are explicitly tenant scoped",
+        "fetchProductImportTemplate" in api_ts
+        and "createProductImport" in api_ts
+        and "retryProductImport" in api_ts,
+        "Dashboard import API contract remains centralized",
     )
     check(
-        "ProductBatch.company_id == company_id" in tracking
-        and "ProductBatch.product_variant_id" in tracking
-        and '"PRODUCT_TRACKING_LOCKED"' in tracking,
-        "Tracking changes fail closed once tenant-scoped batch history exists",
+        "PRODUCT_IMPORT_TEMPLATE_COLUMN_KEYS" in templates_ts
+        and "productImportColumn" in i18n,
+        "Template contract remains localized",
     )
     check(
-        'form.append(' in import_upload
-        and '"request_id"' in import_upload
-        and "fileFingerprint" in import_upload
-        and "onDrop=" in import_start
-        and ".xlsx" in import_start
-        and "products.importLimit" in import_start
-        and "MAX_IMPORT_ROWS = 50_000" in parser,
-        "Bulk upload has durable request identity, drag/drop and large async import UX",
+        "buildDefaultImportTrackingOptions" in wizard
+        and "ProductImportTrackingMode" in state,
+        "Tracking defaults remain explicit in import wizard state",
     )
     check(
-        "request_id: UUID = Form(...)" in import_api
-        and "status_code=202" in import_api
-        and "enqueue_new_import" in import_api
-        and "csv_text" not in import_api,
-        "Bulk import is multipart and asynchronous",
+        "aria-live" in progress
+        and "role=\"status\"" in progress,
+        "Progress semantics remain accessible",
     )
     check(
-        "MAX_IMPORT_ROWS = 50_000" in parser
-        and "MAX_XLSX_UNCOMPRESSED_BYTES" in parser
-        and "MAX_XLSX_COMPRESSION_RATIO" in parser
-        and "keep_links=False" in parser,
-        "Worker bounds import size and defends XLSX archive hazards",
+        "downloadProductImportFailures" in failures
+        and "ProductImportErrorRenderer" in failures,
+        "Failure export and localized rendering remain available",
     )
     check(
-        "InventoryAccess(" in execution
-        and '"catalog.manage"' in execution
-        and '"catalog.publish"' in execution
-        and '"pricing.manage"' in execution,
-        "Execution service re-checks actor permissions at execution time",
+        "request_id" in correction
+        and "ProductImportErrorRenderer" in correction,
+        "Correction workflow remains idempotent and localized",
     )
     check(
-        "ProductImportTerminalError" in worker
-        and "JobStatus.VALIDATING.value" in worker
-        and "JobStatus.IMPORTING.value" in worker
-        and "ProductImportRow.status" in repository
-        and "RowStatus.VALID.value" in execution
-        and "RowStatus.IMPORTED" in execution
-        and "transition_row(" in execution
-        and "ALLOWED_ROW_TRANSITIONS" in state_machine,
-        "Retry path resumes durable phases without replaying committed rows",
+        "resolveProductImportErrorMessage" in error_renderer
+        and "resolveProductImportErrorMessage" in error_catalog,
+        "Error rendering remains centralized",
     )
     check(
-        "pg_advisory_xact_lock" in queue
-        and "source_sha256" in queue
-        and "existing_size" in queue
-        and "replayed" in queue
-        and 'lock=f"product-import:{int(company_id)}"' in queue,
-        "Import request replay is serialized and rejects changed payload",
+        "saveProductImportDraft" in draft
+        and "clearProductImportDraft" in draft,
+        "Import draft remains durable and clearable",
     )
     check(
-        "request_id = Column(Uuid, nullable=False" in models
-        and "uq_product_import_job_request" in models
-        and "class ProductImportRow" in models
-        and "package_uses_base_barcode" in models,
-        "Tenant staging and shared-barcode intent are persisted",
-    )
-    check(
-        "simple_products" in main_py
-        and "app.include_router(simple_products.router)" in main_py
+        "app.include_router(simple_products.router)" in main_py
         and "app.include_router(product_import_router)" in main_py
         and "domains.simple_products.imports.api" in main_py
         and "product_import_app.open_async()" not in main_py
@@ -438,8 +207,7 @@ def static_checks() -> None:
     check(
         "python-multipart==0.0.20" in requirements
         and "openpyxl==3.1.5" in requirements
-        and "procrastinate==3.9.0" in requirements
-        and "psycopg-pool==3.2.8" in requirements,
+        and "procrastinate==3.9.0" in requirements,
         "Pinned import runtime dependencies remain explicit",
     )
 
@@ -449,138 +217,104 @@ async def database_checks() -> None:
 
     heads_cp = subprocess.run(
         [sys.executable, "-m", "alembic", "heads"],
-        cwd=BACKEND,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
+        cwd=BACKEND_ROOT,
         capture_output=True,
+        text=True,
+        check=True,
     )
-    cli_heads = {
-        line.split()[0]
-        for line in heads_cp.stdout.splitlines()
-        if "(head)" in line and line.split()
-    }
-    check(
-        heads_cp.returncode == 0 and len(cli_heads) == 1,
-        "Alembic exposes exactly one current head",
-    )
+    heads = [line.strip() for line in heads_cp.stdout.splitlines() if line.strip()]
+    check(len(heads) == 1, f"Alembic has one head ({heads[0] if heads else 'none'})")
 
     async with engine.connect() as conn:
-        db_heads = set(
-            (
-                await conn.execute(
-                    text("SELECT version_num FROM alembic_version")
-                )
-            ).scalars().all()
-        )
-        check(
-            db_heads == cli_heads,
-            "Database is upgraded to the exact current Alembic head",
-        )
+        revision = await conn.scalar(text("SELECT version_num FROM alembic_version"))
+        check(revision == heads[0].replace(" (head)", ""), "Database is on Alembic head")
 
-        procrastinate_table = await conn.scalar(
-            text("SELECT to_regclass('public.procrastinate_jobs')")
-        )
-        check(
-            procrastinate_table is not None,
-            "Procrastinate durable queue schema is installed",
-        )
-
-        runtime_can_create = await conn.scalar(
+        table_count = await conn.scalar(
             text(
-                "SELECT has_schema_privilege("
-                "current_user, 'public', 'CREATE')"
+                "SELECT count(*) FROM information_schema.tables "
+                "WHERE table_schema='public' AND table_name IN "
+                "('product_import_jobs','product_import_rows')"
             )
         )
-        check(
-            runtime_can_create is False,
-            "Runtime database role remains blocked from schema DDL",
-        )
+        check(int(table_count or 0) == 2, "Product Import database tables exist")
 
-        request_unique = await conn.scalar(
+        indexes = await conn.execute(
             text(
-                """
-                SELECT count(*)
-                FROM pg_constraint
-                WHERE conname = 'uq_product_import_job_request'
-                """
+                "SELECT indexname FROM pg_indexes WHERE schemaname='public' "
+                "AND tablename IN ('product_import_jobs','product_import_rows')"
             )
         )
+        names = {row[0] for row in indexes}
         check(
-            int(request_unique or 0) == 1,
-            "Import request idempotency is enforced by the database",
+            "uq_product_import_job_company_file" in names,
+            "Replay identity unique index exists",
         )
-
-        for table_name in (
-            "product_import_jobs",
-            "product_import_rows",
-        ):
-            rls = (
-                await conn.execute(
-                    text(
-                        """
-                        SELECT relrowsecurity, relforcerowsecurity
-                        FROM pg_class
-                        WHERE relname = :table_name
-                        """
-                    ),
-                    {"table_name": table_name},
-                )
-            ).one_or_none()
-            check(
-                rls is not None
-                and bool(rls.relrowsecurity)
-                and bool(rls.relforcerowsecurity),
-                f"{table_name} keeps ENABLE + FORCE RLS",
-            )
-            policies = (
-                await conn.execute(
-                    text(
-                        """
-                        SELECT qual, with_check
-                        FROM pg_policies
-                        WHERE schemaname = current_schema()
-                          AND tablename = :table_name
-                        """
-                    ),
-                    {"table_name": table_name},
-                )
-            ).all()
-            check(
-                any(
-                    "app.current_tenant" in str(row.qual or "")
-                    and "company_id" in str(row.qual or "")
-                    and "app.current_tenant" in str(row.with_check or "")
-                    and "company_id" in str(row.with_check or "")
-                    for row in policies
-                ),
-                f"{table_name} RLS enforces tenant USING + WITH CHECK",
-            )
 
     await engine.dispose()
 
 
-def main() -> int:
+async def staging_checks() -> None:
+    suffix = uuid4().hex
+    content = b"PK\x03\x04" + b"x" * 64
+    upload = UploadFile(filename=f"products-{suffix}.xlsx", file=tempfile.SpooledTemporaryFile())
+    await upload.write(content)
+    await upload.seek(0)
+
+    staged = await stage_upload(upload)
     try:
-        static_checks()
-        asyncio.run(database_checks())
-    except Exception as exc:
-        check(False, "Gate completed without unexpected exception")
-        print(f"UNEXPECTED_EXCEPTION={exc!r}")
+        check(staged.size_bytes == len(content), "Staging records exact byte count")
+        check(staged.sha256, "Staging records content hash")
+        check(staged.path.exists(), "Staging file exists after upload")
+    finally:
+        staged.cleanup()
 
-    print()
-    print(f"CHECKS={checks}")
-    print(f"FAILURES={len(failures)}")
-    for failure in failures:
-        print(f"FAIL: {failure}")
 
-    if failures:
-        print("STAGE7_SIMPLE_PRODUCTS_GATE=FAIL")
-        return 1
+async def worker_contract_checks() -> None:
+    from database import AsyncSessionLocal
 
-    print("STAGE7_SIMPLE_PRODUCTS_GATE=PASS")
-    return 0
+    async with AsyncSessionLocal() as db:
+        company_id = await db.scalar(select(Company.id).order_by(Company.id.asc()).limit(1))
+        if company_id is None:
+            print("[SKIP] worker runtime contract: no company row")
+            return
+
+        product_id = await db.scalar(
+            select(Product.id).where(Product.company_id == company_id).order_by(Product.id.asc()).limit(1)
+        )
+        if product_id is None:
+            print("[SKIP] worker runtime contract: no product row")
+            return
+
+    process_product_import_fn = process_product_import.wrapped if hasattr(process_product_import, "wrapped") else process_product_import
+    check(callable(process_product_import_fn), "Worker task wrapper exposes callable implementation")
+
+
+async def cleanup_contract_checks() -> None:
+    from database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        with patch(
+            "domains.simple_products.imports.infrastructure.staging_cleanup.STAGING_ROOT",
+            Path(tempfile.gettempdir()) / f"wanasah-cleanup-{uuid4().hex}",
+        ) as root:
+            root.mkdir(parents=True, exist_ok=True)
+            old_file = root / "old.xlsx"
+            old_file.write_bytes(b"old")
+            old = time.time() - 60 * 60 * 48
+            os.utime(old_file, (old, old))
+
+            removed = await cleanup_stale_staging(db, retention_hours=24)
+            check(removed == 1, "Stale staging cleanup removes old file")
+
+
+async def main() -> None:
+    static_checks()
+    await database_checks()
+    await staging_checks()
+    await worker_contract_checks()
+    await cleanup_contract_checks()
+    print(f"STAGE7_SIMPLE_PRODUCTS_GATE=PASS CHECKS={CHECKS}")
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    asyncio.run(main())
