@@ -1,4 +1,4 @@
-name: Temporary representatives credit policy final gate
+name: Temporary representatives credit policy plan update
 
 on:
   push:
@@ -8,180 +8,44 @@ on:
       - ".github/workflows/representatives-credit-policy-inspect-temp.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  backend-credit-policy:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: representatives_credit_gate
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d representatives_credit_gate"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      TARGET_SHA: d6f120c14b6d265a770d68cfcffea815918cd9ea
-      BASE_SHA: 4ead45c05ced5a004d766ec5b3bcd7ea6a74ad12
-      SECRET_KEY: WanasahCreditPolicyGate2026StrongSecret123456789
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/representatives_credit_gate
-      DATABASE_URL_MIGRATION: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/representatives_credit_gate
-      WANASAH_REPRESENTATIVE_CREDIT_DB_GATE: "1"
-      WEB_CONCURRENCY: "1"
-      DB_POOL_SIZE: "2"
-      DB_MAX_OVERFLOW: "0"
-      DB_APP_CONNECTION_BUDGET: "20"
-    steps:
-      - name: Checkout exact production source
-        uses: actions/checkout@v4
-        with:
-          ref: d6f120c14b6d265a770d68cfcffea815918cd9ea
-          fetch-depth: 0
-      - name: Verify source ancestry
-        run: |
-          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
-          git merge-base --is-ancestor "$BASE_SHA" "$TARGET_SHA"
-          test -z "$(git status --porcelain)"
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: wa_backend/requirements.txt
-      - name: Install backend test dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r wa_backend/requirements.txt pytest pytest-asyncio httpx psycopg-pool
-      - name: Focused PostgreSQL credit policy matrix
-        working-directory: wa_backend
-        run: python -m pytest -q tests/test_representative_credit_policy_runtime_db.py
-      - name: Affected Representatives backend regressions
-        working-directory: wa_backend
-        run: >-
-          python -m pytest -q
-          tests/test_representatives_contract.py
-          tests/test_representatives_management_idempotency_symmetry.py
-      - name: Backend compileall
-        run: python -m compileall -q wa_backend
-      - name: Financial authority source invariants
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          source = Path('wa_backend/services.py').read_text(encoding='utf-8')
-          start = source.index('async def check_debt_limits(')
-          end = source.index('\nclass InventoryMutationError', start)
-          block = source[start:end]
-          checks = {
-              'no legacy Driver financial query': 'select(Driver)' not in block,
-              'no legacy Driver credit flag authority': 'Driver.can_allow_debt' not in block and 'driver.can_allow_debt' not in block,
-              'no legacy Driver limit authority': 'driver.max_debt_limit' not in block,
-              'FIELD_ONLY mapping required': 'IdentityLegacyDriverMap.classification == "FIELD_ONLY"' in block,
-              'canonical representative permission': 'representative.can_allow_debt' in block,
-              'canonical representative per-sale limit': 'representative.max_debt_limit' in block,
-              'active canonical principal': 'CompanyPrincipal.is_active.is_(True)' in block,
-              'shop row locked': '.with_for_update()' in block,
-              'cash bypass only for zero debt': 'if new_debt == Decimal("0")' in block,
-              'no float money conversion': 'float(' not in block,
-          }
-          for name, ok in checks.items():
-              print(f'{name}: {"PASS" if ok else "FAIL"}')
-              assert ok, name
-          PY
-      - name: Backend whitespace gate
-        run: git diff --check "$BASE_SHA" "$TARGET_SHA"
-
-  dashboard:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    env:
-      TARGET_SHA: d6f120c14b6d265a770d68cfcffea815918cd9ea
-      BASE_SHA: 4ead45c05ced5a004d766ec5b3bcd7ea6a74ad12
-    steps:
-      - name: Checkout exact production source
-        uses: actions/checkout@v4
-        with:
-          ref: d6f120c14b6d265a770d68cfcffea815918cd9ea
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: dashboard/package-lock.json
-      - name: Install dashboard dependencies
-        working-directory: dashboard
-        run: npm ci
-      - name: Representatives focused tests
-        working-directory: dashboard
-        run: npx vitest run src/pages/representatives-vehicles
-      - name: Affected ESLint
-        working-directory: dashboard
-        run: >-
-          npx eslint
-          src/pages/representatives-vehicles
-          src/i18n/representativesVehicles.ts
-      - name: Extract TypeScript baseline from base
-        run: |
-          mkdir -p baseline
-          git archive --format=tar --output=/tmp/dashboard-base.tar "$BASE_SHA" dashboard
-          tar -xf /tmp/dashboard-base.tar -C baseline
-      - name: TypeScript baseline comparison
-        working-directory: dashboard
-        run: node scripts/check-types-against-baseline.mjs ../baseline/dashboard
-      - name: Production Vite build
-        working-directory: dashboard
-        run: npm run build
-      - name: Dashboard semantic source checks
-        run: |
-          grep -F 'السماح بالبيع بالذمم' dashboard/src/i18n/representativesVehicles.ts
-          grep -F 'حد الذمم لكل عملية بيع' dashboard/src/i18n/representativesVehicles.ts
-          grep -F 'Per-sale credit limit' dashboard/src/i18n/representativesVehicles.ts
-          ! grep -qi 'daily credit limit' dashboard/src/i18n/representativesVehicles.ts
-          grep -F '<colgroup>' dashboard/src/pages/representatives-vehicles/representatives/RepresentativeTable.tsx
-          grep -F 'table-fixed' dashboard/src/pages/representatives-vehicles/representatives/RepresentativeTable.tsx
-          grep -F 'creditAllowed' dashboard/src/pages/representatives-vehicles/representatives/RepresentativeTable.tsx
-          python - <<'PY'
-          from pathlib import Path
-          page = Path('dashboard/src/pages/representatives-vehicles/RepresentativesVehiclesPage.tsx').read_text()
-          top = page.index('<WorkspaceTopBar')
-          tabs = page.index('role="tablist"')
-          close = page.index('</WorkspaceTopBar>')
-          assert top < tabs < close
-          assert 'disabled' in page[tabs:close]
-          PY
-      - name: Dashboard whitespace gate
-        run: git diff --check "$BASE_SHA" "$TARGET_SHA"
-
-  scope:
+  document:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    env:
-      TARGET_SHA: d6f120c14b6d265a770d68cfcffea815918cd9ea
-      BASE_SHA: 4ead45c05ced5a004d766ec5b3bcd7ea6a74ad12
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: d6f120c14b6d265a770d68cfcffea815918cd9ea
+          ref: sol/representatives-credit-policy-ui-finalization
           fetch-depth: 0
-      - name: Scope gate
+      - name: Document frozen proven credit semantics
         shell: bash
         run: |
           set -euo pipefail
-          changed="$(git diff --name-only "$BASE_SHA" "$TARGET_SHA")"
-          printf '%s\n' "$changed"
-          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(wa_backend/services\.py|wa_backend/tests/test_representative_credit_policy_runtime_db\.py|dashboard/src/i18n/representativesVehicles\.ts|dashboard/src/pages/representatives-vehicles/RepresentativesVehiclesPage\.tsx|dashboard/src/pages/representatives-vehicles/RepresentativesVehiclesPage\.test\.tsx|dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm\.tsx|dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm\.test\.tsx|dashboard/src/pages/representatives-vehicles/representatives/RepresentativeTable\.tsx|dashboard/src/pages/representatives-vehicles/representatives/RepresentativeTable\.test\.tsx)$' || true)"
-          if [ -n "$unexpected" ]; then
-            echo "Unexpected files:"
-            echo "$unexpected"
-            exit 1
-          fi
-          ! printf '%s\n' "$changed" | grep -E '^wanasah_frontend/'
-          ! printf '%s\n' "$changed" | grep -E '/vehicles/'
-          ! printf '%s\n' "$changed" | grep -E '^wa_backend/(api/driver\.py|api/dispatch\.py|alembic/)'
-          echo CREDIT_POLICY_SCOPE=PASS
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('REPRESENTATIVES_VEHICLES_V1_PLAN.md')
+          source = path.read_text(encoding='utf-8')
+          marker = '''- [x] Representative audit/security acceptance merged; mutation audit atomicity, replay behavior, tenant isolation, secret redaction, and bcrypt traceback redaction are proven.\n\nStill pending before Representatives owner-complete gate:\n'''
+          replacement = '''- [x] Representative audit/security acceptance merged; mutation audit atomicity, replay behavior, tenant isolation, secret redaction, and bcrypt traceback redaction are proven.\n\nFinal Representative credit-policy closure validated on the acceptance branch (pending merge):\n\n- [x] `FieldRepresentative.can_allow_debt` is the authoritative switch for whether a Representative may create any new credit sale.\n- [x] `FieldRepresentative.max_debt_limit` is the maximum **new credit amount in one sale transaction**; it is not daily, monthly, cumulative, or auto-resetting.\n- [x] `Shop.max_debt_limit` remains the independent **cumulative outstanding receivable ceiling** for that Shop.\n- [x] Every new-credit decision requires **both** the canonical Representative guard and the locked current Shop guard to pass.\n- [x] Credit policy has **no daily reset**; persisted canonical Representative policy is re-read for each new-credit decision so disable/limit changes take effect on the next attempt without FIELD re-login.\n- [x] Legacy `Driver.id` is only an operational locator through the company-scoped `FIELD_ONLY` mapping; legacy Driver credit flags/limits are not financial-policy authority.\n\nStill pending before Representatives owner-complete gate:\n'''
+          if marker not in source:
+              raise SystemExit('plan insertion marker not found')
+          source = source.replace(marker, replacement, 1)
+          path.write_text(source, encoding='utf-8')
+          PY
+          grep -F 'maximum **new credit amount in one sale transaction**' REPRESENTATIVES_VEHICLES_V1_PLAN.md
+          grep -F 'cumulative outstanding receivable ceiling' REPRESENTATIVES_VEHICLES_V1_PLAN.md
+          grep -F 'no daily reset' REPRESENTATIVES_VEHICLES_V1_PLAN.md
+          grep -F 'OWNER UI ACCEPTANCE PENDING; VEHICLES NOT STARTED' REPRESENTATIVES_VEHICLES_V1_PLAN.md
+          grep -F 'Vehicles implementation — **NOT STARTED**' REPRESENTATIVES_VEHICLES_V1_PLAN.md
+          git diff --check
+      - name: Commit plan update
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add REPRESENTATIVES_VEHICLES_V1_PLAN.md
+          git commit -m "docs: freeze representative credit policy semantics"
+          git push origin HEAD:sol/representatives-credit-policy-ui-finalization
