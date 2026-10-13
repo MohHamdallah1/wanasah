@@ -65,7 +65,6 @@ export function RepresentativeDrawer({
         representativeErrorMessage(
           error,
           t("representativesVehicles.representatives.saveFailed"),
-          t,
         ),
       );
     } finally {
@@ -95,7 +94,6 @@ export function RepresentativeDrawer({
                 {representativeErrorMessage(
                   detail.error,
                   t("representativesVehicles.representatives.detailFailed"),
-                  t,
                 )}
               </p>
               <button
