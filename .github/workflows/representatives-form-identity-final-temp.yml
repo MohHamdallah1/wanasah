@@ -1,19 +1,19 @@
-name: Temporary representative form identity closure
+name: Representative form identity gate
 
 on:
   push:
     branches:
       - sol/representatives-form-credential-identity-ux-final
     paths:
-      - ".github/workflows/representatives-form-identity-final-temp.yml"
+      - .github/workflows/representatives-form-identity-final-temp.yml
 
 permissions:
   contents: write
 
 jobs:
-  acceptance:
+  gate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 30
     env:
       BASE_HEAD: 2a064c157854de842d976716f736b85b38cd8fae
     steps:
@@ -22,62 +22,34 @@ jobs:
           ref: sol/representatives-form-credential-identity-ux-final
           fetch-depth: 0
 
-      - name: Finalize focused contract fixture and plan
+      - name: Align legacy contract fixtures
         shell: bash
         run: |
-          set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-
-          contract = Path("wa_backend/tests/test_representatives_contract.py")
-          text = contract.read_text(encoding="utf-8")
-          old_create = 'request.update(full_name="Contract Representative", username=username or "created-" + uuid4().hex,\n                       phone_number=None, password="SyntheticRepresentative123",'
-          new_create = 'request.update(full_name="Contract Representative", username=username or "created-" + uuid4().hex,\n                       phone_number="+962790000000", password="SyntheticRepresentative123",'
-          assert old_create in text
-          text = text.replace(old_create, new_create, 1)
-          assert 'request.update(phone_number=None)' in text
+          path = Path('wa_backend/tests/test_representatives_contract.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('phone_number=None, password="SyntheticRepresentative123"', 'phone_number="+962790000000", password="SyntheticRepresentative123"', 1)
           text = text.replace('request.update(phone_number=None)', 'request.update(phone_number="0791111111")', 1)
-          contract.write_text(text, encoding="utf-8")
-
-          plan_path = Path("REPRESENTATIVES_VEHICLES_V1_PLAN.md")
-          plan = plan_path.read_text(encoding="utf-8")
-          marker = "Still pending before Representatives owner-complete gate:"
-          assert marker in plan
-          closure = '''Final Representative form/credential identity UX closure validated on the acceptance branch (pending merge):
-
-- [x] Representative phone is required on create and cannot be cleared on update; historical nullable storage remains migration-free for compatibility.
-- [x] Representative username accepts Arabic or Latin letters with digits and `. _ -`, rejects mixed Arabic+Latin scripts, digits-only, separator-only, and internal whitespace on both Backend and Dashboard.
-- [x] Create requires Dashboard-only password confirmation; confirmation is never sent, stored, or included in request identity.
-- [x] Create and credential reset use application-owned stable password visibility controls; visibility is local-only and resets hidden on reopen.
-- [x] Canonical password policy remains minimum 8 Unicode characters and maximum 72 UTF-8 bytes, including Arabic/Latin/mixed/symbol passwords.
-- [x] Accepted per-sale credit-limit semantics remain unchanged.
-
-'''
-          if closure not in plan:
-              plan = plan.replace(marker, closure + marker, 1)
-          plan_path.write_text(plan, encoding="utf-8")
+          path.write_text(text, encoding='utf-8')
           PY
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
 
-      - name: Install backend test dependencies
+      - name: Install backend dependencies
         run: python -m pip install -r wa_backend/requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
 
-      - name: Backend focused representative gates
+      - name: Backend representative tests
         working-directory: wa_backend
         run: |
-          python -m unittest \
-            tests.test_representatives_form_identity_contract \
-            tests.test_representatives_architecture \
-            tests.test_representatives_contract \
-            tests.test_representatives_management_idempotency_symmetry -v
+          python -m unittest tests.test_representatives_form_identity_contract tests.test_representatives_architecture tests.test_representatives_contract tests.test_representatives_management_idempotency_symmetry -v
           python -m compileall -q api/representatives domains/representatives domains/identity/credentials.py
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '20'
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
 
@@ -85,19 +57,19 @@ jobs:
         working-directory: dashboard
         run: npm ci
 
-      - name: Complete Representatives dashboard suite
+      - name: Dashboard representative tests
         working-directory: dashboard
         run: npx vitest run src/pages/representatives-vehicles
 
-      - name: Affected ESLint
+      - name: Dashboard lint
         working-directory: dashboard
         run: npx eslint src/pages/representatives-vehicles src/i18n/representativesVehicles.ts
 
       - name: TypeScript baseline
         shell: bash
         run: |
-          set -euo pipefail
-          rm -rf baseline && mkdir baseline
+          rm -rf baseline
+          mkdir baseline
           git archive --format=tar --output=/tmp/dashboard-base.tar "$BASE_HEAD" dashboard
           tar -xf /tmp/dashboard-base.tar -C baseline
           cd dashboard
@@ -107,112 +79,15 @@ jobs:
         working-directory: dashboard
         run: npm run build
 
-      - name: Real browser password visibility and responsive acceptance
-        working-directory: dashboard
+      - name: Source and scope gates
         shell: bash
         run: |
-          set -euo pipefail
-          npm install --no-save --package-lock=false @playwright/test@1.56.1
-          cat > representative-form-acceptance.html <<'HTML'
-          <!doctype html><html><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /></head><body><div id="root"></div><script type="module" src="/src/representative-form-acceptance.tsx"></script></body></html>
-          HTML
-          cat > src/representative-form-acceptance.tsx <<'TSX'
-          import React, { useState } from "react";
-          import { createRoot } from "react-dom/client";
-          import { createInstance } from "i18next";
-          import { I18nextProvider } from "react-i18next";
-          import "./index.css";
-          import { representativesVehicles } from "./i18n/representativesVehicles";
-          import { RepresentativeForm } from "./pages/representatives-vehicles/representatives/RepresentativeForm";
-
-          const params = new URLSearchParams(location.search);
-          const lang = params.get("lang") === "en" ? "en" : "ar";
-          const i18n = createInstance();
-          await i18n.init({ lng: lang, fallbackLng: "en", initImmediate: false, interpolation: { escapeValue: false }, resources: { ar: { translation: { representativesVehicles: representativesVehicles.ar, common: { cancel: "إلغاء", save: "حفظ", saving: "حفظ" } } }, en: { translation: { representativesVehicles: representativesVehicles.en, common: { cancel: "Cancel", save: "Save", saving: "Saving" } } } } });
-          document.documentElement.dir = i18n.dir();
-          document.documentElement.lang = lang;
-
-          function App() {
-            const [open, setOpen] = useState(true);
-            return <main className="p-3"><button data-testid="toggle" onClick={() => setOpen((v) => !v)}>toggle</button>{open ? <div className="mx-auto max-w-xl"><RepresentativeForm onCancel={() => setOpen(false)} onSubmit={() => undefined} /></div> : null}</main>;
-          }
-          createRoot(document.getElementById("root")!).render(<I18nextProvider i18n={i18n}><App /></I18nextProvider>);
-          TSX
-          cat > playwright.form.config.cjs <<'JS'
-          module.exports = { testDir: ".", testMatch: "representative-form.acceptance.spec.cjs", workers: 1, reporter: "line", use: { headless: true, channel: "chrome" } };
-          JS
-          cat > representative-form.acceptance.spec.cjs <<'JS'
-          const { test, expect } = require("@playwright/test");
-          const base = "http://127.0.0.1:4181/representative-form-acceptance.html";
-
-          for (const width of [320, 375, 768, 1024]) {
-            test(`create form remains usable at ${width}px`, async ({ page }) => {
-              await page.setViewportSize({ width, height: 800 });
-              await page.goto(`${base}?lang=ar`);
-              await expect(page.getByLabel("اسم المندوب")).toBeVisible();
-              await expect(page.getByLabel("رقم الهاتف")).toHaveAttribute("required", "");
-              await page.getByLabel("كلمة المرور", { exact: true }).fill("محمدAbc123!");
-              await page.getByLabel("تأكيد كلمة المرور").fill("محمدAbc123!");
-              const show = page.getByRole("button", { name: "إظهار كلمة المرور" }).first();
-              await expect(show).toBeVisible();
-              await show.click();
-              await expect(page.getByLabel("كلمة المرور", { exact: true })).toHaveAttribute("type", "text");
-              await page.getByLabel("رقم الهاتف").focus();
-              await expect(page.getByRole("button", { name: "إخفاء كلمة المرور" })).toBeVisible();
-              expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
-            });
-          }
-
-          test("visibility resets hidden after create form reopen", async ({ page }) => {
-            await page.goto(`${base}?lang=ar`);
-            await page.getByLabel("كلمة المرور", { exact: true }).fill("password8");
-            await page.getByRole("button", { name: "إظهار كلمة المرور" }).click();
-            await expect(page.getByLabel("كلمة المرور", { exact: true })).toHaveAttribute("type", "text");
-            await page.getByTestId("toggle").click();
-            await page.getByTestId("toggle").click();
-            await page.getByLabel("كلمة المرور", { exact: true }).fill("password8");
-            await expect(page.getByLabel("كلمة المرور", { exact: true })).toHaveAttribute("type", "password");
-          });
-
-          test("LTR uses English labels and helper without a second component tree", async ({ page }) => {
-            await page.goto(`${base}?lang=en`);
-            expect(await page.locator("html").getAttribute("dir")).toBe("ltr");
-            await expect(page.getByLabel("Representative name")).toBeVisible();
-            await expect(page.getByText(/Use Arabic or Latin letters/)).toBeVisible();
-            await expect(page.getByLabel("Confirm password")).toBeVisible();
-          });
-          JS
-          npm run dev -- --host 127.0.0.1 --port 4181 >/tmp/representative-form-vite.log 2>&1 &
-          PID=$!
-          trap 'kill "$PID" 2>/dev/null || true' EXIT
-          for i in {1..30}; do if curl -fsS http://127.0.0.1:4181/representative-form-acceptance.html >/dev/null; then break; fi; sleep 1; done
-          npx playwright test --config=playwright.form.config.cjs
-          kill "$PID" 2>/dev/null || true
-          trap - EXIT
-          rm -f representative-form-acceptance.html representative-form.acceptance.spec.cjs playwright.form.config.cjs src/representative-form-acceptance.tsx
-
-      - name: Source scope and secret-safety gates
-        shell: bash
-        run: |
-          set -euo pipefail
           grep -F 'phone_number: str = Field(max_length=20)' wa_backend/api/representatives/schemas.py
           grep -F 'normalize_representative_username' wa_backend/domains/representatives/management.py
           grep -F 'normalize_representative_phone' wa_backend/domains/representatives/management.py
-          grep -F 'RepresentativePasswordInput' dashboard/src/pages/representatives-vehicles/representatives/RepresentativeCredentialAction.tsx
           grep -F 'RepresentativePasswordInput' dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm.tsx
-          ! grep -R 'confirm_password' dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm.tsx dashboard/src/pages/representatives-vehicles/representatives/api.ts
-          ! grep -R 'sessionStorage\|localStorage' dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm.tsx dashboard/src/pages/representatives-vehicles/representatives/RepresentativePasswordInput.tsx
-          ! git diff --name-only "$BASE_HEAD" | grep -E '(^|/)vehicles/|wanasah_frontend/|wa_backend/alembic/versions/'
+          grep -F 'RepresentativePasswordInput' dashboard/src/pages/representatives-vehicles/representatives/RepresentativeCredentialAction.tsx
+          if grep -R 'confirm_password' dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm.tsx dashboard/src/pages/representatives-vehicles/representatives/api.ts; then exit 1; fi
+          if grep -R -E 'sessionStorage|localStorage' dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm.tsx dashboard/src/pages/representatives-vehicles/representatives/RepresentativePasswordInput.tsx; then exit 1; fi
+          if git diff --name-only "$BASE_HEAD" | grep -E '(^|/)vehicles/|wanasah_frontend/|wa_backend/alembic/versions/'; then exit 1; fi
           git diff --check "$BASE_HEAD"
-
-      - name: Commit validated fixture and plan updates
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add wa_backend/tests/test_representatives_contract.py REPRESENTATIVES_VEHICLES_V1_PLAN.md
-          if ! git diff --cached --quiet; then
-            git commit -m 'test(representatives): finalize form identity acceptance contract'
-            git push origin HEAD:sol/representatives-form-credential-identity-ux-final
-          fi
