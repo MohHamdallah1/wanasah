@@ -320,6 +320,7 @@ async def seed_reconciled_session(gate, *, company_index, driver_id, settled=Fal
         session = WorkSession(
             company_id=company.id,
             driver_id=driver_id,
+            start_time=now,
             end_time=now,
             inventory_reconciled_at=now,
             inventory_reconciled_by=owner_driver_id,
@@ -621,8 +622,12 @@ async def test_database_backed_deactivation_blocker_matrix(gate):
     rep, _ = await create_rep(gate)
     state = await identity_state(gate, company.id, rep["id"])
     async with AsyncSession(gate.engine) as db:
+        now = utc_now()
         db.add(WorkSession(
-            company_id=company.id, driver_id=state.driver_id, end_time=utc_now()
+            company_id=company.id,
+            driver_id=state.driver_id,
+            start_time=now,
+            end_time=now,
         ))
         await db.commit()
     await assert_deactivate_blocked(gate, rep["id"])
