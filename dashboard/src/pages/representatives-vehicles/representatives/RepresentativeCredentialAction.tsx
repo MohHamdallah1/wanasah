@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { KeyRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -9,7 +9,20 @@ import { apiErrorMessage } from "@/lib/apiErrors";
 import { resetRepresentativeCredentials } from "./api";
 import type { Representative } from "./contracts";
 
-export function RepresentativeCredentialAction({ representative }: { representative: Representative }) {
+type PendingCredentialOperation = {
+  fingerprint: string;
+  requestId: string;
+};
+
+interface RepresentativeCredentialActionProps {
+  representative: Representative;
+  allowed: boolean;
+}
+
+export function RepresentativeCredentialAction({
+  representative,
+  allowed,
+}: RepresentativeCredentialActionProps) {
   const { t } = useTranslation();
   const authFetch = useAuthFetch();
   const [open, setOpen] = useState(false);
@@ -17,8 +30,10 @@ export function RepresentativeCredentialAction({ representative }: { representat
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [validation, setValidation] = useState("");
+  const operation = useRef<PendingCredentialOperation | null>(null);
 
   const resetFields = () => {
+    operation.current = null;
     setPassword("");
     setConfirmPassword("");
     setValidation("");
@@ -28,6 +43,14 @@ export function RepresentativeCredentialAction({ representative }: { representat
     if (busy) return;
     setOpen(false);
     resetFields();
+  };
+
+  const requestIdForPassword = (value: string) => {
+    const fingerprint = value;
+    if (!operation.current || operation.current.fingerprint !== fingerprint) {
+      operation.current = { fingerprint, requestId: crypto.randomUUID() };
+    }
+    return operation.current.requestId;
   };
 
   const run = async () => {
@@ -43,7 +66,12 @@ export function RepresentativeCredentialAction({ representative }: { representat
     setValidation("");
     setBusy(true);
     try {
-      await resetRepresentativeCredentials(authFetch, representative.id, password);
+      await resetRepresentativeCredentials(
+        authFetch,
+        representative.id,
+        password,
+        requestIdForPassword(password),
+      );
       toast.success(t("representativesVehicles.representatives.credentials.success"));
       setOpen(false);
       resetFields();
@@ -60,10 +88,21 @@ export function RepresentativeCredentialAction({ representative }: { representat
     <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
       <h3 className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.credentials.title")}</h3>
       <p className="mt-1 text-[11px] font-semibold leading-5 text-slate-500">{t("representativesVehicles.representatives.credentials.hint")}</p>
-      <button type="button" onClick={() => setOpen(true)} className="mt-2 inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
+      <button
+        type="button"
+        disabled={!allowed}
+        onClick={() => allowed && setOpen(true)}
+        aria-describedby={!allowed ? "representative-credentials-blocked" : undefined}
+        className="mt-2 inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
+      >
         <KeyRound className="h-4 w-4" />
         {t("representativesVehicles.representatives.credentials.reset")}
       </button>
+      {!allowed ? (
+        <p id="representative-credentials-blocked" className="mt-2 text-[11px] font-semibold leading-5 text-slate-500">
+          {t("representativesVehicles.representatives.permissions.credentialsRequired")}
+        </p>
+      ) : null}
       <Modal
         isOpen={open}
         onClose={close}
