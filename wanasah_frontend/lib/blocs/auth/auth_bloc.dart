@@ -37,6 +37,57 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     await _storage.delete(key: _offlineOwnerCompanyKey);
   }
 
+  Future<void> _writeOfflineOwnerMarker({
+    required String companyCode,
+    required int driverId,
+  }) async {
+    await _storage.write(
+      key: _offlineOwnerDriverKey,
+      value: driverId.toString(),
+    );
+    await _storage.write(key: _offlineOwnerCompanyKey, value: companyCode);
+  }
+
+  Future<List<Map<String, dynamic>>> _readPendingSyncsForCompany(
+    String companyCode,
+  ) async {
+    await LocalDatabase.instance.setTenant(companyCode);
+    return LocalDatabase.instance.getPendingSyncs();
+  }
+
+  Future<void> _revokeRejectedLoginSession(String refreshToken) async {
+    try {
+      await ApiClient.instance.post(
+        '/logout',
+        options: Options(headers: {'X-Refresh-Token': refreshToken}),
+      );
+      developer.log(
+        '[AuthBloc] Login → Rejected post-auth session revoked best-effort.',
+      );
+    } catch (e) {
+      developer.log(
+        '[AuthBloc] Login → Rejected post-auth session cleanup failed; local session remains unpersisted: $e',
+      );
+    }
+  }
+
+  String _offlineOwnerBlockMessage(OfflineOwnerLoginOutcome outcome) {
+    switch (outcome) {
+      case OfflineOwnerLoginOutcome.blockDifferentDriverSameCompany:
+        return 'مرفوض مالياً: توجد عمليات أوفلاين غير متزامنة تخص مندوباً آخر في هذه الشركة. يجب على المندوب صاحب العمليات مزامنتها أو معالجتها عبر مسار الاسترداد المعتمد قبل تسجيل الدخول بهذا الحساب.';
+      case OfflineOwnerLoginOutcome.blockDifferentCompany:
+        return 'مرفوض مالياً: توجد عمليات أوفلاين غير متزامنة محفوظة لشركة أخرى. يجب مزامنتها أو معالجتها من حسابها الأصلي قبل التبديل إلى شركة أخرى.';
+      case OfflineOwnerLoginOutcome.blockUnattributedPending:
+        return 'مرفوض مالياً: توجد عمليات أوفلاين غير متزامنة لا يمكن إثبات مالكها بأمان. يجب معالجتها عبر مسار الاسترداد المعتمد قبل تسجيل الدخول.';
+      case OfflineOwnerLoginOutcome.blockPendingInspectionFailure:
+        return 'تعذر التحقق من ملكية العمليات الأوفلاين بأمان. لم يتم تسجيل الدخول ولم تُحذف أي عمليات. حاول مجدداً أو استخدم مسار الاسترداد المعتمد.';
+      case OfflineOwnerLoginOutcome.allowNoPendingOwner:
+      case OfflineOwnerLoginOutcome.allowSameOwner:
+      case OfflineOwnerLoginOutcome.allowStaleOwner:
+        return 'تعذر إكمال تسجيل الدخول بأمان.';
+    }
+  }
+
   Future<void> _captureOfflineOwnerBeforeLogout() async {
     final driverId = await _storage.read(key: 'driver_id');
     final companyCode = await _storage.read(key: 'company_code');
@@ -50,16 +101,11 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
     try {
       final pending = await LocalDatabase.instance.getPendingSyncs();
-      final activePending =
-          pending
-              .where((p) => !p['type'].toString().startsWith('quarantined_'))
-              .toList();
-      if (activePending.isNotEmpty) {
-        await _storage.write(
-          key: _offlineOwnerDriverKey,
-          value: parsedDriverId.toString(),
+      if (hasActivePendingSyncs(pending)) {
+        await _writeOfflineOwnerMarker(
+          companyCode: companyCode,
+          driverId: parsedDriverId,
         );
-        await _storage.write(key: _offlineOwnerCompanyKey, value: companyCode);
         developer.log(
           '[AuthBloc] Logout → Preserved offline queue owner (driverId=$parsedDriverId, Tenant=$companyCode).',
         );
@@ -74,11 +120,10 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       // Fail closed: if local inspection is unavailable while a current field
       // identity exists, retain its locator so a later different account cannot
       // silently replay this tenant's queue.
-      await _storage.write(
-        key: _offlineOwnerDriverKey,
-        value: parsedDriverId.toString(),
+      await _writeOfflineOwnerMarker(
+        companyCode: companyCode,
+        driverId: parsedDriverId,
       );
-      await _storage.write(key: _offlineOwnerCompanyKey, value: companyCode);
       developer.log(
         '[AuthBloc] Logout → Pending inspection failed; owner retained defensively: $e',
       );
@@ -188,85 +233,81 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       final String? offlineOwnerCompanyCode = await _storage.read(
         key: _offlineOwnerCompanyKey,
       );
-      final offlineOwnerDecision = classifyOfflineOwnerLogin(
-        ownerCompanyCode: offlineOwnerCompanyCode,
-        ownerDriverId: offlineOwnerDriverId,
+
+      final markerDriverId = int.tryParse(offlineOwnerDriverId?.trim() ?? '');
+      final markerCompanyCode = offlineOwnerCompanyCode?.trim();
+      final hasValidMarker = markerDriverId != null &&
+          markerDriverId > 0 &&
+          markerCompanyCode != null &&
+          markerCompanyCode.isNotEmpty;
+      final previousDriverId = int.tryParse(oldDriverId?.trim() ?? '');
+      final previousCompanyCode = oldCompanyCode?.trim();
+      final hasValidPreviousOwner = previousDriverId != null &&
+          previousDriverId > 0 &&
+          previousCompanyCode != null &&
+          previousCompanyCode.isNotEmpty;
+
+      final String? protectedOwnerCompanyCode = hasValidMarker
+          ? markerCompanyCode
+          : (hasValidPreviousOwner ? previousCompanyCode : null);
+      final int? protectedOwnerDriverId = hasValidMarker
+          ? markerDriverId
+          : (hasValidPreviousOwner ? previousDriverId : null);
+
+      final offlineGuard = await evaluateOfflineOwnerLoginSafety(
+        ownerCompanyCode: protectedOwnerCompanyCode,
+        ownerDriverId: protectedOwnerDriverId?.toString(),
         returnedCompanyCode: returnedCompanyCode,
         returnedDriverId: driverId,
+        returnedRefreshToken: refreshToken,
+        readPendingSyncs: _readPendingSyncsForCompany,
+        revokeRejectedRefresh: _revokeRejectedLoginSession,
       );
 
-      if (offlineOwnerDecision == OfflineOwnerLoginDecision.differentCompany) {
+      if (!offlineGuard.allowsLogin) {
+        if (protectedOwnerCompanyCode != null &&
+            protectedOwnerCompanyCode.isNotEmpty &&
+            protectedOwnerDriverId != null &&
+            protectedOwnerDriverId > 0) {
+          try {
+            await _writeOfflineOwnerMarker(
+              companyCode: protectedOwnerCompanyCode,
+              driverId: protectedOwnerDriverId,
+            );
+          } catch (e) {
+            developer.log(
+              '[AuthBloc] Login → Failed to refresh offline owner marker while keeping login blocked: $e',
+            );
+          }
+        }
         developer.log(
-          '[AuthBloc] Login → Blocked: preserved offline queue belongs to another company ($offlineOwnerCompanyCode).',
+          '[AuthBloc] Login → Blocked by offline financial ownership guard: ${offlineGuard.outcome}.',
         );
-        emit(
-          AuthError(
-            message:
-                'مرفوض مالياً: توجد عمليات أوفلاين محفوظة للشركة السابقة. سجّل الدخول للحساب السابق وارفعها أولاً.',
-          ),
-        );
+        emit(AuthError(message: _offlineOwnerBlockMessage(offlineGuard.outcome)));
         return;
       }
 
-      if (oldCompanyCode != null &&
-          oldCompanyCode.isNotEmpty &&
-          oldCompanyCode != returnedCompanyCode) {
-        try {
-          final pending = await LocalDatabase.instance.getPendingSyncs();
-          final activePending =
-              pending
-                  .where(
-                    (p) => !p['type'].toString().startsWith('quarantined_'),
-                  )
-                  .toList();
-          if (activePending.isNotEmpty) {
-            developer.log(
-              '[AuthBloc] Login → Aborted: Active pending syncs found for old company ($oldCompanyCode).',
-            );
-            emit(
-              AuthError(
-                message:
-                    'مرفوض مالياً: يرجى استكمال مزامنة فواتير الأوفلاين للشركة السابقة قبل التبديل لشركة أخرى لحماية مبيعاتك.',
-              ),
-            );
-            return;
-          }
-        } catch (e) {
-          developer.log(
-            '[AuthBloc] Login → Ignored DB error during pending sync check: $e',
-          );
-        }
+      if (offlineGuard.shouldClearStaleMarker) {
+        await _clearOfflineOwnerMarker();
       }
 
       await LocalDatabase.instance.setTenant(returnedCompanyCode);
 
-      bool needToClearCache = false;
-      if (offlineOwnerDecision ==
-          OfflineOwnerLoginDecision.differentDriverSameCompany) {
-        developer.log(
-          '[AuthBloc] Login → Different driver owns preserved offline queue ($offlineOwnerDriverId → $driverId). Wiping legacy data.',
-        );
-        await LocalDatabase.instance.clearSessionData(clearPendingSyncs: true);
-        await _clearOfflineOwnerMarker();
-        needToClearCache = true;
-      } else if (oldCompanyCode != null &&
-          oldCompanyCode != returnedCompanyCode) {
-        developer.log(
-          '[AuthBloc] Login → Switched to different company ($oldCompanyCode → $returnedCompanyCode). DB isolated.',
-        );
-        needToClearCache = true;
-      } else if (offlineOwnerDecision == OfflineOwnerLoginDecision.noOwner &&
-          oldDriverId != null &&
-          oldDriverId.isNotEmpty &&
-          oldDriverId != driverId.toString()) {
-        developer.log(
-          '[AuthBloc] Login → Different driver for same company ($oldDriverId → $driverId). Wiping legacy data.',
-        );
-        await LocalDatabase.instance.clearSessionData(clearPendingSyncs: true);
-        needToClearCache = true;
-      }
+      final switchedCompany = oldCompanyCode != null &&
+          oldCompanyCode.isNotEmpty &&
+          oldCompanyCode != returnedCompanyCode;
+      final switchedDriverSameCompany = previousDriverId != null &&
+          previousDriverId > 0 &&
+          oldCompanyCode == returnedCompanyCode &&
+          previousDriverId != driverId;
+      final needToClearCache = switchedCompany || switchedDriverSameCompany;
 
       if (needToClearCache) {
+        // Financial safety invariant: authentication/account switching never
+        // deletes pending_sync. This call re-checks active pending work and
+        // skips cache clearing if any appeared after the ownership guard.
+        await LocalDatabase.instance.clearSessionData(clearPendingSyncs: false);
+
         final allKeys = await _storage.readAll();
         for (final k in allKeys.keys) {
           if (k.startsWith('cached_') ||
@@ -277,11 +318,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         }
       }
 
+      // Persist the returned session only after the offline ownership guard has
+      // accepted it. A blocked post-auth response therefore never becomes the
+      // locally active session.
       await _storage.write(key: 'company_code', value: returnedCompanyCode);
       await _storage.write(key: 'auth_token', value: token);
       await _storage.write(key: 'refresh_token', value: refreshToken);
       await _storage.write(key: 'driver_id', value: driverId.toString());
-      if (offlineOwnerDecision == OfflineOwnerLoginDecision.sameOwner) {
+      if (offlineGuard.shouldClearMarkerAfterAcceptedSession) {
         await _clearOfflineOwnerMarker();
       }
 
