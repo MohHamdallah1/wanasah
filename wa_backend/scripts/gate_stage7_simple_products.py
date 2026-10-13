@@ -424,8 +424,10 @@ def static_checks() -> None:
         and "app.include_router(simple_products.router)" in main_py
         and "app.include_router(product_import_router)" in main_py
         and "domains.simple_products.imports.api" in main_py
-        and "product_import_app.open_async()" in main_py,
-        "API and queue connector remain registered in application lifecycle",
+        and "product_import_app.open_async()" not in main_py
+        and "product_import_event_relay.start()" in main_py
+        and "worker_event_relay.start()" in main_py,
+        "API stays registered while Product Import pool ownership remains worker-only",
     )
     check(
         "isFormData" in auth_fetch
@@ -444,8 +446,11 @@ def static_checks() -> None:
 async def database_checks() -> None:
     from database import engine
 
+    alembic_cli = Path(sys.executable).with_name(
+        "alembic.exe" if sys.platform == "win32" else "alembic"
+    )
     heads_cp = subprocess.run(
-        [sys.executable, "-m", "alembic", "heads"],
+        [str(alembic_cli), "heads"],
         cwd=BACKEND,
         text=True,
         encoding="utf-8",
