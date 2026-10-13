@@ -1,37 +1,50 @@
 from __future__ import annotations
 
-import asyncio
-import bcrypt
+from config import Config
+from domains.identity.credentials import (
+    CompanyCredentialValidationError,
+    hash_company_password,
+    sensitive_value_fingerprint,
+    validate_company_password,
+)
 
 from .contracts import RepresentativeError
 
 
-MIN_PASSWORD_LENGTH = 8
-MAX_BCRYPT_PASSWORD_BYTES = 72
+_CREATE_PASSWORD_FINGERPRINT_PURPOSE = "representative-create-password"
+
+
+def _map_credential_error(exc: CompanyCredentialValidationError) -> RepresentativeError:
+    return RepresentativeError(
+        f"REPRESENTATIVE_{exc.code}",
+        exc.message,
+        status_code=422,
+    )
 
 
 def validate_initial_password(password: str) -> str:
-    if not isinstance(password, str) or len(password) < MIN_PASSWORD_LENGTH:
-        raise RepresentativeError(
-            "REPRESENTATIVE_PASSWORD_TOO_SHORT",
-            "Password must contain at least 8 characters.",
-            status_code=422,
-        )
-    if len(password.encode("utf-8")) > MAX_BCRYPT_PASSWORD_BYTES:
-        raise RepresentativeError(
-            "REPRESENTATIVE_PASSWORD_TOO_LONG",
-            "Password exceeds the supported bcrypt byte limit.",
-            status_code=422,
-        )
-    return password
+    """Delegate password policy to canonical Identity credential infrastructure."""
+    try:
+        return validate_company_password(password)
+    except CompanyCredentialValidationError as exc:
+        raise _map_credential_error(exc) from None
 
 
 async def hash_initial_password(password: str) -> str:
+    """Delegate canonical bcrypt hashing to Identity."""
+    try:
+        return await hash_company_password(password)
+    except CompanyCredentialValidationError as exc:
+        raise _map_credential_error(exc) from None
+
+
+def fingerprint_initial_password(password: str) -> str:
+    """Return only a keyed password fingerprint for create idempotency identity."""
     safe_password = validate_initial_password(password)
-    return await asyncio.to_thread(
-        lambda: bcrypt.hashpw(
-            safe_password.encode("utf-8"), bcrypt.gensalt()
-        ).decode("utf-8")
+    return sensitive_value_fingerprint(
+        safe_password,
+        purpose=_CREATE_PASSWORD_FINGERPRINT_PURPOSE,
+        secret=Config.SECRET_KEY,
     )
 
 
@@ -41,12 +54,13 @@ class RepresentativeCredentialResetDecisionRequired(RuntimeError):
 
 async def reset_representative_credentials(*args, **kwargs):
     raise RepresentativeCredentialResetDecisionRequired(
-        "Credential reset is blocked until auth_revision/session-revocation semantics are frozen."
+        "Credential reset remains blocked until the lifecycle/integration worker freezes reset semantics."
     )
 
 
 __all__ = [
     "RepresentativeCredentialResetDecisionRequired",
+    "fingerprint_initial_password",
     "hash_initial_password",
     "reset_representative_credentials",
     "validate_initial_password",
