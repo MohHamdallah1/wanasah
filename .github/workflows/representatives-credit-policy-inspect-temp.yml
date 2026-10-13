@@ -1,0 +1,37 @@
+name: Temporary representatives credit policy inspection
+
+on:
+  push:
+    branches:
+      - sol/representatives-credit-policy-ui-finalization
+    paths:
+      - ".github/workflows/representatives-credit-policy-inspect-temp.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Inspect backend seam and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== CHECK DEBT FUNCTION LINE ==='
+          grep -n "async def check_debt_limits" wa_backend/services.py
+          line="$(grep -n "async def check_debt_limits" wa_backend/services.py | cut -d: -f1)"
+          start=$((line-15)); end=$((line+115))
+          sed -n "${start},${end}p" wa_backend/services.py
+          echo '=== DEBT TEST REFERENCES ==='
+          grep -R -n "check_debt_limits\|new_debt_amount\|can_allow_debt" wa_backend/tests | head -n 160 || true
+          echo '=== IDENTITY LEGACY MAP MODEL ==='
+          grep -R -n "class IdentityLegacyDriverMap" wa_backend | head -n 10 || true
+          echo '=== DASHBOARD RELEVANT TEST FILES ==='
+          find dashboard/src/pages/representatives-vehicles -type f \( -name '*test.tsx' -o -name '*test.ts' \) | sort
+          echo '=== TABLE TEST REFERENCES ==='
+          grep -R -n "RepresentativeTable\|debtPermission\|debtLimit" dashboard/src/pages/representatives-vehicles dashboard/src/i18n/representativesVehicles.ts | head -n 160 || true
