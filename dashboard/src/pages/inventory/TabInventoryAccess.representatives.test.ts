@@ -1,12 +1,12 @@
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 import { representativesVehicles } from "@/i18n/representativesVehicles";
 
 const source = readFileSync(
-  fileURLToPath(new URL("./TabInventoryAccess.tsx", import.meta.url)),
+  resolve(process.cwd(), "src/pages/inventory/TabInventoryAccess.tsx"),
   "utf8",
 );
 
