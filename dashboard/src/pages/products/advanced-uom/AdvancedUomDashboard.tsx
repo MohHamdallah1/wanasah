@@ -202,8 +202,8 @@ export default function AdvancedUomDashboard() {
 
   const companyId =
     access.data?.company_id ?? null;
-  const driverId =
-    access.data?.driver_id ?? null;
+  const backofficeUserId =
+    access.data?.backoffice_user_id ?? null;
   const canRead =
     access.isCompanyOwner ||
     access.canAny("catalog.read");
@@ -445,7 +445,7 @@ export default function AdvancedUomDashboard() {
       selectedVariant.lifecycle_status !==
         "DRAFT" ||
       companyId === null ||
-      driverId === null ||
+      backofficeUserId === null ||
       !conversionsQuery.isSuccess
     ) {
       return () => {
@@ -458,7 +458,7 @@ export default function AdvancedUomDashboard() {
         const createScope =
           durableScope(
             companyId,
-            driverId,
+            backofficeUserId,
             "catalog-uom-conversion-create",
             selectedVariant.id,
           );
@@ -506,7 +506,7 @@ export default function AdvancedUomDashboard() {
           const scope =
             durableScope(
               companyId,
-              driverId,
+              backofficeUserId,
               "catalog-uom-conversion-update",
               conversion.id,
             );
@@ -593,7 +593,7 @@ export default function AdvancedUomDashboard() {
     companyId,
     conversionsQuery.data,
     conversionsQuery.isSuccess,
-    driverId,
+    backofficeUserId,
     selectedVariant,
     t,
   ]);
@@ -604,7 +604,7 @@ export default function AdvancedUomDashboard() {
   ) => {
     if (
       companyId === null ||
-      driverId === null
+      backofficeUserId === null
     ) {
       throw new Error(
         "IDENTITY_NOT_READY",
@@ -612,7 +612,7 @@ export default function AdvancedUomDashboard() {
     }
     return durableScope(
       companyId,
-      driverId,
+      backofficeUserId,
       operation,
       target,
     );
@@ -758,7 +758,7 @@ export default function AdvancedUomDashboard() {
         );
         const command =
           pendingUpdate?.conversionId ===
-            editing.id
+          editing.id
             ? pendingUpdate.command
             : await getOrCreateDurableCommand(
                 scope,
@@ -773,7 +773,7 @@ export default function AdvancedUomDashboard() {
           const result =
             parseConversionMutation(
               await authFetch(
-                `/catalog/conversions/${editing.id}`,
+                `/catalog/variants/${selectedVariant.id}/conversions/${editing.id}`,
                 {
                   method: "PATCH",
                   body: JSON.stringify({
@@ -822,8 +822,8 @@ export default function AdvancedUomDashboard() {
             "products.advancedUom.saved",
           ),
         );
-        setDraft(EMPTY_DRAFT);
         setEditing(null);
+        setDraft(EMPTY_DRAFT);
         await refreshConversions();
       },
       onError: (error) =>
@@ -837,1005 +837,629 @@ export default function AdvancedUomDashboard() {
         ),
     });
 
-  const selectVariant = (
-    id: number,
-  ) => {
-    const next =
-      new URLSearchParams(
-        searchParams,
-      );
-    next.set(
-      "variant",
-      String(id),
-    );
-    setSearchParams(next);
-  };
-
-  const clearSelection = () => {
-    const next =
-      new URLSearchParams(
-        searchParams,
-      );
-    next.delete("variant");
-    setSearchParams(next);
-  };
-
-  const editConversion = (
-    item: UomConversion,
-  ) => {
+  const startCreate = () => {
     if (
+      pendingBlocked ||
       pendingCreate ||
       pendingUpdate ||
-      pendingBlocked
+      !pendingCheckReady
     ) {
       return;
     }
-    setConversionFieldError(null);
-    setEditing(item);
-    setDraft({
-      from_uom_id:
-        String(item.from_uom.id),
-      to_uom_id:
-        String(item.to_uom.id),
-      numerator:
-        item.numerator,
-      denominator:
-        item.denominator,
-      quantity_scale:
-        String(item.quantity_scale),
-    });
-  };
-
-  const resetEditor = () => {
-    if (
-      pendingCreate ||
-      pendingUpdate
-    ) {
-      return;
-    }
-    setConversionFieldError(null);
     setEditing(null);
     setDraft(EMPTY_DRAFT);
+    window.requestAnimationFrame(
+      () => fromUomRef.current?.focus(),
+    );
   };
 
-  const submitConversion = () => {
-    const fromId =
-      Number(draft.from_uom_id);
+  const startEdit = (
+    conversion: UomConversion,
+  ) => {
     if (
-      !Number.isSafeInteger(fromId) ||
-      fromId <= 0
+      pendingBlocked ||
+      pendingCreate ||
+      pendingUpdate ||
+      !pendingCheckReady
     ) {
-      setConversionFieldError({
-        field: "from",
-        message: t(
-          "products.advancedUom.uomRequired",
-        ),
-      });
-      window.requestAnimationFrame(
-        () => fromUomRef.current?.focus(),
-      );
       return;
     }
-
-    const toId =
-      Number(draft.to_uom_id);
-    if (
-      !Number.isSafeInteger(toId) ||
-      toId <= 0
-    ) {
-      setConversionFieldError({
-        field: "to",
-        message: t(
-          "products.advancedUom.uomRequired",
-        ),
-      });
-      window.requestAnimationFrame(
-        () => toUomRef.current?.focus(),
-      );
-      return;
-    }
-
-    const exactPositive =
-      (value: string) =>
-        /^\d+(?:\.\d{1,6})?$/.test(
-          value,
-        ) &&
-        Number(value) > 0;
-
-    if (
-      !exactPositive(
-        draft.numerator,
-      )
-    ) {
-      setConversionFieldError({
-        field: "numerator",
-        message: t(
-          "products.advancedUom.invalidValue",
-        ),
-      });
-      window.requestAnimationFrame(
-        () => numeratorRef.current?.focus(),
-      );
-      return;
-    }
-
-    if (
-      !exactPositive(
-        draft.denominator,
-      )
-    ) {
-      setConversionFieldError({
-        field: "denominator",
-        message: t(
-          "products.advancedUom.invalidValue",
-        ),
-      });
-      window.requestAnimationFrame(
-        () =>
-          denominatorRef.current?.focus(),
-      );
-      return;
-    }
-
-    const scale =
-      Number(draft.quantity_scale);
-    if (
-      !Number.isSafeInteger(scale) ||
-      scale < 0 ||
-      scale > 6
-    ) {
-      setConversionFieldError({
-        field: "scale",
-        message: t(
-          "products.advancedUom.invalidValue",
-        ),
-      });
-      window.requestAnimationFrame(
-        () => scaleRef.current?.focus(),
-      );
-      return;
-    }
-
-    setConversionFieldError(null);
-    if (editing) {
-      updateMutation.mutate();
-    } else {
-      createMutation.mutate();
-    }
+    setEditing(conversion);
+    setDraft({
+      from_uom_id:
+        String(conversion.from_uom_id),
+      to_uom_id:
+        String(conversion.to_uom_id),
+      numerator: conversion.numerator,
+      denominator: conversion.denominator,
+      quantity_scale:
+        String(conversion.quantity_scale),
+    });
+    window.requestAnimationFrame(
+      () => fromUomRef.current?.focus(),
+    );
   };
 
-  const busy =
+  const canEditVariant =
+    canManage &&
+    selectedVariant?.lifecycle_status ===
+      "DRAFT";
+
+  const isSaveDisabled =
+    !isOnline ||
+    !canEditVariant ||
+    pendingBlocked ||
+    !pendingCheckReady ||
     createMutation.isPending ||
     updateMutation.isPending;
-  const editable =
-    Boolean(
-      selectedVariant &&
-      selectedVariant
-        .lifecycle_status ===
-        "DRAFT" &&
-      canManage &&
-      pendingCheckReady,
-    );
-  const pendingCommand =
-    pendingCreate !== null ||
-    pendingUpdate !== null;
-  const fieldsLocked =
-    busy ||
-    pendingCommand ||
-    pendingBlocked;
-
-  if (
-    access.isSuccess &&
-    !canRead
-  ) {
-    return (
-      <div className="p-6">
-        <p className="rounded-2xl bg-rose-50 p-4 text-sm font-black text-rose-800">
-          {t(
-            "products.advancedUom.noAccess",
-          )}
-        </p>
-      </div>
-    );
-  }
 
   return (
-    <div className="products-a11y-scope flex min-h-0 flex-1 flex-col p-3 sm:p-6">
-      <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <button
-            type="button"
-            onClick={() =>
-              navigate("/products")
-            }
-            className="mb-2 inline-flex items-center gap-2 text-xs font-black text-slate-500"
-          >
-            <ArrowLeft className="h-4 w-4 rtl:rotate-180" />
-            {t(
-              "products.advancedUom.back",
-            )}
-          </button>
-          <h1
-            ref={pageHeadingRef}
-            tabIndex={-1}
-            className="break-words text-xl font-black text-slate-900 outline-none sm:text-2xl"
-          >
-            {t(
-              "products.advancedUom.title",
-            )}
-          </h1>
-          <p className="mt-1 max-w-3xl text-xs font-semibold leading-6 text-slate-500">
-            {t(
-              "products.advancedUom.description",
-            )}
-          </p>
-        </div>
-      </header>
-
-      <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto lg:grid-cols-[minmax(320px,0.85fr)_minmax(0,1.6fr)] lg:overflow-hidden">
-        <section className="flex min-h-[280px] max-h-[45dvh] flex-col rounded-2xl border border-slate-200 bg-white lg:min-h-0 lg:max-h-none">
-          <div className="border-b border-slate-100 p-3">
-            <div className="relative">
-              <Search className="absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                type="search"
-                value={searchInput}
-                onChange={(event) =>
-                  setSearchInput(
-                    event.target.value,
-                  )
-                }
-                placeholder={t(
-                  "products.advancedUom.searchPlaceholder",
-                )}
+    <main className="min-h-screen bg-slate-50/70 text-slate-900">
+      <section className="mx-auto flex w-full max-w-[1520px] flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8">
+        <header className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex min-w-0 items-start gap-3">
+              <button
+                type="button"
+                onClick={() => navigate("/products")}
+                className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-300"
                 aria-label={t(
-                  "products.advancedUom.searchPlaceholder",
+                  "products.advancedUom.back",
                 )}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 pe-9 text-sm"
-              />
-            </div>
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-auto p-2">
-            {variantsQuery.isLoading ? (
-              <p className="p-4 text-xs font-bold text-slate-400">
-                {t("common.loading")}
-              </p>
-            ) : null}
-
-            {variantsQuery.isError ? (
-              <div className="m-2 rounded-xl bg-rose-50 p-3">
-                <p className="text-xs font-bold text-rose-800">
+              >
+                <ArrowLeft className="h-4 w-4 rtl:rotate-180" />
+              </button>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                   {t(
-                    "products.advancedUom.variantsLoadFailed",
+                    "products.advancedUom.eyebrow",
                   )}
                 </p>
-                <button
-                  type="button"
-                  onClick={() =>
-                    void variantsQuery.refetch()
-                  }
-                  className="mt-2 rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-800"
+                <h1
+                  ref={pageHeadingRef}
+                  tabIndex={-1}
+                  className="mt-1 text-2xl font-semibold tracking-tight text-slate-950 outline-none"
                 >
-                  {t("common.retry")}
-                </button>
+                  {t(
+                    "products.advancedUom.title",
+                  )}
+                </h1>
+                <p className="mt-1 max-w-3xl text-sm text-slate-600">
+                  {t(
+                    "products.advancedUom.subtitle",
+                  )}
+                </p>
               </div>
-            ) : null}
+            </div>
 
-            {!variantsQuery.isLoading &&
-            !variantsQuery.isError &&
-            !page?.items.length ? (
-              <p className="p-4 text-xs font-bold text-slate-400">
-                {t(
-                  "products.advancedUom.noVariants",
-                )}
-              </p>
-            ) : null}
+            <button
+              type="button"
+              onClick={() => {
+                void Promise.all([
+                  variantsQuery.refetch(),
+                  uomsQuery.refetch(),
+                  conversionsQuery.refetch(),
+                ]);
+              }}
+              disabled={
+                variantsQuery.isFetching ||
+                uomsQuery.isFetching ||
+                conversionsQuery.isFetching
+              }
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${
+                  variantsQuery.isFetching ||
+                  uomsQuery.isFetching ||
+                  conversionsQuery.isFetching
+                    ? "animate-spin"
+                    : ""
+                }`}
+              />
+              {t(
+                "products.advancedUom.refresh",
+              )}
+            </button>
+          </div>
+        </header>
 
-            {page?.items.map(
-              (item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() =>
-                    selectVariant(
-                      item.id,
+        {!canRead ? (
+          <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-950">
+            {t(
+              "products.advancedUom.noAccess",
+            )}
+          </section>
+        ) : (
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400 rtl:left-auto rtl:right-3" />
+                <input
+                  type="search"
+                  value={searchInput}
+                  onChange={(event) =>
+                    setSearchInput(
+                      event.target.value,
                     )
                   }
-                  data-active={
-                    item.id ===
-                    selectedVariantId
-                  }
-                  className="mb-2 w-full rounded-xl border border-slate-200 p-3 text-start data-[active=true]:border-slate-900 data-[active=true]:bg-slate-50"
-                >
-                  <p className="break-words font-black text-slate-900">
-                    {item.name}
-                  </p>
-                  <p className="mt-1 break-all font-mono text-[11px] text-slate-500">
-                    {item.sku}
-                  </p>
-                  <p className="mt-1 text-[11px] font-bold text-slate-500">
-                    {t(
-                      `products.details.lifecycleModes.${item.lifecycle_status}`
-                    )}
-                    {" · "}
-                    {uomLabel(item.base_uom)}
-                  </p>
-                </button>
-              ),
-            )}
-          </div>
+                  placeholder={t(
+                    "products.advancedUom.searchPlaceholder",
+                  )}
+                  className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200 rtl:pl-3 rtl:pr-9"
+                />
+              </div>
 
-          {history.length > 0 ||
-          page?.next_cursor ? (
-            <div className="grid grid-cols-2 gap-2 border-t border-slate-100 p-3 sm:flex sm:justify-end">
-              <button
-                type="button"
-                disabled={
-                  !history.length ||
-                  variantsQuery.isFetching
-                }
-                onClick={() => {
-                  const previous =
-                    history.at(-1) ??
-                    null;
-                  setHistory(
-                    (current) =>
-                      current.slice(
-                        0,
-                        -1,
+              <div className="mt-4 space-y-2">
+                {variantsQuery.isLoading ? (
+                  <p className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500">
+                    {t(
+                      "products.advancedUom.loadingVariants",
+                    )}
+                  </p>
+                ) : variantsQuery.isError ? (
+                  <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-4 text-sm text-rose-700">
+                    {apiErrorMessage(
+                      variantsQuery.error,
+                      t(
+                        "products.advancedUom.loadVariantsFailed",
                       ),
-                  );
-                  setCursor(previous);
-                }}
-                className="w-full rounded-lg border px-3 py-2 text-xs font-black disabled:opacity-40 sm:w-auto"
-              >
-                {t(
-                  "products.familyPrevious",
-                )}
-              </button>
-              <button
-                type="button"
-                disabled={
-                  !page?.next_cursor ||
-                  variantsQuery.isFetching
-                }
-                onClick={() => {
-                  if (
-                    !page?.next_cursor
-                  ) {
-                    return;
-                  }
-                  setHistory(
-                    (current) => [
-                      ...current,
-                      cursor,
-                    ],
-                  );
-                  setCursor(
-                    page.next_cursor,
-                  );
-                }}
-                className="w-full rounded-lg border px-3 py-2 text-xs font-black disabled:opacity-40 sm:w-auto"
-              >
-                {t(
-                  "products.familyNext",
-                )}
-              </button>
-            </div>
-          ) : null}
-        </section>
-
-        <section className="min-h-0 rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 lg:overflow-auto">
-          {!selectedVariantId ? (
-            <p className="text-sm font-bold text-slate-500">
-              {t(
-                "products.advancedUom.selectVariant",
-              )}
-            </p>
-          ) : null}
-
-          {selectedVariantId &&
-          resolvedVariantQuery.isLoading &&
-          !selectedVariant ? (
-            <p className="text-sm font-bold text-slate-400">
-              {t("common.loading")}
-            </p>
-          ) : null}
-
-          {selectedVariantId &&
-          resolvedVariantQuery.isError &&
-          !selectedVariant ? (
-            <div className="rounded-xl bg-rose-50 p-4">
-              <p className="text-sm font-bold text-rose-800">
-                {t(
-                  "products.advancedUom.variantLoadFailed",
-                )}
-              </p>
-              <button
-                type="button"
-                onClick={() =>
-                  void resolvedVariantQuery.refetch()
-                }
-                className="mt-2 rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-800"
-              >
-                {t("common.retry")}
-              </button>
-            </div>
-          ) : null}
-
-          {selectedVariantId &&
-          resolvedVariantQuery.isSuccess &&
-          !selectedVariant ? (
-            <p className="rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-600">
-              {t(
-                "products.advancedUom.variantNotFound",
-              )}
-            </p>
-          ) : null}
-
-          {selectedVariant ? (
-            <div>
-              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
-                <div>
-                  <h2 className="text-xl font-black text-slate-900">
-                    {selectedVariant.name}
-                  </h2>
-                  <p className="mt-1 font-mono text-xs text-slate-500">
-                    {selectedVariant.sku}
+                    )}
                   </p>
-                  <p className="mt-2 text-xs font-bold text-slate-500">
+                ) : page?.items.length ? (
+                  page.items.map((variant) => {
+                    const active =
+                      variant.id ===
+                      selectedVariant?.id;
+                    return (
+                      <button
+                        key={variant.id}
+                        type="button"
+                        onClick={() => {
+                          const next =
+                            new URLSearchParams(
+                              searchParams,
+                            );
+                          next.set(
+                            "variant",
+                            String(variant.id),
+                          );
+                          setSearchParams(next);
+                        }}
+                        className={`w-full rounded-xl border px-3 py-3 text-start transition ${
+                          active
+                            ? "border-slate-900 bg-slate-900 text-white"
+                            : "border-slate-200 bg-white hover:bg-slate-50"
+                        }`}
+                      >
+                        <span className="block text-sm font-semibold">
+                          {variant.product_name}
+                        </span>
+                        <span
+                          className={`mt-1 block text-xs ${
+                            active
+                              ? "text-slate-300"
+                              : "text-slate-500"
+                          }`}
+                        >
+                          {variant.sku}
+                        </span>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <p className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500">
                     {t(
-                      "products.advancedUom.baseUom",
+                      "products.advancedUom.noVariants",
                     )}
-                    :{" "}
-                    {uomLabel(
-                      selectedVariant.base_uom
-                    )}
-                    {" ("}
-                    {selectedVariant.base_uom.code}
-                    {")"}
                   </p>
-                </div>
+                )}
+              </div>
+
+              <div className="mt-4 flex items-center justify-between gap-3">
                 <button
                   type="button"
-                  onClick={clearSelection}
-                  className="rounded-lg border px-3 py-2 text-xs font-black"
+                  disabled={history.length === 0}
+                  onClick={() => {
+                    const previous =
+                      history.at(-1) ?? null;
+                    setHistory((current) =>
+                      current.slice(0, -1),
+                    );
+                    setCursor(previous);
+                  }}
+                  className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  {t("common.close")}
+                  {t(
+                    "products.advancedUom.previous",
+                  )}
+                </button>
+                <button
+                  type="button"
+                  disabled={!page?.next_cursor}
+                  onClick={() => {
+                    setHistory((current) => [
+                      ...current,
+                      cursor,
+                    ]);
+                    setCursor(
+                      page?.next_cursor ?? null,
+                    );
+                  }}
+                  className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {t(
+                    "products.advancedUom.next",
+                  )}
                 </button>
               </div>
+            </section>
 
-              {selectedVariant.lifecycle_status !==
-              "DRAFT" ? (
-                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs font-bold leading-6 text-amber-900">
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              {!selectedVariant ? (
+                <p className="text-sm text-slate-500">
                   {t(
-                    "products.advancedUom.lockedAfterPublish",
+                    "products.advancedUom.selectVariant",
                   )}
-                </div>
-              ) : canManage ? (
-                <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs font-bold text-emerald-900">
-                  {t(
-                    "products.advancedUom.draftEditable",
-                  )}
-                </div>
+                </p>
               ) : (
-                <div className="mt-4 rounded-xl bg-slate-50 p-4 text-xs font-bold text-slate-600">
-                  {t(
-                    "products.advancedUom.readOnly",
-                  )}
-                </div>
-              )}
-
-              <div className="mt-5">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-black text-slate-900">
-                    {t(
-                      "products.advancedUom.conversions",
-                    )}
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void conversionsQuery.refetch()
-                    }
-                    disabled={
-                      conversionsQuery.isFetching
-                    }
-                    className="rounded-lg border p-2 disabled:opacity-40"
-                    aria-label={t(
-                      "common.refresh",
-                    )}
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                  </button>
-                </div>
-
-                {conversionsQuery.isLoading ? (
-                  <p className="mt-3 text-xs font-bold text-slate-400">
-                    {t("common.loading")}
-                  </p>
-                ) : null}
-
-                {conversionsQuery.isError ? (
-                  <div className="mt-3 rounded-xl bg-rose-50 p-3">
-                    <p className="text-xs font-bold text-rose-800">
-                      {t(
-                        "products.advancedUom.conversionsLoadFailed",
-                      )}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void conversionsQuery.refetch()
-                      }
-                      className="mt-2 rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-800"
-                    >
-                      {t("common.retry")}
-                    </button>
-                  </div>
-                ) : null}
-
-                {!conversionsQuery.isLoading &&
-                !conversionsQuery.isError &&
-                !conversionsQuery.data
-                  ?.length ? (
-                  <p className="mt-3 rounded-xl bg-slate-50 p-3 text-xs font-bold text-slate-500">
-                    {t(
-                      "products.advancedUom.noConversions",
-                    )}
-                  </p>
-                ) : null}
-
-                <div className="mt-3 space-y-2">
-                  {conversionsQuery.data?.map(
-                    (item) => (
-                      <div
-                        key={item.id}
-                        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 p-3"
-                      >
-                        <div>
-                          <p className="text-sm font-black text-slate-900">
-                            {item.from_uom.code}
-                            {" × "}
-                            {item.numerator}
-                            {"/"}
-                            {item.denominator}
-                            {" → "}
-                            {item.to_uom.code}
-                          </p>
-                          <p className="mt-1 text-[11px] font-bold text-slate-500">
-                            {t(
-                              "products.advancedUom.scale",
-                            )}
-                            :{" "}
-                            {item.quantity_scale}
-                          </p>
-                        </div>
-                        {editable ? (
-                          <button
-                            type="button"
-                            disabled={
-                              pendingCommand ||
-                              pendingBlocked
-                            }
-                            onClick={() =>
-                              editConversion(
-                                item,
-                              )
-                            }
-                            className="w-full rounded-lg border px-3 py-2 text-xs font-black disabled:opacity-40 sm:w-auto"
-                          >
-                            <Pencil className="me-1 inline h-4 w-4" />
-                            {t(
-                              "common.edit",
-                            )}
-                          </button>
-                        ) : null}
-                      </div>
-                    ),
-                  )}
-                </div>
-              </div>
-
-              {editable ? (
-                <form
-                  className="mt-5 rounded-2xl border border-slate-200 p-4"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    submitConversion();
-                  }}
-                >
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <h3 className="text-sm font-black text-slate-900">
-                      {editing
-                        ? t(
-                            "products.advancedUom.editConversion",
-                          )
-                        : t(
-                            "products.advancedUom.addConversion",
-                          )}
-                    </h3>
-                    {editing &&
-                    !pendingCommand ? (
-                      <button
-                        type="button"
-                        onClick={resetEditor}
-                        className="text-xs font-black text-slate-500"
-                      >
-                        {t("common.cancel")}
-                      </button>
-                    ) : null}
+                <div className="space-y-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        {selectedVariant.sku}
+                      </p>
+                      <h2 className="mt-1 text-lg font-semibold text-slate-950">
+                        {selectedVariant.product_name}
+                      </h2>
+                    </div>
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                      {selectedVariant.lifecycle_status}
+                    </span>
                   </div>
 
                   {pendingBlocked ? (
-                    <div className="mb-3 rounded-xl bg-rose-50 p-3 text-xs font-bold text-rose-800">
+                    <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
                       {t(
-                        "products.advancedUom.pendingBlocked",
-                      )}
-                    </div>
-                  ) : pendingCommand ? (
-                    <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold leading-6 text-amber-900">
-                      {t(
-                        "products.advancedUom.pendingRetry",
+                        "products.advancedUom.pendingCorrupt",
                       )}
                     </div>
                   ) : null}
 
-                  {uomsQuery.isError ? (
-                    <div className="rounded-xl bg-rose-50 p-3">
-                      <p className="text-xs font-bold text-rose-800">
-                        {t(
-                          "products.advancedUom.uomsLoadFailed",
-                        )}
-                      </p>
+                  <div className="rounded-xl border border-slate-200 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-950">
+                          {editing
+                            ? t(
+                                "products.advancedUom.editConversion",
+                              )
+                            : t(
+                                "products.advancedUom.newConversion",
+                              )}
+                        </h3>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {t(
+                            "products.advancedUom.draftOnly",
+                          )}
+                        </p>
+                      </div>
                       <button
                         type="button"
-                        onClick={() =>
-                          void uomsQuery.refetch()
+                        onClick={startCreate}
+                        disabled={
+                          !canEditVariant ||
+                          !pendingCheckReady ||
+                          pendingBlocked ||
+                          Boolean(
+                            pendingCreate ||
+                            pendingUpdate,
+                          )
                         }
-                        className="mt-2 rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-800"
+                        className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        {t("common.retry")}
+                        <Plus className="h-4 w-4" />
+                        {t(
+                          "products.advancedUom.newAction",
+                        )}
                       </button>
                     </div>
-                  ) : (
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <label className="text-xs font-black text-slate-600">
-                        {t(
-                          "products.advancedUom.from",
-                        )}
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <label className="text-sm font-medium text-slate-700">
+                        <span className="mb-1.5 block">
+                          {t(
+                            "products.advancedUom.fromUom",
+                          )}
+                        </span>
                         <select
                           ref={fromUomRef}
                           value={draft.from_uom_id}
                           onChange={(event) => {
-                            setDraft(
-                              (current) => ({
-                                ...current,
-                                from_uom_id:
-                                  event.target.value,
-                              }),
-                            );
-                            if (
-                              conversionFieldError?.field ===
-                              "from"
-                            ) {
-                              setConversionFieldError(
-                                null,
-                              );
-                            }
+                            setDraft((current) => ({
+                              ...current,
+                              from_uom_id:
+                                event.target.value,
+                            }));
+                            setConversionFieldError(null);
                           }}
-                          disabled={
-                            fieldsLocked ||
-                            uomsQuery.isLoading
-                          }
-                          aria-invalid={
-                            conversionFieldError?.field ===
-                            "from"
-                              ? "true"
-                              : undefined
-                          }
-                          aria-describedby={
-                            conversionFieldError?.field ===
-                            "from"
-                              ? "advanced-uom-from-error"
-                              : undefined
-                          }
-                          className="mt-1 w-full rounded-lg border p-2"
+                          disabled={isSaveDisabled}
+                          className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200 disabled:bg-slate-50"
                         >
                           <option value="">
                             {t(
                               "products.advancedUom.chooseUom",
                             )}
                           </option>
-                          {uomsQuery.data?.map(
+                          {(uomsQuery.data ?? []).map(
                             (uom) => (
                               <option
                                 key={uom.id}
                                 value={uom.id}
                               >
-                                {uom.code}
-                                {" — "}
                                 {uomLabel(uom)}
                               </option>
                             ),
                           )}
                         </select>
-                        {conversionFieldError?.field ===
-                        "from" ? (
-                          <span
-                            id="advanced-uom-from-error"
-                            role="alert"
-                            className="mt-1 block text-[11px] font-bold text-rose-700"
-                          >
-                            {
-                              conversionFieldError.message
-                            }
-                          </span>
-                        ) : null}
                       </label>
 
-                      <label className="text-xs font-black text-slate-600">
-                        {t(
-                          "products.advancedUom.to",
-                        )}
+                      <label className="text-sm font-medium text-slate-700">
+                        <span className="mb-1.5 block">
+                          {t(
+                            "products.advancedUom.toUom",
+                          )}
+                        </span>
                         <select
                           ref={toUomRef}
                           value={draft.to_uom_id}
                           onChange={(event) => {
-                            setDraft(
-                              (current) => ({
-                                ...current,
-                                to_uom_id:
-                                  event.target.value,
-                              }),
-                            );
-                            if (
-                              conversionFieldError?.field ===
-                              "to"
-                            ) {
-                              setConversionFieldError(
-                                null,
-                              );
-                            }
+                            setDraft((current) => ({
+                              ...current,
+                              to_uom_id:
+                                event.target.value,
+                            }));
+                            setConversionFieldError(null);
                           }}
-                          disabled={
-                            fieldsLocked ||
-                            uomsQuery.isLoading
-                          }
-                          aria-invalid={
-                            conversionFieldError?.field ===
-                            "to"
-                              ? "true"
-                              : undefined
-                          }
-                          aria-describedby={
-                            conversionFieldError?.field ===
-                            "to"
-                              ? "advanced-uom-to-error"
-                              : undefined
-                          }
-                          className="mt-1 w-full rounded-lg border p-2"
+                          disabled={isSaveDisabled}
+                          className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200 disabled:bg-slate-50"
                         >
                           <option value="">
                             {t(
                               "products.advancedUom.chooseUom",
                             )}
                           </option>
-                          {uomsQuery.data?.map(
+                          {(uomsQuery.data ?? []).map(
                             (uom) => (
                               <option
                                 key={uom.id}
                                 value={uom.id}
                               >
-                                {uom.code}
-                                {" — "}
                                 {uomLabel(uom)}
                               </option>
                             ),
                           )}
                         </select>
-                        {conversionFieldError?.field ===
-                        "to" ? (
-                          <span
-                            id="advanced-uom-to-error"
-                            role="alert"
-                            className="mt-1 block text-[11px] font-bold text-rose-700"
-                          >
-                            {
-                              conversionFieldError.message
-                            }
-                          </span>
-                        ) : null}
                       </label>
 
-                      <label className="text-xs font-black text-slate-600">
-                        {t(
-                          "products.advancedUom.numerator",
-                        )}
+                      <label className="text-sm font-medium text-slate-700">
+                        <span className="mb-1.5 block">
+                          {t(
+                            "products.advancedUom.numerator",
+                          )}
+                        </span>
                         <input
                           ref={numeratorRef}
+                          inputMode="decimal"
                           value={draft.numerator}
                           onChange={(event) => {
-                            setDraft(
-                              (current) => ({
-                                ...current,
-                                numerator:
-                                  event.target.value,
-                              }),
-                            );
-                            if (
-                              conversionFieldError?.field ===
-                              "numerator"
-                            ) {
-                              setConversionFieldError(
-                                null,
-                              );
-                            }
+                            setDraft((current) => ({
+                              ...current,
+                              numerator:
+                                event.target.value,
+                            }));
+                            setConversionFieldError(null);
                           }}
-                          disabled={fieldsLocked}
-                          aria-invalid={
-                            conversionFieldError?.field ===
-                            "numerator"
-                              ? "true"
-                              : undefined
-                          }
-                          aria-describedby={
-                            conversionFieldError?.field ===
-                            "numerator"
-                              ? "advanced-uom-numerator-error"
-                              : undefined
-                          }
-                          className="mt-1 w-full rounded-lg border p-2"
+                          disabled={isSaveDisabled}
+                          className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200 disabled:bg-slate-50"
                         />
-                        {conversionFieldError?.field ===
-                        "numerator" ? (
-                          <span
-                            id="advanced-uom-numerator-error"
-                            role="alert"
-                            className="mt-1 block text-[11px] font-bold text-rose-700"
-                          >
-                            {
-                              conversionFieldError.message
-                            }
-                          </span>
-                        ) : null}
                       </label>
 
-                      <label className="text-xs font-black text-slate-600">
-                        {t(
-                          "products.advancedUom.denominator",
-                        )}
+                      <label className="text-sm font-medium text-slate-700">
+                        <span className="mb-1.5 block">
+                          {t(
+                            "products.advancedUom.denominator",
+                          )}
+                        </span>
                         <input
                           ref={denominatorRef}
+                          inputMode="decimal"
                           value={draft.denominator}
                           onChange={(event) => {
-                            setDraft(
-                              (current) => ({
-                                ...current,
-                                denominator:
-                                  event.target.value,
-                              }),
-                            );
-                            if (
-                              conversionFieldError?.field ===
-                              "denominator"
-                            ) {
-                              setConversionFieldError(
-                                null,
-                              );
-                            }
+                            setDraft((current) => ({
+                              ...current,
+                              denominator:
+                                event.target.value,
+                            }));
+                            setConversionFieldError(null);
                           }}
-                          disabled={fieldsLocked}
-                          aria-invalid={
-                            conversionFieldError?.field ===
-                            "denominator"
-                              ? "true"
-                              : undefined
-                          }
-                          aria-describedby={
-                            conversionFieldError?.field ===
-                            "denominator"
-                              ? "advanced-uom-denominator-error"
-                              : undefined
-                          }
-                          className="mt-1 w-full rounded-lg border p-2"
+                          disabled={isSaveDisabled}
+                          className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200 disabled:bg-slate-50"
                         />
-                        {conversionFieldError?.field ===
-                        "denominator" ? (
-                          <span
-                            id="advanced-uom-denominator-error"
-                            role="alert"
-                            className="mt-1 block text-[11px] font-bold text-rose-700"
-                          >
-                            {
-                              conversionFieldError.message
-                            }
-                          </span>
-                        ) : null}
                       </label>
 
-                      <label className="text-xs font-black text-slate-600 sm:col-span-2">
-                        {t(
-                          "products.advancedUom.scale",
-                        )}
+                      <label className="text-sm font-medium text-slate-700 sm:col-span-2">
+                        <span className="mb-1.5 block">
+                          {t(
+                            "products.advancedUom.quantityScale",
+                          )}
+                        </span>
                         <input
                           ref={scaleRef}
+                          inputMode="numeric"
                           value={draft.quantity_scale}
                           onChange={(event) => {
-                            setDraft(
-                              (current) => ({
-                                ...current,
-                                quantity_scale:
-                                  event.target.value,
-                              }),
-                            );
-                            if (
-                              conversionFieldError?.field ===
-                              "scale"
-                            ) {
-                              setConversionFieldError(
-                                null,
-                              );
-                            }
+                            setDraft((current) => ({
+                              ...current,
+                              quantity_scale:
+                                event.target.value,
+                            }));
+                            setConversionFieldError(null);
                           }}
-                          disabled={fieldsLocked}
-                          aria-invalid={
-                            conversionFieldError?.field ===
-                            "scale"
-                              ? "true"
-                              : undefined
-                          }
-                          aria-describedby={
-                            conversionFieldError?.field ===
-                            "scale"
-                              ? "advanced-uom-scale-error"
-                              : undefined
-                          }
-                          className="mt-1 w-full rounded-lg border p-2"
+                          disabled={isSaveDisabled}
+                          className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200 disabled:bg-slate-50"
                         />
-                        {conversionFieldError?.field ===
-                        "scale" ? (
-                          <span
-                            id="advanced-uom-scale-error"
-                            role="alert"
-                            className="mt-1 block text-[11px] font-bold text-rose-700"
-                          >
-                            {
-                              conversionFieldError.message
-                            }
-                          </span>
-                        ) : null}
                       </label>
                     </div>
-                  )}
 
-                  <button
-                    type="submit"
-                    disabled={
-                      busy ||
-                      !isOnline ||
-                      pendingBlocked ||
-                      uomsQuery.isLoading ||
-                      uomsQuery.isError
-                    }
-                    className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white disabled:opacity-40"
-                  >
-                    <Plus className="h-4 w-4" />
-                    {pendingCommand
-                      ? t("common.retry")
-                      : editing
-                        ? t("common.save")
-                        : t(
-                            "products.advancedUom.addConversion",
+                    {conversionFieldError ? (
+                      <p className="mt-3 text-sm text-rose-700">
+                        {conversionFieldError.message}
+                      </p>
+                    ) : null}
+
+                    <div className="mt-4 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setConversionFieldError(null);
+                          if (!draft.from_uom_id) {
+                            setConversionFieldError({
+                              field: "from",
+                              message: t(
+                                "products.advancedUom.fromRequired",
+                              ),
+                            });
+                            fromUomRef.current?.focus();
+                            return;
+                          }
+                          if (!draft.to_uom_id) {
+                            setConversionFieldError({
+                              field: "to",
+                              message: t(
+                                "products.advancedUom.toRequired",
+                              ),
+                            });
+                            toUomRef.current?.focus();
+                            return;
+                          }
+                          if (!draft.numerator.trim()) {
+                            setConversionFieldError({
+                              field: "numerator",
+                              message: t(
+                                "products.advancedUom.numeratorRequired",
+                              ),
+                            });
+                            numeratorRef.current?.focus();
+                            return;
+                          }
+                          if (!draft.denominator.trim()) {
+                            setConversionFieldError({
+                              field: "denominator",
+                              message: t(
+                                "products.advancedUom.denominatorRequired",
+                              ),
+                            });
+                            denominatorRef.current?.focus();
+                            return;
+                          }
+                          if (!draft.quantity_scale.trim()) {
+                            setConversionFieldError({
+                              field: "scale",
+                              message: t(
+                                "products.advancedUom.scaleRequired",
+                              ),
+                            });
+                            scaleRef.current?.focus();
+                            return;
+                          }
+                          if (editing) {
+                            updateMutation.mutate();
+                          } else {
+                            createMutation.mutate();
+                          }
+                        }}
+                        disabled={isSaveDisabled}
+                        className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-950 px-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {editing ? (
+                          <Pencil className="h-4 w-4" />
+                        ) : (
+                          <Plus className="h-4 w-4" />
+                        )}
+                        {t(
+                          "products.advancedUom.save",
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 p-4">
+                    <h3 className="text-sm font-semibold text-slate-950">
+                      {t(
+                        "products.advancedUom.existingConversions",
+                      )}
+                    </h3>
+                    <div className="mt-3 space-y-2">
+                      {conversionsQuery.isLoading ? (
+                        <p className="text-sm text-slate-500">
+                          {t(
+                            "products.advancedUom.loadingConversions",
                           )}
-                  </button>
-                </form>
-              ) : null}
-            </div>
-          ) : null}
-        </section>
-      </div>
-    </div>
+                        </p>
+                      ) : conversionsQuery.isError ? (
+                        <p className="text-sm text-rose-700">
+                          {apiErrorMessage(
+                            conversionsQuery.error,
+                            t(
+                              "products.advancedUom.loadConversionsFailed",
+                            ),
+                          )}
+                        </p>
+                      ) : (
+                        conversionsQuery.data ?? []
+                      ).length ? (
+                        (
+                          conversionsQuery.data ?? []
+                        ).map((conversion) => (
+                          <button
+                            key={conversion.id}
+                            type="button"
+                            onClick={() =>
+                              startEdit(conversion)
+                            }
+                            disabled={!canEditVariant}
+                            className="w-full rounded-lg border border-slate-200 px-3 py-3 text-start transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <span className="block text-sm font-semibold text-slate-950">
+                              {conversion.from_uom_code} → {conversion.to_uom_code}
+                            </span>
+                            <span className="mt-1 block text-xs text-slate-500">
+                              {conversion.numerator}/{conversion.denominator} · {t(
+                                "products.advancedUom.scaleShort",
+                                {
+                                  scale:
+                                    conversion.quantity_scale,
+                                },
+                              )}
+                            </span>
+                          </button>
+                        ))
+                      ) : (
+                        <p className="text-sm text-slate-500">
+                          {t(
+                            "products.advancedUom.noConversions",
+                          )}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+      </section>
+    </main>
   );
 }
