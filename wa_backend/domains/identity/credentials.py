@@ -17,6 +17,7 @@ MIN_COMPANY_PASSWORD_LENGTH = 8
 MAX_COMPANY_PASSWORD_LENGTH = 72
 MAX_BCRYPT_PASSWORD_BYTES = 72
 _FINGERPRINT_DOMAIN = b"wanasah:identity-sensitive-fingerprint:v1\x00"
+_FINGERPRINT_KEY_DOMAIN = b"wanasah:identity-sensitive-fingerprint:key:v1"
 
 
 class CompanyCredentialValidationError(ValueError):
@@ -62,23 +63,27 @@ async def hash_company_password(password: str) -> str:
     )
 
 
-def sensitive_value_fingerprint(
-    value: str,
-    *,
-    purpose: str,
-    secret: str,
-) -> str:
+def _sensitive_fingerprint_key() -> bytes:
+    """Derive a purpose-specific HMAC key from the canonical application secret."""
+    from config import Config
+
+    return hmac.new(
+        Config.SECRET_KEY.encode("utf-8"),
+        _FINGERPRINT_KEY_DOMAIN,
+        hashlib.sha256,
+    ).digest()
+
+
+def sensitive_value_fingerprint(value: str, *, purpose: str) -> str:
     """Return a domain-separated keyed fingerprint for sensitive semantic identity.
 
-    The returned HMAC is safe to persist in an idempotency request hash. The raw
-    sensitive value and the HMAC key are never returned or logged by this helper.
+    Identity owns both key derivation and HMAC construction. Callers receive only
+    the opaque fingerprint; the raw value and key never leave this service.
     """
     if not isinstance(value, str):
         raise TypeError("Sensitive fingerprint value must be a string")
     if not isinstance(purpose, str) or not purpose.strip():
         raise ValueError("Sensitive fingerprint purpose is required")
-    if not isinstance(secret, str) or not secret:
-        raise ValueError("Sensitive fingerprint secret is required")
 
     message = (
         _FINGERPRINT_DOMAIN
@@ -86,7 +91,11 @@ def sensitive_value_fingerprint(
         + b"\x00"
         + value.encode("utf-8")
     )
-    return hmac.new(secret.encode("utf-8"), message, hashlib.sha256).hexdigest()
+    return hmac.new(
+        _sensitive_fingerprint_key(),
+        message,
+        hashlib.sha256,
+    ).hexdigest()
 
 
 __all__ = [
