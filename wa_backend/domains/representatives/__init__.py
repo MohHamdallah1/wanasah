@@ -3,7 +3,6 @@ from .contracts import (
     RepresentativeError,
     RepresentativePage,
     RepresentativeRecord,
-    RepresentativeStatusFilter,
     UpdateRepresentativeCommand,
 )
 from .management import create_representative, update_representative
@@ -14,7 +13,6 @@ __all__ = [
     "RepresentativeError",
     "RepresentativePage",
     "RepresentativeRecord",
-    "RepresentativeStatusFilter",
     "UpdateRepresentativeCommand",
     "create_representative",
     "get_representative",
