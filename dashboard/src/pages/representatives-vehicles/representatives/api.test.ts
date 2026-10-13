@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   createRepresentative,
@@ -18,11 +18,7 @@ const representative = {
   max_debt_limit: "0.000",
 };
 
-const requestUuid = "11111111-1111-4111-8111-111111111111" as `${string}-${string}-${string}-${string}-${string}`;
-
-afterEach(() => {
-  vi.restoreAllMocks();
-});
+const requestUuid = "11111111-1111-4111-8111-111111111111";
 
 describe("representative API wire contract", () => {
   it("uses frozen list query names and cursor envelope", async () => {
@@ -40,8 +36,7 @@ describe("representative API wire contract", () => {
     expect(authFetch.mock.calls[0]?.[0]).toBe("/representatives?limit=30");
   });
 
-  it("sends create/update bodies with request_id and exact frozen field names", async () => {
-    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(requestUuid);
+  it("preserves the caller-owned request_id for create and update", async () => {
     const authFetch = vi.fn().mockResolvedValue(representative);
 
     await createRepresentative(authFetch, {
@@ -51,7 +46,7 @@ describe("representative API wire contract", () => {
       password: "password8",
       can_allow_debt: false,
       max_debt_limit: "0.000",
-    });
+    }, requestUuid);
     const createBody = JSON.parse(String((authFetch.mock.calls[0]?.[1] as RequestInit).body));
     expect(createBody).toEqual({
       request_id: requestUuid,
@@ -69,21 +64,20 @@ describe("representative API wire contract", () => {
       phone_number: "+962790000000",
       can_allow_debt: true,
       max_debt_limit: "20.000",
-    });
+    }, requestUuid);
     const updateBody = JSON.parse(String((authFetch.mock.calls[1]?.[1] as RequestInit).body));
     expect(updateBody.request_id).toBe(requestUuid);
     expect(updateBody.username).toBe("rep17b");
     expect(updateBody).not.toHaveProperty("password");
   });
 
-  it("sends idempotency keys for lifecycle and new_password only for credential reset", async () => {
-    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(requestUuid);
+  it("uses caller-owned idempotency keys for lifecycle and credential reset", async () => {
     const authFetch = vi.fn().mockResolvedValue(null);
 
-    await deactivateRepresentative(authFetch, 17);
+    await deactivateRepresentative(authFetch, 17, requestUuid);
     expect(JSON.parse(String((authFetch.mock.calls[0]?.[1] as RequestInit).body))).toEqual({ request_id: requestUuid });
 
-    await resetRepresentativeCredentials(authFetch, 17, "newpass88");
+    await resetRepresentativeCredentials(authFetch, 17, "newpass88", requestUuid);
     expect(JSON.parse(String((authFetch.mock.calls[1]?.[1] as RequestInit).body))).toEqual({
       request_id: requestUuid,
       new_password: "newpass88",
