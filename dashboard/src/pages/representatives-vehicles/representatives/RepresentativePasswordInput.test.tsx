@@ -8,12 +8,11 @@ vi.mock("react-i18next", () => ({
 import { RepresentativePasswordInput } from "./RepresentativePasswordInput";
 
 function Harness({ resetSignal = 1 }: { resetSignal?: unknown }) {
-  let value = "password8";
   return (
     <RepresentativePasswordInput
       id="password"
-      value={value}
-      onChange={(next) => { value = next; }}
+      value="password8"
+      onChange={() => undefined}
       className="input"
       resetSignal={resetSignal}
     />
@@ -34,7 +33,7 @@ describe("RepresentativePasswordInput", () => {
 
   it("toggles password/text without mutating the value and survives blur", () => {
     render(<Harness />);
-    const input = screen.getByRole("textbox", { hidden: true }) as HTMLInputElement;
+    const input = document.getElementById("password") as HTMLInputElement;
     expect(input.type).toBe("password");
     const show = screen.getByRole("button", { name: "representativesVehicles.representatives.passwordVisibility.show" });
     fireEvent.click(show);
