@@ -91,6 +91,7 @@ jobs:
           git merge-base --is-ancestor "$BASE_SHA" "$TARGET_SHA"
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: "3.29.3"
           channel: stable
           cache: true
       - name: Flutter dependencies
