@@ -55,28 +55,28 @@ Vehicles status:
 
 # 0. Frozen owner decisions and scope
 
-- [ ] The tenant/security boundary is **Company**.
-- [ ] V1 operational UX is one company context with **one or many warehouses**.
-- [ ] V1 does **not** require a global Branch switcher, Branch-scoped representative management, Branch-scoped vehicle management, or Branch ownership of company master data.
-- [ ] Existing Branch schema/readiness may remain for future expansion, but Representatives/Vehicles V1 must not depend on it.
-- [ ] Products are company-wide master data.
-- [ ] Zones/territories are company-wide master data.
-- [ ] Shops/customers are company-wide master data.
+- [x] The tenant/security boundary is **Company**.
+- [x] V1 operational UX is one company context with **one or many warehouses**.
+- [x] V1 does **not** require a global Branch switcher, Branch-scoped representative management, Branch-scoped vehicle management, or Branch ownership of company master data.
+- [x] Existing Branch schema/readiness may remain for future expansion, but Representatives/Vehicles V1 must not depend on it.
+- [x] Products are company-wide master data.
+- [x] Zones/territories are company-wide master data.
+- [x] Shops/customers are company-wide master data.
 - [x] Field Representatives are company-wide master data.
-- [ ] Vehicles are company-wide master data.
+- [x] Vehicles are company-wide master data.
 - [x] Representatives are **not permanently owned by one warehouse**.
-- [ ] Vehicles are **not permanently owned by one warehouse**.
+- [x] Vehicles are **not permanently owned by one warehouse**.
 - [x] Source warehouse is chosen by the concrete operational workflow/route/load, not by representative identity.
-- [ ] Source warehouse is chosen by the concrete operational workflow/route/load, not by vehicle identity.
+- [x] Source warehouse is chosen by the concrete operational workflow/route/load, not by vehicle identity.
 - [x] A representative can work from a different authorized source warehouse on another route/day without changing his master identity.
-- [ ] A vehicle can be used from a different authorized source warehouse on another route/day without changing its master identity.
+- [x] A vehicle can be used from a different authorized source warehouse on another route/day without changing its master identity.
 - [x] Backoffice users and Company Owner belong to Dashboard identity/authorization and are **not managed by this page**.
 - [x] Field Representatives belong to Flutter field identity and are **the only human accounts managed by the Representatives tab**.
 - [x] Field Representatives must not receive Dashboard access.
-- [ ] Vehicles are non-human operational assets and never authenticate.
+- [x] Vehicles are non-human operational assets and never authenticate.
 - [x] Dashboard complexity remains low; backend owns Representative validation, isolation, authorization, lifecycle, audit, idempotency, and route/work-session safety.
 - [x] No hard delete for Representatives in V1; lifecycle uses active/inactive transitions so history remains valid.
-- [ ] No hard delete for Vehicles in V1.
+- [x] No hard delete for Vehicles in V1.
 - [x] Representative UI is Arabic-first, i18n-ready, RTL/LTR safe, Western-digit friendly, and keyboard-aware.
 - [x] No Representative mega-file/god-hook; page shell and Representatives feature remain separated.
 - [x] Existing Dispatch/Inventory business authority is reused; Representative administration does not duplicate route, warehouse, custody, permission, or stock truth.
