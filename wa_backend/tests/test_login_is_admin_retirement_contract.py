@@ -78,14 +78,21 @@ class LoginIsAdminRetirementContractTests(unittest.TestCase):
         source = LOGIN_TSX.read_text(encoding="utf-8-sig")
         self.assertNotIn("is_admin", source)
         self.assertIn("if (data.dashboard_access !== true)", source)
+        self.assertIn("data.channel !== 'DASHBOARD'", source)
+        self.assertIn("data.principal_type !== 'BACKOFFICE'", source)
         self.assertIn("navigate(data.is_company_owner ? '/' : '/inventory');", source)
         for field in ("is_company_owner", "dashboard_access", "principal_id", "backoffice_user_id"):
             self.assertIn(f"{field}:", source)
 
-    def test_driver_id_client_compatibility_remains(self):
+    def test_dashboard_client_retires_legacy_driver_identity(self):
         source = LOGIN_TSX.read_text(encoding="utf-8-sig")
-        self.assertIn("driver_id: number;", source)
-        self.assertIn("localStorage.setItem('driver_id', String(data.driver_id));", source)
+        self.assertNotIn("driver_id: number;", source)
+        self.assertNotIn("data.driver_id", source)
+        self.assertNotIn("localStorage.setItem('driver_id'", source)
+        self.assertIn("localStorage.setItem('principal_id', String(principalId));", source)
+        self.assertIn("localStorage.setItem('backoffice_user_id', String(backofficeUserId));", source)
+        self.assertIn("localStorage.removeItem('driver_id');", source)
+        self.assertIn("migrateLegacyBackofficeIdentityStorage();", source)
 
 
 if __name__ == "__main__":
