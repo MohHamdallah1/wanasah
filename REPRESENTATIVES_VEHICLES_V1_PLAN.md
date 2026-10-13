@@ -116,6 +116,129 @@ Company Owner receives these through canonical owner authority. Backoffice users
 List/detail use `representative.read`; create/update/lifecycle use `representative.manage`; reset uses `representative.credentials.reset`. Tenant authority always comes from the canonical Backoffice access context, never from a request body/query `company_id`.
 
 ---
+## 0.2 Frozen Wave 1 HTTP wire contract — mandatory
+
+DTO/class names are **not** frozen and tests must not depend on implementation class names. The external JSON/query/status contract below is frozen.
+
+### Representative view
+
+List items, detail responses, create responses, and update responses expose only:
+
+- `id` — canonical `FieldRepresentative.id`.
+- `full_name`.
+- `username`.
+- `phone_number` (`null` allowed).
+- `is_active` — canonical principal active state.
+- `can_allow_debt`.
+- `max_debt_limit` — exact decimal value; clients must not use binary-float arithmetic for business decisions.
+
+Do not expose `principal_id`, legacy `Driver.id`, `password_hash`, refresh/session identifiers, capabilities, or internal ownership/FK fields.
+
+### List
+
+`GET /representatives`
+
+Query contract:
+
+- `search`: optional string, 2..100 characters; searches normalized full name, username, and phone.
+- `active`: optional boolean; omitted = all, `true` = active, `false` = inactive.
+- `cursor`: optional opaque string, max 512 characters. Clients/tests must not depend on cursor encoding.
+- `limit`: integer, default 30, min 1, max 100.
+
+Response:
+
+```json
+{
+  "items": [],
+  "next_cursor": null,
+  "has_more": false
+}
+```
+
+Ordering is stable: active representatives first when the list is unfiltered, then normalized full name, then representative id as deterministic tie-breaker.
+
+### Detail
+
+`GET /representatives/{representative_id}` returns one Representative view. A missing or cross-company id is indistinguishable and returns the same fail-closed not-found contract.
+
+### Create
+
+`POST /representatives` -> `201` + Representative view.
+
+Request body:
+
+```json
+{
+  "request_id": "UUID",
+  "full_name": "string",
+  "username": "string",
+  "phone_number": null,
+  "password": "string",
+  "can_allow_debt": false,
+  "max_debt_limit": "0.000"
+}
+```
+
+Constraints:
+
+- `full_name`: 1..120.
+- `username`: 1..80, canonical company-local uniqueness.
+- `phone_number`: optional/null, max 20.
+- `password`: 8..72 and hashed with the canonical company credential mechanism; never logged or returned.
+- `can_allow_debt`: defaults `false`.
+- `max_debt_limit`: nonnegative exact decimal, defaults `0.000`; if debt is disabled, the stored limit must remain business-safe and must not silently grant debt.
+- `request_id`: UUID idempotency key in the body; no client-supplied `company_id`, principal id, representative id, role, capability, or profile type.
+
+### Update
+
+`PATCH /representatives/{representative_id}` -> `200` + Representative view.
+
+Request body contains `request_id: UUID` plus any subset of:
+
+- `full_name`.
+- `username`.
+- `phone_number` (including explicit `null`).
+- `can_allow_debt`.
+- `max_debt_limit`.
+
+`password`, active state, principal/profile ids, company id, role/capability data, and legacy Driver fields are forbidden in generic PATCH. Omitted fields stay unchanged. At least one mutable field must be present. Username changes are allowed only through canonical company uniqueness/security validation. Wave 1 adds no synthetic version field solely for this endpoint; concurrency/locking must use the existing persistence/transaction model rather than inventing an unrelated version contract.
+
+### Mutation idempotency
+
+Create/update/lifecycle/credential mutations use body `request_id: UUID`. Repeating the same operation with the same request id and same semantic payload must not duplicate the mutation. Reusing the same request id for a materially different payload/target must fail with the project's stable idempotency-conflict behavior.
+
+### Credential reset
+
+`POST /representatives/{representative_id}/credentials/reset`
+
+Request body:
+
+```json
+{
+  "request_id": "UUID",
+  "new_password": "string"
+}
+```
+
+`new_password` is 8..72. On successful implementation the operation must be one transaction that:
+
+1. tenant-safely resolves the canonical Field Representative principal;
+2. writes the new canonical password hash;
+3. increments `auth_revision` exactly once for a non-replayed reset;
+4. revokes that principal's FIELD refresh sessions through the canonical auth-session invalidation service;
+5. records audit/idempotency evidence without secret material.
+
+Success response is `204 No Content`; it never echoes password/hash/session data. A replay of the same request id/payload must remain successful without a second credential mutation/revision bump.
+
+### Common HTTP security behavior
+
+- unauthenticated -> `401`.
+- authenticated Backoffice without the required capability -> `403`.
+- missing/cross-company representative target -> same fail-closed `404` contract.
+- validation failures -> normal `422` transport validation unless a domain-specific stable conflict applies.
+- company authority always comes from canonical Backoffice access context, never request data.
+
+---
 # 1. Final page concept
 ## 1.1 Navigation
 
