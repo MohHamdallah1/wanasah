@@ -38,7 +38,7 @@ jobs:
           sql = f"""
           WITH names(id, name) AS (VALUES (1, 'İbrahim'), (2, 'ibrahim'))
           SELECT json_build_object(
-              'ctype', current_setting('lc_ctype'),
+              'ctype', (SELECT datctype FROM pg_database WHERE datname = current_database()),
               'database_name', lower('İbrahim'),
               'remaining_ids', (SELECT array_agg(id ORDER BY lower(trim(name)), id)
                                FROM names WHERE lower(trim(name)) > '{literal}'
