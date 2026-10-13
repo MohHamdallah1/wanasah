@@ -1,0 +1,51 @@
+name: Representatives cursor normalization probe (temporary)
+on:
+  push:
+    branches: [codex/representatives-adversarial-final-review]
+    paths: [.github/workflows/representatives-adversarial-review-temp.yml]
+permissions:
+  contents: read
+jobs:
+  cursor-probe:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: probe
+          POSTGRES_DB: representatives_probe
+          POSTGRES_HOST_AUTH_METHOD: trust
+        options: >-
+          --health-cmd "pg_isready -U probe -d representatives_probe"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare the actual cursor encoder with PostgreSQL ordering
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          python - <<'PY'
+          import ast, base64, hashlib, json, os, subprocess
+          from pathlib import Path
+          from types import SimpleNamespace
+          tree = ast.parse(Path("wa_backend/domains/representatives/queries.py").read_text())
+          body = [node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or isinstance(node, ast.ImportFrom) and node.module == "__future__"]
+          namespace = {"base64": base64, "hashlib": hashlib, "json": json}
+          exec(compile(ast.Module(body=body, type_ignores=[]), "queries.py", "exec"), namespace)
+          cursor = namespace["_encode_cursor"](SimpleNamespace(representative_id=1, full_name="İbrahim", is_active=True), scope="probe")
+          _, cursor_name, cursor_id = namespace["_decode_cursor"](cursor, expected_scope="probe")
+          literal = cursor_name.replace("'", "''")
+          sql = f"""
+          WITH names(id, name) AS (VALUES (1, 'İbrahim'), (2, 'ibrahim'))
+          SELECT json_build_object(
+              'ctype', current_setting('lc_ctype'),
+              'database_name', lower('İbrahim'),
+              'remaining_ids', (SELECT array_agg(id ORDER BY lower(trim(name)), id)
+                               FROM names WHERE lower(trim(name)) > '{literal}'
+                               OR (lower(trim(name)) = '{literal}' AND id > {cursor_id})));
+          """
+          raw = subprocess.check_output(["docker", "exec", os.environ["POSTGRES_CONTAINER"], "psql", "-U", "probe", "-d", "representatives_probe", "-Atc", sql], text=True)
+          actual = json.loads(raw)
+          print(json.dumps({"cursor_name": cursor_name, **actual}, ensure_ascii=False))
+          assert actual["remaining_ids"] == [2], "Current cursor loses a valid subsequent row"
+          PY
