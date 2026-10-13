@@ -55,10 +55,23 @@ class UpdateRepresentativeCommand:
     fields: dict[str, object]
 
 
+@dataclass(frozen=True, slots=True)
+class RepresentativeLifecycleCommand:
+    request_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ResetRepresentativeCredentialsCommand:
+    request_id: str
+    new_password: str = field(repr=False)
+
+
 __all__ = [
     "CreateRepresentativeCommand",
     "RepresentativeError",
+    "RepresentativeLifecycleCommand",
     "RepresentativePage",
     "RepresentativeRecord",
+    "ResetRepresentativeCredentialsCommand",
     "UpdateRepresentativeCommand",
 ]

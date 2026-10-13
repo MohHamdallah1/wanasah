@@ -23,6 +23,7 @@ from .repository import (
     add_representative_audit,
     apply_representative_fields,
     create_representative_persistence,
+    guard_representative_request_identity,
     normalize_debt_limit,
     require_operational_compatibility,
     username_exists,
@@ -106,12 +107,18 @@ async def create_representative(
         normalized_debt_limit=debt_limit,
     )
     try:
+        canonical_request_id = await guard_representative_request_identity(
+            db,
+            company_id=company_id,
+            request_id=command.request_id,
+            operation="REPRESENTATIVE_CREATE",
+        )
         idem, replay = await begin_idempotent_operation(
             db,
             company_id=company_id,
             actor_id=actor_id,
             operation="REPRESENTATIVE_CREATE",
-            request_id=command.request_id,
+            request_id=canonical_request_id,
             request_hash=request_hash,
         )
         if replay is not None:
@@ -194,12 +201,18 @@ async def update_representative(
     fields = _validated_update_fields(command)
     request_hash = _update_request_hash(representative_id, fields)
     try:
+        canonical_request_id = await guard_representative_request_identity(
+            db,
+            company_id=company_id,
+            request_id=command.request_id,
+            operation="REPRESENTATIVE_UPDATE",
+        )
         idem, replay = await begin_idempotent_operation(
             db,
             company_id=company_id,
             actor_id=actor_id,
             operation="REPRESENTATIVE_UPDATE",
-            request_id=command.request_id,
+            request_id=canonical_request_id,
             request_hash=request_hash,
         )
         if replay is not None:
