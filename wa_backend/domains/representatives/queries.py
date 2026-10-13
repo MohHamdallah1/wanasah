@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-from datetime import timezone
 from decimal import Decimal
 
 from sqlalchemy import and_, case, func, or_, select
@@ -12,12 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from domains.identity.models import CompanyPrincipal, FieldRepresentative
 from domains.identity.types import PrincipalType
 
-from .contracts import (
-    RepresentativeError,
-    RepresentativePage,
-    RepresentativeRecord,
-    RepresentativeStatusFilter,
-)
+from .contracts import RepresentativeError, RepresentativePage, RepresentativeRecord
 
 
 def _escape_like(value: str) -> str:
@@ -32,6 +26,14 @@ def _sort_rank(is_active: bool) -> int:
     return 0 if is_active else 1
 
 
+def _normalized_name_value(value: str) -> str:
+    return value.strip().lower()
+
+
+def _normalized_name_column():
+    return func.lower(func.trim(CompanyPrincipal.full_name))
+
+
 def _encode_cursor(record: RepresentativeRecord, *, scope: str) -> str:
     raw = json.dumps(
         {
@@ -39,7 +41,7 @@ def _encode_cursor(record: RepresentativeRecord, *, scope: str) -> str:
             "kind": "representative",
             "scope": _scope_hash(scope),
             "active_rank": _sort_rank(record.is_active),
-            "name": record.full_name,
+            "name": _normalized_name_value(record.full_name),
             "id": record.representative_id,
         },
         ensure_ascii=False,
@@ -63,16 +65,16 @@ def _decode_cursor(cursor: str, *, expected_scope: str) -> tuple[int, str, int]:
         ):
             raise ValueError
         active_rank = payload.get("active_rank")
-        name = payload.get("name")
+        normalized_name = payload.get("name")
         representative_id = payload.get("id")
         if (
             active_rank not in (0, 1)
-            or not isinstance(name, str)
+            or not isinstance(normalized_name, str)
             or type(representative_id) is not int
             or representative_id <= 0
         ):
             raise ValueError
-        return active_rank, name, representative_id
+        return active_rank, normalized_name, representative_id
     except Exception as exc:
         raise RepresentativeError(
             "REPRESENTATIVE_CURSOR_INVALID",
@@ -82,12 +84,6 @@ def _decode_cursor(cursor: str, *, expected_scope: str) -> tuple[int, str, int]:
 
 
 def _record(profile: FieldRepresentative, principal: CompanyPrincipal) -> RepresentativeRecord:
-    created_at = min(principal.created_at, profile.created_at)
-    updated_at = max(principal.updated_at, profile.updated_at)
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=timezone.utc)
-    if updated_at.tzinfo is None:
-        updated_at = updated_at.replace(tzinfo=timezone.utc)
     return RepresentativeRecord(
         representative_id=int(profile.id),
         full_name=str(principal.full_name),
@@ -96,8 +92,6 @@ def _record(profile: FieldRepresentative, principal: CompanyPrincipal) -> Repres
         is_active=bool(principal.is_active),
         can_allow_debt=bool(profile.can_allow_debt),
         max_debt_limit=Decimal(profile.max_debt_limit),
-        created_at=created_at,
-        updated_at=updated_at,
     )
 
 
@@ -110,8 +104,6 @@ def representative_payload(record: RepresentativeRecord) -> dict:
         "is_active": record.is_active,
         "can_allow_debt": record.can_allow_debt,
         "max_debt_limit": format(record.max_debt_limit, ".3f"),
-        "created_at": record.created_at.isoformat(),
-        "updated_at": record.updated_at.isoformat(),
     }
 
 
@@ -120,13 +112,21 @@ async def list_representatives(
     *,
     company_id: int,
     search: str | None,
-    status: RepresentativeStatusFilter,
+    active: bool | None,
     cursor: str | None,
     limit: int,
 ) -> RepresentativePage:
     clean_search = (search or "").strip().lower()
-    scope = f"representatives|{company_id}|{status}|{clean_search}"
+    if search is not None and not 2 <= len(clean_search) <= 100:
+        raise RepresentativeError(
+            "REPRESENTATIVE_SEARCH_INVALID",
+            "Representative search must contain between 2 and 100 characters.",
+            status_code=422,
+        )
+
+    scope = f"representatives|{company_id}|{active!r}|{clean_search}"
     active_rank = case((CompanyPrincipal.is_active.is_(True), 0), else_=1)
+    normalized_name = _normalized_name_column()
     statement = (
         select(FieldRepresentative, CompanyPrincipal)
         .join(
@@ -142,24 +142,20 @@ async def list_representatives(
             FieldRepresentative.principal_type == PrincipalType.FIELD_REPRESENTATIVE.value,
         )
     )
-    if status == "active":
+    if active is True:
         statement = statement.where(CompanyPrincipal.is_active.is_(True))
-    elif status == "inactive":
+    elif active is False:
         statement = statement.where(CompanyPrincipal.is_active.is_(False))
-    elif status != "all":
-        raise RepresentativeError(
-            "REPRESENTATIVE_STATUS_FILTER_INVALID",
-            "Representative status filter is invalid.",
-            status_code=422,
-        )
 
     if clean_search:
         pattern = f"%{_escape_like(clean_search)}%"
         statement = statement.where(
             or_(
-                func.lower(CompanyPrincipal.full_name).like(pattern, escape="\\"),
-                func.lower(CompanyPrincipal.username).like(pattern, escape="\\"),
-                func.lower(func.coalesce(CompanyPrincipal.phone_number, "")).like(
+                normalized_name.like(pattern, escape="\\"),
+                func.lower(func.trim(CompanyPrincipal.username)).like(
+                    pattern, escape="\\"
+                ),
+                func.lower(func.trim(func.coalesce(CompanyPrincipal.phone_number, ""))).like(
                     pattern, escape="\\"
                 ),
             )
@@ -172,10 +168,10 @@ async def list_representatives(
         statement = statement.where(
             or_(
                 active_rank > cursor_rank,
-                and_(active_rank == cursor_rank, CompanyPrincipal.full_name > cursor_name),
+                and_(active_rank == cursor_rank, normalized_name > cursor_name),
                 and_(
                     active_rank == cursor_rank,
-                    CompanyPrincipal.full_name == cursor_name,
+                    normalized_name == cursor_name,
                     FieldRepresentative.id > cursor_id,
                 ),
             )
@@ -185,7 +181,7 @@ async def list_representatives(
         await db.execute(
             statement.order_by(
                 active_rank.asc(),
-                CompanyPrincipal.full_name.asc(),
+                normalized_name.asc(),
                 FieldRepresentative.id.asc(),
             ).limit(limit + 1)
         )
