@@ -101,4 +101,28 @@ describe("RepresentativeCredentialAction", () => {
     expect(mocks.reset.mock.calls[0]?.[3]).toBe(requestUuid);
     expect(mocks.reset.mock.calls[1]?.[3]).toBe(requestUuid);
   });
+
+  it("preserves an unresolved reset identity across a page remount without persisting the password", async () => {
+    const secondUuid = "33333333-3333-4333-8333-333333333333";
+    vi.mocked(crypto.randomUUID).mockReturnValueOnce(requestUuid).mockReturnValue(secondUuid);
+    mocks.reset.mockRejectedValueOnce({ status: 408, code: "REQUEST_TIMEOUT" }).mockResolvedValueOnce(undefined);
+    localStorage.setItem("company_id", "1");
+    localStorage.setItem("principal_id", "11");
+    const password = "remount88";
+    const submit = () => {
+      fireEvent.click(screen.getByText("representativesVehicles.representatives.credentials.reset"));
+      fireEvent.change(screen.getByLabelText("representativesVehicles.representatives.fields.newPassword"), { target: { value: password } });
+      fireEvent.change(screen.getByLabelText("representativesVehicles.representatives.fields.confirmPassword"), { target: { value: password } });
+      fireEvent.click(screen.getByText("common.confirm"));
+    };
+    const first = render(<RepresentativeCredentialAction representative={representative} allowed />);
+    submit();
+    await waitFor(() => expect(screen.getByText("common.confirm")).not.toBeDisabled());
+    first.unmount();
+    render(<RepresentativeCredentialAction representative={representative} allowed />);
+    submit();
+    await waitFor(() => expect(mocks.reset).toHaveBeenCalledTimes(2));
+    expect(mocks.reset.mock.calls[1]?.[3]).toBe(mocks.reset.mock.calls[0]?.[3]);
+    expect(JSON.stringify({ ...localStorage, ...sessionStorage })).not.toContain(password);
+  });
 });
