@@ -36,7 +36,7 @@ jobs:
           python-version: "3.12"
       - name: Install backend and test dependencies
         run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
-      - name: Create restricted runtime database role
+      - name: Create restricted runtime role and migration database
         run: |
           python - <<'PY'
           import os
@@ -51,13 +51,20 @@ jobs:
                   "CREATE ROLE representatives_runtime LOGIN NOSUPERUSER "
                   "NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS"
               )
-          print("RUNTIME_ROLE=OK")
+              conn.execute("CREATE DATABASE representatives_migration_gate")
+          print("DB_SETUP=OK")
           PY
       - name: Build production schema through Alembic
         working-directory: wa_backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://representatives_runtime@127.0.0.1:5432/representatives_migration_gate
+          DATABASE_URL_MIGRATION: postgresql+asyncpg://representatives_gate@127.0.0.1:5432/representatives_migration_gate
         run: alembic upgrade head
       - name: Reject model and migration drift
         working-directory: wa_backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://representatives_runtime@127.0.0.1:5432/representatives_migration_gate
+          DATABASE_URL_MIGRATION: postgresql+asyncpg://representatives_gate@127.0.0.1:5432/representatives_migration_gate
         run: alembic check
       - name: PostgreSQL-backed Representatives acceptance
         working-directory: wa_backend
