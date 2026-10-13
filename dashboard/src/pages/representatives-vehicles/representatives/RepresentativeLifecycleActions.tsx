@@ -6,9 +6,9 @@ import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
-import { apiErrorMessage } from "@/lib/apiErrors";
 import { deactivateRepresentative, reactivateRepresentative } from "./api";
 import type { Representative } from "./contracts";
+import { representativeErrorMessage } from "./representativeErrorMessage";
 
 interface RepresentativeLifecycleActionsProps {
   representative: Representative;
@@ -58,7 +58,12 @@ export function RepresentativeLifecycleActions({
       setConfirmOpen(false);
       onChanged?.();
     } catch (error) {
-      toast.error(apiErrorMessage(error, t("representativesVehicles.representatives.lifecycle.failed")));
+      toast.error(
+        representativeErrorMessage(
+          error,
+          t("representativesVehicles.representatives.lifecycle.failed"),
+        ),
+      );
     } finally {
       setBusy(false);
     }
