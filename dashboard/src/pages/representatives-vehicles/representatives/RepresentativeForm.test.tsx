@@ -26,7 +26,7 @@ afterEach(() => {
 describe("RepresentativeForm", () => {
   it("submits the frozen create fields with an exact decimal debt value", async () => {
     const onSubmit = vi.fn();
-    render(
+    const { container } = render(
       <RepresentativeForm onCancel={() => undefined} onSubmit={onSubmit} />,
     );
 
@@ -53,7 +53,7 @@ describe("RepresentativeForm", () => {
       screen.getByLabelText("representativesVehicles.representatives.fields.debtLimit"),
       { target: { value: "15.5" } },
     );
-    fireEvent.submit(screen.getByRole("form", { hidden: true }));
+    fireEvent.submit(container.querySelector("form")!);
 
     await waitFor(() => {
       expect(onSubmit).toHaveBeenCalledWith({
