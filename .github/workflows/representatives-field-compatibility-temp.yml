@@ -1,0 +1,140 @@
+name: Temporary representatives field compatibility gate
+
+on:
+  push:
+    branches:
+      - sol/representatives-field-compatibility-acceptance
+    paths:
+      - ".github/workflows/representatives-field-compatibility-temp.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend-field-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: representatives_contract_gate
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d representatives_contract_gate"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: RepresentativesFieldCompatibilityGateSyntheticKey12345678901234567890
+      DATABASE_URL: postgresql+asyncpg://postgres@127.0.0.1:5432/representatives_contract_gate
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://postgres@127.0.0.1:5432/representatives_contract_gate
+      WANASAH_REPRESENTATIVES_CONTRACT_DB_URL: postgresql+asyncpg://postgres@127.0.0.1:5432/representatives_contract_gate
+      TARGET_SHA: 947e9082a7f3ef214baea7b76b188e8b9136a5ef
+      BASE_SHA: b9c18ade8d62c5b23349f2d4c030840940e05cf7
+    steps:
+      - name: Checkout exact production-fix code
+        uses: actions/checkout@v4
+        with:
+          ref: 947e9082a7f3ef214baea7b76b188e8b9136a5ef
+          fetch-depth: 0
+      - name: Verify exact checkout
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain)"
+          git merge-base --is-ancestor "$BASE_SHA" "$TARGET_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4
+      - name: Prepare compatibility role
+        run: |
+          psql -h 127.0.0.1 -U postgres -d representatives_contract_gate -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='wanasah_runtime') THEN
+              CREATE ROLE wanasah_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+            END IF;
+          END $$;
+          SQL
+      - name: Migrate isolated Representatives database
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: FIELD and Representatives focused backend contracts
+        working-directory: wa_backend
+        run: >-
+          python -m unittest -v
+          tests.test_canonical_auth_transport_boundary
+          tests.test_legacy_field_transport
+          tests.test_driver_session_field_context_cutover
+          tests.test_dispatch_representatives
+          tests.test_representatives_lifecycle_credentials
+          tests.test_representatives_contract
+
+  flutter-field-compatibility:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      TARGET_SHA: 947e9082a7f3ef214baea7b76b188e8b9136a5ef
+      BASE_SHA: b9c18ade8d62c5b23349f2d4c030840940e05cf7
+    steps:
+      - name: Checkout exact production-fix code
+        uses: actions/checkout@v4
+        with:
+          ref: 947e9082a7f3ef214baea7b76b188e8b9136a5ef
+          fetch-depth: 0
+      - name: Verify exact checkout
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain)"
+          git merge-base --is-ancestor "$BASE_SHA" "$TARGET_SHA"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Flutter dependencies
+        working-directory: wanasah_frontend
+        run: flutter pub get
+      - name: Formatting gate
+        working-directory: wanasah_frontend
+        run: >-
+          dart format --output=none --set-exit-if-changed
+          lib/blocs/auth/auth_bloc.dart
+          lib/blocs/auth/offline_owner_guard.dart
+          test/offline_owner_guard_test.dart
+      - name: Focused Flutter analyze
+        working-directory: wanasah_frontend
+        run: >-
+          flutter analyze
+          lib/blocs/auth/auth_bloc.dart
+          lib/blocs/auth/offline_owner_guard.dart
+          test/offline_owner_guard_test.dart
+      - name: Offline owner regression
+        working-directory: wanasah_frontend
+        run: flutter test test/offline_owner_guard_test.dart
+
+  scope-and-diff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      TARGET_SHA: 947e9082a7f3ef214baea7b76b188e8b9136a5ef
+      BASE_SHA: b9c18ade8d62c5b23349f2d4c030840940e05cf7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 947e9082a7f3ef214baea7b76b188e8b9136a5ef
+          fetch-depth: 0
+      - name: Diff whitespace gate
+        run: git diff --check "$BASE_SHA" "$TARGET_SHA"
+      - name: Field compatibility scope gate
+        shell: bash
+        run: |
+          changed="$(git diff --name-only "$BASE_SHA" "$TARGET_SHA")"
+          printf '%s\n' "$changed"
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(wanasah_frontend/lib/blocs/auth/auth_bloc\.dart|wanasah_frontend/lib/blocs/auth/offline_owner_guard\.dart|wanasah_frontend/test/offline_owner_guard_test\.dart)$' || true)"
+          if [ -n "$unexpected" ]; then
+            printf 'Unexpected files outside field compatibility scope:\n%s\n' "$unexpected"
+            exit 1
+          fi
+          printf 'SCOPE_CHECK=PASS\n'
