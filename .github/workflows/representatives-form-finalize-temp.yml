@@ -28,7 +28,6 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-
           contract = Path('wa_backend/tests/test_representatives_contract.py')
           text = contract.read_text(encoding='utf-8')
           old_create = 'phone_number=None, password="SyntheticRepresentative123"'
@@ -42,21 +41,22 @@ jobs:
               text = text.replace(old_patch, new_patch, 1)
           assert new_patch in text
           contract.write_text(text, encoding='utf-8')
-
           plan_path = Path('REPRESENTATIVES_VEHICLES_V1_PLAN.md')
           plan = plan_path.read_text(encoding='utf-8')
           marker = 'Still pending before Representatives owner-complete gate:'
           assert marker in plan
-          closure = '''Final Representative form/credential identity UX closure validated on the acceptance branch (pending merge):
-
-- [x] Representative phone is required on create and cannot be cleared on update; historical nullable storage remains migration-free for compatibility.
-- [x] Representative username accepts Arabic or Latin letters with digits and `. _ -`, rejects mixed Arabic+Latin scripts, digits-only, separator-only, and internal whitespace on both Backend and Dashboard.
-- [x] Create requires Dashboard-only password confirmation; confirmation is never sent, stored, or included in request identity.
-- [x] Create and credential reset use application-owned stable password visibility controls; visibility is local-only and resets hidden on reopen.
-- [x] Canonical password policy remains minimum 8 Unicode characters and maximum 72 UTF-8 bytes, including Arabic/Latin/mixed/symbol passwords.
-- [x] Accepted per-sale credit-limit semantics remain unchanged.
-
-'''
+          lines = [
+              'Final Representative form/credential identity UX closure validated on the acceptance branch (pending merge):',
+              '',
+              '- [x] Representative phone is required on create and cannot be cleared on update; historical nullable storage remains migration-free for compatibility.',
+              '- [x] Representative username accepts Arabic or Latin letters with digits and `. _ -`, rejects mixed Arabic+Latin scripts, digits-only, separator-only, and internal whitespace on both Backend and Dashboard.',
+              '- [x] Create requires Dashboard-only password confirmation; confirmation is never sent, stored, or included in request identity.',
+              '- [x] Create and credential reset use application-owned stable password visibility controls; visibility is local-only and resets hidden on reopen.',
+              '- [x] Canonical password policy remains minimum 8 Unicode characters and maximum 72 UTF-8 bytes, including Arabic/Latin/mixed/symbol passwords.',
+              '- [x] Accepted per-sale credit-limit semantics remain unchanged.',
+              '',
+          ]
+          closure = '\n'.join(lines) + '\n'
           if closure not in plan:
               plan = plan.replace(marker, closure + marker, 1)
           plan_path.write_text(plan, encoding='utf-8')
