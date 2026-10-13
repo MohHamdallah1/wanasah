@@ -1,4 +1,7 @@
-"""Wave 1 ownership gates; run with stdlib unittest, without app/DB startup.
+"""Wave 1 ownership gates, without app/DB startup.
+
+The catalog migration gate uses installed Alembic in PostgreSQL offline mode;
+the other source gates need only stdlib unittest.
 
 Missing representative packages/capabilities are deliberate failures until the
 backend implementation branch lands. These checks do not prove SQL isolation;
@@ -8,7 +11,10 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import io
 from pathlib import Path
+import re
+import sys
 import unittest
 
 
@@ -62,6 +68,50 @@ class RepresentativesArchitectureTests(unittest.TestCase):
         spec.loader.exec_module(module)
         self.assertEqual(CAPABILITIES - module.PERMISSIONS, set(), "Missing Wave 1 capabilities")
         self.assertEqual(CAPABILITIES - module.COMPANY_ONLY, set(), "Location grants must not authorize Representative administration")
+
+    def test_migration_chain_additively_inserts_frozen_permission_catalog(self):
+        from alembic.config import Config
+        from alembic.migration import MigrationContext
+        from alembic.operations import Operations
+        from alembic.script import ScriptDirectory
+
+        if str(BACKEND) not in sys.path:
+            sys.path.insert(0, str(BACKEND))
+        config = Config()
+        config.set_main_option("script_location", str(BACKEND / "alembic"))
+        scripts = ScriptDirectory.from_config(config)
+        self.assertEqual(len(scripts.get_heads()), 1, "Permission migration must belong to the current single-head Alembic chain")
+        witnesses = []
+        for migration in scripts.walk_revisions():
+            tree = ast.parse(Path(migration.path).read_text(encoding="utf-8-sig"))
+            strings = [node.value for node in ast.walk(tree)
+                       if isinstance(node, ast.Constant) and isinstance(node.value, str)]
+            if not all(any(code in value for value in strings) for code in CAPABILITIES):
+                continue
+            output = io.StringIO()
+            context = MigrationContext.configure(dialect_name="postgresql", opts={
+                "as_sql": True, "literal_binds": True, "output_buffer": output,
+            })
+            with Operations.context(context):
+                migration.module.upgrade()
+            # Inspect executed upgrade SQL, not comments, downgrade literals or
+            # an unconnected migration file. The migrated DB assertion below
+            # remains the actual persisted-state proof.
+            sql = re.sub(r"--[^\n]*|/\*.*?\*/", "", output.getvalue(), flags=re.S)
+            permission_table = r'(?:"?public"?\.)?"?permissions"?(?=\s|\()'
+            inserts = re.findall(r"\bINSERT\s+INTO\s+" + permission_table + r"[^;]*", sql, flags=re.I)
+            inserted = {code for code in CAPABILITIES
+                        if any("'" + code + "'" in statement for statement in inserts)}
+            if inserted != CAPABILITIES:
+                continue
+            self.assertNotRegex(sql, re.compile(
+                r"\b(?:UPDATE|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?|DROP\s+TABLE)\s+" + permission_table,
+                re.I,
+            ), "Catalog additions must preserve existing Permission rows")
+            for statement in inserts:
+                self.assertNotRegex(statement, re.compile(r"\bDO\s+UPDATE\b", re.I), "Catalog conflicts must not rewrite existing rows")
+            witnesses.append(migration.revision)
+        self.assertTrue(witnesses, "Current Alembic chain lacks an additive upgrade inserting all three Representative Permission codes; the fixture must not repair it")
 
     def test_representative_packages_do_not_reach_into_operational_routers(self):
         violations = []

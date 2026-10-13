@@ -7,6 +7,8 @@ Real SQL/HTTP tests opt in with WANASAH_REPRESENTATIVES_CONTRACT_DB_URL
 (an already-migrated, disposable PostgreSQL DB named representatives_contract_*).
 No schema creation/migration or installation happens here. Each test rolls back
 its outer transaction, including router commits via SAVEPOINTs.
+Representative Permission rows must already exist from the production migration;
+this fixture deliberately never repairs a missing permission catalog.
 
 Authentication is overridden with persisted canonical fixture contexts; actual
 subject resolution, capability decisions, route validation, services and SQL run.
@@ -178,7 +180,7 @@ class RepresentativesSQLHTTPContracts(unittest.IsolatedAsyncioTestCase):
         from sqlalchemy.engine import make_url
         from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
         from sqlalchemy.pool import NullPool
-        from sqlalchemy import text
+        from sqlalchemy import select, text
         import httpx
 
         url = make_url(DB_URL)
@@ -195,11 +197,17 @@ class RepresentativesSQLHTTPContracts(unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(self.db.close)
         self.text = text
 
-        from models import Company
+        from models import Company, Permission
         from tests.canonical_actor_fixtures import seed_company_owner_fixture, seed_ordinary_backoffice_fixture, seed_field_fixture
         from database import get_db
         from api.authentication.dependencies import get_current_backoffice_context
 
+        required = set(ROUTES.values())
+        present = set((await self.db.scalars(
+            select(Permission.code).where(Permission.code.in_(required))
+        )).all())
+        self.assertEqual(required - present, set(),
+                         "Migrated contract DB is missing Representative Permission rows; apply the production Alembic catalog migration. The fixture will not insert them.")
         self.companies = [Company(name="Representative contract " + uuid4().hex,
                                   company_code="RC" + uuid4().hex) for _ in range(2)]
         self.db.add_all(self.companies)
@@ -213,11 +221,6 @@ class RepresentativesSQLHTTPContracts(unittest.IsolatedAsyncioTestCase):
         self.ordinary = await seed_ordinary_backoffice_fixture(self.db, self.companies[0].id)
         await self.tenant(self.companies[1].id)
         self.foreign_ordinary = await seed_ordinary_backoffice_fixture(self.db, self.companies[1].id)
-        from sqlalchemy import select
-        from models import Permission
-        for code in set(ROUTES.values()):
-            if await self.db.scalar(select(Permission.id).where(Permission.code == code)) is None:
-                self.db.add(Permission(code=code))
         await self.db.commit()  # Release seed SAVEPOINT only; outer transaction owns cleanup.
         self.current = self.owners[0]
         await self.tenant(self.current.context.company_id)
