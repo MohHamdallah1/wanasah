@@ -1,0 +1,230 @@
+name: TEMP Representatives Backend Review
+
+on:
+  push:
+    branches:
+      - sol/representatives-backend-management
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    env:
+      SECRET_KEY: RepresentativesBackendReviewSecret0123456789ABCdef
+      DATABASE_URL: postgresql+asyncpg://wanasah_test:wanasah_test@127.0.0.1:5432/wanasah_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile and representative source contract
+        run: |
+          python -m compileall -q \
+            wa_backend/domains/identity/credentials.py \
+            wa_backend/domains/representatives \
+            wa_backend/api/representatives \
+            wa_backend/domains/authorization/capabilities.py \
+            wa_backend/alembic/versions/b7a4c2d9e105_representative_permissions.py \
+            wa_backend/main.py
+          PYTHONPATH=wa_backend python - <<'PY'
+          import inspect
+          from decimal import Decimal
+          from pydantic import ValidationError
+          from api.representatives import router
+          from api.representatives.read import read_representatives
+          from api.representatives.schemas import (
+              RepresentativeCreateRequest,
+              RepresentativeResponse,
+              RepresentativeUpdateRequest,
+          )
+          from domains.identity.credentials import (
+              CompanyCredentialValidationError,
+              sensitive_value_fingerprint,
+              validate_company_password,
+          )
+          from domains.representatives.contracts import RepresentativeRecord
+          from domains.representatives.queries import representative_payload
+
+          assert set(RepresentativeResponse.model_fields) == {
+              'id','full_name','username','phone_number','is_active','can_allow_debt','max_debt_limit'
+          }
+          paths = {(r.path, tuple(sorted(r.methods or []))): r for r in router.routes}
+          assert ('/representatives', ('GET',)) in paths
+          assert ('/representatives', ('POST',)) in paths
+          assert ('/representatives/{representative_id}', ('GET',)) in paths
+          assert ('/representatives/{representative_id}', ('PATCH',)) in paths
+          assert len(paths) == 4
+          assert paths[('/representatives', ('POST',))].status_code == 201
+          assert paths[('/representatives', ('POST',))].response_model is RepresentativeResponse
+          assert paths[('/representatives/{representative_id}', ('PATCH',))].status_code == 200
+          assert paths[('/representatives/{representative_id}', ('PATCH',))].response_model is RepresentativeResponse
+
+          sig = inspect.signature(read_representatives)
+          assert 'status' not in sig.parameters
+          assert sig.parameters['search'].default.default is None
+          assert sig.parameters['search'].default.min_length == 2
+          assert sig.parameters['search'].default.max_length == 100
+          assert sig.parameters['active'].default.default is None
+          assert sig.parameters['cursor'].default.max_length == 512
+          assert sig.parameters['limit'].default.default == 30
+          assert sig.parameters['limit'].default.ge == 1
+          assert sig.parameters['limit'].default.le == 100
+
+          try:
+              RepresentativeUpdateRequest(request_id='11111111-1111-1111-1111-111111111111')
+              raise AssertionError('request_id-only PATCH must fail')
+          except ValidationError:
+              pass
+          for forbidden in ({'password':'password1'}, {'is_active':False}):
+              try:
+                  RepresentativeUpdateRequest(
+                      request_id='11111111-1111-1111-1111-111111111111',
+                      full_name='Rep',
+                      **forbidden,
+                  )
+                  raise AssertionError('generic PATCH accepted forbidden field')
+              except ValidationError:
+                  pass
+
+          RepresentativeCreateRequest(
+              request_id='11111111-1111-1111-1111-111111111111',
+              full_name='Rep', username='rep', password='password1'
+          )
+          try:
+              validate_company_password('é' * 40)
+              raise AssertionError('bcrypt byte-limit policy must be Identity-owned')
+          except CompanyCredentialValidationError:
+              pass
+          fp1 = sensitive_value_fingerprint('password1', purpose='test', secret='KeyedSecret123ABC')
+          fp2 = sensitive_value_fingerprint('password1', purpose='test', secret='KeyedSecret123ABC')
+          fp3 = sensitive_value_fingerprint('password2', purpose='test', secret='KeyedSecret123ABC')
+          assert fp1 == fp2 and fp1 != fp3 and 'password1' not in fp1
+
+          payload = representative_payload(RepresentativeRecord(
+              representative_id=7, full_name='A', username='u', phone_number=None,
+              is_active=True, can_allow_debt=False, max_debt_limit=Decimal('0.000')
+          ))
+          assert set(payload) == set(RepresentativeResponse.model_fields)
+          print('REPRESENTATIVES_WIRE_CONTRACT=PASS')
+          PY
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r wa_backend/requirements.txt pytest
+      - name: Focused canonical identity auth regression
+        working-directory: wa_backend
+        env:
+          PYTHONPATH: ${{ github.workspace }}/wa_backend/tests:${{ github.workspace }}/wa_backend
+        run: |
+          python -m pytest -q \
+            tests/test_identity_authentication_foundation.py \
+            tests/test_canonical_auth_core_boundary.py \
+            tests/test_canonical_auth_transport_boundary.py \
+            tests/test_principal_http_dependencies.py \
+            tests/test_canonical_field_runtime_compatibility.py \
+            tests/test_identity_login_legacy_compatibility.py \
+            tests/test_login_is_admin_retirement_contract.py
+      - name: Representative architecture and idempotency source gate
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          mgmt = Path('wa_backend/domains/representatives/management.py').read_text()
+          repo = Path('wa_backend/domains/representatives/repository.py').read_text()
+          creds = Path('wa_backend/domains/representatives/credentials.py').read_text()
+          ident = Path('wa_backend/domains/identity/credentials.py').read_text()
+          read_api = Path('wa_backend/api/representatives/read.py').read_text()
+          schemas = Path('wa_backend/api/representatives/schemas.py').read_text()
+          life_api = Path('wa_backend/api/representatives/lifecycle.py').read_text()
+          cred_api = Path('wa_backend/api/representatives/credentials.py').read_text()
+          queries = Path('wa_backend/domains/representatives/queries.py').read_text()
+
+          assert 'password_fingerprint' in mgmt
+          assert 'fingerprint_initial_password(command.password)' in mgmt
+          assert '"password": command.password' not in mgmt
+          assert 'bcrypt' not in creds
+          assert 'bcrypt' in ident and 'hmac.new' in ident
+          assert 'hash_company_password' in creds and 'sensitive_value_fingerprint' in creds
+          for direct in ('CompanyPrincipal', 'FieldRepresentative', 'IdentityLegacyDriverMap', 'SystemAuditLog'):
+              assert direct not in mgmt, direct
+          assert 'create_representative_persistence' in repo
+          assert 'classification="FIELD_ONLY"' in repo
+          assert 'field_principal_id=principal.id' in repo
+          assert 'field_representative_id=profile.id' in repo
+          assert 'status:' not in read_api and 'RepresentativeStatus' not in schemas
+          assert 'created_at' not in schemas and 'updated_at' not in schemas
+          assert 'func.lower(func.trim(CompanyPrincipal.full_name))' in queries
+          assert '_normalized_name_value(record.full_name)' in queries
+          assert '@router.post' not in life_api
+          assert '@router.post' not in cred_api
+          print('REPRESENTATIVES_ARCHITECTURE_GATE=PASS')
+          PY
+      - name: Permission migration graph and catalog gate
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          versions = Path('wa_backend/alembic/versions')
+          revisions = {}
+          parents = set()
+          for path in versions.glob('*.py'):
+              try:
+                  tree = ast.parse(path.read_text(encoding='utf-8'))
+              except SyntaxError as exc:
+                  raise AssertionError(f'{path}: {exc}') from exc
+              revision = down = None
+              for node in tree.body:
+                  if isinstance(node, ast.Assign):
+                      for target in node.targets:
+                          if isinstance(target, ast.Name) and target.id in {'revision','down_revision'}:
+                              value = ast.literal_eval(node.value)
+                              if target.id == 'revision': revision = value
+                              else: down = value
+                  elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id in {'revision','down_revision'}:
+                      value = ast.literal_eval(node.value)
+                      if node.target.id == 'revision': revision = value
+                      else: down = value
+              if revision:
+                  assert revision not in revisions, revision
+                  revisions[revision] = path.name
+                  if isinstance(down, tuple): parents.update(x for x in down if x)
+                  elif down: parents.add(down)
+          heads = sorted(set(revisions) - parents)
+          assert heads == ['b7a4c2d9e105'], heads
+          migration = (versions / 'b7a4c2d9e105_representative_permissions.py').read_text()
+          assert 'down_revision = "f2c7a9d4e611"' in migration
+          for code in ('representative.read','representative.manage','representative.credentials.reset'):
+              assert migration.count(f"('{code}')") == 1
+          assert 'ON CONFLICT (code) DO NOTHING' in migration
+          downgrade = migration.split('def downgrade()',1)[1]
+          assert 'pass' in downgrade and 'DELETE FROM permissions' not in downgrade
+          print('REPRESENTATIVES_PERMISSION_MIGRATION=PASS')
+          PY
+      - name: Scope and diff check
+        run: |
+          git diff --check 8d6ab2663598bb9ae9144bf319863a2bd9eb421e...HEAD
+          python - <<'PY'
+          import subprocess
+          allowed_prefixes = (
+              'wa_backend/domains/representatives/',
+              'wa_backend/api/representatives/',
+          )
+          allowed_exact = {
+              'wa_backend/domains/authorization/capabilities.py',
+              'wa_backend/main.py',
+              'wa_backend/domains/identity/credentials.py',
+              'wa_backend/alembic/versions/b7a4c2d9e105_representative_permissions.py',
+              '.github/workflows/temp-representatives-backend-review.yml',
+          }
+          files = subprocess.check_output([
+              'git','diff','--name-only','8d6ab2663598bb9ae9144bf319863a2bd9eb421e...HEAD'
+          ], text=True).splitlines()
+          bad = [p for p in files if p not in allowed_exact and not p.startswith(allowed_prefixes)]
+          assert not bad, bad
+          assert 'wa_backend/api/driver.py' not in files
+          assert 'wa_backend/api/dispatch.py' not in files
+          print('REPRESENTATIVES_BRANCH_SCOPE=PASS')
+          PY
