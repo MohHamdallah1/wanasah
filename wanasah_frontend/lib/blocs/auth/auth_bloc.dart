@@ -236,23 +236,27 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
       final markerDriverId = int.tryParse(offlineOwnerDriverId?.trim() ?? '');
       final markerCompanyCode = offlineOwnerCompanyCode?.trim();
-      final hasValidMarker = markerDriverId != null &&
+      final hasValidMarker =
+          markerDriverId != null &&
           markerDriverId > 0 &&
           markerCompanyCode != null &&
           markerCompanyCode.isNotEmpty;
       final previousDriverId = int.tryParse(oldDriverId?.trim() ?? '');
       final previousCompanyCode = oldCompanyCode?.trim();
-      final hasValidPreviousOwner = previousDriverId != null &&
+      final hasValidPreviousOwner =
+          previousDriverId != null &&
           previousDriverId > 0 &&
           previousCompanyCode != null &&
           previousCompanyCode.isNotEmpty;
 
-      final String? protectedOwnerCompanyCode = hasValidMarker
-          ? markerCompanyCode
-          : (hasValidPreviousOwner ? previousCompanyCode : null);
-      final int? protectedOwnerDriverId = hasValidMarker
-          ? markerDriverId
-          : (hasValidPreviousOwner ? previousDriverId : null);
+      final String? protectedOwnerCompanyCode =
+          hasValidMarker
+              ? markerCompanyCode
+              : (hasValidPreviousOwner ? previousCompanyCode : null);
+      final int? protectedOwnerDriverId =
+          hasValidMarker
+              ? markerDriverId
+              : (hasValidPreviousOwner ? previousDriverId : null);
 
       final offlineGuard = await evaluateOfflineOwnerLoginSafety(
         ownerCompanyCode: protectedOwnerCompanyCode,
@@ -283,7 +287,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         developer.log(
           '[AuthBloc] Login → Blocked by offline financial ownership guard: ${offlineGuard.outcome}.',
         );
-        emit(AuthError(message: _offlineOwnerBlockMessage(offlineGuard.outcome)));
+        emit(
+          AuthError(message: _offlineOwnerBlockMessage(offlineGuard.outcome)),
+        );
         return;
       }
 
@@ -293,10 +299,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
       await LocalDatabase.instance.setTenant(returnedCompanyCode);
 
-      final switchedCompany = oldCompanyCode != null &&
+      final switchedCompany =
+          oldCompanyCode != null &&
           oldCompanyCode.isNotEmpty &&
           oldCompanyCode != returnedCompanyCode;
-      final switchedDriverSameCompany = previousDriverId != null &&
+      final switchedDriverSameCompany =
+          previousDriverId != null &&
           previousDriverId > 0 &&
           oldCompanyCode == returnedCompanyCode &&
           previousDriverId != driverId;
