@@ -72,7 +72,7 @@ export function RepresentativeLifecycleActions({ representative, onChanged }: Re
         <p className="text-sm font-semibold leading-7 text-slate-600">
           {t(representative.is_active
             ? "representativesVehicles.representatives.lifecycle.deactivateConfirm"
-            : "representativesVehicles.representatives.lifecycle.reactivateConfirm", { name: representative.name })}
+            : "representativesVehicles.representatives.lifecycle.reactivateConfirm", { name: representative.full_name })}
         </p>
       </Modal>
     </section>

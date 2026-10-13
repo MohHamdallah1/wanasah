@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { listRepresentatives } from "./api";
@@ -13,20 +13,34 @@ export function useRepresentatives() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setSearch(input.trim());
+      const normalized = input.trim();
+      setSearch(normalized.length >= 2 ? normalized.slice(0, 100) : "");
     }, 300);
     return () => window.clearTimeout(timer);
   }, [input]);
 
-  const query = useQuery({
+  const query = useInfiniteQuery({
     queryKey: ["representatives", search, status],
-    queryFn: ({ signal }) => listRepresentatives(authFetch, { search, status, signal }),
+    initialPageParam: null as string | null,
+    queryFn: ({ signal, pageParam }) =>
+      listRepresentatives(authFetch, {
+        search,
+        status,
+        cursor: pageParam,
+        limit: 30,
+        signal,
+      }),
+    getNextPageParam: (lastPage) =>
+      lastPage.has_more ? lastPage.next_cursor ?? undefined : undefined,
     retry: false,
     staleTime: 0,
     refetchOnWindowFocus: true,
   });
 
-  const items = useMemo(() => query.data?.items ?? [], [query.data]);
+  const items = useMemo(
+    () => query.data?.pages.flatMap((page) => page.items) ?? [],
+    [query.data],
+  );
 
   return {
     input,

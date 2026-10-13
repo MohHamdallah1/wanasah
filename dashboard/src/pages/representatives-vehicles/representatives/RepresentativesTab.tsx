@@ -39,28 +39,33 @@ export function RepresentativesTab() {
     }
   };
 
+  const searchNeedsMore = representatives.input.trim().length === 1;
+
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-3" aria-labelledby="representatives-tab-heading">
       <h2 id="representatives-tab-heading" className="sr-only">{t("representativesVehicles.tabs.representatives")}</h2>
 
       <div className="flex flex-col gap-2.5 rounded-[24px] border border-white/80 bg-white/65 p-2.5 shadow-[0_20px_60px_-44px_rgba(15,23,42,0.6)] backdrop-blur-xl lg:flex-row lg:items-center">
-        <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute start-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
-            type="search"
-            value={representatives.input}
-            onChange={(event) => representatives.setInput(event.target.value)}
-            placeholder={t("representativesVehicles.representatives.search")}
-            aria-label={t("representativesVehicles.representatives.search")}
-            maxLength={120}
-            className="h-11 w-full rounded-2xl border border-slate-200/80 bg-white pe-10 ps-10 text-sm font-semibold text-slate-800 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-cyan-300 focus:ring-4 focus:ring-cyan-100/60"
-          />
-          {representatives.input ? (
-            <button type="button" onClick={() => representatives.setInput("")} aria-label={t("representativesVehicles.representatives.clearSearch")}
-              className="absolute end-2.5 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
-              <X className="h-3.5 w-3.5" />
-            </button>
-          ) : null}
+        <div className="min-w-0 flex-1">
+          <div className="relative">
+            <Search className="pointer-events-none absolute start-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="search"
+              value={representatives.input}
+              onChange={(event) => representatives.setInput(event.target.value.slice(0, 100))}
+              placeholder={t("representativesVehicles.representatives.search")}
+              aria-label={t("representativesVehicles.representatives.search")}
+              maxLength={100}
+              className="h-11 w-full rounded-2xl border border-slate-200/80 bg-white pe-10 ps-10 text-sm font-semibold text-slate-800 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-cyan-300 focus:ring-4 focus:ring-cyan-100/60"
+            />
+            {representatives.input ? (
+              <button type="button" onClick={() => representatives.setInput("")} aria-label={t("representativesVehicles.representatives.clearSearch")}
+                className="absolute end-2.5 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
+          {searchNeedsMore ? <p className="px-2 pt-1 text-[10px] font-bold text-slate-500">{t("representativesVehicles.representatives.searchHint")}</p> : null}
         </div>
 
         <div className="flex items-center rounded-2xl border border-slate-200/70 bg-slate-100/65 p-1" aria-label={t("representativesVehicles.representatives.filterLabel")}>
@@ -105,7 +110,16 @@ export function RepresentativesTab() {
             </div>
           </div>
         ) : (
-          <RepresentativeTable items={representatives.items} loading={representatives.query.isFetching} onOpen={setSelected} />
+          <>
+            <RepresentativeTable items={representatives.items} loading={representatives.query.isFetching && representatives.items.length === 0} onOpen={setSelected} />
+            {representatives.query.hasNextPage ? (
+              <div className="border-t border-slate-100 p-2 text-center">
+                <button type="button" disabled={representatives.query.isFetchingNextPage} onClick={() => void representatives.query.fetchNextPage()} className="h-9 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">
+                  {representatives.query.isFetchingNextPage ? t("representativesVehicles.representatives.loadingMore") : t("representativesVehicles.representatives.loadMore")}
+                </button>
+              </div>
+            ) : null}
+          </>
         )}
       </div>
 
