@@ -2,15 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-from decimal import Decimal
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from domains.identity.migration.models import IdentityLegacyDriverMap
-from domains.identity.models import CompanyPrincipal, FieldRepresentative
-from domains.identity.types import PrincipalType
-from models import Driver, SystemAuditLog
 from services import (
     InventoryMutationError,
     begin_idempotent_operation,
@@ -22,38 +17,21 @@ from .contracts import (
     RepresentativeError,
     UpdateRepresentativeCommand,
 )
-from .credentials import hash_initial_password
+from .credentials import fingerprint_initial_password, hash_initial_password
 from .queries import get_representative, representative_payload
-from .repository import require_operational_compatibility, username_exists
+from .repository import (
+    add_representative_audit,
+    apply_representative_fields,
+    create_representative_persistence,
+    normalize_debt_limit,
+    require_operational_compatibility,
+    username_exists,
+)
 
 
-MONEY_MAX = Decimal("999999999.999")
-MONEY_QUANT = Decimal("0.001")
-
-
-def _normalize_debt_limit(value: Decimal) -> Decimal:
-    try:
-        amount = Decimal(value)
-    except Exception as exc:
-        raise RepresentativeError(
-            "REPRESENTATIVE_DEBT_LIMIT_INVALID",
-            "Maximum debt limit is invalid.",
-            status_code=422,
-        ) from exc
-    if not amount.is_finite() or amount < 0 or amount > MONEY_MAX:
-        raise RepresentativeError(
-            "REPRESENTATIVE_DEBT_LIMIT_INVALID",
-            "Maximum debt limit is outside the supported range.",
-            status_code=422,
-        )
-    normalized = amount.quantize(MONEY_QUANT)
-    if normalized != amount:
-        raise RepresentativeError(
-            "REPRESENTATIVE_DEBT_LIMIT_PRECISION_INVALID",
-            "Maximum debt limit supports at most 3 decimal places.",
-            status_code=422,
-        )
-    return normalized
+_MUTABLE_FIELDS = frozenset(
+    {"full_name", "username", "phone_number", "can_allow_debt", "max_debt_limit"}
+)
 
 
 def _stable_hash(operation: str, payload: dict) -> str:
@@ -67,54 +45,52 @@ def _stable_hash(operation: str, payload: dict) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def _safe_create_hash(command: CreateRepresentativeCommand) -> str:
-    # Passwords and password-derived values are deliberately excluded from durable
-    # idempotency identity, matching the repository's sensitive-confirmation pattern.
+def _create_request_hash(
+    command: CreateRepresentativeCommand,
+    *,
+    normalized_debt_limit,
+) -> str:
     return _stable_hash(
         "REPRESENTATIVE_CREATE",
         {
             "full_name": command.full_name,
             "username": command.username,
             "phone_number": command.phone_number,
+            "password_fingerprint": fingerprint_initial_password(command.password),
             "can_allow_debt": command.can_allow_debt,
-            "max_debt_limit": str(command.max_debt_limit),
+            "max_debt_limit": format(normalized_debt_limit, ".3f"),
         },
     )
 
 
-def _safe_update_hash(
-    representative_id: int, command: UpdateRepresentativeCommand
+def _update_request_hash(
+    representative_id: int,
+    fields: dict[str, object],
 ) -> str:
     return _stable_hash(
         "REPRESENTATIVE_UPDATE",
-        {"representative_id": representative_id, "fields": command.fields},
+        {"representative_id": representative_id, "fields": fields},
     )
 
 
-def _audit(
-    db: AsyncSession,
-    *,
-    company_id: int,
-    actor_id: int,
-    representative_id: int,
-    action: str,
-    before: dict | None,
-    after: dict,
-) -> None:
-    db.add(
-        SystemAuditLog(
-            company_id=company_id,
-            admin_id=actor_id,
-            target_id=f"FieldRepresentative_{representative_id}",
-            action_type=action,
-            old_value=(
-                json.dumps(before, sort_keys=True, ensure_ascii=False)
-                if before is not None
-                else None
-            ),
-            new_value=json.dumps(after, sort_keys=True, ensure_ascii=False),
+def _validated_update_fields(command: UpdateRepresentativeCommand) -> dict[str, object]:
+    fields = dict(command.fields)
+    if not fields:
+        raise RepresentativeError(
+            "REPRESENTATIVE_UPDATE_EMPTY",
+            "At least one mutable representative field is required.",
+            status_code=422,
         )
-    )
+    unknown = set(fields) - _MUTABLE_FIELDS
+    if unknown:
+        raise RepresentativeError(
+            "REPRESENTATIVE_UPDATE_FIELD_INVALID",
+            "Representative update contains an unsupported field.",
+            status_code=422,
+        )
+    if "max_debt_limit" in fields:
+        fields["max_debt_limit"] = normalize_debt_limit(fields["max_debt_limit"])
+    return fields
 
 
 async def create_representative(
@@ -124,7 +100,11 @@ async def create_representative(
     actor_id: int,
     command: CreateRepresentativeCommand,
 ) -> dict:
-    debt_limit = _normalize_debt_limit(command.max_debt_limit)
+    debt_limit = normalize_debt_limit(command.max_debt_limit)
+    request_hash = _create_request_hash(
+        command,
+        normalized_debt_limit=debt_limit,
+    )
     try:
         idem, replay = await begin_idempotent_operation(
             db,
@@ -132,14 +112,16 @@ async def create_representative(
             actor_id=actor_id,
             operation="REPRESENTATIVE_CREATE",
             request_id=command.request_id,
-            request_hash=_safe_create_hash(command),
+            request_hash=request_hash,
         )
         if replay is not None:
             await db.rollback()
             return replay
 
         if await username_exists(
-            db, company_id=company_id, username=command.username
+            db,
+            company_id=company_id,
+            username=command.username,
         ):
             raise RepresentativeError(
                 "REPRESENTATIVE_USERNAME_CONFLICT",
@@ -148,73 +130,37 @@ async def create_representative(
             )
 
         password_hash = await hash_initial_password(command.password)
-        principal = CompanyPrincipal(
-            company_id=company_id,
-            username=command.username,
-            password_hash=password_hash,
-            full_name=command.full_name,
-            phone_number=command.phone_number,
-            principal_type=PrincipalType.FIELD_REPRESENTATIVE.value,
-            is_active=True,
-            auth_revision=1,
-        )
-        legacy_driver = Driver(
-            company_id=company_id,
-            username=command.username,
-            password_hash=password_hash,
-            full_name=command.full_name,
-            phone_number=command.phone_number,
-            is_active=True,
-            can_allow_debt=command.can_allow_debt,
-            max_debt_limit=debt_limit,
-        )
-        db.add(principal)
-        db.add(legacy_driver)
-        await db.flush()
-
-        profile = FieldRepresentative(
-            company_id=company_id,
-            principal_id=principal.id,
-            principal_type=PrincipalType.FIELD_REPRESENTATIVE.value,
-            can_allow_debt=command.can_allow_debt,
-            max_debt_limit=debt_limit,
-        )
-        db.add(profile)
-        await db.flush()
-
-        db.add(
-            IdentityLegacyDriverMap(
+        profile, _principal, _bridge, _legacy_driver = (
+            await create_representative_persistence(
+                db,
                 company_id=company_id,
-                legacy_driver_id=legacy_driver.id,
-                classification="FIELD_ONLY",
-                backoffice_principal_id=None,
-                backoffice_user_id=None,
-                field_principal_id=principal.id,
-                field_representative_id=profile.id,
+                full_name=command.full_name,
+                username=command.username,
+                phone_number=command.phone_number,
+                password_hash=password_hash,
+                can_allow_debt=command.can_allow_debt,
+                max_debt_limit=debt_limit,
             )
         )
-        await db.flush()
-
-        record = await get_representative(
-            db, company_id=company_id, representative_id=profile.id
+        payload = representative_payload(
+            await get_representative(
+                db,
+                company_id=company_id,
+                representative_id=int(profile.id),
+            )
         )
-        payload = representative_payload(record)
-        _audit(
+        add_representative_audit(
             db,
             company_id=company_id,
             actor_id=actor_id,
-            representative_id=profile.id,
+            representative_id=int(profile.id),
             action="REPRESENTATIVE_CREATED",
             before=None,
             after=payload,
         )
-        response = {
-            "message": "Representative created successfully.",
-            "representative": payload,
-        }
-        complete_idempotent_operation(idem, response)
+        complete_idempotent_operation(idem, payload)
         await db.commit()
-        return response
+        return payload
     except RepresentativeError:
         await db.rollback()
         raise
@@ -245,9 +191,8 @@ async def update_representative(
     representative_id: int,
     command: UpdateRepresentativeCommand,
 ) -> dict:
-    fields = dict(command.fields)
-    if "max_debt_limit" in fields:
-        fields["max_debt_limit"] = _normalize_debt_limit(fields["max_debt_limit"])
+    fields = _validated_update_fields(command)
+    request_hash = _update_request_hash(representative_id, fields)
     try:
         idem, replay = await begin_idempotent_operation(
             db,
@@ -255,23 +200,24 @@ async def update_representative(
             actor_id=actor_id,
             operation="REPRESENTATIVE_UPDATE",
             request_id=command.request_id,
-            request_hash=_safe_update_hash(
-                representative_id,
-                UpdateRepresentativeCommand(command.request_id, fields),
-            ),
+            request_hash=request_hash,
         )
         if replay is not None:
             await db.rollback()
             return replay
 
-        profile, principal, _bridge, legacy_driver = await require_operational_compatibility(
-            db,
-            company_id=company_id,
-            representative_id=representative_id,
+        profile, principal, _bridge, legacy_driver = (
+            await require_operational_compatibility(
+                db,
+                company_id=company_id,
+                representative_id=representative_id,
+            )
         )
         before = representative_payload(
             await get_representative(
-                db, company_id=company_id, representative_id=representative_id
+                db,
+                company_id=company_id,
+                representative_id=representative_id,
             )
         )
 
@@ -280,8 +226,8 @@ async def update_representative(
                 db,
                 company_id=company_id,
                 username=str(fields["username"]),
-                exclude_principal_id=principal.id,
-                exclude_legacy_driver_id=legacy_driver.id,
+                exclude_principal_id=int(principal.id),
+                exclude_legacy_driver_id=int(legacy_driver.id),
             ):
                 raise RepresentativeError(
                     "REPRESENTATIVE_USERNAME_CONFLICT",
@@ -289,23 +235,22 @@ async def update_representative(
                     status_code=409,
                 )
 
-        for field in ("full_name", "username", "phone_number"):
-            if field in fields:
-                setattr(principal, field, fields[field])
-                setattr(legacy_driver, field, fields[field])
-        for field in ("can_allow_debt", "max_debt_limit"):
-            if field in fields:
-                setattr(profile, field, fields[field])
-                setattr(legacy_driver, field, fields[field])
-
+        apply_representative_fields(
+            profile=profile,
+            principal=principal,
+            legacy_driver=legacy_driver,
+            fields=fields,
+        )
         await db.flush()
         after = representative_payload(
             await get_representative(
-                db, company_id=company_id, representative_id=representative_id
+                db,
+                company_id=company_id,
+                representative_id=representative_id,
             )
         )
         if after != before:
-            _audit(
+            add_representative_audit(
                 db,
                 company_id=company_id,
                 actor_id=actor_id,
@@ -314,13 +259,10 @@ async def update_representative(
                 before=before,
                 after=after,
             )
-        response = {
-            "message": "Representative updated successfully.",
-            "representative": after,
-        }
-        complete_idempotent_operation(idem, response)
+
+        complete_idempotent_operation(idem, after)
         await db.commit()
-        return response
+        return after
     except RepresentativeError:
         await db.rollback()
         raise
