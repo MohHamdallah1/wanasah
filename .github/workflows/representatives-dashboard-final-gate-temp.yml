@@ -61,9 +61,9 @@ jobs:
 
       - name: Extract current-main TypeScript baseline
         run: |
-          mkdir -p ../baseline
-          git archive --format=tar --output=../baseline.tar "$MAIN_SHA" dashboard
-          tar -xf ../baseline.tar -C ../baseline
+          mkdir -p baseline
+          git archive --format=tar --output=baseline.tar "$MAIN_SHA" dashboard
+          tar -xf baseline.tar -C baseline
 
       - name: TypeScript baseline comparison
         working-directory: dashboard
