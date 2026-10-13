@@ -10,11 +10,12 @@ export function useRepresentativeDetail(
   const authFetch = useAuthFetch();
 
   return useQuery({
-    queryKey: ["representatives", "detail", representativeId],
+    queryKey: ["representative-detail", representativeId],
     enabled: enabled && representativeId !== null,
     queryFn: ({ signal }) =>
       getRepresentative(authFetch, representativeId as number, signal),
     staleTime: 0,
     retry: false,
+    refetchOnWindowFocus: false,
   });
 }
