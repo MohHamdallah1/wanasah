@@ -1,0 +1,361 @@
+name: Temporary representatives actions and currency acceptance
+
+on:
+  push:
+    branches:
+      - sol/representatives-actions-menu-currency-ux
+    paths:
+      - ".github/workflows/representatives-actions-currency-final-temp.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  accept:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      BASE_HEAD: cd4a498a71c8288ec934f784dbbae820466827ef
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: sol/representatives-actions-menu-currency-ux
+          fetch-depth: 0
+
+      - name: Finalize focused tests, i18n cleanup, and plan wording
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          test_path = Path('dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm.test.tsx')
+          test = test_path.read_text(encoding='utf-8')
+          old = '''  it("preserves the stored edit value and selects it only for the first editing focus", () => {
+              render(<RepresentativeForm representative={representative} onCancel={() => undefined} onSubmit={vi.fn()} />);
+              const limit = screen.getByLabelText("representativesVehicles.representatives.fields.debtLimit") as HTMLInputElement;
+              expect(limit.value).toBe("25.500");
+
+              fireEvent.focus(limit);
+              expect(limit.value).toBe("25.500");
+              expect(limit.selectionStart).toBe(0);
+              expect(limit.selectionEnd).toBe("25.500".length);
+
+              fireEvent.change(limit, { target: { value: "50.000" } });
+              fireEvent.blur(limit);
+              limit.setSelectionRange("50.000".length, "50.000".length);
+              fireEvent.focus(limit);
+              expect(limit.value).toBe("50.000");
+              expect(limit.selectionStart).toBe("50.000".length);
+              expect(limit.selectionEnd).toBe("50.000".length);
+            });'''
+          new = '''  it("preserves the exact stored edit meaning while showing a human-friendly initial value and selecting only on first focus", () => {
+              render(<RepresentativeForm representative={representative} onCancel={() => undefined} onSubmit={vi.fn()} />);
+              const limit = screen.getByLabelText("representativesVehicles.representatives.fields.debtLimit") as HTMLInputElement;
+              expect(limit.value).toBe("25.5");
+
+              fireEvent.focus(limit);
+              expect(limit.value).toBe("25.5");
+              expect(limit.selectionStart).toBe(0);
+              expect(limit.selectionEnd).toBe("25.5".length);
+
+              fireEvent.change(limit, { target: { value: "50.000" } });
+              fireEvent.blur(limit);
+              limit.setSelectionRange("50.000".length, "50.000".length);
+              fireEvent.focus(limit);
+              expect(limit.value).toBe("50.000");
+              expect(limit.selectionStart).toBe("50.000".length);
+              expect(limit.selectionEnd).toBe("50.000".length);
+            });'''
+          assert old in test
+          test = test.replace(old, new)
+
+          anchor = '''  it("sends explicit null when an existing phone number is cleared", async () => {'''
+          insertion = '''  it("saves edited representative name and username together", async () => {
+              const onSubmit = vi.fn();
+              const { container } = render(
+                <RepresentativeForm representative={representative} onCancel={() => undefined} onSubmit={onSubmit} />,
+              );
+              fireEvent.change(screen.getByLabelText("representativesVehicles.representatives.fields.name"), {
+                target: { value: "Ahmad Updated" },
+              });
+              fireEvent.change(screen.getByLabelText("representativesVehicles.representatives.fields.username"), {
+                target: { value: "rep-updated" },
+              });
+              fireEvent.submit(container.querySelector("form")!);
+              await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({
+                full_name: "Ahmad Updated",
+                username: "rep-updated",
+              }, requestUuid));
+            });
+
+            it.each([
+              ["50.000", "50"],
+              ["50.500", "50.5"],
+              ["50.005", "50.005"],
+            ])("shows stored edit debt %s as %s without changing its exact normalized meaning", (stored, displayed) => {
+              const onSubmit = vi.fn();
+              const { container } = render(
+                <RepresentativeForm
+                  representative={{ ...representative, max_debt_limit: stored }}
+                  onCancel={() => undefined}
+                  onSubmit={onSubmit}
+                />,
+              );
+              const limit = screen.getByLabelText("representativesVehicles.representatives.fields.debtLimit") as HTMLInputElement;
+              expect(limit.value).toBe(displayed);
+              fireEvent.submit(container.querySelector("form")!);
+              expect(onSubmit).not.toHaveBeenCalled();
+              expect(screen.getByRole("alert")).toHaveTextContent("representativesVehicles.representatives.form.noChanges");
+            });
+
+            ''' + anchor
+          assert anchor in test
+          test = test.replace(anchor, insertion, 1)
+          test_path.write_text(test, encoding='utf-8')
+
+          i18n_path = Path('dashboard/src/i18n/representativesVehicles.ts')
+          i18n = i18n_path.read_text(encoding='utf-8')
+          for line in [
+            '      detailLoading: "جاري تحميل بيانات المندوب...",\n',
+            '      detailFailed: "تعذر تحميل بيانات المندوب.",\n',
+            '      details: "تفاصيل المندوب",\n',
+            '      openDetails: "فتح التفاصيل",\n',
+            '      detailLoading: "Loading representative details...",\n',
+            '      detailFailed: "Could not load representative details.",\n',
+            '      details: "Representative details",\n',
+            '      openDetails: "Open details",\n',
+          ]:
+            assert line in i18n
+            i18n = i18n.replace(line, '', 1)
+          i18n_path.write_text(i18n, encoding='utf-8')
+
+          plan_path = Path('REPRESENTATIVES_VEHICLES_V1_PLAN.md')
+          plan = plan_path.read_text(encoding='utf-8')
+          plan = plan.replace(
+            '- [x] Representative create/edit/detail Dashboard flows implemented.',
+            '- [x] Representative create/edit and direct row-action Dashboard flows implemented; the redundant duplicate details drawer is removed.',
+          )
+          plan = plan.replace(
+            '- [x] Dashboard lifecycle and credential-reset UI implemented.',
+            '- [x] Dashboard lifecycle and credential-reset UI is launched directly from the capability-gated row action menu.',
+          )
+          plan = plan.replace(
+            '    RepresentativeDrawer.tsx         # details/actions composition only\n    RepresentativeLifecycleActions.tsx\n    RepresentativeCredentialAction.tsx',
+            '    RepresentativeRowActions.tsx     # portal row action menu only\n    representativeMoney.ts              # exact-string Representative money presentation only\n    RepresentativeLifecycleActions.tsx  # lifecycle modal/controller only\n    RepresentativeCredentialAction.tsx  # credential-reset modal/controller only',
+          )
+          assert 'RepresentativeDrawer.tsx' not in plan
+          plan_path.write_text(plan, encoding='utf-8')
+          PY
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install dashboard dependencies
+        working-directory: dashboard
+        run: npm ci
+
+      - name: Complete Representatives focused suite
+        working-directory: dashboard
+        run: npx vitest run src/pages/representatives-vehicles
+
+      - name: Affected ESLint
+        working-directory: dashboard
+        run: npx eslint src/pages/representatives-vehicles src/i18n/representativesVehicles.ts
+
+      - name: TypeScript baseline comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf baseline
+          mkdir -p baseline
+          git archive --format=tar --output=/tmp/dashboard-base.tar "$BASE_HEAD" dashboard
+          tar -xf /tmp/dashboard-base.tar -C baseline
+          cd dashboard
+          node scripts/check-types-against-baseline.mjs ../baseline/dashboard
+
+      - name: Production build
+        working-directory: dashboard
+        run: npm run build
+
+      - name: Real browser action-menu RTL LTR and responsive acceptance
+        working-directory: dashboard
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --package-lock=false @playwright/test@1.56.1
+          cat > representative-actions-acceptance.html <<'HTML'
+          <!doctype html>
+          <html><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /></head>
+          <body><div id="root"></div><script type="module" src="/src/representative-actions-acceptance.tsx"></script></body></html>
+          HTML
+          cat > src/representative-actions-acceptance.tsx <<'TSX'
+          import React, { useState } from "react";
+          import { createRoot } from "react-dom/client";
+          import { createInstance } from "i18next";
+          import { I18nextProvider } from "react-i18next";
+          import "./index.css";
+          import { representativesVehicles } from "./i18n/representativesVehicles";
+          import { RepresentativeTable } from "./pages/representatives-vehicles/representatives/RepresentativeTable";
+
+          const params = new URLSearchParams(window.location.search);
+          const lang = params.get("lang") === "en" ? "en" : "ar";
+          const instance = createInstance();
+          await instance.init({
+            lng: lang,
+            fallbackLng: "en",
+            initImmediate: false,
+            interpolation: { escapeValue: false },
+            resources: {
+              ar: { translation: { representativesVehicles: representativesVehicles.ar } },
+              en: { translation: { representativesVehicles: representativesVehicles.en } },
+            },
+          });
+          document.documentElement.lang = lang;
+          document.documentElement.dir = instance.dir();
+
+          const row = {
+            id: 17,
+            full_name: "Ahmad Saleh",
+            username: "rep17",
+            phone_number: "+962790000000",
+            is_active: true,
+            can_allow_debt: true,
+            max_debt_limit: "50.500",
+          };
+
+          function Harness() {
+            const [action, setAction] = useState("none");
+            return (
+              <div className="w-full p-2" dir={instance.dir()}>
+                <div id="outside">outside</div>
+                <div className="max-w-full overflow-auto rounded-xl border border-slate-200">
+                  <RepresentativeTable
+                    items={[row]}
+                    canManage
+                    canResetCredentials
+                    onEdit={() => setAction("edit")}
+                    onLifecycle={() => setAction("lifecycle")}
+                    onResetCredentials={() => setAction("credentials")}
+                  />
+                </div>
+                <div data-testid="action-result">{action}</div>
+              </div>
+            );
+          }
+
+          createRoot(document.getElementById("root")!).render(
+            <I18nextProvider i18n={instance}><Harness /></I18nextProvider>,
+          );
+          TSX
+          cat > playwright.actions.config.cjs <<'JS'
+          module.exports = {
+            testDir: ".",
+            testMatch: "representative-actions.acceptance.spec.cjs",
+            workers: 1,
+            reporter: "line",
+            use: { headless: true, channel: "chrome" },
+          };
+          JS
+          cat > representative-actions.acceptance.spec.cjs <<'JS'
+          const { test, expect } = require("@playwright/test");
+          const base = "http://127.0.0.1:4179/representative-actions-acceptance.html";
+
+          for (const width of [320, 375, 768, 1024, 1440]) {
+            test(`portal action menu remains usable inside viewport at ${width}px`, async ({ page }) => {
+              await page.setViewportSize({ width, height: 700 });
+              await page.goto(`${base}?lang=ar`);
+              const trigger = page.getByRole("button", { name: /إجراءات المندوب/ });
+              await trigger.scrollIntoViewIfNeeded();
+              await trigger.focus();
+              await page.keyboard.press("Enter");
+              const menu = page.getByRole("menu");
+              await expect(menu).toBeVisible();
+              const box = await menu.boundingBox();
+              expect(box).not.toBeNull();
+              expect(box.x).toBeGreaterThanOrEqual(0);
+              expect(box.x + box.width).toBeLessThanOrEqual(width + 1);
+              expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+              await page.keyboard.press("Escape");
+              await expect(menu).toBeHidden();
+              await expect(trigger).toBeFocused();
+            });
+          }
+
+          test("RTL menu keyboard navigation activates edit and outside click closes", async ({ page }) => {
+            await page.setViewportSize({ width: 1024, height: 700 });
+            await page.goto(`${base}?lang=ar`);
+            const trigger = page.getByRole("button", { name: /إجراءات المندوب/ });
+            await trigger.focus();
+            await page.keyboard.press("Space");
+            await expect(page.getByRole("menu")).toBeVisible();
+            await page.keyboard.press("ArrowDown");
+            await page.keyboard.press("Enter");
+            await expect(page.getByTestId("action-result")).toHaveText("edit");
+
+            await trigger.focus();
+            await page.keyboard.press("Enter");
+            await expect(page.getByRole("menu")).toBeVisible();
+            await page.locator("#outside").click();
+            await expect(page.getByRole("menu")).toBeHidden();
+          });
+
+          test("LTR mirrors the same component and exposes English labels", async ({ page }) => {
+            await page.setViewportSize({ width: 1024, height: 700 });
+            await page.goto(`${base}?lang=en`);
+            expect(await page.locator("html").getAttribute("dir")).toBe("ltr");
+            const trigger = page.getByRole("button", { name: /Representative actions/ });
+            await trigger.focus();
+            await page.keyboard.press("Enter");
+            await expect(page.getByText("Edit details")).toBeVisible();
+            await expect(page.getByText("Deactivate representative")).toBeVisible();
+            await expect(page.getByText("Set new password")).toBeVisible();
+            await expect(page.getByText("Allowed — up to 50.5 JOD per sale")).toBeVisible();
+          });
+          JS
+          npm run dev -- --host 127.0.0.1 --port 4179 > /tmp/representatives-actions-vite.log 2>&1 &
+          VITE_PID=$!
+          trap 'kill "$VITE_PID" 2>/dev/null || true' EXIT
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:4179/representative-actions-acceptance.html >/dev/null; then break; fi
+            sleep 1
+          done
+          npx playwright test --config=playwright.actions.config.cjs
+          kill "$VITE_PID" 2>/dev/null || true
+          trap - EXIT
+          rm -f representative-actions-acceptance.html representative-actions.acceptance.spec.cjs playwright.actions.config.cjs src/representative-actions-acceptance.tsx
+
+      - name: Source, scope, and whitespace gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e dashboard/src/pages/representatives-vehicles/representatives/RepresentativeDrawer.tsx
+          test ! -e dashboard/src/pages/representatives-vehicles/representatives/useRepresentativeDetail.ts
+          ! grep -R "RepresentativeDrawer\|useRepresentativeDetail\|openDetails" dashboard/src/pages/representatives-vehicles/representatives dashboard/src/i18n/representativesVehicles.ts REPRESENTATIVES_VEHICLES_V1_PLAN.md
+          grep -F 'actionsMenu: "إجراءات المندوب — {{name}}"' dashboard/src/i18n/representativesVehicles.ts
+          grep -F 'jod: "د.أ"' dashboard/src/i18n/representativesVehicles.ts
+          grep -F 'jod: "JOD"' dashboard/src/i18n/representativesVehicles.ts
+          ! grep -E 'parseFloat|Number\(' dashboard/src/pages/representatives-vehicles/representatives/representativeMoney.ts
+          git diff --check "$BASE_HEAD"
+          changed="$(git diff --name-only "$BASE_HEAD")"
+          printf '%s\n' "$changed"
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(\.github/workflows/representatives-actions-currency-final-temp\.yml|REPRESENTATIVES_VEHICLES_V1_PLAN\.md|dashboard/src/i18n/representativesVehicles\.ts|dashboard/src/pages/representatives-vehicles/representatives/.*)$' || true)"
+          test -z "$unexpected"
+          ! printf '%s\n' "$changed" | grep -E '^(wa_backend/|wanasah_frontend/)'
+
+      - name: Commit accepted UX correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add REPRESENTATIVES_VEHICLES_V1_PLAN.md \
+            dashboard/src/i18n/representativesVehicles.ts \
+            dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm.test.tsx
+          if ! git diff --cached --quiet; then
+            git commit -m 'test(dashboard): close representative actions and money UX acceptance'
+            git push origin HEAD:sol/representatives-actions-menu-currency-ux
+          fi
