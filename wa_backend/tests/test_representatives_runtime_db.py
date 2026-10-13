@@ -1,9 +1,4 @@
-"""Real PostgreSQL acceptance for the merged Representatives backend.
-
-This suite is opt-in and owns an isolated synthetic database/schema. It exercises
-actual Representatives HTTP/domain/auth/session behavior against PostgreSQL; no
-Representative authorization or lifecycle dependency is mocked.
-"""
+"""Real PostgreSQL acceptance for the merged Representatives backend."""
 from __future__ import annotations
 
 import asyncio
@@ -92,11 +87,7 @@ async def gate():
         await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
 
     settings = {"server_settings": {"search_path": f"{schema},public"}}
-    admin_engine = create_async_engine(
-        admin_url,
-        poolclass=NullPool,
-        connect_args=settings,
-    )
+    admin_engine = create_async_engine(admin_url, poolclass=NullPool, connect_args=settings)
     async with admin_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.execute(text(f'GRANT USAGE ON SCHEMA "{schema}" TO representatives_runtime'))
@@ -121,9 +112,7 @@ async def gate():
             for company in companies
         ]
         ordinary = await seed_ordinary_backoffice_fixture(
-            seed,
-            companies[0].id,
-            password=ORDINARY_PASSWORD,
+            seed, companies[0].id, password=ORDINARY_PASSWORD
         )
         zones = [Zone(company_id=c.id, name=f"Gate Zone {i}") for i, c in enumerate(companies, 1)]
         locations = []
@@ -144,17 +133,15 @@ async def gate():
             ])
         seed.add_all(zones + locations)
         await seed.flush()
-        owner_usernames = []
-        for owner in owners:
-            owner_usernames.append(await seed.scalar(
-                select(CompanyPrincipal.username).where(
-                    CompanyPrincipal.id == owner.context.principal_id
-                )
+        owner_usernames = [
+            await seed.scalar(select(CompanyPrincipal.username).where(
+                CompanyPrincipal.id == owner.context.principal_id
             ))
+            for owner in owners
+        ]
         await seed.commit()
 
-    # Auto-created Representative principal/profile/Driver IDs intentionally use
-    # disjoint ranges so accidental ID-equality assumptions cannot pass this gate.
+    # Make auto-created canonical profile/principal/legacy Driver IDs provably independent.
     async with admin_engine.begin() as conn:
         for table, value in (
             ("company_principals", 10_000),
@@ -166,9 +153,7 @@ async def gate():
             ))
 
     runtime_engine = create_async_engine(
-        os.environ["DATABASE_URL"],
-        poolclass=NullPool,
-        connect_args=settings,
+        os.environ["DATABASE_URL"], poolclass=NullPool, connect_args=settings
     )
 
     async def runtime_db():
@@ -180,9 +165,7 @@ async def gate():
     app.include_router(representatives_router)
 
     @app.get("/__field_probe")
-    async def field_probe(
-        current: FieldRequestContext = Depends(get_current_field_context),
-    ):
+    async def field_probe(current: FieldRequestContext = Depends(get_current_field_context)):
         return {
             "principal_id": current.principal_id,
             "representative_id": current.representative_id,
@@ -219,13 +202,10 @@ async def gate():
             assert response.status_code == 200, response.text
             state.owner_tokens.append(response.json()["token"])
 
-        # A no-grant ordinary Backoffice principal is intentionally rejected by
-        # Dashboard admission before public login issues a token. For the HTTP 403
-        # contract we therefore mint the exact production access-token format for
-        # that persisted canonical subject. The request dependency still performs
-        # the real persisted principal/profile/revision validation; only the login
-        # admission step is bypassed so the Representative capability denial itself
-        # can be exercised.
+        # A no-grant Backoffice principal is rejected at Dashboard admission before
+        # public login can issue a token. Mint the exact production token format so
+        # the persisted canonical dependency and Representative capability denial
+        # can be exercised without weakening the capability check itself.
         state.ordinary_token = issue_access_token(
             principal_id=ordinary.context.principal_id,
             company_id=ordinary.context.company_id,
@@ -265,9 +245,7 @@ def create_body(*, request_id=None, prefix="runtime"):
 async def create_rep(gate, company_index=0, *, body=None):
     body = body or create_body()
     response = await gate.client.post(
-        "/representatives",
-        json=body,
-        headers=auth(gate, company_index),
+        "/representatives", json=body, headers=auth(gate, company_index)
     )
     assert response.status_code == 201, response.text
     return response.json(), body
@@ -298,7 +276,7 @@ async def identity_state(gate, company_id, representative_id):
             profile_id=profile.id,
             principal_id=principal.id,
             driver_id=driver.id,
-            mapping_id=mapping.id,
+            mapping_key=(mapping.company_id, mapping.legacy_driver_id),
             classification=mapping.classification,
             company_ids=(profile.company_id, principal.company_id, mapping.company_id, driver.company_id),
             principal_active=principal.is_active,
@@ -360,7 +338,7 @@ async def test_end_to_end_identity_session_and_http_contract(gate):
         model: await row_count(gate, model, company_id=company.id)
         for model in (CompanyPrincipal, FieldRepresentative, Driver, IdentityLegacyDriverMap)
     }
-    row, body = await create_rep(gate)
+    row, _body = await create_rep(gate)
     assert set(row) == PUBLIC_KEYS
     first = await identity_state(gate, company.id, row["id"])
     assert len({first.profile_id, first.principal_id, first.driver_id}) == 3
@@ -413,19 +391,22 @@ async def test_end_to_end_identity_session_and_http_contract(gate):
         ))
         assert refresh_row is not None and not refresh_row.is_revoked
 
-    ids_before_lifecycle = (state.profile_id, state.principal_id, state.driver_id, state.mapping_id)
+    ids_before_lifecycle = (
+        state.profile_id, state.principal_id, state.driver_id, state.mapping_key
+    )
     revision_before = state.principal_revision
-    deactivate_id = str(uuid4())
     deactivated = await gate.client.post(
         f"/representatives/{row['id']}/deactivate",
-        json={"request_id": deactivate_id},
+        json={"request_id": str(uuid4())},
         headers=auth(gate),
     )
     assert deactivated.status_code == 204 and not deactivated.content
     inactive = await identity_state(gate, company.id, row["id"])
     assert not inactive.principal_active
     assert inactive.principal_revision == revision_before + 1
-    assert (inactive.profile_id, inactive.principal_id, inactive.driver_id, inactive.mapping_id) == ids_before_lifecycle
+    assert (
+        inactive.profile_id, inactive.principal_id, inactive.driver_id, inactive.mapping_key
+    ) == ids_before_lifecycle
     assert (await gate.client.get(
         "/__field_probe", headers={"Authorization": f"Bearer {stale_access}"}
     )).status_code == 401
@@ -446,7 +427,12 @@ async def test_end_to_end_identity_session_and_http_contract(gate):
     active_again = await identity_state(gate, company.id, row["id"])
     assert active_again.principal_active
     assert active_again.principal_revision == inactive.principal_revision
-    assert (active_again.profile_id, active_again.principal_id, active_again.driver_id, active_again.mapping_id) == ids_before_lifecycle
+    assert (
+        active_again.profile_id,
+        active_again.principal_id,
+        active_again.driver_id,
+        active_again.mapping_key,
+    ) == ids_before_lifecycle
     async with AsyncSession(gate.engine) as db:
         still_revoked = await db.scalar(select(PrincipalRefreshToken).where(
             PrincipalRefreshToken.token == stale_refresh
@@ -459,7 +445,7 @@ async def test_end_to_end_identity_session_and_http_contract(gate):
     current_refresh = current_login.json()["refresh_token"]
     before_reset = await identity_state(gate, company.id, row["id"])
     reset = await gate.client.post(
-        f"/representatives/{row['id']}/credential-reset",
+        f"/representatives/{row['id']}/credentials/reset",
         json={"request_id": str(uuid4()), "new_password": RESET_PASSWORD},
         headers=auth(gate),
     )
@@ -483,9 +469,7 @@ async def test_end_to_end_identity_session_and_http_contract(gate):
     assert (await gate.client.get("/representatives", headers=ordinary_auth(gate))).status_code == 403
     assert (await gate.client.get("/representatives/999999999", headers=auth(gate))).status_code == 404
     malformed = await gate.client.post(
-        "/representatives",
-        json={"request_id": "not-a-uuid"},
-        headers=auth(gate),
+        "/representatives", json={"request_id": "not-a-uuid"}, headers=auth(gate)
     )
     assert malformed.status_code == 422
     assert (await gate.client.delete(f"/representatives/{row['id']}", headers=auth(gate))).status_code == 405
@@ -517,8 +501,9 @@ async def test_real_database_idempotency_and_cross_company_scope(gate):
     assert update_replay.status_code == 200 and update_replay.json() == changed.json()
 
     cross_family_id = uuid4()
-    cross_create_body = create_body(request_id=cross_family_id, prefix="family")
-    family_row, _ = await create_rep(gate, body=cross_create_body)
+    family_row, _ = await create_rep(
+        gate, body=create_body(request_id=cross_family_id, prefix="family")
+    )
     cross_update = await gate.client.patch(
         f"/representatives/{family_row['id']}",
         json={"request_id": str(cross_family_id), "full_name": "Should conflict"},
@@ -542,11 +527,11 @@ async def test_real_database_idempotency_and_cross_company_scope(gate):
     reset_id = uuid4()
     reset_body = {"request_id": str(reset_id), "new_password": "IdempotentReset789"}
     reset_first = await gate.client.post(
-        f"/representatives/{reset_target['id']}/credential-reset",
+        f"/representatives/{reset_target['id']}/credentials/reset",
         json=reset_body, headers=auth(gate)
     )
     reset_replay = await gate.client.post(
-        f"/representatives/{reset_target['id']}/credential-reset",
+        f"/representatives/{reset_target['id']}/credentials/reset",
         json=reset_body, headers=auth(gate)
     )
     assert reset_first.status_code == reset_replay.status_code == 204
@@ -561,7 +546,9 @@ async def test_real_database_idempotency_and_cross_company_scope(gate):
     c1, _ = await create_rep(gate, 0, body=create_body(request_id=shared, prefix="tenant1"))
     c2, _ = await create_rep(gate, 1, body=create_body(request_id=shared, prefix="tenant2"))
     assert c1["id"] != c2["id"]
-    assert (await gate.client.get(f"/representatives/{c2['id']}", headers=auth(gate, 0))).status_code == 404
+    assert (await gate.client.get(
+        f"/representatives/{c2['id']}", headers=auth(gate, 0)
+    )).status_code == 404
 
     async with AsyncSession(gate.engine) as db:
         create_rows = int(await db.scalar(select(func.count()).select_from(OperationIdempotency).where(
@@ -574,7 +561,7 @@ async def test_real_database_idempotency_and_cross_company_scope(gate):
             OperationIdempotency.operation,
         ).where(OperationIdempotency.request_id == str(shared)))).all()
     assert create_rows == 1
-    assert {(row.company_id, row.operation) for row in shared_rows} == {
+    assert {(r.company_id, r.operation) for r in shared_rows} == {
         (gate.companies[0].id, "REPRESENTATIVE_CREATE"),
         (gate.companies[1].id, "REPRESENTATIVE_CREATE"),
     }
@@ -584,13 +571,13 @@ async def assert_deactivate_blocked(gate, representative_id):
     before = await identity_state(gate, gate.companies[0].id, representative_id)
     response = await gate.client.post(
         f"/representatives/{representative_id}/deactivate",
-        json={"request_id": str(uuid4())},
-        headers=auth(gate),
+        json={"request_id": str(uuid4())}, headers=auth(gate)
     )
     assert response.status_code == 409, response.text
-    payload = response.json()
-    encoded = str(payload).lower()
-    for forbidden in ("principal_id", "driver_id", "mapping", "session_id", "password", "hash", "token"):
+    encoded = str(response.json()).lower()
+    for forbidden in (
+        "principal_id", "driver_id", "mapping", "session_id", "password", "hash", "token"
+    ):
         assert forbidden not in encoded
     after = await identity_state(gate, gate.companies[0].id, representative_id)
     assert after.principal_active
@@ -630,9 +617,7 @@ async def test_database_backed_deactivation_blocker_matrix(gate):
     state = await identity_state(gate, company.id, rep["id"])
     async with AsyncSession(gate.engine) as db:
         db.add(WorkSession(
-            company_id=company.id,
-            driver_id=state.driver_id,
-            end_time=utc_now(),
+            company_id=company.id, driver_id=state.driver_id, end_time=utc_now()
         ))
         await db.commit()
     await assert_deactivate_blocked(gate, rep["id"])
@@ -668,11 +653,7 @@ async def test_database_backed_deactivation_blocker_matrix(gate):
         now = utc_now()
         kwargs = {}
         if status == "APPROVED":
-            kwargs.update(
-                snapshot_cutoff_at=now,
-                approved_by=owner_driver_id,
-                approved_at=now,
-            )
+            kwargs.update(snapshot_cutoff_at=now, approved_by=owner_driver_id, approved_at=now)
         async with AsyncSession(gate.engine) as db:
             db.add(StocktakeSession(
                 company_id=company.id,
@@ -689,7 +670,9 @@ async def test_database_backed_deactivation_blocker_matrix(gate):
 
     rep, _ = await create_rep(gate)
     state = await identity_state(gate, company.id, rep["id"])
-    await seed_reconciled_session(gate, company_index=0, driver_id=state.driver_id, settled=False)
+    await seed_reconciled_session(
+        gate, company_index=0, driver_id=state.driver_id, settled=False
+    )
     allowed = await gate.client.post(
         f"/representatives/{rep['id']}/deactivate",
         json={"request_id": str(uuid4())}, headers=auth(gate)
@@ -698,9 +681,13 @@ async def test_database_backed_deactivation_blocker_matrix(gate):
 
     company1_rep, _ = await create_rep(gate, 0)
     company2_rep, _ = await create_rep(gate, 1)
-    company2_state = await identity_state(gate, gate.companies[1].id, company2_rep["id"])
+    company2_state = await identity_state(
+        gate, gate.companies[1].id, company2_rep["id"]
+    )
     async with AsyncSession(gate.engine) as db:
-        db.add(WorkSession(company_id=gate.companies[1].id, driver_id=company2_state.driver_id))
+        db.add(WorkSession(
+            company_id=gate.companies[1].id, driver_id=company2_state.driver_id
+        ))
         await db.commit()
     unrelated = await gate.client.post(
         f"/representatives/{company1_rep['id']}/deactivate",
@@ -709,19 +696,17 @@ async def test_database_backed_deactivation_blocker_matrix(gate):
     assert unrelated.status_code == 204, unrelated.text
 
 
-async def audit_count(gate, representative_id, action=None):
+async def audit_count(gate, representative_id):
     async with AsyncSession(gate.engine) as db:
-        stmt = select(func.count()).select_from(SystemAuditLog).where(
+        return int(await db.scalar(select(func.count()).select_from(SystemAuditLog).where(
             SystemAuditLog.company_id == gate.companies[0].id,
             SystemAuditLog.target_id == f"FieldRepresentative_{representative_id}",
-        )
-        if action is not None:
-            stmt = stmt.where(SystemAuditLog.action_type == action)
-        return int(await db.scalar(stmt) or 0)
+        )) or 0)
 
 
 @pytest.mark.asyncio
 async def test_focused_concurrency_lock_safety(gate):
+    # Two distinct deactivates: exactly one mutation/revision/audit succeeds.
     rep, _ = await create_rep(gate)
     before = await identity_state(gate, gate.companies[0].id, rep["id"])
     audit_before = await audit_count(gate, rep["id"])
@@ -734,9 +719,12 @@ async def test_focused_concurrency_lock_safety(gate):
     ])
     assert sorted((r1.status_code, r2.status_code)) == [204, 409]
     after = await identity_state(gate, gate.companies[0].id, rep["id"])
-    assert not after.principal_active and after.principal_revision == before.principal_revision + 1
+    assert not after.principal_active
+    assert after.principal_revision == before.principal_revision + 1
     assert await audit_count(gate, rep["id"]) == audit_before + 1
 
+    # Deactivate/reactivate serialize safely. Depending lock acquisition order,
+    # reactivate either conflicts while still active or follows deactivate.
     rep, _ = await create_rep(gate)
     before = await identity_state(gate, gate.companies[0].id, rep["id"])
     audit_before = await audit_count(gate, rep["id"])
@@ -755,16 +743,18 @@ async def test_focused_concurrency_lock_safety(gate):
     after = await identity_state(gate, gate.companies[0].id, rep["id"])
     assert after.principal_revision == before.principal_revision + 1
     assert after.principal_active is (statuses == [204, 204])
-    expected_audits = 2 if statuses == [204, 204] else 1
-    assert await audit_count(gate, rep["id"]) == audit_before + expected_audits
+    assert await audit_count(gate, rep["id"]) == audit_before + (
+        2 if statuses == [204, 204] else 1
+    )
 
+    # Distinct reset identities are distinct authorized mutations and must serialize.
     rep, _ = await create_rep(gate)
     before = await identity_state(gate, gate.companies[0].id, rep["id"])
     audit_before = await audit_count(gate, rep["id"])
     passwords = ("ConcurrentResetOne123", "ConcurrentResetTwo456")
     a, b = await asyncio.gather(*[
         gate.client.post(
-            f"/representatives/{rep['id']}/credential-reset",
+            f"/representatives/{rep['id']}/credentials/reset",
             json={"request_id": str(uuid4()), "new_password": password},
             headers=auth(gate),
         )
@@ -781,13 +771,14 @@ async def test_focused_concurrency_lock_safety(gate):
         successful_passwords += response.status_code == 200
     assert successful_passwords == 1
 
+    # Same request identity races collapse into one mutation plus one replay.
     rep, _ = await create_rep(gate)
     before = await identity_state(gate, gate.companies[0].id, rep["id"])
     request_id = str(uuid4())
     audit_before = await audit_count(gate, rep["id"])
     results = await asyncio.gather(*[
         gate.client.post(
-            f"/representatives/{rep['id']}/credential-reset",
+            f"/representatives/{rep['id']}/credentials/reset",
             json={"request_id": request_id, "new_password": "ConcurrentReplay789"},
             headers=auth(gate),
         )
