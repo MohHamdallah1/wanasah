@@ -25,13 +25,12 @@ export interface CreateRepresentativeInput {
   max_debt_limit: string;
 }
 
-export interface UpdateRepresentativeInput {
-  full_name: string;
-  username: string;
-  phone_number: string | null;
-  can_allow_debt: boolean;
-  max_debt_limit: string;
-}
+export type UpdateRepresentativeInput = Partial<
+  Pick<
+    Representative,
+    "full_name" | "username" | "phone_number" | "can_allow_debt" | "max_debt_limit"
+  >
+>;
 
 export type RepresentativeAuthFetch = (
   path: string,

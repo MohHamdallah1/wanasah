@@ -9,7 +9,7 @@ export function useRepresentatives() {
   const authFetch = useAuthFetch();
   const [input, setInput] = useState("");
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<RepresentativeStatusFilter>("active");
+  const [status, setStatus] = useState<RepresentativeStatusFilter>("all");
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -37,10 +37,16 @@ export function useRepresentatives() {
     refetchOnWindowFocus: true,
   });
 
-  const items = useMemo(
-    () => query.data?.pages.flatMap((page) => page.items) ?? [],
-    [query.data],
-  );
+  const items = useMemo(() => {
+    const seen = new Set<number>();
+    return (query.data?.pages ?? [])
+      .flatMap((page) => page.items)
+      .filter((representative) => {
+        if (seen.has(representative.id)) return false;
+        seen.add(representative.id);
+        return true;
+      });
+  }, [query.data]);
 
   return {
     input,
