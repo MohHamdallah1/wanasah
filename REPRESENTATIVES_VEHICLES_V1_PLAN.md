@@ -2,7 +2,7 @@
 
 ## Build Representatives completely first, then Vehicles, on top of the canonical identity/authorization foundation
 
-**Status:** REPRESENTATIVES IMPLEMENTED — FINAL FIELD/FLUTTER + OWNER ACCEPTANCE PENDING; VEHICLES NOT STARTED
+**Status:** REPRESENTATIVES TECHNICALLY COMPLETE — OWNER UI ACCEPTANCE PENDING; VEHICLES NOT STARTED
 **Owner decision date:** 2026-10-10  
 **Execution rule:** Representatives must be completed and owner-accepted before Vehicles implementation starts.  
 **Prerequisite status:** COMPLETE — Backoffice and Field Representative identities are cleanly separated and capability-based authorization is authoritative under `ARCHITECTURE.md`, `.rules`, and `AGENTS.md`.
@@ -37,10 +37,13 @@ Completed on merged `main`:
 - [x] Representative contract/architecture tests merged.
 - [x] Real PostgreSQL Representative runtime acceptance merged.
 - [x] Representative concurrency/idempotency runtime acceptance merged.
+- [x] Representative Roles/permission provisioning and immediate revocation behavior proven on PostgreSQL.
+- [x] Final adversarial Backend↔Dashboard review merged, including cache/retry/error hardening, PostgreSQL cursor-key consistency, and secret-free credential-reset recovery.
+- [x] Final FIELD/Flutter compatibility acceptance merged, including canonical FIELD login/session behavior and fail-closed preservation of unsynced offline work across account switching.
+- [x] Representative audit/security acceptance merged; mutation audit atomicity, replay behavior, tenant isolation, secret redaction, and bcrypt traceback redaction are proven.
 
 Still pending before Representatives owner-complete gate:
 
-- [ ] Final FIELD/Flutter compatibility acceptance from the separately assigned worker.
 - [ ] Final owner acceptance of Representative behavior/wording/density/forms/actions.
 - [ ] **REPRESENTATIVES V1 COMPLETE + OWNER ACCEPTED**.
 
@@ -52,28 +55,28 @@ Vehicles status:
 
 # 0. Frozen owner decisions and scope
 
-- [ ] The tenant/security boundary is **Company**.
-- [ ] V1 operational UX is one company context with **one or many warehouses**.
-- [ ] V1 does **not** require a global Branch switcher, Branch-scoped representative management, Branch-scoped vehicle management, or Branch ownership of company master data.
-- [ ] Existing Branch schema/readiness may remain for future expansion, but Representatives/Vehicles V1 must not depend on it.
-- [ ] Products are company-wide master data.
-- [ ] Zones/territories are company-wide master data.
-- [ ] Shops/customers are company-wide master data.
+- [x] The tenant/security boundary is **Company**.
+- [x] V1 operational UX is one company context with **one or many warehouses**.
+- [x] V1 does **not** require a global Branch switcher, Branch-scoped representative management, Branch-scoped vehicle management, or Branch ownership of company master data.
+- [x] Existing Branch schema/readiness may remain for future expansion, but Representatives/Vehicles V1 must not depend on it.
+- [x] Products are company-wide master data.
+- [x] Zones/territories are company-wide master data.
+- [x] Shops/customers are company-wide master data.
 - [x] Field Representatives are company-wide master data.
-- [ ] Vehicles are company-wide master data.
+- [x] Vehicles are company-wide master data.
 - [x] Representatives are **not permanently owned by one warehouse**.
-- [ ] Vehicles are **not permanently owned by one warehouse**.
+- [x] Vehicles are **not permanently owned by one warehouse**.
 - [x] Source warehouse is chosen by the concrete operational workflow/route/load, not by representative identity.
-- [ ] Source warehouse is chosen by the concrete operational workflow/route/load, not by vehicle identity.
+- [x] Source warehouse is chosen by the concrete operational workflow/route/load, not by vehicle identity.
 - [x] A representative can work from a different authorized source warehouse on another route/day without changing his master identity.
-- [ ] A vehicle can be used from a different authorized source warehouse on another route/day without changing its master identity.
+- [x] A vehicle can be used from a different authorized source warehouse on another route/day without changing its master identity.
 - [x] Backoffice users and Company Owner belong to Dashboard identity/authorization and are **not managed by this page**.
 - [x] Field Representatives belong to Flutter field identity and are **the only human accounts managed by the Representatives tab**.
 - [x] Field Representatives must not receive Dashboard access.
-- [ ] Vehicles are non-human operational assets and never authenticate.
+- [x] Vehicles are non-human operational assets and never authenticate.
 - [x] Dashboard complexity remains low; backend owns Representative validation, isolation, authorization, lifecycle, audit, idempotency, and route/work-session safety.
 - [x] No hard delete for Representatives in V1; lifecycle uses active/inactive transitions so history remains valid.
-- [ ] No hard delete for Vehicles in V1.
+- [x] No hard delete for Vehicles in V1.
 - [x] Representative UI is Arabic-first, i18n-ready, RTL/LTR safe, Western-digit friendly, and keyboard-aware.
 - [x] No Representative mega-file/god-hook; page shell and Representatives feature remain separated.
 - [x] Existing Dispatch/Inventory business authority is reused; Representative administration does not duplicate route, warehouse, custody, permission, or stock truth.
@@ -474,7 +477,7 @@ Rules:
 
 # 6. Representatives — Dispatch/Flutter integration protection
 
-This phase is required because Representatives are not just Dashboard records; they must remain valid field actors. A separate worker owns the final FIELD/Flutter compatibility acceptance; this closure task must not duplicate it.
+This phase is complete: Representatives remain valid field actors across the merged FIELD/Flutter compatibility boundary.
 
 Current canonical compatibility contract:
 
@@ -483,18 +486,18 @@ Current canonical compatibility contract:
 - Existing WorkSession/DispatchRoute/Visit/transfer FKs that still store `Driver.id` are not reinterpreted as principal/profile IDs.
 - Flutter may continue carrying the frozen `driver_id`/`legacy_driver_id` compatibility locator where current V1 wire/offline behavior still requires it; this is not credential or authorization authority.
 
-Final integration acceptance remains pending until the assigned worker reports/merges evidence:
+Final FIELD/Flutter integration acceptance is merged and closed:
 
-- [ ] FIELD/Dispatch representative discovery and assignment remain canonical/fail-closed under merged runtime behavior.
-- [ ] Route assignment accepts only valid active same-company FIELD representatives under existing rules.
-- [ ] WorkSession creation accepts only valid active same-company FIELD representatives under existing rules.
-- [ ] Sales/returns/collection attribution preserves existing business meaning through canonical FIELD context plus bounded legacy locator compatibility.
-- [ ] Flutter `/driver/login` compatibility returns/uses canonical FIELD identity without ambiguous cross-channel login.
-- [ ] Flutter persisted legacy driver locator remains compatible without corrupting local state during the V1 transition.
-- [ ] Logout/session invalidation works after Representative deactivate/reset in the real FIELD/Flutter client flow.
-- [ ] Offline retry/idempotency payloads continue to attribute the correct representative.
-- [ ] Realtime/FIELD authorization does not depend on legacy admin/persona flags.
-- [ ] No Dashboard-only capability leaks into FIELD tokens.
+- [x] FIELD/Dispatch representative discovery and assignment remain canonical/fail-closed under merged runtime behavior.
+- [x] Route assignment accepts only valid active same-company FIELD representatives under existing rules.
+- [x] WorkSession creation accepts only valid active same-company FIELD representatives under existing rules.
+- [x] Sales/returns/collection attribution preserves existing business meaning through canonical FIELD context plus bounded legacy locator compatibility.
+- [x] Flutter `/driver/login` compatibility returns/uses canonical FIELD identity without ambiguous cross-channel login.
+- [x] Flutter persisted legacy driver locator remains compatible without corrupting local state during the V1 transition.
+- [x] Logout/session invalidation works after Representative deactivate/reset in the real FIELD/Flutter client flow.
+- [x] Offline retry/idempotency payloads continue to attribute the correct representative.
+- [x] Realtime/FIELD authorization does not depend on legacy admin/persona flags.
+- [x] No Dashboard-only capability leaks into FIELD tokens.
 
 ---
 
@@ -572,7 +575,7 @@ Not shown:
 - [x] Duplicate-submit protection through request id / mutation state.
 - [x] Backend remains source of truth for uniqueness/conflicts.
 - [x] Success updates the Representative list without a full page reload.
-- [ ] Newly created representative can immediately authenticate in the real Flutter/FIELD client flow — pending the separate FIELD/Flutter compatibility acceptance.
+- [x] Newly created representative can immediately authenticate in the real Flutter/FIELD client flow.
 
 ---
 
@@ -635,10 +638,10 @@ Frontend:
 
 Field integration:
 
-- [ ] newly created representative can login in the real Flutter client.
-- [ ] representative can receive route/work session under existing Dispatch rules in the final FIELD/Flutter acceptance pass.
-- [ ] deactivate/reset/logout behavior is accepted end-to-end in the real FIELD client.
-- [ ] reactivate restores allowed FIELD login without creating duplicate profile/sidecar/map.
+- [x] newly created representative can login in the real Flutter client.
+- [x] representative can receive route/work session under existing Dispatch rules in the final FIELD/Flutter acceptance pass.
+- [x] deactivate/reset/logout behavior is accepted end-to-end in the real FIELD client.
+- [x] reactivate restores allowed FIELD login without creating duplicate profile/sidecar/map.
 
 Owner acceptance:
 
@@ -912,7 +915,7 @@ Only after both individual gates pass:
 - [x] Company Owner can perform required Representative management operations.
 - [x] Delegated Backoffice roles can be restricted by Representative capabilities.
 - [x] Field Representative cannot enter Dashboard Representative management through FIELD identity.
-- [ ] Representative created here can login to the real Flutter client and receive Dispatch work — final FIELD/Flutter acceptance pending.
+- [x] Representative created here can login to the real Flutter client and receive Dispatch work.
 - [ ] Vehicle created here has valid custody location and can be used by Dispatch — Vehicles not started.
 - [x] Representative tenant isolation is proven.
 - [x] Representative audit/idempotency evidence exists for mutations.
@@ -936,7 +939,7 @@ Current checkpoints:
 1. [x] Identity/authorization foundation completed and merged.
 2. [x] Representatives backend/domain contract completed and merged.
 3. [x] Representatives Dashboard implementation completed and merged.
-4. [ ] Representatives FIELD/Flutter compatibility integration acceptance — separate worker in progress.
+4. [x] Representatives FIELD/Flutter compatibility integration acceptance completed and merged.
 5. [ ] **Representative owner-acceptance checkpoint; merge/cleanup if stable.**
 6. [ ] Vehicles backend/domain + InventoryLocation integration — NOT STARTED.
 7. [ ] Vehicles Dashboard implementation — NOT STARTED.
@@ -1037,4 +1040,4 @@ Do not create one giant `RepresentativesVehiclesPage.tsx` containing all API cal
 
 ## Acceptance condition
 
-The merged Representative administration implementation now satisfies the architecture, HTTP contract, Dashboard, PostgreSQL runtime, tenant-isolation, lifecycle/reset, and idempotency/concurrency gates. Representatives are **not yet owner-complete** because final FIELD/Flutter compatibility acceptance and owner acceptance remain pending. Vehicles must remain gated and unimplemented until those two final Representative gates close.
+The merged Representative administration implementation now satisfies the architecture, HTTP contract, Dashboard, PostgreSQL runtime, tenant-isolation, lifecycle/reset, idempotency/concurrency, RBAC provisioning, adversarial-review, audit/security, and FIELD/Flutter compatibility gates. Representatives are **technically complete**; only explicit owner UI/wording/behavior acceptance remains before the owner-complete gate is checked. Vehicles remains gated and unimplemented until that final owner gate closes.
