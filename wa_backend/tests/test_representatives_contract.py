@@ -856,12 +856,12 @@ class RepresentativesSQLHTTPContracts(unittest.IsolatedAsyncioTestCase):
                     response = await self.request("POST", path + suffix, json={**body(operation), **changes})
                     self.assertEqual(response.status_code, 422, response.text)
                     self.assertEqual(await self.identity_state(field), before)
-        for password in ("a" * 7, "Ù…" * 7, "a" * 73, "Ù…" * 37, "ðŸ˜€" * 19):
+        for password in ("a" * 7, "م" * 7, "a" * 73, "م" * 37, "😀" * 19):
             with self.subTest(characters=len(password), utf8_bytes=len(password.encode("utf-8"))):
                 response = await self.request("POST", path + "/credentials/reset", json={**body("reset"), "new_password": password})
                 self.assertEqual(response.status_code, 422, response.text)
                 self.assertEqual(await self.identity_state(field), before)
-        for password in ("abcd1234", "Ù…" * 36, "ðŸ˜€" * 18):
+        for password in ("abcd1234", "م" * 36, "😀" * 18):
             with self.subTest(valid_utf8_bytes=len(password.encode("utf-8"))):
                 response = await self.request("POST", path + "/credentials/reset", json={**body("reset"), "new_password": password})
                 self.assertEqual(response.status_code, 204, response.text)
