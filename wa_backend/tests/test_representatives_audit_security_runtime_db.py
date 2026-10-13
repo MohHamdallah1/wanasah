@@ -237,8 +237,11 @@ async def test_audit_insert_failure_rolls_back_mutations(gate):
     async with gate.admin.begin() as conn:
         await conn.execute(text("""
             CREATE FUNCTION test_rep_audit_fail() RETURNS trigger LANGUAGE plpgsql AS $$
-            BEGIN IF NEW.action_type LIKE 'REPRESENTATIVE_%' THEN RAISE EXCEPTION 'audit rejected'; END IF; RETURN NEW; END; $$;
-            CREATE TRIGGER test_rep_audit_fail BEFORE INSERT ON system_audit_logs FOR EACH ROW EXECUTE FUNCTION test_rep_audit_fail();
+            BEGIN IF NEW.action_type LIKE 'REPRESENTATIVE_%' THEN RAISE EXCEPTION 'audit rejected'; END IF; RETURN NEW; END; $$
+        """))
+        await conn.execute(text("""
+            CREATE TRIGGER test_rep_audit_fail BEFORE INSERT ON system_audit_logs
+            FOR EACH ROW EXECUTE FUNCTION test_rep_audit_fail()
         """))
     requests = []
     try:
@@ -268,4 +271,5 @@ async def test_audit_insert_failure_rolls_back_mutations(gate):
             assert int(count or 0) == 0
     finally:
         async with gate.admin.begin() as conn:
-            await conn.execute(text("DROP TRIGGER IF EXISTS test_rep_audit_fail ON system_audit_logs; DROP FUNCTION IF EXISTS test_rep_audit_fail();"))
+            await conn.execute(text("DROP TRIGGER IF EXISTS test_rep_audit_fail ON system_audit_logs"))
+            await conn.execute(text("DROP FUNCTION IF EXISTS test_rep_audit_fail()"))
