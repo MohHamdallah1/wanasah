@@ -46,15 +46,21 @@ const representative = {
   max_debt_limit: "0.000",
 };
 
+const renderAction = (onOpenChange = vi.fn()) => render(
+  <RepresentativeCredentialAction
+    representative={representative}
+    allowed
+    open
+    onOpenChange={onOpenChange}
+  />,
+);
+
 const changePassword = (password: string) => {
   for (const key of ["newPassword", "confirmPassword"]) {
     fireEvent.change(screen.getByLabelText(`representativesVehicles.representatives.fields.${key}`), { target: { value: password } });
   }
 };
-const enterPassword = (password: string) => {
-  fireEvent.click(screen.getByText("representativesVehicles.representatives.credentials.reset"));
-  changePassword(password);
-};
+const enterPassword = (password: string) => changePassword(password);
 const readyAfterCalls = async (count: number) => {
   await waitFor(() => expect(mocks.reset).toHaveBeenCalledTimes(count));
   await waitFor(() => expect(screen.getByText("common.confirm")).not.toBeDisabled());
@@ -81,15 +87,9 @@ afterEach(() => {
 
 describe("RepresentativeCredentialAction", () => {
   it.each(["ع".repeat(37), "😀".repeat(4)])("rejects a reset password outside canonical character/UTF-8 bounds", (password) => {
-    render(<RepresentativeCredentialAction representative={representative} allowed />);
+    renderAction();
 
-    fireEvent.click(screen.getByText("representativesVehicles.representatives.credentials.reset"));
-    fireEvent.change(screen.getByLabelText("representativesVehicles.representatives.fields.newPassword"), {
-      target: { value: password },
-    });
-    fireEvent.change(screen.getByLabelText("representativesVehicles.representatives.fields.confirmPassword"), {
-      target: { value: password },
-    });
+    changePassword(password);
     fireEvent.click(screen.getByText("common.confirm"));
 
     expect(mocks.reset).not.toHaveBeenCalled();
@@ -101,16 +101,9 @@ describe("RepresentativeCredentialAction", () => {
 
   it("reuses the same request id when an unchanged credential reset is retried", async () => {
     mocks.reset.mockRejectedValueOnce(new Error("network")).mockResolvedValueOnce(undefined);
-    render(<RepresentativeCredentialAction representative={representative} allowed />);
+    renderAction();
 
-    fireEvent.click(screen.getByText("representativesVehicles.representatives.credentials.reset"));
-    fireEvent.change(screen.getByLabelText("representativesVehicles.representatives.fields.newPassword"), {
-      target: { value: "newpass88" },
-    });
-    fireEvent.change(screen.getByLabelText("representativesVehicles.representatives.fields.confirmPassword"), {
-      target: { value: "newpass88" },
-    });
-
+    changePassword("newpass88");
     fireEvent.click(screen.getByText("common.confirm"));
     await waitFor(() => expect(mocks.reset).toHaveBeenCalledTimes(1));
     await waitFor(() => {
@@ -124,7 +117,7 @@ describe("RepresentativeCredentialAction", () => {
     expect(mocks.reset.mock.calls[1]?.[3]).toBe(requestUuid);
   });
 
-  it("preserves an unresolved reset identity across a page remount without persisting the password", async () => {
+  it("preserves an unresolved reset identity across a controller remount without persisting the password", async () => {
     const secondUuid = "33333333-3333-4333-8333-333333333333";
     vi.mocked(crypto.randomUUID).mockReturnValueOnce(requestUuid).mockReturnValue(secondUuid);
     mocks.reset.mockImplementationOnce(async () => {
@@ -132,21 +125,15 @@ describe("RepresentativeCredentialAction", () => {
       expect(Object.values(localStorage).sort()).toEqual(["1", "11"]);
       throw { status: 408, code: "REQUEST_TIMEOUT" };
     }).mockResolvedValueOnce(undefined);
-    localStorage.setItem("company_id", "1");
-    localStorage.setItem("principal_id", "11");
     const password = "remount88";
-    const submit = () => {
-      fireEvent.click(screen.getByText("representativesVehicles.representatives.credentials.reset"));
-      fireEvent.change(screen.getByLabelText("representativesVehicles.representatives.fields.newPassword"), { target: { value: password } });
-      fireEvent.change(screen.getByLabelText("representativesVehicles.representatives.fields.confirmPassword"), { target: { value: password } });
-      fireEvent.click(screen.getByText("common.confirm"));
-    };
-    const first = render(<RepresentativeCredentialAction representative={representative} allowed />);
-    submit();
+
+    const first = renderAction();
+    changePassword(password);
+    fireEvent.click(screen.getByText("common.confirm"));
     await waitFor(() => expect(screen.getByText("common.confirm")).not.toBeDisabled());
     first.unmount();
-    render(<RepresentativeCredentialAction representative={representative} allowed />);
-    fireEvent.click(screen.getByText("representativesVehicles.representatives.credentials.reset"));
+
+    renderAction();
     expect(screen.getByLabelText("representativesVehicles.representatives.fields.newPassword")).toHaveValue("");
     expect(screen.getByLabelText("representativesVehicles.representatives.fields.confirmPassword")).toHaveValue("");
     changePassword(password);
@@ -165,13 +152,13 @@ describe("RepresentativeCredentialAction", () => {
       .mockRejectedValueOnce({ status: 409, code: "REPRESENTATIVE_IDEMPOTENCY_CONFLICT" })
       .mockRejectedValueOnce({ status: 409, code: "REPRESENTATIVE_IDEMPOTENCY_CONFLICT" })
       .mockResolvedValueOnce(undefined);
-    const first = render(<RepresentativeCredentialAction representative={representative} allowed />);
+    const first = renderAction();
     enterPassword("original88");
     fireEvent.click(screen.getByText("common.confirm"));
     await readyAfterCalls(1);
     first.unmount();
 
-    render(<RepresentativeCredentialAction representative={representative} allowed />);
+    renderAction();
     enterPassword("different88");
     fireEvent.click(screen.getByText("common.confirm"));
     await readyAfterCalls(2);
@@ -191,13 +178,15 @@ describe("RepresentativeCredentialAction", () => {
     expect(sessionStorage.length).toBe(0);
   });
 
-  it.each([{ status: 503 }, { status: 422, code: "UNKNOWN_OUTCOME" }])("retains opaque recovery for an uncertain response %j and modal closure", async (failure) => {
+  it.each([{ status: 503 }, { status: 422, code: "UNKNOWN_OUTCOME" }])("retains opaque recovery for an uncertain response %j across modal controller closure", async (failure) => {
     mocks.reset.mockRejectedValueOnce(failure).mockResolvedValueOnce(undefined);
-    render(<RepresentativeCredentialAction representative={representative} allowed />);
+    const first = renderAction();
     enterPassword("newpass88");
     fireEvent.click(screen.getByText("common.confirm"));
     await readyAfterCalls(1);
-    fireEvent.click(screen.getByText("common.cancel"));
+    first.unmount();
+
+    renderAction();
     enterPassword("newpass88");
     fireEvent.click(screen.getByText("common.confirm"));
     await waitFor(() => expect(mocks.reset).toHaveBeenCalledTimes(2));
@@ -210,7 +199,7 @@ describe("RepresentativeCredentialAction", () => {
     const nextUuid = "33333333-3333-4333-8333-333333333333";
     vi.mocked(crypto.randomUUID).mockReturnValueOnce(requestUuid).mockReturnValue(nextUuid);
     mocks.reset.mockRejectedValueOnce({ status: 422, code: "VALIDATION_ERROR" }).mockResolvedValueOnce(undefined);
-    render(<RepresentativeCredentialAction representative={representative} allowed />);
+    renderAction();
     enterPassword("newpass88");
     fireEvent.click(screen.getByText("common.confirm"));
     await readyAfterCalls(1);
@@ -226,7 +215,7 @@ describe("RepresentativeCredentialAction", () => {
       .mockRejectedValueOnce({ status: 408, code: "REQUEST_TIMEOUT" })
       .mockRejectedValueOnce({ status: 422, code: "VALIDATION_ERROR" })
       .mockResolvedValueOnce(undefined);
-    render(<RepresentativeCredentialAction representative={representative} allowed />);
+    renderAction();
     enterPassword("newpass88");
     fireEvent.click(screen.getByText("common.confirm"));
     await readyAfterCalls(1);
@@ -242,7 +231,7 @@ describe("RepresentativeCredentialAction", () => {
 
   it("does not send a reset if opaque recovery cannot be stored", async () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new DOMException("blocked", "SecurityError"); });
-    render(<RepresentativeCredentialAction representative={representative} allowed />);
+    renderAction();
     enterPassword("newpass88");
     fireEvent.click(screen.getByText("common.confirm"));
     await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith(
