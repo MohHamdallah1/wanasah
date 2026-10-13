@@ -88,19 +88,19 @@ Future<OfflineOwnerLoginGuardResult> evaluateOfflineOwnerLoginSafety({
 }) async {
   final normalizedOwnerCompany = ownerCompanyCode?.trim();
   final normalizedOwnerDriver = int.tryParse(ownerDriverId?.trim() ?? '');
-  final hasValidOwner = normalizedOwnerCompany != null &&
+  final hasValidOwner =
+      normalizedOwnerCompany != null &&
       normalizedOwnerCompany.isNotEmpty &&
       normalizedOwnerDriver != null &&
       normalizedOwnerDriver > 0;
 
   if (!hasValidOwner) {
     try {
-      final returnedCompanyPending = await readPendingSyncs(returnedCompanyCode);
+      final returnedCompanyPending = await readPendingSyncs(
+        returnedCompanyCode,
+      );
       if (hasActivePendingSyncs(returnedCompanyPending)) {
-        await _bestEffortRevoke(
-          revokeRejectedRefresh,
-          returnedRefreshToken,
-        );
+        await _bestEffortRevoke(revokeRejectedRefresh, returnedRefreshToken);
         return const OfflineOwnerLoginGuardResult(
           OfflineOwnerLoginOutcome.blockUnattributedPending,
         );
@@ -116,19 +116,18 @@ Future<OfflineOwnerLoginGuardResult> evaluateOfflineOwnerLoginSafety({
     }
   }
 
-  final ownerCompany = normalizedOwnerCompany!;
-  final ownerDriver = normalizedOwnerDriver!;
+  final ownerCompany = normalizedOwnerCompany;
+  final ownerDriver = normalizedOwnerDriver;
 
   try {
     final ownerPending = await readPendingSyncs(ownerCompany);
     if (!hasActivePendingSyncs(ownerPending)) {
       if (ownerCompany != returnedCompanyCode) {
-        final returnedCompanyPending = await readPendingSyncs(returnedCompanyCode);
+        final returnedCompanyPending = await readPendingSyncs(
+          returnedCompanyCode,
+        );
         if (hasActivePendingSyncs(returnedCompanyPending)) {
-          await _bestEffortRevoke(
-            revokeRejectedRefresh,
-            returnedRefreshToken,
-          );
+          await _bestEffortRevoke(revokeRejectedRefresh, returnedRefreshToken);
           return const OfflineOwnerLoginGuardResult(
             OfflineOwnerLoginOutcome.blockUnattributedPending,
           );
@@ -152,18 +151,12 @@ Future<OfflineOwnerLoginGuardResult> evaluateOfflineOwnerLoginSafety({
           OfflineOwnerLoginOutcome.allowSameOwner,
         );
       case OfflineOwnerLoginDecision.differentDriverSameCompany:
-        await _bestEffortRevoke(
-          revokeRejectedRefresh,
-          returnedRefreshToken,
-        );
+        await _bestEffortRevoke(revokeRejectedRefresh, returnedRefreshToken);
         return const OfflineOwnerLoginGuardResult(
           OfflineOwnerLoginOutcome.blockDifferentDriverSameCompany,
         );
       case OfflineOwnerLoginDecision.differentCompany:
-        await _bestEffortRevoke(
-          revokeRejectedRefresh,
-          returnedRefreshToken,
-        );
+        await _bestEffortRevoke(revokeRejectedRefresh, returnedRefreshToken);
         return const OfflineOwnerLoginGuardResult(
           OfflineOwnerLoginOutcome.blockDifferentCompany,
         );
