@@ -1,0 +1,55 @@
+name: Temporary representatives dashboard acceptance
+
+on:
+  push:
+    branches:
+      - sol/representatives-dashboard-ui
+    paths:
+      - ".github/workflows/representatives-dashboard-temp.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      VITE_API_URL: http://127.0.0.1:8000
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Locked frontend dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Focused representatives tests
+        working-directory: dashboard
+        run: npm test -- src/pages/representatives-vehicles/representatives/contracts.test.ts src/pages/representatives-vehicles/representatives/api.test.ts src/pages/representatives-vehicles/representatives/RepresentativeForm.test.tsx
+      - name: Extract TypeScript baseline
+        run: |
+          mkdir baseline
+          git archive --format=tar --output=baseline.tar dea4df8fda1cec099add91d5ebe1ec6cce31cc61 dashboard
+          tar -xf baseline.tar -C baseline
+      - name: Reject new TypeScript diagnostics
+        working-directory: dashboard
+        run: node scripts/check-types-against-baseline.mjs ../baseline/dashboard
+      - name: Affected frontend lint
+        working-directory: dashboard
+        run: >-
+          npx eslint
+          src/pages/representatives-vehicles
+          src/App.tsx
+          src/components/operations/OperationsSidebar.tsx
+          src/i18n/index.ts
+          src/i18n/representativesVehicles.ts
+      - name: Production build
+        working-directory: dashboard
+        run: npm run build
+      - name: Diff whitespace gate
+        run: git diff --check dea4df8fda1cec099add91d5ebe1ec6cce31cc61 HEAD
