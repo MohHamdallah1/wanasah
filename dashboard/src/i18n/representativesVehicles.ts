@@ -27,6 +27,7 @@ export const representativesVehicles = {
       updateSuccess: "تم تحديث بيانات المندوب.",
       saveFailed: "تعذر حفظ بيانات المندوب.",
       actions: "الإجراءات",
+      actionsMenu: "إجراءات المندوب — {{name}}",
       openDetails: "فتح التفاصيل",
       errors: {
         usernameConflict: "اسم المستخدم مستخدم بالفعل داخل هذه الشركة.",
@@ -48,6 +49,9 @@ export const representativesVehicles = {
         read: "عرض بيانات المندوبين",
         manage: "إدارة المندوبين",
         credentialsReset: "إعادة تعيين كلمات مرور المندوبين",
+      },
+      currency: {
+        jod: "د.أ",
       },
       fields: {
         name: "اسم المندوب",
@@ -136,6 +140,7 @@ export const representativesVehicles = {
       updateSuccess: "Representative updated.",
       saveFailed: "Could not save representative details.",
       actions: "Actions",
+      actionsMenu: "Representative actions — {{name}}",
       openDetails: "Open details",
       errors: {
         usernameConflict: "That username is already in use in this company.",
@@ -157,6 +162,9 @@ export const representativesVehicles = {
         read: "View representatives",
         manage: "Manage representatives",
         credentialsReset: "Reset representative passwords",
+      },
+      currency: {
+        jod: "JOD",
       },
       fields: {
         name: "Representative name",
