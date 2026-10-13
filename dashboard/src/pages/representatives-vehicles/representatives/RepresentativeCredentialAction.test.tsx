@@ -59,15 +59,15 @@ afterEach(() => {
 });
 
 describe("RepresentativeCredentialAction", () => {
-  it("rejects a reset password above 72 UTF-8 bytes before calling the API", () => {
+  it.each(["ع".repeat(37), "😀".repeat(4)])("rejects a reset password outside canonical character/UTF-8 bounds", (password) => {
     render(<RepresentativeCredentialAction representative={representative} allowed />);
 
     fireEvent.click(screen.getByText("representativesVehicles.representatives.credentials.reset"));
     fireEvent.change(screen.getByLabelText("representativesVehicles.representatives.fields.newPassword"), {
-      target: { value: "ع".repeat(37) },
+      target: { value: password },
     });
     fireEvent.change(screen.getByLabelText("representativesVehicles.representatives.fields.confirmPassword"), {
-      target: { value: "ع".repeat(37) },
+      target: { value: password },
     });
     fireEvent.click(screen.getByText("common.confirm"));
 

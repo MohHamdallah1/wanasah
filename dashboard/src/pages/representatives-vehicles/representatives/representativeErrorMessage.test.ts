@@ -56,4 +56,11 @@ describe("representativeErrorMessage", () => {
   it("keeps the shared safe fallback for unknown codes", () => {
     expect(representativeErrorMessage({ code: "UNKNOWN" }, "fallback")).toBe("fallback");
   });
+
+  it("localizes catalog paging and unavailable-account errors without exposing internal compatibility terms", () => {
+    for (const code of ["REPRESENTATIVE_IDENTITY_INCONSISTENT", "REPRESENTATIVE_OPERATIONAL_COMPATIBILITY_MISSING"]) {
+      expect(representativeErrorMessage({ code }, "fallback")).toBe("representativesVehicles.representatives.errors.unavailable");
+    }
+    expect(representativeErrorMessage({ code: "REPRESENTATIVE_CURSOR_INVALID" }, "fallback")).toBe("representativesVehicles.representatives.errors.cursorInvalid");
+  });
 });

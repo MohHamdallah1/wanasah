@@ -1,0 +1,76 @@
+name: Representatives adversarial review (temporary)
+
+on:
+  push:
+    branches: [codex/representatives-adversarial-final-review]
+    paths:
+      - dashboard/src/pages/representatives-vehicles/**
+      - dashboard/src/i18n/representativesVehicles.ts
+      - .github/workflows/representatives-adversarial-review-temp.yml
+
+permissions:
+  contents: read
+
+jobs:
+  dashboard-review:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      VITE_API_URL: http://127.0.0.1:8000
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Locked Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Focused Representatives contracts and adversarial regressions
+        working-directory: dashboard
+        run: npm test -- src/pages/representatives-vehicles --reporter=default --reporter=junit --outputFile=representatives-review.xml
+      - name: Affected ESLint
+        working-directory: dashboard
+        run: |
+          python - <<'PY'
+          import subprocess
+          base = "81e12a0e13104cb4083762bbd0abbf388ad66b9f"
+          paths = subprocess.check_output(["git", "diff", "--name-only", base, "HEAD"], text=True).splitlines()
+          paths = [p.removeprefix("dashboard/") for p in paths if p.startswith("dashboard/") and p.endswith((".ts", ".tsx"))]
+          if paths:
+              subprocess.run(["npx", "eslint", *paths], check=True)
+          PY
+      - name: Unmodified main baseline for TypeScript
+        run: |
+          mkdir baseline
+          git archive --format=tar --output=baseline.tar 81e12a0e13104cb4083762bbd0abbf388ad66b9f dashboard
+          tar -xf baseline.tar -C baseline
+      - name: Reject new TypeScript diagnostics
+        working-directory: dashboard
+        run: node scripts/check-types-against-baseline.mjs ../baseline/dashboard
+      - name: Production build
+        working-directory: dashboard
+        run: npm run build
+      - name: Whitespace and scope gate
+        run: |
+          python - <<'PY'
+          import subprocess
+          base = "81e12a0e13104cb4083762bbd0abbf388ad66b9f"
+          files = subprocess.check_output(["git", "diff", "--name-only", base, "HEAD"], text=True).splitlines()
+          assert all(p.startswith("dashboard/src/pages/representatives-vehicles/representatives/") or p in {
+              "dashboard/src/i18n/representativesVehicles.ts",
+              ".github/workflows/representatives-adversarial-review-temp.yml",
+          } for p in files), files
+          subprocess.run(["git", "diff", "--check", base, "HEAD"], check=True)
+          print("DIFF_SCOPE=PASS; BACKEND_FLUTTER_DRIVER_DISPATCH_UNTOUCHED=PASS")
+          PY
+      - name: Preserve focused report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: representatives-adversarial-report
+          path: dashboard/representatives-review.xml
+          if-no-files-found: ignore
