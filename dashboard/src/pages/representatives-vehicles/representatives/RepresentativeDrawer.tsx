@@ -132,7 +132,13 @@ export function RepresentativeDrawer({
                 <dl className="mt-4 grid gap-3 text-sm">
                   <div><dt className="text-[11px] font-black text-slate-400">{t("representativesVehicles.representatives.fields.phone")}</dt><dd className="mt-0.5 font-semibold text-slate-700" dir="ltr">{current.phone_number || "—"}</dd></div>
                   <div><dt className="text-[11px] font-black text-slate-400">{t("representativesVehicles.representatives.fields.debtPermission")}</dt><dd className="mt-0.5 font-semibold text-slate-700">{t(current.can_allow_debt ? "representativesVehicles.representatives.fields.enabled" : "representativesVehicles.representatives.fields.disabled")}</dd></div>
-                  <div><dt className="text-[11px] font-black text-slate-400">{t("representativesVehicles.representatives.fields.debtLimit")}</dt><dd className="mt-0.5 font-semibold text-slate-700" dir="ltr">{current.max_debt_limit}</dd></div>
+                  <div>
+          <dt className="text-[11px] font-black text-slate-400">{t("representativesVehicles.representatives.fields.debtLimit")}</dt>
+          <dd className="mt-0.5 font-semibold text-slate-700" dir="ltr">{current.max_debt_limit}</dd>
+          <p className="mt-1 text-[11px] font-semibold leading-5 text-slate-500">
+            {t("representativesVehicles.representatives.form.debtHint")}
+          </p>
+        </div>
                 </dl>
                 <button
                   type="button"

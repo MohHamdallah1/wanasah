@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FocusEvent, type FormEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -32,15 +32,19 @@ export function RepresentativeForm({
   onCancel,
   onSubmit,
 }: RepresentativeFormProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [fullName, setFullName] = useState(representative?.full_name ?? "");
   const [username, setUsername] = useState(representative?.username ?? "");
   const [phone, setPhone] = useState(representative?.phone_number ?? "");
   const [password, setPassword] = useState("");
   const [canAllowDebt, setCanAllowDebt] = useState(representative?.can_allow_debt ?? false);
-  const [maxDebtLimit, setMaxDebtLimit] = useState(representative?.max_debt_limit ?? "0.000");
+  const [maxDebtLimit, setMaxDebtLimit] = useState(representative?.max_debt_limit ?? "");
   const [validation, setValidation] = useState("");
   const operation = useRef<PendingFormOperation | null>(null);
+  const debtSelectionHandled = useRef(false);
+  const debtMouseUpSelectionPending = useRef(false);
+  const formDirection = i18n.dir();
+  const localeTextAlignment = formDirection === "rtl" ? "text-right" : "text-left";
 
   useEffect(() => {
     setFullName(representative?.full_name ?? "");
@@ -48,9 +52,11 @@ export function RepresentativeForm({
     setPhone(representative?.phone_number ?? "");
     setPassword("");
     setCanAllowDebt(representative?.can_allow_debt ?? false);
-    setMaxDebtLimit(representative?.max_debt_limit ?? "0.000");
+    setMaxDebtLimit(representative?.max_debt_limit ?? "");
     setValidation("");
     operation.current = null;
+    debtSelectionHandled.current = false;
+    debtMouseUpSelectionPending.current = false;
   }, [representative]);
 
   const resetOperation = () => {
@@ -80,7 +86,8 @@ export function RepresentativeForm({
     const normalizedName = normalizeRepresentativeText(fullName);
     const normalizedUsername = normalizeRepresentativeText(username);
     const normalizedPhone = normalizeOptionalPhone(phone);
-    const normalizedDebt = normalizeDebtLimit(canAllowDebt ? maxDebtLimit : "0.000");
+    const debtInput = maxDebtLimit.trim();
+    const normalizedDebt = debtInput ? normalizeDebtLimit(debtInput) : null;
 
     if (!normalizedName || !normalizedUsername) {
       setValidation(t("representativesVehicles.representatives.form.required"));
@@ -94,7 +101,11 @@ export function RepresentativeForm({
       setValidation(t("representativesVehicles.representatives.form.phoneInvalid"));
       return;
     }
-    if (!normalizedDebt) {
+    if (canAllowDebt && !debtInput) {
+      setValidation(t("representativesVehicles.representatives.form.debtRequired"));
+      return;
+    }
+    if (canAllowDebt && !normalizedDebt) {
       setValidation(t("representativesVehicles.representatives.form.debtInvalid"));
       return;
     }
@@ -119,7 +130,9 @@ export function RepresentativeForm({
       if (canAllowDebt !== representative.can_allow_debt) {
         update.can_allow_debt = canAllowDebt;
       }
-      if (normalizedDebt !== originalDebt) update.max_debt_limit = normalizedDebt;
+      if (canAllowDebt && normalizedDebt && normalizedDebt !== originalDebt) {
+        update.max_debt_limit = normalizedDebt;
+      }
 
       if (Object.keys(update).length === 0) {
         setValidation(t("representativesVehicles.representatives.form.noChanges"));
@@ -136,34 +149,47 @@ export function RepresentativeForm({
       phone_number: normalizedPhone,
       password,
       can_allow_debt: canAllowDebt,
-      max_debt_limit: normalizedDebt,
+      max_debt_limit: canAllowDebt ? normalizedDebt! : "0.000",
     };
     await onSubmit(createInput, requestIdForSubmission(createInput));
   };
 
-  const inputClass = "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-cyan-300 focus:ring-4 focus:ring-cyan-100/60 disabled:bg-slate-50 disabled:text-slate-500";
+  const selectExistingDebtOnFirstFocus = (event: FocusEvent<HTMLInputElement>) => {
+    if (!representative || debtSelectionHandled.current || !event.currentTarget.value) return;
+    event.currentTarget.select();
+    debtSelectionHandled.current = true;
+    debtMouseUpSelectionPending.current = true;
+  };
+
+  const preserveFirstDebtSelection = (event: MouseEvent<HTMLInputElement>) => {
+    if (!debtMouseUpSelectionPending.current) return;
+    event.preventDefault();
+    debtMouseUpSelectionPending.current = false;
+  };
+
+  const inputClass = "h-10 min-w-0 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-cyan-300 focus:ring-4 focus:ring-cyan-100/60 disabled:bg-slate-50 disabled:text-slate-500";
 
   return (
-    <form className="space-y-4" onSubmit={submit}>
+    <form dir={formDirection} className="space-y-4" onSubmit={submit}>
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-1.5 sm:col-span-2">
-          <label htmlFor="representative-name" className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.name")}</label>
+        <div className="min-w-0 space-y-1.5 sm:col-span-2">
+          <label htmlFor="representative-name" className="block text-start text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.name")}</label>
           <input id="representative-name" autoFocus maxLength={120} value={fullName} onChange={(event) => { resetOperation(); setFullName(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.namePlaceholder")} className={inputClass} disabled={busy} autoComplete="off" />
         </div>
 
-        <div className="space-y-1.5">
-          <label htmlFor="representative-username" className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.username")}</label>
-          <input id="representative-username" dir="ltr" maxLength={80} value={username} onChange={(event) => { resetOperation(); setUsername(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.usernamePlaceholder")} className={inputClass} disabled={busy} autoComplete="off" />
+        <div className="min-w-0 space-y-1.5">
+          <label htmlFor="representative-username" className="block text-start text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.username")}</label>
+          <input id="representative-username" dir={username ? "ltr" : formDirection} maxLength={80} value={username} onChange={(event) => { resetOperation(); setUsername(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.usernamePlaceholder")} className={`${inputClass} ${localeTextAlignment}`} disabled={busy} autoComplete="off" />
         </div>
 
-        <div className="space-y-1.5">
-          <label htmlFor="representative-phone" className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.phone")}</label>
-          <input id="representative-phone" dir="ltr" inputMode="tel" maxLength={20} value={phone} onChange={(event) => { resetOperation(); setPhone(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.phonePlaceholder")} className={inputClass} disabled={busy} autoComplete="tel" />
+        <div className="min-w-0 space-y-1.5">
+          <label htmlFor="representative-phone" className="block text-start text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.phone")}</label>
+          <input id="representative-phone" dir={phone ? "ltr" : formDirection} inputMode="tel" maxLength={20} value={phone} onChange={(event) => { resetOperation(); setPhone(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.phonePlaceholder")} className={`${inputClass} ${localeTextAlignment}`} disabled={busy} autoComplete="tel" />
         </div>
 
         {!representative ? (
-          <div className="space-y-1.5 sm:col-span-2">
-            <label htmlFor="representative-password" className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.password")}</label>
+          <div className="min-w-0 space-y-1.5 sm:col-span-2">
+            <label htmlFor="representative-password" className="block text-start text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.password")}</label>
             <input id="representative-password" type="password" minLength={8} maxLength={72} value={password} onChange={(event) => { operation.current = null; resetOperation(); setPassword(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.passwordPlaceholder")} className={inputClass} disabled={busy} autoComplete="new-password" />
           </div>
         ) : null}
@@ -178,17 +204,39 @@ export function RepresentativeForm({
             onChange={(event) => {
               resetOperation();
               setCanAllowDebt(event.target.checked);
-              if (!event.target.checked) setMaxDebtLimit("0.000");
             }}
             disabled={busy}
             className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-cyan-400"
           />
         </label>
-        <div className="mt-3 space-y-1.5">
-          <label htmlFor="representative-debt-limit" className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.debtLimit")}</label>
-          <input id="representative-debt-limit" dir="ltr" inputMode="decimal" value={maxDebtLimit} onChange={(event) => { resetOperation(); setMaxDebtLimit(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.debtLimitPlaceholder")} className={inputClass} disabled={busy || !canAllowDebt} autoComplete="off" />
-          <p className="text-[11px] font-semibold leading-5 text-slate-500">{t("representativesVehicles.representatives.form.debtHint")}</p>
-        </div>
+        {canAllowDebt ? (
+          <div className="mt-3 space-y-1.5">
+            <label htmlFor="representative-debt-limit" className="block text-start text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.debtLimit")}</label>
+            <input
+              id="representative-debt-limit"
+              aria-describedby="representative-debt-hint"
+              dir={maxDebtLimit ? "ltr" : formDirection}
+              inputMode="decimal"
+              value={maxDebtLimit}
+              onFocus={selectExistingDebtOnFirstFocus}
+              onMouseUp={preserveFirstDebtSelection}
+              onChange={(event) => {
+                debtMouseUpSelectionPending.current = false;
+                resetOperation();
+                setMaxDebtLimit(event.target.value);
+              }}
+              placeholder={t("representativesVehicles.representatives.form.debtLimitPlaceholder")}
+              className={`${inputClass} ${localeTextAlignment} font-mono tabular-nums`}
+              disabled={busy}
+              autoComplete="off"
+            />
+            <p id="representative-debt-hint" className="text-[11px] font-semibold leading-5 text-slate-500">{t("representativesVehicles.representatives.form.debtHint")}</p>
+          </div>
+        ) : (
+          <p className="mt-3 rounded-xl bg-white px-3 py-2 text-xs font-black text-slate-500 ring-1 ring-slate-200">
+            {t("representativesVehicles.representatives.form.debtDisabled")}
+          </p>
+        )}
       </div>
 
       {validation ? <p role="alert" className="text-xs font-bold text-rose-700">{validation}</p> : null}

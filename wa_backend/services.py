@@ -63,6 +63,8 @@ from domains.live_stock_projection.service import (
     apply_live_stock_balance_impacts,
     refresh_live_stock_variants,
 )
+from domains.identity.models import CompanyPrincipal, FieldRepresentative
+from domains.identity.migration.models import IdentityLegacyDriverMap
 
 
 
@@ -428,61 +430,111 @@ async def check_debt_limits(
     except ValueError as exc:
         return False, str(exc)
 
+    # A fully cash sale creates no new receivable and is outside this policy.
     if new_debt == Decimal("0"):
         return True, ""
 
-    # الـORM object الممرر مجرد hint للهوية، وليس مصدراً لصلاحية مالية قديمة.
-    # نعيد قراءة صلاحية المندوب من DB كي لا تمر عملية بعد إلغاء can_allow_debt
-    # أو تعطيل المستخدم في معاملة سبقت هذا الفحص.
+    # The legacy Driver object is only a bounded operational locator. It must
+    # never supply credit authority or credit limits. A mismatched locator is
+    # still rejected before canonical resolution to preserve tenant isolation.
     if pre_fetched_driver is not None and (
         pre_fetched_driver.id != driver_id
         or pre_fetched_driver.company_id != company_id
     ):
         return False, "المندوب غير صالح لهذه الشركة."
 
-    stmt_driver = select(Driver).execution_options(populate_existing=True).filter_by(
-        id=driver_id,
-        company_id=company_id,
-        is_active=True,
-        can_allow_debt=True,
-    ).with_for_update(read=True)
-    driver = (await db_session.execute(stmt_driver)).scalar_one_or_none()
+    mapping_stmt = (
+        select(IdentityLegacyDriverMap)
+        .execution_options(populate_existing=True)
+        .where(
+            IdentityLegacyDriverMap.company_id == company_id,
+            IdentityLegacyDriverMap.legacy_driver_id == driver_id,
+            IdentityLegacyDriverMap.classification == "FIELD_ONLY",
+        )
+    )
+    mapping = (await db_session.execute(mapping_stmt)).scalar_one_or_none()
+    if (
+        mapping is None
+        or mapping.field_principal_id is None
+        or mapping.field_representative_id is None
+    ):
+        return False, "المندوب غير مخول بالبيع بالذمم."
 
-    # لا نعتمد أي Shop pre-fetched في القرار المالي؛ يجب قفل الصف الحقيقي دائماً.
-    stmt_shop = select(Shop).execution_options(populate_existing=True).filter_by(
-        id=shop_id,
-        company_id=company_id,
-    ).with_for_update()
-    shop = (await db_session.execute(stmt_shop)).scalar_one_or_none()
+    representative_stmt = (
+        select(FieldRepresentative)
+        .join(
+            CompanyPrincipal,
+            and_(
+                CompanyPrincipal.company_id == FieldRepresentative.company_id,
+                CompanyPrincipal.id == FieldRepresentative.principal_id,
+                CompanyPrincipal.principal_type == FieldRepresentative.principal_type,
+            ),
+        )
+        .execution_options(populate_existing=True)
+        .where(
+            FieldRepresentative.company_id == company_id,
+            FieldRepresentative.id == mapping.field_representative_id,
+            FieldRepresentative.principal_id == mapping.field_principal_id,
+            FieldRepresentative.principal_type == "FIELD_REPRESENTATIVE",
+            CompanyPrincipal.company_id == company_id,
+            CompanyPrincipal.id == mapping.field_principal_id,
+            CompanyPrincipal.principal_type == "FIELD_REPRESENTATIVE",
+            CompanyPrincipal.is_active.is_(True),
+        )
+        .with_for_update(read=True)
+    )
+    representative = (
+        await db_session.execute(representative_stmt)
+    ).scalar_one_or_none()
+    if representative is None or representative.can_allow_debt is not True:
+        return False, "المندوب غير مخول بالبيع بالذمم."
 
-    if not driver:
-        return False, "المندوب غير موجود/غير فعال أو لم تعد لديه صلاحية إعطاء ذمم."
-    if not shop:
+    try:
+        representative_limit = _money_12_3(
+            representative.max_debt_limit or "0.0",
+            "representative.max_debt_limit",
+        )
+    except ValueError as exc:
+        return False, str(exc)
+
+    if representative_limit == Decimal("0"):
+        return False, "حد الذمم لكل عملية بيع لدى المندوب لا يسمح بإنشاء ذمم جديدة."
+    if new_debt > representative_limit:
+        return False, "مبلغ الذمم الجديد يتجاوز حد الذمم المسموح للمندوب في عملية بيع واحدة."
+
+    # Shop exposure is a separate cumulative guard. Always lock and re-read the
+    # persisted shop row after canonical representative policy has passed.
+    shop_stmt = (
+        select(Shop)
+        .execution_options(populate_existing=True)
+        .where(
+            Shop.id == shop_id,
+            Shop.company_id == company_id,
+        )
+        .with_for_update()
+    )
+    shop = (await db_session.execute(shop_stmt)).scalar_one_or_none()
+    if shop is None:
         return False, "المحل غير موجود."
     if not getattr(shop, "is_active", False) or getattr(shop, "is_archived", False):
         return False, "المحل غير فعال أو مؤرشف ولا يمكن فتح ذمة جديدة له."
-    # can_allow_debt جزء من استعلام DB أعلاه؛ غياب driver يعني أن الصلاحية
-    # ألغيت أو أن الحساب لم يعد فعالاً.
+
     try:
-        max_limit = _money_12_3(
+        shop_limit = _money_12_3(
             shop.max_debt_limit or "0.0",
             "shop.max_debt_limit",
         )
-        current_bal = _money_12_3(
+        current_balance = _money_12_3(
             shop.current_balance or "0.0",
             "shop.current_balance",
         )
     except ValueError as exc:
         return False, str(exc)
 
-    if max_limit == Decimal("0"):
-        return False, "هذا المحل غير مصرح له بفتح ذمم (السقف صفر)."
-
-    if current_bal + new_debt > max_limit:
-        return False, (
-            f"مرفوض. سقف الذمة ({max_limit})، "
-            f"والرصيد سيصبح ({current_bal + new_debt})."
-        )
+    if shop_limit == Decimal("0"):
+        return False, "هذا المحل غير مسموح له بالبيع بالذمم لأن سقف ذمته يساوي صفراً."
+    if current_balance + new_debt > shop_limit:
+        return False, "إجمالي ذمة المحل بعد العملية سيتجاوز سقف الذمة المسموح له."
 
     return True, ""
 
