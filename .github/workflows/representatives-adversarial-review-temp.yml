@@ -33,6 +33,7 @@ jobs:
         working-directory: dashboard
         run: npm test -- src/pages/representatives-vehicles --reporter=default --reporter=junit --outputFile=representatives-review.xml
       - name: Affected ESLint
+        if: always()
         working-directory: dashboard
         run: |
           python - <<'PY'
@@ -44,17 +45,21 @@ jobs:
               subprocess.run(["npx", "eslint", *paths], check=True)
           PY
       - name: Unmodified main baseline for TypeScript
+        if: always()
         run: |
           mkdir baseline
           git archive --format=tar --output=baseline.tar 81e12a0e13104cb4083762bbd0abbf388ad66b9f dashboard
           tar -xf baseline.tar -C baseline
       - name: Reject new TypeScript diagnostics
+        if: always()
         working-directory: dashboard
         run: node scripts/check-types-against-baseline.mjs ../baseline/dashboard
       - name: Production build
+        if: always()
         working-directory: dashboard
         run: npm run build
       - name: Whitespace and scope gate
+        if: always()
         run: |
           python - <<'PY'
           import subprocess
