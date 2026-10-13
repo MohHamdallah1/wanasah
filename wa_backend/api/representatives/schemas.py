@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
 from decimal import Decimal
-from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -20,8 +18,6 @@ class RepresentativeResponse(StrictModel):
     is_active: bool
     can_allow_debt: bool
     max_debt_limit: Decimal
-    created_at: datetime
-    updated_at: datetime
 
 
 class RepresentativeCursorPage(StrictModel):
@@ -30,19 +26,19 @@ class RepresentativeCursorPage(StrictModel):
     has_more: bool
 
 
-class RepresentativeMutationResponse(StrictModel):
-    message: str
-    representative: RepresentativeResponse
-
-
 class RepresentativeCreateRequest(StrictModel):
     request_id: UUID
     full_name: str = Field(min_length=1, max_length=120)
     username: str = Field(min_length=1, max_length=80)
-    password: str = Field(min_length=8, max_length=72)
     phone_number: str | None = Field(default=None, max_length=20)
+    password: str = Field(min_length=8, max_length=72)
     can_allow_debt: bool = False
-    max_debt_limit: Decimal = Decimal("0.000")
+    max_debt_limit: Decimal = Field(
+        default=Decimal("0.000"),
+        ge=0,
+        max_digits=12,
+        decimal_places=3,
+    )
 
     @field_validator("full_name", "username")
     @classmethod
@@ -60,13 +56,6 @@ class RepresentativeCreateRequest(StrictModel):
         value = value.strip()
         return value or None
 
-    @field_validator("password")
-    @classmethod
-    def validate_password_bytes(cls, value: str) -> str:
-        if len(value.encode("utf-8")) > 72:
-            raise ValueError("password exceeds bcrypt byte limit")
-        return value
-
 
 class RepresentativeUpdateRequest(StrictModel):
     request_id: UUID
@@ -74,7 +63,12 @@ class RepresentativeUpdateRequest(StrictModel):
     username: str | None = Field(default=None, min_length=1, max_length=80)
     phone_number: str | None = Field(default=None, max_length=20)
     can_allow_debt: bool | None = None
-    max_debt_limit: Decimal | None = None
+    max_debt_limit: Decimal | None = Field(
+        default=None,
+        ge=0,
+        max_digits=12,
+        decimal_places=3,
+    )
 
     @field_validator("full_name", "username")
     @classmethod
@@ -95,21 +89,19 @@ class RepresentativeUpdateRequest(StrictModel):
         return value or None
 
     @model_validator(mode="after")
-    def reject_null_required_identity_fields(self):
+    def validate_patch_shape(self):
+        mutable_fields = self.model_fields_set - {"request_id"}
+        if not mutable_fields:
+            raise ValueError("at least one mutable representative field is required")
         for field in ("full_name", "username", "can_allow_debt", "max_debt_limit"):
             if field in self.model_fields_set and getattr(self, field) is None:
                 raise ValueError(f"{field} may not be null")
         return self
 
 
-RepresentativeStatus = Literal["active", "inactive", "all"]
-
-
 __all__ = [
     "RepresentativeCreateRequest",
     "RepresentativeCursorPage",
-    "RepresentativeMutationResponse",
     "RepresentativeResponse",
-    "RepresentativeStatus",
     "RepresentativeUpdateRequest",
 ]
