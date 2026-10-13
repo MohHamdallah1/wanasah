@@ -1,0 +1,53 @@
+name: Close frozen Representatives Vehicles decisions
+on:
+  push:
+    branches:
+      - lead/representatives-vehicles-plan-finalize
+permissions:
+  contents: write
+jobs:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: lead/representatives-vehicles-plan-finalize
+      - name: Mark already-frozen owner decisions complete
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('REPRESENTATIVES_VEHICLES_V1_PLAN.md')
+          s = p.read_text(encoding='utf-8')
+          items = [
+            'The tenant/security boundary is **Company**.',
+            'V1 operational UX is one company context with **one or many warehouses**.',
+            'V1 does **not** require a global Branch switcher, Branch-scoped representative management, Branch-scoped vehicle management, or Branch ownership of company master data.',
+            'Existing Branch schema/readiness may remain for future expansion, but Representatives/Vehicles V1 must not depend on it.',
+            'Products are company-wide master data.',
+            'Zones/territories are company-wide master data.',
+            'Shops/customers are company-wide master data.',
+            'Vehicles are company-wide master data.',
+            'Vehicles are **not permanently owned by one warehouse**.',
+            'Source warehouse is chosen by the concrete operational workflow/route/load, not by vehicle identity.',
+            'A vehicle can be used from a different authorized source warehouse on another route/day without changing its master identity.',
+            'Vehicles are non-human operational assets and never authenticate.',
+            'No hard delete for Vehicles in V1.'
+          ]
+          for item in items:
+              old = f'- [ ] {item}'
+              new = f'- [x] {item}'
+              if old not in s:
+                  raise SystemExit(f'Missing frozen decision: {item}')
+              s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8', newline='\n')
+          PY
+          rm .github/workflows/tmp-finalize-frozen-decisions.yml
+          git diff --check
+      - name: Commit finalized decisions
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'docs: mark frozen Representatives Vehicles decisions complete'
+          git push
