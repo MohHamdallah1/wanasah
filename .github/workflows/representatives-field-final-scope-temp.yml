@@ -1,0 +1,43 @@
+name: Temporary representatives field final scope gate
+
+on:
+  push:
+    branches:
+      - sol/representatives-field-compatibility-acceptance
+    paths:
+      - ".github/workflows/representatives-field-final-scope-temp.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  final-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      TARGET_SHA: c1a59f901cf589a78197a427e0867235200d676d
+      BASE_SHA: b9c18ade8d62c5b23349f2d4c030840940e05cf7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: c1a59f901cf589a78197a427e0867235200d676d
+          fetch-depth: 0
+      - name: Verify exact checkout
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain)"
+          git merge-base --is-ancestor "$BASE_SHA" "$TARGET_SHA"
+      - name: Diff whitespace gate
+        run: git diff --check "$BASE_SHA" "$TARGET_SHA"
+      - name: Field compatibility scope gate
+        shell: bash
+        run: |
+          changed="$(git diff --name-only "$BASE_SHA" "$TARGET_SHA")"
+          printf '%s\n' "$changed"
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(wanasah_frontend/lib/blocs/auth/auth_bloc\.dart|wanasah_frontend/lib/blocs/auth/offline_owner_guard\.dart|wanasah_frontend/test/offline_owner_guard_test\.dart)$' || true)"
+          if [ -n "$unexpected" ]; then
+            printf 'Unexpected files outside field compatibility scope:\n%s\n' "$unexpected"
+            exit 1
+          fi
+          test "$(printf '%s\n' "$changed" | sed '/^$/d' | wc -l)" -eq 3
+          printf 'FINAL_SCOPE_CHECK=PASS\n'
