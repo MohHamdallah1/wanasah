@@ -31,24 +31,27 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Isolate DispatchRoute blocker fixtures
+      - name: Normalize ended WorkSession fixtures
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
           path = Path("wa_backend/tests/test_representatives_runtime_db.py")
           source = path.read_text(encoding="utf-8")
-          old = '''    zone = gate.zones[0]\n    owner_driver_id = gate.owners[0].driver_id\n\n    rep, _ = await create_rep(gate)\n    state = await identity_state(gate, company.id, rep["id"])\n    async with AsyncSession(gate.engine) as db:\n        db.add(WorkSession(company_id=company.id, driver_id=state.driver_id))\n        await db.commit()\n    await assert_deactivate_blocked(gate, rep["id"])\n\n    for status in ("active", "waiting", "postponed"):\n        rep, _ = await create_rep(gate)\n        state = await identity_state(gate, company.id, rep["id"])\n        async with AsyncSession(gate.engine) as db:\n            db.add(DispatchRoute(\n                company_id=company.id,\n                zone_id=zone.id,\n                driver_id=state.driver_id,\n                source_location_id=location.id,\n                status=status,\n            ))\n            await db.commit()\n        await assert_deactivate_blocked(gate, rep["id"])\n'''
-          new = '''    owner_driver_id = gate.owners[0].driver_id\n\n    rep, _ = await create_rep(gate)\n    state = await identity_state(gate, company.id, rep["id"])\n    async with AsyncSession(gate.engine) as db:\n        db.add(WorkSession(company_id=company.id, driver_id=state.driver_id))\n        await db.commit()\n    await assert_deactivate_blocked(gate, rep["id"])\n\n    for status in ("active", "waiting", "postponed"):\n        rep, _ = await create_rep(gate)\n        state = await identity_state(gate, company.id, rep["id"])\n        async with AsyncSession(gate.engine, expire_on_commit=False) as db:\n            route_zone = Zone(\n                company_id=company.id,\n                name=f"Gate Route Zone {status} {uuid4().hex[:8]}",\n            )\n            db.add(route_zone)\n            await db.flush()\n            db.add(DispatchRoute(\n                company_id=company.id,\n                zone_id=route_zone.id,\n                driver_id=state.driver_id,\n                source_location_id=location.id,\n                status=status,\n            ))\n            await db.commit()\n        await assert_deactivate_blocked(gate, rep["id"])\n'''
-          if old not in source:
-              raise SystemExit("Expected blocker fixture block not found")
-          path.write_text(source.replace(old, new), encoding="utf-8")
+          old_helper = '''        session = WorkSession(\n            company_id=company.id,\n            driver_id=driver_id,\n            end_time=now,\n            inventory_reconciled_at=now,\n'''
+          new_helper = '''        session = WorkSession(\n            company_id=company.id,\n            driver_id=driver_id,\n            start_time=now,\n            end_time=now,\n            inventory_reconciled_at=now,\n'''
+          old_unreconciled = '''    async with AsyncSession(gate.engine) as db:\n        db.add(WorkSession(\n            company_id=company.id, driver_id=state.driver_id, end_time=utc_now()\n        ))\n        await db.commit()\n'''
+          new_unreconciled = '''    async with AsyncSession(gate.engine) as db:\n        now = utc_now()\n        db.add(WorkSession(\n            company_id=company.id,\n            driver_id=state.driver_id,\n            start_time=now,\n            end_time=now,\n        ))\n        await db.commit()\n'''
+          if old_helper not in source or old_unreconciled not in source:
+              raise SystemExit("Expected WorkSession fixture blocks not found")
+          source = source.replace(old_helper, new_helper).replace(old_unreconciled, new_unreconciled)
+          path.write_text(source, encoding="utf-8")
           PY
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add wa_backend/tests/test_representatives_runtime_db.py
-          git commit -m "test: isolate route blocker fixtures"
+          git commit -m "test: normalize ended work session fixtures"
           git push origin HEAD:sol/representatives-backend-runtime-acceptance
       - uses: actions/setup-python@v5
         with:
