@@ -18,20 +18,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Inspect backend seam and tests
+      - name: Inspect backend model and dashboard tests
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== CHECK DEBT FUNCTION LINE ==='
-          grep -n "async def check_debt_limits" wa_backend/services.py
-          line="$(grep -n "async def check_debt_limits" wa_backend/services.py | cut -d: -f1)"
-          start=$((line-15)); end=$((line+115))
-          sed -n "${start},${end}p" wa_backend/services.py
-          echo '=== DEBT TEST REFERENCES ==='
-          grep -R -n "check_debt_limits\|new_debt_amount\|can_allow_debt" wa_backend/tests | head -n 160 || true
-          echo '=== IDENTITY LEGACY MAP MODEL ==='
-          grep -R -n "class IdentityLegacyDriverMap" wa_backend | head -n 10 || true
-          echo '=== DASHBOARD RELEVANT TEST FILES ==='
-          find dashboard/src/pages/representatives-vehicles -type f \( -name '*test.tsx' -o -name '*test.ts' \) | sort
-          echo '=== TABLE TEST REFERENCES ==='
-          grep -R -n "RepresentativeTable\|debtPermission\|debtLimit" dashboard/src/pages/representatives-vehicles dashboard/src/i18n/representativesVehicles.ts | head -n 160 || true
+          echo '=== MODEL DEFINITIONS ==='
+          for cls in Company Driver Shop; do
+            line="$(grep -n "^class ${cls}(Base)" wa_backend/models.py | cut -d: -f1 | head -n1)"
+            echo "--- ${cls} @ ${line} ---"
+            sed -n "${line},$((line+95))p" wa_backend/models.py
+          done
+          echo '=== REPRESENTATIVE REPOSITORY CREDIT WRITES ==='
+          grep -n -C 12 "can_allow_debt\|max_debt_limit" wa_backend/domains/representatives/repository.py | head -n 260 || true
+          echo '=== REPRESENTATIVE FORM TEST ==='
+          cat dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm.test.tsx
+          echo '=== PAGE TEST ==='
+          cat dashboard/src/pages/representatives-vehicles/RepresentativesVehiclesPage.test.tsx
+          echo '=== DRAWER CREDIT SECTION ==='
+          grep -n -C 5 "debtPermission\|debtLimit" dashboard/src/pages/representatives-vehicles/representatives/RepresentativeDrawer.tsx || true
