@@ -21,6 +21,25 @@ const representative = {
 const requestUuid = "11111111-1111-4111-8111-111111111111";
 
 describe("representative API wire contract", () => {
+  it("omits active for the all filter", async () => {
+    const authFetch = vi.fn().mockResolvedValue({ items: [], next_cursor: null, has_more: false });
+    await listRepresentatives(authFetch, { search: "", status: "all" });
+    expect(authFetch).toHaveBeenCalledWith(
+      "/representatives?limit=30",
+      { signal: undefined },
+    );
+  });
+
+  it("maps active and inactive filters exactly to true and false", async () => {
+    const authFetch = vi.fn().mockResolvedValue({ items: [], next_cursor: null, has_more: false });
+
+    await listRepresentatives(authFetch, { search: "", status: "active" });
+    await listRepresentatives(authFetch, { search: "", status: "inactive" });
+
+    expect(authFetch.mock.calls[0]?.[0]).toBe("/representatives?active=true&limit=30");
+    expect(authFetch.mock.calls[1]?.[0]).toBe("/representatives?active=false&limit=30");
+  });
+
   it("uses frozen list query names and cursor envelope", async () => {
     const authFetch = vi.fn().mockResolvedValue({ items: [representative], next_cursor: null, has_more: false });
     await listRepresentatives(authFetch, { search: "ah", status: "active", cursor: "opaque", limit: 30 });
@@ -36,7 +55,7 @@ describe("representative API wire contract", () => {
     expect(authFetch.mock.calls[0]?.[0]).toBe("/representatives?limit=30");
   });
 
-  it("preserves the caller-owned request_id for create and update", async () => {
+  it("preserves the caller-owned request_id and sends a minimal update payload", async () => {
     const authFetch = vi.fn().mockResolvedValue(representative);
 
     await createRepresentative(authFetch, {
@@ -58,17 +77,11 @@ describe("representative API wire contract", () => {
       max_debt_limit: "0.000",
     });
 
-    await updateRepresentative(authFetch, 17, {
-      full_name: "Ahmad S.",
-      username: "rep17b",
-      phone_number: "+962790000000",
-      can_allow_debt: true,
-      max_debt_limit: "20.000",
-    }, requestUuid);
+    await updateRepresentative(authFetch, 17, { phone_number: null }, requestUuid);
     const updateBody = JSON.parse(String((authFetch.mock.calls[1]?.[1] as RequestInit).body));
-    expect(updateBody.request_id).toBe(requestUuid);
-    expect(updateBody.username).toBe("rep17b");
+    expect(updateBody).toEqual({ request_id: requestUuid, phone_number: null });
     expect(updateBody).not.toHaveProperty("password");
+    expect(updateBody).not.toHaveProperty("is_active");
   });
 
   it("uses caller-owned idempotency keys for lifecycle and credential reset", async () => {
