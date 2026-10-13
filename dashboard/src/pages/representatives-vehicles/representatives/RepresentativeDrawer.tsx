@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Pencil } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -21,11 +21,6 @@ interface RepresentativeDrawerProps {
   onOpenChange: (open: boolean) => void;
 }
 
-type PendingUpdateOperation = {
-  fingerprint: string;
-  requestId: string;
-};
-
 export function RepresentativeDrawer({
   representative,
   open,
@@ -38,42 +33,23 @@ export function RepresentativeDrawer({
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
-  const updateOperation = useRef<PendingUpdateOperation | null>(null);
 
   if (!representative) return null;
 
-  const requestIdForUpdate = (input: UpdateRepresentativeInput) => {
-    const fingerprint = JSON.stringify(input);
-    if (!updateOperation.current || updateOperation.current.fingerprint !== fingerprint) {
-      updateOperation.current = { fingerprint, requestId: crypto.randomUUID() };
-    }
-    return updateOperation.current.requestId;
-  };
-
   const stopEditing = () => {
     if (busy) return;
-    updateOperation.current = null;
     setEditing(false);
   };
 
   const handleOpenChange = (next: boolean) => {
-    if (!next) {
-      updateOperation.current = null;
-      setEditing(false);
-    }
+    if (!next) setEditing(false);
     onOpenChange(next);
   };
 
-  const save = async (input: UpdateRepresentativeInput) => {
+  const save = async (input: UpdateRepresentativeInput, requestId: string) => {
     setBusy(true);
     try {
-      await updateRepresentative(
-        authFetch,
-        representative.id,
-        input,
-        requestIdForUpdate(input),
-      );
-      updateOperation.current = null;
+      await updateRepresentative(authFetch, representative.id, input, requestId);
       await queryClient.invalidateQueries({ queryKey: ["representatives"] });
       toast.success(t("representativesVehicles.representatives.updateSuccess"));
       setEditing(false);
@@ -99,7 +75,7 @@ export function RepresentativeDrawer({
               representative={representative}
               busy={busy}
               onCancel={stopEditing}
-              onSubmit={(input) => save(input as UpdateRepresentativeInput)}
+              onSubmit={(input, requestId) => save(input as UpdateRepresentativeInput, requestId)}
             />
           ) : (
             <>

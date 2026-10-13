@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Plus, RefreshCw, Search, UsersRound, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -13,14 +13,10 @@ import type { CreateRepresentativeInput, Representative, RepresentativeStatusFil
 import { RepresentativeDrawer } from "./RepresentativeDrawer";
 import { RepresentativeForm } from "./RepresentativeForm";
 import { RepresentativeTable } from "./RepresentativeTable";
+import { useRepresentativeInfiniteScroll } from "./useRepresentativeInfiniteScroll";
 import { useRepresentatives } from "./useRepresentatives";
 
-const filters: RepresentativeStatusFilter[] = ["active", "inactive", "all"];
-
-type PendingCreateOperation = {
-  fingerprint: string;
-  requestId: string;
-};
+const filters: RepresentativeStatusFilter[] = ["all", "active", "inactive"];
 
 export function RepresentativesTab() {
   const { t } = useTranslation();
@@ -31,38 +27,29 @@ export function RepresentativesTab() {
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [selected, setSelected] = useState<Representative | null>(null);
-  const createOperation = useRef<PendingCreateOperation | null>(null);
 
   const canManage = Boolean(
-    access.isCompanyOwner ||
-      access.can("representative.manage") ||
-      access.canAny("representative.manage"),
+    access.isCompanyOwner || access.can("representative.manage"),
   );
   const canResetCredentials = Boolean(
-    access.isCompanyOwner ||
-      access.can("representative.credentials.reset") ||
-      access.canAny("representative.credentials.reset"),
+    access.isCompanyOwner || access.can("representative.credentials.reset"),
   );
 
-  const requestIdForCreate = (input: CreateRepresentativeInput) => {
-    const fingerprint = JSON.stringify(input);
-    if (!createOperation.current || createOperation.current.fingerprint !== fingerprint) {
-      createOperation.current = { fingerprint, requestId: crypto.randomUUID() };
-    }
-    return createOperation.current.requestId;
-  };
+  const infiniteScroll = useRepresentativeInfiniteScroll({
+    hasMore: Boolean(representatives.query.hasNextPage),
+    isFetchingNextPage: representatives.query.isFetchingNextPage,
+    onLoadMore: representatives.query.fetchNextPage,
+  });
 
   const closeCreate = () => {
     if (creating) return;
-    createOperation.current = null;
     setCreateOpen(false);
   };
 
-  const create = async (input: CreateRepresentativeInput) => {
+  const create = async (input: CreateRepresentativeInput, requestId: string) => {
     setCreating(true);
     try {
-      await createRepresentative(authFetch, input, requestIdForCreate(input));
-      createOperation.current = null;
+      await createRepresentative(authFetch, input, requestId);
       await queryClient.invalidateQueries({ queryKey: ["representatives"] });
       toast.success(t("representativesVehicles.representatives.createSuccess"));
       setCreateOpen(false);
@@ -156,21 +143,28 @@ export function RepresentativesTab() {
             </div>
           </div>
         ) : (
-          <>
+          <div className="min-h-0 flex-1 overflow-auto">
             <RepresentativeTable items={representatives.items} loading={representatives.query.isFetching && representatives.items.length === 0} onOpen={setSelected} />
-            {representatives.query.hasNextPage ? (
+            {representatives.query.hasNextPage || representatives.query.isFetchingNextPage ? (
               <div className="border-t border-slate-100 p-2 text-center">
-                <button type="button" disabled={representatives.query.isFetchingNextPage} onClick={() => void representatives.query.fetchNextPage()} className="h-9 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">
-                  {representatives.query.isFetchingNextPage ? t("representativesVehicles.representatives.loadingMore") : t("representativesVehicles.representatives.loadMore")}
-                </button>
+                <div ref={infiniteScroll.sentinelRef} className="h-px w-full" aria-hidden="true" />
+                {representatives.query.isFetchingNextPage ? (
+                  <p role="status" className="py-2 text-xs font-bold text-slate-500">
+                    {t("representativesVehicles.representatives.loadingMore")}
+                  </p>
+                ) : infiniteScroll.manualFallback && representatives.query.hasNextPage ? (
+                  <button type="button" onClick={() => void representatives.query.fetchNextPage()} className="h-9 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
+                    {t("representativesVehicles.representatives.loadMore")}
+                  </button>
+                ) : null}
               </div>
             ) : null}
-          </>
+          </div>
         )}
       </div>
 
       <Modal isOpen={createOpen} onClose={closeCreate} title={t("representativesVehicles.representatives.createTitle")} maxWidth="max-w-lg">
-        <RepresentativeForm busy={creating} onCancel={closeCreate} onSubmit={(input) => create(input as CreateRepresentativeInput)} />
+        <RepresentativeForm busy={creating} onCancel={closeCreate} onSubmit={(input, requestId) => create(input as CreateRepresentativeInput, requestId)} />
       </Modal>
 
       <RepresentativeDrawer

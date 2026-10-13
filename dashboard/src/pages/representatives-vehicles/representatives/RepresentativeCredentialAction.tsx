@@ -8,11 +8,7 @@ import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { resetRepresentativeCredentials } from "./api";
 import type { Representative } from "./contracts";
-
-type PendingCredentialOperation = {
-  fingerprint: string;
-  requestId: string;
-};
+import { isRepresentativePasswordValid } from "./passwordPolicy";
 
 interface RepresentativeCredentialActionProps {
   representative: Representative;
@@ -30,10 +26,10 @@ export function RepresentativeCredentialAction({
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [validation, setValidation] = useState("");
-  const operation = useRef<PendingCredentialOperation | null>(null);
+  const requestId = useRef<string | null>(null);
 
   const resetFields = () => {
-    operation.current = null;
+    requestId.current = null;
     setPassword("");
     setConfirmPassword("");
     setValidation("");
@@ -45,16 +41,13 @@ export function RepresentativeCredentialAction({
     resetFields();
   };
 
-  const requestIdForPassword = (value: string) => {
-    const fingerprint = value;
-    if (!operation.current || operation.current.fingerprint !== fingerprint) {
-      operation.current = { fingerprint, requestId: crypto.randomUUID() };
-    }
-    return operation.current.requestId;
+  const requestIdForPassword = () => {
+    if (!requestId.current) requestId.current = crypto.randomUUID();
+    return requestId.current;
   };
 
   const run = async () => {
-    if (password.length < 8 || password.length > 72) {
+    if (!isRepresentativePasswordValid(password)) {
       setValidation(t("representativesVehicles.representatives.form.passwordInvalid"));
       return;
     }
@@ -70,7 +63,7 @@ export function RepresentativeCredentialAction({
         authFetch,
         representative.id,
         password,
-        requestIdForPassword(password),
+        requestIdForPassword(),
       );
       toast.success(t("representativesVehicles.representatives.credentials.success"));
       setOpen(false);
@@ -119,11 +112,11 @@ export function RepresentativeCredentialAction({
           <p className="text-sm font-semibold leading-6 text-slate-600">{representative.full_name}</p>
           <div className="space-y-1.5">
             <label htmlFor="representative-new-password" className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.newPassword")}</label>
-            <input id="representative-new-password" autoFocus type="password" minLength={8} maxLength={72} value={password} onChange={(event) => setPassword(event.target.value)} className={inputClass} autoComplete="new-password" />
+            <input id="representative-new-password" autoFocus type="password" minLength={8} maxLength={72} value={password} onChange={(event) => { requestId.current = null; setValidation(""); setPassword(event.target.value); }} className={inputClass} autoComplete="new-password" />
           </div>
           <div className="space-y-1.5">
             <label htmlFor="representative-confirm-password" className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.confirmPassword")}</label>
-            <input id="representative-confirm-password" type="password" minLength={8} maxLength={72} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className={inputClass} autoComplete="new-password" />
+            <input id="representative-confirm-password" type="password" minLength={8} maxLength={72} value={confirmPassword} onChange={(event) => { setValidation(""); setConfirmPassword(event.target.value); }} className={inputClass} autoComplete="new-password" />
           </div>
           {validation ? <p role="alert" className="text-xs font-bold text-rose-700">{validation}</p> : null}
         </div>
