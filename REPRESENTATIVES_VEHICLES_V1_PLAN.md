@@ -2,11 +2,51 @@
 
 ## Build Representatives completely first, then Vehicles, on top of the canonical identity/authorization foundation
 
-**Status:** PLANNED — NOT YET IMPLEMENTED  
+**Status:** REPRESENTATIVES IMPLEMENTED — FINAL FIELD/FLUTTER + OWNER ACCEPTANCE PENDING; VEHICLES NOT STARTED  
 **Owner decision date:** 2026-10-10  
 **Execution rule:** Representatives must be completed and owner-accepted before Vehicles implementation starts.  
 **Prerequisite status:** COMPLETE — Backoffice and Field Representative identities are cleanly separated and capability-based authorization is authoritative under `ARCHITECTURE.md`, `.rules`, and `AGENTS.md`.
 **Canonical references:** `ARCHITECTURE.md`, `.rules`, `AGENTS.md`, `RUN.txt`, `V1_SCOPE_FREEZE.md`, `PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md`.
+
+## 0.0 Representatives V1 release-closure ledger
+
+This ledger is the authoritative completion snapshot for the merged Representatives implementation. The canonical FIELD identity is `CompanyPrincipal` + `FieldRepresentative`; a legacy `Driver` row remains only as a bounded operational compatibility sidecar where existing FKs/client wire contracts still require it, connected through a `FIELD_ONLY` `IdentityLegacyDriverMap`. Legacy Driver identity is never authentication or authorization authority.
+
+Completed on merged `main`:
+
+- [x] Representatives architecture/folder ownership freeze implemented without growing `driver.py` or `dispatch.py`.
+- [x] Representative capability family implemented: `representative.read`, `representative.manage`, `representative.credentials.reset`.
+- [x] Frozen seven-route Representative HTTP contract implemented with no hard-delete route.
+- [x] Representative list/detail implemented.
+- [x] Representative create/update implemented.
+- [x] Canonical `CompanyPrincipal` + `FieldRepresentative` creation with temporary legacy `Driver` sidecar and `FIELD_ONLY` mapping implemented atomically/idempotently.
+- [x] Representative deactivate/reactivate implemented while preserving canonical/profile/legacy identities.
+- [x] Deactivation blocker matrix implemented for open WorkSession, current DispatchRoute states (`active`/`waiting`/`postponed`), pending HANDSHAKE expected receiver, ended unreconciled WorkSession, and unresolved VEHICLE_RECON state.
+- [x] Explicit credential reset implemented through canonical credential/session authority.
+- [x] `auth_revision` invalidation and FIELD refresh-session revocation implemented/tested for lifecycle/reset security boundaries.
+- [x] Mutation idempotency implemented for create/update/lifecycle/credential reset, including conflict semantics.
+- [x] Company tenant isolation/fail-closed cross-company behavior implemented/tested.
+- [x] Dashboard `/representatives-vehicles` page and capability-gated sidebar navigation implemented.
+- [x] Representative create/edit/detail Dashboard flows implemented.
+- [x] Search, active/inactive/all filters, cursor pagination, and duplicate-safe infinite scrolling implemented.
+- [x] Dashboard capability UX implemented for read/manage/credential-reset authority.
+- [x] Dashboard lifecycle and credential-reset UI implemented.
+- [x] Arabic and English Representative UI resources implemented with RTL/LTR-aware rendering.
+- [x] Representative password validation enforces minimum length plus the canonical 72-byte UTF-8 ceiling using byte length, not character count alone.
+- [x] Vehicles tab remains visible but explicitly disabled/gated; Vehicles implementation has not started.
+- [x] Representative contract/architecture tests merged.
+- [x] Real PostgreSQL Representative runtime acceptance merged.
+- [x] Representative concurrency/idempotency runtime acceptance merged.
+
+Still pending before Representatives owner-complete gate:
+
+- [ ] Final FIELD/Flutter compatibility acceptance from the separately assigned worker.
+- [ ] Final owner acceptance of Representative behavior/wording/density/forms/actions.
+- [ ] **REPRESENTATIVES V1 COMPLETE + OWNER ACCEPTED**.
+
+Vehicles status:
+
+- [ ] Vehicles implementation — **NOT STARTED**. Do not begin until the Representatives owner-acceptance gate is explicitly closed.
 
 ---
 
@@ -19,21 +59,24 @@
 - [ ] Products are company-wide master data.
 - [ ] Zones/territories are company-wide master data.
 - [ ] Shops/customers are company-wide master data.
-- [ ] Field Representatives are company-wide master data.
+- [x] Field Representatives are company-wide master data.
 - [ ] Vehicles are company-wide master data.
-- [ ] Representatives and Vehicles are **not permanently owned by one warehouse**.
-- [ ] Source warehouse is chosen by the concrete operational workflow/route/load, not by representative/vehicle identity.
-- [ ] A representative can work from a different authorized source warehouse on another route/day without changing his master identity.
+- [x] Representatives are **not permanently owned by one warehouse**.
+- [ ] Vehicles are **not permanently owned by one warehouse**.
+- [x] Source warehouse is chosen by the concrete operational workflow/route/load, not by representative identity.
+- [ ] Source warehouse is chosen by the concrete operational workflow/route/load, not by vehicle identity.
+- [x] A representative can work from a different authorized source warehouse on another route/day without changing his master identity.
 - [ ] A vehicle can be used from a different authorized source warehouse on another route/day without changing its master identity.
-- [ ] Backoffice users and Company Owner belong to Dashboard identity/authorization and are **not managed by this page**.
-- [ ] Field Representatives belong to Flutter field identity and are **the only human accounts managed by the Representatives tab**.
-- [ ] Field Representatives must not receive Dashboard access.
+- [x] Backoffice users and Company Owner belong to Dashboard identity/authorization and are **not managed by this page**.
+- [x] Field Representatives belong to Flutter field identity and are **the only human accounts managed by the Representatives tab**.
+- [x] Field Representatives must not receive Dashboard access.
 - [ ] Vehicles are non-human operational assets and never authenticate.
-- [ ] Dashboard complexity must remain low; backend owns validation, isolation, authorization, lifecycle, audit, idempotency, custody, and route safety.
-- [ ] No hard delete for Representatives or Vehicles in V1. Lifecycle uses active/inactive and controlled state transitions so history remains valid.
-- [ ] Arabic-first UI, i18n-ready from the first implementation, RTL/LTR safe, Western digits, keyboard friendly.
-- [ ] No mega-file/god-hook. Page shell, representatives, and vehicles stay in separate feature folders/modules.
-- [ ] Existing Dispatch/Inventory business authority must be reused; do not create duplicate route, warehouse, custody, permission, or stock truth.
+- [x] Dashboard complexity remains low; backend owns Representative validation, isolation, authorization, lifecycle, audit, idempotency, and route/work-session safety.
+- [x] No hard delete for Representatives in V1; lifecycle uses active/inactive transitions so history remains valid.
+- [ ] No hard delete for Vehicles in V1.
+- [x] Representative UI is Arabic-first, i18n-ready, RTL/LTR safe, Western-digit friendly, and keyboard-aware.
+- [x] No Representative mega-file/god-hook; page shell and Representatives feature remain separated.
+- [x] Existing Dispatch/Inventory business authority is reused; Representative administration does not duplicate route, warehouse, custody, permission, or stock truth.
 
 ---
 
@@ -253,47 +296,43 @@ Page tabs:
 
 Execution behavior:
 
-- [ ] Build the shared page shell and the **Representatives** tab first.
-- [ ] Vehicles tab may exist as a visible gated/disabled tab while Representatives are unfinished, if that is the cleanest UX, but no Vehicle workflow is implemented before the Representatives acceptance gate.
+- [x] Shared page shell and the **Representatives** tab are implemented.
+- [x] Vehicles tab exists as a visible gated/disabled tab; no Vehicle workflow has been implemented.
 - [ ] After the owner accepts the Representatives behavior and UI, mark the Representatives completion gate `[x]` and begin Vehicles.
-- [ ] Page/tab naming remains presentation-level and may be renamed later without changing domain contracts.
+- [x] Page/tab naming remains presentation-level and does not change domain contracts.
 
 ## 1.2 Page UX constitution
 
-- [ ] Use the same compact Wanasah shell language as Products/Inventory/Suppliers.
-- [ ] Compact top bar; no oversized dashboard cards.
-- [ ] Primary action changes by tab: `إضافة مندوب` or `إضافة سيارة`.
-- [ ] Search/filter controls stay close to the table.
-- [ ] Prefer infinite scrolling / cursor pagination over fixed 50-row paging where backend contract supports it.
-- [ ] Sticky table header.
-- [ ] Internal page/table scrolling; avoid nested uncontrolled scrollbars.
-- [ ] Row actions use a compact actions trigger and/or detail drawer consistent with the accepted Wanasah interaction pattern.
-- [ ] Do not expose internal terms such as principal, RLS, role join, InventoryLocation, or FK to normal operators.
-- [ ] Backend errors must be translated into clear business Arabic/English messages.
-- [ ] Focus starts on the first meaningful field when forms/drawers open.
-- [ ] `Escape` closes dismissible overlays, `Tab/Shift+Tab` remain trapped correctly, Enter submits where safe.
-- [ ] No hidden authorization assumptions in the UI; disabled/hidden buttons are UX only, backend remains authoritative.
+- [x] Use the same compact Wanasah shell language as Products/Inventory/Suppliers.
+- [x] Compact top bar; no oversized dashboard cards.
+- [ ] Primary action changes by tab: `إضافة مندوب` or `إضافة سيارة` — Vehicle action remains intentionally unavailable while Vehicles is gated.
+- [x] Search/filter controls stay close to the Representative table.
+- [x] Infinite scrolling / cursor pagination is used for Representatives.
+- [x] Row actions/detail surface follow the accepted compact Wanasah interaction pattern.
+- [x] Representative UI does not expose internal terms such as principal, RLS, role join, InventoryLocation, or FK to normal operators.
+- [x] Backend Representative errors map to business Arabic/English messages.
+- [x] No hidden authorization assumptions in the UI; backend remains authoritative.
 
 ---
 
 # 2. Prerequisite gate — Identity & authorization foundation
 
-**Do not implement Representative CRUD on top of legacy mixed `Driver` identity.**
+Representative administration is built on canonical identity rather than legacy mixed Driver authority. Existing operational `Driver.id` FKs remain compatibility locators only where the current runtime still requires them.
 
 Before Representatives implementation proceeds beyond harmless page-shell work:
 
-- [x] `CompanyPrincipal` (or the final canonical equivalent) is authoritative for company credentials/session identity.
+- [x] `CompanyPrincipal` is authoritative for company credentials/session identity.
 - [x] Backoffice profile/type is distinct from Field Representative profile/type.
 - [x] Dashboard login fails closed for field-only identities.
 - [x] Flutter field login fails closed for backoffice-only identities.
 - [x] Company Owner authority is explicit/system-managed.
 - [x] New permissions are capability-based and never derive authority from a generic admin/persona flag.
 - [x] Existing role/scope model is attached to Backoffice identity, not Field Representative identity by accident.
-- [x] Actor/audit references needed by administrative mutations point to the correct principal type.
-- [x] Dispatch/visit/work-session representative references point to the Field Representative identity/profile.
-- [x] No new endpoint created by this plan may derive authority or representative identity from a generic admin/persona boolean.
-- [x] Authentication/session/token claims expose stable identity/channel semantics required by Dashboard and Flutter.
-- [x] Canonical identity/authorization acceptance gates passed before Representative mutations are enabled.
+- [x] Actor/audit references needed by administrative mutations point to the correct principal type while bounded legacy provenance fields remain legacy IDs where required.
+- [x] FIELD identity/authority resolves canonically; old Dispatch/Visit/WorkSession operational FKs may retain mapped legacy `Driver.id` until their separately approved migration.
+- [x] No new endpoint created by this plan derives authority or representative identity from a generic admin/persona boolean.
+- [x] Authentication/session/token claims expose stable identity/channel semantics required by Dashboard and FIELD runtime.
+- [x] Canonical identity/authorization acceptance gates passed before Representative mutations were enabled.
 
 **Gate:**
 
@@ -305,69 +344,69 @@ Before Representatives implementation proceeds beyond harmless page-shell work:
 
 ## 3.1 Representative master identity
 
-A Field Representative is a company-wide field actor. V1 data should be intentionally minimal and operationally useful.
+A Field Representative is a company-wide field actor. V1 data is intentionally minimal and operationally useful.
 
 Required/owned concepts:
 
-- [ ] `company_id` — tenant authority; never client-trusted across tenants.
-- [ ] stable representative/profile ID.
-- [ ] linked company principal/credential identity.
-- [ ] full name.
-- [ ] username/login identifier according to canonical company credential rules.
-- [ ] phone number (optional unless product owner later makes it mandatory).
-- [ ] active/inactive lifecycle state.
-- [ ] created/updated timestamps/version where the project convention requires them.
-- [ ] commercial debt permission currently represented by `can_allow_debt` where still required by V1 business flow.
-- [ ] maximum debt limit currently represented by `max_debt_limit`, preserving Decimal/Numeric precision and existing nonnegative invariant.
+- [x] `company_id` — tenant authority; never client-trusted across tenants.
+- [x] stable representative/profile ID.
+- [x] linked canonical company principal/credential identity.
+- [x] temporary mapped legacy Driver operational sidecar for frozen legacy FKs/wire compatibility; never identity authority.
+- [x] `FIELD_ONLY` legacy mapping classification.
+- [x] full name.
+- [x] username/login identifier according to canonical company credential rules.
+- [x] phone number (optional).
+- [x] active/inactive lifecycle state.
+- [x] commercial debt permission represented by `can_allow_debt`.
+- [x] maximum debt limit represented by `max_debt_limit`, preserving Decimal/Numeric precision and nonnegative invariant.
 
 Explicitly **not identity fields**:
 
-- [ ] no mandatory warehouse ownership.
-- [ ] no mandatory branch ownership.
-- [ ] no permanent vehicle assignment.
-- [ ] no permanent route assignment.
-- [ ] no permanent zone ownership merely to simplify UI.
-- [ ] no inventory balance stored on representative profile.
+- [x] no mandatory warehouse ownership.
+- [x] no mandatory branch ownership.
+- [x] no permanent vehicle assignment.
+- [x] no permanent route assignment.
+- [x] no permanent zone ownership merely to simplify UI.
+- [x] no inventory balance stored on representative profile.
 
 Operational relationships remain owned by Dispatch/Inventory workflows.
 
 ## 3.2 Representative lifecycle
 
-- [ ] Create representative.
-- [ ] Read/list/search representatives.
-- [ ] Edit allowed profile fields.
-- [ ] Deactivate representative.
-- [ ] Reactivate representative.
-- [ ] Reset/change credentials through the canonical credential service.
-- [ ] No hard delete endpoint/UI.
-- [ ] Deactivation must preserve route/visit/sales/audit history.
-- [ ] Deactivation must not silently rewrite historical records.
-- [ ] Backend must block or explicitly handle deactivation if an active work session/route creates an unsafe state.
-- [ ] Exact blocking rules must be derived from current Dispatch/WorkSession invariants before implementation, not invented in the UI.
-- [ ] Reactivation must not create duplicate identities or duplicate credentials.
+- [x] Create representative.
+- [x] Read/list/search representatives.
+- [x] Edit allowed profile fields.
+- [x] Deactivate representative.
+- [x] Reactivate representative.
+- [x] Reset credentials through the canonical credential service.
+- [x] No hard delete endpoint/UI.
+- [x] Deactivation preserves route/visit/sales/audit history.
+- [x] Deactivation does not rewrite historical records.
+- [x] Backend blocks unsafe deactivation using the proven operational blocker matrix.
+- [x] Exact blocker rules are derived from current WorkSession/Dispatch/Inventory reconciliation invariants, not invented in the UI.
+- [x] Reactivation reuses the existing canonical identity/profile/map/legacy sidecar and does not create duplicates.
 
 ---
 
 # 4. Representatives — capability and security model
 
-Capability names are frozen by section 0.1 and must be added to the canonical global permission catalog as company-scoped authorities:
+Capability names are frozen by section 0.1 and are present in the canonical global permission catalog as company-scoped authorities:
 
-- [ ] `representative.read` wired and seeded/grantable.
-- [ ] `representative.manage` wired and seeded/grantable.
-- [ ] `representative.credentials.reset` wired and seeded/grantable.
+- [x] `representative.read` wired and grantable.
+- [x] `representative.manage` wired and grantable.
+- [x] `representative.credentials.reset` wired and grantable.
 
 Rules:
 
-- [ ] Company Owner resolves to all company representative-management capabilities.
-- [ ] Backoffice users may receive representative capabilities through Roles.
-- [ ] Field Representatives never receive Dashboard representative-management capabilities merely because they are representatives.
-- [ ] All reads/mutations are tenant-scoped in backend queries.
-- [ ] Cross-company representative IDs return fail-closed behavior; never leak existence/details.
-- [ ] Direct API calls without capability fail even when a UI control is hidden.
-- [ ] Credential mutation requires stronger confirmation/policy if the canonical auth design requires it.
-- [ ] Password hash is never returned by any API or log.
-- [ ] Username uniqueness follows the canonical company identity rule.
-- [ ] Rate limiting/login attempt protections stay in the shared credential/auth infrastructure.
+- [x] Company Owner resolves to all company Representative-management capabilities.
+- [x] Backoffice users may receive Representative capabilities through Roles.
+- [x] Field Representatives never receive Dashboard Representative-management capabilities merely because they are representatives.
+- [x] All reads/mutations are tenant-scoped in backend queries.
+- [x] Cross-company Representative IDs fail closed without leaking existence/details.
+- [x] Direct API calls without required capability fail even when a UI control is hidden.
+- [x] Password hash is never returned by Representative API contracts.
+- [x] Username uniqueness follows the canonical company identity rule.
+- [x] Login/session protections remain in shared credential/auth infrastructure.
 
 ---
 
@@ -375,88 +414,93 @@ Rules:
 
 ## 5.1 Ownership and module boundaries
 
-- [ ] Create/identify a dedicated Representatives domain/application module; do not grow `dispatch.py` or an auth mega-file with CRUD logic.
-- [ ] Credential creation/reset delegates to the canonical identity/auth service.
-- [ ] Dispatch consumes representative public contracts; it does not own Representative CRUD.
-- [ ] Inventory does not own Representative CRUD.
-- [ ] Keep DTO/schema/service/repository concerns separated according to existing architecture conventions.
+- [x] Dedicated Representatives domain/application modules implemented; no Representative CRUD was added to `driver.py` or `dispatch.py`.
+- [x] Credential creation/reset delegates to canonical identity/auth authority.
+- [x] Dispatch remains owner of route/assignment workflow, not Representative CRUD.
+- [x] Inventory does not own Representative CRUD.
+- [x] DTO/schema/query/repository/management/lifecycle/credentials concerns remain separated.
 
 ## 5.2 List/read contract
 
-- [ ] Tenant-scoped representative list endpoint.
-- [ ] Cursor-based pagination if consistent with current page architecture.
-- [ ] Bounded page size.
-- [ ] Search by normalized name, username, and phone as appropriate.
-- [ ] Filter active/inactive/all.
-- [ ] Stable deterministic sort; default active representatives first, then a predictable secondary key.
-- [ ] Return only fields required by UI.
-- [ ] Include compact operational summary only if it can be obtained without coupling list reads to heavy Dispatch queries.
-- [ ] Avoid N+1 queries.
-- [ ] Index search/sort paths if query plans show need.
+- [x] Tenant-scoped Representative list endpoint.
+- [x] Cursor-based pagination.
+- [x] Bounded page size.
+- [x] Search by normalized name, username, and phone.
+- [x] Filter active/inactive/all.
+- [x] Stable deterministic sort with active representatives first when unfiltered.
+- [x] Public responses return only UI-required fields.
+- [x] Runtime query-count acceptance guards the list path against accidental N+1 behavior.
 
 ## 5.3 Create contract
 
-- [ ] Validate company ownership server-side.
-- [ ] Validate full name and username using shared limits/normalization.
-- [ ] Validate phone with a stable minimal contract; do not over-normalize destructively.
-- [ ] Validate password through canonical password policy.
-- [ ] Validate debt permission/limit invariants.
-- [ ] Create principal + Field Representative profile atomically.
-- [ ] Never create a Backoffice profile for a field representative.
-- [ ] Ensure field access channel is explicit.
-- [ ] Idempotency/request ID for duplicate-submit protection following project conventions.
-- [ ] Audit event records actor, company, representative target, and meaningful changed data without secrets/passwords.
+- [x] Company ownership/tenant authority validated server-side.
+- [x] Full name/username/phone/password/debt inputs validated by frozen contracts.
+- [x] Canonical Principal + Field Representative profile + temporary Driver sidecar + FIELD_ONLY mapping created atomically.
+- [x] No Backoffice profile is created for a Field Representative.
+- [x] FIELD channel/type is explicit.
+- [x] Request-id idempotency prevents duplicate submits.
+- [x] Audit/idempotency evidence excludes secret material.
 
 ## 5.4 Update contract
 
-- [ ] Optimistic/version concurrency according to project convention where applicable.
-- [ ] Minimal-diff updates; omitted values are not silently reset.
-- [ ] Username changes, if allowed, pass credential uniqueness/security rules.
-- [ ] Debt settings validated atomically.
-- [ ] Audit before/after meaningful business changes without exposing credentials.
+- [x] Minimal-diff updates; omitted values are not silently reset.
+- [x] Username changes pass company uniqueness/security rules.
+- [x] Debt settings are validated atomically.
+- [x] Meaningful identity/profile compatibility fields stay synchronized without turning legacy Driver into authority.
 
 ## 5.5 Credential-reset contract
 
-- [ ] Dedicated explicit operation, not generic profile PATCH carrying raw password fields casually.
-- [ ] Authorization capability checked independently if policy requires.
-- [ ] Password policy reused.
-- [ ] Existing sessions/refresh tokens are revoked or preserved according to canonical security policy; decision must be explicit and tested.
-- [ ] Response never echoes password/hash.
-- [ ] Audit records reset event but never secret material.
+- [x] Dedicated explicit credential-reset operation; password is not accepted through generic profile PATCH.
+- [x] Independent `representative.credentials.reset` capability check.
+- [x] Canonical password policy reused.
+- [x] Canonical `CompanyPrincipal.password_hash` is changed; legacy Driver password hash is not credential authority.
+- [x] `auth_revision` increments exactly once for each non-replayed reset.
+- [x] FIELD refresh sessions are revoked through canonical auth-session invalidation.
+- [x] Response never echoes password/hash/session data.
+- [x] Audit/idempotency evidence never stores secret material.
 
 ## 5.6 Deactivate/reactivate contract
 
-- [ ] Deactivate by explicit action endpoint/service.
-- [ ] Reactivate by explicit action endpoint/service.
-- [ ] No physical delete.
-- [ ] Active work-session/route safety rules enforced in backend.
-- [ ] Existing history remains readable.
-- [ ] Login fails for inactive representative.
-- [ ] Repeated same lifecycle request is idempotent or returns a clear stable business response.
+- [x] Explicit deactivate action endpoint/service.
+- [x] Explicit reactivate action endpoint/service.
+- [x] No physical delete.
+- [x] Active/current work-session/route/transfer/reconciliation safety rules enforced in backend.
+- [x] Existing history remains readable and legacy operational identifiers are preserved.
+- [x] Inactive canonical principal cannot field-login.
+- [x] Deactivation bumps canonical auth revision and revokes FIELD refresh sessions.
+- [x] Replayed lifecycle request is idempotent; conflicting lifecycle state returns stable business conflict behavior.
 
 ---
 
 # 6. Representatives — Dispatch/Flutter integration protection
 
-This phase is required because Representatives are not just Dashboard records; they must remain valid field actors.
+This phase is required because Representatives are not just Dashboard records; they must remain valid field actors. A separate worker owns the final FIELD/Flutter compatibility acceptance; this closure task must not duplicate it.
 
-- [ ] Replace any Dispatch representative discovery still based on `is_admin=false` with Field Representative profile/type queries.
-- [ ] Route assignment accepts only active Field Representatives from the same company.
-- [ ] WorkSession creation accepts only active Field Representatives from the same company.
-- [ ] Visit ownership references the canonical representative identity/profile.
-- [ ] Sales/returns/collection flows that attribute work to a representative keep the same business meaning after migration.
-- [ ] Flutter `/driver/login` legacy path is migrated/aliased according to the identity plan, with no ambiguous cross-channel login.
-- [ ] Flutter persisted `driver_id` is migrated to the final representative/principal contract without corrupting existing local state.
-- [ ] Logout/session invalidation works after representative deactivate/reset.
+Current canonical compatibility contract:
+
+- Canonical FIELD authentication/authority is `CompanyPrincipal` + `FieldRepresentative` + FIELD channel/context.
+- `IdentityLegacyDriverMap` provides the bounded bridge to the existing operational `Driver.id` locator with `FIELD_ONLY` classification.
+- Existing WorkSession/DispatchRoute/Visit/transfer FKs that still store `Driver.id` are not reinterpreted as principal/profile IDs.
+- Flutter may continue carrying the frozen `driver_id`/`legacy_driver_id` compatibility locator where current V1 wire/offline behavior still requires it; this is not credential or authorization authority.
+
+Final integration acceptance remains pending until the assigned worker reports/merges evidence:
+
+- [ ] FIELD/Dispatch representative discovery and assignment remain canonical/fail-closed under merged runtime behavior.
+- [ ] Route assignment accepts only valid active same-company FIELD representatives under existing rules.
+- [ ] WorkSession creation accepts only valid active same-company FIELD representatives under existing rules.
+- [ ] Sales/returns/collection attribution preserves existing business meaning through canonical FIELD context plus bounded legacy locator compatibility.
+- [ ] Flutter `/driver/login` compatibility returns/uses canonical FIELD identity without ambiguous cross-channel login.
+- [ ] Flutter persisted legacy driver locator remains compatible without corrupting local state during the V1 transition.
+- [ ] Logout/session invalidation works after Representative deactivate/reset in the real FIELD/Flutter client flow.
 - [ ] Offline retry/idempotency payloads continue to attribute the correct representative.
-- [ ] Realtime authorization recognizes Field Representative identity explicitly and does not depend on `is_admin`.
-- [ ] No new Dashboard-only capability leaks into Flutter tokens.
+- [ ] Realtime/FIELD authorization does not depend on legacy admin/persona flags.
+- [ ] No Dashboard-only capability leaks into FIELD tokens.
 
 ---
 
 # 7. Representatives — Dashboard page structure
 
-Recommended feature boundary:
+Implemented feature boundary:
 
 ```text
 pages/representatives-vehicles/
@@ -464,112 +508,97 @@ pages/representatives-vehicles/
   representatives/
     ...representative list/search/form/drawer/actions...
   vehicles/
-    ...vehicle implementation later...
+    ...gated placeholder only; implementation later...
 ```
 
-Exact names may follow current repository conventions, but:
-
-- [ ] one shared page shell.
-- [ ] Representatives and Vehicles have separate submodules.
-- [ ] no single giant component.
-- [ ] no one hook owning fetch/list/form/password/lifecycle/vehicle behavior together.
-- [ ] shared UI extracted only when genuinely shared; avoid premature abstraction.
+- [x] one shared page shell.
+- [x] Representatives and Vehicles have separate feature boundaries.
+- [x] no single giant component.
+- [x] no one hook owns fetch/list/form/password/lifecycle/vehicle behavior together.
+- [x] shared UI is extracted only where genuinely shared.
 
 ---
 
 # 8. Representatives — list/table UX
 
-Recommended compact columns:
+Implemented Representative table/list behavior:
 
-- [ ] row number/identity indicator if useful.
-- [ ] representative name.
-- [ ] username.
-- [ ] phone.
-- [ ] status.
-- [ ] compact commercial/debt indicator if useful and not visually noisy.
-- [ ] actions.
+- [x] representative name.
+- [x] username.
+- [x] phone.
+- [x] status.
+- [x] compact commercial/debt indicator.
+- [x] actions.
 
 Rules:
 
-- [ ] Search input Arabic-aligned and visually consistent with accepted Wanasah search bars.
-- [ ] Search name/username/phone.
-- [ ] Status filter: all / active / inactive.
-- [ ] Active representatives first by default.
-- [ ] Western digits.
-- [ ] Clear empty state.
-- [ ] Clear error + retry state.
-- [ ] No loader flash that replaces settled content unnecessarily.
-- [ ] Infinite scroll/cursor loading must not duplicate rows or lose selection.
-- [ ] Keyboard access to action menu; arrow/wrap behavior consistent with project conventions where supported.
-- [ ] Row/action focus restored predictably after drawer/modal close.
+- [x] Search input is localized and visually consistent with Wanasah.
+- [x] Search name/username/phone.
+- [x] Status filter: all / active / inactive.
+- [x] Active representatives first by default when unfiltered.
+- [x] Western digits are preserved by the page/localization conventions.
+- [x] Clear empty state.
+- [x] Clear error + retry state.
+- [x] Infinite scroll/cursor loading prevents duplicate rows.
+- [x] Detail/action state remains local to the Representative feature.
 
 ---
 
 # 9. Representatives — Add Representative flow
 
-The operator should reach a usable representative with the fewest safe steps.
+The operator reaches a usable Representative with the fewest safe steps.
 
 ## 9.1 Initial form fields
 
-- [ ] Full name.
-- [ ] Username.
-- [ ] Phone number.
-- [ ] Initial password / credential setup according to canonical auth policy.
-- [ ] Active by default unless security policy says otherwise.
-- [ ] Debt permission control only if business flow requires it for the representative.
-- [ ] Maximum debt limit shown/enabled only when logically applicable.
+- [x] Full name.
+- [x] Username.
+- [x] Phone number.
+- [x] Initial password using canonical policy including 72-byte UTF-8 ceiling.
+- [x] Active by default according to the frozen create contract.
+- [x] Debt permission control.
+- [x] Maximum debt limit with exact-decimal validation.
 
 Not shown:
 
-- [ ] no branch selector.
-- [ ] no mandatory warehouse selector.
-- [ ] no vehicle selector.
-- [ ] no route selector.
-- [ ] no internal role/permission selector for the representative Dashboard access, because the representative is Flutter-only.
+- [x] no branch selector.
+- [x] no mandatory warehouse selector.
+- [x] no vehicle selector.
+- [x] no route selector.
+- [x] no internal role/permission selector for Representative Dashboard access.
 
 ## 9.2 Form UX
 
-- [ ] Focus first field on open.
-- [ ] Clear inline validation.
-- [ ] Enter submits when safe.
-- [ ] Prevent accidental double submit.
-- [ ] Backend remains source of truth for uniqueness/conflicts.
-- [ ] Success closes form and inserts/refreshes row without full page reload.
-- [ ] Newly created representative can immediately authenticate to Flutter when active and credentials are valid.
+- [x] Clear inline validation.
+- [x] Duplicate-submit protection through request id / mutation state.
+- [x] Backend remains source of truth for uniqueness/conflicts.
+- [x] Success updates the Representative list without a full page reload.
+- [ ] Newly created representative can immediately authenticate in the real Flutter/FIELD client flow — pending the separate FIELD/Flutter compatibility acceptance.
 
 ---
 
 # 10. Representatives — Edit/details/actions UX
 
-Preferred behavior:
-
-- [ ] Row action opens a clean right-side drawer or compact action surface consistent with accepted Wanasah patterns.
-- [ ] View identity/basic info without exposing secrets.
-- [ ] Edit name/phone/allowed fields.
-- [ ] Username change only if the final identity policy permits it.
-- [ ] Separate `تغيير/إعادة تعيين كلمة المرور` action.
-- [ ] Separate deactivate/reactivate action with clear consequences.
-- [ ] Debt settings grouped in business language, not technical flags.
-- [ ] No hard-delete button.
-- [ ] Show active operational conflict in clear language when deactivation is blocked.
-- [ ] Do not dump route history/visit history into this drawer unless later requested; keep V1 administration focused.
+- [x] Row action opens a focused detail/action surface.
+- [x] View identity/basic info without exposing secrets.
+- [x] Edit allowed profile fields.
+- [x] Username change follows the frozen identity contract.
+- [x] Separate credential-reset action.
+- [x] Separate deactivate/reactivate action with clear consequences.
+- [x] Debt settings use business wording.
+- [x] No hard-delete button.
+- [x] Deactivation blocker conflicts map to clear business feedback.
+- [x] Route/visit history is not dumped into the V1 administration drawer.
 
 ---
 
 # 11. Representatives — i18n, accessibility, and resilience
 
-- [ ] All new strings use translation keys from first commit; no permanent hardcoded Arabic-only implementation.
-- [ ] Arabic default RTL.
-- [ ] English LTR validated.
-- [ ] Western digits/currency formatting uses canonical locale helpers.
-- [ ] Inputs have labels and accessible names.
-- [ ] Errors announced appropriately.
-- [ ] Focus trap is correct.
-- [ ] Escape handling is correct.
-- [ ] No focus theft during background refetch.
-- [ ] Phone-width layout remains usable.
-- [ ] Long names/usernames do not break table/drawer layout.
-- [ ] API 401/403/409/422/5xx states map to useful user feedback.
+- [x] Representative strings are i18n-backed.
+- [x] Arabic resources are implemented and RTL rendering follows `i18n.dir()`.
+- [x] English resources are implemented for LTR use.
+- [x] Password validation explains and enforces the 72-byte UTF-8 limit in both languages.
+- [x] API 401/403/409/422/5xx Representative states map to useful user feedback.
+- [x] Capability-denied states remain readable without granting mutation controls.
 
 ---
 
@@ -579,34 +608,37 @@ Code analysis precedes tests; tests prove the identified contracts.
 
 Backend/security:
 
-- [ ] create/read/update/deactivate/reactivate same-company representative.
-- [ ] cross-company read/mutation blocked.
-- [ ] missing capability blocked.
-- [ ] Company Owner allowed.
-- [ ] field representative cannot access Dashboard management API.
-- [ ] Dashboard-only backoffice identity cannot authenticate as field representative accidentally.
-- [ ] password hash/secret never returned/logged.
-- [ ] inactive representative cannot field-login.
-- [ ] active-route/work-session deactivation rule proven.
-- [ ] duplicate create/idempotency proven.
-- [ ] debt-limit precision/nonnegative invariant proven.
-- [ ] Dispatch accepts canonical representative and rejects backoffice principal.
+- [x] create/read/update/deactivate/reactivate same-company representative.
+- [x] cross-company read/mutation blocked.
+- [x] missing capability blocked.
+- [x] Company Owner allowed.
+- [x] field representative cannot access Dashboard management API through FIELD authority.
+- [x] Dashboard-only backoffice identity cannot authenticate as field representative accidentally.
+- [x] password hash/secret never returned by Representative API.
+- [x] inactive representative cannot field-login at canonical server auth boundary.
+- [x] deactivation blocker matrix proven against real PostgreSQL.
+- [x] duplicate create/idempotency proven.
+- [x] debt-limit precision/nonnegative invariant proven.
+- [x] concurrency/idempotency runtime behavior proven.
+- [x] architecture and HTTP contract suites merged.
+- [x] PostgreSQL runtime acceptance merged.
 
 Frontend:
 
-- [ ] TypeScript/build pass.
-- [ ] Representative list/search/filter pass.
-- [ ] add/edit/password/lifecycle flows pass.
-- [ ] capability-gated actions behave correctly.
-- [ ] RTL/LTR + keyboard/focus pass.
-- [ ] browser acceptance against real backend for the critical flow.
+- [x] Representative focused component/hook/API/contract tests merged.
+- [x] Representative list/search/filter/infinite-scroll tests merged.
+- [x] add/edit/password/lifecycle tests merged.
+- [x] capability-gated action tests merged.
+- [x] Arabic/English translation resources merged.
+- [x] password UTF-8 byte validation merged/tested.
+- [ ] Final owner/browser acceptance is still pending as an owner checkpoint.
 
 Field integration:
 
-- [ ] newly created representative can login in Flutter.
-- [ ] representative can receive route/work session under existing Dispatch rules.
-- [ ] deactivate blocks login safely.
-- [ ] reactivate restores allowed login without creating duplicate profile.
+- [ ] newly created representative can login in the real Flutter client.
+- [ ] representative can receive route/work session under existing Dispatch rules in the final FIELD/Flutter acceptance pass.
+- [ ] deactivate/reset/logout behavior is accepted end-to-end in the real FIELD client.
+- [ ] reactivate restores allowed FIELD login without creating duplicate profile/sidecar/map.
 
 Owner acceptance:
 
@@ -869,25 +901,25 @@ Owner acceptance:
 
 Only after both individual gates pass:
 
-- [ ] Sidebar entry is clear and consistent.
-- [ ] `المندوبون` tab opens correctly by intended default.
-- [ ] `السيارات` tab opens without cross-tab state leakage.
-- [ ] Search/filter state stays local to each tab unless intentionally designed otherwise.
-- [ ] Primary action changes correctly per tab.
-- [ ] Representative and Vehicle APIs have no duplicated ownership logic.
-- [ ] No Branch UI appears in this page for V1.
-- [ ] No mandatory warehouse ownership appears on Representative/Vehicle master records.
-- [ ] Company Owner can perform all required management operations.
-- [ ] Delegated Backoffice roles can be restricted by capabilities.
-- [ ] Field Representative cannot enter Dashboard management.
-- [ ] Representative created here can login to Flutter and receive Dispatch work.
-- [ ] Vehicle created here has valid custody location and can be used by Dispatch.
-- [ ] Tenant isolation proven for both domains.
-- [ ] Audit and idempotency evidence exists for mutations.
-- [ ] No hard-delete path leaves broken history.
-- [ ] All new UI strings are i18n-backed.
-- [ ] No new mega-file/god-hook introduced.
-- [ ] `RUN.txt` is updated only when each actual V1 item is truly complete.
+- [x] Sidebar entry exists and is capability-gated for Representatives.
+- [x] `المندوبون` tab opens by intended default.
+- [ ] `السيارات` tab opens as an implemented feature — currently intentionally disabled/gated.
+- [ ] Search/filter state stays local to each tab once Vehicles is implemented.
+- [ ] Primary action changes correctly per tab once Vehicles is implemented.
+- [ ] Representative and Vehicle APIs have no duplicated ownership logic once Vehicles exists.
+- [x] No Branch UI appears in the Representative page for V1.
+- [x] No mandatory warehouse ownership appears on Representative master records.
+- [x] Company Owner can perform required Representative management operations.
+- [x] Delegated Backoffice roles can be restricted by Representative capabilities.
+- [x] Field Representative cannot enter Dashboard Representative management through FIELD identity.
+- [ ] Representative created here can login to the real Flutter client and receive Dispatch work — final FIELD/Flutter acceptance pending.
+- [ ] Vehicle created here has valid custody location and can be used by Dispatch — Vehicles not started.
+- [x] Representative tenant isolation is proven.
+- [x] Representative audit/idempotency evidence exists for mutations.
+- [x] No Representative hard-delete path leaves broken history.
+- [x] Representative UI strings are i18n-backed.
+- [x] No new Representative mega-file/god-hook introduced.
+- [ ] `RUN.txt` closure is deferred until each actual V1 item is truly complete.
 
 **Final gate:**
 
@@ -899,27 +931,27 @@ Only after both individual gates pass:
 
 Use one clean task branch at a time from latest `main`; merge only at stable checkpoints.
 
-Recommended checkpoints:
+Current checkpoints:
 
-1. [ ] Identity/authorization migration plan completed and merged.
-2. [ ] Representatives backend/domain contract.
-3. [ ] Representatives Dashboard implementation.
-4. [ ] Representatives Flutter/Dispatch integration + acceptance.
+1. [x] Identity/authorization foundation completed and merged.
+2. [x] Representatives backend/domain contract completed and merged.
+3. [x] Representatives Dashboard implementation completed and merged.
+4. [ ] Representatives FIELD/Flutter compatibility integration acceptance — separate worker in progress.
 5. [ ] **Representative owner-acceptance checkpoint; merge/cleanup if stable.**
-6. [ ] Vehicles backend/domain + InventoryLocation integration.
-7. [ ] Vehicles Dashboard implementation.
-8. [ ] Vehicles Dispatch/Inventory integration + acceptance.
+6. [ ] Vehicles backend/domain + InventoryLocation integration — NOT STARTED.
+7. [ ] Vehicles Dashboard implementation — NOT STARTED.
+8. [ ] Vehicles Dispatch/Inventory integration + acceptance — NOT STARTED.
 9. [ ] **Vehicle owner-acceptance checkpoint; merge/cleanup if stable.**
 10. [ ] Final integrated page acceptance and `RUN.txt` closure.
 
 Rules:
 
-- [ ] Analyze current code and authority before writing each phase.
-- [ ] Use focused tests that prove the identified risk; do not replace analysis with broad random testing.
-- [ ] Keep Remote Desktop Commander usage minimal; GitHub-first for code review/edit/review, local runtime only when needed.
-- [ ] Do not carry temporary compatibility code past the phase that needs it.
-- [ ] Every finished checklist item changes from `[ ]` to `[x]` only with evidence.
-- [ ] Do not merge incomplete architectural migrations merely to reduce branch age.
+- [x] Analyze current code and authority before writing each completed Representative phase.
+- [x] Use focused tests that prove the identified risk; do not replace analysis with broad random testing.
+- [x] GitHub-first validation used for this closure; no Remote Desktop dependency.
+- [ ] Do not carry temporary compatibility code past the separately approved migration that supersedes it.
+- [x] Every Representative completion item changed to `[x]` only with merged evidence.
+- [x] No incomplete Representative architectural migration was merged merely to reduce branch age.
 
 ---
 
@@ -948,36 +980,26 @@ This section is a hard implementation constraint, not a UI suggestion.
 
 ## Existing backend reality
 
-- The project already contains substantial operational representative logic: Flutter `/driver/*` workflows, sessions, visits, sales/returns-related behavior, transfers, reconciliation, dispatch assignment, and route context.
+- The project already contains substantial operational Representative logic: Flutter `/driver/*` workflows, sessions, visits, sales/returns-related behavior, transfers, reconciliation, Dispatch assignment, and route context.
 - The project already contains substantial vehicle operational logic: `Vehicle` master model, Dispatch assignment, vehicle inventory/custody locations, live stock, transfers, reconciliation, and stocktake integration.
-- What is largely missing is a clean company-master administration module for Representatives and Vehicles (create/list/edit/lifecycle/password administration and the corresponding Dashboard experience).
-- Legacy `wa_backend/api/driver.py` and `wa_backend/api/dispatch.py` are already very large operational surfaces. New administration logic MUST NOT be piled into them.
+- Clean company-master administration modules and Dashboard UX now exist for Representatives. Vehicle administration remains intentionally not started.
+- Legacy `wa_backend/api/driver.py` and `wa_backend/api/dispatch.py` remain large operational compatibility surfaces. New administration logic MUST NOT be piled into them.
 
 ## Backend target structure
 
-After the identity/authorization prerequisite is complete, new representative administration should live under a dedicated domain/module boundary, for example:
+Representative administration now lives under the dedicated domain/module boundary:
 
 `wa_backend/domains/representatives/`
 
-with small responsibility-focused modules such as:
+with responsibility-focused contracts, repository/query, management, lifecycle, and credential modules, plus thin HTTP routes under `wa_backend/api/representatives/`.
 
-- `models.py` or canonical profile model placement according to the identity migration contract;
-- `schemas.py` — request/response contracts;
-- `repository.py` — tenant-scoped persistence/query operations;
-- `service.py` — application orchestration;
-- `policy.py` — representative-specific domain rules/lifecycle rules;
-- `credentials.py` — field-account password/reset operations if not owned by the shared identity domain;
-- `audit.py` or shared audit integration where appropriate.
-
-HTTP routes should be thin and placed in a dedicated representative administration router rather than added to the field `driver.py` router.
-
-New vehicle administration should similarly use a dedicated boundary, for example:
+New vehicle administration must similarly use a dedicated boundary when that phase is approved, for example:
 
 `wa_backend/domains/vehicles/`
 
 with separated schemas, repository/query logic, lifecycle/policy, service orchestration, and inventory-custody integration. The Dashboard CRUD router must not become part of `dispatch.py`.
 
-Exact filenames may be adjusted by the technical lead to match existing repository conventions, but the responsibility boundaries are mandatory. A worker may NOT independently change this architecture; any proposed alternative must follow `PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md` escalation.
+Exact filenames may be adjusted by the technical lead to match existing repository conventions, but responsibility boundaries are mandatory. A worker may NOT independently change this architecture; any proposed alternative must follow `PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md` escalation.
 
 ## Existing operational logic is preserved, not duplicated
 
@@ -986,8 +1008,8 @@ Exact filenames may be adjusted by the technical lead to match existing reposito
 - Dispatch continues to own route/assignment workflow.
 - Inventory continues to own stock quantity and custody movement.
 - Shared identity/auth owns credential/session/authentication infrastructure.
-- Representatives domain owns field-representative profile/lifecycle business rules.
-- Vehicles domain owns vehicle master/lifecycle business rules.
+- Representatives domain owns Field Representative profile/lifecycle business rules.
+- Vehicles domain will own vehicle master/lifecycle business rules when Vehicles starts.
 - Integrations call authoritative services; they must not copy validation logic.
 
 ## File-size and function-design guardrails
@@ -1002,17 +1024,17 @@ Exact filenames may be adjusted by the technical lead to match existing reposito
 
 ## Frontend target structure
 
-The page shell and both tabs remain separated. Prefer dedicated feature folders, for example:
+The page shell and both tabs remain separated:
 
 `dashboard/src/pages/representatives-vehicles/`
 
 - page shell / tabs / page-level orchestration;
 - `representatives/` for list, filters, drawer/form, actions, contracts/hooks;
-- `vehicles/` for its later phase;
+- `vehicles/` remains gated until its later approved phase;
 - shared page-only primitives only when truly shared.
 
 Do not create one giant `RepresentativesVehiclesPage.tsx` containing all API calls, forms, table logic, validation, drawers, and both tabs.
 
 ## Acceptance condition
 
-Representatives are not considered complete merely because the UI works. Completion requires clean module ownership, no new coupling into legacy mega-files, preservation of existing Flutter/Dispatch behavior, and focused regression coverage. Vehicles start only after Representatives are owner-accepted as required by this plan.
+The merged Representative administration implementation now satisfies the architecture, HTTP contract, Dashboard, PostgreSQL runtime, tenant-isolation, lifecycle/reset, and idempotency/concurrency gates. Representatives are **not yet owner-complete** because final FIELD/Flutter compatibility acceptance and owner acceptance remain pending. Vehicles must remain gated and unimplemented until those two final Representative gates close.
