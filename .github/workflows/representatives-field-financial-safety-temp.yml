@@ -8,47 +8,44 @@ on:
       - ".github/workflows/representatives-field-financial-safety-temp.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  flutter-financial-safety:
+  apply-format:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    env:
-      TARGET_SHA: 651bbfcd1855437253100cbdf8bc927aba1a5d32
-      BASE_SHA: 19566ddefa81f9941de7cc72c608da66896c2c16
+    timeout-minutes: 10
     steps:
-      - name: Checkout exact fix
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          ref: 651bbfcd1855437253100cbdf8bc927aba1a5d32
+          ref: sol/representatives-field-compatibility-acceptance
           fetch-depth: 0
-      - name: Verify exact checkout
-        run: |
-          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
-          git merge-base --is-ancestor "$BASE_SHA" "$TARGET_SHA"
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: "3.29.3"
           channel: stable
           cache: true
-      - name: Flutter dependencies
-        working-directory: wanasah_frontend
-        run: flutter pub get
-      - name: Apply Dart formatter
+      - name: Apply exact Dart formatter
         working-directory: wanasah_frontend
         run: >-
           dart format
           lib/blocs/auth/auth_bloc.dart
           lib/blocs/auth/offline_owner_guard.dart
           test/offline_owner_guard_test.dart
-      - name: Export formatted files
-        uses: actions/upload-artifact@v4
-        with:
-          name: field-financial-safety-formatted
-          path: |
-            wanasah_frontend/lib/blocs/auth/auth_bloc.dart
-            wanasah_frontend/lib/blocs/auth/offline_owner_guard.dart
+      - name: Commit formatted production and test files
+        run: |
+          git diff --check
+          if git diff --quiet -- \
+            wanasah_frontend/lib/blocs/auth/auth_bloc.dart \
+            wanasah_frontend/lib/blocs/auth/offline_owner_guard.dart \
+            wanasah_frontend/test/offline_owner_guard_test.dart; then
+            echo "No formatter changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            wanasah_frontend/lib/blocs/auth/auth_bloc.dart \
+            wanasah_frontend/lib/blocs/auth/offline_owner_guard.dart \
             wanasah_frontend/test/offline_owner_guard_test.dart
-          if-no-files-found: error
-          retention-days: 1
+          git commit -m "style(field): apply Dart formatter to financial safety fix"
+          git push origin HEAD:sol/representatives-field-compatibility-acceptance
