@@ -31,16 +31,16 @@ def _validate_debt_limit(value: Decimal | None) -> Decimal | None:
     return value
 
 
-def _validate_username(value: str) -> str:
+def _validate_username(value: object) -> str:
     try:
-        return normalize_representative_username(value)
+        return normalize_representative_username(value)  # type: ignore[arg-type]
     except RepresentativeError as exc:
         raise ValueError(exc.message) from None
 
 
-def _validate_phone(value: str | None) -> str:
+def _validate_phone(value: object) -> str:
     try:
-        return normalize_representative_phone(value)
+        return normalize_representative_phone(value)  # type: ignore[arg-type]
     except RepresentativeError as exc:
         raise ValueError(exc.message) from None
 
@@ -85,14 +85,14 @@ class RepresentativeCreateRequest(StrictModel):
             raise ValueError("field must not be blank")
         return value
 
-    @field_validator("username")
+    @field_validator("username", mode="before")
     @classmethod
-    def normalize_username(cls, value: str) -> str:
+    def normalize_username(cls, value: object) -> str:
         return _validate_username(value)
 
-    @field_validator("phone_number")
+    @field_validator("phone_number", mode="before")
     @classmethod
-    def normalize_phone(cls, value: str) -> str:
+    def normalize_phone(cls, value: object) -> str:
         return _validate_phone(value)
 
     @field_validator("password")
@@ -126,16 +126,16 @@ class RepresentativeUpdateRequest(StrictModel):
             raise ValueError("field must not be blank")
         return value
 
-    @field_validator("username")
+    @field_validator("username", mode="before")
     @classmethod
-    def normalize_optional_username(cls, value: str | None) -> str | None:
+    def normalize_optional_username(cls, value: object) -> str | None:
         if value is None:
             return None
         return _validate_username(value)
 
-    @field_validator("phone_number")
+    @field_validator("phone_number", mode="before")
     @classmethod
-    def normalize_optional_phone(cls, value: str | None) -> str | None:
+    def normalize_optional_phone(cls, value: object) -> str | None:
         if value is None:
             return None
         return _validate_phone(value)
