@@ -1,12 +1,11 @@
-import { useState } from "react";
-import { KeyRound } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
-import { resetRepresentativeCredentials } from "./api";
 import { apiErrorCode } from "@/lib/apiErrors";
+import { resetRepresentativeCredentials } from "./api";
 import {
   clearCredentialResetRecovery,
   CredentialResetRecoveryUnavailable,
@@ -23,21 +22,33 @@ import { representativeErrorMessage } from "./representativeErrorMessage";
 interface RepresentativeCredentialActionProps {
   representative: Representative;
   allowed: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }
 
 export function RepresentativeCredentialAction({
   representative,
   allowed,
+  open,
+  onOpenChange,
 }: RepresentativeCredentialActionProps) {
   const { t } = useTranslation();
   const authFetch = useAuthFetch();
-  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [validation, setValidation] = useState("");
   const [recovering, setRecovering] = useState(false);
   const [recoveryConflict, setRecoveryConflict] = useState(false);
+
+  useEffect(() => {
+    if (!open || !allowed) return;
+    try {
+      setRecovering(hasCredentialResetRecovery(representative.id));
+    } catch {
+      setValidation(t("representativesVehicles.representatives.credentials.recoveryUnavailable"));
+    }
+  }, [allowed, open, representative.id, t]);
 
   const resetFields = () => {
     setRecovering(false);
@@ -49,19 +60,8 @@ export function RepresentativeCredentialAction({
 
   const close = () => {
     if (busy) return;
-    setOpen(false);
     resetFields();
-  };
-
-  const openReset = () => {
-    if (!allowed) return;
-    resetFields();
-    try {
-      setRecovering(hasCredentialResetRecovery(representative.id));
-    } catch {
-      setValidation(t("representativesVehicles.representatives.credentials.recoveryUnavailable"));
-    }
-    setOpen(true);
+    onOpenChange(false);
   };
 
   const startNew = () => {
@@ -76,6 +76,7 @@ export function RepresentativeCredentialAction({
   };
 
   const run = async () => {
+    if (!allowed) return;
     if (!isRepresentativePasswordValid(password)) {
       setValidation(t("representativesVehicles.representatives.form.passwordInvalid"));
       return;
@@ -98,8 +99,8 @@ export function RepresentativeCredentialAction({
       );
       clearCredentialResetRecovery(attempt);
       toast.success(t("representativesVehicles.representatives.credentials.success"));
-      setOpen(false);
       resetFields();
+      onOpenChange(false);
     } catch (error) {
       let failure = error;
       let pending = Boolean(attempt);
@@ -133,56 +134,38 @@ export function RepresentativeCredentialAction({
   const inputClass = "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-cyan-300 focus:ring-4 focus:ring-cyan-100/60";
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
-      <h3 className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.credentials.title")}</h3>
-      <p className="mt-1 text-[11px] font-semibold leading-5 text-slate-500">{t("representativesVehicles.representatives.credentials.hint")}</p>
-      <button
-        type="button"
-        disabled={!allowed}
-        onClick={openReset}
-        aria-describedby={!allowed ? "representative-credentials-blocked" : undefined}
-        className="mt-2 inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        <KeyRound className="h-4 w-4" />
-        {t("representativesVehicles.representatives.credentials.reset")}
-      </button>
-      {!allowed ? (
-        <p id="representative-credentials-blocked" className="mt-2 text-[11px] font-semibold leading-5 text-slate-500">
-          {t("representativesVehicles.representatives.permissions.credentialsRequired")}
-        </p>
-      ) : null}
-      <Modal
-        isOpen={open}
-        onClose={close}
-        title={t("representativesVehicles.representatives.credentials.title")}
-        maxWidth="max-w-md"
-        footer={
-          <>
-            <button type="button" disabled={busy} onClick={close} className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 disabled:opacity-50">{t("common.cancel")}</button>
-            <button type="button" disabled={busy} onClick={() => void run()} className="h-10 rounded-xl bg-slate-900 px-4 text-sm font-black text-white disabled:opacity-50">{busy ? t("common.saving") : t("common.confirm")}</button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <p className="text-sm font-semibold leading-6 text-slate-600">{representative.full_name}</p>
-          <div className="space-y-1.5">
-            <label htmlFor="representative-new-password" className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.newPassword")}</label>
-            <input id="representative-new-password" autoFocus type="password" minLength={8} maxLength={72} value={password} onChange={(event) => { setValidation(""); setPassword(event.target.value); }} className={inputClass} autoComplete="new-password" />
-          </div>
-          <div className="space-y-1.5">
-            <label htmlFor="representative-confirm-password" className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.confirmPassword")}</label>
-            <input id="representative-confirm-password" type="password" minLength={8} maxLength={72} value={confirmPassword} onChange={(event) => { setValidation(""); setConfirmPassword(event.target.value); }} className={inputClass} autoComplete="new-password" />
-          </div>
-          {recovering && !recoveryConflict ? <p className="text-xs font-semibold text-slate-600">{t("representativesVehicles.representatives.credentials.recoveryPending")}</p> : null}
-          {recoveryConflict ? (
-            <div role="alert" className="space-y-2">
-              <p className="text-xs font-semibold text-rose-700">{t("representativesVehicles.representatives.credentials.recoveryConflict")}</p>
-              <button type="button" disabled={busy} onClick={startNew} className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:opacity-50">{t("representativesVehicles.representatives.credentials.startNew")}</button>
-            </div>
-          ) : null}
-          {validation ? <p role="alert" className="text-xs font-bold text-rose-700">{validation}</p> : null}
+    <Modal
+      isOpen={open}
+      onClose={close}
+      title={t("representativesVehicles.representatives.credentials.title")}
+      maxWidth="max-w-md"
+      footer={
+        <>
+          <button type="button" disabled={busy} onClick={close} className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 disabled:opacity-50">{t("common.cancel")}</button>
+          <button type="button" disabled={busy || !allowed} onClick={() => void run()} className="h-10 rounded-xl bg-slate-900 px-4 text-sm font-black text-white disabled:opacity-50">{busy ? t("common.saving") : t("common.confirm")}</button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <p className="text-sm font-semibold leading-6 text-slate-600">{representative.full_name}</p>
+        <p className="text-[11px] font-semibold leading-5 text-slate-500">{t("representativesVehicles.representatives.credentials.hint")}</p>
+        <div className="space-y-1.5">
+          <label htmlFor="representative-new-password" className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.newPassword")}</label>
+          <input id="representative-new-password" autoFocus type="password" minLength={8} maxLength={72} value={password} onChange={(event) => { setValidation(""); setPassword(event.target.value); }} className={inputClass} autoComplete="new-password" />
         </div>
-      </Modal>
-    </section>
+        <div className="space-y-1.5">
+          <label htmlFor="representative-confirm-password" className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.confirmPassword")}</label>
+          <input id="representative-confirm-password" type="password" minLength={8} maxLength={72} value={confirmPassword} onChange={(event) => { setValidation(""); setConfirmPassword(event.target.value); }} className={inputClass} autoComplete="new-password" />
+        </div>
+        {recovering && !recoveryConflict ? <p className="text-xs font-semibold text-slate-600">{t("representativesVehicles.representatives.credentials.recoveryPending")}</p> : null}
+        {recoveryConflict ? (
+          <div role="alert" className="space-y-2">
+            <p className="text-xs font-semibold text-rose-700">{t("representativesVehicles.representatives.credentials.recoveryConflict")}</p>
+            <button type="button" disabled={busy} onClick={startNew} className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:opacity-50">{t("representativesVehicles.representatives.credentials.startNew")}</button>
+          </div>
+        ) : null}
+        {validation ? <p role="alert" className="text-xs font-bold text-rose-700">{validation}</p> : null}
+      </div>
+    </Modal>
   );
 }
