@@ -54,14 +54,21 @@ export function RepresentativeForm({
   }, [representative]);
 
   const resetOperation = () => {
-    operation.current = null;
     if (validation) setValidation("");
   };
 
   const requestIdForSubmission = (
     input: CreateRepresentativeInput | UpdateRepresentativeInput,
   ) => {
-    const fingerprint = representative ? JSON.stringify(input) : "create";
+    // Only normalized public fields participate; passwords are never retained in
+    // an operation fingerprint. A password edit explicitly replaces the key.
+    const fingerprint = JSON.stringify({
+      full_name: input.full_name,
+      username: input.username,
+      phone_number: input.phone_number,
+      can_allow_debt: input.can_allow_debt,
+      max_debt_limit: input.max_debt_limit,
+    });
     if (!operation.current || operation.current.fingerprint !== fingerprint) {
       operation.current = { fingerprint, requestId: crypto.randomUUID() };
     }
@@ -157,7 +164,7 @@ export function RepresentativeForm({
         {!representative ? (
           <div className="space-y-1.5 sm:col-span-2">
             <label htmlFor="representative-password" className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.password")}</label>
-            <input id="representative-password" type="password" minLength={8} maxLength={72} value={password} onChange={(event) => { resetOperation(); setPassword(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.passwordPlaceholder")} className={inputClass} disabled={busy} autoComplete="new-password" />
+            <input id="representative-password" type="password" minLength={8} maxLength={72} value={password} onChange={(event) => { operation.current = null; resetOperation(); setPassword(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.passwordPlaceholder")} className={inputClass} disabled={busy} autoComplete="new-password" />
           </div>
         ) : null}
       </div>

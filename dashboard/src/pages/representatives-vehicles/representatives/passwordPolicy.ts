@@ -9,7 +9,7 @@ export function representativePasswordUtf8Bytes(value: string): number {
 
 export function isRepresentativePasswordValid(value: string): boolean {
   return (
-    value.length >= REPRESENTATIVE_PASSWORD_MIN_LENGTH &&
+    [...value].length >= REPRESENTATIVE_PASSWORD_MIN_LENGTH &&
     representativePasswordUtf8Bytes(value) <= REPRESENTATIVE_PASSWORD_MAX_UTF8_BYTES
   );
 }

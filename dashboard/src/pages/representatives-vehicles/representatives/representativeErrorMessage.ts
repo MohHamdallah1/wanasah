@@ -26,6 +26,22 @@ const representativeErrorKeys: Record<string, string> = {
     "representativesVehicles.representatives.form.passwordInvalid",
   REPRESENTATIVE_COMPANY_PASSWORD_TOO_LONG:
     "representativesVehicles.representatives.form.passwordInvalid",
+  REPRESENTATIVE_CURSOR_INVALID:
+    "representativesVehicles.representatives.errors.cursorInvalid",
+  REPRESENTATIVE_IDENTITY_INCONSISTENT:
+    "representativesVehicles.representatives.errors.unavailable",
+  REPRESENTATIVE_OPERATIONAL_COMPATIBILITY_MISSING:
+    "representativesVehicles.representatives.errors.unavailable",
+  REPRESENTATIVE_DEBT_LIMIT_INVALID:
+    "representativesVehicles.representatives.form.debtInvalid",
+  REPRESENTATIVE_DEBT_LIMIT_PRECISION_INVALID:
+    "representativesVehicles.representatives.form.debtInvalid",
+  REPRESENTATIVE_UPDATE_EMPTY:
+    "representativesVehicles.representatives.form.noChanges",
+  REPRESENTATIVE_UPDATE_FIELD_INVALID: "errors.codes.VALIDATION_ERROR",
+  REPRESENTATIVE_REQUEST_ID_INVALID: "errors.codes.VALIDATION_ERROR",
+  REPRESENTATIVE_SEARCH_INVALID:
+    "representativesVehicles.representatives.searchHint",
 };
 
 export function representativeErrorMessage(

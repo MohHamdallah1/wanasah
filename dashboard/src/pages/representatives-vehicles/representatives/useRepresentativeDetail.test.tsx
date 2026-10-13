@@ -14,6 +14,8 @@ vi.mock("@tanstack/react-query", () => ({ useQuery: mocks.useQuery }));
 import { useRepresentativeDetail } from "./useRepresentativeDetail";
 
 beforeEach(() => {
+  localStorage.setItem("company_id", "1");
+  localStorage.setItem("principal_id", "11");
   mocks.authFetch.mockReset();
   mocks.getRepresentative.mockReset();
   mocks.useQuery.mockReset();
@@ -31,7 +33,7 @@ describe("useRepresentativeDetail", () => {
 
     renderHook(() => useRepresentativeDetail(17, true));
 
-    expect(options?.queryKey).toEqual(["representative-detail", 17]);
+    expect(options?.queryKey).toEqual(["representative-detail", "1", "11", 17]);
     expect(options?.enabled).toBe(true);
     expect(options?.gcTime).toBe(0);
 

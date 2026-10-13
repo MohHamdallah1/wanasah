@@ -37,6 +37,8 @@ export const representativesVehicles = {
         alreadyInactive: "المندوب غير نشط بالفعل.",
         deactivationBlocked: "لا يمكن تعطيل المندوب قبل إغلاق العمل التشغيلي المرتبط به.",
         sessionInvalidationRejected: "تعذر تحديث حالة المندوب بأمان بسبب جلسات الدخول الحالية. أعد المحاولة.",
+        cursorInvalid: "تعذر متابعة القائمة. حدّث القائمة وحاول مجددًا.",
+        unavailable: "تعذر تحديث حساب المندوب حاليًا. حدّث البيانات، وتواصل مع الدعم إذا استمرت المشكلة.",
       },
       permissions: {
         manageRequired: "يمكنك عرض بيانات المندوبين، لكن حسابك لا يملك صلاحية إدارتهم.",
@@ -131,6 +133,8 @@ export const representativesVehicles = {
         alreadyInactive: "This representative is already inactive.",
         deactivationBlocked: "Close the representative's open operational work before deactivating the account.",
         sessionInvalidationRejected: "The representative state could not be changed safely because current sign-in sessions could not be invalidated. Try again.",
+        cursorInvalid: "Could not continue the list. Refresh the list and try again.",
+        unavailable: "This representative account cannot be updated right now. Refresh the data and contact support if the problem persists.",
       },
       permissions: {
         manageRequired: "You can view representatives, but your account cannot manage them.",

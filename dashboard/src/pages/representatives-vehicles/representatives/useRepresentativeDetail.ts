@@ -8,9 +8,10 @@ export function useRepresentativeDetail(
   enabled = true,
 ) {
   const authFetch = useAuthFetch();
+  const cacheKey = ["representative-detail", localStorage.getItem("company_id"), localStorage.getItem("principal_id"), representativeId] as const;
 
-  return useQuery({
-    queryKey: ["representative-detail", representativeId],
+  const query = useQuery({
+    queryKey: cacheKey,
     enabled: enabled && representativeId !== null,
     queryFn: ({ signal }) =>
       getRepresentative(authFetch, representativeId as number, signal),
@@ -19,4 +20,5 @@ export function useRepresentativeDetail(
     retry: false,
     refetchOnWindowFocus: false,
   });
+  return { ...query, cacheKey };
 }
