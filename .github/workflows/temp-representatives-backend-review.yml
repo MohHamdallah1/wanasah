@@ -21,7 +21,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Compile and representative source contract
+      - name: Compile
         run: |
           python -m compileall -q \
             wa_backend/domains/identity/credentials.py \
@@ -30,22 +30,20 @@ jobs:
             wa_backend/domains/authorization/capabilities.py \
             wa_backend/alembic/versions/b7a4c2d9e105_representative_permissions.py \
             wa_backend/main.py
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r wa_backend/requirements.txt pytest
+      - name: Representative wire contract
+        run: |
           PYTHONPATH=wa_backend python - <<'PY'
           import inspect
           from decimal import Decimal
           from pydantic import ValidationError
           from api.representatives import router
           from api.representatives.read import read_representatives
-          from api.representatives.schemas import (
-              RepresentativeCreateRequest,
-              RepresentativeResponse,
-              RepresentativeUpdateRequest,
-          )
-          from domains.identity.credentials import (
-              CompanyCredentialValidationError,
-              sensitive_value_fingerprint,
-              validate_company_password,
-          )
+          from api.representatives.schemas import RepresentativeCreateRequest, RepresentativeResponse, RepresentativeUpdateRequest
+          from domains.identity.credentials import CompanyCredentialValidationError, sensitive_value_fingerprint, validate_company_password
           from domains.representatives.contracts import RepresentativeRecord
           from domains.representatives.queries import representative_payload
 
@@ -111,10 +109,6 @@ jobs:
           assert set(payload) == set(RepresentativeResponse.model_fields)
           print('REPRESENTATIVES_WIRE_CONTRACT=PASS')
           PY
-      - name: Install backend dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r wa_backend/requirements.txt pytest
       - name: Focused canonical identity auth regression
         working-directory: wa_backend
         env:
@@ -171,10 +165,7 @@ jobs:
           revisions = {}
           parents = set()
           for path in versions.glob('*.py'):
-              try:
-                  tree = ast.parse(path.read_text(encoding='utf-8'))
-              except SyntaxError as exc:
-                  raise AssertionError(f'{path}: {exc}') from exc
+              tree = ast.parse(path.read_text(encoding='utf-8'))
               revision = down = None
               for node in tree.body:
                   if isinstance(node, ast.Assign):
@@ -208,10 +199,7 @@ jobs:
           git diff --check 8d6ab2663598bb9ae9144bf319863a2bd9eb421e...HEAD
           python - <<'PY'
           import subprocess
-          allowed_prefixes = (
-              'wa_backend/domains/representatives/',
-              'wa_backend/api/representatives/',
-          )
+          allowed_prefixes = ('wa_backend/domains/representatives/','wa_backend/api/representatives/')
           allowed_exact = {
               'wa_backend/domains/authorization/capabilities.py',
               'wa_backend/main.py',
