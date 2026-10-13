@@ -412,14 +412,14 @@ def main():
         fixture_tools.TABLES = (BRIDGE,)  # Include all old/Phase-2 definitions in preservation hash.
         with psycopg.connect(**connect, user=ADMIN, autocommit=True) as conn:
             before_schema = fixture_tools.legacy_contract(conn)
-        alembic("upgrade", "head")
+        alembic("upgrade", REVISION)
         checkpoint("CLEAN_BOOTSTRAP_AND_ADDITIVE_BRIDGE_UPGRADE")
         with psycopg.connect(**connect, user=ADMIN, autocommit=True) as conn:
             assert fixture_tools.legacy_contract(conn) == before_schema
             verify_bridge_schema(conn)
             assert conn.execute("SELECT count(*) FROM pg_constraint WHERE contype='f' AND confrelid='drivers'::regclass AND conrelid<>'identity_legacy_driver_map'::regclass").fetchone()[0] == 55
         alembic("downgrade", PREVIOUS)
-        alembic("upgrade", "head")
+        alembic("upgrade", REVISION)
         checkpoint("EMPTY_BRIDGE_DOWNGRADE_UPGRADE")
         with psycopg.connect(**connect, user=ADMIN, autocommit=True) as conn:
             fixture = seed(conn)
@@ -451,6 +451,8 @@ def main():
             assert legacy_data(conn) == legacy
             assert fixture_tools.legacy_contract(conn) == before_schema
             checkpoint("ALL_LEGACY_ROWS_55_FKS_REFRESH_AND_AMBIGUOUS_CONTRACTS_PRESERVED")
+        alembic("upgrade", "head")
+        checkpoint("CURRENT_HEAD_CONVERGENCE")
         assert "No new upgrade operations detected" in alembic("check")
         checkpoint("ALEMBIC_METADATA_DRIFT_CHECK")
         try:
