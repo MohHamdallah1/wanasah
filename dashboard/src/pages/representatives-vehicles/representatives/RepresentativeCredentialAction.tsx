@@ -17,6 +17,7 @@ import {
 } from "./credentialResetRecovery";
 import type { Representative } from "./contracts";
 import { isRepresentativePasswordValid } from "./passwordPolicy";
+import { RepresentativePasswordInput } from "./RepresentativePasswordInput";
 import { representativeErrorMessage } from "./representativeErrorMessage";
 
 interface RepresentativeCredentialActionProps {
@@ -104,7 +105,6 @@ export function RepresentativeCredentialAction({
     } catch (error) {
       let failure = error;
       let pending = Boolean(attempt);
-      // A rejected retry does not establish what happened to the earlier send.
       if (attempt && !attempt.recovered && resetValidationProvesNoExecution(error)) {
         try {
           clearCredentialResetRecovery(attempt);
@@ -151,11 +151,24 @@ export function RepresentativeCredentialAction({
         <p className="text-[11px] font-semibold leading-5 text-slate-500">{t("representativesVehicles.representatives.credentials.hint")}</p>
         <div className="space-y-1.5">
           <label htmlFor="representative-new-password" className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.newPassword")}</label>
-          <input id="representative-new-password" autoFocus type="password" minLength={8} maxLength={72} value={password} onChange={(event) => { setValidation(""); setPassword(event.target.value); }} className={inputClass} autoComplete="new-password" />
+          <RepresentativePasswordInput
+            id="representative-new-password"
+            autoFocus
+            value={password}
+            onChange={(value) => { setValidation(""); setPassword(value); }}
+            className={inputClass}
+            resetSignal={open}
+          />
         </div>
         <div className="space-y-1.5">
           <label htmlFor="representative-confirm-password" className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.confirmPassword")}</label>
-          <input id="representative-confirm-password" type="password" minLength={8} maxLength={72} value={confirmPassword} onChange={(event) => { setValidation(""); setConfirmPassword(event.target.value); }} className={inputClass} autoComplete="new-password" />
+          <RepresentativePasswordInput
+            id="representative-confirm-password"
+            value={confirmPassword}
+            onChange={(value) => { setValidation(""); setConfirmPassword(value); }}
+            className={inputClass}
+            resetSignal={open}
+          />
         </div>
         {recovering && !recoveryConflict ? <p className="text-xs font-semibold text-slate-600">{t("representativesVehicles.representatives.credentials.recoveryPending")}</p> : null}
         {recoveryConflict ? (
