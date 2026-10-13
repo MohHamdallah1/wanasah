@@ -33,6 +33,10 @@ export const representativesVehicles = {
         notFound: "لم يعد هذا المندوب متاحًا أو لا تملك صلاحية الوصول إليه.",
         idempotencyConflict: "تعذر إعادة الطلب لأن بياناته تغيّرت. أعد المحاولة بعد مراجعة الحقول.",
         concurrentConflict: "تعارض الحفظ مع تحديث آخر. حدّث البيانات وحاول مجددًا.",
+        alreadyActive: "المندوب نشط بالفعل.",
+        alreadyInactive: "المندوب غير نشط بالفعل.",
+        deactivationBlocked: "لا يمكن تعطيل المندوب قبل إغلاق العمل التشغيلي المرتبط به.",
+        sessionInvalidationRejected: "تعذر تحديث حالة المندوب بأمان بسبب جلسات الدخول الحالية. أعد المحاولة.",
       },
       permissions: {
         manageRequired: "يمكنك عرض بيانات المندوبين، لكن حسابك لا يملك صلاحية إدارتهم.",
@@ -123,6 +127,10 @@ export const representativesVehicles = {
         notFound: "This representative is no longer available or you cannot access it.",
         idempotencyConflict: "The retry no longer matches the original request. Review the fields and try again.",
         concurrentConflict: "The save conflicted with another update. Refresh the data and try again.",
+        alreadyActive: "This representative is already active.",
+        alreadyInactive: "This representative is already inactive.",
+        deactivationBlocked: "Close the representative's open operational work before deactivating the account.",
+        sessionInvalidationRejected: "The representative state could not be changed safely because current sign-in sessions could not be invalidated. Try again.",
       },
       permissions: {
         manageRequired: "You can view representatives, but your account cannot manage them.",
