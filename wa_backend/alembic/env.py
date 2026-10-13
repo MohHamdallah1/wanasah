@@ -14,6 +14,27 @@ from dotenv import load_dotenv
 # Load the backend-local .env without overriding explicit process environment.
 load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
 
+# Alembic database selection is environment-only. Resolve it before importing
+# application metadata so a missing database target fails fast and clearly.
+config = context.config
+db_url = (
+    os.getenv("DATABASE_URL_MIGRATION")
+    or os.getenv("DATABASE_URL")
+    or ""
+).strip()
+if not db_url:
+    raise RuntimeError(
+        "Alembic requires DATABASE_URL_MIGRATION or DATABASE_URL; "
+        "no alembic.ini database fallback is permitted."
+    )
+
+# +++ درع السحاب: ضمان توافق البروتوكول مع asyncpg مهما كان صيغ الرابط +++
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+if db_url.startswith("postgresql://") and "asyncpg" not in db_url:
+    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+config.set_main_option("sqlalchemy.url", db_url)
+
 sys.path.append(os.getcwd())
 
 # استيراد الـ Base وكل الجداول لكي يكتشفها Alembic
@@ -64,30 +85,6 @@ def include_object(obj, name, type_, reflected, compare_to):
         return False
     return True
 
-
-# this is the Alembic Config object, which provides
-# access to the values within the .ini file in use.
-config = context.config
-
-# Alembic MUST prefer the migration/admin URL because migrations create roles,
-# grants, and RLS policies. Runtime DATABASE_URL is the only permitted fallback.
-db_url = (
-    os.getenv("DATABASE_URL_MIGRATION")
-    or os.getenv("DATABASE_URL")
-    or ""
-).strip()
-if not db_url:
-    raise RuntimeError(
-        "Alembic requires DATABASE_URL_MIGRATION or DATABASE_URL; "
-        "no alembic.ini database fallback is permitted."
-    )
-
-# +++ درع السحاب: ضمان توافق البروتوكول مع asyncpg مهما كان صيغ الرابط +++
-if db_url.startswith("postgres://"):
-    db_url = db_url.replace("postgres://", "postgresql://", 1)
-if db_url.startswith("postgresql://") and "asyncpg" not in db_url:
-    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-config.set_main_option("sqlalchemy.url", db_url)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
