@@ -1,4 +1,4 @@
-name: Temporary representatives credit policy patch
+name: Temporary representatives credit owner UX patch
 
 on:
   push:
@@ -13,58 +13,103 @@ permissions:
 jobs:
   patch:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
         with:
           ref: sol/representatives-credit-policy-ui-finalization
           fetch-depth: 0
-      - name: Patch smallest canonical debt-policy seam
+      - name: Apply focused Representatives owner UX changes
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
 
-          path = Path('wa_backend/services.py')
-          source = path.read_text(encoding='utf-8')
+          # Frozen localized business terminology.
+          i18n_path = Path('dashboard/src/i18n/representativesVehicles.ts')
+          source = i18n_path.read_text(encoding='utf-8')
+          replacements = {
+              'debtPermission: "السماح بالدين",': 'debtPermission: "السماح بالبيع بالذمم",',
+              'debtLimit: "الحد الأعلى للدين",': 'debtLimit: "حد الذمم لكل عملية بيع",',
+              'debtHint: "يُرسل الحد كقيمة عشرية دقيقة بدون حسابات تقريبية في الواجهة.",': 'debtHint: "يحدد أقصى مبلغ ذمم جديد يستطيع هذا المندوب اعتماده في عملية بيع واحدة. ويظل سقف ذمة المحل مطبقًا بشكل مستقل.",\n        debtDisabled: "غير مسموح له بالبيع بالذمم",',
+              'enabled: "مسموح",\n        disabled: "غير مسموح",': 'enabled: "مسموح",\n        disabled: "غير مسموح",\n        creditAllowed: "مسموح — حتى {{limit}} للعملية",\n        creditDisabled: "غير مسموح",',
+              'debtPermission: "Allow debt",': 'debtPermission: "Allow credit sales",',
+              'debtLimit: "Maximum debt limit",': 'debtLimit: "Per-sale credit limit",',
+              'debtHint: "The limit is sent as an exact decimal string without floating-point calculations in the UI.",': 'debtHint: "Sets the maximum new credit this representative may authorize in one sale. The shop total credit limit still applies independently.",\n        debtDisabled: "Credit sales are not allowed for this representative.",',
+              'enabled: "Allowed",\n        disabled: "Not allowed",': 'enabled: "Allowed",\n        disabled: "Not allowed",\n        creditAllowed: "Allowed — up to {{limit}} per sale",\n        creditDisabled: "Not allowed",',
+          }
+          for old, new in replacements.items():
+              if old not in source:
+                  raise SystemExit(f'i18n marker missing: {old}')
+              source = source.replace(old, new, 1)
+          if 'daily credit' in source.lower() or 'حد يومي' in source:
+              raise SystemExit('daily reset implication found in Representatives i18n')
+          i18n_path.write_text(source, encoding='utf-8')
 
-          import_marker = '''from domains.live_stock_projection.service import (\n    LiveStockProjectionError,\n    apply_live_stock_balance_impacts,\n    refresh_live_stock_variants,\n)\n'''
-          canonical_imports = '''from domains.identity.models import CompanyPrincipal, FieldRepresentative\nfrom domains.identity.migration.models import IdentityLegacyDriverMap\n'''
-          if canonical_imports not in source:
-              if import_marker not in source:
-                  raise SystemExit('identity import insertion marker not found')
-              source = source.replace(import_marker, import_marker + canonical_imports, 1)
+          # Form: boolean remains the authority. Turning it off does not destroy
+          # the persisted per-sale amount; the limit is simply hidden while off.
+          form_path = Path('dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm.tsx')
+          source = form_path.read_text(encoding='utf-8')
+          old = 'const normalizedDebt = normalizeDebtLimit(canAllowDebt ? maxDebtLimit : "0.000");'
+          new = 'const normalizedDebt = normalizeDebtLimit(maxDebtLimit);'
+          if old not in source:
+              raise SystemExit('form normalizedDebt marker missing')
+          source = source.replace(old, new, 1)
+          old = '''              setCanAllowDebt(event.target.checked);\n              if (!event.target.checked) setMaxDebtLimit("0.000");'''
+          new = '''              setCanAllowDebt(event.target.checked);'''
+          if old not in source:
+              raise SystemExit('form toggle marker missing')
+          source = source.replace(old, new, 1)
+          old = '''        <div className="mt-3 space-y-1.5">\n          <label htmlFor="representative-debt-limit" className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.debtLimit")}</label>\n          <input id="representative-debt-limit" dir="ltr" inputMode="decimal" value={maxDebtLimit} onChange={(event) => { resetOperation(); setMaxDebtLimit(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.debtLimitPlaceholder")} className={inputClass} disabled={busy || !canAllowDebt} autoComplete="off" />\n          <p className="text-[11px] font-semibold leading-5 text-slate-500">{t("representativesVehicles.representatives.form.debtHint")}</p>\n        </div>'''
+          new = '''        {canAllowDebt ? (\n          <div className="mt-3 space-y-1.5">\n            <label htmlFor="representative-debt-limit" className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.debtLimit")}</label>\n            <input id="representative-debt-limit" dir="ltr" inputMode="decimal" value={maxDebtLimit} onChange={(event) => { resetOperation(); setMaxDebtLimit(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.debtLimitPlaceholder")} className={inputClass} disabled={busy} autoComplete="off" />\n            <p className="text-[11px] font-semibold leading-5 text-slate-500">{t("representativesVehicles.representatives.form.debtHint")}</p>\n          </div>\n        ) : (\n          <p className="mt-3 rounded-xl bg-white px-3 py-2 text-xs font-black text-slate-500 ring-1 ring-slate-200">\n            {t("representativesVehicles.representatives.form.debtDisabled")}\n          </p>\n        )}'''
+          if old not in source:
+              raise SystemExit('form debt section marker missing')
+          source = source.replace(old, new, 1)
+          form_path.write_text(source, encoding='utf-8')
 
-          start = source.index('async def check_debt_limits(')
-          end = source.index('\nclass InventoryMutationError', start)
-          replacement = '''async def check_debt_limits(\n    db_session: AsyncSession,\n    company_id: int,\n    driver_id: int,\n    shop_id: int,\n    new_debt_amount: Decimal,\n    pre_fetched_driver: Optional[Driver] = None,\n) -> Tuple[bool, str]:\n    try:\n        company_id = _strict_int(company_id, "company_id", minimum=1)\n        driver_id = _strict_int(driver_id, "driver_id", minimum=1)\n        shop_id = _strict_int(shop_id, "shop_id", minimum=1)\n        new_debt = _money_12_3(\n            new_debt_amount,\n            "new_debt_amount",\n        )\n    except ValueError as exc:\n        return False, str(exc)\n\n    # A fully cash sale creates no new receivable and is outside this policy.\n    if new_debt == Decimal("0"):\n        return True, ""\n\n    # The legacy Driver object is only a bounded operational locator. It must\n    # never supply credit authority or credit limits. A mismatched locator is\n    # still rejected before canonical resolution to preserve tenant isolation.\n    if pre_fetched_driver is not None and (\n        pre_fetched_driver.id != driver_id\n        or pre_fetched_driver.company_id != company_id\n    ):\n        return False, "المندوب غير صالح لهذه الشركة."\n\n    mapping_stmt = (\n        select(IdentityLegacyDriverMap)\n        .execution_options(populate_existing=True)\n        .where(\n            IdentityLegacyDriverMap.company_id == company_id,\n            IdentityLegacyDriverMap.legacy_driver_id == driver_id,\n            IdentityLegacyDriverMap.classification == "FIELD_ONLY",\n        )\n    )\n    mapping = (await db_session.execute(mapping_stmt)).scalar_one_or_none()\n    if (\n        mapping is None\n        or mapping.field_principal_id is None\n        or mapping.field_representative_id is None\n    ):\n        return False, "المندوب غير مخول بالبيع بالذمم."\n\n    representative_stmt = (\n        select(FieldRepresentative)\n        .join(\n            CompanyPrincipal,\n            and_(\n                CompanyPrincipal.company_id == FieldRepresentative.company_id,\n                CompanyPrincipal.id == FieldRepresentative.principal_id,\n                CompanyPrincipal.principal_type == FieldRepresentative.principal_type,\n            ),\n        )\n        .execution_options(populate_existing=True)\n        .where(\n            FieldRepresentative.company_id == company_id,\n            FieldRepresentative.id == mapping.field_representative_id,\n            FieldRepresentative.principal_id == mapping.field_principal_id,\n            FieldRepresentative.principal_type == "FIELD_REPRESENTATIVE",\n            CompanyPrincipal.company_id == company_id,\n            CompanyPrincipal.id == mapping.field_principal_id,\n            CompanyPrincipal.principal_type == "FIELD_REPRESENTATIVE",\n            CompanyPrincipal.is_active.is_(True),\n        )\n        .with_for_update(read=True)\n    )\n    representative = (\n        await db_session.execute(representative_stmt)\n    ).scalar_one_or_none()\n    if representative is None or representative.can_allow_debt is not True:\n        return False, "المندوب غير مخول بالبيع بالذمم."\n\n    try:\n        representative_limit = _money_12_3(\n            representative.max_debt_limit or "0.0",\n            "representative.max_debt_limit",\n        )\n    except ValueError as exc:\n        return False, str(exc)\n\n    if representative_limit == Decimal("0"):\n        return False, "حد الذمم لكل عملية بيع لدى المندوب لا يسمح بإنشاء ذمم جديدة."\n    if new_debt > representative_limit:\n        return False, "مبلغ الذمم الجديد يتجاوز حد الذمم المسموح للمندوب في عملية بيع واحدة."\n\n    # Shop exposure is a separate cumulative guard. Always lock and re-read the\n    # persisted shop row after canonical representative policy has passed.\n    shop_stmt = (\n        select(Shop)\n        .execution_options(populate_existing=True)\n        .where(\n            Shop.id == shop_id,\n            Shop.company_id == company_id,\n        )\n        .with_for_update()\n    )\n    shop = (await db_session.execute(shop_stmt)).scalar_one_or_none()\n    if shop is None:\n        return False, "المحل غير موجود."\n    if not getattr(shop, "is_active", False) or getattr(shop, "is_archived", False):\n        return False, "المحل غير فعال أو مؤرشف ولا يمكن فتح ذمة جديدة له."\n\n    try:\n        shop_limit = _money_12_3(\n            shop.max_debt_limit or "0.0",\n            "shop.max_debt_limit",\n        )\n        current_balance = _money_12_3(\n            shop.current_balance or "0.0",\n            "shop.current_balance",\n        )\n    except ValueError as exc:\n        return False, str(exc)\n\n    if shop_limit == Decimal("0"):\n        return False, "هذا المحل غير مسموح له بالبيع بالذمم لأن سقف ذمته يساوي صفراً."\n    if current_balance + new_debt > shop_limit:\n        return False, "إجمالي ذمة المحل بعد العملية سيتجاوز سقف الذمة المسموح له."\n\n    return True, ""\n'''
-          source = source[:start] + replacement + source[end:]
-          path.write_text(source, encoding='utf-8')
-          PY
-          python -m compileall -q wa_backend/services.py
-          python - <<'PY'
-          from pathlib import Path
-          source = Path('wa_backend/services.py').read_text(encoding='utf-8')
-          start = source.index('async def check_debt_limits(')
-          end = source.index('\nclass InventoryMutationError', start)
-          block = source[start:end]
-          assert 'select(Driver)' not in block
-          assert 'Driver.can_allow_debt' not in block
-          assert 'driver.max_debt_limit' not in block
-          assert 'IdentityLegacyDriverMap.classification == "FIELD_ONLY"' in block
-          assert 'FieldRepresentative.can_allow_debt' not in block  # policy is read from hydrated canonical row
-          assert 'representative.can_allow_debt' in block
-          assert 'representative.max_debt_limit' in block
-          assert '.with_for_update()' in block
+          # One table sizing contract for header/body, exact decimal display, and
+          # local bidi isolation instead of changing an entire RTL cell to LTR.
+          table_path = Path('dashboard/src/pages/representatives-vehicles/representatives/RepresentativeTable.tsx')
+          table_path.write_text('''import { ChevronLeft, ChevronRight } from "lucide-react";\nimport { useTranslation } from "react-i18next";\n\nimport type { Representative } from "./contracts";\n\ninterface RepresentativeTableProps {\n  items: Representative[];\n  loading?: boolean;\n  onOpen: (representative: Representative) => void;\n}\n\nfunction formatDebtLimit(value: string) {\n  const [whole = "0", fraction = ""] = value.split(".");\n  const groupedWhole = whole.replace(/\\B(?=(\\d{3})+(?!\\d))/g, ",");\n  const exactFraction = fraction.padEnd(3, "0").slice(0, 3);\n  return `${groupedWhole}.${exactFraction}`;\n}\n\nexport function RepresentativeTable({ items, loading = false, onOpen }: RepresentativeTableProps) {\n  const { t, i18n } = useTranslation();\n  const OpenIcon = i18n.dir() === "rtl" ? ChevronLeft : ChevronRight;\n\n  if (loading && items.length === 0) {\n    return (\n      <div className="space-y-2 p-3" role="status" aria-label={t("representativesVehicles.representatives.loading")}>\n        {[0, 1, 2, 3].map((row) => (\n          <div key={row} className="h-14 animate-pulse rounded-xl bg-slate-100" />\n        ))}\n      </div>\n    );\n  }\n\n  return (\n    <table className="w-full min-w-[880px] table-fixed border-separate border-spacing-0 text-start text-sm">\n      <colgroup>\n        <col className="w-[24%]" />\n        <col className="w-[17%]" />\n        <col className="w-[18%]" />\n        <col className="w-[24%]" />\n        <col className="w-[10%]" />\n        <col className="w-[7%]" />\n      </colgroup>\n      <thead className="sticky top-0 z-10 bg-slate-50/95 text-[11px] font-black text-slate-500 backdrop-blur">\n        <tr>\n          <th className="border-b border-slate-200 px-4 py-2.5 text-start">{t("representativesVehicles.representatives.fields.name")}</th>\n          <th className="border-b border-slate-200 px-4 py-2.5 text-start">{t("representativesVehicles.representatives.fields.username")}</th>\n          <th className="border-b border-slate-200 px-4 py-2.5 text-start">{t("representativesVehicles.representatives.fields.phone")}</th>\n          <th className="border-b border-slate-200 px-4 py-2.5 text-start">{t("representativesVehicles.representatives.fields.debtPermission")}</th>\n          <th className="border-b border-slate-200 px-4 py-2.5 text-start">{t("representativesVehicles.representatives.fields.status")}</th>\n          <th className="border-b border-slate-200 px-4 py-2.5 text-center">{t("representativesVehicles.representatives.actions")}</th>\n        </tr>\n      </thead>\n      <tbody>\n        {items.map((representative) => (\n          <tr key={representative.id} className="group transition hover:bg-amber-50/55">\n            <td className="border-b border-slate-100 px-4 py-3 text-start font-black text-slate-800">{representative.full_name}</td>\n            <td className="border-b border-slate-100 px-4 py-3 text-start font-semibold text-slate-600"><bdi dir="ltr">{representative.username}</bdi></td>\n            <td className="border-b border-slate-100 px-4 py-3 text-start font-semibold text-slate-600"><bdi dir="ltr">{representative.phone_number || "—"}</bdi></td>\n            <td className="border-b border-slate-100 px-4 py-3 text-start font-semibold text-slate-600">\n              {representative.can_allow_debt\n                ? t("representativesVehicles.representatives.fields.creditAllowed", { limit: formatDebtLimit(representative.max_debt_limit) })\n                : t("representativesVehicles.representatives.fields.creditDisabled")}\n            </td>\n            <td className="border-b border-slate-100 px-4 py-3 text-start">\n              <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-black ${representative.is_active ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "bg-slate-100 text-slate-600 ring-1 ring-slate-200"}`}>\n                {t(representative.is_active ? "representativesVehicles.representatives.active" : "representativesVehicles.representatives.inactive")}\n              </span>\n            </td>\n            <td className="border-b border-slate-100 px-4 py-2 text-center">\n              <button\n                type="button"\n                onClick={() => onOpen(representative)}\n                aria-label={`${t("representativesVehicles.representatives.openDetails")} — ${representative.full_name}`}\n                title={t("representativesVehicles.representatives.openDetails")}\n                className="inline-grid h-9 w-9 place-items-center rounded-xl text-slate-500 transition hover:bg-white hover:text-slate-900 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"\n              >\n                <OpenIcon className="h-4 w-4" />\n              </button>\n            </td>\n          </tr>\n        ))}\n      </tbody>\n    </table>\n  );\n}\n''', encoding='utf-8')
+
+          # Move the existing gated switcher into the blue WorkspaceTopBar.
+          page_path = Path('dashboard/src/pages/representatives-vehicles/RepresentativesVehiclesPage.tsx')
+          page_path.write_text('''import { CarFront, UsersRound } from "lucide-react";\nimport { useTranslation } from "react-i18next";\n\nimport { WorkspaceTopBar } from "@/components/dashboard/WorkspaceTopBar";\nimport { RepresentativesTab } from "./representatives/RepresentativesTab";\n\nexport default function RepresentativesVehiclesPage() {\n  const { t, i18n } = useTranslation();\n\n  return (\n    <main className="relative flex min-h-0 flex-1 flex-col overflow-visible text-foreground" dir={i18n.dir()}>\n      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">\n        <div className="absolute -right-20 top-12 h-72 w-72 rounded-full bg-cyan-200/25 blur-3xl" />\n        <div className="absolute bottom-10 left-12 h-72 w-72 rounded-full bg-amber-100/35 blur-3xl" />\n      </div>\n\n      <WorkspaceTopBar variant="page" className="shrink-0">\n        <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 sm:flex-nowrap">\n          <header className="min-w-0">\n            <h1 className="text-lg font-black leading-6 text-white sm:text-xl">{t("representativesVehicles.title")}</h1>\n            <p className="mt-0.5 hidden text-[11px] font-semibold leading-5 text-slate-300/80 sm:block">{t("representativesVehicles.subtitle")}</p>\n          </header>\n\n          <div className="inline-flex shrink-0 items-center rounded-xl border border-white/15 bg-white/10 p-1 shadow-sm backdrop-blur" role="tablist" aria-label={t("representativesVehicles.title")}>\n            <button type="button" role="tab" aria-selected="true"\n              className="inline-flex h-8 items-center gap-2 rounded-lg bg-white px-3 text-xs font-black text-slate-900 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">\n              <UsersRound className="h-4 w-4" />{t("representativesVehicles.tabs.representatives")}\n            </button>\n            <button\n              type="button"\n              role="tab"\n              aria-selected="false"\n              aria-disabled="true"\n              aria-describedby="vehicles-gated-description"\n              disabled\n              title={t("representativesVehicles.vehicles.hint")}\n              className="inline-flex h-8 items-center gap-2 rounded-lg px-3 text-xs font-black text-slate-300 opacity-75"\n            >\n              <CarFront className="h-4 w-4" />{t("representativesVehicles.tabs.vehicles")}\n              <span className="hidden rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-black text-slate-300 sm:inline">{t("representativesVehicles.vehicles.gated")}</span>\n            </button>\n            <span id="vehicles-gated-description" className="sr-only">{t("representativesVehicles.vehicles.hint")}</span>\n          </div>\n        </div>\n      </WorkspaceTopBar>\n\n      <div className="relative z-10 flex min-h-0 flex-1 flex-col px-3 pb-3 pt-2 sm:px-4">\n        <div className="mx-auto flex min-h-0 w-full max-w-[1500px] flex-1 flex-col">\n          <RepresentativesTab />\n        </div>\n      </div>\n    </main>\n  );\n}\n''', encoding='utf-8')
+
+          # Page regression: gated Vehicles tab is inside the top bar.
+          page_test = Path('dashboard/src/pages/representatives-vehicles/RepresentativesVehiclesPage.test.tsx')
+          page_test.write_text('''import type { ReactNode } from "react";\nimport { cleanup, render, screen, within } from "@testing-library/react";\nimport { afterEach, describe, expect, it, vi } from "vitest";\n\nvi.mock("react-i18next", () => ({\n  useTranslation: () => ({\n    t: (key: string) => key,\n    i18n: { dir: () => "rtl" },\n  }),\n}));\nvi.mock("@/components/dashboard/WorkspaceTopBar", () => ({\n  WorkspaceTopBar: ({ children }: { children: ReactNode }) => <div data-testid="workspace-top-bar">{children}</div>,\n}));\nvi.mock("./representatives/RepresentativesTab", () => ({\n  RepresentativesTab: () => <div data-testid="representatives-workflow" />,\n}));\n\nimport RepresentativesVehiclesPage from "./RepresentativesVehiclesPage";\n\nafterEach(cleanup);\n\ndescribe("RepresentativesVehiclesPage", () => {\n  it("keeps the active Representatives and gated Vehicles tabs inside the blue top bar", () => {\n    render(<RepresentativesVehiclesPage />);\n\n    const topBar = screen.getByTestId("workspace-top-bar");\n    const tablist = within(topBar).getByRole("tablist");\n    const tabs = within(tablist).getAllByRole("tab");\n\n    expect(tabs).toHaveLength(2);\n    expect(tabs[0]?.getAttribute("aria-selected")).toBe("true");\n    expect((tabs[1] as HTMLButtonElement).disabled).toBe(true);\n    expect(tabs[1]?.getAttribute("aria-disabled")).toBe("true");\n    expect(screen.getByTestId("representatives-workflow")).toBeTruthy();\n  });\n});\n''', encoding='utf-8')
+
+          # Form regression for the frozen boolean/limit semantics.
+          form_test_path = Path('dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm.test.tsx')
+          test_source = form_test_path.read_text(encoding='utf-8')
+          marker = '\n});\n'
+          index = test_source.rfind(marker)
+          if index < 0:
+              raise SystemExit('RepresentativeForm test closing marker missing')
+          added = '''\n\n  it("disables credit authority without destroying the stored per-sale limit", async () => {\n    const onSubmit = vi.fn();\n    const { container } = render(\n      <RepresentativeForm representative={representative} onCancel={() => undefined} onSubmit={onSubmit} />,\n    );\n\n    expect(screen.getByLabelText("representativesVehicles.representatives.fields.debtLimit")).toBeTruthy();\n    fireEvent.click(\n      screen.getByLabelText("representativesVehicles.representatives.fields.debtPermission"),\n    );\n\n    expect(screen.queryByLabelText("representativesVehicles.representatives.fields.debtLimit")).toBeNull();\n    expect(screen.getByText("representativesVehicles.representatives.form.debtDisabled")).toBeTruthy();\n\n    fireEvent.submit(container.querySelector("form")!);\n    await waitFor(() => {\n      expect(onSubmit).toHaveBeenCalledWith({ can_allow_debt: false }, requestUuid);\n    });\n  });'''
+          test_source = test_source[:index] + added + test_source[index:]
+          form_test_path.write_text(test_source, encoding='utf-8')
+
+          # Structural table regression, including exact non-float display.
+          table_test = Path('dashboard/src/pages/representatives-vehicles/representatives/RepresentativeTable.test.tsx')
+          table_test.write_text('''import { cleanup, render, screen } from "@testing-library/react";\nimport { afterEach, describe, expect, it, vi } from "vitest";\n\nvi.mock("react-i18next", () => ({\n  useTranslation: () => ({\n    t: (key: string, options?: { limit?: string }) =>\n      key.endsWith("creditAllowed") ? `credit:${options?.limit}` : key,\n    i18n: { dir: () => "rtl" },\n  }),\n}));\n\nimport { RepresentativeTable } from "./RepresentativeTable";\n\nconst allowed = {\n  id: 1, full_name: "Ahmad", username: "rep-1", phone_number: "+962790000001",\n  is_active: true, can_allow_debt: true, max_debt_limit: "50000.000",\n};\nconst denied = {\n  id: 2, full_name: "Salem", username: "rep-2", phone_number: null,\n  is_active: true, can_allow_debt: false, max_debt_limit: "25.500",\n};\n\nafterEach(cleanup);\n\ndescribe("RepresentativeTable", () => {\n  it("uses one explicit six-column geometry for header and rows", () => {\n    const { container } = render(<RepresentativeTable items={[allowed]} onOpen={() => undefined} />);\n    const table = container.querySelector("table")!;\n    expect(table.className).toContain("table-fixed");\n    expect(table.querySelectorAll("colgroup col")).toHaveLength(6);\n    expect(table.querySelectorAll("thead th")).toHaveLength(6);\n    expect(table.querySelectorAll("tbody tr:first-child td")).toHaveLength(6);\n\n    const cells = table.querySelectorAll("tbody tr:first-child td");\n    expect(cells[0]?.textContent).toBe("Ahmad");\n    expect(cells[1]?.textContent).toBe("rep-1");\n    expect(cells[2]?.textContent).toBe("+962790000001");\n    expect(cells[3]?.textContent).toBe("credit:50,000.000");\n    expect(cells[1]?.querySelector("bdi")?.getAttribute("dir")).toBe("ltr");\n    expect(cells[2]?.querySelector("bdi")?.getAttribute("dir")).toBe("ltr");\n  });\n\n  it("shows disabled credit authority explicitly without implying the stored limit is usable", () => {\n    render(<RepresentativeTable items={[denied]} onOpen={() => undefined} />);\n    expect(screen.getByText("representativesVehicles.representatives.fields.creditDisabled")).toBeTruthy();\n    expect(screen.queryByText(/25\\.500/)).toBeNull();\n  });\n});\n''', encoding='utf-8')
           PY
           git diff --check
-      - name: Commit canonical debt policy seam
+      - name: Commit Representatives owner UX closure
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add wa_backend/services.py
-          git commit -m "fix(field): enforce canonical representative credit policy"
+          git add \
+            dashboard/src/i18n/representativesVehicles.ts \
+            dashboard/src/pages/representatives-vehicles/RepresentativesVehiclesPage.tsx \
+            dashboard/src/pages/representatives-vehicles/RepresentativesVehiclesPage.test.tsx \
+            dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm.tsx \
+            dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm.test.tsx \
+            dashboard/src/pages/representatives-vehicles/representatives/RepresentativeTable.tsx \
+            dashboard/src/pages/representatives-vehicles/representatives/RepresentativeTable.test.tsx
+          git commit -m "fix(dashboard): clarify representative credit policy UX"
           git push origin HEAD:sol/representatives-credit-policy-ui-finalization
