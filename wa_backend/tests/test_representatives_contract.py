@@ -1,6 +1,6 @@
-"""Wave 1 wire contract from plan section 0.2 at 8d6ab2663598bb9ae9144bf319863a2bd9eb421e.
+"""Frozen Wave 1 wire contract and Wave 2 lifecycle/credential security contract.
 
-Run: python -m unittest discover -s wa_backend/tests -p 'test_representatives*.py' -v
+Run from wa_backend: python -m unittest tests.test_representatives_architecture tests.test_representatives_contract -v
 
 Router/response/dependency checks fail explicitly on the pre-implementation base.
 Real SQL/HTTP tests opt in with WANASAH_REPRESENTATIVES_CONTRACT_DB_URL
@@ -18,10 +18,13 @@ safety; those belong to the respective foundation/implementation gates.
 from __future__ import annotations
 
 import importlib
+from contextlib import asynccontextmanager
+from datetime import timedelta
 from decimal import Decimal
 import os
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
@@ -39,6 +42,10 @@ ROUTES = {
 }
 DB_URL = os.getenv("WANASAH_REPRESENTATIVES_CONTRACT_DB_URL")
 VIEW_FIELDS = {"id", "full_name", "username", "phone_number", "is_active", "can_allow_debt", "max_debt_limit"}
+UNRESOLVED_RECON_STATES = ("DRAFT", "COUNTING", "PENDING_REVIEW", "RECOUNT_REQUIRED", "APPROVED")
+LIFECYCLE_BLOCKERS = ("open_session", "active", "waiting", "postponed", "handshake", "unreconciled",
+                      *UNRESOLVED_RECON_STATES)
+SESSION_SECRET = "RepresentativesFieldSessionSyntheticKey123456789"
 
 
 def runtime():
@@ -80,6 +87,15 @@ def representative_record(value, username):
     return next(row for row in objects(value) if row.get("username") == username)
 
 
+def not_found_contract(response):
+    def stable(value):
+        if isinstance(value, dict):
+            return {key: stable(child) for key, child in value.items()
+                    if key not in {"request_id", "correlation_id", "representative_id"}}
+        return value
+    return stable(response.json())
+
+
 def body(operation, *, username=None):
     request = {"request_id": str(uuid4())}
     if operation == "create":
@@ -111,6 +127,10 @@ class RepresentativesHTTPShapeTests(unittest.IsolatedAsyncioTestCase):
         for key, route in routes.items():
             with self.subTest(route=key):
                 self.assertTrue(route.endpoint.__module__.startswith("api.representatives."))
+                if key[1].endswith(("/deactivate", "/reactivate")):
+                    self.assertEqual(route.endpoint.__module__, "api.representatives.lifecycle")
+                elif key[1].endswith("/credentials/reset"):
+                    self.assertEqual(route.endpoint.__module__, "api.representatives.credentials")
                 calls = {item.call for item in dependencies(route.dependant)}
                 self.assertIn(get_current_backoffice_capability_access, calls)
                 self.assertIn(get_current_backoffice_context, calls)
@@ -221,6 +241,10 @@ class RepresentativesSQLHTTPContracts(unittest.IsolatedAsyncioTestCase):
         self.ordinary = await seed_ordinary_backoffice_fixture(self.db, self.companies[0].id)
         await self.tenant(self.companies[1].id)
         self.foreign_ordinary = await seed_ordinary_backoffice_fixture(self.db, self.companies[1].id)
+        # HTTP rollback expires ORM objects. Keep fixture locators as primitives;
+        # inspect database state afresh rather than implicitly lazy-loading IDs.
+        self.driver_ids = {field.context.representative_id: field.driver.id for field in self.fields}
+        self.companies = [SimpleNamespace(id=company.id) for company in self.companies]
         await self.db.commit()  # Release seed SAVEPOINT only; outer transaction owns cleanup.
         self.current = self.owners[0]
         await self.tenant(self.current.context.company_id)
@@ -235,6 +259,150 @@ class RepresentativesSQLHTTPContracts(unittest.IsolatedAsyncioTestCase):
     async def request(self, method, path, **kwargs):
         await self.tenant(self.current.context.company_id)
         return await self.client.request(method, path, **kwargs)
+
+    @asynccontextmanager
+    async def case(self):
+        """Isolate each blocker subcase even when a handler commits/rolls back."""
+        await self.db.rollback()
+        savepoint = await self.connection.begin_nested()
+        try:
+            yield
+        finally:
+            await self.db.rollback()
+            await savepoint.rollback()
+            self.db.expire_all()
+
+    async def identity_state(self, field):
+        from sqlalchemy import select
+        from domains.identity.models import CompanyPrincipal, FieldRepresentative
+        from domains.identity.migration.models import IdentityLegacyDriverMap
+        from models import Driver
+
+        context = field.context
+        await self.tenant(context.company_id)
+        predicates = {
+            "principal": (CompanyPrincipal, CompanyPrincipal.id == context.principal_id),
+            "profile": (FieldRepresentative, FieldRepresentative.id == context.representative_id),
+            "map": (IdentityLegacyDriverMap, IdentityLegacyDriverMap.legacy_driver_id == self.driver_ids[context.representative_id]),
+            "driver": (Driver, Driver.id == self.driver_ids[context.representative_id]),
+        }
+        state = {}
+        for name, (model, locator) in predicates.items():
+            row = (await self.db.execute(select(*model.__table__.columns).where(
+                model.company_id == context.company_id, locator,
+            ))).mappings().one()
+            state[name] = dict(row)
+        self.assertEqual(state["profile"]["principal_id"], state["principal"]["id"])
+        self.assertEqual(state["map"]["field_principal_id"], state["principal"]["id"])
+        self.assertEqual(state["map"]["field_representative_id"], state["profile"]["id"])
+        self.assertEqual(state["map"]["legacy_driver_id"], state["driver"]["id"])
+        self.assertEqual(len({state[name]["id"] for name in ("principal", "profile", "driver")}), 3)
+        return state
+
+    async def history_state(self, field):
+        from sqlalchemy import select
+        from models import WorkSession, DispatchRoute, StocktakeSession, InventoryTransferHeader
+
+        await self.tenant(field.context.company_id)
+        return {model.__tablename__: [dict(row) for row in (await self.db.execute(
+            select(*model.__table__.columns).where(model.company_id == field.context.company_id).order_by(model.id)
+        )).mappings().all()] for model in (WorkSession, DispatchRoute, StocktakeSession, InventoryTransferHeader)}
+
+    async def mutation_counts(self):
+        from sqlalchemy import func, select
+        from models import SystemAuditLog, DomainAuditEvent, OperationIdempotency
+
+        await self.tenant(self.current.context.company_id)
+        return tuple([await self.db.scalar(select(func.count()).select_from(model).where(
+            model.company_id == self.current.context.company_id,
+        )) for model in (SystemAuditLog, DomainAuditEvent, OperationIdempotency)])
+
+    async def seed_history(self, field, kind):
+        """Use real FK/state vocabulary; keep F from masking E or G."""
+        from models import WorkSession, DispatchRoute, StocktakeSession, InventoryTransferHeader, InventoryLocation, Vehicle, Zone, utc_now
+
+        company = field.context.company_id
+        driver = self.driver_ids[field.context.representative_id]
+        await self.tenant(company)
+        now = utc_now()
+        session = WorkSession(company_id=company, driver_id=driver, start_time=now - timedelta(hours=3),
+                              end_time=None if kind == "open_session" else now - timedelta(hours=2), is_settled=False)
+        if kind not in {"open_session", "unreconciled"}:
+            session.inventory_reconciled_at = now - timedelta(hours=1)
+            session.inventory_reconciled_by = driver
+        self.db.add(session)
+        if kind in {"open_session", "unreconciled", "financial_pending"}:
+            await self.db.commit()
+            return
+        vehicle = Vehicle(company_id=company, plate_number=uuid4().hex[:20])
+        zone = Zone(company_id=company, name="Contract " + uuid4().hex)
+        self.db.add_all([vehicle, zone]); await self.db.flush()
+        source = InventoryLocation(company_id=company, code="SRC" + uuid4().hex, name="Contract source", location_type="WAREHOUSE")
+        destination = InventoryLocation(company_id=company, code="V" + uuid4().hex, name="Contract vehicle", location_type="VEHICLE", vehicle_id=vehicle.id)
+        self.db.add_all([source, destination]); await self.db.flush()
+        self.db.add(DispatchRoute(company_id=company, zone_id=zone.id, driver_id=driver, vehicle_id=vehicle.id,
+                                  work_session_id=session.id, source_location_id=source.id,
+                                  status=kind if kind in {"active", "waiting", "postponed"} else "closed"))
+        if kind in {"handshake", "unrelated_transit"}:
+            transit = None
+            if kind == "unrelated_transit":
+                transit = InventoryLocation(company_id=company, code="T" + uuid4().hex, name="Contract transit", location_type="IN_TRANSIT")
+                self.db.add(transit); await self.db.flush()
+            self.db.add(InventoryTransferHeader(company_id=company, reference_number="RC-" + uuid4().hex,
+                source_location_id=source.id, destination_location_id=destination.id,
+                workflow_type="HANDSHAKE" if kind == "handshake" else "TRANSIT",
+                status="PENDING" if kind == "handshake" else "IN_TRANSIT", transfer_purpose="ROUTE_LOAD",
+                commercial_context={}, dispatched_by=driver, expected_receiver_id=driver if kind == "handshake" else None,
+                work_session_id=session.id if kind == "handshake" else None,
+                transit_location_id=transit.id if transit is not None else None))
+        elif kind in UNRESOLVED_RECON_STATES:
+            # A sealed WS is deliberately non-blocking by F. A surviving open
+            # VEHICLE_RECON must independently fail closed even in this debt state.
+            self.db.add(StocktakeSession(company_id=company, location_id=destination.id,
+                reference_number="RC-" + uuid4().hex, stocktake_type="VEHICLE_RECON", status=kind,
+                related_work_session_id=session.id, started_by=driver, created_at=now, snapshot_cutoff_at=now,
+                approved_by=driver if kind == "APPROVED" else None, approved_at=now if kind == "APPROVED" else None,
+                pending_recount_authorized_by=driver if kind == "RECOUNT_REQUIRED" else None,
+                pending_recount_reason="Contract recount" if kind == "RECOUNT_REQUIRED" else None))
+        await self.db.commit()
+
+    async def sessions(self, field):
+        from domains.auth_sessions.refresh_sessions import create_refresh_session
+        from domains.auth_sessions.codec import issue_access_token
+
+        context = field.context
+        await self.tenant(context.company_id)
+        target = [await create_refresh_session(self.db, context, secret=SESSION_SECRET) for _ in range(2)]
+        owner = await create_refresh_session(self.db, self.owners[0].context, secret=SESSION_SECRET)
+        foreign = self.fields[1]
+        await self.tenant(foreign.context.company_id)
+        other = await create_refresh_session(self.db, foreign.context, secret=SESSION_SECRET)
+        await self.db.commit()
+        access = issue_access_token(principal_id=context.principal_id, company_id=context.company_id,
+            channel="FIELD", principal_type="FIELD_REPRESENTATIVE", auth_revision=context.auth_revision, secret=SESSION_SECRET)
+        return target, (owner, other), access
+
+    async def assert_sessions_revoked(self, field, evidence):
+        from sqlalchemy import select
+        from domains.auth_sessions.models import PrincipalRefreshToken
+        from domains.auth_sessions.refresh_sessions import rotate_refresh_session, RefreshSessionRejected
+        from domains.auth_sessions.codec import decode_company_token
+        from domains.auth_sessions.context import resolve_access_context, RequestContextRejected
+
+        targets, others, access = evidence
+        for session, revoked in [(item, True) for item in targets] + [(item, False) for item in others]:
+            await self.tenant(session.company_id)
+            row = (await self.db.execute(select(PrincipalRefreshToken.is_revoked).where(
+                PrincipalRefreshToken.company_id == session.company_id, PrincipalRefreshToken.token == session.refresh_token,
+            ))).scalar_one()
+            self.assertIs(row, revoked)
+        await self.tenant(field.context.company_id)
+        with self.assertRaises(RefreshSessionRejected):
+            await rotate_refresh_session(self.db, targets[0].refresh_token, secret=SESSION_SECRET)
+        claims = decode_company_token(access, secret=SESSION_SECRET, expected_type="access")
+        self.assertEqual(claims.principal_id, field.context.principal_id)
+        with self.assertRaises(RequestContextRejected):
+            await resolve_access_context(self.db, claims)
 
     def safe(self, response):
         for node in objects(response.json()):
@@ -256,7 +424,8 @@ class RepresentativesSQLHTTPContracts(unittest.IsolatedAsyncioTestCase):
 
     async def test_owner_reads_only_field_profiles_with_independent_ids_and_no_secrets(self):
         field = self.fields[0]
-        self.assertEqual(len({field.context.principal_id, field.context.representative_id, field.driver.id}), 3)
+        self.assertEqual(len({field.context.principal_id, field.context.representative_id,
+                              self.driver_ids[field.context.representative_id]}), 3)
         response = await self.request("GET", "/representatives")
         self.assertEqual(response.status_code, 200, response.text)
         self.safe(response)
@@ -279,6 +448,7 @@ class RepresentativesSQLHTTPContracts(unittest.IsolatedAsyncioTestCase):
         own_detail = await self.detail(self.fields[1])
         from domains.identity.models import CompanyPrincipal
         principal = await self.db.get(CompanyPrincipal, self.fields[1].context.principal_id)
+        foreign_username = principal.username
         self.current = self.owners[0]  # Owner must still obey object/tenant isolation.
         foreign = self.fields[1].context.representative_id
         absent = 2_147_483_647
@@ -292,14 +462,8 @@ class RepresentativesSQLHTTPContracts(unittest.IsolatedAsyncioTestCase):
                 missing = await self.request(method, f"/representatives/{absent}{suffix}", **kwargs)
                 self.assertEqual(response.status_code, 404, response.text)
                 self.assertEqual(response.status_code, missing.status_code)
-                # Correlation IDs may differ; the stable reason must not.
-                def reason(value):
-                    if isinstance(value, dict):
-                        return {key: reason(child) for key, child in value.items()
-                                if key not in {"request_id", "correlation_id", "representative_id"}}
-                    return value
-                self.assertEqual(reason(response.json()), reason(missing.json()))
-                self.assertNotIn(principal.username, response.text)
+                self.assertEqual(not_found_contract(response), not_found_contract(missing))
+                self.assertNotIn(foreign_username, response.text)
         self.current = self.owners[1]
         self.assertEqual(await self.detail(self.fields[1]), own_detail, "Denied requests must not mutate the foreign representative")
 
@@ -309,6 +473,7 @@ class RepresentativesSQLHTTPContracts(unittest.IsolatedAsyncioTestCase):
         from types import SimpleNamespace
 
         principal = await self.db.get(CompanyPrincipal, self.fields[0].context.principal_id)
+        username = principal.username  # Denial rollbacks expire the ORM instance.
         self.current = self.ordinary
         self.assertEqual(len({self.current.context.principal_id, self.current.context.backoffice_user_id, self.current.driver_id}), 3)
         for flag in (False, True):
@@ -342,7 +507,7 @@ class RepresentativesSQLHTTPContracts(unittest.IsolatedAsyncioTestCase):
             await self.db.commit()  # Persist grants within outer rollback boundary.
             response = await self.request("GET", "/representatives")
             self.assertEqual(response.status_code, 200 if company == self.current.context.company_id and not location_only else 403)
-        self.assertEqual(representative_record(response.json(), principal.username)["id"], self.fields[0].context.representative_id)
+        self.assertEqual(representative_record(response.json(), username)["id"], self.fields[0].context.representative_id)
         self.assertEqual((await self.request("POST", "/representatives", json=body("create"))).status_code, 403)
         # Replace this one company role's capabilities, rather than accumulating
         # grants: every endpoint must accept its exact capability and reject the
@@ -465,13 +630,10 @@ class RepresentativesSQLHTTPContracts(unittest.IsolatedAsyncioTestCase):
             with self.subTest(query=query):
                 self.assertEqual((await self.request("GET", "/representatives", params=query)).status_code, 422)
 
-    async def test_create_patch_lifecycle_and_reset_replay_without_duplicate_effects(self):
-        from datetime import timedelta
+    async def test_create_patch_replay_without_duplicate_effects(self):
         from sqlalchemy import func, select
         from domains.identity.models import CompanyPrincipal, FieldRepresentative
-        from domains.auth_sessions.models import PrincipalRefreshToken
         from domains.identity.authentication import verify_existing_password
-        from models import utc_now
 
         payload = body("create")
         payload.update(can_allow_debt=True, max_debt_limit="123456789.001")
@@ -484,6 +646,7 @@ class RepresentativesSQLHTTPContracts(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row, replay.json(parse_float=Decimal))
         self.assertEqual(Decimal(str(row["max_debt_limit"])), Decimal("123456789.001"))
         principal = await self.db.scalar(select(CompanyPrincipal).where(CompanyPrincipal.company_id == self.current.context.company_id, CompanyPrincipal.username == payload["username"]))
+        principal_id = principal.id
         self.assertTrue(await verify_existing_password(payload["password"], principal.password_hash))
         self.assertEqual(await self.db.scalar(select(func.count()).select_from(FieldRepresentative).where(FieldRepresentative.company_id == principal.company_id, FieldRepresentative.principal_id == principal.id)), 1)
         conflict = await self.request("POST", "/representatives", json={**payload, "full_name": "Different command"})
@@ -498,43 +661,183 @@ class RepresentativesSQLHTTPContracts(unittest.IsolatedAsyncioTestCase):
         conflict = await self.request("PATCH", f"/representatives/{self.fields[0].context.representative_id}", json=edit)
         self.assertEqual(conflict.status_code, 409, conflict.text)
         for forbidden in ({"password": "SyntheticRepresentative123"}, {"is_active": False},
-                          {"company_id": self.companies[1].id}, {"principal_id": principal.id}, {"role": "Owner"},
+                          {"company_id": self.companies[1].id}, {"principal_id": principal_id}, {"role": "Owner"},
                           {"max_debt_limit": "-0.001"}, {"max_debt_limit": "not-a-number"}):
             with self.subTest(forbidden=forbidden):
                 rejected = await self.request("PATCH", path, json={**body("patch"), **forbidden})
                 self.assertEqual(rejected.status_code, 422, rejected.text)
         self.assertEqual((await self.request("PATCH", path, json={"request_id": str(uuid4())})).status_code, 422)
         self.assertEqual((await self.request("GET", path)).json(parse_float=Decimal), changed)
-        for operation, active in (("deactivate", False), ("reactivate", True)):
-            command = body(operation)
-            for _ in range(2):
-                result = await self.request("POST", path + "/" + operation, json=command)
-                self.assertGreaterEqual(result.status_code, 200, result.text)
-                self.assertLess(result.status_code, 300, result.text)
-                self.assertIs((await self.request("GET", path)).json()["is_active"], active)
-        await self.db.refresh(principal)
-        revision, old_hash = principal.auth_revision, principal.password_hash
-        target_session = PrincipalRefreshToken(company_id=principal.company_id, principal_id=principal.id,
-            channel="FIELD", token="contract-" + uuid4().hex, expires_at=utc_now() + timedelta(days=1), auth_revision=revision)
-        other_session = PrincipalRefreshToken(company_id=principal.company_id, principal_id=self.current.context.principal_id,
-            channel="DASHBOARD", token="contract-" + uuid4().hex, expires_at=utc_now() + timedelta(days=1), auth_revision=self.current.context.auth_revision)
-        self.db.add_all([target_session, other_session])
-        await self.db.commit()
-        reset = body("reset")
+
+    async def test_deactivation_blocker_matrix_and_foreign_company_rows(self):
+        field, foreign = self.fields
+        for kind in LIFECYCLE_BLOCKERS:
+            with self.subTest(blocker=kind, company="own"):
+                async with self.case():
+                    before = await self.identity_state(field)
+                    await self.seed_history(field, kind)
+                    history = await self.history_state(field)
+                    response = await self.request("POST", f"/representatives/{field.context.representative_id}/deactivate", json=body("deactivate"))
+                    self.assertTrue(400 <= response.status_code < 500, response.text)
+                    self.assertNotIn(response.status_code, (401, 403, 404), "Valid authorized target must reach the business blocker")
+                    self.assertTrue(any(isinstance(node.get("code"), str) for node in objects(response.json())),
+                                    "A business blocker must expose a stable code, not a transport-validation failure")
+                    self.assertEqual(await self.identity_state(field), before)
+                    self.assertEqual(await self.history_state(field), history)
+            with self.subTest(blocker=kind, company="foreign"):
+                async with self.case():
+                    await self.seed_history(foreign, kind)
+                    before = await self.identity_state(foreign)
+                    history = await self.history_state(foreign)
+                    command = body("deactivate")
+                    denied = await self.request("POST", f"/representatives/{foreign.context.representative_id}/deactivate", json=command)
+                    missing = await self.request("POST", "/representatives/2147483647/deactivate", json=command)
+                    self.assertEqual(denied.status_code, 404, denied.text)
+                    self.assertEqual(missing.status_code, 404, missing.text)
+                    self.assertEqual(not_found_contract(denied), not_found_contract(missing))
+                    allowed = await self.request("POST", f"/representatives/{field.context.representative_id}/deactivate", json=body("deactivate"))
+                    self.assertTrue(200 <= allowed.status_code < 300, allowed.text)
+                    self.assertEqual(await self.identity_state(foreign), before)
+                    self.assertEqual(await self.history_state(foreign), history)
+        # Financial settlement is separate from inventory closure. Non-handshake
+        # transit is likewise not a receiver-specific PENDING HANDSHAKE blocker.
+        for kind in ("financial_pending", "unrelated_transit", "other_handshake_receiver"):
+            with self.subTest(safe=kind):
+                async with self.case():
+                    if kind == "other_handshake_receiver":
+                        from tests.canonical_actor_fixtures import seed_field_fixture
+                        await self.tenant(field.context.company_id)
+                        other = await seed_field_fixture(self.db, field.context.company_id)
+                        self.driver_ids[other.context.representative_id] = other.driver.id
+                        await self.seed_history(other, "handshake")
+                    else:
+                        await self.seed_history(field, kind)
+                    history = await self.history_state(field)
+                    response = await self.request("POST", f"/representatives/{field.context.representative_id}/deactivate", json=body("deactivate"))
+                    self.assertTrue(200 <= response.status_code < 300, response.text)
+                    self.assertEqual(await self.history_state(field), history)
+
+    async def test_deactivate_epoch_and_reactivate_preserve_operational_identity_and_history(self):
+        field = self.fields[0]
+        await self.seed_history(field, "history")
+        before = await self.identity_state(field)
+        history = await self.history_state(field)
+        evidence = await self.sessions(field)
+        path = f"/representatives/{field.context.representative_id}"
+        command = body("deactivate")
+        first = await self.request("POST", path + "/deactivate", json=command)
+        self.assertTrue(200 <= first.status_code < 300, first.text)
+        inactive = await self.identity_state(field)
+        self.assertIs(inactive["principal"]["is_active"], False)
+        self.assertEqual(inactive["principal"]["auth_revision"], before["principal"]["auth_revision"] + 1)
+        self.assertEqual(inactive["principal"]["password_hash"], before["principal"]["password_hash"])
+        for name in ("driver", "map"):
+            self.assertEqual(inactive[name], before[name])
+        self.assertEqual(inactive["profile"]["id"], before["profile"]["id"])
+        self.assertEqual(await self.history_state(field), history)
+        await self.assert_sessions_revoked(field, evidence)
+        counts = await self.mutation_counts()
+        replay = await self.request("POST", path + "/deactivate", json=command)
+        self.assertEqual(replay.status_code, first.status_code, replay.text)
+        self.assertEqual(await self.identity_state(field), inactive)
+        self.assertEqual(await self.mutation_counts(), counts, "Replay must not duplicate audit/idempotency mutations")
+        reactivate = body("reactivate")
+        reactivated, reactivation_counts = None, None
         for _ in range(2):
-            result = await self.request("POST", path + "/credentials/reset", json=reset)
-            self.assertEqual(result.status_code, 204, result.text)
-            self.assertEqual(result.content, b"")
-            await self.db.refresh(principal)
-            await self.db.refresh(target_session)
-            await self.db.refresh(other_session)
-            self.assertEqual(principal.auth_revision, revision + 1)
-            self.assertNotEqual(principal.password_hash, old_hash)
-            self.assertTrue(await verify_existing_password(reset["new_password"], principal.password_hash))
-            self.assertTrue(target_session.is_revoked)
-            self.assertFalse(other_session.is_revoked)
-        result = await self.request("POST", path + "/credentials/reset", json={**reset, "new_password": "DifferentPassword123"})
-        self.assertEqual(result.status_code, 409, result.text)
+            response = await self.request("POST", path + "/reactivate", json=reactivate)
+            self.assertTrue(200 <= response.status_code < 300, response.text)
+            active = await self.identity_state(field)
+            self.assertIs(active["principal"]["is_active"], True)
+            self.assertEqual(active["principal"]["auth_revision"], inactive["principal"]["auth_revision"])
+            for name in ("driver", "map"):
+                self.assertEqual(active[name], before[name])
+            for name in ("principal", "profile"):
+                self.assertEqual(active[name]["id"], before[name]["id"])
+            self.assertEqual(await self.history_state(field), history)
+            await self.assert_sessions_revoked(field, evidence)
+            if reactivated is None:
+                reactivated, reactivation_counts = active, await self.mutation_counts()
+            else:
+                self.assertEqual(active, reactivated)
+                self.assertEqual(await self.mutation_counts(), reactivation_counts)
+
+    async def test_reset_replay_hashes_and_writes_once_and_invalidates_canonical_sessions(self):
+        import re
+        from sqlalchemy import event
+        from domains.identity import credentials as identity_credentials
+        from domains.identity.authentication import verify_existing_password
+
+        field = self.fields[0]
+        before = await self.identity_state(field)
+        evidence = await self.sessions(field)
+        path = f"/representatives/{field.context.representative_id}/credentials/reset"
+        reset = body("reset")
+        writes = []
+        def record(_connection, _cursor, statement, _parameters, _context, _many):
+            if re.search(r'\b(?:UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+(?:"?\w+"?\.)?"?company_principals"?(?=\s|\()', statement, re.I):
+                writes.append(statement)
+        event.listen(self.connection.sync_connection, "before_cursor_execute", record)
+        try:
+            with patch.object(identity_credentials.bcrypt, "hashpw", wraps=identity_credentials.bcrypt.hashpw) as hasher:
+                first = await self.request("POST", path, json=reset)
+                self.assertEqual(first.status_code, 204, first.text)
+                self.assertEqual(first.content, b"")
+                changed = await self.identity_state(field)
+                self.assertIs(changed["principal"]["is_active"], True)
+                self.assertEqual(changed["principal"]["auth_revision"], before["principal"]["auth_revision"] + 1)
+                self.assertNotEqual(changed["principal"]["password_hash"], before["principal"]["password_hash"])
+                self.assertTrue(await verify_existing_password(reset["new_password"], changed["principal"]["password_hash"]))
+                self.assertEqual(changed["driver"], before["driver"], "Reset must not mutate the operational Driver password/hash/state")
+                self.assertEqual(changed["map"], before["map"])
+                self.assertEqual(hasher.call_count, 1)
+                self.assertTrue(writes, "Observe the actual canonical credential write")
+                count, mutations = len(writes), await self.mutation_counts()
+                replay = await self.request("POST", path, json=reset)
+                self.assertEqual(replay.status_code, 204, replay.text)
+                self.assertEqual(replay.content, b"")
+                self.assertEqual(hasher.call_count, 1, "Replay must not hash again")
+                self.assertEqual(len(writes), count, "Replay must not write credentials again")
+                self.assertEqual(await self.identity_state(field), changed)
+                self.assertEqual(await self.mutation_counts(), mutations)
+                conflict = await self.request("POST", path, json={**reset, "new_password": "DifferentPassword123"})
+                self.assertEqual(conflict.status_code, 409, conflict.text)
+                self.assertEqual(hasher.call_count, 1)
+                self.assertEqual(len(writes), count)
+                self.assertEqual(await self.identity_state(field), changed)
+        finally:
+            event.remove(self.connection.sync_connection, "before_cursor_execute", record)
+        # Principal remains active: access rejection now specifically follows the
+        # auth_revision mismatch, not a deactivation or a legacy Driver flag.
+        await self.assert_sessions_revoked(field, evidence)
+
+    async def test_wave2_strict_bodies_and_utf8_reset_password_boundary(self):
+        from domains.identity.authentication import verify_existing_password
+
+        field = self.fields[0]
+        path = f"/representatives/{field.context.representative_id}"
+        before = await self.identity_state(field)
+        for operation in ("deactivate", "reactivate", "reset"):
+            suffix = "/credentials/reset" if operation == "reset" else "/" + operation
+            for changes in ({"request_id": "not-a-uuid"}, {"company_id": self.companies[1].id}, {"password": "UnapprovedPassword123"}):
+                with self.subTest(operation=operation, invalid=tuple(changes)):
+                    response = await self.request("POST", path + suffix, json={**body(operation), **changes})
+                    self.assertEqual(response.status_code, 422, response.text)
+                    self.assertEqual(await self.identity_state(field), before)
+        for password in ("a" * 7, "م" * 7, "a" * 73, "م" * 37, "😀" * 19):
+            with self.subTest(characters=len(password), utf8_bytes=len(password.encode("utf-8"))):
+                response = await self.request("POST", path + "/credentials/reset", json={**body("reset"), "new_password": password})
+                self.assertEqual(response.status_code, 422, response.text)
+                self.assertEqual(await self.identity_state(field), before)
+        for password in ("abcd1234", "م" * 36, "😀" * 18):
+            with self.subTest(valid_utf8_bytes=len(password.encode("utf-8"))):
+                response = await self.request("POST", path + "/credentials/reset", json={**body("reset"), "new_password": password})
+                self.assertEqual(response.status_code, 204, response.text)
+                self.assertEqual(response.content, b"")
+                changed = await self.identity_state(field)
+                self.assertEqual(changed["driver"], before["driver"])
+                self.assertEqual(changed["principal"]["auth_revision"], before["principal"]["auth_revision"] + 1)
+                self.assertTrue(await verify_existing_password(password, changed["principal"]["password_hash"]))
+                before = changed
 
 
 if __name__ == "__main__":

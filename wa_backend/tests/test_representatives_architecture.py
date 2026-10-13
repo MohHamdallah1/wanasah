@@ -1,4 +1,4 @@
-"""Wave 1 ownership gates, without app/DB startup.
+"""Wave 1 and Wave 2 ownership/security gates, without app/DB startup.
 
 The catalog migration gate uses installed Alembic in PostgreSQL offline mode;
 the other source gates need only stdlib unittest.
@@ -58,6 +58,45 @@ def imported_modules(tree, path):
                     module = node.args[0].value
                     level = len(module) - len(module.lstrip("."))
                     yield resolve(module.lstrip("."), level)
+
+
+def reachable_domain_sources(entry):
+    """Follow Representative-owned helpers without freezing private function names."""
+    pending, seen = [entry], set()
+    while pending:
+        path = pending.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        yield path, tree
+        for module in imported_modules(tree, path):
+            while module.startswith("domains.representatives"):
+                candidate = BACKEND.joinpath(*module.split(".")).with_suffix(".py")
+                if candidate.is_file():
+                    pending.append(candidate)
+                    break
+                module = module.rpartition(".")[0]
+
+
+def qualified_calls(tree, path):
+    package = path.parent.relative_to(BACKEND).parts
+    aliases = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            aliases.update({item.asname or item.name.split(".")[0]: item.name if item.asname else item.name.split(".")[0]
+                            for item in node.names})
+        elif isinstance(node, ast.ImportFrom):
+            prefix = package[:len(package) - node.level + 1] if node.level else ()
+            module = ".".join((*prefix, *(node.module or "").split("."))).strip(".")
+            aliases.update({item.asname or item.name: module + "." + item.name for item in node.names})
+    def qualified(node):
+        if isinstance(node, ast.Name):
+            return aliases.get(node.id, node.id)
+        if isinstance(node, ast.Attribute):
+            return qualified(node.value) + "." + node.attr
+        return ""
+    return {qualified(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)}
 
 
 class RepresentativesArchitectureTests(unittest.TestCase):
@@ -159,6 +198,49 @@ class RepresentativesArchitectureTests(unittest.TestCase):
                     if len(node.args) > 1 and isinstance(node.args[1], ast.Constant) and node.args[1].value in PERSONA_FLAGS:
                         violations.append((str(path.relative_to(BACKEND)), node.lineno, node.args[1].value))
         self.assertEqual(violations, [], "Canonical is_company_owner is allowed; generic persona shortcuts are not")
+
+    def test_wave2_delegates_credential_policy_and_session_invalidation_to_identity(self):
+        revoke = "domains.auth_sessions.invalidation.revoke_principal_refresh_sessions"
+        for module in ("lifecycle", "credentials"):
+            calls = set()
+            for path, tree in reachable_domain_sources(BACKEND / f"domains/representatives/{module}.py"):
+                imports = set(imported_modules(tree, path))
+                self.assertFalse(any(value == "bcrypt" or value.startswith("bcrypt.") for value in imports),
+                                 "Representatives must delegate password mechanisms to Identity")
+                calls.update(qualified_calls(tree, path))
+            with self.subTest(module=module):
+                self.assertIn(revoke, calls, "Wave 2 must consume canonical principal/session invalidation")
+                if module == "credentials":
+                    self.assertIn("domains.identity.credentials.hash_company_password", calls)
+
+    def test_canonical_identity_password_policy_enforces_utf8_byte_boundary(self):
+        # Execute the actual pure Identity policy definitions. Keep lazy hashing/
+        # fingerprint bodies but omit imports so validation needs no bcrypt/DB
+        # installation. No policy is reimplemented in the test.
+        path = BACKEND / "domains/identity/credentials.py"
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        definitions = []
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                definitions.append(node)
+            elif isinstance(node, ast.ImportFrom) and node.module == "__future__":
+                definitions.append(node)
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                try:
+                    ast.literal_eval(node.value)
+                except (ValueError, TypeError):
+                    continue
+                definitions.append(node)
+        namespace = {"__name__": "representative_identity_policy_probe"}
+        exec(compile(ast.Module(body=definitions, type_ignores=[]), str(path), "exec"), namespace)
+        validate = namespace["validate_company_password"]  # Public Identity API.
+        for password in ("abcd1234", "a" * 72, "م" * 36, "😀" * 18):
+            with self.subTest(characters=len(password), utf8_bytes=len(password.encode("utf-8"))):
+                self.assertEqual(validate(password), password)
+        for password in ("a" * 7, "م" * 7, "a" * 73, "م" * 37, "😀" * 19):
+            with self.subTest(characters=len(password), utf8_bytes=len(password.encode("utf-8"))):
+                with self.assertRaises(ValueError):
+                    validate(password)
 
     def test_driver_and_dispatch_do_not_implement_representative_crud(self):
         violations = []
