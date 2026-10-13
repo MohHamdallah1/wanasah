@@ -20,7 +20,7 @@ export function useSupplierSearch(active: boolean | null = true) {
     return () => clearTimeout(timer);
   }, [input, active]);
   const query = useQuery({
-    queryKey: ["suppliers", access.data?.company_id, access.data?.driver_id, active, search, cursor],
+    queryKey: ["suppliers", access.data?.company_id, access.data?.backoffice_user_id, active, search, cursor],
     enabled: access.can("supplier.read"), retry: false, staleTime: 0,
     queryFn: async ({ signal }) => {
       const params = new URLSearchParams({ limit: "30" });

@@ -53,7 +53,7 @@ export function useBatchSpecialTransfer({
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const companyId = access.data?.company_id ?? null;
-  const driverId = access.data?.driver_id ?? null;
+  const backofficeUserId = access.data?.backoffice_user_id ?? null;
 
   const run = async (choice: Choice) => {
     if (
@@ -61,7 +61,7 @@ export function useBatchSpecialTransfer({
       productVariantId === null ||
       !isOnline ||
       companyId === null ||
-      driverId === null ||
+      backofficeUserId === null ||
       busyKey !== null
     ) {
       return;
@@ -74,7 +74,7 @@ export function useBatchSpecialTransfer({
     ].join(":");
     const scope = durableScope(
       companyId,
-      driverId,
+      backofficeUserId,
       "batch-special-transfer-v1",
       key,
     );

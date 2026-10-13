@@ -86,12 +86,12 @@ export function useBatchDispositionCommand({
   >(null);
 
   const companyId = access.data?.company_id ?? null;
-  const driverId = access.data?.driver_id ?? null;
+  const backofficeUserId = access.data?.backoffice_user_id ?? null;
   const scope =
-    batch && companyId !== null && driverId !== null
+    batch && companyId !== null && backofficeUserId !== null
       ? durableScope(
           companyId,
-          driverId,
+          backofficeUserId,
           "batch-disposition-v1",
           batch.batch_id,
         )

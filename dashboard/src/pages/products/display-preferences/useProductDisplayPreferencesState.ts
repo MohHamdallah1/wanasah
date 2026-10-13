@@ -22,7 +22,7 @@ export function useProductDisplayPreferencesState() {
           ),
           Number(
             localStorage.getItem(
-              "driver_id"
+              "backoffice_user_id"
             )
           )
         )

@@ -203,7 +203,7 @@ export default function AdvancedUomDashboard() {
   const companyId =
     access.data?.company_id ?? null;
   const driverId =
-    access.data?.driver_id ?? null;
+    access.data?.backoffice_user_id ?? null;
   const canRead =
     access.isCompanyOwner ||
     access.canAny("catalog.read");

@@ -20,7 +20,7 @@ export function useSupplierListSearch(active: boolean | null = true) {
   }, [input]);
 
   const query = useInfiniteQuery({
-    queryKey: ["supplier-list", access.data?.company_id, access.data?.driver_id, active, search, generation],
+    queryKey: ["supplier-list", access.data?.company_id, access.data?.backoffice_user_id, active, search, generation],
     enabled: access.can("supplier.read"),
     retry: false,
     staleTime: 0,

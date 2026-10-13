@@ -9,11 +9,11 @@ export function useQualityBatchCandidates(productVariantId: number | null) {
   const authFetch = useAuthFetch();
   const access = useInventoryAccess();
   const companyId = access.data?.company_id ?? null;
-  const driverId = access.data?.driver_id ?? null;
+  const backofficeUserId = access.data?.backoffice_user_id ?? null;
 
   return useInfiniteQuery({
-    queryKey: ["quality-batch-candidates", companyId, driverId, productVariantId],
-    enabled: productVariantId !== null && companyId !== null && driverId !== null,
+    queryKey: ["quality-batch-candidates", companyId, backofficeUserId, productVariantId],
+    enabled: productVariantId !== null && companyId !== null && backofficeUserId !== null,
     initialPageParam: null as number | null,
     queryFn: async ({ pageParam, signal }) => {
       const params = new URLSearchParams({ limit: "25" });
