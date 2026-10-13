@@ -6,11 +6,10 @@ on:
       - sol/representatives-backend-management
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  validate-and-wire:
-    if: github.event.head_commit.message != 'chore: wire representatives router'
+  validate:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -19,23 +18,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Minimal main router wiring
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('wa_backend/main.py')
-          text = path.read_text(encoding='utf-8')
-          old_import = 'from api import auth, branches, catalog, commercial_policy, driver, dispatch, inventory_stock_policy, offers, pricing, taxation, product_locations, product_tracking, tenant, warehouse, reconciliation, platform_manager, sales_returns, simple_products'
-          new_import = 'from api import auth, branches, catalog, commercial_policy, driver, dispatch, inventory_stock_policy, offers, pricing, taxation, product_locations, product_tracking, tenant, warehouse, reconciliation, platform_manager, representatives, sales_returns, simple_products'
-          if text.count(old_import) != 1:
-              raise SystemExit('representatives main import anchor mismatch')
-          text = text.replace(old_import, new_import, 1)
-          anchor = 'app.include_router(branches.router)\n'
-          if text.count(anchor) != 1:
-              raise SystemExit('representatives router include anchor mismatch')
-          text = text.replace(anchor, anchor + 'app.include_router(representatives.router)\n', 1)
-          path.write_text(text, encoding='utf-8')
-          PY
       - name: Source and compile gates
         run: |
           python -m compileall -q wa_backend/domains/representatives wa_backend/api/representatives wa_backend/domains/authorization/capabilities.py wa_backend/main.py
@@ -46,6 +28,9 @@ jobs:
           owned = '\n'.join(p.read_text() for root in ('wa_backend/domains/representatives','wa_backend/api/representatives') for p in Path(root).glob('*.py'))
           for code in ('representative.read','representative.manage','representative.credentials.reset'):
               assert code in cap
+          company_only = cap.split('COMPANY_ONLY =', 1)[1]
+          for code in ('representative.read','representative.manage','representative.credentials.reset'):
+              assert code in company_only
           assert 'representatives' in main and 'app.include_router(representatives.router)' in main
           for forbidden in ('is_admin', 'InventoryAccess', 'subject_from_legacy_driver'):
               assert forbidden not in owned, forbidden
@@ -53,6 +38,7 @@ jobs:
           assert 'access.company_id' in Path('wa_backend/api/representatives/management.py').read_text()
           assert '@router.post' not in Path('wa_backend/api/representatives/lifecycle.py').read_text()
           assert '@router.post' not in Path('wa_backend/api/representatives/credentials.py').read_text()
+          assert 'password_hash' not in Path('wa_backend/api/representatives/schemas.py').read_text()
           print('REPRESENTATIVES_SOURCE_GATE=PASS')
           PY
       - name: Install backend dependencies
@@ -71,28 +57,40 @@ jobs:
             tests/test_canonical_field_runtime_compatibility.py \
             tests/test_identity_login_legacy_compatibility.py \
             tests/test_login_is_admin_retirement_contract.py
-      - name: Import smoke
+      - name: Representative import and contract smoke
         working-directory: wa_backend
         env:
           ENVIRONMENT: development
         run: |
           python - <<'PY'
+          from decimal import Decimal
           from api.representatives import router
-          from domains.representatives import list_representatives, create_representative
-          paths = sorted({route.path for route in router.routes})
-          assert '/representatives' in paths
-          assert '/representatives/{representative_id}' in paths
-          print('REPRESENTATIVE_ROUTES=' + ','.join(paths))
+          from api.representatives.schemas import RepresentativeCreateRequest, RepresentativeUpdateRequest
+          from domains.authorization.capabilities import COMPANY_ONLY, PERMISSIONS
+          paths = {(route.path, tuple(sorted(route.methods or []))) for route in router.routes}
+          assert ('/representatives', ('GET',)) in paths
+          assert ('/representatives', ('POST',)) in paths
+          assert ('/representatives/{representative_id}', ('GET',)) in paths
+          assert ('/representatives/{representative_id}', ('PATCH',)) in paths
+          assert {c for c in PERMISSIONS if c.startswith('representative.')} == {
+              'representative.read','representative.manage','representative.credentials.reset'
+          }
+          assert {'representative.read','representative.manage','representative.credentials.reset'} <= COMPANY_ONLY
+          req = RepresentativeCreateRequest(request_id='11111111-1111-1111-1111-111111111111', full_name=' Rep ', username=' rep ', password='password1', max_debt_limit=Decimal('12.345'))
+          assert req.full_name == 'Rep' and req.username == 'rep'
+          patch = RepresentativeUpdateRequest(request_id='22222222-2222-2222-2222-222222222222', phone_number='   ')
+          assert patch.phone_number is None
+          print('REPRESENTATIVE_CONTRACT_SMOKE=PASS')
           PY
-      - name: Diff check
+      - name: Scope and diff check
         run: |
           git diff --check
-          changed="$(git diff --name-only)"
-          test "$changed" = "wa_backend/main.py"
-      - name: Commit minimal wiring
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add wa_backend/main.py
-          git commit -m 'chore: wire representatives router'
-          git push origin HEAD:sol/representatives-backend-management
+          python - <<'PY'
+          import subprocess
+          allowed_prefixes = ('wa_backend/domains/representatives/','wa_backend/api/representatives/')
+          allowed_exact = {'wa_backend/domains/authorization/capabilities.py','wa_backend/main.py','.github/workflows/temp-representatives-wave1.yml'}
+          files = subprocess.check_output(['git','diff','--name-only','dea4df8fda1cec099add91d5ebe1ec6cce31cc61...HEAD'], text=True).splitlines()
+          bad = [p for p in files if p not in allowed_exact and not p.startswith(allowed_prefixes)]
+          assert not bad, bad
+          print('BRANCH_SCOPE_GATE=PASS')
+          PY
