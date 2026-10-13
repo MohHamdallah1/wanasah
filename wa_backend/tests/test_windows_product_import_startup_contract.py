@@ -83,10 +83,10 @@ class ProcessOwnershipContractTests(unittest.TestCase):
         self.assertIn("DATABASE_URL", env_source)
         self.assertIn("no alembic.ini database fallback is permitted", env_source)
 
-    def test_runtime_dependencies_are_explicitly_pinned(self) -> None:
+    def test_alembic_runtime_dependency_is_explicit(self) -> None:
         requirements = (BACKEND / "requirements.txt").read_text(encoding="utf-8")
-        self.assertIn("psycopg-pool==3.2.8", requirements)
         self.assertIn("alembic==1.18.4", requirements)
+        self.assertNotIn("psycopg-pool==3.2.8", requirements)
 
 
 if __name__ == "__main__":
