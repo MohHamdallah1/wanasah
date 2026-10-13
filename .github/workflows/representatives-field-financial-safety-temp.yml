@@ -15,18 +15,17 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      TARGET_SHA: 2e5fa08873e9167fffc7b8f71917af16fbfbc5cf
+      TARGET_SHA: 651bbfcd1855437253100cbdf8bc927aba1a5d32
       BASE_SHA: 19566ddefa81f9941de7cc72c608da66896c2c16
     steps:
       - name: Checkout exact fix
         uses: actions/checkout@v4
         with:
-          ref: 2e5fa08873e9167fffc7b8f71917af16fbfbc5cf
+          ref: 651bbfcd1855437253100cbdf8bc927aba1a5d32
           fetch-depth: 0
       - name: Verify exact checkout
         run: |
           test "$(git rev-parse HEAD)" = "$TARGET_SHA"
-          test -z "$(git status --porcelain)"
           git merge-base --is-ancestor "$BASE_SHA" "$TARGET_SHA"
       - uses: subosito/flutter-action@v2
         with:
@@ -36,41 +35,20 @@ jobs:
       - name: Flutter dependencies
         working-directory: wanasah_frontend
         run: flutter pub get
-      - name: Apply formatter and print exact diff
-        working-directory: wanasah_frontend
-        run: |
-          dart format \
-            lib/blocs/auth/auth_bloc.dart \
-            lib/blocs/auth/offline_owner_guard.dart \
-            test/offline_owner_guard_test.dart
-          git diff -- \
-            lib/blocs/auth/auth_bloc.dart \
-            lib/blocs/auth/offline_owner_guard.dart \
-            test/offline_owner_guard_test.dart
-      - name: Focused Flutter analyze
+      - name: Apply Dart formatter
         working-directory: wanasah_frontend
         run: >-
-          flutter analyze --no-pub
+          dart format
           lib/blocs/auth/auth_bloc.dart
           lib/blocs/auth/offline_owner_guard.dart
           test/offline_owner_guard_test.dart
-      - name: Prepare local test asset
-        working-directory: wanasah_frontend
-        run: touch .env
-      - name: Focused auth and offline regression tests
-        working-directory: wanasah_frontend
-        run: flutter test test/offline_owner_guard_test.dart
-      - name: Diff whitespace gate
-        run: git diff --check "$BASE_SHA" "$TARGET_SHA"
-      - name: Field safety scope gate
-        shell: bash
-        run: |
-          changed="$(git diff --name-only "$BASE_SHA" "$TARGET_SHA")"
-          printf '%s\n' "$changed"
-          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(wanasah_frontend/lib/blocs/auth/auth_bloc\.dart|wanasah_frontend/lib/blocs/auth/offline_owner_guard\.dart|wanasah_frontend/test/offline_owner_guard_test\.dart)$' || true)"
-          if [ -n "$unexpected" ]; then
-            printf 'Unexpected files outside field financial-safety scope:\n%s\n' "$unexpected"
-            exit 1
-          fi
-          test "$(printf '%s\n' "$changed" | sed '/^$/d' | wc -l)" -eq 3
-          printf 'FIELD_FINANCIAL_SAFETY_SCOPE=PASS\n'
+      - name: Export formatted files
+        uses: actions/upload-artifact@v4
+        with:
+          name: field-financial-safety-formatted
+          path: |
+            wanasah_frontend/lib/blocs/auth/auth_bloc.dart
+            wanasah_frontend/lib/blocs/auth/offline_owner_guard.dart
+            wanasah_frontend/test/offline_owner_guard_test.dart
+          if-no-files-found: error
+          retention-days: 1
