@@ -177,4 +177,23 @@ describe("RepresentativeForm", () => {
     expect(onSubmit.mock.calls[0]?.[1]).toBe(requestUuid);
     expect(onSubmit.mock.calls[1]?.[1]).toBe(requestUuid);
   });
+
+  it("retains the operation id across normalized retries but replaces it for a changed password", async () => {
+    const nextUuid = "33333333-3333-4333-8333-333333333333";
+    vi.mocked(crypto.randomUUID).mockReturnValueOnce(requestUuid).mockReturnValue(nextUuid);
+    const onSubmit = vi.fn();
+    const { container } = render(<RepresentativeForm onCancel={() => undefined} onSubmit={onSubmit} />);
+    fireEvent.change(screen.getByLabelText("representativesVehicles.representatives.fields.name"), { target: { value: "Ahmad" } });
+    fireEvent.change(screen.getByLabelText("representativesVehicles.representatives.fields.username"), { target: { value: "rep17" } });
+    fireEvent.change(screen.getByLabelText("representativesVehicles.representatives.fields.password"), { target: { value: "password8" } });
+    fireEvent.submit(container.querySelector("form")!);
+    fireEvent.change(screen.getByLabelText("representativesVehicles.representatives.fields.name"), { target: { value: " Ahmad " } });
+    fireEvent.submit(container.querySelector("form")!);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
+    expect(onSubmit.mock.calls[1]).toEqual(onSubmit.mock.calls[0]);
+    fireEvent.change(screen.getByLabelText("representativesVehicles.representatives.fields.password"), { target: { value: "different8" } });
+    fireEvent.submit(container.querySelector("form")!);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(3));
+    expect(onSubmit.mock.calls[2]?.[1]).not.toBe(requestUuid);
+  });
 });

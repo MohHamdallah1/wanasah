@@ -60,7 +60,7 @@ export function RepresentativeDrawer({
     setBusy(true);
     try {
       const updated = await updateRepresentative(authFetch, current.id, input, requestId);
-      queryClient.setQueryData(["representative-detail", current.id], updated);
+      queryClient.setQueryData(detail.cacheKey, updated);
       await queryClient.invalidateQueries({ queryKey: ["representatives"] });
       toast.success(t("representativesVehicles.representatives.updateSuccess"));
       setEditing(false);

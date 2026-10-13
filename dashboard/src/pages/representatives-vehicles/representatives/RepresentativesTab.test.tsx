@@ -23,7 +23,7 @@ vi.mock("@/hooks/useInventoryAccess", () => ({
 }));
 vi.mock("@/lib/apiErrors", () => ({ apiErrorMessage: () => "load-error" }));
 vi.mock("./api", () => ({ createRepresentative: vi.fn() }));
-vi.mock("./representativeErrorMessage", () => ({ representativeErrorMessage: () => "save-error" }));
+vi.mock("./representativeErrorMessage", () => ({ representativeErrorMessage: () => "load-error" }));
 vi.mock("./useRepresentatives", () => ({ useRepresentatives: mocks.useRepresentatives }));
 vi.mock("./useRepresentativeInfiniteScroll", () => ({
   useRepresentativeInfiniteScroll: (options: unknown) => {

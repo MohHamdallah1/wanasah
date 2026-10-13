@@ -7,7 +7,6 @@ import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
-import { apiErrorMessage } from "@/lib/apiErrors";
 import { createRepresentative } from "./api";
 import type { CreateRepresentativeInput, Representative, RepresentativeStatusFilter } from "./contracts";
 import { RepresentativeDrawer } from "./RepresentativeDrawer";
@@ -147,7 +146,7 @@ export function RepresentativesTab() {
           <div className="grid flex-1 place-items-center p-6 text-center" role="alert">
             <div className="max-w-md">
               <AlertTriangle className="mx-auto h-7 w-7 text-rose-500" />
-              <p className="mt-3 text-sm font-bold text-rose-700">{apiErrorMessage(representatives.query.error, t("representativesVehicles.representatives.loadFailed"))}</p>
+              <p className="mt-3 text-sm font-bold text-rose-700">{representativeErrorMessage(representatives.query.error, t("representativesVehicles.representatives.loadFailed"))}</p>
               <button type="button" onClick={() => void representatives.query.refetch()} className="mt-3 rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white">{t("common.retry")}</button>
             </div>
           </div>
@@ -172,7 +171,7 @@ export function RepresentativesTab() {
                 ) : hasRetainedDataError ? (
                   <div role="alert" className="flex flex-col items-center justify-center gap-2 py-2 sm:flex-row">
                     <span className="text-xs font-bold text-rose-700">
-                      {apiErrorMessage(representatives.query.error, t("representativesVehicles.representatives.loadFailed"))}
+                      {representativeErrorMessage(representatives.query.error, t("representativesVehicles.representatives.loadFailed"))}
                     </span>
                     <button
                       type="button"

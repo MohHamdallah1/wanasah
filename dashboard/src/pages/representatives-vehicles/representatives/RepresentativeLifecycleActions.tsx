@@ -26,36 +26,46 @@ export function RepresentativeLifecycleActions({
   const queryClient = useQueryClient();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const requestId = useRef<string | null>(null);
+  const command = useRef<{
+    representativeId: number;
+    fullName: string;
+    action: "deactivate" | "reactivate";
+    requestId: string;
+  } | null>(null);
 
   const openConfirm = () => {
     if (!allowed) return;
-    requestId.current = crypto.randomUUID();
+    command.current = {
+      representativeId: representative.id,
+      fullName: representative.full_name,
+      action: representative.is_active ? "deactivate" : "reactivate",
+      requestId: crypto.randomUUID(),
+    };
     setConfirmOpen(true);
   };
 
   const closeConfirm = () => {
     if (busy) return;
-    requestId.current = null;
+    command.current = null;
     setConfirmOpen(false);
   };
 
   const run = async () => {
-    const operationId = requestId.current ?? crypto.randomUUID();
-    requestId.current = operationId;
+    const pending = command.current;
+    if (!pending) return;
     setBusy(true);
     try {
-      if (representative.is_active) {
-        await deactivateRepresentative(authFetch, representative.id, operationId);
+      if (pending.action === "deactivate") {
+        await deactivateRepresentative(authFetch, pending.representativeId, pending.requestId);
       } else {
-        await reactivateRepresentative(authFetch, representative.id, operationId);
+        await reactivateRepresentative(authFetch, pending.representativeId, pending.requestId);
       }
-      requestId.current = null;
       await queryClient.invalidateQueries({ queryKey: ["representatives"] });
-      toast.success(t(representative.is_active
+      toast.success(t(pending.action === "deactivate"
         ? "representativesVehicles.representatives.lifecycle.successDeactivate"
         : "representativesVehicles.representatives.lifecycle.successReactivate"));
       setConfirmOpen(false);
+      command.current = null;
       onChanged?.();
     } catch (error) {
       toast.error(
@@ -103,9 +113,9 @@ export function RepresentativeLifecycleActions({
         }
       >
         <p className="text-sm font-semibold leading-7 text-slate-600">
-          {t(representative.is_active
+          {t(command.current?.action === "deactivate"
             ? "representativesVehicles.representatives.lifecycle.deactivateConfirm"
-            : "representativesVehicles.representatives.lifecycle.reactivateConfirm", { name: representative.full_name })}
+            : "representativesVehicles.representatives.lifecycle.reactivateConfirm", { name: command.current?.fullName })}
         </p>
       </Modal>
     </section>

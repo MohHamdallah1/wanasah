@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { KeyRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -6,6 +6,16 @@ import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { resetRepresentativeCredentials } from "./api";
+import { apiErrorCode } from "@/lib/apiErrors";
+import {
+  clearCredentialResetRecovery,
+  CredentialResetRecoveryUnavailable,
+  hasCredentialResetRecovery,
+  prepareCredentialReset,
+  resetValidationProvesNoExecution,
+  startNewCredentialReset,
+  type CredentialResetAttempt,
+} from "./credentialResetRecovery";
 import type { Representative } from "./contracts";
 import { isRepresentativePasswordValid } from "./passwordPolicy";
 import { representativeErrorMessage } from "./representativeErrorMessage";
@@ -26,10 +36,12 @@ export function RepresentativeCredentialAction({
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [validation, setValidation] = useState("");
-  const requestId = useRef<string | null>(null);
+  const [recovering, setRecovering] = useState(false);
+  const [recoveryConflict, setRecoveryConflict] = useState(false);
 
   const resetFields = () => {
-    requestId.current = null;
+    setRecovering(false);
+    setRecoveryConflict(false);
     setPassword("");
     setConfirmPassword("");
     setValidation("");
@@ -41,9 +53,26 @@ export function RepresentativeCredentialAction({
     resetFields();
   };
 
-  const requestIdForPassword = () => {
-    if (!requestId.current) requestId.current = crypto.randomUUID();
-    return requestId.current;
+  const openReset = () => {
+    if (!allowed) return;
+    resetFields();
+    try {
+      setRecovering(hasCredentialResetRecovery(representative.id));
+    } catch {
+      setValidation(t("representativesVehicles.representatives.credentials.recoveryUnavailable"));
+    }
+    setOpen(true);
+  };
+
+  const startNew = () => {
+    try {
+      startNewCredentialReset(representative.id);
+      setRecovering(false);
+      setRecoveryConflict(false);
+      setValidation("");
+    } catch {
+      setValidation(t("representativesVehicles.representatives.credentials.recoveryUnavailable"));
+    }
   };
 
   const run = async () => {
@@ -58,22 +87,43 @@ export function RepresentativeCredentialAction({
 
     setValidation("");
     setBusy(true);
+    let attempt: CredentialResetAttempt | undefined;
     try {
+      attempt = prepareCredentialReset(representative.id);
       await resetRepresentativeCredentials(
         authFetch,
         representative.id,
         password,
-        requestIdForPassword(),
+        attempt.requestId,
       );
+      clearCredentialResetRecovery(attempt);
       toast.success(t("representativesVehicles.representatives.credentials.success"));
       setOpen(false);
       resetFields();
     } catch (error) {
+      let failure = error;
+      let pending = Boolean(attempt);
+      // A rejected retry does not establish what happened to the earlier send.
+      if (attempt && !attempt.recovered && resetValidationProvesNoExecution(error)) {
+        try {
+          clearCredentialResetRecovery(attempt);
+          pending = false;
+        } catch (storageError) {
+          failure = storageError;
+        }
+      }
+      setRecovering(pending);
+      const conflict = apiErrorCode(error) === "REPRESENTATIVE_IDEMPOTENCY_CONFLICT";
+      setRecoveryConflict(conflict);
       toast.error(
-        representativeErrorMessage(
-          error,
-          t("representativesVehicles.representatives.credentials.failed"),
-        ),
+        failure instanceof CredentialResetRecoveryUnavailable
+          ? t("representativesVehicles.representatives.credentials.recoveryUnavailable")
+          : conflict
+            ? t("representativesVehicles.representatives.credentials.recoveryConflict")
+            : representativeErrorMessage(
+                failure,
+                t("representativesVehicles.representatives.credentials.failed"),
+              ),
       );
     } finally {
       setBusy(false);
@@ -89,7 +139,7 @@ export function RepresentativeCredentialAction({
       <button
         type="button"
         disabled={!allowed}
-        onClick={() => allowed && setOpen(true)}
+        onClick={openReset}
         aria-describedby={!allowed ? "representative-credentials-blocked" : undefined}
         className="mt-2 inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
       >
@@ -117,12 +167,19 @@ export function RepresentativeCredentialAction({
           <p className="text-sm font-semibold leading-6 text-slate-600">{representative.full_name}</p>
           <div className="space-y-1.5">
             <label htmlFor="representative-new-password" className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.newPassword")}</label>
-            <input id="representative-new-password" autoFocus type="password" minLength={8} maxLength={72} value={password} onChange={(event) => { requestId.current = null; setValidation(""); setPassword(event.target.value); }} className={inputClass} autoComplete="new-password" />
+            <input id="representative-new-password" autoFocus type="password" minLength={8} maxLength={72} value={password} onChange={(event) => { setValidation(""); setPassword(event.target.value); }} className={inputClass} autoComplete="new-password" />
           </div>
           <div className="space-y-1.5">
             <label htmlFor="representative-confirm-password" className="text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.confirmPassword")}</label>
             <input id="representative-confirm-password" type="password" minLength={8} maxLength={72} value={confirmPassword} onChange={(event) => { setValidation(""); setConfirmPassword(event.target.value); }} className={inputClass} autoComplete="new-password" />
           </div>
+          {recovering && !recoveryConflict ? <p className="text-xs font-semibold text-slate-600">{t("representativesVehicles.representatives.credentials.recoveryPending")}</p> : null}
+          {recoveryConflict ? (
+            <div role="alert" className="space-y-2">
+              <p className="text-xs font-semibold text-rose-700">{t("representativesVehicles.representatives.credentials.recoveryConflict")}</p>
+              <button type="button" disabled={busy} onClick={startNew} className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:opacity-50">{t("representativesVehicles.representatives.credentials.startNew")}</button>
+            </div>
+          ) : null}
           {validation ? <p role="alert" className="text-xs font-bold text-rose-700">{validation}</p> : null}
         </div>
       </Modal>

@@ -20,7 +20,7 @@ export function useRepresentatives() {
   }, [input]);
 
   const query = useInfiniteQuery({
-    queryKey: ["representatives", search, status],
+    queryKey: ["representatives", localStorage.getItem("company_id"), localStorage.getItem("principal_id"), search, status],
     initialPageParam: null as string | null,
     queryFn: ({ signal, pageParam }) =>
       listRepresentatives(authFetch, {
