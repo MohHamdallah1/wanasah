@@ -12,7 +12,8 @@ jobs:
   validate:
     runs-on: ubuntu-24.04
     env:
-      SECRET_KEY: representatives-wave1-test-secret-key-0123456789abcdef0123456789abcdef
+      SECRET_KEY: RepresentativesWave1TestSecretKey0123456789abcdefABCDEF
+      DATABASE_URL: postgresql+asyncpg://wanasah_test:wanasah_test@127.0.0.1:5432/wanasah_test
     steps:
       - uses: actions/checkout@v4
         with:
