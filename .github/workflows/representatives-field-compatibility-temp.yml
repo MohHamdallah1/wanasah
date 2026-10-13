@@ -32,13 +32,13 @@ jobs:
       DATABASE_URL_MIGRATION: postgresql+asyncpg://postgres@127.0.0.1:5432/representatives_contract_gate
       WANASAH_REPRESENTATIVES_CONTRACT_DB_URL: postgresql+asyncpg://postgres@127.0.0.1:5432/representatives_contract_gate
       PYTHONPATH: .:tests
-      TARGET_SHA: 947e9082a7f3ef214baea7b76b188e8b9136a5ef
+      TARGET_SHA: 5d83c5a3f21c49121167b175571892d4fd9ff0c3
       BASE_SHA: b9c18ade8d62c5b23349f2d4c030840940e05cf7
     steps:
       - name: Checkout exact production-fix code
         uses: actions/checkout@v4
         with:
-          ref: 947e9082a7f3ef214baea7b76b188e8b9136a5ef
+          ref: 5d83c5a3f21c49121167b175571892d4fd9ff0c3
           fetch-depth: 0
       - name: Verify exact checkout
         run: |
@@ -77,13 +77,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      TARGET_SHA: 947e9082a7f3ef214baea7b76b188e8b9136a5ef
+      TARGET_SHA: 5d83c5a3f21c49121167b175571892d4fd9ff0c3
       BASE_SHA: b9c18ade8d62c5b23349f2d4c030840940e05cf7
     steps:
       - name: Checkout exact production-fix code
         uses: actions/checkout@v4
         with:
-          ref: 947e9082a7f3ef214baea7b76b188e8b9136a5ef
+          ref: 5d83c5a3f21c49121167b175571892d4fd9ff0c3
           fetch-depth: 0
       - name: Verify exact checkout
         run: |
@@ -100,11 +100,11 @@ jobs:
         run: flutter pub get
       - name: Formatting gate
         working-directory: wanasah_frontend
-        shell: bash
-        run: |
-          dart format lib/blocs/auth/auth_bloc.dart lib/blocs/auth/offline_owner_guard.dart test/offline_owner_guard_test.dart
-          git diff -- lib/blocs/auth/auth_bloc.dart lib/blocs/auth/offline_owner_guard.dart test/offline_owner_guard_test.dart
-          git diff --exit-code -- lib/blocs/auth/auth_bloc.dart lib/blocs/auth/offline_owner_guard.dart test/offline_owner_guard_test.dart
+        run: >-
+          dart format --output=none --set-exit-if-changed
+          lib/blocs/auth/auth_bloc.dart
+          lib/blocs/auth/offline_owner_guard.dart
+          test/offline_owner_guard_test.dart
       - name: Focused Flutter analyze
         working-directory: wanasah_frontend
         run: >-
@@ -120,12 +120,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
-      TARGET_SHA: 947e9082a7f3ef214baea7b76b188e8b9136a5ef
+      TARGET_SHA: 5d83c5a3f21c49121167b175571892d4fd9ff0c3
       BASE_SHA: b9c18ade8d62c5b23349f2d4c030840940e05cf7
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 947e9082a7f3ef214baea7b76b188e8b9136a5ef
+          ref: 5d83c5a3f21c49121167b175571892d4fd9ff0c3
           fetch-depth: 0
       - name: Diff whitespace gate
         run: git diff --check "$BASE_SHA" "$TARGET_SHA"
@@ -134,7 +134,7 @@ jobs:
         run: |
           changed="$(git diff --name-only "$BASE_SHA" "$TARGET_SHA")"
           printf '%s\n' "$changed"
-          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(wanasah_frontend/lib/blocs/auth/auth_bloc\.dart|wanasah_frontend/lib/blocs/auth/offline_owner_guard\.dart|wanasah_frontend/test/offline_owner_guard_test\.dart)$' || true)"
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(wanasah_frontend/lib/blocs/auth/auth_bloc\.dart|wanasah_frontend/lib/blocs/auth/offline_owner_guard\.dart|wanasah_frontend/test/offline_owner_guard_test\.dart|\.github/workflows/representatives-field-compatibility-temp\.yml)$' || true)"
           if [ -n "$unexpected" ]; then
             printf 'Unexpected files outside field compatibility scope:\n%s\n' "$unexpected"
             exit 1
