@@ -11,6 +11,7 @@ import { apiErrorMessage } from "@/lib/apiErrors";
 import { createRepresentative } from "./api";
 import type { CreateRepresentativeInput, Representative, RepresentativeStatusFilter } from "./contracts";
 import { RepresentativeDrawer } from "./RepresentativeDrawer";
+import { representativeErrorMessage } from "./representativeErrorMessage";
 import { RepresentativeForm } from "./RepresentativeForm";
 import { RepresentativeTable } from "./RepresentativeTable";
 import { useRepresentativeInfiniteScroll } from "./useRepresentativeInfiniteScroll";
@@ -34,9 +35,12 @@ export function RepresentativesTab() {
   const canResetCredentials = Boolean(
     access.isCompanyOwner || access.can("representative.credentials.reset"),
   );
+  const hasLoadedRows = representatives.items.length > 0;
+  const hasCursorPageError = Boolean(representatives.query.isFetchNextPageError);
+  const hasRetainedDataError = representatives.query.isError && hasLoadedRows;
 
   const infiniteScroll = useRepresentativeInfiniteScroll({
-    hasMore: Boolean(representatives.query.hasNextPage),
+    hasMore: Boolean(representatives.query.hasNextPage) && !hasCursorPageError,
     isFetchingNextPage: representatives.query.isFetchingNextPage,
     onLoadMore: representatives.query.fetchNextPage,
   });
@@ -54,10 +58,23 @@ export function RepresentativesTab() {
       toast.success(t("representativesVehicles.representatives.createSuccess"));
       setCreateOpen(false);
     } catch (error) {
-      toast.error(apiErrorMessage(error, t("representativesVehicles.representatives.saveFailed")));
+      toast.error(
+        representativeErrorMessage(
+          error,
+          t("representativesVehicles.representatives.saveFailed"),
+        ),
+      );
     } finally {
       setCreating(false);
     }
+  };
+
+  const retryRetainedData = () => {
+    if (hasCursorPageError && representatives.query.hasNextPage) {
+      void representatives.query.fetchNextPage();
+      return;
+    }
+    void representatives.query.refetch();
   };
 
   const searchNeedsMore = representatives.input.trim().length === 1;
@@ -126,7 +143,7 @@ export function RepresentativesTab() {
       ) : null}
 
       <div className="flex min-h-[320px] flex-1 flex-col overflow-hidden rounded-[26px] border border-white/85 bg-white/70 shadow-[0_22px_65px_-46px_rgba(15,23,42,0.65)] backdrop-blur-2xl">
-        {representatives.query.isError ? (
+        {representatives.query.isError && !hasLoadedRows ? (
           <div className="grid flex-1 place-items-center p-6 text-center" role="alert">
             <div className="max-w-md">
               <AlertTriangle className="mx-auto h-7 w-7 text-rose-500" />
@@ -145,13 +162,26 @@ export function RepresentativesTab() {
         ) : (
           <div className="min-h-0 flex-1 overflow-auto">
             <RepresentativeTable items={representatives.items} loading={representatives.query.isFetching && representatives.items.length === 0} onOpen={setSelected} />
-            {representatives.query.hasNextPage || representatives.query.isFetchingNextPage ? (
+            {representatives.query.hasNextPage || representatives.query.isFetchingNextPage || hasRetainedDataError ? (
               <div className="border-t border-slate-100 p-2 text-center">
                 <div ref={infiniteScroll.sentinelRef} className="h-px w-full" aria-hidden="true" />
                 {representatives.query.isFetchingNextPage ? (
                   <p role="status" className="py-2 text-xs font-bold text-slate-500">
                     {t("representativesVehicles.representatives.loadingMore")}
                   </p>
+                ) : hasRetainedDataError ? (
+                  <div role="alert" className="flex flex-col items-center justify-center gap-2 py-2 sm:flex-row">
+                    <span className="text-xs font-bold text-rose-700">
+                      {apiErrorMessage(representatives.query.error, t("representativesVehicles.representatives.loadFailed"))}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={retryRetainedData}
+                      className="h-9 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                    >
+                      {t("common.retry")}
+                    </button>
+                  </div>
                 ) : infiniteScroll.manualFallback && representatives.query.hasNextPage ? (
                   <button type="button" onClick={() => void representatives.query.fetchNextPage()} className="h-9 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
                     {t("representativesVehicles.representatives.loadMore")}
