@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Settings,
   Truck,
+  UsersRound,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -54,6 +55,11 @@ const navItems = [
     path: "/inventory",
   },
   { labelKey: "suppliers.title", icon: Truck, path: "/suppliers" },
+  {
+    labelKey: "representativesVehicles.title",
+    icon: UsersRound,
+    path: "/representatives-vehicles",
+  },
   {
     labelKey: "nav.products",
     icon: PackagePlus,
@@ -151,6 +157,7 @@ export function OperationsSidebar({
       item.path === "/inventory" ||
       item.path === "/products" ||
       item.path === "/suppliers" ||
+      item.path === "/representatives-vehicles" ||
       item.path === "/commercial-rules" ||
       item.path === "/sales-returns"
     ) {
@@ -400,6 +407,8 @@ export function OperationsSidebar({
               (item) =>
                 access.isCompanyOwner ||
                 (item.path === "/suppliers" && access.can("supplier.read")) ||
+                (item.path === "/representatives-vehicles" &&
+                  access.can("representative.read")) ||
                 item.path ===
                   "/inventory" ||
                 (item.path ===
