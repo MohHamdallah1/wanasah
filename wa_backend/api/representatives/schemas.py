@@ -115,9 +115,20 @@ class RepresentativeUpdateRequest(StrictModel):
         return self
 
 
+class RepresentativeLifecycleRequest(StrictModel):
+    request_id: UUID
+
+
+class RepresentativeCredentialResetRequest(StrictModel):
+    request_id: UUID
+    new_password: str = Field(min_length=8, max_length=72)
+
+
 __all__ = [
     "RepresentativeCreateRequest",
+    "RepresentativeCredentialResetRequest",
     "RepresentativeCursorPage",
+    "RepresentativeLifecycleRequest",
     "RepresentativeResponse",
     "RepresentativeUpdateRequest",
 ]
