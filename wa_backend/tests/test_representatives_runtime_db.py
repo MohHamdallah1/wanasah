@@ -589,7 +589,6 @@ async def test_database_backed_deactivation_blocker_matrix(gate):
     company = gate.companies[0]
     location = gate.locations[0]
     other_location = gate.locations[1]
-    zone = gate.zones[0]
     owner_driver_id = gate.owners[0].driver_id
 
     rep, _ = await create_rep(gate)
@@ -602,10 +601,16 @@ async def test_database_backed_deactivation_blocker_matrix(gate):
     for status in ("active", "waiting", "postponed"):
         rep, _ = await create_rep(gate)
         state = await identity_state(gate, company.id, rep["id"])
-        async with AsyncSession(gate.engine) as db:
+        async with AsyncSession(gate.engine, expire_on_commit=False) as db:
+            route_zone = Zone(
+                company_id=company.id,
+                name=f"Gate Route Zone {status} {uuid4().hex[:8]}",
+            )
+            db.add(route_zone)
+            await db.flush()
             db.add(DispatchRoute(
                 company_id=company.id,
-                zone_id=zone.id,
+                zone_id=route_zone.id,
                 driver_id=state.driver_id,
                 source_location_id=location.id,
                 status=status,
