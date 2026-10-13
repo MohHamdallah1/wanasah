@@ -135,6 +135,12 @@ const parsePermissionCatalog = (raw: unknown): PermissionCatalog => {
   };
 };
 
+const REPRESENTATIVE_PERMISSION_LABEL_KEYS: Record<string, string> = {
+  'representative.read': 'representativesVehicles.representatives.permissionCatalog.read',
+  'representative.manage': 'representativesVehicles.representatives.permissionCatalog.manage',
+  'representative.credentials.reset': 'representativesVehicles.representatives.permissionCatalog.credentialsReset',
+};
+
 const LABELS: Record<string, string> = {
   'location.read': 'رؤية الموقع', 'location.create': 'إنشاء مستودع',
   'location.update': 'تعديل مستودع', 'location.state': 'تفعيل وإيقاف مستودع',
@@ -223,7 +229,7 @@ export function TabInventoryAccess() {
         <div className="inventory-permission-grid">
           {catalog.data?.permissions.map(code=><label key={code} className="inventory-permission-option">
             <input type="checkbox" checked={codes.includes(code)} onChange={e=>setCodes(old=>e.target.checked?[...old,code]:old.filter(c=>c!==code))}/>
-            <span>{code === 'supplier.read' ? t('suppliers.permissions.read') : code === 'supplier.manage' ? t('suppliers.permissions.manage') : LABELS[code] || code}{catalog.data.company_only.includes(code) ? <small>{t('suppliers.permissions.companyOnly')}</small> : null}</span>
+            <span>{REPRESENTATIVE_PERMISSION_LABEL_KEYS[code] ? t(REPRESENTATIVE_PERMISSION_LABEL_KEYS[code]) : code === 'supplier.read' ? t('suppliers.permissions.read') : code === 'supplier.manage' ? t('suppliers.permissions.manage') : LABELS[code] || code}{catalog.data.company_only.includes(code) ? <small>{t('suppliers.permissions.companyOnly')}</small> : null}</span>
           </label>)}
         </div>
 

@@ -44,6 +44,11 @@ export const representativesVehicles = {
         manageRequired: "يمكنك عرض بيانات المندوبين، لكن حسابك لا يملك صلاحية إدارتهم.",
         credentialsRequired: "حسابك لا يملك صلاحية تغيير بيانات دخول المندوب.",
       },
+      permissionCatalog: {
+        read: "عرض بيانات المندوبين",
+        manage: "إدارة المندوبين",
+        credentialsReset: "إعادة تعيين كلمات مرور المندوبين",
+      },
       fields: {
         name: "اسم المندوب",
         username: "اسم المستخدم",
@@ -139,6 +144,11 @@ export const representativesVehicles = {
       permissions: {
         manageRequired: "You can view representatives, but your account cannot manage them.",
         credentialsRequired: "Your account cannot change representative sign-in access.",
+      },
+      permissionCatalog: {
+        read: "View representatives",
+        manage: "Manage representatives",
+        credentialsReset: "Reset representative passwords",
       },
       fields: {
         name: "Representative name",
