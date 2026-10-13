@@ -39,6 +39,11 @@ export function RepresentativeDrawer({
   if (!representative) return null;
 
   const current = detail.data;
+  const detailDescription = current?.full_name ?? t(
+    detail.isError
+      ? "representativesVehicles.representatives.detailFailed"
+      : "representativesVehicles.representatives.detailLoading",
+  );
 
   const stopEditing = () => {
     if (busy) return;
@@ -77,7 +82,7 @@ export function RepresentativeDrawer({
       <SheetContent side={i18n.dir() === "rtl" ? "right" : "left"} className="w-[min(94vw,430px)] overflow-y-auto border-slate-200 bg-white p-5 sm:max-w-[430px]">
         <SheetHeader className="pe-8 text-start">
           <SheetTitle className="text-lg font-black text-slate-900">{t("representativesVehicles.representatives.details")}</SheetTitle>
-          <SheetDescription>{current?.full_name ?? representative.full_name}</SheetDescription>
+          <SheetDescription>{detailDescription}</SheetDescription>
         </SheetHeader>
 
         <div className="mt-5 space-y-4">
