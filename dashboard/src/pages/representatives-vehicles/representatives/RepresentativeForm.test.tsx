@@ -7,6 +7,7 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
+import { representativesVehicles } from "../../../i18n/representativesVehicles";
 import { RepresentativeForm } from "./RepresentativeForm";
 
 const requestUuid = "11111111-1111-4111-8111-111111111111";
@@ -204,16 +205,37 @@ describe("RepresentativeForm", () => {
     );
 
     expect(screen.getByLabelText("representativesVehicles.representatives.fields.debtLimit")).toBeTruthy();
+    expect(screen.getByText("representativesVehicles.representatives.form.debtHint")).toBeTruthy();
     fireEvent.click(
       screen.getByLabelText("representativesVehicles.representatives.fields.debtPermission"),
     );
 
     expect(screen.queryByLabelText("representativesVehicles.representatives.fields.debtLimit")).toBeNull();
+    expect(screen.queryByText("representativesVehicles.representatives.form.debtHint")).toBeNull();
     expect(screen.getByText("representativesVehicles.representatives.form.debtDisabled")).toBeTruthy();
 
     fireEvent.submit(container.querySelector("form")!);
     await waitFor(() => {
       expect(onSubmit).toHaveBeenCalledWith({ can_allow_debt: false }, requestUuid);
     });
+  });
+});
+
+
+describe("Representative credit-limit clarity copy", () => {
+  it("states explicitly in Arabic that the per-sale limit is not daily and does not reset automatically", () => {
+    const helper = representativesVehicles.ar.representatives.form.debtHint;
+    expect(helper).toContain("عملية بيع واحدة");
+    expect(helper).toContain("ليس حدًا يوميًا");
+    expect(helper).toContain("لا يتجدد تلقائيًا");
+    expect(helper).toContain("سقف ذمة المحل");
+  });
+
+  it("states explicitly in English that the per-sale limit is not daily and does not reset automatically", () => {
+    const helper = representativesVehicles.en.representatives.form.debtHint;
+    expect(helper).toContain("single sale");
+    expect(helper).toContain("not a daily limit");
+    expect(helper).toContain("does not reset automatically");
+    expect(helper).toContain("shop’s total credit limit");
   });
 });
