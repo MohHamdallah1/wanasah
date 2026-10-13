@@ -19,7 +19,7 @@ export interface RepresentativeListResult {
 export interface CreateRepresentativeInput {
   full_name: string;
   username: string;
-  phone_number: string | null;
+  phone_number: string;
   password: string;
   can_allow_debt: boolean;
   max_debt_limit: string;
@@ -120,6 +120,10 @@ export function normalizeRepresentativeText(value: string): string {
 export function normalizeOptionalPhone(value: string): string | null {
   const normalized = value.trim();
   return normalized || null;
+}
+
+export function normalizeRequiredPhone(value: string): string {
+  return value.trim();
 }
 
 export function normalizeDebtLimit(value: string): string | null {

@@ -55,13 +55,13 @@ describe("representative API wire contract", () => {
     expect(authFetch.mock.calls[0]?.[0]).toBe("/representatives?limit=30");
   });
 
-  it("preserves the caller-owned request_id and sends a minimal update payload", async () => {
+  it("preserves request_id and required phone while sending minimal update fields", async () => {
     const authFetch = vi.fn().mockResolvedValue(representative);
 
     await createRepresentative(authFetch, {
       full_name: "Ahmad Saleh",
       username: "rep17",
-      phone_number: null,
+      phone_number: "+962790000000",
       password: "password8",
       can_allow_debt: false,
       max_debt_limit: "0.000",
@@ -71,15 +71,16 @@ describe("representative API wire contract", () => {
       request_id: requestUuid,
       full_name: "Ahmad Saleh",
       username: "rep17",
-      phone_number: null,
+      phone_number: "+962790000000",
       password: "password8",
       can_allow_debt: false,
       max_debt_limit: "0.000",
     });
+    expect(createBody).not.toHaveProperty("confirm_password");
 
-    await updateRepresentative(authFetch, 17, { phone_number: null }, requestUuid);
+    await updateRepresentative(authFetch, 17, { phone_number: "0791111111" }, requestUuid);
     const updateBody = JSON.parse(String((authFetch.mock.calls[1]?.[1] as RequestInit).body));
-    expect(updateBody).toEqual({ request_id: requestUuid, phone_number: null });
+    expect(updateBody).toEqual({ request_id: requestUuid, phone_number: "0791111111" });
     expect(updateBody).not.toHaveProperty("password");
     expect(updateBody).not.toHaveProperty("is_active");
   });

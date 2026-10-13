@@ -49,6 +49,10 @@ export const representativesVehicles = {
       currency: {
         jod: "د.أ",
       },
+      passwordVisibility: {
+        show: "إظهار كلمة المرور",
+        hide: "إخفاء كلمة المرور",
+      },
       fields: {
         name: "اسم المندوب",
         username: "اسم المستخدم",
@@ -67,13 +71,19 @@ export const representativesVehicles = {
       form: {
         namePlaceholder: "اسم المندوب",
         usernamePlaceholder: "اسم الدخول",
+        usernameHint: "استخدم أحرفًا عربية أو إنجليزية، ويمكن إضافة الأرقام و . _ - دون خلط العربية والإنجليزية في الاسم نفسه.",
         phonePlaceholder: "رقم الهاتف",
         passwordPlaceholder: "8 أحرف على الأقل",
+        confirmPasswordPlaceholder: "أعد إدخال كلمة المرور",
         debtLimitPlaceholder: "مثال: 50.000",
         debtRequired: "أدخل حد الذمم لكل عملية بيع.",
         debtHint: "هذا الحد هو أقصى مبلغ ذمم جديد في عملية بيع واحدة. ليس حدًا يوميًا ولا يتجدد تلقائيًا، ويظل سقف ذمة المحل مطبقًا بشكل مستقل.",
         debtDisabled: "غير مسموح له بالبيع بالذمم",
         required: "الاسم واسم المستخدم مطلوبان.",
+        usernameInvalid: "اسم المستخدم يجب أن يكون بالعربية أو الإنجليزية دون خلط الحروف بينهما.",
+        phoneRequired: "أدخل رقم هاتف المندوب.",
+        confirmRequired: "أدخل تأكيد كلمة المرور.",
+        passwordMismatch: "كلمتا المرور غير متطابقتين.",
         noChanges: "لا توجد تغييرات لحفظها.",
         passwordInvalid: "كلمة المرور يجب أن تكون 8 أحرف على الأقل وألا تتجاوز 72 بايت بصيغة UTF-8.",
         phoneInvalid: "رقم الهاتف يجب ألا يتجاوز 20 حرفًا.",
@@ -158,6 +168,10 @@ export const representativesVehicles = {
       currency: {
         jod: "JOD",
       },
+      passwordVisibility: {
+        show: "Show password",
+        hide: "Hide password",
+      },
       fields: {
         name: "Representative name",
         username: "Username",
@@ -176,13 +190,19 @@ export const representativesVehicles = {
       form: {
         namePlaceholder: "Representative name",
         usernamePlaceholder: "Sign-in username",
+        usernameHint: "Use Arabic or Latin letters, optionally with numbers and . _ -. Do not mix Arabic and Latin letters in the same username.",
         phonePlaceholder: "Phone number",
         passwordPlaceholder: "At least 8 characters",
+        confirmPasswordPlaceholder: "Re-enter the password",
         debtLimitPlaceholder: "Example: 50.000",
         debtRequired: "Enter a per-sale credit limit.",
         debtHint: "This is the maximum new credit for a single sale. It is not a daily limit and does not reset automatically. The shop’s total credit limit still applies independently.",
         debtDisabled: "Credit sales are not allowed for this representative.",
         required: "Name and username are required.",
+        usernameInvalid: "Username must use Arabic or Latin letters without mixing the two scripts.",
+        phoneRequired: "Enter the representative’s phone number.",
+        confirmRequired: "Enter the password confirmation.",
+        passwordMismatch: "Passwords do not match.",
         noChanges: "There are no changes to save.",
         passwordInvalid: "Password must be at least 8 characters and no more than 72 UTF-8 bytes.",
         phoneInvalid: "Phone number must be 20 characters or fewer.",

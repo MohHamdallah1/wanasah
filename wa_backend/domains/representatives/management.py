@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import hashlib
 import json
 
@@ -27,6 +28,10 @@ from .repository import (
     normalize_debt_limit,
     require_operational_compatibility,
     username_exists,
+)
+from .validation import (
+    normalize_representative_phone,
+    normalize_representative_username,
 )
 
 
@@ -89,6 +94,10 @@ def _validated_update_fields(command: UpdateRepresentativeCommand) -> dict[str, 
             "Representative update contains an unsupported field.",
             status_code=422,
         )
+    if "username" in fields:
+        fields["username"] = normalize_representative_username(fields["username"])  # type: ignore[arg-type]
+    if "phone_number" in fields:
+        fields["phone_number"] = normalize_representative_phone(fields["phone_number"])  # type: ignore[arg-type]
     if "max_debt_limit" in fields:
         fields["max_debt_limit"] = normalize_debt_limit(fields["max_debt_limit"])
     return fields
@@ -101,6 +110,11 @@ async def create_representative(
     actor_id: int,
     command: CreateRepresentativeCommand,
 ) -> dict:
+    command = replace(
+        command,
+        username=normalize_representative_username(command.username),
+        phone_number=normalize_representative_phone(command.phone_number),
+    )
     debt_limit = normalize_debt_limit(command.max_debt_limit)
     request_hash = _create_request_hash(
         command,

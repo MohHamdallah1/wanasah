@@ -100,10 +100,10 @@ def body(operation, *, username=None):
     request = {"request_id": str(uuid4())}
     if operation == "create":
         request.update(full_name="Contract Representative", username=username or "created-" + uuid4().hex,
-                       phone_number=None, password="SyntheticRepresentative123",
+                       phone_number="+962790000000", password="SyntheticRepresentative123",
                        can_allow_debt=False, max_debt_limit="0.000")
     elif operation == "patch":
-        request.update(phone_number=None)
+        request.update(phone_number="0791111111")
     elif operation == "reset":
         request.update(new_password="SyntheticResetRepresentative123")
     elif operation not in {"deactivate", "reactivate"}:
