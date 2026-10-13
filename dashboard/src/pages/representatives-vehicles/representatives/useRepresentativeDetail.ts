@@ -15,6 +15,7 @@ export function useRepresentativeDetail(
     queryFn: ({ signal }) =>
       getRepresentative(authFetch, representativeId as number, signal),
     staleTime: 0,
+    gcTime: 0,
     retry: false,
     refetchOnWindowFocus: false,
   });
