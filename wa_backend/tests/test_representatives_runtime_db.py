@@ -663,7 +663,13 @@ async def test_database_backed_deactivation_blocker_matrix(gate):
         now = utc_now()
         kwargs = {}
         if status == "APPROVED":
-            kwargs.update(snapshot_cutoff_at=now, approved_by=owner_driver_id, approved_at=now)
+            kwargs.update(
+                snapshot_cutoff_at=now,
+                approved_by=owner_driver_id,
+                approved_at=now,
+                created_at=now,
+                updated_at=now,
+            )
         async with AsyncSession(gate.engine) as db:
             db.add(StocktakeSession(
                 company_id=company.id,
