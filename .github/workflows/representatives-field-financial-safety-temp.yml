@@ -36,13 +36,17 @@ jobs:
       - name: Flutter dependencies
         working-directory: wanasah_frontend
         run: flutter pub get
-      - name: Formatting gate
+      - name: Apply formatter and print exact diff
         working-directory: wanasah_frontend
-        run: >-
-          dart format --output=none --set-exit-if-changed
-          lib/blocs/auth/auth_bloc.dart
-          lib/blocs/auth/offline_owner_guard.dart
-          test/offline_owner_guard_test.dart
+        run: |
+          dart format \
+            lib/blocs/auth/auth_bloc.dart \
+            lib/blocs/auth/offline_owner_guard.dart \
+            test/offline_owner_guard_test.dart
+          git diff -- \
+            lib/blocs/auth/auth_bloc.dart \
+            lib/blocs/auth/offline_owner_guard.dart \
+            test/offline_owner_guard_test.dart
       - name: Focused Flutter analyze
         working-directory: wanasah_frontend
         run: >-
