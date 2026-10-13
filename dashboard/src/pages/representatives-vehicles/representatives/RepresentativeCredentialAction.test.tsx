@@ -17,7 +17,13 @@ vi.mock("react-i18next", async (importOriginal) => {
   };
 });
 vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => mocks.authFetch }));
-vi.mock("@/lib/apiErrors", () => ({ apiErrorMessage: (_error: unknown, fallback: string) => fallback }));
+vi.mock("@/lib/apiErrors", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/apiErrors")>();
+  return {
+    ...actual,
+    apiErrorMessage: (_error: unknown, fallback: string) => fallback,
+  };
+});
 vi.mock("./api", () => ({ resetRepresentativeCredentials: mocks.reset }));
 vi.mock("sonner", () => ({
   toast: { success: mocks.toastSuccess, error: mocks.toastError },
