@@ -31,6 +31,7 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://wanasah_runtime@127.0.0.1:5432/representatives_contract_gate
       DATABASE_URL_MIGRATION: postgresql+asyncpg://postgres@127.0.0.1:5432/representatives_contract_gate
       WANASAH_REPRESENTATIVES_CONTRACT_DB_URL: postgresql+asyncpg://postgres@127.0.0.1:5432/representatives_contract_gate
+      PYTHONPATH: .:tests
       TARGET_SHA: 947e9082a7f3ef214baea7b76b188e8b9136a5ef
       BASE_SHA: b9c18ade8d62c5b23349f2d4c030840940e05cf7
     steps:
