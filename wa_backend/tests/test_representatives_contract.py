@@ -630,6 +630,39 @@ class RepresentativesSQLHTTPContracts(unittest.IsolatedAsyncioTestCase):
             with self.subTest(query=query):
                 self.assertEqual((await self.request("GET", "/representatives", params=query)).status_code, 422)
 
+    async def test_unicode_name_cursor_preserves_database_order_without_omissions(self):
+        # Unicode lowercasing can differ between Python and PostgreSQL.
+        # Compare opaque HTTP pages with the server's complete ordered result.
+        prefix = "cursor-" + uuid4().hex[:16]
+        created_ids = []
+        for index, full_name in enumerate(("İbrahim", "ibrahim")):
+            payload = body("create", username=f"{prefix}-{index}")
+            payload["full_name"] = full_name
+            created = await self.request("POST", "/representatives", json=payload)
+            self.assertEqual(created.status_code, 201, created.text)
+            created_ids.append(created.json()["id"])
+
+        complete = await self.request("GET", "/representatives", params={"search": prefix})
+        self.assertEqual(complete.status_code, 200, complete.text)
+        expected = complete.json()["items"]
+        self.assertEqual({row["id"] for row in expected}, set(created_ids))
+
+        first = await self.request("GET", "/representatives", params={"search": prefix, "limit": 1})
+        self.assertEqual(first.status_code, 200, first.text)
+        first_page = first.json()
+        self.assertTrue(first_page["has_more"])
+        self.assertIsInstance(first_page["next_cursor"], str)
+        self.assertEqual(len(first_page["items"]), 1)
+
+        second = await self.request("GET", "/representatives", params={
+            "search": prefix, "limit": 1, "cursor": first_page["next_cursor"],
+        })
+        self.assertEqual(second.status_code, 200, second.text)
+        second_page = second.json()
+        self.assertEqual(first_page["items"] + second_page["items"], expected)
+        self.assertFalse(second_page["has_more"])
+        self.assertIsNone(second_page["next_cursor"])
+
     async def test_create_patch_replay_without_duplicate_effects(self):
         from sqlalchemy import func, select
         from domains.identity.models import CompanyPrincipal, FieldRepresentative
@@ -823,12 +856,12 @@ class RepresentativesSQLHTTPContracts(unittest.IsolatedAsyncioTestCase):
                     response = await self.request("POST", path + suffix, json={**body(operation), **changes})
                     self.assertEqual(response.status_code, 422, response.text)
                     self.assertEqual(await self.identity_state(field), before)
-        for password in ("a" * 7, "م" * 7, "a" * 73, "م" * 37, "😀" * 19):
+        for password in ("a" * 7, "Ù…" * 7, "a" * 73, "Ù…" * 37, "ðŸ˜€" * 19):
             with self.subTest(characters=len(password), utf8_bytes=len(password.encode("utf-8"))):
                 response = await self.request("POST", path + "/credentials/reset", json={**body("reset"), "new_password": password})
                 self.assertEqual(response.status_code, 422, response.text)
                 self.assertEqual(await self.identity_state(field), before)
-        for password in ("abcd1234", "م" * 36, "😀" * 18):
+        for password in ("abcd1234", "Ù…" * 36, "ðŸ˜€" * 18):
             with self.subTest(valid_utf8_bytes=len(password.encode("utf-8"))):
                 response = await self.request("POST", path + "/credentials/reset", json={**body("reset"), "new_password": password})
                 self.assertEqual(response.status_code, 204, response.text)
