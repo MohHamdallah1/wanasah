@@ -34,6 +34,13 @@ def _redact_secrets(value: str) -> str:
         text,
         flags=re.IGNORECASE,
     )
+    # SQLAlchemy DBAPI exceptions can render bound values without a field label.
+    # Redact bcrypt credentials by value shape before the exception is persisted.
+    text = re.sub(
+        r"\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}",
+        "***REDACTED_BCRYPT***",
+        text,
+    )
     text = re.sub(
         r"(?i)\b(SECRET_KEY|PASSWORD|API_KEY|ACCESS_TOKEN|REFRESH_TOKEN)"
         r"\b\s*[:=]\s*([^\s,;]+)",
