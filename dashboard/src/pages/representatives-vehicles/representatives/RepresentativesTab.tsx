@@ -1,0 +1,119 @@
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, Plus, RefreshCw, Search, UsersRound, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
+
+import { Modal } from "@/components/ui/modal";
+import { useAuthFetch } from "@/hooks/useAuthFetch";
+import { apiErrorMessage } from "@/lib/apiErrors";
+import { createRepresentative } from "./api";
+import type { CreateRepresentativeInput, Representative, RepresentativeStatusFilter } from "./contracts";
+import { RepresentativeDrawer } from "./RepresentativeDrawer";
+import { RepresentativeForm } from "./RepresentativeForm";
+import { RepresentativeTable } from "./RepresentativeTable";
+import { useRepresentatives } from "./useRepresentatives";
+
+const filters: RepresentativeStatusFilter[] = ["active", "inactive", "all"];
+
+export function RepresentativesTab() {
+  const { t } = useTranslation();
+  const authFetch = useAuthFetch();
+  const queryClient = useQueryClient();
+  const representatives = useRepresentatives();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [selected, setSelected] = useState<Representative | null>(null);
+
+  const create = async (input: CreateRepresentativeInput) => {
+    setCreating(true);
+    try {
+      await createRepresentative(authFetch, input);
+      await queryClient.invalidateQueries({ queryKey: ["representatives"] });
+      toast.success(t("representativesVehicles.representatives.createSuccess"));
+      setCreateOpen(false);
+    } catch (error) {
+      toast.error(apiErrorMessage(error, t("representativesVehicles.representatives.saveFailed")));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <section className="flex min-h-0 flex-1 flex-col gap-3" aria-labelledby="representatives-tab-heading">
+      <h2 id="representatives-tab-heading" className="sr-only">{t("representativesVehicles.tabs.representatives")}</h2>
+
+      <div className="flex flex-col gap-2.5 rounded-[24px] border border-white/80 bg-white/65 p-2.5 shadow-[0_20px_60px_-44px_rgba(15,23,42,0.6)] backdrop-blur-xl lg:flex-row lg:items-center">
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute start-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            type="search"
+            value={representatives.input}
+            onChange={(event) => representatives.setInput(event.target.value)}
+            placeholder={t("representativesVehicles.representatives.search")}
+            aria-label={t("representativesVehicles.representatives.search")}
+            maxLength={120}
+            className="h-11 w-full rounded-2xl border border-slate-200/80 bg-white pe-10 ps-10 text-sm font-semibold text-slate-800 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-cyan-300 focus:ring-4 focus:ring-cyan-100/60"
+          />
+          {representatives.input ? (
+            <button type="button" onClick={() => representatives.setInput("")} aria-label={t("representativesVehicles.representatives.clearSearch")}
+              className="absolute end-2.5 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+        </div>
+
+        <div className="flex items-center rounded-2xl border border-slate-200/70 bg-slate-100/65 p-1" aria-label={t("representativesVehicles.representatives.filterLabel")}>
+          {filters.map((filter) => {
+            const selectedFilter = representatives.status === filter;
+            return (
+              <button key={filter} type="button" aria-pressed={selectedFilter} onClick={() => representatives.setStatus(filter)}
+                className={`h-9 flex-1 rounded-xl px-3 text-xs font-black transition lg:flex-none ${selectedFilter ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/70" : "text-slate-500 hover:text-slate-800"}`}>
+                {t(`representativesVehicles.representatives.${filter}`)}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setCreateOpen(true)} className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-amber-400 px-4 text-sm font-black text-slate-950 transition hover:bg-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 lg:flex-none">
+            <Plus className="h-4 w-4" />{t("representativesVehicles.representatives.add")}
+          </button>
+          <button type="button" onClick={() => void representatives.query.refetch()} disabled={representatives.query.isFetching}
+            aria-label={t("common.refresh")} title={t("common.refresh")}
+            className="inline-grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:opacity-50">
+            <RefreshCw className={`h-4 w-4 ${representatives.query.isFetching ? "animate-spin" : ""}`} />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex min-h-[320px] flex-1 flex-col overflow-hidden rounded-[26px] border border-white/85 bg-white/70 shadow-[0_22px_65px_-46px_rgba(15,23,42,0.65)] backdrop-blur-2xl">
+        {representatives.query.isError ? (
+          <div className="grid flex-1 place-items-center p-6 text-center" role="alert">
+            <div className="max-w-md">
+              <AlertTriangle className="mx-auto h-7 w-7 text-rose-500" />
+              <p className="mt-3 text-sm font-bold text-rose-700">{apiErrorMessage(representatives.query.error, t("representativesVehicles.representatives.loadFailed"))}</p>
+              <button type="button" onClick={() => void representatives.query.refetch()} className="mt-3 rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white">{t("common.retry")}</button>
+            </div>
+          </div>
+        ) : !representatives.query.isFetching && representatives.items.length === 0 ? (
+          <div className="grid flex-1 place-items-center p-6 text-center">
+            <div className="max-w-sm">
+              <div className="mx-auto grid h-16 w-16 place-items-center rounded-[22px] border border-white bg-gradient-to-br from-cyan-50 to-amber-50 shadow-sm"><UsersRound className="h-7 w-7 text-slate-600" /></div>
+              <p className="mt-4 text-base font-black text-slate-900">{t("representativesVehicles.representatives.empty")}</p>
+              <p className="mt-1.5 text-sm font-semibold leading-6 text-slate-500">{t("representativesVehicles.representatives.emptyHint")}</p>
+            </div>
+          </div>
+        ) : (
+          <RepresentativeTable items={representatives.items} loading={representatives.query.isFetching} onOpen={setSelected} />
+        )}
+      </div>
+
+      <Modal isOpen={createOpen} onClose={() => !creating && setCreateOpen(false)} title={t("representativesVehicles.representatives.createTitle")} maxWidth="max-w-lg">
+        <RepresentativeForm busy={creating} onCancel={() => setCreateOpen(false)} onSubmit={(input) => create(input as CreateRepresentativeInput)} />
+      </Modal>
+
+      <RepresentativeDrawer representative={selected} open={Boolean(selected)} onOpenChange={(open) => { if (!open) setSelected(null); }} />
+    </section>
+  );
+}
