@@ -1,12 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from decimal import Decimal
-from typing import Literal
-
-
-RepresentativeStatusFilter = Literal["active", "inactive", "all"]
 
 
 class RepresentativeError(Exception):
@@ -34,8 +29,6 @@ class RepresentativeRecord:
     is_active: bool
     can_allow_debt: bool
     max_debt_limit: Decimal
-    created_at: datetime
-    updated_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +60,5 @@ __all__ = [
     "RepresentativeError",
     "RepresentativePage",
     "RepresentativeRecord",
-    "RepresentativeStatusFilter",
     "UpdateRepresentativeCommand",
 ]
