@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Plus, RefreshCw, Search, UsersRound, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
+import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { createRepresentative } from "./api";
 import type { CreateRepresentativeInput, Representative, RepresentativeStatusFilter } from "./contracts";
@@ -16,19 +17,52 @@ import { useRepresentatives } from "./useRepresentatives";
 
 const filters: RepresentativeStatusFilter[] = ["active", "inactive", "all"];
 
+type PendingCreateOperation = {
+  fingerprint: string;
+  requestId: string;
+};
+
 export function RepresentativesTab() {
   const { t } = useTranslation();
   const authFetch = useAuthFetch();
+  const access = useInventoryAccess();
   const queryClient = useQueryClient();
   const representatives = useRepresentatives();
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [selected, setSelected] = useState<Representative | null>(null);
+  const createOperation = useRef<PendingCreateOperation | null>(null);
+
+  const canManage = Boolean(
+    access.isCompanyOwner ||
+      access.can("representative.manage") ||
+      access.canAny("representative.manage"),
+  );
+  const canResetCredentials = Boolean(
+    access.isCompanyOwner ||
+      access.can("representative.credentials.reset") ||
+      access.canAny("representative.credentials.reset"),
+  );
+
+  const requestIdForCreate = (input: CreateRepresentativeInput) => {
+    const fingerprint = JSON.stringify(input);
+    if (!createOperation.current || createOperation.current.fingerprint !== fingerprint) {
+      createOperation.current = { fingerprint, requestId: crypto.randomUUID() };
+    }
+    return createOperation.current.requestId;
+  };
+
+  const closeCreate = () => {
+    if (creating) return;
+    createOperation.current = null;
+    setCreateOpen(false);
+  };
 
   const create = async (input: CreateRepresentativeInput) => {
     setCreating(true);
     try {
-      await createRepresentative(authFetch, input);
+      await createRepresentative(authFetch, input, requestIdForCreate(input));
+      createOperation.current = null;
       await queryClient.invalidateQueries({ queryKey: ["representatives"] });
       toast.success(t("representativesVehicles.representatives.createSuccess"));
       setCreateOpen(false);
@@ -81,7 +115,13 @@ export function RepresentativesTab() {
         </div>
 
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => setCreateOpen(true)} className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-amber-400 px-4 text-sm font-black text-slate-950 transition hover:bg-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 lg:flex-none">
+          <button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            disabled={!canManage || access.isLoading}
+            aria-describedby={!canManage && !access.isLoading ? "representative-manage-blocked" : undefined}
+            className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-amber-400 px-4 text-sm font-black text-slate-950 transition hover:bg-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 disabled:cursor-not-allowed disabled:opacity-50 lg:flex-none"
+          >
             <Plus className="h-4 w-4" />{t("representativesVehicles.representatives.add")}
           </button>
           <button type="button" onClick={() => void representatives.query.refetch()} disabled={representatives.query.isFetching}
@@ -91,6 +131,12 @@ export function RepresentativesTab() {
           </button>
         </div>
       </div>
+
+      {!access.isLoading && !canManage ? (
+        <p id="representative-manage-blocked" className="px-2 text-[11px] font-semibold text-slate-500">
+          {t("representativesVehicles.representatives.permissions.manageRequired")}
+        </p>
+      ) : null}
 
       <div className="flex min-h-[320px] flex-1 flex-col overflow-hidden rounded-[26px] border border-white/85 bg-white/70 shadow-[0_22px_65px_-46px_rgba(15,23,42,0.65)] backdrop-blur-2xl">
         {representatives.query.isError ? (
@@ -123,11 +169,17 @@ export function RepresentativesTab() {
         )}
       </div>
 
-      <Modal isOpen={createOpen} onClose={() => !creating && setCreateOpen(false)} title={t("representativesVehicles.representatives.createTitle")} maxWidth="max-w-lg">
-        <RepresentativeForm busy={creating} onCancel={() => setCreateOpen(false)} onSubmit={(input) => create(input as CreateRepresentativeInput)} />
+      <Modal isOpen={createOpen} onClose={closeCreate} title={t("representativesVehicles.representatives.createTitle")} maxWidth="max-w-lg">
+        <RepresentativeForm busy={creating} onCancel={closeCreate} onSubmit={(input) => create(input as CreateRepresentativeInput)} />
       </Modal>
 
-      <RepresentativeDrawer representative={selected} open={Boolean(selected)} onOpenChange={(open) => { if (!open) setSelected(null); }} />
+      <RepresentativeDrawer
+        representative={selected}
+        open={Boolean(selected)}
+        canManage={canManage}
+        canResetCredentials={canResetCredentials}
+        onOpenChange={(open) => { if (!open) setSelected(null); }}
+      />
     </section>
   );
 }
