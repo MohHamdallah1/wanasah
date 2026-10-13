@@ -1,9 +1,13 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const tabSource = readFileSync(new URL("./RepresentativesTab.tsx", import.meta.url), "utf8");
+const tabSource = readFileSync(
+  resolve(process.cwd(), "src/pages/representatives-vehicles/representatives/RepresentativesTab.tsx"),
+  "utf8",
+);
 const sidebarSource = readFileSync(
-  new URL("../../../components/operations/OperationsSidebar.tsx", import.meta.url),
+  resolve(process.cwd(), "src/components/operations/OperationsSidebar.tsx"),
   "utf8",
 );
 
