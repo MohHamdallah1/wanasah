@@ -1,3 +1,4 @@
+# Temporary release-closure gate; remove after a fully green run.
 name: Representatives final release closure
 
 on:
