@@ -1,0 +1,116 @@
+name: Representative form browser acceptance
+
+on:
+  push:
+    branches:
+      - sol/representatives-form-credential-identity-ux-final
+    paths:
+      - .github/workflows/representatives-form-browser-temp.yml
+
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: sol/representatives-form-credential-identity-ux-final
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install dashboard and browser test dependencies
+        working-directory: dashboard
+        run: |
+          npm ci
+          npm install --no-save --package-lock=false @playwright/test@1.56.1
+      - name: Run real Chrome Representative form acceptance
+        working-directory: dashboard
+        shell: bash
+        run: |
+          cat > representative-form-acceptance.html <<'HTML'
+          <!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/src/representative-form-acceptance.tsx"></script></body></html>
+          HTML
+          cat > src/representative-form-acceptance.tsx <<'TSX'
+          import React, { useState } from "react";
+          import { createRoot } from "react-dom/client";
+          import { createInstance } from "i18next";
+          import { I18nextProvider } from "react-i18next";
+          import "./index.css";
+          import { representativesVehicles } from "./i18n/representativesVehicles";
+          import { RepresentativeForm } from "./pages/representatives-vehicles/representatives/RepresentativeForm";
+
+          const lang = new URLSearchParams(location.search).get("lang") === "en" ? "en" : "ar";
+          const i18n = createInstance();
+          await i18n.init({
+            lng: lang,
+            fallbackLng: "en",
+            initImmediate: false,
+            interpolation: { escapeValue: false },
+            resources: {
+              ar: { translation: { representativesVehicles: representativesVehicles.ar, common: { cancel: "إلغاء", save: "حفظ", saving: "جارٍ الحفظ" } } },
+              en: { translation: { representativesVehicles: representativesVehicles.en, common: { cancel: "Cancel", save: "Save", saving: "Saving" } } },
+            },
+          });
+          document.documentElement.dir = i18n.dir();
+          document.documentElement.lang = lang;
+
+          function App() {
+            const [open, setOpen] = useState(true);
+            return <main className="p-2"><button data-testid="toggle" type="button" onClick={() => setOpen((v) => !v)}>toggle</button>{open ? <div className="mx-auto max-w-xl"><RepresentativeForm onCancel={() => setOpen(false)} onSubmit={() => undefined} /></div> : null}</main>;
+          }
+          createRoot(document.getElementById("root")!).render(<I18nextProvider i18n={i18n}><App /></I18nextProvider>);
+          TSX
+          cat > playwright.form.config.cjs <<'JS'
+          module.exports = { testDir: ".", testMatch: "representative-form.acceptance.spec.cjs", workers: 1, reporter: "line", use: { headless: true, channel: "chrome" } };
+          JS
+          cat > representative-form.acceptance.spec.cjs <<'JS'
+          const { test, expect } = require("@playwright/test");
+          const base = "http://127.0.0.1:4181/representative-form-acceptance.html";
+
+          for (const width of [320, 375, 768, 1024]) {
+            test(`Arabic create password controls stay usable at ${width}px`, async ({ page }) => {
+              await page.setViewportSize({ width, height: 800 });
+              await page.goto(`${base}?lang=ar`);
+              await expect(page.getByLabel("رقم الهاتف")).toHaveAttribute("required", "");
+              await page.getByLabel("كلمة المرور", { exact: true }).fill("محمدAbc123!");
+              await page.getByLabel("تأكيد كلمة المرور").fill("محمدAbc123!");
+              const showButtons = page.getByRole("button", { name: "إظهار كلمة المرور" });
+              await expect(showButtons).toHaveCount(2);
+              await showButtons.first().click();
+              await expect(page.getByLabel("كلمة المرور", { exact: true })).toHaveAttribute("type", "text");
+              await page.getByLabel("رقم الهاتف").focus();
+              await expect(page.getByRole("button", { name: "إخفاء كلمة المرور" })).toBeVisible();
+              await page.getByRole("button", { name: "إخفاء كلمة المرور" }).click();
+              await expect(page.getByLabel("كلمة المرور", { exact: true })).toHaveAttribute("type", "password");
+              expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+            });
+          }
+
+          test("reopen resets visibility to hidden", async ({ page }) => {
+            await page.goto(`${base}?lang=ar`);
+            await page.getByLabel("كلمة المرور", { exact: true }).fill("password8");
+            await page.getByRole("button", { name: "إظهار كلمة المرور" }).click();
+            await expect(page.getByLabel("كلمة المرور", { exact: true })).toHaveAttribute("type", "text");
+            await page.getByTestId("toggle").click();
+            await page.getByTestId("toggle").click();
+            await page.getByLabel("كلمة المرور", { exact: true }).fill("password8");
+            await expect(page.getByLabel("كلمة المرور", { exact: true })).toHaveAttribute("type", "password");
+          });
+
+          test("English LTR uses the same form with required phone and helper", async ({ page }) => {
+            await page.goto(`${base}?lang=en`);
+            expect(await page.locator("html").getAttribute("dir")).toBe("ltr");
+            await expect(page.getByLabel("Phone number")).toHaveAttribute("required", "");
+            await expect(page.getByLabel("Confirm password")).toBeVisible();
+            await expect(page.getByText(/Use Arabic or Latin letters/)).toBeVisible();
+          });
+          JS
+          npm run dev -- --host 127.0.0.1 --port 4181 >/tmp/representative-form-vite.log 2>&1 &
+          PID=$!
+          trap 'kill "$PID" 2>/dev/null || true' EXIT
+          for i in {1..30}; do if curl -fsS http://127.0.0.1:4181/representative-form-acceptance.html >/dev/null; then break; fi; sleep 1; done
+          npx playwright test --config=playwright.form.config.cjs
+          kill "$PID" 2>/dev/null || true
+          trap - EXIT
