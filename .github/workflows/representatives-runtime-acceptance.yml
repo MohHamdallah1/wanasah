@@ -5,7 +5,7 @@ on:
       - sol/representatives-backend-runtime-acceptance
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
 jobs:
   acceptance:
     runs-on: ubuntu-24.04
@@ -31,33 +31,34 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Normalize ended WorkSession fixtures
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path("wa_backend/tests/test_representatives_runtime_db.py")
-          source = path.read_text(encoding="utf-8")
-          old_helper = '''        session = WorkSession(\n            company_id=company.id,\n            driver_id=driver_id,\n            end_time=now,\n            inventory_reconciled_at=now,\n'''
-          new_helper = '''        session = WorkSession(\n            company_id=company.id,\n            driver_id=driver_id,\n            start_time=now,\n            end_time=now,\n            inventory_reconciled_at=now,\n'''
-          old_unreconciled = '''    async with AsyncSession(gate.engine) as db:\n        db.add(WorkSession(\n            company_id=company.id, driver_id=state.driver_id, end_time=utc_now()\n        ))\n        await db.commit()\n'''
-          new_unreconciled = '''    async with AsyncSession(gate.engine) as db:\n        now = utc_now()\n        db.add(WorkSession(\n            company_id=company.id,\n            driver_id=state.driver_id,\n            start_time=now,\n            end_time=now,\n        ))\n        await db.commit()\n'''
-          if old_helper not in source or old_unreconciled not in source:
-              raise SystemExit("Expected WorkSession fixture blocks not found")
-          source = source.replace(old_helper, new_helper).replace(old_unreconciled, new_unreconciled)
-          path.write_text(source, encoding="utf-8")
-          PY
-          git diff --check
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add wa_backend/tests/test_representatives_runtime_db.py
-          git commit -m "test: normalize ended work session fixtures"
-          git push origin HEAD:sol/representatives-backend-runtime-acceptance
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install backend and test dependencies
         run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Create restricted runtime database role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute(
+                  "CREATE ROLE representatives_runtime LOGIN NOSUPERUSER "
+                  "NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+          print("RUNTIME_ROLE=OK")
+          PY
+      - name: Build production schema through Alembic
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: Reject model and migration drift
+        working-directory: wa_backend
+        run: alembic check
       - name: PostgreSQL-backed Representatives acceptance
         working-directory: wa_backend
         run: python -m pytest -q tests/test_representatives_runtime_db.py
