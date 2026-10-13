@@ -3,10 +3,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, options?: { limit?: string }) =>
-      key.endsWith("creditAllowed") ? `credit:${options?.limit}` : key,
-    i18n: { dir: () => "rtl" },
+    t: (key: string, options?: { limit?: string }) => {
+      if (key.endsWith("currency.jod")) return "د.أ";
+      if (key.endsWith("creditAllowed")) return `credit:${options?.limit}`;
+      return key;
+    },
   }),
+}));
+vi.mock("./RepresentativeRowActions", () => ({
+  RepresentativeRowActions: () => <button type="button">row-actions</button>,
 }));
 
 import { RepresentativeTable } from "./RepresentativeTable";
@@ -20,11 +25,19 @@ const denied = {
   is_active: true, can_allow_debt: false, max_debt_limit: "25.500",
 };
 
+const tableProps = {
+  canManage: true,
+  canResetCredentials: true,
+  onEdit: vi.fn(),
+  onLifecycle: vi.fn(),
+  onResetCredentials: vi.fn(),
+};
+
 afterEach(cleanup);
 
 describe("RepresentativeTable", () => {
   it("uses one explicit six-column geometry for header and rows", () => {
-    const { container } = render(<RepresentativeTable items={[allowed]} onOpen={() => undefined} />);
+    const { container } = render(<RepresentativeTable items={[allowed]} {...tableProps} />);
     const table = container.querySelector("table")!;
     expect(table.className).toContain("table-fixed");
     expect(table.querySelectorAll("colgroup col")).toHaveLength(6);
@@ -35,14 +48,15 @@ describe("RepresentativeTable", () => {
     expect(cells[0]?.textContent).toBe("Ahmad");
     expect(cells[1]?.textContent).toBe("rep-1");
     expect(cells[2]?.textContent).toBe("+962790000001");
-    expect(cells[3]?.textContent).toBe("credit:50,000.000");
+    expect(cells[3]?.textContent).toBe("credit:50,000 د.أ");
+    expect(cells[5]?.textContent).toContain("row-actions");
     expect(cells[1]?.querySelector("bdi")?.getAttribute("dir")).toBe("ltr");
     expect(cells[2]?.querySelector("bdi")?.getAttribute("dir")).toBe("ltr");
   });
 
   it("shows disabled credit authority explicitly without implying the stored limit is usable", () => {
-    render(<RepresentativeTable items={[denied]} onOpen={() => undefined} />);
+    render(<RepresentativeTable items={[denied]} {...tableProps} />);
     expect(screen.getByText("representativesVehicles.representatives.fields.creditDisabled")).toBeTruthy();
-    expect(screen.queryByText(/25\.500/)).toBeNull();
+    expect(screen.queryByText(/25\.5/)).toBeNull();
   });
 });
