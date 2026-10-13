@@ -5,7 +5,7 @@
 **Status:** PLANNED — NOT YET IMPLEMENTED  
 **Owner decision date:** 2026-10-10  
 **Primary evidence:** `DRIVER_DISPATCH_SEAM_INVENTORY.md`  
-**Canonical references:** `.rules`, `AGENTS.md`, `ARCHITECTURE.md`, `RUN.txt`, `V1_SCOPE_FREEZE.md`, `PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md`, `IDENTITY_AUTHORIZATION_IS_ADMIN_MIGRATION_PLAN.md`, `REPRESENTATIVES_VEHICLES_V1_PLAN.md`.
+**Canonical references:** `.rules`, `AGENTS.md`, `ARCHITECTURE.md`, `RUN.txt`, `V1_SCOPE_FREEZE.md`, `PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md`, `REPRESENTATIVES_VEHICLES_V1_PLAN.md`.
 
 ---
 
@@ -47,7 +47,7 @@ These decisions resolve the 10 open questions from `DRIVER_DISPATCH_SEAM_INVENTO
 - [ ] A field-session module consumes the authoritative Field Representative identity; it does not recreate authentication logic.
 - [ ] `_require_driver_identity` must not survive as a second identity system after the canonical identity migration is complete.
 
-**Dependency:** no final extraction of identity-sensitive driver/session code until the applicable phases of `IDENTITY_AUTHORIZATION_IS_ADMIN_MIGRATION_PLAN.md` are complete.
+**Dependency status:** COMPLETE — canonical Backoffice / Field Representative identity separation and capability-based authorization are authoritative. Any identity-sensitive extraction must follow `ARCHITECTURE.md`, `.rules`, and `AGENTS.md`.
 
 ## 2.2 Router compatibility strategy
 
@@ -236,17 +236,17 @@ Do not perform multiple high-risk god-function decompositions in the same PR.
 
 ## Phase 1 — Identity dependency cutover prerequisite
 
-This phase is owned by `IDENTITY_AUTHORIZATION_IS_ADMIN_MIGRATION_PLAN.md`, not by this refactor.
+This prerequisite is complete. Canonical identity and authorization are now governed by `ARCHITECTURE.md`, `.rules`, and `AGENTS.md`; this refactor must preserve those contracts rather than recreate them.
 
 Before extracting driver identity/session code:
 
-- [ ] CompanyPrincipal / Backoffice / Field Representative identity contract is authoritative for the applicable path.
-- [ ] field login resolves a Field Representative identity explicitly.
-- [ ] Dashboard login resolves Backoffice identity explicitly.
-- [ ] `is_admin` is no longer used to infer representative identity.
-- [ ] token identity contract needed by field endpoints is frozen.
+- [x] CompanyPrincipal / Backoffice / Field Representative identity contract is authoritative for the applicable path.
+- [x] field login resolves a Field Representative identity explicitly.
+- [x] Dashboard login resolves Backoffice identity explicitly.
+- [x] Representative identity is explicit and is not inferred from a generic admin/persona flag.
+- [x] token identity contract needed by field endpoints is frozen.
 
-**Gate 1:** field session extraction will not preserve the legacy `Driver.is_admin` coupling.
+**Gate 1: PASS** — field-session extraction must preserve the canonical Field Representative identity contract and must not reintroduce generic admin/persona authority.
 
 ## Phase 2 — Low-risk read-only seams first
 

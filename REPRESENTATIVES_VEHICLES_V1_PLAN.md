@@ -5,8 +5,8 @@
 **Status:** PLANNED — NOT YET IMPLEMENTED  
 **Owner decision date:** 2026-10-10  
 **Execution rule:** Representatives must be completed and owner-accepted before Vehicles implementation starts.  
-**Hard prerequisite:** `IDENTITY_AUTHORIZATION_IS_ADMIN_MIGRATION_PLAN.md` must be completed to the point where Backoffice and Field Representative identities are cleanly separated and capability-based authorization is authoritative.  
-**Canonical references:** `ARCHITECTURE.md`, `.rules`, `AGENTS.md`, `RUN.txt`, `V1_SCOPE_FREEZE.md`, `IDENTITY_AUTHORIZATION_IS_ADMIN_MIGRATION_PLAN.md`.
+**Prerequisite status:** COMPLETE — Backoffice and Field Representative identities are cleanly separated and capability-based authorization is authoritative under `ARCHITECTURE.md`, `.rules`, and `AGENTS.md`.
+**Canonical references:** `ARCHITECTURE.md`, `.rules`, `AGENTS.md`, `RUN.txt`, `V1_SCOPE_FREEZE.md`, `PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md`.
 
 ---
 
@@ -81,22 +81,22 @@ Execution behavior:
 
 Before Representatives implementation proceeds beyond harmless page-shell work:
 
-- [ ] `CompanyPrincipal` (or the final canonical equivalent) is authoritative for company credentials/session identity.
-- [ ] Backoffice profile/type is distinct from Field Representative profile/type.
-- [ ] Dashboard login fails closed for field-only identities.
-- [ ] Flutter field login fails closed for backoffice-only identities.
-- [ ] Company Owner authority is explicit/system-managed.
-- [ ] New permissions are capability-based, not `is_admin` based.
-- [ ] Existing role/scope model is attached to Backoffice identity, not Field Representative identity by accident.
-- [ ] Actor/audit references needed by administrative mutations point to the correct principal type.
-- [ ] Dispatch/visit/work-session representative references point to the Field Representative identity/profile.
-- [ ] No new endpoint created by this plan may depend on `is_admin` or infer representative status from `is_admin=false`.
-- [ ] Authentication/session/token claims expose stable identity/channel semantics required by Dashboard and Flutter.
-- [ ] Relevant migration tests from `IDENTITY_AUTHORIZATION_IS_ADMIN_MIGRATION_PLAN.md` pass before Representative mutations are enabled.
+- [x] `CompanyPrincipal` (or the final canonical equivalent) is authoritative for company credentials/session identity.
+- [x] Backoffice profile/type is distinct from Field Representative profile/type.
+- [x] Dashboard login fails closed for field-only identities.
+- [x] Flutter field login fails closed for backoffice-only identities.
+- [x] Company Owner authority is explicit/system-managed.
+- [x] New permissions are capability-based and never derive authority from a generic admin/persona flag.
+- [x] Existing role/scope model is attached to Backoffice identity, not Field Representative identity by accident.
+- [x] Actor/audit references needed by administrative mutations point to the correct principal type.
+- [x] Dispatch/visit/work-session representative references point to the Field Representative identity/profile.
+- [x] No new endpoint created by this plan may derive authority or representative identity from a generic admin/persona boolean.
+- [x] Authentication/session/token claims expose stable identity/channel semantics required by Dashboard and Flutter.
+- [x] Canonical identity/authorization acceptance gates passed before Representative mutations are enabled.
 
 **Gate:**
 
-- [ ] **IDENTITY FOUNDATION READY FOR REPRESENTATIVES**
+- [x] **IDENTITY FOUNDATION READY FOR REPRESENTATIVES**
 
 ---
 

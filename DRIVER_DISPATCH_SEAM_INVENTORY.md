@@ -8,7 +8,7 @@
 
 ## 1. Guardrails used for this inventory
 
-This inventory follows `.rules`, `AGENTS.md`, `ARCHITECTURE.md`, `PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md`, `IDENTITY_AUTHORIZATION_IS_ADMIN_MIGRATION_PLAN.md`, and `REPRESENTATIVES_VEHICLES_V1_PLAN.md`.
+This inventory follows `.rules`, `AGENTS.md`, `ARCHITECTURE.md`, `PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md`, and `REPRESENTATIVES_VEHICLES_V1_PLAN.md`.
 
 The purpose is to expose the current seams and invariants before a future split. It does **not** choose a final package structure, create a new authorization model, redefine representative/vehicle ownership, move routers, or convert orchestration into services. Any choice that would change an established architectural ownership rule is listed under **ARCHITECTURE DECISIONS REQUIRED**.
 
@@ -103,7 +103,7 @@ The purpose is to expose the current seams and invariants before a future split.
 
 **Tests / coverage anchors**
 - direct field-session tests are not isolated by filename in the observed `wa_backend/tests` inventory; behavior is exercised indirectly by cross-domain route/inventory/driver-sale suites.
-- identity migration work in `IDENTITY_AUTHORIZATION_IS_ADMIN_MIGRATION_PLAN.md` is a mandatory compatibility constraint.
+- canonical identity/authorization rules in `ARCHITECTURE.md`, `.rules`, and `AGENTS.md` are mandatory compatibility constraints.
 - representative/vehicle binding is constrained by `REPRESENTATIVES_VEHICLES_V1_PLAN.md`.
 
 **Candidate seam**
