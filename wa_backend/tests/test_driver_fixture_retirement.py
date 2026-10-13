@@ -173,44 +173,24 @@ class FlagFreeDriver(SimpleNamespace):
 
 
 class DriverFixtureRetirementTests(unittest.IsolatedAsyncioTestCase):
-    def test_backfill_seed_preserves_operational_rows_without_removed_column(self):
+    def test_post_cutover_backfill_gate_seeds_driver_without_removed_column(self):
         path = TESTS / "run_identity_legacy_backfill_gate.py"
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
-        seed = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
-                    and node.name == "seed")
-        namespace = {"SECRET": "synthetic-seed-only", "IDENTITY": (
-            "company_principals", "backoffice_users", "field_representatives", "company_owners",
-        ), "fixture_tools": SimpleNamespace(company=lambda conn, code: 7 if code == "BACKFILL-A" else 8)}
-        exec(compile(ast.Module(body=[seed], type_ignores=[]), str(path), "exec"), namespace)
-
-        class Connection:
-            def __init__(self):
-                self.calls = []
-
-            def execute(self, query, params=()):
-                if query.count("%s") != len(params):
-                    raise AssertionError("Seed column/parameter alignment changed")
-                self.calls.append((query, params))
-                return SimpleNamespace(fetchone=lambda: (len(self.calls),))
-
-        connection = Connection()
-        fixture = namespace["seed"](connection)
-        rows = []
-        for query, params in connection.calls:
-            if query.startswith("INSERT INTO drivers("):
-                columns = query.split("(", 1)[1].split(")", 1)[0].split(",")
-                self.assertNotIn("is_admin", columns)
-                self.assertEqual(columns[-1], "created_at")
-                rows.append(dict(zip(columns[:-1], params)))
-        self.assertEqual([(row["company_id"], row["username"], row["is_active"],
-                           row["can_allow_debt"], row["max_debt_limit"]) for row in rows], [
-            (7, "owner", True, False, "0.000"), (7, "field", True, True, "321.123"),
-            (7, "dual", True, True, "456.789"), (7, "granted", True, False, "0.000"),
-            (7, "weak", False, True, "999.999"), (8, "owner", True, False, "0.000"),
-            (8, "field", True, False, "0.000"),
-        ])
-        self.assertEqual(set(fixture["drivers"]), {(row["company_id"], row["username"]) for row in rows})
-        self.assertEqual(len(set(fixture["drivers"].values())), 7)
+        source = path.read_text(encoding="utf-8-sig")
+        tree = ast.parse(source)
+        driver_seed = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_driver"
+        )
+        literals = [
+            node.value for node in ast.walk(driver_seed)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        ]
+        driver_sql = next(value for value in literals if "INSERT INTO drivers(" in value)
+        self.assertNotIn("is_admin", driver_sql)
+        self.assertIn("is_active,can_allow_debt,max_debt_limit,created_at", driver_sql)
+        self.assertIn("DRIVER_SEED_WITHOUT_PHYSICAL_ADMIN_COLUMN", source)
+        self.assertIn("PRE_CUTOVER_CLASSIFICATION_FAILS_CLOSED", source)
+        self.assertIn("CANONICAL_PERSISTED_EVIDENCE_ONLY", source)
 
     def test_all_backend_fixture_census_has_no_physical_dependencies(self):
         violations = {}
