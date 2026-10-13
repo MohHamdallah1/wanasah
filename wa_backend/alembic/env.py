@@ -11,7 +11,7 @@ import sys
 import os
 from dotenv import load_dotenv
 
-# Load the backend-local .env without overriding an explicitly supplied process environment.
+# Load the backend-local .env without overriding explicit process environment.
 load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
 
 sys.path.append(os.getcwd())
@@ -69,9 +69,8 @@ def include_object(obj, name, type_, reflected, compare_to):
 # access to the values within the .ini file in use.
 config = context.config
 
-# Alembic database selection is environment-only. Prefer the migration/admin
-# URL because migrations may create roles, grants and RLS policies; fall back to
-# the runtime DATABASE_URL only for environments that intentionally use one role.
+# Alembic MUST prefer the migration/admin URL because migrations create roles,
+# grants, and RLS policies. Runtime DATABASE_URL is the only permitted fallback.
 db_url = (
     os.getenv("DATABASE_URL_MIGRATION")
     or os.getenv("DATABASE_URL")
@@ -95,7 +94,8 @@ config.set_main_option("sqlalchemy.url", db_url)
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# other values from the config, defined by the needs of env.py, can be acquired:
+# other values from the config, defined by the needs of env.py,
+# can be acquired:
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
@@ -108,7 +108,8 @@ def run_migrations_offline() -> None:
     here as well.  By skipping the Engine creation
     we don't even need a DBAPI to be available.
 
-    Calls to context.execute() here emit the given string to the script output.
+    Calls to context.execute() here emit the given string to the
+    script output.
 
     """
     url = config.get_main_option("sqlalchemy.url")
