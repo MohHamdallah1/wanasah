@@ -3,30 +3,133 @@
 // المنطق الأساسي لإدارة حالة التوثيق.
 // يتعامل مع FlutterSecureStorage مباشرة لقراءة/مسح بيانات الجلسة.
 
-import 'dart:async'; // +++ لـ Future.ignore() +++
-
-import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:dio/dio.dart'; // +++ للتعامل مع مسار الشبكة +++
+import 'dart:async';
 import 'dart:developer' as developer;
 
+import 'package:dio/dio.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+import '../../core/db/local_database.dart';
 import '../../core/network/api_client.dart';
-import '../../core/db/local_database.dart'; // +++ الدرع الواقي لمنع تسريب البيانات +++
 import 'auth_event.dart';
 import 'auth_state.dart';
+import 'offline_owner_guard.dart';
 
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
+  static const String _offlineOwnerDriverKey =
+      'offline_pending_owner_driver_id';
+  static const String _offlineOwnerCompanyKey =
+      'offline_pending_owner_company_code';
+
   final FlutterSecureStorage _storage;
 
   AuthBloc({FlutterSecureStorage? storage})
     : _storage = storage ?? const FlutterSecureStorage(),
       super(const AuthInitial()) {
     on<CheckAuthEvent>(_onCheckAuth);
-    on<LoginRequested>(_onLogin); // +++ تغيير اسم الحدث +++
+    on<LoginRequested>(_onLogin);
     on<LogoutEvent>(_onLogout);
   }
 
-  // ─── CheckAuthEvent ────────────────────────────────────────────────────────
+  Future<void> _clearOfflineOwnerMarker() async {
+    await _storage.delete(key: _offlineOwnerDriverKey);
+    await _storage.delete(key: _offlineOwnerCompanyKey);
+  }
+
+  Future<void> _writeOfflineOwnerMarker({
+    required String companyCode,
+    required int driverId,
+  }) async {
+    await _storage.write(
+      key: _offlineOwnerDriverKey,
+      value: driverId.toString(),
+    );
+    await _storage.write(key: _offlineOwnerCompanyKey, value: companyCode);
+  }
+
+  Future<List<Map<String, dynamic>>> _readPendingSyncsForCompany(
+    String companyCode,
+  ) async {
+    await LocalDatabase.instance.setTenant(companyCode);
+    return LocalDatabase.instance.getPendingSyncs();
+  }
+
+  Future<void> _revokeRejectedLoginSession(String refreshToken) async {
+    try {
+      await ApiClient.instance.post(
+        '/logout',
+        options: Options(headers: {'X-Refresh-Token': refreshToken}),
+      );
+      developer.log(
+        '[AuthBloc] Login → Rejected post-auth session revoked best-effort.',
+      );
+    } catch (e) {
+      developer.log(
+        '[AuthBloc] Login → Rejected post-auth session cleanup failed; local session remains unpersisted: $e',
+      );
+    }
+  }
+
+  String _offlineOwnerBlockMessage(OfflineOwnerLoginOutcome outcome) {
+    switch (outcome) {
+      case OfflineOwnerLoginOutcome.blockDifferentDriverSameCompany:
+        return 'مرفوض مالياً: توجد عمليات أوفلاين غير متزامنة تخص مندوباً آخر في هذه الشركة. يجب على المندوب صاحب العمليات مزامنتها أو معالجتها عبر مسار الاسترداد المعتمد قبل تسجيل الدخول بهذا الحساب.';
+      case OfflineOwnerLoginOutcome.blockDifferentCompany:
+        return 'مرفوض مالياً: توجد عمليات أوفلاين غير متزامنة محفوظة لشركة أخرى. يجب مزامنتها أو معالجتها من حسابها الأصلي قبل التبديل إلى شركة أخرى.';
+      case OfflineOwnerLoginOutcome.blockUnattributedPending:
+        return 'مرفوض مالياً: توجد عمليات أوفلاين غير متزامنة لا يمكن إثبات مالكها بأمان. يجب معالجتها عبر مسار الاسترداد المعتمد قبل تسجيل الدخول.';
+      case OfflineOwnerLoginOutcome.blockPendingInspectionFailure:
+        return 'تعذر التحقق من ملكية العمليات الأوفلاين بأمان. لم يتم تسجيل الدخول ولم تُحذف أي عمليات. حاول مجدداً أو استخدم مسار الاسترداد المعتمد.';
+      case OfflineOwnerLoginOutcome.allowNoPendingOwner:
+      case OfflineOwnerLoginOutcome.allowSameOwner:
+      case OfflineOwnerLoginOutcome.allowStaleOwner:
+        return 'تعذر إكمال تسجيل الدخول بأمان.';
+    }
+  }
+
+  Future<void> _captureOfflineOwnerBeforeLogout() async {
+    final driverId = await _storage.read(key: 'driver_id');
+    final companyCode = await _storage.read(key: 'company_code');
+    final parsedDriverId = int.tryParse(driverId ?? '');
+    if (parsedDriverId == null ||
+        parsedDriverId <= 0 ||
+        companyCode == null ||
+        companyCode.isEmpty) {
+      return;
+    }
+
+    try {
+      final pending = await LocalDatabase.instance.getPendingSyncs();
+      if (hasActivePendingSyncs(pending)) {
+        await _writeOfflineOwnerMarker(
+          companyCode: companyCode,
+          driverId: parsedDriverId,
+        );
+        developer.log(
+          '[AuthBloc] Logout → Preserved offline queue owner (driverId=$parsedDriverId, Tenant=$companyCode).',
+        );
+        return;
+      }
+
+      final markedCompany = await _storage.read(key: _offlineOwnerCompanyKey);
+      if (markedCompany == companyCode) {
+        await _clearOfflineOwnerMarker();
+      }
+    } catch (e) {
+      // Fail closed: if local inspection is unavailable while a current field
+      // identity exists, retain its locator so a later different account cannot
+      // silently replay this tenant's queue.
+      await _writeOfflineOwnerMarker(
+        companyCode: companyCode,
+        driverId: parsedDriverId,
+      );
+      developer.log(
+        '[AuthBloc] Logout → Pending inspection failed; owner retained defensively: $e',
+      );
+    }
+  }
+
   Future<void> _onCheckAuth(
     CheckAuthEvent event,
     Emitter<AuthState> emit,
@@ -36,21 +139,22 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     try {
       final String? token = await _storage.read(key: 'auth_token');
       final String? driverIdString = await _storage.read(key: 'driver_id');
-      final String? companyCode = await _storage.read(key: 'company_code'); // +++ جلب رمز الشركة +++
+      final String? companyCode = await _storage.read(key: 'company_code');
 
-      if (token != null && token.isNotEmpty && driverIdString != null && companyCode != null) {
+      if (token != null &&
+          token.isNotEmpty &&
+          driverIdString != null &&
+          companyCode != null) {
         final int? driverId = int.tryParse(driverIdString);
 
         if (driverId != null) {
-          // +++ تفعيل العزل الفيزيائي فوراً بفتح قاعدة البيانات المخصصة للشركة المحفوظة +++
           await LocalDatabase.instance.setTenant(companyCode);
-          
+
           developer.log(
             '[AuthBloc] CheckAuth → Authenticated (driverId=$driverId, Tenant=$companyCode)',
           );
           emit(AuthAuthenticated(driverId: driverId));
         } else {
-          // +++ إغلاق فخ نوع البيانات وتسجيل الخطأ للـ Debugging +++
           developer.log(
             '[AuthBloc] CheckAuth → Failed to parse driver_id: "$driverIdString" is not an integer.',
           );
@@ -62,103 +166,180 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       }
     } catch (e) {
       developer.log('[AuthBloc] CheckAuth → Error reading storage: $e');
-      // +++   إخفاء تفاصيل الكراش عن المندوب برسالة واضحة +++
-      emit(AuthError(message: 'تعذر قراءة بيانات الجلسة السابقة. يرجى تسجيل الدخول مجدداً.'));
+      emit(
+        AuthError(
+          message:
+              'تعذر قراءة بيانات الجلسة السابقة. يرجى تسجيل الدخول مجدداً.',
+        ),
+      );
     }
   }
 
-  // ─── LoginRequested ────────────────────────────────────────────────────────────
-  /// الـ BLoC هنا يتولى مسؤولية الاتصال بالسيرفر وحفظ التوكن (Single Source of Truth).
   Future<void> _onLogin(LoginRequested event, Emitter<AuthState> emit) async {
     emit(const AuthLoading());
 
     try {
-      // 1. الاتصال المباشر بالسيرفر عبر ApiClient الموحد
       final response = await ApiClient.instance.post(
         '/driver/login',
-        data: {'company_code': event.companyCode, 'username': event.username, 'password': event.password}, // +++ إرسال رمز الشركة للسيرفر +++
+        data: {
+          'company_code': event.companyCode,
+          'username': event.username,
+          'password': event.password,
+        },
       );
 
-      // +++ الدرع النوعي الصارم (Type Safe Shield): فحص الهيكل الأساسي أولاً +++
       if (response.data is! Map) {
-        developer.log('[AuthBloc] Login → Invalid response type: ${response.data}');
+        developer.log(
+          '[AuthBloc] Login → Invalid response type: ${response.data}',
+        );
         emit(AuthError(message: 'استجابة غير صالحة من الخادم.'));
         return;
       }
-      
-      // +++  الحقيقي (Elite Cast): إجبار الـ Dart على تحويل أي قاموس مجهول إلى قاموس صريح لمنع كراش الـ TypeError +++
-      final Map<String, dynamic> data = Map<String, dynamic>.from(response.data as Map);
-      
-      // حماية تحويل الأرقام (الـ JSON قد يرسل الرقم كـ double)
+
+      final Map<String, dynamic> data = Map<String, dynamic>.from(
+        response.data as Map,
+      );
+
       final String? token = data['token']?.toString();
       final int? driverId = (data['driver_id'] as num?)?.toInt();
 
       if (token == null || token.isEmpty || driverId == null) {
-        developer.log('[AuthBloc] Login → Missing token or driver_id in response.');
+        developer.log(
+          '[AuthBloc] Login → Missing token or driver_id in response.',
+        );
         emit(AuthError(message: 'فشل تسجيل الدخول: بيانات الخادم غير مكتملة.'));
         return;
       }
 
-      // 2. حفظ البيانات محلياً (هنا فقط، لمنع التكرار)
-
-      // +++ الإصلاح الحرج: استلام وحفظ refresh_token — دونه يموت التجديد الصامت كل 15 دقيقة +++
       final String? refreshToken = data['refresh_token']?.toString();
-      if (refreshToken == null || refreshToken.isEmpty || refreshToken == 'null') {
+      if (refreshToken == null ||
+          refreshToken.isEmpty ||
+          refreshToken == 'null') {
         developer.log('[AuthBloc] Login → Server did not send refresh_token!');
-        emit(AuthError(message: 'استجابة ناقصة من الخادم (رمز التجديد مفقود).'));
+        emit(
+          AuthError(message: 'استجابة ناقصة من الخادم (رمز التجديد مفقود).'),
+        );
         return;
       }
 
-      final String returnedCompanyCode = data['company_code']?.toString() ?? event.companyCode;
+      final String returnedCompanyCode =
+          data['company_code']?.toString() ?? event.companyCode;
 
       final String? oldDriverId = await _storage.read(key: 'driver_id');
       final String? oldCompanyCode = await _storage.read(key: 'company_code');
+      final String? offlineOwnerDriverId = await _storage.read(
+        key: _offlineOwnerDriverKey,
+      );
+      final String? offlineOwnerCompanyCode = await _storage.read(
+        key: _offlineOwnerCompanyKey,
+      );
 
-      // +++ الدرع المالي (P1-2): منع التبديل لشركة أخرى إذا كانت الشركة الحالية تمتلك فواتير أوفلاين غير مرفوعة +++
-      if (oldCompanyCode != null && oldCompanyCode.isNotEmpty && oldCompanyCode != returnedCompanyCode) {
-        try {
-          // جلب المعلقات للشركة الحالية (قبل التبديل للجديدة)
-          final pending = await LocalDatabase.instance.getPendingSyncs();
-          final activePending = pending.where((p) => !p['type'].toString().startsWith('quarantined_')).toList();
-          if (activePending.isNotEmpty) {
-             developer.log('[AuthBloc] Login → Aborted: Active pending syncs found for old company ($oldCompanyCode).');
-             emit(AuthError(message: 'مرفوض مالياً: يرجى استكمال مزامنة فواتير الأوفلاين للشركة السابقة قبل التبديل لشركة أخرى لحماية مبيعاتك.'));
-             return;
+      final markerDriverId = int.tryParse(offlineOwnerDriverId?.trim() ?? '');
+      final markerCompanyCode = offlineOwnerCompanyCode?.trim();
+      final hasValidMarker =
+          markerDriverId != null &&
+          markerDriverId > 0 &&
+          markerCompanyCode != null &&
+          markerCompanyCode.isNotEmpty;
+      final previousDriverId = int.tryParse(oldDriverId?.trim() ?? '');
+      final previousCompanyCode = oldCompanyCode?.trim();
+      final hasValidPreviousOwner =
+          previousDriverId != null &&
+          previousDriverId > 0 &&
+          previousCompanyCode != null &&
+          previousCompanyCode.isNotEmpty;
+
+      final String? protectedOwnerCompanyCode =
+          hasValidMarker
+              ? markerCompanyCode
+              : (hasValidPreviousOwner ? previousCompanyCode : null);
+      final int? protectedOwnerDriverId =
+          hasValidMarker
+              ? markerDriverId
+              : (hasValidPreviousOwner ? previousDriverId : null);
+
+      final offlineGuard = await evaluateOfflineOwnerLoginSafety(
+        ownerCompanyCode: protectedOwnerCompanyCode,
+        ownerDriverId: protectedOwnerDriverId?.toString(),
+        returnedCompanyCode: returnedCompanyCode,
+        returnedDriverId: driverId,
+        returnedRefreshToken: refreshToken,
+        readPendingSyncs: _readPendingSyncsForCompany,
+        revokeRejectedRefresh: _revokeRejectedLoginSession,
+      );
+
+      if (!offlineGuard.allowsLogin) {
+        if (protectedOwnerCompanyCode != null &&
+            protectedOwnerCompanyCode.isNotEmpty &&
+            protectedOwnerDriverId != null &&
+            protectedOwnerDriverId > 0) {
+          try {
+            await _writeOfflineOwnerMarker(
+              companyCode: protectedOwnerCompanyCode,
+              driverId: protectedOwnerDriverId,
+            );
+          } catch (e) {
+            developer.log(
+              '[AuthBloc] Login → Failed to refresh offline owner marker while keeping login blocked: $e',
+            );
           }
-        } catch (e) {
-          developer.log('[AuthBloc] Login → Ignored DB error during pending sync check: $e');
         }
+        developer.log(
+          '[AuthBloc] Login → Blocked by offline financial ownership guard: ${offlineGuard.outcome}.',
+        );
+        emit(
+          AuthError(message: _offlineOwnerBlockMessage(offlineGuard.outcome)),
+        );
+        return;
       }
 
-      // +++ تفعيل العزل الفيزيائي للشركة الجديدة (سيقوم بفتح/إنشاء قاعدة بيانات مخصصة لها) +++
+      if (offlineGuard.shouldClearStaleMarker) {
+        await _clearOfflineOwnerMarker();
+      }
+
       await LocalDatabase.instance.setTenant(returnedCompanyCode);
 
-      // +++ درع تعدد الحسابات: مندوب مختلف في نفس الشركة = مسح العهدة، شركة مختلفة = بقاء الداتابيز القديمة معزولة +++
-      bool needToClearCache = false;
-      if (oldCompanyCode != null && oldCompanyCode != returnedCompanyCode) {
-        developer.log('[AuthBloc] Login → Switched to different company ($oldCompanyCode → $returnedCompanyCode). DB isolated.');
-        needToClearCache = true;
-      } else if (oldDriverId != null && oldDriverId.isNotEmpty && oldDriverId != driverId.toString()) {
-        developer.log('[AuthBloc] Login → Different driver for same company ($oldDriverId → $driverId). Wiping legacy data.');
-        await LocalDatabase.instance.clearSessionData(clearPendingSyncs: true);
-        needToClearCache = true;
-      }
-      
+      final switchedCompany =
+          oldCompanyCode != null &&
+          oldCompanyCode.isNotEmpty &&
+          oldCompanyCode != returnedCompanyCode;
+      final switchedDriverSameCompany =
+          previousDriverId != null &&
+          previousDriverId > 0 &&
+          oldCompanyCode == returnedCompanyCode &&
+          previousDriverId != driverId;
+      final needToClearCache = switchedCompany || switchedDriverSameCompany;
+
       if (needToClearCache) {
+        // Financial safety invariant: authentication/account switching never
+        // deletes pending_sync. This call re-checks active pending work and
+        // skips cache clearing if any appeared after the ownership guard.
+        await LocalDatabase.instance.clearSessionData(clearPendingSyncs: false);
+
         final allKeys = await _storage.readAll();
         for (final k in allKeys.keys) {
-          if (k.startsWith('cached_') || k == 'is_on_break' || k == 'is_authorized') {
+          if (k.startsWith('cached_') ||
+              k == 'is_on_break' ||
+              k == 'is_authorized') {
             await _storage.delete(key: k);
           }
         }
       }
 
+      // Persist the returned session only after the offline ownership guard has
+      // accepted it. A blocked post-auth response therefore never becomes the
+      // locally active session.
       await _storage.write(key: 'company_code', value: returnedCompanyCode);
       await _storage.write(key: 'auth_token', value: token);
       await _storage.write(key: 'refresh_token', value: refreshToken);
       await _storage.write(key: 'driver_id', value: driverId.toString());
+      if (offlineGuard.shouldClearMarkerAfterAcceptedSession) {
+        await _clearOfflineOwnerMarker();
+      }
 
-      developer.log('[AuthBloc] Login → Authenticated (driverId=$driverId, Tenant=$returnedCompanyCode)');
+      developer.log(
+        '[AuthBloc] Login → Authenticated (driverId=$driverId, Tenant=$returnedCompanyCode)',
+      );
       emit(AuthAuthenticated(driverId: driverId));
     } on DioException catch (e) {
       developer.log(
@@ -170,10 +351,11 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         case 401:
         case 429:
         case 403:
-          // رسائل السيرفر الذكية: تشمل عدّاد المحاولات المتبقية وحظر الـ Brute Force وإيقاف الحساب
           errorMsg = 'تأكد من اسم المستخدم وكلمة المرور.';
           if (e.response?.data is Map) {
-            final dynamic msg = (e.response!.data as Map)['message'] ?? (e.response!.data as Map)['detail'];
+            final dynamic msg =
+                (e.response!.data as Map)['message'] ??
+                (e.response!.data as Map)['detail'];
             if (msg is String && msg.isNotEmpty) {
               errorMsg = msg;
             }
@@ -192,42 +374,49 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
   }
 
-  // ─── LogoutEvent ───────────────────────────────────────────────────────────
   Future<void> _onLogout(LogoutEvent event, Emitter<AuthState> emit) async {
-    // +++ الإصلاح M-6: إبلاغ السيرفر بحرق الـ refresh token عبر العميل الموحد (Fire-and-forget) +++
+    try {
+      await _captureOfflineOwnerBeforeLogout();
+    } catch (e) {
+      developer.log('[AuthBloc] Logout → Failed to capture offline owner: $e');
+    }
+
     try {
       final oldRefresh = await _storage.read(key: 'refresh_token');
       if (oldRefresh != null && oldRefresh.isNotEmpty) {
-        // +++   استخدام ApiClient لمنع ازدواجية الـ Dio +++
-        ApiClient.instance.post('/logout', options: Options(headers: {'X-Refresh-Token': oldRefresh})).ignore();
+        ApiClient.instance
+            .post(
+              '/logout',
+              options: Options(headers: {'X-Refresh-Token': oldRefresh}),
+            )
+            .ignore();
       }
     } catch (_) {}
 
-    // +++ الإصلاح M-5: مسح جراحي للمفاتيح (مع إغلاق ثغرة تسريب الخصوصية State Bleed) +++
     await _storage.delete(key: 'auth_token');
     await _storage.delete(key: 'refresh_token');
     await _storage.delete(key: 'driver_id');
-    await _storage.delete(key: 'company_code'); // +++ مسح الهوية للعودة إلى حالة الصفر +++
-    
-    // +++   مسح كل آثار جلسة الداشبورد لتجنب الجلسات الوهمية (Ghost Sessions) عند الدخول مجدداً +++
+    await _storage.delete(key: 'company_code');
+
     final allKeys = await _storage.readAll();
     for (final k in allKeys.keys) {
-      if (k.startsWith('cached_') || k == 'is_on_break' || k == 'is_authorized') {
+      if (k.startsWith('cached_') ||
+          k == 'is_on_break' ||
+          k == 'is_authorized') {
         await _storage.delete(key: k);
       }
     }
 
-    // +++ سياسة موحدة مع الانترسبتور: حفظ فواتير الأوفلاين (pending_sync)،
-    //     ودرع تعدد الحسابات في _onLogin يمسحها إذا سجّل مندوب مختلف +++
     try {
       await LocalDatabase.instance.clearSessionData(clearPendingSyncs: false);
-      await LocalDatabase.instance.resetTenant(); // +++ إغلاق القاعدة لضمان العزل الفيزيائي التام +++
-      developer.log('[AuthBloc] Logout → Session cleared (offline invoices preserved) and DB closed.');
+      await LocalDatabase.instance.resetTenant();
+      developer.log(
+        '[AuthBloc] Logout → Session cleared (offline invoices preserved) and DB closed.',
+      );
     } catch (dbError) {
       developer.log('[AuthBloc] Logout → Error wiping SQLite: $dbError');
     }
 
-    // +++ ضمان إطلاق حالة الطرد دائماً حتى لو فشل المسح +++
     emit(const AuthUnauthenticated());
   }
 }
