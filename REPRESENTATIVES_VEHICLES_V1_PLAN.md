@@ -2,7 +2,7 @@
 
 ## Build Representatives completely first, then Vehicles, on top of the canonical identity/authorization foundation
 
-**Status:** REPRESENTATIVES IMPLEMENTED — FINAL FIELD/FLUTTER + OWNER ACCEPTANCE PENDING; VEHICLES NOT STARTED  
+**Status:** REPRESENTATIVES IMPLEMENTED — FINAL FIELD/FLUTTER + OWNER ACCEPTANCE PENDING; VEHICLES NOT STARTED
 **Owner decision date:** 2026-10-10  
 **Execution rule:** Representatives must be completed and owner-accepted before Vehicles implementation starts.  
 **Prerequisite status:** COMPLETE — Backoffice and Field Representative identities are cleanly separated and capability-based authorization is authoritative under `ARCHITECTURE.md`, `.rules`, and `AGENTS.md`.
