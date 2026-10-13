@@ -1,0 +1,254 @@
+name: Representatives final release closure
+
+on:
+  push:
+    branches:
+      - sol/representatives-final-release-closure
+    paths:
+      - ".github/workflows/representatives-final-release-closure.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  unified-release-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: representatives_gate
+          POSTGRES_DB: representatives_gate
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U representatives_gate -d representatives_gate"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: RepresentativesFinalClosureTestOnlySecret123456789012345678901234
+      DATABASE_URL: postgresql+asyncpg://representatives_runtime@127.0.0.1:5432/representatives_gate
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://representatives_gate@127.0.0.1:5432/representatives_gate
+      WANASAH_REPRESENTATIVES_DB_GATE: "1"
+      BASE_SHA: 81e12a0e13104cb4083762bbd0abbf388ad66b9f
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Verify exact merged-main production base
+        run: |
+          test "$(git rev-parse "$BASE_SHA^{commit}")" = "$BASE_SHA"
+          git diff --exit-code "$BASE_SHA" HEAD -- \
+            ':(exclude)REPRESENTATIVES_VEHICLES_V1_PLAN.md' \
+            ':(exclude).github/workflows/representatives-final-release-closure.yml'
+
+      - name: Install backend and test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+
+      - name: Create restricted runtime role and isolated migration database
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute(
+                  "CREATE ROLE representatives_runtime LOGIN NOSUPERUSER "
+                  "NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+              conn.execute("CREATE DATABASE representatives_migration_gate")
+          print("DB_SETUP=OK")
+          PY
+
+      - name: Build production schema through Alembic
+        working-directory: wa_backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://representatives_runtime@127.0.0.1:5432/representatives_migration_gate
+          DATABASE_URL_MIGRATION: postgresql+asyncpg://representatives_gate@127.0.0.1:5432/representatives_migration_gate
+        run: alembic upgrade head
+
+      - name: Reject model and migration drift
+        working-directory: wa_backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://representatives_runtime@127.0.0.1:5432/representatives_migration_gate
+          DATABASE_URL_MIGRATION: postgresql+asyncpg://representatives_gate@127.0.0.1:5432/representatives_migration_gate
+        run: alembic check
+
+      - name: PostgreSQL-backed Representatives runtime acceptance
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_representatives_runtime_db.py
+
+      - name: Complete focused Representatives backend tests
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_representatives*.py --ignore=tests/test_representatives_runtime_db.py
+
+      - name: Canonical auth and session regressions
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_principal_session_invalidation.py
+          tests/test_auth_session_token_contract.py
+          tests/test_principal_refresh_sessions.py
+          tests/test_driver_session_field_context_cutover.py
+
+      - name: Compile Representatives backend
+        working-directory: wa_backend
+        run: python -m compileall -q api/representatives domains/representatives tests/test_representatives_runtime_db.py tests/test_representatives_architecture.py tests/test_representatives_contract.py
+
+      - name: Locked Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+
+      - name: All focused Representatives Dashboard tests
+        working-directory: dashboard
+        shell: bash
+        run: |
+          mapfile -t tests < <(find src/pages/representatives-vehicles -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) | sort)
+          printf 'Representative dashboard tests:\n%s\n' "${tests[*]}"
+          test "${#tests[@]}" -gt 0
+          npm test -- "${tests[@]}"
+
+      - name: Affected Representatives Dashboard ESLint
+        working-directory: dashboard
+        run: >-
+          npx eslint
+          src/pages/representatives-vehicles
+          src/App.tsx
+          src/components/operations/OperationsSidebar.tsx
+          src/i18n/representativesVehicles.ts
+          src/i18n/resources.ts
+
+      - name: Prepare unmodified main Dashboard baseline
+        run: |
+          mkdir baseline
+          git archive --format=tar --output=baseline.tar "$BASE_SHA" dashboard
+          tar -xf baseline.tar -C baseline
+
+      - name: Reject new TypeScript diagnostics vs main baseline
+        working-directory: dashboard
+        run: node scripts/check-types-against-baseline.mjs ../baseline/dashboard
+
+      - name: Production Vite build
+        working-directory: dashboard
+        run: npm run build
+
+      - name: Route sidebar and Vehicles-gate source presence
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          app = Path("dashboard/src/App.tsx").read_text(encoding="utf-8")
+          sidebar = Path("dashboard/src/components/operations/OperationsSidebar.tsx").read_text(encoding="utf-8")
+          page = Path("dashboard/src/pages/representatives-vehicles/RepresentativesVehiclesPage.tsx").read_text(encoding="utf-8")
+          api_init = Path("wa_backend/api/representatives/__init__.py").read_text(encoding="utf-8")
+          read_api = Path("wa_backend/api/representatives/read.py").read_text(encoding="utf-8")
+          management_api = Path("wa_backend/api/representatives/management.py").read_text(encoding="utf-8")
+          lifecycle_api = Path("wa_backend/api/representatives/lifecycle.py").read_text(encoding="utf-8")
+          credentials_api = Path("wa_backend/api/representatives/credentials.py").read_text(encoding="utf-8")
+
+          checks = {
+              "dashboard route": 'path="/representatives-vehicles"' in app,
+              "sidebar route": 'path: "/representatives-vehicles"' in sidebar,
+              "sidebar capability": 'access.can("representative.read")' in sidebar,
+              "vehicles disabled": 'aria-disabled="true"' in page and 'disabled' in page,
+              "representative router prefix": 'prefix="/representatives"' in api_init,
+              "GET list": '@router.get(""' in read_api,
+              "GET detail": '@router.get("/{representative_id}"' in read_api,
+              "POST create": '@router.post(""' in management_api,
+              "PATCH update": '@router.patch("/{representative_id}"' in management_api,
+              "POST deactivate": '"/{representative_id}/deactivate"' in lifecycle_api,
+              "POST reactivate": '"/{representative_id}/reactivate"' in lifecycle_api,
+              "POST credential reset": '"/{representative_id}/credentials/reset"' in credentials_api,
+          }
+          failed = [name for name, ok in checks.items() if not ok]
+          for name, ok in checks.items():
+              print(f"{name}: {'PASS' if ok else 'FAIL'}")
+          if failed:
+              raise SystemExit(f"Presence checks failed: {failed}")
+          PY
+
+      - name: Representatives temporary-artifact and debug hygiene
+        run: |
+          python - <<'PY'
+          import re
+          import subprocess
+          from pathlib import Path
+
+          tracked = subprocess.check_output(["git", "ls-files"], text=True).splitlines()
+          allowed_workflow = ".github/workflows/representatives-final-release-closure.yml"
+          rep_workflows = [
+              p for p in tracked
+              if p.startswith(".github/workflows/") and "representative" in p.lower()
+          ]
+          if rep_workflows != [allowed_workflow]:
+              raise SystemExit(f"Unexpected Representatives workflows: {rep_workflows}")
+
+          suspicious_paths = [
+              p for p in tracked
+              if re.search(r"(?i)(representatives?.*(evidence|repair)|(evidence|repair).*representatives?)", p)
+          ]
+          if suspicious_paths:
+              raise SystemExit(f"Temporary Representative artifacts remain: {suspicious_paths}")
+
+          production_paths = [
+              Path("wa_backend/api/representatives"),
+              Path("wa_backend/domains/representatives"),
+              Path("dashboard/src/pages/representatives-vehicles"),
+          ]
+          debug_patterns = ("breakpoint()", "pdb.set_trace", "debugger;", "console.log(")
+          hits = []
+          for root in production_paths:
+              for path in root.rglob("*"):
+                  if not path.is_file() or ".test." in path.name:
+                      continue
+                  text = path.read_text(encoding="utf-8", errors="ignore")
+                  for marker in debug_patterns:
+                      if marker in text:
+                          hits.append(f"{path}:{marker}")
+          if hits:
+              raise SystemExit(f"Production debug residue: {hits}")
+          print("TEMP_ARTIFACT_HYGIENE=PASS")
+          PY
+
+      - name: Diff whitespace gate
+        run: git diff --check "$BASE_SHA" HEAD
+
+      - name: Closure branch scope gate
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+
+          allowed = {
+              "REPRESENTATIVES_VEHICLES_V1_PLAN.md",
+              ".github/workflows/representatives-final-release-closure.yml",
+          }
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only", os.environ["BASE_SHA"], "HEAD"],
+              text=True,
+          ).splitlines())
+          unexpected = sorted(changed - allowed)
+          print("changed:", *sorted(changed), sep="\n- ")
+          if unexpected:
+              raise SystemExit(f"Unexpected closure branch scope: {unexpected}")
+          PY
