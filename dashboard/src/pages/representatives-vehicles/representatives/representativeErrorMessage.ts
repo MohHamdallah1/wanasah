@@ -1,6 +1,5 @@
+import i18n from "@/i18n";
 import { apiErrorCode, apiErrorMessage } from "@/lib/apiErrors";
-
-type Translate = (key: string) => string;
 
 const representativeErrorKeys: Record<string, string> = {
   REPRESENTATIVE_USERNAME_CONFLICT:
@@ -18,9 +17,8 @@ const representativeErrorKeys: Record<string, string> = {
 export function representativeErrorMessage(
   error: unknown,
   fallback: string,
-  translate: Translate,
 ): string {
   const code = apiErrorCode(error);
   const key = code ? representativeErrorKeys[code] : undefined;
-  return key ? translate(key) : apiErrorMessage(error, fallback);
+  return key ? i18n.t(key) : apiErrorMessage(error, fallback);
 }
