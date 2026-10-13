@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Pencil } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -16,22 +16,64 @@ import { RepresentativeLifecycleActions } from "./RepresentativeLifecycleActions
 interface RepresentativeDrawerProps {
   representative: Representative | null;
   open: boolean;
+  canManage: boolean;
+  canResetCredentials: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-export function RepresentativeDrawer({ representative, open, onOpenChange }: RepresentativeDrawerProps) {
+type PendingUpdateOperation = {
+  fingerprint: string;
+  requestId: string;
+};
+
+export function RepresentativeDrawer({
+  representative,
+  open,
+  canManage,
+  canResetCredentials,
+  onOpenChange,
+}: RepresentativeDrawerProps) {
   const { t, i18n } = useTranslation();
   const authFetch = useAuthFetch();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const updateOperation = useRef<PendingUpdateOperation | null>(null);
 
   if (!representative) return null;
+
+  const requestIdForUpdate = (input: UpdateRepresentativeInput) => {
+    const fingerprint = JSON.stringify(input);
+    if (!updateOperation.current || updateOperation.current.fingerprint !== fingerprint) {
+      updateOperation.current = { fingerprint, requestId: crypto.randomUUID() };
+    }
+    return updateOperation.current.requestId;
+  };
+
+  const stopEditing = () => {
+    if (busy) return;
+    updateOperation.current = null;
+    setEditing(false);
+  };
+
+  const handleOpenChange = (next: boolean) => {
+    if (!next) {
+      updateOperation.current = null;
+      setEditing(false);
+    }
+    onOpenChange(next);
+  };
 
   const save = async (input: UpdateRepresentativeInput) => {
     setBusy(true);
     try {
-      await updateRepresentative(authFetch, representative.id, input);
+      await updateRepresentative(
+        authFetch,
+        representative.id,
+        input,
+        requestIdForUpdate(input),
+      );
+      updateOperation.current = null;
       await queryClient.invalidateQueries({ queryKey: ["representatives"] });
       toast.success(t("representativesVehicles.representatives.updateSuccess"));
       setEditing(false);
@@ -44,7 +86,7 @@ export function RepresentativeDrawer({ representative, open, onOpenChange }: Rep
   };
 
   return (
-    <Sheet open={open} onOpenChange={(next) => { setEditing(false); onOpenChange(next); }}>
+    <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent side={i18n.dir() === "rtl" ? "right" : "left"} className="w-[min(94vw,430px)] overflow-y-auto border-slate-200 bg-white p-5 sm:max-w-[430px]">
         <SheetHeader className="pe-8 text-start">
           <SheetTitle className="text-lg font-black text-slate-900">{t("representativesVehicles.representatives.details")}</SheetTitle>
@@ -53,7 +95,12 @@ export function RepresentativeDrawer({ representative, open, onOpenChange }: Rep
 
         <div className="mt-5 space-y-4">
           {editing ? (
-            <RepresentativeForm representative={representative} busy={busy} onCancel={() => setEditing(false)} onSubmit={(input) => save(input as UpdateRepresentativeInput)} />
+            <RepresentativeForm
+              representative={representative}
+              busy={busy}
+              onCancel={stopEditing}
+              onSubmit={(input) => save(input as UpdateRepresentativeInput)}
+            />
           ) : (
             <>
               <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -71,12 +118,30 @@ export function RepresentativeDrawer({ representative, open, onOpenChange }: Rep
                   <div><dt className="text-[11px] font-black text-slate-400">{t("representativesVehicles.representatives.fields.debtPermission")}</dt><dd className="mt-0.5 font-semibold text-slate-700">{t(representative.can_allow_debt ? "representativesVehicles.representatives.fields.enabled" : "representativesVehicles.representatives.fields.disabled")}</dd></div>
                   <div><dt className="text-[11px] font-black text-slate-400">{t("representativesVehicles.representatives.fields.debtLimit")}</dt><dd className="mt-0.5 font-semibold text-slate-700" dir="ltr">{representative.max_debt_limit}</dd></div>
                 </dl>
-                <button type="button" onClick={() => setEditing(true)} className="mt-4 inline-flex h-9 items-center gap-2 rounded-xl bg-slate-900 px-3 text-xs font-black text-white transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
+                <button
+                  type="button"
+                  onClick={() => setEditing(true)}
+                  disabled={!canManage}
+                  aria-describedby={!canManage ? "representative-edit-blocked" : undefined}
+                  className="mt-4 inline-flex h-9 items-center gap-2 rounded-xl bg-slate-900 px-3 text-xs font-black text-white transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
                   <Pencil className="h-3.5 w-3.5" />{t("representativesVehicles.representatives.edit")}
                 </button>
+                {!canManage ? (
+                  <p id="representative-edit-blocked" className="mt-2 text-[11px] font-semibold text-slate-500">
+                    {t("representativesVehicles.representatives.permissions.manageRequired")}
+                  </p>
+                ) : null}
               </div>
-              <RepresentativeLifecycleActions representative={representative} onChanged={() => onOpenChange(false)} />
-              <RepresentativeCredentialAction representative={representative} />
+              <RepresentativeLifecycleActions
+                representative={representative}
+                allowed={canManage}
+                onChanged={() => onOpenChange(false)}
+              />
+              <RepresentativeCredentialAction
+                representative={representative}
+                allowed={canResetCredentials}
+              />
             </>
           )}
         </div>
