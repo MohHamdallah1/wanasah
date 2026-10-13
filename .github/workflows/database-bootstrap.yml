@@ -248,5 +248,26 @@ jobs:
           print("DEV_SEED_CONTRACT=OK")
           PY
 
+      - name: Verify Product Import execution worker connector starts
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import asyncio
+          from contextlib import suppress
+          from domains.simple_products.imports.infrastructure.worker_cli import run
+
+          async def smoke():
+              task = asyncio.create_task(run("execution"))
+              await asyncio.sleep(3)
+              if task.done():
+                  await task
+              task.cancel()
+              with suppress(asyncio.CancelledError):
+                  await task
+              print("PRODUCT_IMPORT_EXECUTION_WORKER_CONNECTOR=OK")
+
+          asyncio.run(smoke())
+          PY
+
       - name: Diff whitespace gate
         run: git diff --check
