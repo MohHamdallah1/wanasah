@@ -95,9 +95,9 @@ def _validated_update_fields(command: UpdateRepresentativeCommand) -> dict[str, 
             status_code=422,
         )
     if "username" in fields:
-        fields["username"] = normalize_representative_username(str(fields["username"]))
+        fields["username"] = normalize_representative_username(fields["username"])  # type: ignore[arg-type]
     if "phone_number" in fields:
-        fields["phone_number"] = normalize_representative_phone(fields["phone_number"])
+        fields["phone_number"] = normalize_representative_phone(fields["phone_number"])  # type: ignore[arg-type]
     if "max_debt_limit" in fields:
         fields["max_debt_limit"] = normalize_debt_limit(fields["max_debt_limit"])
     return fields
