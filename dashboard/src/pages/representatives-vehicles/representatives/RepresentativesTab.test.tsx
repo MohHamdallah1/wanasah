@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { Representative } from "./contracts";
+
 const mocks = vi.hoisted(() => ({
   authFetch: vi.fn(),
   fetchNextPage: vi.fn(),
@@ -63,12 +65,12 @@ vi.mock("./RepresentativeTable", () => ({
     onLifecycle,
     onResetCredentials,
   }: {
-    items: Array<typeof representative>;
+    items: Representative[];
     canManage: boolean;
     canResetCredentials: boolean;
-    onEdit: (representative: typeof representative) => void;
-    onLifecycle: (representative: typeof representative) => void;
-    onResetCredentials: (representative: typeof representative) => void;
+    onEdit: (representative: Representative) => void;
+    onLifecycle: (representative: Representative) => void;
+    onResetCredentials: (representative: Representative) => void;
   }) => (
     <div data-testid="representative-table">
       {items.map((item) => item.full_name).join(",")}
@@ -80,7 +82,7 @@ vi.mock("./RepresentativeTable", () => ({
 }));
 vi.mock("./RepresentativeForm", () => ({
   RepresentativeForm: ({ representative: current, onSubmit }: {
-    representative?: typeof representative | null;
+    representative?: Representative | null;
     onSubmit: (input: { full_name: string; username: string }, requestId: string) => void;
   }) => current ? (
     <div data-testid="edit-form">
@@ -97,7 +99,7 @@ vi.mock("./RepresentativeForm", () => ({
 }));
 vi.mock("./RepresentativeLifecycleActions", () => ({
   RepresentativeLifecycleActions: ({ representative: current, open, onOpenChange }: {
-    representative: typeof representative;
+    representative: Representative;
     open: boolean;
     onOpenChange: (open: boolean) => void;
   }) => open ? (
@@ -124,7 +126,7 @@ vi.mock("@/components/ui/modal", () => ({
 
 import { RepresentativesTab } from "./RepresentativesTab";
 
-const representative = {
+const representative: Representative = {
   id: 17,
   full_name: "Ahmad Saleh",
   username: "rep17",
