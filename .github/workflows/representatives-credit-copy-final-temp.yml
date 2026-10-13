@@ -1,0 +1,134 @@
+name: Temporary representative credit copy finalization
+
+on:
+  push:
+    branches:
+      - sol/representatives-credit-policy-ui-finalization
+    paths:
+      - ".github/workflows/representatives-credit-copy-final-temp.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PREVIOUS_HEAD: 921a45f6e5ef02f2dc21e83131c1f881c3ed010c
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: sol/representatives-credit-policy-ui-finalization
+          fetch-depth: 0
+
+      - name: Apply explicit credit-limit copy correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          i18n_path = Path('dashboard/src/i18n/representativesVehicles.ts')
+          source = i18n_path.read_text(encoding='utf-8')
+          old_ar = 'debtHint: "يحدد أقصى مبلغ ذمم جديد يستطيع هذا المندوب اعتماده في عملية بيع واحدة. ويظل سقف ذمة المحل مطبقًا بشكل مستقل.",'
+          new_ar = 'debtHint: "هذا الحد هو أقصى مبلغ ذمم جديد في عملية بيع واحدة. ليس حدًا يوميًا ولا يتجدد تلقائيًا، ويظل سقف ذمة المحل مطبقًا بشكل مستقل.",'
+          old_en = 'debtHint: "Sets the maximum new credit this representative may authorize in one sale. The shop total credit limit still applies independently.",'
+          new_en = 'debtHint: "This is the maximum new credit for a single sale. It is not a daily limit and does not reset automatically. The shop’s total credit limit still applies independently.",'
+          assert source.count(old_ar) == 1
+          assert source.count(old_en) == 1
+          source = source.replace(old_ar, new_ar).replace(old_en, new_en)
+          i18n_path.write_text(source, encoding='utf-8')
+
+          drawer_path = Path('dashboard/src/pages/representatives-vehicles/representatives/RepresentativeDrawer.tsx')
+          drawer = drawer_path.read_text(encoding='utf-8')
+          old_drawer = '<div><dt className="text-[11px] font-black text-slate-400">{t("representativesVehicles.representatives.fields.debtLimit")}</dt><dd className="mt-0.5 font-semibold text-slate-700" dir="ltr">{current.max_debt_limit}</dd></div>'
+          new_drawer = '''<div>
+                    <dt className="text-[11px] font-black text-slate-400">{t("representativesVehicles.representatives.fields.debtLimit")}</dt>
+                    <dd className="mt-0.5 font-semibold text-slate-700" dir="ltr">{current.max_debt_limit}</dd>
+                    <p className="mt-1 text-[11px] font-semibold leading-5 text-slate-500">
+                      {t("representativesVehicles.representatives.form.debtHint")}
+                    </p>
+                  </div>'''
+          assert drawer.count(old_drawer) == 1
+          drawer_path.write_text(drawer.replace(old_drawer, new_drawer), encoding='utf-8')
+
+          test_path = Path('dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm.test.tsx')
+          test = test_path.read_text(encoding='utf-8')
+          import_anchor = 'import { RepresentativeForm } from "./RepresentativeForm";'
+          import_replacement = 'import { representativesVehicles } from "../../../i18n/representativesVehicles";\nimport { RepresentativeForm } from "./RepresentativeForm";'
+          assert test.count(import_anchor) == 1
+          test = test.replace(import_anchor, import_replacement)
+
+          visibility_anchor = '    expect(screen.getByLabelText("representativesVehicles.representatives.fields.debtLimit")).toBeTruthy();\n    fireEvent.click('
+          visibility_replacement = '    expect(screen.getByLabelText("representativesVehicles.representatives.fields.debtLimit")).toBeTruthy();\n    expect(screen.getByText("representativesVehicles.representatives.form.debtHint")).toBeTruthy();\n    fireEvent.click('
+          assert test.count(visibility_anchor) == 1
+          test = test.replace(visibility_anchor, visibility_replacement)
+
+          hidden_anchor = '    expect(screen.queryByLabelText("representativesVehicles.representatives.fields.debtLimit")).toBeNull();\n    expect(screen.getByText("representativesVehicles.representatives.form.debtDisabled")).toBeTruthy();'
+          hidden_replacement = '    expect(screen.queryByLabelText("representativesVehicles.representatives.fields.debtLimit")).toBeNull();\n    expect(screen.queryByText("representativesVehicles.representatives.form.debtHint")).toBeNull();\n    expect(screen.getByText("representativesVehicles.representatives.form.debtDisabled")).toBeTruthy();'
+          assert test.count(hidden_anchor) == 1
+          test = test.replace(hidden_anchor, hidden_replacement)
+
+          test += '''\n\ndescribe("Representative credit-limit clarity copy", () => {\n  it("states explicitly in Arabic that the per-sale limit is not daily and does not reset automatically", () => {\n    const helper = representativesVehicles.ar.representatives.form.debtHint;\n    expect(helper).toContain("عملية بيع واحدة");\n    expect(helper).toContain("ليس حدًا يوميًا");\n    expect(helper).toContain("لا يتجدد تلقائيًا");\n    expect(helper).toContain("سقف ذمة المحل");\n  });\n\n  it("states explicitly in English that the per-sale limit is not daily and does not reset automatically", () => {\n    const helper = representativesVehicles.en.representatives.form.debtHint;\n    expect(helper).toContain("single sale");\n    expect(helper).toContain("not a daily limit");\n    expect(helper).toContain("does not reset automatically");\n    expect(helper).toContain("shop’s total credit limit");\n  });\n});\n'''
+          test_path.write_text(test, encoding='utf-8')
+          PY
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install dashboard dependencies
+        working-directory: dashboard
+        run: npm ci
+
+      - name: Representatives focused suite
+        working-directory: dashboard
+        run: npx vitest run src/pages/representatives-vehicles
+
+      - name: Affected ESLint
+        working-directory: dashboard
+        run: npx eslint src/pages/representatives-vehicles src/i18n/representativesVehicles.ts
+
+      - name: TypeScript baseline comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf baseline
+          mkdir -p baseline
+          git archive --format=tar --output=/tmp/dashboard-prev.tar "$PREVIOUS_HEAD" dashboard
+          tar -xf /tmp/dashboard-prev.tar -C baseline
+          cd dashboard
+          node scripts/check-types-against-baseline.mjs ../baseline/dashboard
+
+      - name: Production build
+        working-directory: dashboard
+        run: npm run build
+
+      - name: Explicit clarity source assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'هذا الحد هو أقصى مبلغ ذمم جديد في عملية بيع واحدة. ليس حدًا يوميًا ولا يتجدد تلقائيًا، ويظل سقف ذمة المحل مطبقًا بشكل مستقل.' dashboard/src/i18n/representativesVehicles.ts
+          grep -F 'This is the maximum new credit for a single sale. It is not a daily limit and does not reset automatically. The shop’s total credit limit still applies independently.' dashboard/src/i18n/representativesVehicles.ts
+          grep -F 'representativesVehicles.representatives.form.debtHint' dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm.tsx
+          grep -F 'representativesVehicles.representatives.form.debtHint' dashboard/src/pages/representatives-vehicles/representatives/RepresentativeDrawer.tsx
+          grep -F 'creditAllowed' dashboard/src/pages/representatives-vehicles/representatives/RepresentativeTable.tsx
+
+      - name: Diff whitespace gate
+        run: git diff --check
+
+      - name: Commit UX clarity correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add dashboard/src/i18n/representativesVehicles.ts \
+            dashboard/src/pages/representatives-vehicles/representatives/RepresentativeDrawer.tsx \
+            dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm.test.tsx
+          test -n "$(git status --porcelain)"
+          git commit -m 'fix(dashboard): clarify representative per-sale credit limit'
+          git push origin HEAD:sol/representatives-credit-policy-ui-finalization
