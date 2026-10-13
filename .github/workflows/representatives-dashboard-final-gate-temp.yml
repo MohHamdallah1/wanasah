@@ -16,13 +16,13 @@ jobs:
     timeout-minutes: 20
     env:
       VITE_API_URL: http://127.0.0.1:8000
-      TARGET_SHA: 05fa0048f0952acef3e2a1ecd6a955068ac5f74a
+      TARGET_SHA: d7532fb2156e4001dfba297aadc646655c53ea80
       MAIN_SHA: 5b39474702e1a60347315e8c50cc08bb780a9ce2
     steps:
       - name: Checkout exact final code
         uses: actions/checkout@v4
         with:
-          ref: 05fa0048f0952acef3e2a1ecd6a955068ac5f74a
+          ref: d7532fb2156e4001dfba297aadc646655c53ea80
           fetch-depth: 0
 
       - name: Verify exact checkout
@@ -91,7 +91,7 @@ jobs:
         run: |
           changed="$(git diff --name-only "$MAIN_SHA" "$TARGET_SHA")"
           printf '%s\n' "$changed"
-          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(dashboard/src/pages/representatives-vehicles/|dashboard/src/App\.tsx$|dashboard/src/components/operations/OperationsSidebar\.tsx$|dashboard/src/i18n/index\.ts$|dashboard/src/i18n/representativesVehicles\.ts$)' || true)"
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(dashboard/src/pages/representatives-vehicles/|dashboard/src/App\.tsx$|dashboard/src/components/operations/OperationsSidebar\.tsx$|dashboard/src/i18n/index\.ts$|dashboard/src/i18n/representativesVehicles\.ts$|\.github/workflows/representatives-dashboard-final-gate-temp\.yml$)' || true)"
           if [ -n "$unexpected" ]; then
             printf 'Unexpected files outside Dashboard ownership:\n%s\n' "$unexpected"
             exit 1
