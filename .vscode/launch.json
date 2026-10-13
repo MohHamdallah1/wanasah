@@ -1,0 +1,42 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Wanasah Backend",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "cwd": "${workspaceFolder}/wa_backend",
+            "args": [
+                "main:app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "8000",
+                "--reload"
+            ],
+            "env": {
+                "ENVIRONMENT": "development"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Wanasah Dashboard",
+            "type": "node-terminal",
+            "request": "launch",
+            "command": "npm run dev",
+            "cwd": "${workspaceFolder}/dashboard"
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Wanasah Backend + Dashboard",
+            "configurations": [
+                "Wanasah Backend",
+                "Wanasah Dashboard"
+            ],
+            "stopAll": true
+        }
+    ]
+}
