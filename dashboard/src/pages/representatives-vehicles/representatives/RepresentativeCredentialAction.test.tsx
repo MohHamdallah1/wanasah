@@ -9,9 +9,13 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
 }));
 
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
-}));
+vi.mock("react-i18next", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-i18next")>();
+  return {
+    ...actual,
+    useTranslation: () => ({ t: (key: string) => key }),
+  };
+});
 vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => mocks.authFetch }));
 vi.mock("@/lib/apiErrors", () => ({ apiErrorMessage: (_error: unknown, fallback: string) => fallback }));
 vi.mock("./api", () => ({ resetRepresentativeCredentials: mocks.reset }));
