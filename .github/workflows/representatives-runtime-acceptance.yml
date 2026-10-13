@@ -36,26 +36,24 @@ jobs:
           python-version: "3.12"
       - name: Install backend and test dependencies
         run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
-      - name: Representatives model preflight
+      - name: Representatives blocker model preflight
         working-directory: wa_backend
         run: |
           python - <<'PY'
           import models
-          from domains.auth_sessions.models import PrincipalRefreshToken
-          from domains.identity.models import CompanyPrincipal, FieldRepresentative
-          from domains.identity.migration.models import IdentityLegacyDriverMap
-          targets = [
-              models.WorkSession, models.DispatchRoute, models.InventoryTransferHeader,
-              models.StocktakeSession, models.Vehicle, models.InventoryLocation,
-              models.RouteCommercialContext, models.OperationIdempotency,
-              CompanyPrincipal, FieldRepresentative, IdentityLegacyDriverMap,
-              PrincipalRefreshToken,
-          ]
+          targets = [models.Company, models.Zone, models.WorkSession, models.DispatchRoute,
+                     models.InventoryTransferHeader, models.StocktakeSession,
+                     models.InventoryLocation, models.OperationIdempotency, models.SystemAuditLog]
           for model in targets:
+              table = model.__table__
               print(f"MODEL {model.__name__} TABLE {model.__tablename__}")
-              for column in model.__table__.columns:
+              for column in table.columns:
                   fks = ",".join(str(fk.target_fullname) for fk in column.foreign_keys)
-                  print(f"  {column.name}|{column.type}|nullable={column.nullable}|default={column.default}|server_default={column.server_default}|fk={fks}")
+                  print(f"  COL {column.name}|{column.type}|nullable={column.nullable}|default={column.default}|server_default={column.server_default}|fk={fks}")
+              for constraint in table.constraints:
+                  print(f"  CONSTRAINT {constraint}")
+              for index in table.indexes:
+                  print(f"  INDEX {index}")
           PY
       - name: Diff whitespace gate
         run: git diff --check 5b39474702e1a60347315e8c50cc08bb780a9ce2 HEAD
