@@ -654,7 +654,7 @@ async def test_database_backed_deactivation_blocker_matrix(gate):
         await db.commit()
     await assert_deactivate_blocked(gate, rep["id"])
 
-    for status in ("DRAFT", "APPROVED"):
+    for stocktake_index, status in enumerate(("DRAFT", "APPROVED")):
         rep, _ = await create_rep(gate)
         state = await identity_state(gate, company.id, rep["id"])
         session_id = await seed_reconciled_session(
@@ -673,7 +673,7 @@ async def test_database_backed_deactivation_blocker_matrix(gate):
         async with AsyncSession(gate.engine) as db:
             db.add(StocktakeSession(
                 company_id=company.id,
-                location_id=location.id,
+                location_id=gate.locations[stocktake_index].id,
                 reference_number=f"VR-{status}-{uuid4().hex}",
                 stocktake_type="VEHICLE_RECON",
                 status=status,
