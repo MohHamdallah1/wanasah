@@ -25,7 +25,9 @@ from starlette.exceptions import HTTPException
 from api.auth import router as auth_router
 from api.authentication.dependencies import get_current_field_context
 from api.representatives import router as representatives_router
+from config import Config
 from database import get_db
+from domains.auth_sessions.codec import issue_access_token
 from domains.auth_sessions.context import FieldRequestContext
 from domains.auth_sessions.models import PrincipalRefreshToken
 from domains.identity.models import CompanyPrincipal, FieldRepresentative
@@ -149,11 +151,6 @@ async def gate():
                     CompanyPrincipal.id == owner.context.principal_id
                 )
             ))
-        ordinary_username = await seed.scalar(
-            select(CompanyPrincipal.username).where(
-                CompanyPrincipal.id == ordinary.context.principal_id
-            )
-        )
         await seed.commit()
 
     # Auto-created Representative principal/profile/Driver IDs intentionally use
@@ -208,7 +205,6 @@ async def gate():
             owners=owners,
             ordinary=ordinary,
             owner_usernames=owner_usernames,
-            ordinary_username=ordinary_username,
             zones=zones,
             locations=locations,
             schema=schema,
@@ -222,13 +218,22 @@ async def gate():
             })
             assert response.status_code == 200, response.text
             state.owner_tokens.append(response.json()["token"])
-        ordinary_login = await client.post("/login", json={
-            "company_code": companies[0].company_code,
-            "username": ordinary_username,
-            "password": ORDINARY_PASSWORD,
-        })
-        assert ordinary_login.status_code == 200, ordinary_login.text
-        state.ordinary_token = ordinary_login.json()["token"]
+
+        # A no-grant ordinary Backoffice principal is intentionally rejected by
+        # Dashboard admission before public login issues a token. For the HTTP 403
+        # contract we therefore mint the exact production access-token format for
+        # that persisted canonical subject. The request dependency still performs
+        # the real persisted principal/profile/revision validation; only the login
+        # admission step is bypassed so the Representative capability denial itself
+        # can be exercised.
+        state.ordinary_token = issue_access_token(
+            principal_id=ordinary.context.principal_id,
+            company_id=ordinary.context.company_id,
+            channel="DASHBOARD",
+            principal_type="BACKOFFICE",
+            auth_revision=ordinary.context.auth_revision,
+            secret=Config.SECRET_KEY,
+        )
         yield state
 
     await runtime_engine.dispose()
@@ -583,6 +588,10 @@ async def assert_deactivate_blocked(gate, representative_id):
         headers=auth(gate),
     )
     assert response.status_code == 409, response.text
+    payload = response.json()
+    encoded = str(payload).lower()
+    for forbidden in ("principal_id", "driver_id", "mapping", "session_id", "password", "hash", "token"):
+        assert forbidden not in encoded
     after = await identity_state(gate, gate.companies[0].id, representative_id)
     assert after.principal_active
     assert after.principal_revision == before.principal_revision
@@ -596,7 +605,6 @@ async def test_database_backed_deactivation_blocker_matrix(gate):
     zone = gate.zones[0]
     owner_driver_id = gate.owners[0].driver_id
 
-    # Open WorkSession.
     rep, _ = await create_rep(gate)
     state = await identity_state(gate, company.id, rep["id"])
     async with AsyncSession(gate.engine) as db:
@@ -604,7 +612,6 @@ async def test_database_backed_deactivation_blocker_matrix(gate):
         await db.commit()
     await assert_deactivate_blocked(gate, rep["id"])
 
-    # Current DispatchRoute statuses are independently blocked.
     for status in ("active", "waiting", "postponed"):
         rep, _ = await create_rep(gate)
         state = await identity_state(gate, company.id, rep["id"])
@@ -619,7 +626,6 @@ async def test_database_backed_deactivation_blocker_matrix(gate):
             await db.commit()
         await assert_deactivate_blocked(gate, rep["id"])
 
-    # Ended but inventory-unreconciled WorkSession.
     rep, _ = await create_rep(gate)
     state = await identity_state(gate, company.id, rep["id"])
     async with AsyncSession(gate.engine) as db:
@@ -631,7 +637,6 @@ async def test_database_backed_deactivation_blocker_matrix(gate):
         await db.commit()
     await assert_deactivate_blocked(gate, rep["id"])
 
-    # Pending HANDSHAKE receiver with otherwise reconciled session.
     rep, _ = await create_rep(gate)
     state = await identity_state(gate, company.id, rep["id"])
     session_id = await seed_reconciled_session(
@@ -654,7 +659,6 @@ async def test_database_backed_deactivation_blocker_matrix(gate):
         await db.commit()
     await assert_deactivate_blocked(gate, rep["id"])
 
-    # Unresolved VEHICLE_RECON, including APPROVED pre-final.
     for status in ("DRAFT", "APPROVED"):
         rep, _ = await create_rep(gate)
         state = await identity_state(gate, company.id, rep["id"])
@@ -683,7 +687,6 @@ async def test_database_backed_deactivation_blocker_matrix(gate):
             await db.commit()
         await assert_deactivate_blocked(gate, rep["id"])
 
-    # Reconciled but unsettled financial state is not a lifecycle blocker.
     rep, _ = await create_rep(gate)
     state = await identity_state(gate, company.id, rep["id"])
     await seed_reconciled_session(gate, company_index=0, driver_id=state.driver_id, settled=False)
@@ -693,7 +696,6 @@ async def test_database_backed_deactivation_blocker_matrix(gate):
     )
     assert allowed.status_code == 204, allowed.text
 
-    # A real blocker in company 2 cannot affect an unrelated company 1 representative.
     company1_rep, _ = await create_rep(gate, 0)
     company2_rep, _ = await create_rep(gate, 1)
     company2_state = await identity_state(gate, gate.companies[1].id, company2_rep["id"])
@@ -720,7 +722,6 @@ async def audit_count(gate, representative_id, action=None):
 
 @pytest.mark.asyncio
 async def test_focused_concurrency_lock_safety(gate):
-    # Two distinct deactivations serialize on the principal: one succeeds, one conflicts.
     rep, _ = await create_rep(gate)
     before = await identity_state(gate, gate.companies[0].id, rep["id"])
     audit_before = await audit_count(gate, rep["id"])
@@ -736,8 +737,6 @@ async def test_focused_concurrency_lock_safety(gate):
     assert not after.principal_active and after.principal_revision == before.principal_revision + 1
     assert await audit_count(gate, rep["id"]) == audit_before + 1
 
-    # Deactivate vs reactivate may produce one conflict or both serialized successes,
-    # but never an extra revision bump or inconsistent final state.
     rep, _ = await create_rep(gate)
     before = await identity_state(gate, gate.companies[0].id, rep["id"])
     audit_before = await audit_count(gate, rep["id"])
@@ -759,7 +758,6 @@ async def test_focused_concurrency_lock_safety(gate):
     expected_audits = 2 if statuses == [204, 204] else 1
     assert await audit_count(gate, rep["id"]) == audit_before + expected_audits
 
-    # Two distinct credential resets are both real mutations, serialized by row lock.
     rep, _ = await create_rep(gate)
     before = await identity_state(gate, gate.companies[0].id, rep["id"])
     audit_before = await audit_count(gate, rep["id"])
@@ -783,7 +781,6 @@ async def test_focused_concurrency_lock_safety(gate):
         successful_passwords += response.status_code == 200
     assert successful_passwords == 1
 
-    # Same request identity races collapse to one mutation + one replay.
     rep, _ = await create_rep(gate)
     before = await identity_state(gate, gate.companies[0].id, rep["id"])
     request_id = str(uuid4())
@@ -834,7 +831,6 @@ async def test_list_cursor_and_query_count_sanity(gate):
     assert first.status_code == 200, first.text
     payload = first.json()
     assert len(payload["items"]) == 5 and payload["has_more"] and payload["next_cursor"]
-    # Authorization does not join this table; the page itself must stay one bounded joined query.
     assert len(statements) == 1
 
     second = await gate.client.get(
@@ -850,6 +846,8 @@ async def test_list_cursor_and_query_count_sanity(gate):
     ids1 = [item["id"] for item in payload["items"]]
     ids2 = [item["id"] for item in second.json()["items"]]
     assert not set(ids1) & set(ids2)
-    assert ids1 == sorted(ids1, key=lambda rid: next(
-        item["full_name"] for item in payload["items"] if item["id"] == rid
-    ))
+    names1 = [item["full_name"] for item in payload["items"]]
+    names2 = [item["full_name"] for item in second.json()["items"]]
+    assert names1 == sorted(names1)
+    assert names2 == sorted(names2)
+    assert names1[-1] < names2[0]
