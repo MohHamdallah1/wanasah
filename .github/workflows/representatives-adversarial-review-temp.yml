@@ -85,7 +85,7 @@ jobs:
           from pathlib import Path
           import py_compile
           import subprocess
-          files = ["wa_backend/tests/test_representatives_architecture.py", "wa_backend/tests/test_representatives_contract.py"]
+          files = ["wa_backend/tests/test_representatives_architecture.py", "wa_backend/tests/test_representatives_contract.py", "wa_backend/domains/representatives/queries.py"]
           for filename in files:
               py_compile.compile(filename, doraise=True)
               ast.parse(Path(filename).read_text(encoding="utf-8-sig"), filename=filename, feature_version=(3, 11))

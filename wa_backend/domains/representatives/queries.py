@@ -26,22 +26,20 @@ def _sort_rank(is_active: bool) -> int:
     return 0 if is_active else 1
 
 
-def _normalized_name_value(value: str) -> str:
-    return value.strip().lower()
-
-
 def _normalized_name_column():
     return func.lower(func.trim(CompanyPrincipal.full_name))
 
 
-def _encode_cursor(record: RepresentativeRecord, *, scope: str) -> str:
+def _encode_cursor(
+    record: RepresentativeRecord, *, scope: str, normalized_name: str
+) -> str:
     raw = json.dumps(
         {
             "v": 1,
             "kind": "representative",
             "scope": _scope_hash(scope),
             "active_rank": _sort_rank(record.is_active),
-            "name": _normalized_name_value(record.full_name),
+            "name": normalized_name,
             "id": record.representative_id,
         },
         ensure_ascii=False,
@@ -128,7 +126,7 @@ async def list_representatives(
     active_rank = case((CompanyPrincipal.is_active.is_(True), 0), else_=1)
     normalized_name = _normalized_name_column()
     statement = (
-        select(FieldRepresentative, CompanyPrincipal)
+        select(FieldRepresentative, CompanyPrincipal, normalized_name.label("cursor_name"))
         .join(
             CompanyPrincipal,
             and_(
@@ -187,9 +185,12 @@ async def list_representatives(
         )
     ).all()
     has_more = len(rows) > limit
-    records = tuple(_record(profile, principal) for profile, principal in rows[:limit])
+    # Reuse SQL's sort key; Python Unicode lowercasing can differ from PostgreSQL.
+    page_rows = rows[:limit]
+    records = tuple(_record(profile, principal) for profile, principal, _ in page_rows)
     next_cursor = (
-        _encode_cursor(records[-1], scope=scope) if has_more and records else None
+        _encode_cursor(records[-1], scope=scope, normalized_name=page_rows[-1][2])
+        if has_more and records else None
     )
     return RepresentativePage(records, next_cursor, has_more)
 
