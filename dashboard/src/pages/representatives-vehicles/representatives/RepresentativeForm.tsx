@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import {
   normalizeDebtLimit,
-  normalizeOptionalPhone,
+  normalizeRequiredPhone,
   normalizeRepresentativeText,
   type CreateRepresentativeInput,
   type Representative,
@@ -11,6 +11,8 @@ import {
 } from "./contracts";
 import { isRepresentativePasswordValid } from "./passwordPolicy";
 import { formatRepresentativeMoney } from "./representativeMoney";
+import { RepresentativePasswordInput } from "./RepresentativePasswordInput";
+import { isRepresentativeUsernameValid } from "./usernamePolicy";
 
 interface RepresentativeFormProps {
   representative?: Representative | null;
@@ -32,6 +34,11 @@ const editableDebtLimit = (representative?: Representative | null) =>
     ? formatRepresentativeMoney(representative.max_debt_limit, { groupThousands: false })
     : "";
 
+const usernameDirection = (value: string, fallback: "rtl" | "ltr") => {
+  if (!value) return fallback;
+  return /[A-Za-z]/.test(value) ? "ltr" : "rtl";
+};
+
 export function RepresentativeForm({
   representative = null,
   busy = false,
@@ -43,6 +50,7 @@ export function RepresentativeForm({
   const [username, setUsername] = useState(representative?.username ?? "");
   const [phone, setPhone] = useState(representative?.phone_number ?? "");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [canAllowDebt, setCanAllowDebt] = useState(representative?.can_allow_debt ?? false);
   const [maxDebtLimit, setMaxDebtLimit] = useState(editableDebtLimit(representative));
   const [validation, setValidation] = useState("");
@@ -57,6 +65,7 @@ export function RepresentativeForm({
     setUsername(representative?.username ?? "");
     setPhone(representative?.phone_number ?? "");
     setPassword("");
+    setConfirmPassword("");
     setCanAllowDebt(representative?.can_allow_debt ?? false);
     setMaxDebtLimit(editableDebtLimit(representative));
     setValidation("");
@@ -72,8 +81,6 @@ export function RepresentativeForm({
   const requestIdForSubmission = (
     input: CreateRepresentativeInput | UpdateRepresentativeInput,
   ) => {
-    // Only normalized public fields participate; passwords are never retained in
-    // an operation fingerprint. A password edit explicitly replaces the key.
     const fingerprint = JSON.stringify({
       full_name: input.full_name,
       username: input.username,
@@ -91,19 +98,27 @@ export function RepresentativeForm({
     event.preventDefault();
     const normalizedName = normalizeRepresentativeText(fullName);
     const normalizedUsername = normalizeRepresentativeText(username);
-    const normalizedPhone = normalizeOptionalPhone(phone);
+    const normalizedPhone = normalizeRequiredPhone(phone);
     const debtInput = maxDebtLimit.trim();
     const normalizedDebt = debtInput ? normalizeDebtLimit(debtInput) : null;
 
-    if (!normalizedName || !normalizedUsername) {
+    if (!normalizedName || normalizedName.length > 120) {
       setValidation(t("representativesVehicles.representatives.form.required"));
       return;
     }
-    if (normalizedName.length > 120 || normalizedUsername.length > 80) {
+    if (!normalizedUsername) {
       setValidation(t("representativesVehicles.representatives.form.required"));
       return;
     }
-    if (normalizedPhone && normalizedPhone.length > 20) {
+    if (!isRepresentativeUsernameValid(normalizedUsername)) {
+      setValidation(t("representativesVehicles.representatives.form.usernameInvalid"));
+      return;
+    }
+    if (!normalizedPhone) {
+      setValidation(t("representativesVehicles.representatives.form.phoneRequired"));
+      return;
+    }
+    if (normalizedPhone.length > 20) {
       setValidation(t("representativesVehicles.representatives.form.phoneInvalid"));
       return;
     }
@@ -115,9 +130,19 @@ export function RepresentativeForm({
       setValidation(t("representativesVehicles.representatives.form.debtInvalid"));
       return;
     }
-    if (!representative && !isRepresentativePasswordValid(password)) {
-      setValidation(t("representativesVehicles.representatives.form.passwordInvalid"));
-      return;
+    if (!representative) {
+      if (!isRepresentativePasswordValid(password)) {
+        setValidation(t("representativesVehicles.representatives.form.passwordInvalid"));
+        return;
+      }
+      if (!confirmPassword) {
+        setValidation(t("representativesVehicles.representatives.form.confirmRequired"));
+        return;
+      }
+      if (password !== confirmPassword) {
+        setValidation(t("representativesVehicles.representatives.form.passwordMismatch"));
+        return;
+      }
     }
 
     setValidation("");
@@ -126,7 +151,7 @@ export function RepresentativeForm({
       const update: UpdateRepresentativeInput = {};
       const originalName = normalizeRepresentativeText(representative.full_name);
       const originalUsername = normalizeRepresentativeText(representative.username);
-      const originalPhone = normalizeOptionalPhone(representative.phone_number ?? "");
+      const originalPhone = normalizeRequiredPhone(representative.phone_number ?? "");
       const originalDebt =
         normalizeDebtLimit(representative.max_debt_limit) ?? representative.max_debt_limit;
 
@@ -180,24 +205,47 @@ export function RepresentativeForm({
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="min-w-0 space-y-1.5 sm:col-span-2">
           <label htmlFor="representative-name" className="block text-start text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.name")}</label>
-          <input id="representative-name" autoFocus maxLength={120} value={fullName} onChange={(event) => { resetOperation(); setFullName(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.namePlaceholder")} className={inputClass} disabled={busy} autoComplete="off" />
+          <input id="representative-name" autoFocus required aria-required="true" maxLength={120} value={fullName} onChange={(event) => { resetOperation(); setFullName(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.namePlaceholder")} className={inputClass} disabled={busy} autoComplete="off" />
         </div>
 
         <div className="min-w-0 space-y-1.5">
           <label htmlFor="representative-username" className="block text-start text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.username")}</label>
-          <input id="representative-username" dir={username ? "ltr" : formDirection} maxLength={80} value={username} onChange={(event) => { resetOperation(); setUsername(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.usernamePlaceholder")} className={`${inputClass} ${localeTextAlignment}`} disabled={busy} autoComplete="off" />
+          <input id="representative-username" aria-describedby="representative-username-hint" required aria-required="true" dir={usernameDirection(username, formDirection)} maxLength={80} value={username} onChange={(event) => { resetOperation(); setUsername(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.usernamePlaceholder")} className={`${inputClass} ${localeTextAlignment}`} disabled={busy} autoComplete="off" />
+          <p id="representative-username-hint" className="text-[11px] font-semibold leading-5 text-slate-500">{t("representativesVehicles.representatives.form.usernameHint")}</p>
         </div>
 
         <div className="min-w-0 space-y-1.5">
           <label htmlFor="representative-phone" className="block text-start text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.phone")}</label>
-          <input id="representative-phone" dir={phone ? "ltr" : formDirection} inputMode="tel" maxLength={20} value={phone} onChange={(event) => { resetOperation(); setPhone(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.phonePlaceholder")} className={`${inputClass} ${localeTextAlignment}`} disabled={busy} autoComplete="tel" />
+          <input id="representative-phone" required aria-required="true" dir={phone ? "ltr" : formDirection} inputMode="tel" maxLength={20} value={phone} onChange={(event) => { resetOperation(); setPhone(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.phonePlaceholder")} className={`${inputClass} ${localeTextAlignment}`} disabled={busy} autoComplete="tel" />
         </div>
 
         {!representative ? (
-          <div className="min-w-0 space-y-1.5 sm:col-span-2">
-            <label htmlFor="representative-password" className="block text-start text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.password")}</label>
-            <input id="representative-password" type="password" minLength={8} maxLength={72} value={password} onChange={(event) => { operation.current = null; resetOperation(); setPassword(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.passwordPlaceholder")} className={inputClass} disabled={busy} autoComplete="new-password" />
-          </div>
+          <>
+            <div className="min-w-0 space-y-1.5 sm:col-span-2">
+              <label htmlFor="representative-password" className="block text-start text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.password")}</label>
+              <RepresentativePasswordInput
+                id="representative-password"
+                value={password}
+                onChange={(value) => { operation.current = null; resetOperation(); setPassword(value); }}
+                placeholder={t("representativesVehicles.representatives.form.passwordPlaceholder")}
+                className={inputClass}
+                disabled={busy}
+                resetSignal={representative?.id ?? "create"}
+              />
+            </div>
+            <div className="min-w-0 space-y-1.5 sm:col-span-2">
+              <label htmlFor="representative-confirm-password" className="block text-start text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.confirmPassword")}</label>
+              <RepresentativePasswordInput
+                id="representative-confirm-password"
+                value={confirmPassword}
+                onChange={(value) => { resetOperation(); setConfirmPassword(value); }}
+                placeholder={t("representativesVehicles.representatives.form.confirmPasswordPlaceholder")}
+                className={inputClass}
+                disabled={busy}
+                resetSignal={representative?.id ?? "create"}
+              />
+            </div>
+          </>
         ) : null}
       </div>
 
@@ -221,6 +269,8 @@ export function RepresentativeForm({
             <input
               id="representative-debt-limit"
               aria-describedby="representative-debt-hint"
+              required
+              aria-required="true"
               dir={maxDebtLimit ? "ltr" : formDirection}
               inputMode="decimal"
               value={maxDebtLimit}
