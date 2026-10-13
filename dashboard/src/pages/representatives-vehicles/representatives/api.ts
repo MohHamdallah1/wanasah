@@ -15,8 +15,6 @@ const jsonRequest = (method: string, value: unknown): RequestInit => ({
   body: JSON.stringify(value),
 });
 
-const requestId = () => crypto.randomUUID();
-
 export async function listRepresentatives(
   authFetch: RepresentativeAuthFetch,
   options: {
@@ -53,11 +51,12 @@ export async function getRepresentative(
 export async function createRepresentative(
   authFetch: RepresentativeAuthFetch,
   input: CreateRepresentativeInput,
+  requestId: string,
 ): Promise<Representative> {
   return parseRepresentative(
     await authFetch(
       "/representatives",
-      jsonRequest("POST", { request_id: requestId(), ...input }),
+      jsonRequest("POST", { request_id: requestId, ...input }),
     ),
   );
 }
@@ -66,11 +65,12 @@ export async function updateRepresentative(
   authFetch: RepresentativeAuthFetch,
   representativeId: number,
   input: UpdateRepresentativeInput,
+  requestId: string,
 ): Promise<Representative> {
   return parseRepresentative(
     await authFetch(
       `/representatives/${representativeId}`,
-      jsonRequest("PATCH", { request_id: requestId(), ...input }),
+      jsonRequest("PATCH", { request_id: requestId, ...input }),
     ),
   );
 }
@@ -78,20 +78,22 @@ export async function updateRepresentative(
 export async function deactivateRepresentative(
   authFetch: RepresentativeAuthFetch,
   representativeId: number,
+  requestId: string,
 ): Promise<void> {
   await authFetch(
     `/representatives/${representativeId}/deactivate`,
-    jsonRequest("POST", { request_id: requestId() }),
+    jsonRequest("POST", { request_id: requestId }),
   );
 }
 
 export async function reactivateRepresentative(
   authFetch: RepresentativeAuthFetch,
   representativeId: number,
+  requestId: string,
 ): Promise<void> {
   await authFetch(
     `/representatives/${representativeId}/reactivate`,
-    jsonRequest("POST", { request_id: requestId() }),
+    jsonRequest("POST", { request_id: requestId }),
   );
 }
 
@@ -99,11 +101,12 @@ export async function resetRepresentativeCredentials(
   authFetch: RepresentativeAuthFetch,
   representativeId: number,
   newPassword: string,
+  requestId: string,
 ): Promise<void> {
   await authFetch(
     `/representatives/${representativeId}/credentials/reset`,
     jsonRequest("POST", {
-      request_id: requestId(),
+      request_id: requestId,
       new_password: newPassword,
     }),
   );
