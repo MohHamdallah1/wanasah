@@ -116,10 +116,13 @@ Future<OfflineOwnerLoginGuardResult> evaluateOfflineOwnerLoginSafety({
     }
   }
 
+  final ownerCompany = normalizedOwnerCompany!;
+  final ownerDriver = normalizedOwnerDriver!;
+
   try {
-    final ownerPending = await readPendingSyncs(normalizedOwnerCompany);
+    final ownerPending = await readPendingSyncs(ownerCompany);
     if (!hasActivePendingSyncs(ownerPending)) {
-      if (normalizedOwnerCompany != returnedCompanyCode) {
+      if (ownerCompany != returnedCompanyCode) {
         final returnedCompanyPending = await readPendingSyncs(returnedCompanyCode);
         if (hasActivePendingSyncs(returnedCompanyPending)) {
           await _bestEffortRevoke(
@@ -137,8 +140,8 @@ Future<OfflineOwnerLoginGuardResult> evaluateOfflineOwnerLoginSafety({
     }
 
     final decision = classifyOfflineOwnerLogin(
-      ownerCompanyCode: normalizedOwnerCompany,
-      ownerDriverId: normalizedOwnerDriver.toString(),
+      ownerCompanyCode: ownerCompany,
+      ownerDriverId: ownerDriver.toString(),
       returnedCompanyCode: returnedCompanyCode,
       returnedDriverId: returnedDriverId,
     );
