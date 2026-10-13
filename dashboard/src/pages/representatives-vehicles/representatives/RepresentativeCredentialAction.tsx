@@ -5,10 +5,10 @@ import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
-import { apiErrorMessage } from "@/lib/apiErrors";
 import { resetRepresentativeCredentials } from "./api";
 import type { Representative } from "./contracts";
 import { isRepresentativePasswordValid } from "./passwordPolicy";
+import { representativeErrorMessage } from "./representativeErrorMessage";
 
 interface RepresentativeCredentialActionProps {
   representative: Representative;
@@ -69,7 +69,12 @@ export function RepresentativeCredentialAction({
       setOpen(false);
       resetFields();
     } catch (error) {
-      toast.error(apiErrorMessage(error, t("representativesVehicles.representatives.credentials.failed")));
+      toast.error(
+        representativeErrorMessage(
+          error,
+          t("representativesVehicles.representatives.credentials.failed"),
+        ),
+      );
     } finally {
       setBusy(false);
     }
