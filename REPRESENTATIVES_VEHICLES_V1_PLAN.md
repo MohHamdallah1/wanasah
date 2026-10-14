@@ -2,7 +2,7 @@
 
 ## Build Representatives completely first, then Vehicles, on top of the canonical identity/authorization foundation
 
-**Status:** REPRESENTATIVES V1 COMPLETE + OWNER ACCEPTED; VEHICLES BACKEND MERGED; DASHBOARD + DISPATCH IN PROGRESS
+**Status:** REPRESENTATIVES V1 COMPLETE + OWNER ACCEPTED; VEHICLES BACKEND + DASHBOARD MERGED; DISPATCH IN PROGRESS
 **Owner decision date:** 2026-10-10  
 **Representative owner acceptance date:** 2026-10-14  
 **Execution rule:** Representatives must be completed and owner-accepted before Vehicles implementation starts. This gate is now satisfied.  
@@ -70,7 +70,7 @@ Representative owner-complete gate:
 
 Vehicles status:
 
-- [ ] Vehicles implementation - **BACKEND MERGED IN PR #309; DASHBOARD + DISPATCH INTEGRATION PENDING**. The Representatives owner-acceptance gate is closed.
+- [ ] Vehicles implementation - **BACKEND PR #309 + DASHBOARD PR #310 MERGED; DISPATCH INTEGRATION PENDING**. The Representatives owner-acceptance gate is closed.
 
 ### Vehicles source/contract audit closure — 2026-10-14
 
@@ -985,7 +985,7 @@ Current checkpoints:
 4. [x] Representatives FIELD/Flutter compatibility integration acceptance completed and merged.
 5. [x] **Representative owner-acceptance checkpoint completed; Representatives V1 closed.**
 6. [x] Vehicles backend/domain + InventoryLocation integration - COMPLETED + MERGED IN PR #309.
-7. [ ] Vehicles Dashboard implementation — NOT STARTED.
+7. [x] Vehicles Dashboard implementation - COMPLETED + MERGED IN PR #310.
 8. [ ] Vehicles Dispatch/Inventory integration + acceptance — NOT STARTED.
 9. [ ] **Vehicle owner-acceptance checkpoint; merge/cleanup if stable.**
 10. [ ] Final integrated page acceptance and `RUN.txt` closure.
