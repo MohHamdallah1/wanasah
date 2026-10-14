@@ -22,6 +22,7 @@ from api.authentication.backoffice_compatibility import (
 )
 from database import get_db
 from domains.auth_sessions.context import DashboardRequestContext
+from domains.vehicles import VehicleError, resolve_vehicle_custody_location_id
 from domains.authorization.backoffice_access import (
     BackofficeCapabilityAccess,
     BackofficeCapabilityAccessRejected,
@@ -1525,16 +1526,15 @@ async def start_unified_stocktake(
 
     try:
         expected_location_type = 'VEHICLE' if payload.stocktake_type == 'VEHICLE_RECON' else 'WAREHOUSE'
-        location = (
-            await db.execute(
-                select(InventoryLocation).filter_by(
-                    id=payload.location_id,
-                    company_id=company_id,
-                    location_type=expected_location_type,
-                    is_active=True,
-                )
-            )
-        ).scalar_one_or_none()
+        location_query = select(InventoryLocation).filter_by(
+            id=payload.location_id,
+            company_id=company_id,
+            location_type=expected_location_type,
+        )
+        # VEHICLE activity is checked by the strict seam after all-history cardinality.
+        if payload.stocktake_type != 'VEHICLE_RECON':
+            location_query = location_query.filter(InventoryLocation.is_active.is_(True))
+        location = (await db.execute(location_query)).scalar_one_or_none()
         if location is None:
             raise HTTPException(status_code=404, detail="الموقع غير موجود أو غير فعال أو لا يتبع شركتك.")
 
@@ -1578,6 +1578,14 @@ async def start_unified_stocktake(
                     status_code=409,
                     detail="موقع السيارة لا يحمل vehicle_id صالحاً.",
                 )
+
+            await resolve_vehicle_custody_location_id(
+                db,
+                company_id=company_id,
+                vehicle_id=int(location.vehicle_id),
+                require_active=True,
+                expected_location_id=int(payload.location_id),
+            )
 
             try:
                 await validate_vehicle_recon_work_session(
@@ -1743,6 +1751,12 @@ async def start_unified_stocktake(
     except HTTPException:
         await db.rollback()
         raise
+    except VehicleError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message, "context": exc.context},
+        ) from exc
     except IntegrityError as e:
         await db.rollback()
         logger.warning(f"تعارض متزامن أثناء بدء الجرد: {e}", exc_info=True)

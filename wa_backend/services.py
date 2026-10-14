@@ -4414,6 +4414,28 @@ async def apply_inventory_movement(
 
 # فتح VEHICLE_RECON موجّه فقط للأصناف التي فشل عدّها التجميعي.
 # يبقى InventoryLock على السيارة كاملة لأن الجلسة منتهية، لكن العد التفصيلي لا يرهق المشرف بأصناف مطابقة.
+async def _require_vehicle_reconciliation_custody(
+    db_session: AsyncSession,
+    *,
+    company_id: int,
+    vehicle_id: int,
+    vehicle_location_id: int,
+) -> None:
+    # Local import avoids the legacy services -> Vehicles repository -> services cycle.
+    from domains.vehicles import VehicleError, resolve_vehicle_custody_location_id
+
+    try:
+        await resolve_vehicle_custody_location_id(
+            db_session,
+            company_id=company_id,
+            vehicle_id=vehicle_id,
+            require_active=True,
+            expected_location_id=vehicle_location_id,
+        )
+    except VehicleError as exc:
+        raise InventoryMutationError(f"{exc.code}: {exc.message}") from exc
+
+
 async def open_vehicle_reconciliation_stocktake(
     db_session: AsyncSession,
     *,
@@ -4466,7 +4488,6 @@ async def open_vehicle_reconciliation_stocktake(
                 company_id=company_id,
                 id=vehicle_location_id,
                 location_type="VEHICLE",
-                is_active=True,
             ).with_for_update(read=True)
         )
     ).scalar_one_or_none()
@@ -4498,6 +4519,13 @@ async def open_vehicle_reconciliation_stocktake(
         company_id,
         vehicle_location_id,
         exclusive=True,
+    )
+
+    await _require_vehicle_reconciliation_custody(
+        db_session,
+        company_id=company_id,
+        vehicle_id=int(location.vehicle_id),
+        vehicle_location_id=vehicle_location_id,
     )
 
     existing = (
@@ -4700,12 +4728,18 @@ async def _seal_vehicle_inventory_reconciliation(
                 company_id=company_id,
                 id=vehicle_location_id,
                 location_type="VEHICLE",
-                is_active=True,
             ).with_for_update(read=True)
         )
     ).scalar_one_or_none()
     if location is None or location.vehicle_id is None:
         raise InventoryMutationError("موقع السيارة غير موجود أو غير فعال أو لا يحمل vehicle_id صالحاً.")
+
+    await _require_vehicle_reconciliation_custody(
+        db_session,
+        company_id=company_id,
+        vehicle_id=int(location.vehicle_id),
+        vehicle_location_id=vehicle_location_id,
+    )
 
     route_id = (
         await db_session.execute(
@@ -4964,6 +4998,16 @@ async def post_approved_stocktake_adjustments(
         raise InventoryMutationError(
             "نوع موقع جلسة الجرد لا يطابق نوع الجرد المعتمد."
         )
+    if session.stocktake_type == "VEHICLE_RECON" and session.status == "APPROVED":
+        if location_vehicle_id is None:
+            raise InventoryMutationError("موقع VEHICLE_RECON لا يحمل vehicle_id صالحاً.")
+        await _require_vehicle_reconciliation_custody(
+            db_session,
+            company_id=company_id,
+            vehicle_id=int(location_vehicle_id),
+            vehicle_location_id=int(session.location_id),
+        )
+
     if session.status == "APPROVED" and not location_is_active:
         raise InventoryMutationError(
             "لا يمكن ترحيل جرد جديد على موقع مخزون غير فعال."
