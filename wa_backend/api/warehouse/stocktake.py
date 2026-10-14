@@ -483,55 +483,47 @@ async def _load_stocktake_session(
     session_id: int,
     *,
     for_update: bool = False,
-    lock_vehicle_recon_work_session: bool = False,
 ) -> StocktakeSession:
-    if for_update and lock_vehicle_recon_work_session:
-        raise ValueError(
-            "Vehicle reconciliation WorkSession must be locked from a plain Stocktake probe."
-        )
-
     stmt = select(StocktakeSession).filter_by(id=session_id, company_id=company_id)
     if for_update:
         stmt = stmt.with_for_update()
     session = (await db.execute(stmt)).scalar_one_or_none()
     if session is None:
         raise HTTPException(status_code=404, detail="جلسة الجرد غير موجودة أو لا تتبع شركتك.")
-
-    if lock_vehicle_recon_work_session and session.stocktake_type == 'VEHICLE_RECON':
-        if session.related_work_session_id is None:
-            raise HTTPException(
-                status_code=409,
-                detail="VEHICLE_RECON بدون WorkSession مرتبط.",
-            )
-        locked_work_session_id = (
-            await db.execute(
-                select(WorkSession.id).filter_by(
-                    company_id=company_id,
-                    id=session.related_work_session_id,
-                ).with_for_update()
-            )
-        ).scalar_one_or_none()
-        if locked_work_session_id is None:
-            raise HTTPException(
-                status_code=409,
-                detail="جلسة العمل المرتبطة بـ VEHICLE_RECON غير موجودة أو خارج الشركة.",
-            )
-
     return session
 
 
 # ====================================================
 # 11.11 جلب موقع جلسة الجرد بسرعة للتحقق من الصلاحيات
 # ====================================================
-async def _probe_stocktake_location_id(db: AsyncSession, company_id: int, session_id: int) -> int:
-    location_id = (
+async def _probe_stocktake_location_id(
+    db: AsyncSession,
+    company_id: int,
+    session_id: int,
+) -> tuple[int, str, int | None]:
+    probe = (
         await db.execute(
-            select(StocktakeSession.location_id).filter_by(id=session_id, company_id=company_id)
+            select(
+                StocktakeSession.location_id,
+                StocktakeSession.stocktake_type,
+                StocktakeSession.related_work_session_id,
+            ).filter_by(
+                id=session_id,
+                company_id=company_id,
+            )
         )
-    ).scalar_one_or_none()
-    if location_id is None:
-        raise HTTPException(status_code=404, detail="جلسة الجرد غير موجودة أو لا تتبع شركتك.")
-    return int(location_id)
+    ).one_or_none()
+    if probe is None:
+        raise HTTPException(
+            status_code=404,
+            detail="جلسة الجرد غير موجودة أو لا تتبع شركتك.",
+        )
+    location_id, stocktake_type, related_work_session_id = probe
+    return (
+        int(location_id),
+        str(stocktake_type),
+        int(related_work_session_id) if related_work_session_id is not None else None,
+    )
 
 
 # ====================================================
@@ -2415,15 +2407,34 @@ async def approve_stocktake_session(
         raise HTTPException(status_code=403, detail="كلمة المرور غير صحيحة؛ تم رفض الاعتماد وتوثيق المحاولة.")
 
     try:
-        probe = await _load_stocktake_session(
-            db,
-            company_id,
-            session_id,
-            lock_vehicle_recon_work_session=True,
-        )
-        location_id = int(probe.location_id)
-        probed_stocktake_type = probe.stocktake_type
-        probed_work_session_id = probe.related_work_session_id
+        probe = await _probe_stocktake_location_id(db, company_id, session_id)
+        try:
+            probed_location_id, probed_stocktake_type, probed_work_session_id = probe
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=409,
+                detail="جلسة الجرد تغيرت أثناء الاعتماد؛ أعد المحاولة.",
+            ) from None
+        location_id = int(probed_location_id)
+        if probed_stocktake_type == 'VEHICLE_RECON':
+            if probed_work_session_id is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="VEHICLE_RECON بدون WorkSession مرتبط.",
+                )
+            locked_work_session_id = (
+                await db.execute(
+                    select(WorkSession.id).filter_by(
+                        company_id=company_id,
+                        id=probed_work_session_id,
+                    ).with_for_update()
+                )
+            ).scalar_one_or_none()
+            if locked_work_session_id is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="جلسة العمل المرتبطة بـ VEHICLE_RECON غير موجودة أو خارج الشركة.",
+                )
 
         await acquire_inventory_location_guard(db, company_id, location_id, exclusive=True)
 
@@ -2642,7 +2653,7 @@ async def cancel_stocktake_session(
         raise HTTPException(status_code=403, detail="كلمة المرور غير صحيحة؛ تم رفض الإلغاء وتوثيق المحاولة.")
 
     try:
-        location_id = await _probe_stocktake_location_id(db, company_id, session_id)
+        location_id, _, _ = await _probe_stocktake_location_id(db, company_id, session_id)
         await acquire_inventory_location_guard(db, company_id, location_id, exclusive=True)
 
         session = await _load_stocktake_session(db, company_id, session_id, for_update=True)
