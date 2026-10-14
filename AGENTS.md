@@ -47,6 +47,14 @@ Network failure is also a permanent architecture requirement. Every new or modif
 
 Read the full requirements in `.rules` before editing.
 
+## Windows development diagnostics — Wanasah Doctor
+
+- Canonical read-only environment diagnostic: `ops/development/wanasah_doctor.ps1`.
+- Run it from the repository root before random reinstall/downgrade/repair work when the Windows development environment, PostgreSQL, backend, Dashboard, Flutter, ports, Alembic, or Product Import startup is suspect.
+- The Doctor diagnoses only; it must remain read-only and must not install packages, change configuration, start/stop services, run migrations, seed data, or modify the repository.
+- Supporting probe: `wa_backend/scripts/wanasah_doctor_probe.py`; focused tests: `wa_backend/tests/test_wanasah_doctor.py`.
+- When runtime topology changes materially (new required service/worker/port/environment variable or a changed startup contract), update the Doctor in the same work so its checks stay aligned with the current project.
+
 ## Stage 7.4 inventory costing authority
 - Physical batch allocation and financial cost flow are separate authorities. Physical FEFO stays inside the backend and never requires the driver to choose a batch.
 - Without per-carton serial/scan or enforced physical segregation, never claim the exact physical carton identity. Batch allocation is deterministic book allocation.
