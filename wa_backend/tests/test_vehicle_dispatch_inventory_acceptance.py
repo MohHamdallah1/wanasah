@@ -1441,28 +1441,32 @@ async def _seed_route_status_inventory_context(gate, *, suffix: str, with_sessio
     db.add(zone)
     await db.flush()
     session = None
+    route = DispatchRoute(
+        company_id=company_id,
+        zone_id=int(zone.id),
+        driver_id=int(field.driver.id),
+        vehicle_id=vehicle_id,
+        work_session_id=None,
+        source_location_id=gate["wh_a_id"],
+        dispatch_date=await dispatch_api.get_company_local_date(db, company_id),
+        status=("active" if with_session else "waiting"),
+    )
+    db.add(route)
+    await db.flush()
     if with_session:
+        commercial_context = await _seed_route_context(db, company_id, route)
         session = WorkSession(
             company_id=company_id,
             driver_id=int(field.driver.id),
+            commercial_context_id=int(commercial_context.id),
             session_date=date.today(),
             is_authorized_to_sell=True,
             is_settled=False,
         )
         db.add(session)
         await db.flush()
-    route = DispatchRoute(
-        company_id=company_id,
-        zone_id=int(zone.id),
-        driver_id=int(field.driver.id),
-        vehicle_id=vehicle_id,
-        work_session_id=(int(session.id) if session is not None else None),
-        source_location_id=gate["wh_a_id"],
-        dispatch_date=await dispatch_api.get_company_local_date(db, company_id),
-        status=("active" if session is not None else "waiting"),
-    )
-    db.add(route)
-    await db.flush()
+        route.work_session_id = int(session.id)
+        await db.flush()
     batch_id = await _seed_batch_and_balance(
         gate, location_id=gate["wh_a_id"], quantity=50, suffix=f"STATUS-{suffix}"
     )
