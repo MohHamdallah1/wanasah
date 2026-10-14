@@ -203,6 +203,76 @@ Do not skip the owner and do not let the worker self-approve the decision.
 - Conserve remote-tool usage without reducing implementation or review quality.
 - Do not modify or discard unrelated local user changes.
 
+### 12.1 Deep-analysis / adversarial / patch-worker pattern
+
+For major phases, use a strong independent reasoning worker such as **Argon or an equivalent long-horizon engineering model** as a specialist, not as the project architecture authority.
+
+The preferred three-role cycle is:
+
+#### Role A — pre-implementation deep source audit
+
+Before a large or cross-domain phase begins, the lead may ask the specialist to perform a **read-only source investigation** across all relevant paths.
+
+The specialist should:
+
+- trace the actual runtime path rather than only reading the proposed diff;
+- identify hidden invariants, domain ownership, authorization/scope flow, locks, transaction boundaries, idempotency/retry behavior, query shape, performance risks, background-worker effects, and compatibility consumers;
+- compare current code to the active plan/architecture;
+- identify what must not change;
+- surface architecture ambiguities instead of deciding them;
+- return evidence with exact files/symbols and a bounded risk map.
+
+The primary lead compares this audit with its own source analysis and freezes the contract before implementation workers begin.
+
+#### Role B — adversarial teardown after implementation
+
+After a worker completes a meaningful branch, the lead may give the specialist the exact branch/diff and explicitly ask it to **try to break the solution**.
+
+The adversarial review should look for, as applicable:
+
+- cross-tenant or cross-location leaks;
+- permission/scope bypasses;
+- lost-response/idempotency gaps;
+- race conditions, deadlocks, lock-order problems, or partial commits;
+- stale reads / duplicated authority / hidden N+1 queries;
+- stock or financial-truth violations;
+- lifecycle blockers that were missed;
+- UI-only security assumptions;
+- business-rule duplication across modules;
+- regressions in existing callers/contracts;
+- mega-file/god-function structural drift.
+
+Do not ask only “is this code good?”. Ask the specialist to disprove the implementation if it can. Findings are evidence for the lead to verify; the specialist does not self-approve or merge.
+
+#### Role C — bounded patch implementation
+
+The specialist may also implement a tightly bounded task when that is more efficient.
+
+Required controls:
+
+- exact base SHA;
+- exact allowed files/surface;
+- frozen architecture/business contract;
+- explicit forbidden scope;
+- focused tests/gates;
+- no direct merge to `main`;
+- output as an unmerged branch/PR when the environment supports controlled source control, or as one complete patch when it does not.
+
+A textual handoff is never sufficient proof. The primary lead must inspect the actual branch/diff/patch and run the required acceptance before merge.
+
+#### Repository access hierarchy for external AI workers
+
+Use the safest available route in this order:
+
+1. If the worker can read the authorized GitHub repository directly, let it read the exact repo/branch/commit instead of manually pasting many files.
+2. If the worker runs in an approved coding-agent environment with local repository access and source-control support, use a dedicated disposable branch/worktree from the exact approved `main`; it may prepare an **unmerged** PR if the owner/lead explicitly allows that environment to push the task branch.
+3. If the worker can read but cannot write GitHub, require a complete unified patch against an exact base SHA.
+4. If direct repository reading is unavailable or unreliable, provide a curated read-only source bundle containing the exact base SHA, canonical docs, relevant source paths, and focused tests. Never include secrets or broad unrelated user files.
+
+Do not build an ad-hoc browser-to-GitHub mutation bridge merely to bypass the worker's normal permission model. Prefer official authenticated source-control/agent integrations with explicit repository/path permissions, reviewable branches, and unmerged PRs. Any new custom GitHub-writing bridge requires separate owner approval and a security review because repository-write authority is consequential.
+
+The primary ChatGPT lead remains responsible for architecture, task decomposition, branch ownership, review, merge, and plan updates regardless of which specialist model performs the audit or implementation.
+
 ## 13. Standard worker handoff
 
 Every worker returns:
