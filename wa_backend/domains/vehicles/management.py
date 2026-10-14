@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date
-
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,7 +13,6 @@ from services import (
 )
 
 from .contracts import (
-    VEHICLE_MAINTENANCE_STATUSES,
     CreateVehicleCommand,
     UpdateVehicleCommand,
     VehicleError,
@@ -31,153 +28,13 @@ from .repository import (
 )
 
 
-_DB_INT_MAX = 2_147_483_647
-_MUTABLE_FIELDS = frozenset(
-    {
-        "plate_number",
-        "vehicle_type",
-        "current_mileage",
-        "next_oil_change",
-        "license_expiry_date",
-        "maintenance_status",
-    }
+from .validation import (
+    nonnegative_int,
+    normalize_maintenance_status,
+    normalize_plate,
+    normalize_vehicle_type,
+    validated_update_fields,
 )
-
-
-def _stable_hash(operation: str, payload: dict) -> str:
-    body = json.dumps(
-        {"operation": operation, **payload},
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    )
-    return hashlib.sha256(body.encode("utf-8")).hexdigest()
-
-
-def _normalize_plate(value: object) -> str:
-    if not isinstance(value, str):
-        raise VehicleError(
-            "VEHICLE_PLATE_INVALID",
-            "Vehicle plate number is invalid.",
-            status_code=422,
-        )
-    value = value.strip()
-    if not value or len(value) > 20 or "\x00" in value:
-        raise VehicleError(
-            "VEHICLE_PLATE_INVALID",
-            "Vehicle plate number is invalid.",
-            status_code=422,
-        )
-    return value
-
-
-def _normalize_vehicle_type(value: object) -> str | None:
-    if value is None:
-        return None
-    if not isinstance(value, str) or "\x00" in value:
-        raise VehicleError(
-            "VEHICLE_TYPE_INVALID",
-            "Vehicle type is invalid.",
-            status_code=422,
-        )
-    value = value.strip()
-    if not value:
-        return None
-    if len(value) > 50:
-        raise VehicleError(
-            "VEHICLE_TYPE_INVALID",
-            "Vehicle type is invalid.",
-            status_code=422,
-        )
-    return value
-
-
-def _nonnegative_int(
-    value: object,
-    field: str,
-    *,
-    optional: bool = False,
-) -> int | None:
-    if value is None and optional:
-        return None
-    if (
-        isinstance(value, bool)
-        or type(value) is not int
-        or value < 0
-        or value > _DB_INT_MAX
-    ):
-        raise VehicleError(
-            "VEHICLE_FIELD_INVALID",
-            f"{field} is invalid.",
-            status_code=422,
-            context={"field": field},
-        )
-    return int(value)
-
-
-def _maintenance(value: object) -> str:
-    if (
-        not isinstance(value, str)
-        or value not in VEHICLE_MAINTENANCE_STATUSES
-    ):
-        raise VehicleError(
-            "VEHICLE_MAINTENANCE_STATUS_INVALID",
-            "Vehicle maintenance status is invalid.",
-            status_code=422,
-        )
-    return value
-
-
-def _validated_update_fields(command: UpdateVehicleCommand) -> dict[str, object]:
-    if command.expected_version <= 0:
-        raise VehicleError(
-            "VEHICLE_VERSION_INVALID",
-            "Vehicle expected version is invalid.",
-            status_code=422,
-        )
-    fields = dict(command.fields)
-    if not fields:
-        raise VehicleError(
-            "VEHICLE_UPDATE_EMPTY",
-            "At least one mutable vehicle field is required.",
-            status_code=422,
-        )
-    unknown = set(fields) - _MUTABLE_FIELDS
-    if unknown:
-        raise VehicleError(
-            "VEHICLE_UPDATE_FIELD_INVALID",
-            "Vehicle update contains an unsupported field.",
-            status_code=422,
-        )
-    if "plate_number" in fields:
-        fields["plate_number"] = _normalize_plate(fields["plate_number"])
-    if "vehicle_type" in fields:
-        fields["vehicle_type"] = _normalize_vehicle_type(fields["vehicle_type"])
-    if "current_mileage" in fields:
-        fields["current_mileage"] = _nonnegative_int(
-            fields["current_mileage"],
-            "current_mileage",
-        )
-    if "next_oil_change" in fields:
-        fields["next_oil_change"] = _nonnegative_int(
-            fields["next_oil_change"],
-            "next_oil_change",
-            optional=True,
-        )
-    if (
-        "license_expiry_date" in fields
-        and fields["license_expiry_date"] is not None
-        and not isinstance(fields["license_expiry_date"], date)
-    ):
-        raise VehicleError(
-            "VEHICLE_FIELD_INVALID",
-            "license_expiry_date is invalid.",
-            status_code=422,
-            context={"field": "license_expiry_date"},
-        )
-    if "maintenance_status" in fields:
-        fields["maintenance_status"] = _maintenance(fields["maintenance_status"])
-    return fields
 
 
 async def create_vehicle(
@@ -187,15 +44,15 @@ async def create_vehicle(
     actor_id: int,
     command: CreateVehicleCommand,
 ) -> dict:
-    plate = _normalize_plate(command.plate_number)
-    vehicle_type = _normalize_vehicle_type(command.vehicle_type)
-    mileage = _nonnegative_int(command.current_mileage, "current_mileage")
-    next_oil = _nonnegative_int(
+    plate = normalize_plate(command.plate_number)
+    vehicle_type = normalize_vehicle_type(command.vehicle_type)
+    mileage = nonnegative_int(command.current_mileage, "current_mileage")
+    next_oil = nonnegative_int(
         command.next_oil_change,
         "next_oil_change",
         optional=True,
     )
-    maintenance = _maintenance(command.maintenance_status)
+    maintenance = normalize_maintenance_status(command.maintenance_status)
     request_hash = _stable_hash(
         "VEHICLE_CREATE",
         {
@@ -304,7 +161,7 @@ async def update_vehicle(
     vehicle_id: int,
     command: UpdateVehicleCommand,
 ) -> dict:
-    fields = _validated_update_fields(command)
+    fields = validated_update_fields(command)
     request_hash = _stable_hash(
         "VEHICLE_UPDATE",
         {
