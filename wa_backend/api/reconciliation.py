@@ -13,6 +13,7 @@ from database import get_db
 from api.authentication.dependencies import get_current_field_context
 from api.authentication.field_compatibility import get_current_field_legacy_driver
 from domains.auth_sessions.context import FieldRequestContext
+from domains.vehicles import VehicleError, resolve_vehicle_custody_location_id
 from schemas import NonNegativeQuantity
 from quantity import QUANTITY_MAX, QuantityError, validate_variant_quantity
 from models import (
@@ -150,27 +151,25 @@ async def reconcile_driver_end_of_day(
             vehicle_id=int(route.vehicle_id),
         )
 
-        vehicle_location = (
-            await db.execute(
-                select(InventoryLocation)
-                .filter_by(
-                    company_id=company_id,
-                    vehicle_id=route.vehicle_id,
-                    location_type="VEHICLE",
-                    is_active=True,
-                )
-                .with_for_update(read=True)
-            )
-        ).scalar_one_or_none()
-        if vehicle_location is None:
-            raise HTTPException(status_code=409, detail="السيارة لا تملك موقع مخزون VEHICLE فعالاً.")
-
-        vehicle_location_id = int(vehicle_location.id)
+        vehicle_location_id = await resolve_vehicle_custody_location_id(
+            db,
+            company_id=company_id,
+            vehicle_id=int(route.vehicle_id),
+            require_active=True,
+        )
         await acquire_inventory_location_guard(
             db,
             company_id,
             vehicle_location_id,
             exclusive=True,
+        )
+
+        await resolve_vehicle_custody_location_id(
+            db,
+            company_id=company_id,
+            vehicle_id=int(route.vehicle_id),
+            require_active=True,
+            expected_location_id=vehicle_location_id,
         )
 
         # إذا سبق فتح VEHICLE_RECON لهذه الجلسة فلا ننشئ نسخة ثانية ولا نتجاوز المراجعة المفتوحة.
@@ -414,6 +413,12 @@ async def reconcile_driver_end_of_day(
     except HTTPException:
         await db.rollback()
         raise
+    except VehicleError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message, "context": exc.context},
+        ) from exc
     except InventoryMutationError as exc:
         await db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
