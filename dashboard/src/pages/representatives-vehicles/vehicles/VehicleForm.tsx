@@ -89,11 +89,6 @@ export function VehicleForm({
       setValidation(t("representativesVehicles.vehicles.form.oilInvalid"));
       return;
     }
-    if (parsedOil !== null && parsedOil < parsedMileage) {
-      setValidation(t("representativesVehicles.vehicles.form.oilBeforeMileage"));
-      return;
-    }
-
     setValidation("");
     const normalizedLicense = licenseExpiry || null;
     const normalizedVehicleType = normalizedType || null;
