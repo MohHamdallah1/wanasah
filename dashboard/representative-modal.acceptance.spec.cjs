@@ -24,8 +24,8 @@ async function assertLayer(page, width) {
   expect(topElementIsBackdrop).toBe(true);
   const panelBox = await panel.boundingBox();
   expect(panelBox).not.toBeNull();
-  expect(panelBox.top).toBeGreaterThanOrEqual(0);
-  expect(panelBox.bottom).toBeLessThanOrEqual(800.5);
+  expect(panelBox.y).toBeGreaterThanOrEqual(0);
+  expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(800.5);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
 }
 
