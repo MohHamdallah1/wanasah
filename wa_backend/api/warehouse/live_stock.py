@@ -181,6 +181,17 @@ def _readable_vehicle_locations_subquery(
     company_id: int,
     access: BackofficeCapabilityAccess,
 ):
+    history = aliased(InventoryLocation)
+    historical_count = (
+        select(func.count(history.id))
+        .where(
+            history.company_id == company_id,
+            history.vehicle_id == InventoryLocation.vehicle_id,
+            history.location_type == "VEHICLE",
+        )
+        .correlate(InventoryLocation)
+        .scalar_subquery()
+    )
     return (
         select(InventoryLocation.id, InventoryLocation.vehicle_id)
         .where(
@@ -188,6 +199,7 @@ def _readable_vehicle_locations_subquery(
             InventoryLocation.location_type == "VEHICLE",
             InventoryLocation.is_active.is_(True),
             InventoryLocation.vehicle_id.isnot(None),
+            historical_count == 1,
             access.location_filter("inventory.read"),
         )
         .subquery("readable_vehicle_locations")

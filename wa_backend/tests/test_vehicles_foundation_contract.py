@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -12,10 +13,37 @@ def test_vehicle_model_has_version_and_positive_constraint():
     assert "CheckConstraint('version > 0', name='version_positive')" in vehicle
 
 
-def test_vehicle_capabilities_are_company_only():
+def _capability_members(name: str) -> list[str]:
     source = (BACKEND / "domains/authorization/capabilities.py").read_text(encoding="utf-8")
-    assert source.count("'vehicle.read'") == 2
-    assert source.count("'vehicle.manage'") == 2
+    tree = ast.parse(source)
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(isinstance(target, ast.Name) and target.id == name for target in node.targets):
+            continue
+        assert isinstance(node.value, ast.Call)
+        assert isinstance(node.value.func, ast.Name) and node.value.func.id == "frozenset"
+        assert len(node.value.args) == 1 and isinstance(node.value.args[0], ast.Set)
+        return [
+            element.value
+            for element in node.value.args[0].elts
+            if isinstance(element, ast.Constant) and isinstance(element.value, str)
+        ]
+    raise AssertionError(f"{name} definition not found")
+
+
+def test_vehicle_capabilities_are_company_only():
+    permissions = _capability_members("PERMISSIONS")
+    company_only = _capability_members("COMPANY_ONLY")
+
+    assert permissions.count("vehicle.read") == 1
+    assert permissions.count("vehicle.manage") == 1
+    assert "vehicle.read" in company_only
+    assert "vehicle.manage" in company_only
+
+    for code in ("dispatch.read", "dispatch.execute", "location.read", "location.update", "location.state"):
+        assert code in permissions
+        assert code not in company_only
 
 
 def test_vehicle_foundation_migration_extends_current_head_and_retains_permission_history():

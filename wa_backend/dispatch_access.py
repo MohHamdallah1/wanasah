@@ -1,7 +1,8 @@
 """Canonical Backoffice authorization helpers for Dispatch route and vehicle scope."""
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
+from sqlalchemy.orm import aliased
 
 from domains.authorization.backoffice_access import (
     BackofficeCapabilityAccess,
@@ -48,12 +49,26 @@ async def require_location(
         raise _authorization_rejected() from None
 
 
+def _strict_vehicle_custody_count(company_id, vehicle_column):
+    history = aliased(InventoryLocation)
+    return (
+        select(func.count(history.id))
+        .where(
+            history.company_id == company_id,
+            history.vehicle_id == vehicle_column,
+            history.location_type == "VEHICLE",
+        )
+        .correlate_except(history)
+        .scalar_subquery()
+    )
+
+
 def vehicle_filter(
     access: BackofficeCapabilityAccess,
     code: str,
     vehicle_column=Vehicle.id,
 ):
-    """Filter vehicles by an active canonical VEHICLE location plus exact capability scope."""
+    """Filter by strict active custody plus the existing Dispatch location capability."""
     return (
         select(1)
         .select_from(InventoryLocation)
@@ -62,6 +77,7 @@ def vehicle_filter(
             InventoryLocation.vehicle_id == vehicle_column,
             InventoryLocation.location_type == "VEHICLE",
             InventoryLocation.is_active.is_(True),
+            _strict_vehicle_custody_count(access.company_id, vehicle_column) == 1,
             access.allows(code, InventoryLocation.id),
         )
         .exists()
@@ -88,6 +104,7 @@ async def require_vehicle(
             InventoryLocation.vehicle_id == vehicle_id,
             InventoryLocation.location_type == "VEHICLE",
             InventoryLocation.is_active.is_(True),
+            _strict_vehicle_custody_count(access.company_id, vehicle_id) == 1,
         )
     )
     if location_id is None:

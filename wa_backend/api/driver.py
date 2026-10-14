@@ -20,6 +20,15 @@ from domains.auth_sessions.context import (
     FieldRequestContext,
 )
 from domains.authorization.backoffice_access import BackofficeCapabilityAccessRejected
+from domains.vehicles import (
+    VehicleError,
+    require_vehicle_operational_state,
+    resolve_vehicle_custody_location_id,
+)
+from domains.vehicles.eligibility import (
+    read_vehicle_operational_state,
+    vehicle_is_operational,
+)
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from quantity import QUANTITY_MAX
@@ -30,6 +39,7 @@ from services import (
     check_debt_limits,
     check_inventory_locks_batch,
     acquire_inventory_location_guard,
+    acquire_inventory_location_guards,
     get_company_local_date,
     allocate_fefo_inventory_batch,
     apply_inventory_movements_batch,
@@ -145,6 +155,35 @@ def _require_driver_mobile_integral_quantity(
         )
 
     return int(integral)
+
+
+async def _driver_vehicle_custody_location_id(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    vehicle_id: int,
+    require_active: bool = True,
+    expected_location_id: int | None = None,
+    require_operational: bool = False,
+) -> int:
+    try:
+        location_id = await resolve_vehicle_custody_location_id(
+            db,
+            company_id=company_id,
+            vehicle_id=vehicle_id,
+            require_active=require_active,
+            expected_location_id=expected_location_id,
+        )
+        if require_operational:
+            await require_vehicle_operational_state(
+                db, company_id=company_id, vehicle_id=vehicle_id
+            )
+        return location_id
+    except VehicleError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message, "context": exc.context},
+        ) from exc
 
 
 router = APIRouter(tags=["Driver Operations"])
@@ -270,25 +309,12 @@ async def start_work_session(
                 detail="لديك جلسة عمل نشطة بالفعل لم يتم إنهاؤها."
             )
 
-        # حل موقع السيارة حصراً داخل Tenant الحالي.
-        vehicle_location_id = (
-            await db.execute(
-                select(InventoryLocation.id)
-                .filter_by(
-                    company_id=company_id,
-                    vehicle_id=active_route.vehicle_id,
-                    location_type="VEHICLE",
-                    is_active=True,
-                )
-            )
-        ).scalar_one_or_none()
-
-        if vehicle_location_id is None:
-            await db.rollback()
-            raise HTTPException(
-                status_code=409,
-                detail="السيارة المخصصة لا تملك موقع مخزون VEHICLE فعالاً داخل الشركة."
-            )
+        vehicle_location_id = await resolve_vehicle_custody_location_id(
+            db,
+            company_id=company_id,
+            vehicle_id=int(active_route.vehicle_id),
+            require_active=True,
+        )
 
         # Snapshot حقيقي لنقطة زمنية واحدة:
         # نمنع أي حركة مخزون على السيارة حتى تثبيت اللقطة والجلسة في نفس Transaction.
@@ -299,6 +325,7 @@ async def start_work_session(
             exclusive=True,
         )
 
+        # Exact-ID row lock only; the Vehicles seam resolves all history before and after it.
         # إعادة التحقق بعد امتلاك القفل.
         locked_vehicle_location_id = (
             await db.execute(
@@ -319,6 +346,26 @@ async def start_work_session(
             raise HTTPException(
                 status_code=409,
                 detail="موقع مخزون السيارة تغير أو أصبح غير فعال أثناء بدء الجلسة."
+            )
+
+        await resolve_vehicle_custody_location_id(
+            db,
+            company_id=company_id,
+            vehicle_id=int(active_route.vehicle_id),
+            require_active=True,
+            expected_location_id=vehicle_location_id,
+        )
+
+        vehicle_state = await read_vehicle_operational_state(
+            db,
+            company_id=company_id,
+            vehicle_id=int(active_route.vehicle_id),
+        )
+        if not vehicle_is_operational(vehicle_state):
+            await db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="السيارة المخصصة متوقفة أو في الصيانة؛ لا يمكن بدء جلسة العمل."
             )
 
         new_session = WorkSession(
@@ -433,6 +480,12 @@ async def start_work_session(
     except HTTPException:
         await db.rollback()
         raise
+    except VehicleError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message, "context": exc.context},
+        ) from exc
     except PricingError as exc:
         await db.rollback()
         raise HTTPException(
@@ -814,22 +867,12 @@ async def update_visit(
                 ),
             )
 
-        veh_loc_id = (
-            await db.execute(
-                select(InventoryLocation.id).filter_by(
-                    company_id=company_id,
-                    vehicle_id=current_route.vehicle_id,
-                    location_type="VEHICLE",
-                    is_active=True,
-                )
-            )
-        ).scalar_one_or_none()
-
-        if veh_loc_id is None:
-            raise HTTPException(
-                status_code=409,
-                detail="السيارة الحالية لا تملك موقع مخزون VEHICLE فعالاً داخل الشركة.",
-            )
+        veh_loc_id = await _driver_vehicle_custody_location_id(
+            db,
+            company_id=company_id,
+            vehicle_id=int(current_route.vehicle_id),
+            require_operational=True,
+        )
 
         touched_variants = sorted(
             {item.product_variant_id for item in payload.cart_items}
@@ -1111,6 +1154,14 @@ async def update_visit(
         all_var_ids = sorted(set(mobile_variant_ids) | reward_variant_ids)
         await acquire_product_lifecycle_guards(
             db, company_id, all_var_ids, exclusive=False,
+        )
+        await acquire_inventory_location_guard(db, company_id, veh_loc_id)
+        await _driver_vehicle_custody_location_id(
+            db,
+            company_id=company_id,
+            vehicle_id=int(current_route.vehicle_id),
+            expected_location_id=veh_loc_id,
+            require_operational=True,
         )
 
         variants_map = {}
@@ -1997,22 +2048,9 @@ async def _load_vehicle_inventory_projection(
     لا يجوز اشتقاق رصيد البداية من current + issued لأن حوالات منتصف اليوم
     والتراجعات تغيّر current دون أن تكون جزءاً من عهدة بداية اليوم.
     """
-    vehicle_location_id = (
-        await db.execute(
-            select(InventoryLocation.id).filter_by(
-                company_id=company_id,
-                vehicle_id=vehicle_id,
-                location_type="VEHICLE",
-                is_active=True,
-            )
-        )
-    ).scalar_one_or_none()
-
-    if vehicle_location_id is None:
-        raise HTTPException(
-            status_code=409,
-            detail="السيارة الحالية لا تملك موقع مخزون VEHICLE فعالاً داخل الشركة.",
-        )
+    vehicle_location_id = await _driver_vehicle_custody_location_id(
+        db, company_id=company_id, vehicle_id=vehicle_id
+    )
 
     current_rows = (
         await db.execute(
@@ -2291,30 +2329,13 @@ async def _load_active_driver_route_and_vehicle_location(
         )
         raise HTTPException(status_code=409, detail=detail)
 
-    stmt_location = select(InventoryLocation.id).filter_by(
+    vehicle_location_id = await _driver_vehicle_custody_location_id(
+        db,
         company_id=company_id,
-        vehicle_id=route.vehicle_id,
-        location_type="VEHICLE",
+        vehicle_id=int(route.vehicle_id),
+        require_active=require_active_vehicle_location,
+        require_operational=require_active_route and require_active_vehicle_location,
     )
-    if require_active_vehicle_location:
-        stmt_location = stmt_location.filter(InventoryLocation.is_active.is_(True))
-
-    vehicle_location_id = (
-        await db.execute(
-            stmt_location.order_by(
-                InventoryLocation.is_active.desc(),
-                InventoryLocation.id.desc(),
-            ).limit(1)
-        )
-    ).scalar_one_or_none()
-
-    if vehicle_location_id is None:
-        detail = (
-            "السيارة الحالية لا تملك موقع مخزون VEHICLE فعالاً."
-            if require_active_vehicle_location
-            else "السيارة الحالية لا تملك موقع مخزون VEHICLE مرتبطاً بها."
-        )
-        raise HTTPException(status_code=409, detail=detail)
 
     return route, int(vehicle_location_id)
 
@@ -2809,7 +2830,7 @@ async def respond_to_transfer(
 
         vehicle_location_id = None
         if response == "accepted":
-            _, vehicle_location_id = await _load_active_driver_route_and_vehicle_location(
+            accepted_route, vehicle_location_id = await _load_active_driver_route_and_vehicle_location(
                 db,
                 company_id=company_id,
                 driver_id=driver_id,
@@ -2865,6 +2886,16 @@ async def respond_to_transfer(
 
         destination_status_by_line = {}
         if response == "accepted":
+            await acquire_inventory_location_guards(
+                db, company_id, [int(header.source_location_id), int(header.destination_location_id)]
+            )
+            await _driver_vehicle_custody_location_id(
+                db,
+                company_id=company_id,
+                vehicle_id=int(accepted_route.vehicle_id),
+                expected_location_id=vehicle_location_id,
+                require_operational=True,
+            )
             destination_status_by_line = await _resolve_handshake_destination_statuses(
                 db,
                 company_id=company_id,
@@ -3025,7 +3056,7 @@ async def batch_respond_to_transfers(
             ]
             vehicle_location_id = None
             if accepted_headers:
-                _, vehicle_location_id = await _load_active_driver_route_and_vehicle_location(
+                accepted_route, vehicle_location_id = await _load_active_driver_route_and_vehicle_location(
                     db,
                     company_id=company_id,
                     driver_id=driver_id,
@@ -3065,6 +3096,21 @@ async def batch_respond_to_transfers(
             variant_map = {int(variant.id): variant for variant in variants}
             if set(variant_map) != set(variant_ids):
                 raise HTTPException(status_code=409, detail="إحدى المصافحات مرتبطة بصنف مفقود داخل الشركة.")
+
+            if accepted_headers:
+                await acquire_inventory_location_guards(
+                    db,
+                    company_id,
+                    [int(location_id) for header in pending_headers
+                     for location_id in (header.source_location_id, header.destination_location_id)],
+                )
+                await _driver_vehicle_custody_location_id(
+                    db,
+                    company_id=company_id,
+                    vehicle_id=int(accepted_route.vehicle_id),
+                    expected_location_id=vehicle_location_id,
+                    require_operational=True,
+                )
 
             movement_specs = []
             now_utc = get_utc_now()

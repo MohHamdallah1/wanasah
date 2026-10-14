@@ -11,13 +11,17 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from textwrap import dedent
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
+import sys
 import unittest
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
 BACKEND = Path(__file__).resolve().parents[1]
 SOURCE = BACKEND / "services.py"
+VEHICLE_CONTRACTS = BACKEND / "domains/vehicles/contracts.py"
+VEHICLE_REPOSITORY = BACKEND / "domains/vehicles/repository.py"
+VEHICLE_CUSTODY = BACKEND / "domains/vehicles/custody.py"
 NOW = datetime(2026, 10, 12, 12)
 FIELD_DRIVER = 9003
 APPROVER = 9004
@@ -112,10 +116,11 @@ class Result:
 
 
 class Database:
-    def __init__(self, case, *, driver_id=FIELD_DRIVER, flag=False, company_id=7, active=True):
+    def __init__(self, case, *, driver_id=FIELD_DRIVER, flag=False, company_id=7, active=True, custody_history=None):
         self.case = case
         self.actor_id = driver_id
         self.actor = SimpleNamespace(id=driver_id, company_id=company_id, is_active=active, is_admin=flag)
+        self.custody_history = [(11, True)] if custody_history is None else list(custody_history)
         self.script = []
         self.queries = []
         self.events = []
@@ -128,6 +133,8 @@ class Database:
     async def execute(self, query):
         self.queries.append(query)
         self.events.append(query.label)
+        if query.label == "InventoryLocation.id":
+            return Result(rows=[location_id for location_id, _ in self.custody_history])
         if query.label == "Driver.id":
             self.case.assertEqual([c.name for c in query.entities], ["Driver.id"])
             self.case.assertEqual(query.lock, {"read": True})
@@ -138,6 +145,15 @@ class Database:
         label, result = self.script.pop(0)
         self.case.assertEqual((query.operation, query.label), label)
         return result
+
+    async def scalar(self, query):
+        self.queries.append(query)
+        self.events.append(query.label)
+        if query.label != "InventoryLocation.is_active":
+            raise AssertionError(f"Unexpected scalar query {query.label}")
+        if len(self.custody_history) != 1:
+            raise AssertionError("Active custody state must only be read after cardinality resolves to one row")
+        return self.custody_history[0][1]
 
     def add(self, row):
         if "id" not in vars(row):
@@ -168,11 +184,33 @@ def namespace(db):
     ns["acquire_inventory_location_guard"] = AsyncMock(side_effect=guard)
     ns["apply_inventory_movements_batch"] = AsyncMock(return_value=[SimpleNamespace(id=555)])
     ns["resolve_work_session_pack_prices_bulk"] = AsyncMock()
+    vehicle_ns = dict(ns)
+    contract_tree = ast.parse(VEHICLE_CONTRACTS.read_text(encoding="utf-8"))
+    vehicle_error = next(node for node in contract_tree.body
+                         if isinstance(node, ast.ClassDef) and node.name == "VehicleError")
+    repository_tree = ast.parse(VEHICLE_REPOSITORY.read_text(encoding="utf-8"))
+    repository_names = {
+        "_custody_ids", "_custody_cardinality_error", "_canonical_custody_id",
+        "read_canonical_custody_location_id",
+    }
+    repository_nodes = [node for node in repository_tree.body
+                        if getattr(node, "name", None) in repository_names]
+    custody_tree = ast.parse(VEHICLE_CUSTODY.read_text(encoding="utf-8"))
+    custody_node = next(node for node in custody_tree.body
+                        if getattr(node, "name", None) == "resolve_vehicle_custody_location_id")
+    future = ast.parse("from __future__ import annotations").body[0]
+    exec(compile(ast.Module(body=[future, vehicle_error, *repository_nodes, custody_node], type_ignores=[]),
+                 str(VEHICLE_CUSTODY), "exec", dont_inherit=True), vehicle_ns)
+    vehicle_module = ModuleType("domains.vehicles")
+    vehicle_module.VehicleError = vehicle_ns["VehicleError"]
+    vehicle_module.resolve_vehicle_custody_location_id = vehicle_ns["resolve_vehicle_custody_location_id"]
+    sys.modules["domains.vehicles"] = vehicle_module
+
     parsed = ast.parse(SOURCE.read_text(encoding="utf-8"))
-    names = TARGETS | {"_seal_vehicle_inventory_reconciliation", "validate_vehicle_recon_work_session",
+    names = TARGETS | {"_require_vehicle_reconciliation_custody",
+                       "_seal_vehicle_inventory_reconciliation", "validate_vehicle_recon_work_session",
                        "_strict_int", "_quantity_decimal", "InventoryMutationError"}
     nodes = [node for node in parsed.body if getattr(node, "name", None) in names]
-    future = ast.parse("from __future__ import annotations").body[0]
     exec(compile(ast.Module(body=[future, *nodes], type_ignores=[]), str(SOURCE), "exec", dont_inherit=True), ns)
     return ns
 
@@ -511,10 +549,11 @@ class VehicleReconciliationServiceContracts(unittest.TestCase):
             parameters=['company_id', 'work_session_id', 'vehicle_location_id', 'started_by', 'product_variant_ids', 'notes'],
             statements=(
                 'actor = (await db_session.execute(select(Driver.id).filter_by(company_id=company_id, id=started_by, is_active=True).with_for_update(read=True))).one_or_none()',
-                "location = (await db_session.execute(select(InventoryLocation).filter_by(company_id=company_id, id=vehicle_location_id, location_type='VEHICLE', is_active=True).with_for_update(read=True))).scalar_one_or_none()",
+                "location = (await db_session.execute(select(InventoryLocation).filter_by(company_id=company_id, id=vehicle_location_id, location_type='VEHICLE').with_for_update(read=True))).scalar_one_or_none()",
                 'work_session = await validate_vehicle_recon_work_session(db_session, company_id=company_id, work_session_id=work_session_id, vehicle_id=int(location.vehicle_id))',
                 'valid_variant_ids = set((await db_session.execute(select(ProductVariant.id).filter(ProductVariant.company_id == company_id, ProductVariant.id.in_(normalized_variant_ids)))).scalars().all())',
                 'await acquire_inventory_location_guard(db_session, company_id, vehicle_location_id, exclusive=True)',
+                'await _require_vehicle_reconciliation_custody(db_session, company_id=company_id, vehicle_id=int(location.vehicle_id), vehicle_location_id=vehicle_location_id)',
                 "existing = (await db_session.execute(select(StocktakeSession).filter(StocktakeSession.company_id == company_id, StocktakeSession.stocktake_type == 'VEHICLE_RECON', StocktakeSession.related_work_session_id == work_session_id, StocktakeSession.status != 'CANCELLED').order_by(StocktakeSession.id.desc()).limit(1).with_for_update())).scalar_one_or_none()",
                 """\
                 if existing is not None:
@@ -595,7 +634,8 @@ class VehicleReconciliationServiceContracts(unittest.TestCase):
             parameters=['company_id', 'work_session', 'vehicle_location_id', 'settled_by'],
             statements=(
                 'await acquire_inventory_location_guard(db_session, company_id, vehicle_location_id, exclusive=True)',
-                "location = (await db_session.execute(select(InventoryLocation).filter_by(company_id=company_id, id=vehicle_location_id, location_type='VEHICLE', is_active=True).with_for_update(read=True))).scalar_one_or_none()",
+                "location = (await db_session.execute(select(InventoryLocation).filter_by(company_id=company_id, id=vehicle_location_id, location_type='VEHICLE').with_for_update(read=True))).scalar_one_or_none()",
+                'await _require_vehicle_reconciliation_custody(db_session, company_id=company_id, vehicle_id=int(location.vehicle_id), vehicle_location_id=vehicle_location_id)',
                 'route_id = (await db_session.execute(select(DispatchRoute.id).filter(DispatchRoute.company_id == company_id, DispatchRoute.work_session_id == work_session.id, DispatchRoute.driver_id == work_session.driver_id, DispatchRoute.vehicle_id == location.vehicle_id).order_by(DispatchRoute.id.desc()).limit(1))).scalar_one_or_none()',
                 'snapshots = (await db_session.execute(select(SessionInventorySnapshot).execution_options(populate_existing=True).filter_by(company_id=company_id, work_session_id=work_session.id).order_by(SessionInventorySnapshot.product_variant_id.asc(), SessionInventorySnapshot.stock_status.asc(), SessionInventorySnapshot.id.asc()).with_for_update())).scalars().all()',
                 'final_rows = (await db_session.execute(select(InventoryBalance).filter(InventoryBalance.company_id == company_id, InventoryBalance.location_id == vehicle_location_id, or_(InventoryBalance.on_hand_quantity > 0, InventoryBalance.reserved_quantity > 0)).order_by(InventoryBalance.product_variant_id.asc(), InventoryBalance.batch_id.asc(), InventoryBalance.stock_status.asc(), InventoryBalance.id.asc()).limit(_MAX_STOCKTAKE_POST_LINES + 1).with_for_update())).scalars().all()',
@@ -674,6 +714,7 @@ class VehicleReconciliationServiceContracts(unittest.TestCase):
                 'session = (await db_session.execute(select(StocktakeSession).execution_options(populate_existing=True).filter_by(company_id=company_id, id=stocktake_session_id).with_for_update())).scalar_one_or_none()',
                 'location_row = (await db_session.execute(select(InventoryLocation.location_type, InventoryLocation.is_active, InventoryLocation.vehicle_id).filter_by(company_id=company_id, id=session.location_id).with_for_update(read=True))).one_or_none()',
                 "expected_location_type = 'VEHICLE' if session.stocktake_type == 'VEHICLE_RECON' else 'WAREHOUSE'",
+                'await _require_vehicle_reconciliation_custody(db_session, company_id=company_id, vehicle_id=int(location_vehicle_id), vehicle_location_id=int(session.location_id))',
                 'vehicle_work_session = await validate_vehicle_recon_work_session(db_session, company_id=company_id, work_session_id=session.related_work_session_id, vehicle_id=location_vehicle_id)',
                 'latest_attempt = (await db_session.execute(select(StocktakeCountAttempt).execution_options(populate_existing=True).filter_by(company_id=company_id, stocktake_session_id=session.id).order_by(StocktakeCountAttempt.attempt_number.desc(), StocktakeCountAttempt.id.desc()).limit(1))).scalar_one_or_none()',
                 'parent_attempt = None',
@@ -722,6 +763,7 @@ class VehicleReconciliationServiceContracts(unittest.TestCase):
                 ('If', "session.stocktake_type not in {'FULL_COUNT', 'CYCLE_COUNT', 'VEHICLE_RECON'}"),
                 ('If', 'location_row is None'),
                 ('If', 'location_type != expected_location_type'),
+                ('If', "session.stocktake_type == 'VEHICLE_RECON' and session.status == 'APPROVED'"),
                 ('If', "session.status == 'APPROVED' and (not location_is_active)"),
                 ('If', "session.stocktake_type == 'VEHICLE_RECON' and session.status == 'APPROVED'"),
                 ('If', 'latest_attempt is None'),
@@ -747,6 +789,7 @@ class VehicleReconciliationServiceContracts(unittest.TestCase):
                 ('If', 'session.related_work_session_id is None'),
                 ('If', 'session.related_work_session_id is not None'),
                 ('IfExp', "session.stocktake_type == 'VEHICLE_RECON'"),
+                ('If', 'location_vehicle_id is None'),
                 ('If', 'location_vehicle_id is None'),
                 ('If', 'parent_attempt is None or parent_attempt.attempt_number != latest_attempt.attempt_number - 1 or parent_attempt.submitted_at > latest_attempt.submitted_at'),
                 ('If', 'parent_attempt.requires_independent_recount and parent_attempt.counted_by == latest_attempt.counted_by'),
@@ -816,6 +859,7 @@ class VehicleReconciliationServiceContracts(unittest.TestCase):
                 ('locked_probe_session is None', "raise InventoryMutationError('جلسة العمل المرتبطة بـ VEHICLE_RECON غير موجودة أو خارج الشركة.')"),
                 ('session.related_work_session_id is None', "raise InventoryMutationError('VEHICLE_RECON يجب أن يرتبط بجلسة العمل التي تتم تسويتها.')"),
                 ('session.related_work_session_id is not None', "raise InventoryMutationError('related_work_session_id غير مسموح لغير VEHICLE_RECON.')"),
+                ('location_vehicle_id is None', "raise InventoryMutationError('موقع VEHICLE_RECON لا يحمل vehicle_id صالحاً.')"),
                 ('location_vehicle_id is None', "raise InventoryMutationError('موقع VEHICLE_RECON لا يحمل vehicle_id صالحاً.')"),
                 ('parent_attempt is None or parent_attempt.attempt_number != latest_attempt.attempt_number - 1 or parent_attempt.submitted_at > latest_attempt.submitted_at', "raise InventoryMutationError('سلسلة إعادة العد لا ترتبط بالمحاولة السابقة مباشرة.')"),
                 ('parent_attempt.requires_independent_recount and parent_attempt.counted_by == latest_attempt.counted_by', "raise InventoryMutationError('إعادة العد الإلزامية يجب أن ينفذها مستخدم مستقل.')"),

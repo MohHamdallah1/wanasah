@@ -85,6 +85,14 @@ class InventoryAccessCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
         for name in ("commit", "rollback", "begin", "begin_nested", "flush", "add", "delete"):
             getattr(db, name).assert_not_called()
 
+    async def test_permission_catalog_reports_vehicle_capabilities_as_company_only(self):
+        response = await module.permission_catalog(access(database()))
+        self.assertEqual(set(response), {"permissions", "company_only"})
+        self.assertEqual(response["permissions"], sorted(PERMISSIONS))
+        self.assertEqual(response["company_only"], sorted(COMPANY_ONLY))
+        self.assertIn("vehicle.read", response["company_only"])
+        self.assertIn("vehicle.manage", response["company_only"])
+
     async def test_owner_gate_allows_only_persisted_canonical_owner_subject(self):
         db = database()
         owner = access(db)
