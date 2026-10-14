@@ -70,7 +70,19 @@ Representative owner-complete gate:
 
 Vehicles status:
 
-- [ ] Vehicles implementation — **NOT STARTED; READY TO START**. The Representatives owner-acceptance gate is closed.
+- [ ] Vehicles implementation — **NOT STARTED; V1 CONTRACT FROZEN / READY FOR WAVE 1**. The Representatives owner-acceptance gate is closed.
+
+### Vehicles source/contract audit closure — 2026-10-14
+
+- [x] Current `Vehicle` persistence, existing fields, tenant constraints, plate uniqueness, and missing legacy concurrency metadata audited from source.
+- [x] Current `InventoryLocation(type=VEHICLE)` custody contract, active-location uniqueness index, and Driver/Dispatch/Reconciliation consumers audited from source.
+- [x] Current Dispatch source-warehouse/vehicle separation, active-route uniqueness, WorkSession coupling, and Live Stock source attribution audited from source.
+- [x] Current InventoryBalance, transfer, InventoryLock, Stocktake/VEHICLE_RECON, and inventory-reconciliation lifecycle blockers audited from source.
+- [x] Vehicle master ownership and future warehouse-scoped visibility seam reconciled with `VEHICLE_MASTER_SCOPE_AND_VISIBILITY_DECISION.md`; no V1 warehouse ownership/assignment product introduced.
+- [x] Exact V1 capability family frozen as company-level `vehicle.read` + `vehicle.manage`; future warehouse visibility remains a separate intersecting scope concern.
+- [x] Exact Vehicle HTTP/view/create/update/lifecycle/custody/idempotency contract frozen, including backend maintenance eligibility and same-location reactivation semantics.
+- [x] Backend/Dashboard module ownership and non-overlapping implementation-wave map frozen; `dispatch.py`/`driver.py` remain shrinking compatibility surfaces.
+- [x] Canonical implementation contract recorded in `docs/architecture/VEHICLES_V1_IMPLEMENTATION_CONTRACT.md`.
 
 ---
 
@@ -736,10 +748,10 @@ This is the most important backend integration rule for Vehicles.
 
 # 15. Vehicles — capability and security model
 
-Proposed capability family; finalize against the global permission catalog:
+Frozen capability family; names/semantics are decided, implementation/provisioning remains pending:
 
-- [ ] vehicle read capability.
-- [ ] vehicle create/update/lifecycle management capability.
+- [ ] implement/provision `vehicle.read` for Vehicle list/detail/search.
+- [ ] implement/provision `vehicle.manage` for create/update/maintenance/lifecycle.
 
 Rules:
 
@@ -791,9 +803,9 @@ Rules:
 
 ## 16.5 Deactivate/reactivate contract
 
-Before implementation, inspect current Dispatch/WorkSession/Inventory constraints and define exact blockers.
+- [x] Source audit completed and the exact V1 blocker matrix is frozen in `docs/architecture/VEHICLES_V1_IMPLEMENTATION_CONTRACT.md`.
 
-At minimum evaluate:
+The implementation checkboxes below remain open until the blocker behavior is actually coded and accepted:
 
 - [ ] active/waiting/postponed route using vehicle.
 - [ ] active WorkSession tied through that route/vehicle.
