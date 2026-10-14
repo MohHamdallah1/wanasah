@@ -71,6 +71,7 @@ async def create_vehicle(
             "current_mileage": mileage,
             "next_oil_change": next_oil,
             "license_expiry_date": command.license_expiry_date,
+            "next_maintenance_date": command.next_maintenance_date,
             "maintenance_status": maintenance,
         },
     )
@@ -111,6 +112,7 @@ async def create_vehicle(
             current_mileage=mileage,
             next_oil_change=next_oil,
             license_expiry_date=command.license_expiry_date,
+            next_maintenance_date=command.next_maintenance_date,
             maintenance_status=maintenance,
             is_active=True,
             version=1,

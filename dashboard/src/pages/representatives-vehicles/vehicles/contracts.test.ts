@@ -10,6 +10,7 @@ const row = {
   current_mileage: 12500,
   next_oil_change: 15000,
   license_expiry_date: "2027-05-01",
+  next_maintenance_date: "2026-12-15",
   maintenance_status: "Active",
   is_active: true,
   version: 3,

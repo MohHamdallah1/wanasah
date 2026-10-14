@@ -8,6 +8,7 @@ export interface Vehicle {
   current_mileage: number;
   next_oil_change: number | null;
   license_expiry_date: string | null;
+  next_maintenance_date: string | null;
   maintenance_status: VehicleMaintenanceStatus;
   is_active: boolean;
   version: number;
@@ -26,6 +27,7 @@ export interface CreateVehicleInput {
   current_mileage?: number;
   next_oil_change?: number | null;
   license_expiry_date?: string | null;
+  next_maintenance_date?: string | null;
   maintenance_status?: VehicleMaintenanceStatus;
 }
 
@@ -37,6 +39,7 @@ export type UpdateVehicleInput = Partial<
     | "current_mileage"
     | "next_oil_change"
     | "license_expiry_date"
+    | "next_maintenance_date"
     | "maintenance_status"
   >
 >;
@@ -107,6 +110,7 @@ export function parseVehicle(value: unknown): Vehicle {
     current_mileage: asNonnegativeInt(row.current_mileage),
     next_oil_change: asOptionalNonnegativeInt(row.next_oil_change),
     license_expiry_date: asOptionalString(row.license_expiry_date),
+    next_maintenance_date: asOptionalString(row.next_maintenance_date),
     maintenance_status: row.maintenance_status,
     is_active: row.is_active,
     version: row.version,

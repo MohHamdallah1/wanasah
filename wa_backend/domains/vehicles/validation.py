@@ -16,6 +16,7 @@ _MUTABLE_FIELDS = frozenset({
     "current_mileage",
     "next_oil_change",
     "license_expiry_date",
+    "next_maintenance_date",
     "maintenance_status",
 })
 
@@ -82,17 +83,18 @@ def validated_update_fields(command: UpdateVehicleCommand) -> dict[str, object]:
         fields["current_mileage"] = nonnegative_int(fields["current_mileage"], "current_mileage")
     if "next_oil_change" in fields:
         fields["next_oil_change"] = nonnegative_int(fields["next_oil_change"], "next_oil_change", optional=True)
-    if (
-        "license_expiry_date" in fields
-        and fields["license_expiry_date"] is not None
-        and not isinstance(fields["license_expiry_date"], date)
-    ):
-        raise VehicleError(
-            "VEHICLE_FIELD_INVALID",
-            "license_expiry_date is invalid.",
-            status_code=422,
-            context={"field": "license_expiry_date"},
-        )
+    for date_field in ("license_expiry_date", "next_maintenance_date"):
+        if (
+            date_field in fields
+            and fields[date_field] is not None
+            and not isinstance(fields[date_field], date)
+        ):
+            raise VehicleError(
+                "VEHICLE_FIELD_INVALID",
+                f"{date_field} is invalid.",
+                status_code=422,
+                context={"field": date_field},
+            )
     if "maintenance_status" in fields:
         fields["maintenance_status"] = normalize_maintenance_status(fields["maintenance_status"])
     return fields

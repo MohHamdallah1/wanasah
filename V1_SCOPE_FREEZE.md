@@ -110,6 +110,17 @@ It includes:
 - recording visit outcomes as structured system data rather than WhatsApp replies;
 - the current dispatch workflow required to send work from the dashboard to the field app.
 
+#### Owner-approved Vehicles V1 scope amendment — 2026-10-14
+
+The Vehicle administration scope already implemented in merged PR #320 includes the following bounded maintenance/date and Dashboard UX contract:
+
+- `next_maintenance_date` is optional nullable business `DATE` metadata for scheduling/reminder display only. Past dates are allowed; it has no timezone semantics and never triggers an automatic maintenance-status transition.
+- Vehicle operational eligibility remains exactly: `Vehicle.is_active`, `maintenance_status == "Active"`, plus strict canonical active VEHICLE custody readiness where the operational workflow requires custody. `next_maintenance_date` must never become an operational blocker.
+- Dashboard Vehicle form presentation uses: `plate_number` = **Required / مطلوب**; `current_mileage` = **Required / مطلوب** in Dashboard UX only; `vehicle_type`, `next_oil_change`, `license_expiry_date`, and `next_maintenance_date` = **Optional / اختياري**; `maintenance_status` = **Default / افتراضي**. Backend `current_mileage` semantics remain default `0`; this amendment does not make it backend-required.
+- The Vehicle list shows a compact next-maintenance date. `null` remains silent; overdue dates may be visually distinguishable without alarming treatment; Western digits are used; an overdue date never changes operational status.
+- `/representatives-vehicles` uses `?tab=vehicles` and `?tab=representatives` as authorized selected-tab URL state. Refresh/direct URL preserves the authorized selection; invalid or unavailable tabs fall back safely; capability checks remain authoritative; navigation does not use `window.location` reloads.
+- This amendment does **not** add maintenance history, reminder/background jobs, workshop management, maintenance cost/parts tracking, work orders, or a broader fleet-maintenance system to V1.
+
 Advanced route optimization, generalized fleet-management expansion, or unrelated logistics features are V2 unless explicitly promoted through the scope-change guard.
 
 ### 5.5 Flutter field application — V1 REQUIRED
