@@ -14,7 +14,6 @@ const i18n = createInstance();
 await i18n.init({
   lng: lang,
   fallbackLng: "en",
-  initImmediate: false,
   interpolation: { escapeValue: false },
   resources: {
     ar: { translation: { representativesVehicles: representativesVehicles.ar, common: { close: "إغلاق", cancel: "إلغاء", save: "حفظ", saving: "جارٍ الحفظ" } } },
