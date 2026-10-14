@@ -60,6 +60,7 @@ async def create_vehicle_endpoint(
                 current_mileage=payload.current_mileage,
                 next_oil_change=payload.next_oil_change,
                 license_expiry_date=payload.license_expiry_date,
+                next_maintenance_date=payload.next_maintenance_date,
                 maintenance_status=payload.maintenance_status,
             ),
         )

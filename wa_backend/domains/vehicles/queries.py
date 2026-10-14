@@ -96,6 +96,7 @@ def _record(vehicle: Vehicle, custody_ready: bool) -> VehicleRecord:
             else None
         ),
         license_expiry_date=vehicle.license_expiry_date,
+        next_maintenance_date=vehicle.next_maintenance_date,
         maintenance_status=str(vehicle.maintenance_status),
         is_active=bool(vehicle.is_active),
         version=int(vehicle.version),
@@ -113,6 +114,11 @@ def vehicle_payload(record: VehicleRecord) -> dict:
         "license_expiry_date": (
             record.license_expiry_date.isoformat()
             if record.license_expiry_date
+            else None
+        ),
+        "next_maintenance_date": (
+            record.next_maintenance_date.isoformat()
+            if record.next_maintenance_date
             else None
         ),
         "maintenance_status": record.maintenance_status,
