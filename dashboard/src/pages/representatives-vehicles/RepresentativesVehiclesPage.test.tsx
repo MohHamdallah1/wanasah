@@ -58,10 +58,14 @@ describe("RepresentativesVehiclesPage", () => {
     const tabs = within(screen.getByRole("tablist")).getAllByRole("tab");
     expect(tabs).toHaveLength(2);
     expect(tabs[0]?.getAttribute("aria-selected")).toBe("true");
+    expect(tabs[0]?.className).toContain("bg-amber-400");
+    expect(tabs[1]?.className).toContain("bg-white/[0.06]");
     expect(screen.getByTestId("representatives-workflow")).toBeTruthy();
 
     fireEvent.click(tabs[1]!);
     await waitFor(() => expect(tabs[1]?.getAttribute("aria-selected")).toBe("true"));
+    expect(tabs[1]?.className).toContain("bg-amber-400");
+    expect(tabs[0]?.className).toContain("bg-white/[0.06]");
     expect(screen.getByTestId("vehicles-workflow")).toBeTruthy();
   });
 
