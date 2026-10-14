@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -38,7 +39,9 @@ export function Modal({
       onClose,
       initialFocusRef,
     );
-  return (
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
         <div
@@ -94,6 +97,7 @@ export function Modal({
           </motion.div>
         </div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }
