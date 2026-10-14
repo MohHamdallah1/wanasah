@@ -64,6 +64,18 @@ V1 must build the foundation correctly without turning Vehicles into a fleet-man
 - Company Owner / explicitly company-wide authorized users can see the company Vehicle set allowed by their capability.
 - No hard delete; lifecycle/history/custody remain durable.
 
+### 3.1 Owner-approved V1 maintenance/date and Dashboard amendment
+
+The following bounded amendment is part of Vehicles V1 and does not change master ownership, custody ownership, or Dispatch authority:
+
+- `next_maintenance_date` is nullable business `DATE` metadata only. Past dates are valid; there are no timezone semantics, automatic status transitions, maintenance jobs, or automatic Dispatch effects.
+- Operational eligibility remains `Vehicle.is_active` + `maintenance_status == "Active"` + strict canonical active VEHICLE custody readiness where the operational workflow requires it. `next_maintenance_date` is never an eligibility condition or blocker.
+- `maintenance_status` remains exactly `Active | In_Maintenance`. The date does not create a third lifecycle state.
+- Dashboard form presentation is intentionally small: plate number is **Required / مطلوب**; current mileage is **Required / مطلوب** in Dashboard UX only while backend create semantics retain default `0`; vehicle type, next oil change, license expiry date, and next maintenance date are **Optional / اختياري**; maintenance status is **Default / افتراضي**.
+- Vehicle list presentation shows the next-maintenance date compactly. A null date is silent; an overdue date may be visually distinguishable without alarm styling; Western digits are used; overdue does not alter operational state.
+- The shared Representatives/Vehicles page uses `?tab=vehicles` and `?tab=representatives` as the selected-tab URL source of truth, subject to capability-safe fallback. Refresh/direct navigation preserves an authorized selected tab and never requires a full-page `window.location` reload.
+- This amendment does not add maintenance history, workshop workflows, reminder/background jobs, maintenance cost accounting, parts management, or work orders.
+
 ### Explicitly not required in V1 unless the first-company workflow proves it necessary
 
 - A Dashboard setting that assigns every Vehicle to a warehouse.

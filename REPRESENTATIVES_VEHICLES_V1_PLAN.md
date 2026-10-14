@@ -34,7 +34,7 @@ Completed on merged `main`:
 - [x] Dashboard lifecycle and credential-reset UI is launched directly from the capability-gated row action menu.
 - [x] Arabic and English Representative UI resources implemented with RTL/LTR-aware rendering.
 - [x] Representative password validation enforces minimum length plus the canonical 72-byte UTF-8 ceiling using byte length, not character count alone.
-- [x] Vehicles tab remains visible but explicitly disabled/gated; Vehicles implementation has not started.
+- [x] At Representative owner closure the Vehicles tab was still gated; Vehicles backend/Dashboard are now implemented, and the later #320 amendment added the bounded next-maintenance/form/list/tab URL UX documented below.
 - [x] Representative contract/architecture tests merged.
 - [x] Real PostgreSQL Representative runtime acceptance merged.
 - [x] Representative concurrency/idempotency runtime acceptance merged.
@@ -70,7 +70,7 @@ Representative owner-complete gate:
 
 Vehicles status:
 
-- [ ] Vehicles implementation - **BACKEND PR #309 + DASHBOARD PR #310 MERGED; DISPATCH INTEGRATION PENDING**. The Representatives owner-acceptance gate is closed.
+- [ ] Vehicles implementation - **BACKEND PR #309 + DASHBOARD PR #310 + MAINTENANCE/FORM/TAB UX PR #320 MERGED; DISPATCH/INVENTORY INTEGRATION + ACCEPTANCE REMAINS OPEN**. The Representatives owner-acceptance gate is closed.
 
 ### Vehicles source/contract audit closure — 2026-10-14
 
@@ -170,7 +170,13 @@ dashboard/src/pages/representatives-vehicles/
     RepresentativeLifecycleActions.tsx  # lifecycle modal/controller only
     RepresentativeCredentialAction.tsx  # credential-reset modal/controller only
   vehicles/
-    VehiclesTabPlaceholder.tsx       # visible gated placeholder until Vehicles implementation begins
+    api.ts                           # Vehicle HTTP client only
+    useVehicles.ts                   # Vehicle list/query state only
+    VehiclesTab.tsx                  # tab composition only
+    VehicleTable.tsx                 # table/list rendering only
+    VehicleForm.tsx                  # create/edit form only
+    VehicleRowActions.tsx            # row actions only
+    VehicleLifecycleActions.tsx      # deactivate/reactivate controller/modal only
 ```
 
 Exact filenames may change only by technical-lead approval when repository conventions prove a better equivalent; responsibility boundaries may not be collapsed.
@@ -347,7 +353,7 @@ Execution behavior:
 
 - [x] Use the same compact Wanasah shell language as Products/Inventory/Suppliers.
 - [x] Compact top bar; no oversized dashboard cards.
-- [ ] Primary action changes by tab: `إضافة مندوب` or `إضافة سيارة` — Vehicle action remains intentionally unavailable until Vehicles implementation adds it.
+- [ ] Primary action changes by tab: `إضافة مندوب` or `إضافة سيارة` — Vehicle action is now implemented; final integrated/owner acceptance remains open.
 - [x] Search/filter controls stay close to the Representative table.
 - [x] Infinite scrolling / cursor pagination is used for Representatives.
 - [x] Row actions/detail surface follow the accepted compact Wanasah interaction pattern.
@@ -551,7 +557,7 @@ pages/representatives-vehicles/
   representatives/
     ...representative list/search/table/form/row-actions/modals...
   vehicles/
-    ...gated placeholder only; implementation next...
+    ...vehicle list/table/form/row-actions/lifecycle...
 ```
 
 - [x] one shared page shell.
@@ -716,7 +722,9 @@ Current useful V1 concepts to preserve unless code review proves otherwise:
 - [x] current mileage retained as a basic existing field.
 - [x] next oil change retained as an optional basic existing field without fleet-maintenance expansion.
 - [x] license expiry date retained as an optional basic existing field.
+- [x] `next_maintenance_date` added as optional nullable business `DATE` scheduling/reminder metadata; past dates are allowed, it has no timezone semantics, and it never auto-transitions maintenance state.
 - [x] maintenance status frozen to existing `Active` / `In_Maintenance` values.
+- [x] Operational eligibility remains `Vehicle.is_active` + `maintenance_status == "Active"` + strict canonical active custody readiness where operationally required; `next_maintenance_date` is not a blocker.
 - [x] active/inactive lifecycle state preserved.
 - [x] optimistic concurrency frozen as `Vehicle.version`; V1 will not fabricate historical Vehicle timestamps for legacy rows.
 
@@ -724,7 +732,7 @@ Explicit non-goals for V1:
 
 - [x] no GPS tracking in V1.
 - [x] no fuel management in V1.
-- [x] no advanced maintenance scheduling/work orders in V1.
+- [x] no advanced maintenance system in V1: no maintenance history, reminder/background jobs, workshop management, work orders, cost accounting, or parts management; the approved `next_maintenance_date` field is metadata only.
 - [x] no fleet cost accounting in V1.
 - [x] no permanent representative assignment in V1.
 - [x] no permanent warehouse ownership in V1.
@@ -840,6 +848,7 @@ Recommended compact columns:
 
 Rules:
 
+- [x] #320 adds a compact next-maintenance date display: null is silent; overdue is visually distinguishable but not alarming; Western digits are used; overdue never changes operational status.
 - [ ] Search plate/type.
 - [ ] Filter all / ready-active / in maintenance / inactive, with final wording based on actual state model.
 - [ ] No raw location ID shown.
@@ -853,10 +862,13 @@ Rules:
 
 Initial form stays minimal:
 
-- [ ] plate number.
-- [ ] vehicle type if useful.
-- [ ] operational/maintenance status with safe default.
-- [ ] mileage/license fields only if their current V1 value justifies keeping them visible; do not turn form into fleet-management software.
+- [x] `plate_number` shown as **Required / مطلوب**.
+- [x] `current_mileage` shown as **Required / مطلوب** in Dashboard UX only; backend create semantics remain optional with default `0`.
+- [x] `vehicle_type` shown as **Optional / اختياري**.
+- [x] `next_oil_change` shown as **Optional / اختياري**.
+- [x] `license_expiry_date` shown as **Optional / اختياري**.
+- [x] `next_maintenance_date` shown as **Optional / اختياري**.
+- [x] `maintenance_status` shown as **Default / افتراضي**.
 - [ ] active by default when appropriate.
 
 Not shown:
@@ -949,7 +961,8 @@ Only after both individual gates pass:
 
 - [x] Sidebar entry exists and is capability-gated for Representatives.
 - [x] `المندوبون` tab opens by intended default.
-- [ ] `السيارات` tab opens as an implemented feature — currently intentionally disabled/gated.
+- [x] `السيارات` tab is implemented and remains capability-gated independently from Representatives.
+- [x] #320 makes `?tab=representatives` / `?tab=vehicles` the selected-tab URL source of truth; refresh/direct URL preserves an authorized tab, invalid/unavailable tabs fall back safely, capability checks still control rendering, and no `window.location` reload navigation is used.
 - [ ] Search/filter state stays local to each tab once Vehicles is implemented.
 - [ ] Primary action changes correctly per tab once Vehicles is implemented.
 - [ ] Representative and Vehicle APIs have no duplicated ownership logic once Vehicles exists.
@@ -959,7 +972,7 @@ Only after both individual gates pass:
 - [x] Delegated Backoffice roles can be restricted by Representative capabilities.
 - [x] Field Representative cannot enter Dashboard Representative management through FIELD identity.
 - [x] Representative created here can login to the real Flutter client and receive Dispatch work.
-- [ ] Vehicle created here has valid custody location and can be used by Dispatch — Vehicles not started.
+- [ ] Vehicle created here has valid custody location; end-to-end Dispatch usability remains open under Checkpoint 8.
 - [x] Representative tenant isolation is proven.
 - [x] Representative audit/idempotency evidence exists for mutations.
 - [x] No Representative hard-delete path leaves broken history.
@@ -985,8 +998,8 @@ Current checkpoints:
 4. [x] Representatives FIELD/Flutter compatibility integration acceptance completed and merged.
 5. [x] **Representative owner-acceptance checkpoint completed; Representatives V1 closed.**
 6. [x] Vehicles backend/domain + InventoryLocation integration - COMPLETED + MERGED IN PR #309.
-7. [x] Vehicles Dashboard implementation - COMPLETED + MERGED IN PR #310.
-8. [ ] Vehicles Dispatch/Inventory integration + acceptance — NOT STARTED.
+7. [x] Vehicles Dashboard implementation - COMPLETED + MERGED IN PR #310; bounded maintenance/date/form/list/tab URL amendment merged in PR #320.
+8. [ ] Vehicles Dispatch/Inventory integration + acceptance - **OPEN; not yet finally accepted/closed**.
 9. [ ] **Vehicle owner-acceptance checkpoint; merge/cleanup if stable.**
 10. [ ] Final integrated page acceptance and `RUN.txt` closure.
 
@@ -1028,7 +1041,7 @@ This section is a hard implementation constraint, not a UI suggestion.
 
 - The project already contains substantial operational Representative logic: Flutter `/driver/*` workflows, sessions, visits, sales/returns-related behavior, transfers, reconciliation, Dispatch assignment, and route context.
 - The project already contains substantial vehicle operational logic: `Vehicle` master model, Dispatch assignment, vehicle inventory/custody locations, live stock, transfers, reconciliation, and stocktake integration.
-- Clean company-master administration modules and Dashboard UX now exist for Representatives. Vehicle administration is the next approved phase and remains not started until its implementation branch begins.
+- Clean company-master administration modules and Dashboard UX now exist for Representatives and Vehicles. Vehicles Dispatch/Inventory integration and final acceptance remain open; this plan does not treat them as closed.
 - Legacy `wa_backend/api/driver.py` and `wa_backend/api/dispatch.py` remain large operational compatibility surfaces. New administration logic MUST NOT be piled into them.
 
 ## Backend target structure
