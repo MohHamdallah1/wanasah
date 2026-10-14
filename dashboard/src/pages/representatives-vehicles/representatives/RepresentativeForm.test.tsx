@@ -250,13 +250,16 @@ describe("RepresentativeForm", () => {
     expect(onSubmit.mock.calls[2]?.[1]).toBe(nextUuid);
   });
 
-  it("keeps disabled credit limit hidden and reveals an empty localized input", () => {
+  it("keeps disabled credit limit hidden and reveals a compact accessible input", () => {
     render(<RepresentativeForm onCancel={() => undefined} onSubmit={vi.fn()} />);
     expect(screen.queryByLabelText(field.debtLimit)).toBeNull();
     fireEvent.click(screen.getByLabelText(field.debtPermission));
     const limit = screen.getByLabelText(field.debtLimit) as HTMLInputElement;
     expect(limit.value).toBe("");
     expect(limit.placeholder).toBe("مثال: 50.000");
+    expect(limit).toHaveAttribute("aria-describedby", "representative-debt-hint");
+    expect(screen.getByText("representativesVehicles.representatives.form.debtA11yHint")).toHaveClass("sr-only");
+    expect(screen.queryByText("representativesVehicles.representatives.form.debtHint")).toBeNull();
   });
 
   it("requires explicit debt amount when credit is enabled", () => {
@@ -357,22 +360,32 @@ describe("RepresentativeForm", () => {
 });
 
 describe("Representative final form copy", () => {
-  it("keeps accepted credit semantics in Arabic and English", () => {
-    const ar = representativesVehicles.ar.representatives.form.debtHint;
-    const en = representativesVehicles.en.representatives.form.debtHint;
-    expect(ar).toContain("عملية بيع واحدة");
-    expect(ar).toContain("ليس حدًا يوميًا");
-    expect(ar).toContain("لا يتجدد تلقائيًا");
-    expect(ar).toContain("سقف ذمة المحل");
-    expect(en).toContain("single sale");
-    expect(en).toContain("not a daily limit");
-    expect(en).toContain("does not reset automatically");
+  it("uses the exact compact username helper in Arabic and English", () => {
+    expect(representativesVehicles.ar.representatives.form.usernameHint).toBe(
+      "استخدم العربية أو الإنجليزية دون خلط، ويمكن إضافة الأرقام و . _ -",
+    );
+    expect(representativesVehicles.en.representatives.form.usernameHint).toBe(
+      "Use Arabic or Latin letters without mixing them; numbers and . _ - are allowed.",
+    );
+    expect(JSON.stringify(representativesVehicles)).not.toContain(
+      "استخدم أحرفًا عربية أو إنجليزية، ويمكن إضافة الأرقام و . _ - دون خلط العربية والإنجليزية في الاسم نفسه.",
+    );
   });
 
-  it("has required phone and equal-status Arabic username copy", () => {
+  it("removes the visible debt paragraph while preserving the concise business label and a11y description", () => {
+    expect("debtHint" in representativesVehicles.ar.representatives.form).toBe(false);
+    expect("debtHint" in representativesVehicles.en.representatives.form).toBe(false);
+    expect(representativesVehicles.ar.representatives.fields.debtLimit).toBe("حد الذمم لكل عملية بيع");
+    expect(representativesVehicles.en.representatives.fields.debtLimit).toBe("Debt limit per sale");
+    expect(representativesVehicles.ar.representatives.form.debtA11yHint).toBe("الحد الأقصى للذمم الجديدة في عملية بيع واحدة.");
+    expect(representativesVehicles.en.representatives.form.debtA11yHint).toBe("Maximum new debt for one sale.");
+    expect(JSON.stringify(representativesVehicles)).not.toContain(
+      "هذا الحد هو أقصى مبلغ ذمم جديد في عملية بيع واحدة. ليس حدًا يوميًا ولا يتجدد تلقائيًا، ويظل سقف ذمة المحل مطبقًا بشكل مستقل.",
+    );
+  });
+
+  it("keeps required phone copy unchanged", () => {
     expect(representativesVehicles.ar.representatives.form.phoneRequired).toBe("أدخل رقم هاتف المندوب.");
     expect(representativesVehicles.en.representatives.form.phoneRequired).toBe("Enter the representative’s phone number.");
-    expect(representativesVehicles.ar.representatives.form.usernameHint).toContain("أحرفًا عربية أو إنجليزية");
-    expect(representativesVehicles.en.representatives.form.usernameHint).toContain("Arabic or Latin letters");
   });
 });

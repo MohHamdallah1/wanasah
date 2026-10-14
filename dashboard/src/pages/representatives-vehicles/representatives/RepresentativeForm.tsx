@@ -286,7 +286,7 @@ export function RepresentativeForm({
               disabled={busy}
               autoComplete="off"
             />
-            <p id="representative-debt-hint" className="text-[11px] font-semibold leading-5 text-slate-500">{t("representativesVehicles.representatives.form.debtHint")}</p>
+            <span id="representative-debt-hint" className="sr-only">{t("representativesVehicles.representatives.form.debtA11yHint")}</span>
           </div>
         ) : (
           <p className="mt-3 rounded-xl bg-white px-3 py-2 text-xs font-black text-slate-500 ring-1 ring-slate-200">
