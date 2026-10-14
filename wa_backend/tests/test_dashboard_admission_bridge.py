@@ -104,6 +104,37 @@ class DashboardAdmissionBridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any("user_roles" in item for item in sql))
         self.assertFalse(any("user_location_access" in item for item in sql))
 
+    async def test_company_vehicle_read_admits_dashboard(self):
+        db = FakeSession(
+            bridge=bridge(),
+            company_capability="vehicle.read",
+        )
+        identity = dashboard_identity()
+
+        result = await require_dashboard_admission(db, identity)
+
+        self.assertIs(result, identity)
+        sql = [str(stmt) for stmt in db.statements]
+        self.assertTrue(any("user_roles" in item for item in sql))
+        self.assertFalse(any("user_location_access" in item for item in sql))
+
+    async def test_location_only_vehicle_read_does_not_widen_dashboard_admission(self):
+        db = FakeSession(
+            bridge=bridge(),
+            location_capability="vehicle.read",
+        )
+
+        with self.assertRaises(DashboardAdmissionRejected):
+            await require_dashboard_admission(db, dashboard_identity())
+
+        location_statement = next(
+            stmt for stmt in db.statements if "user_location_access" in str(stmt)
+        )
+        collections = FakeSession._collection_params(location_statement)
+        self.assertIn(set(PERMISSIONS), collections)
+        self.assertIn(set(COMPANY_ONLY), collections)
+        self.assertIn("vehicle.read", COMPANY_ONLY)
+
     async def test_ordinary_backoffice_with_valid_location_grant_admitted(self):
         db = FakeSession(
             bridge=bridge(),
