@@ -6,6 +6,7 @@ from .contracts import (
     VehiclePage,
     VehicleRecord,
 )
+from .custody import resolve_vehicle_custody_location_id
 from .eligibility import (
     read_vehicle_operational_state,
     route_requires_operational_vehicle,
@@ -28,6 +29,7 @@ __all__ = [
     "get_vehicle",
     "list_vehicles",
     "reactivate_vehicle",
+    "resolve_vehicle_custody_location_id",
     "vehicle_operational_predicate",
     "vehicle_is_operational",
     "read_vehicle_operational_state",

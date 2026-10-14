@@ -35,6 +35,7 @@ from database import get_db
 from domains.auth_sessions.codec import issue_access_token
 from domains.auth_sessions.context import FieldRequestContext
 from domains.pricing.core import PricingError
+from domains.vehicles import VehicleError, resolve_vehicle_custody_location_id
 from models import (
     DispatchRoute, Driver, InventoryBalance, InventoryLocation,
     InventoryTransferHeader, SessionInventorySnapshot, Shop, Visit,
@@ -106,6 +107,7 @@ def result(value=None, rows=()):
     synchronous = Mock()
     synchronous.scalar_one_or_none.return_value = value
     synchronous.scalars.return_value.first.return_value = value
+    synchronous.scalars.return_value.all.return_value = [] if value is None else [value]
     synchronous.one_or_none.return_value = value
     synchronous.all.return_value = list(rows)
     return synchronous
@@ -119,8 +121,12 @@ def fixture(name):
                               break_start_time=None, break_end_time=None, is_settled=False)
     route = SimpleNamespace(id=701, vehicle_id=801, zone_id=901, work_session_id=None)
     if name == "start_work_session":
+        db.scalar.side_effect = lambda statement: any(
+            item.get("entity") is InventoryLocation
+            for item in getattr(statement, "column_descriptions", ())
+        )
         results = [result(OperationalLocator()), result(), result(route), result(),
-                   result(501), result(501),
+                   result(501), result(501), result(501),
                    result(rows=[(1111, "AVAILABLE", Decimal("5")),
                                 (1112, "QUARANTINED", Decimal("0.5"))]), result()]
 
@@ -194,9 +200,9 @@ class DriverSessionFieldContextCutoverTests(unittest.IsolatedAsyncioTestCase):
                          [(7, 601, 501, 1111, "AVAILABLE", Decimal("5")),
                           (7, 601, 501, 1112, "QUARANTINED", Decimal("0.5"))])
         queries = [call.args[0] for call in db.execute.await_args_list]
-        self.assertEqual(len(queries), 8)
+        self.assertEqual(len(queries), 9)
         self.assertEqual(sql(queries[0].whereclause), "drivers.company_id = 7 AND drivers.id = 303")
-        for index, table in ((1, "work_sessions"), (2, "dispatch_routes"), (3, "work_sessions"), (7, "visits")):
+        for index, table in ((1, "work_sessions"), (2, "dispatch_routes"), (3, "work_sessions"), (8, "visits")):
             self.assert_scoped_legacy_query(queries[index], table)
         self.assertIn("work_sessions.is_settled IS false", sql(queries[1]))
         self.assertIn("work_sessions.end_time IS NOT NULL", sql(queries[1]))
@@ -205,15 +211,25 @@ class DriverSessionFieldContextCutoverTests(unittest.IsolatedAsyncioTestCase):
         for index in (0, 2, 3, 5):
             self.assertIsNotNone(queries[index]._for_update_arg)
             self.assertEqual(queries[index]._for_update_arg.read, index == 5)
-        for index in (4, 5):
+        for index in (4, 5, 6):
             location_sql = sql(queries[index])
             for condition in ("inventory_locations.company_id = 7", "inventory_locations.vehicle_id = 801",
-                              "inventory_locations.location_type = 'VEHICLE'", "inventory_locations.is_active = true"):
+                              "inventory_locations.location_type = 'VEHICLE'"):
                 self.assertIn(condition, location_sql)
-        self.assertIn("inventory_balances.company_id = 7", sql(queries[6]))
-        self.assertIn("inventory_balances.location_id = 501", sql(queries[6]))
-        self.assertIn("work_session_id=601", sql(queries[7]))
-        self.assertIn("shops.company_id = 7", sql(queries[7]))
+            if index == 5:
+                self.assertIn("inventory_locations.is_active = true", location_sql)
+            else:
+                self.assertNotIn("inventory_locations.is_active", location_sql)
+                self.assertIsNone(queries[index]._limit_clause)
+                self.assertIsNone(queries[index]._for_update_arg)
+        for call in db.scalar.await_args_list:
+            self.assertIsNone(call.args[0]._for_update_arg)
+            self.assertIn("inventory_locations.id = 501", sql(call.args[0]))
+        self.assertEqual(db.scalar.await_count, 2)
+        self.assertIn("inventory_balances.company_id = 7", sql(queries[7]))
+        self.assertIn("inventory_balances.location_id = 501", sql(queries[7]))
+        self.assertIn("work_session_id=601", sql(queries[8]))
+        self.assertIn("shops.company_id = 7", sql(queries[8]))
         self.namespace["get_company_local_date"].assert_awaited_once_with(db, 7)
         self.namespace["require_route_commercial_context"].assert_awaited_once_with(db, company_id=7, dispatch_route_id=701)
         self.namespace["acquire_inventory_location_guard"].assert_awaited_once_with(db, 7, 501, exclusive=True)
@@ -256,6 +272,65 @@ class DriverSessionFieldContextCutoverTests(unittest.IsolatedAsyncioTestCase):
         setup.db.flush.assert_not_awaited()
         self.assert_transactions(setup.db, commits=0, rollbacks=2)
 
+    async def test_start_rejects_inactive_canonical_custody_without_snapshot(self):
+        setup = fixture("start_work_session")
+        setup.db.scalar.side_effect = None
+        setup.db.scalar.return_value = False
+        with self.assertRaises(HTTPException) as rejected:
+            await self.invoke("start_work_session", setup)
+        self.assertEqual(rejected.exception.status_code, 409)
+        self.assertEqual(rejected.exception.detail["code"], "VEHICLE_CUSTODY_LOCATION_INACTIVE")
+        self.namespace["acquire_inventory_location_guard"].assert_not_awaited()
+        setup.db.add.assert_not_called()
+        self.assert_transactions(setup.db, commits=0, rollbacks=1)
+
+    async def test_start_rejects_duplicate_history_before_and_after_location_guard(self):
+        for index in (4, 6):
+            with self.subTest(query=index):
+                self.namespace = load_routes()
+                setup = fixture("start_work_session")
+                setup.results[index].scalars.return_value.all.return_value = [501, 502]
+                with self.assertRaises(HTTPException) as rejected:
+                    await self.invoke("start_work_session", setup)
+                self.assertEqual(rejected.exception.status_code, 409)
+                self.assertEqual(rejected.exception.detail["code"], "VEHICLE_CUSTODY_LOCATION_AMBIGUOUS")
+                self.assertEqual(rejected.exception.detail["context"], {"location_count": 2})
+                self.assertEqual(self.namespace["acquire_inventory_location_guard"].await_count, index == 6)
+                self.namespace["read_vehicle_operational_state"].assert_not_awaited()
+                setup.db.add.assert_not_called()
+                setup.db.flush.assert_not_awaited()
+                self.assert_transactions(setup.db, commits=0, rollbacks=1)
+
+    async def test_start_rechecks_canonical_location_activity_under_guard(self):
+        setup = fixture("start_work_session")
+        setup.db.scalar.side_effect = [True, False]
+        with self.assertRaises(HTTPException) as rejected:
+            await self.invoke("start_work_session", setup)
+        self.assertEqual(rejected.exception.status_code, 409)
+        self.assertEqual(rejected.exception.detail["code"], "VEHICLE_CUSTODY_LOCATION_INACTIVE")
+        self.namespace["acquire_inventory_location_guard"].assert_awaited_once()
+        self.namespace["read_vehicle_operational_state"].assert_not_awaited()
+        setup.db.add.assert_not_called()
+        self.assert_transactions(setup.db, commits=0, rollbacks=1)
+
+    async def test_start_rejects_lost_or_replaced_custody_under_guard(self):
+        for ids, code in (
+            ([], "VEHICLE_CUSTODY_LOCATION_MISSING"),
+            ([502], "VEHICLE_CUSTODY_LOCATION_INCONSISTENT"),
+        ):
+            with self.subTest(ids=ids):
+                self.namespace = load_routes()
+                setup = fixture("start_work_session")
+                setup.results[6].scalars.return_value.all.return_value = ids
+                with self.assertRaises(HTTPException) as rejected:
+                    await self.invoke("start_work_session", setup)
+                self.assertEqual(rejected.exception.status_code, 409)
+                self.assertEqual(rejected.exception.detail["code"], code)
+                self.namespace["acquire_inventory_location_guard"].assert_awaited_once()
+                self.namespace["read_vehicle_operational_state"].assert_not_awaited()
+                setup.db.add.assert_not_called()
+                self.assert_transactions(setup.db, commits=0, rollbacks=1)
+
     async def test_start_rejects_unsettled_custody_before_route_lookup(self):
         setup = fixture("start_work_session")
         setup.results[1].scalars.return_value.first.return_value = SimpleNamespace(id=600)
@@ -288,7 +363,7 @@ class DriverSessionFieldContextCutoverTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(setup.db.execute.await_count, index + 1)
                 setup.db.add.assert_not_called()
                 setup.db.flush.assert_not_awaited()
-                self.assert_transactions(setup.db, commits=0, rollbacks=2)
+                self.assert_transactions(setup.db, commits=0, rollbacks=1 if reason == "missing_location" else 2)
 
     async def test_end_uses_canonical_company_and_legacy_handshake_receiver_without_settling(self):
         setup = fixture("end_work_session")

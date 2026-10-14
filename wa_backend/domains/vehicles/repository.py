@@ -146,16 +146,45 @@ def _custody_cardinality_error(count: int) -> VehicleError:
     )
 
 
+async def read_canonical_custody_location_id(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    vehicle_id: int,
+    require_active: bool = False,
+) -> int:
+    """Resolve all historical custody rows without taking a Vehicle/location lock."""
+    ids = await _custody_ids(db, company_id=company_id, vehicle_id=vehicle_id)
+    if len(ids) != 1:
+        raise _custody_cardinality_error(len(ids))
+    location_id = ids[0]
+    if require_active:
+        is_active = await db.scalar(
+            select(InventoryLocation.is_active).where(
+                InventoryLocation.company_id == company_id,
+                InventoryLocation.id == location_id,
+                InventoryLocation.vehicle_id == vehicle_id,
+                InventoryLocation.location_type == "VEHICLE",
+            )
+        )
+        if is_active is not True:
+            raise VehicleError(
+                "VEHICLE_CUSTODY_LOCATION_INACTIVE",
+                "موقع عهدة السيارة غير فعال أو لم يعد صالحاً داخل الشركة.",
+                status_code=409,
+            )
+    return location_id
+
+
 async def lock_canonical_custody(
     db: AsyncSession,
     *,
     company_id: int,
     vehicle_id: int,
 ) -> InventoryLocation:
-    ids = await _custody_ids(db, company_id=company_id, vehicle_id=vehicle_id)
-    if len(ids) != 1:
-        raise _custody_cardinality_error(len(ids))
-    location_id = ids[0]
+    location_id = await read_canonical_custody_location_id(
+        db, company_id=company_id, vehicle_id=vehicle_id
+    )
     await acquire_inventory_location_guard(
         db,
         company_id,
@@ -249,4 +278,5 @@ __all__ = [
     "load_vehicle",
     "lock_canonical_custody",
     "plate_exists",
+    "read_canonical_custody_location_id",
 ]

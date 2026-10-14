@@ -13,6 +13,7 @@ from api.authentication.backoffice_compatibility import (
     get_current_backoffice_legacy_driver,
 )
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
+from domains.vehicles import VehicleError, resolve_vehicle_custody_location_id
 from domains.vehicles.eligibility import (
     read_vehicle_operational_state,
     route_requires_operational_vehicle,
@@ -1203,23 +1204,21 @@ async def _dispatch_vehicle_location_id(
     company_id: int,
     vehicle_id: int,
     require_active: bool = True,
+    expected_location_id: int | None = None,
 ) -> int:
-    stmt = select(InventoryLocation.id).filter_by(
-        company_id=company_id,
-        vehicle_id=vehicle_id,
-        location_type="VEHICLE",
-    )
-    if require_active:
-        stmt = stmt.filter(InventoryLocation.is_active.is_(True))
-    location_id = (
-        await db.execute(stmt.order_by(InventoryLocation.id.asc()).limit(1))
-    ).scalar_one_or_none()
-    if location_id is None:
-        raise HTTPException(
-            status_code=409,
-            detail="السيارة لا تملك موقع مخزون VEHICLE فعالاً داخل الشركة.",
+    try:
+        return await resolve_vehicle_custody_location_id(
+            db,
+            company_id=company_id,
+            vehicle_id=vehicle_id,
+            require_active=require_active,
+            expected_location_id=expected_location_id,
         )
-    return int(location_id)
+    except VehicleError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message, "context": exc.context},
+        ) from exc
 
 
 async def _dispatch_source_warehouse(
@@ -2597,6 +2596,12 @@ async def adjust_route_inventory(
             vehicle_location_id,
             exclusive=True,
         )
+        await _dispatch_vehicle_location_id(
+            db,
+            company_id=company_id,
+            vehicle_id=int(route.vehicle_id),
+            expected_location_id=vehicle_location_id,
+        )
         vehicle_state = await read_vehicle_operational_state(
             db,
             company_id=company_id,
@@ -3937,6 +3942,12 @@ async def update_route_status(
                         status_code=409,
                         detail="لا يمكن إسناد/تشغيل المسار لأن السيارة متوقفة أو في الصيانة.",
                     )
+                await _dispatch_vehicle_location_id(
+                    db,
+                    company_id=company_id,
+                    vehicle_id=int(target_vehicle_id),
+                    require_active=True,
+                )
 
         old_status = route.status
         old_driver_id = route.driver_id

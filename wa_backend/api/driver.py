@@ -20,6 +20,7 @@ from domains.auth_sessions.context import (
     FieldRequestContext,
 )
 from domains.authorization.backoffice_access import BackofficeCapabilityAccessRejected
+from domains.vehicles import VehicleError, resolve_vehicle_custody_location_id
 from domains.vehicles.eligibility import (
     read_vehicle_operational_state,
     vehicle_is_operational,
@@ -274,25 +275,12 @@ async def start_work_session(
                 detail="لديك جلسة عمل نشطة بالفعل لم يتم إنهاؤها."
             )
 
-        # حل موقع السيارة حصراً داخل Tenant الحالي.
-        vehicle_location_id = (
-            await db.execute(
-                select(InventoryLocation.id)
-                .filter_by(
-                    company_id=company_id,
-                    vehicle_id=active_route.vehicle_id,
-                    location_type="VEHICLE",
-                    is_active=True,
-                )
-            )
-        ).scalar_one_or_none()
-
-        if vehicle_location_id is None:
-            await db.rollback()
-            raise HTTPException(
-                status_code=409,
-                detail="السيارة المخصصة لا تملك موقع مخزون VEHICLE فعالاً داخل الشركة."
-            )
+        vehicle_location_id = await resolve_vehicle_custody_location_id(
+            db,
+            company_id=company_id,
+            vehicle_id=int(active_route.vehicle_id),
+            require_active=True,
+        )
 
         # Snapshot حقيقي لنقطة زمنية واحدة:
         # نمنع أي حركة مخزون على السيارة حتى تثبيت اللقطة والجلسة في نفس Transaction.
@@ -324,6 +312,14 @@ async def start_work_session(
                 status_code=409,
                 detail="موقع مخزون السيارة تغير أو أصبح غير فعال أثناء بدء الجلسة."
             )
+
+        await resolve_vehicle_custody_location_id(
+            db,
+            company_id=company_id,
+            vehicle_id=int(active_route.vehicle_id),
+            require_active=True,
+            expected_location_id=vehicle_location_id,
+        )
 
         vehicle_state = await read_vehicle_operational_state(
             db,
@@ -449,6 +445,12 @@ async def start_work_session(
     except HTTPException:
         await db.rollback()
         raise
+    except VehicleError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message, "context": exc.context},
+        ) from exc
     except PricingError as exc:
         await db.rollback()
         raise HTTPException(
