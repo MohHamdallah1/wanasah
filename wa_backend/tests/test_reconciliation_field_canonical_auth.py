@@ -183,7 +183,6 @@ class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
         db = _Db([
             _Result(one=_work_session()),
             _Result(one=SimpleNamespace(vehicle_id=55)),
-            _Result(one=SimpleNamespace(id=66)),
             _Result(one=SimpleNamespace(
                 id=88, status="COUNTING", reference_number="VR-88",
             )),
@@ -191,6 +190,10 @@ class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(
             reconciliation, "validate_vehicle_recon_work_session", AsyncMock()
         ) as validate, patch.object(
+            reconciliation,
+            "resolve_vehicle_custody_location_id",
+            AsyncMock(side_effect=[66, 66]),
+        ) as resolve_custody, patch.object(
             reconciliation, "acquire_inventory_location_guard", AsyncMock()
         ) as guard, patch.object(
             reconciliation, "open_vehicle_reconciliation_stocktake", AsyncMock()
@@ -205,6 +208,20 @@ class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
         validate.assert_awaited_once_with(
             db, company_id=101, work_session_id=71, vehicle_id=55,
         )
+        self.assertEqual(resolve_custody.await_count, 2)
+        self.assertEqual(
+            resolve_custody.await_args_list[0].kwargs,
+            {"company_id": 101, "vehicle_id": 55, "require_active": True},
+        )
+        self.assertEqual(
+            resolve_custody.await_args_list[1].kwargs,
+            {
+                "company_id": 101,
+                "vehicle_id": 55,
+                "require_active": True,
+                "expected_location_id": 66,
+            },
+        )
         guard.assert_awaited_once_with(db, 101, 66, exclusive=True)
         open_stocktake.assert_not_awaited()
 
@@ -212,20 +229,26 @@ class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
         db = _Db([
             _Result(one=_work_session()),
             _Result(one=SimpleNamespace(vehicle_id=55)),
-            _Result(one=SimpleNamespace(id=66)),
             _Result(one=None),
             _Result(one=444),
         ])
         with patch.object(
             reconciliation, "validate_vehicle_recon_work_session", AsyncMock()
         ), patch.object(
+            reconciliation,
+            "resolve_vehicle_custody_location_id",
+            AsyncMock(side_effect=[66, 66]),
+        ) as resolve_custody, patch.object(
             reconciliation, "acquire_inventory_location_guard", AsyncMock()
-        ):
+        ) as guard:
             with self.assertRaises(HTTPException) as caught:
                 await reconciliation.reconcile_driver_end_of_day(
                     71, _payload(), db, _field_context(), _legacy_driver(),
                 )
         self.assertEqual(caught.exception.status_code, 409)
+        self.assertIn("inventory_locks", str(db.statements[-1]))
+        self.assertEqual(resolve_custody.await_count, 2)
+        guard.assert_awaited_once_with(db, 101, 66, exclusive=True)
         self.assertEqual(db.rollbacks, 1)
         self.assertEqual(db.commits, 0)
 
@@ -233,7 +256,6 @@ class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
         db = _Db([
             _Result(one=_work_session()),
             _Result(one=SimpleNamespace(vehicle_id=55)),
-            _Result(one=SimpleNamespace(id=66)),
             _Result(one=None),
             _Result(one=None),
             _Result(rows=[]),
@@ -244,8 +266,12 @@ class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(
             reconciliation, "validate_vehicle_recon_work_session", AsyncMock()
         ), patch.object(
+            reconciliation,
+            "resolve_vehicle_custody_location_id",
+            AsyncMock(side_effect=[66, 66]),
+        ) as resolve_custody, patch.object(
             reconciliation, "acquire_inventory_location_guard", AsyncMock()
-        ), patch.object(
+        ) as guard, patch.object(
             reconciliation,
             "finalize_vehicle_inventory_reconciliation",
             AsyncMock(return_value=finalized),
@@ -262,6 +288,8 @@ class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(result["requires_audit"])
         self.assertFalse(result["already_reconciled"])
+        self.assertEqual(resolve_custody.await_count, 2)
+        guard.assert_awaited_once_with(db, 101, 66, exclusive=True)
         finalize.assert_awaited_once_with(
             db,
             company_id=101,
@@ -294,7 +322,6 @@ class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
         db = _Db([
             _Result(one=_work_session()),
             _Result(one=SimpleNamespace(vehicle_id=55)),
-            _Result(one=SimpleNamespace(id=66)),
             _Result(one=None),
             _Result(one=None),
             _Result(rows=[variant]),
@@ -306,8 +333,12 @@ class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(
             reconciliation, "validate_vehicle_recon_work_session", AsyncMock()
         ), patch.object(
+            reconciliation,
+            "resolve_vehicle_custody_location_id",
+            AsyncMock(side_effect=[66, 66]),
+        ) as resolve_custody, patch.object(
             reconciliation, "acquire_inventory_location_guard", AsyncMock()
-        ), patch.object(
+        ) as guard, patch.object(
             reconciliation, "validate_variant_quantity", return_value=Decimal("1")
         ) as validate_quantity, patch.object(
             reconciliation,
@@ -323,6 +354,8 @@ class ReconciliationFieldCanonicalAuthTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertTrue(result["requires_audit"])
+        self.assertEqual(resolve_custody.await_count, 2)
+        guard.assert_awaited_once_with(db, 101, 66, exclusive=True)
         self.assertEqual(result["variance_product_ids"], [501])
         self.assertEqual(result["variance_count"], 1)
         validate_quantity.assert_called_once()
@@ -371,7 +404,9 @@ class ReconciliationCanonicalSourceAuditTests(unittest.TestCase):
             "inventory_reconciled_at",
             "work_session.is_settled",
             "DispatchRoute",
-            'location_type="VEHICLE"',
+            "resolve_vehicle_custody_location_id",
+            "require_active=True",
+            "expected_location_id=vehicle_location_id",
             "acquire_inventory_location_guard",
             'stocktake_type == "VEHICLE_RECON"',
             "InventoryLock.company_id == company_id",
@@ -384,6 +419,7 @@ class ReconciliationCanonicalSourceAuditTests(unittest.TestCase):
             "admin_id=driver_id",
             "await db.commit()",
             "await db.rollback()",
+            "except VehicleError",
             "except InventoryMutationError",
             "except IntegrityError",
         )
