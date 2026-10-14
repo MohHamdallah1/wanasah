@@ -4,7 +4,6 @@ PERMISSIONS = frozenset({
     'supplier.read', 'supplier.manage',
     'representative.read', 'representative.manage', 'representative.credentials.reset',
     'vehicle.read', 'vehicle.manage',
-    'vehicle.read', 'vehicle.manage',
     'location.read', 'location.create', 'location.update', 'location.state',
     'branch.read', 'branch.create', 'branch.update', 'branch.state',
     'work_session.read', 'work_session.authorize_sale', 'work_session.reopen',
@@ -37,6 +36,7 @@ PERMISSIONS = frozenset({
 COMPANY_ONLY = frozenset({
     'supplier.read', 'supplier.manage',
     'representative.read', 'representative.manage', 'representative.credentials.reset',
+    'vehicle.read', 'vehicle.manage',
     'location.create', 'branch.read', 'branch.create', 'branch.update', 'branch.state',
     'work_session.read', 'work_session.authorize_sale', 'work_session.reopen',
     'settlement.read', 'settlement.execute',

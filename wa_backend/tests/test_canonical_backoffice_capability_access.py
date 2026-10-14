@@ -131,6 +131,36 @@ class CanonicalBackofficeCapabilityAccessTests(unittest.IsolatedAsyncioTestCase)
                 flattened.extend(value)
         self.assertTrue(COMPANY_ONLY <= set(flattened))
 
+    async def test_vehicle_master_capabilities_are_company_only(self):
+        for code in ("vehicle.read", "vehicle.manage"):
+            with self.subTest(code=code):
+                self.assertIn(code, PERMISSIONS)
+                self.assertIn(code, COMPANY_ONLY)
+
+                location_access = BackofficeCapabilityAccess(FakeSession(), _subject())
+                location_sql, location_params = _compiled(
+                    location_access.allows(code, location_id=11)
+                )
+                self.assertIn("user_location_access", location_sql)
+                self.assertIn("permissions.code NOT IN", location_sql)
+                flattened = []
+                for value in location_params.values():
+                    if isinstance(value, (list, tuple, set, frozenset)):
+                        flattened.extend(value)
+                self.assertIn(code, flattened)
+
+                company_db = FakeSession(scalar=[True])
+                company_access = BackofficeCapabilityAccess(company_db, _subject())
+                await company_access.require(code)
+                company_sql, _ = _compiled(company_db.scalar_statements[0])
+                self.assertIn("user_roles", company_sql)
+                self.assertNotIn("user_location_access", company_sql)
+
+                owner_access = BackofficeCapabilityAccess(
+                    None, _subject(owner=True, locator=None)
+                )
+                await owner_access.require(code)
+
     async def test_foreign_location_rejected(self):
         db = FakeSession(scalar=[None])
         access = BackofficeCapabilityAccess(db, _subject())
