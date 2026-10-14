@@ -1,11 +1,63 @@
+import { useEffect, useState } from "react";
 import { CarFront, UsersRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { WorkspaceTopBar } from "@/components/dashboard/WorkspaceTopBar";
+import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { RepresentativesTab } from "./representatives/RepresentativesTab";
+import { VehiclesTab } from "./vehicles/VehiclesTab";
+
+type PageTab = "representatives" | "vehicles";
 
 export default function RepresentativesVehiclesPage() {
   const { t, i18n } = useTranslation();
+  const access = useInventoryAccess();
+  const canReadRepresentatives = Boolean(
+    access.isCompanyOwner || access.can("representative.read"),
+  );
+  const canReadVehicles = Boolean(
+    access.isCompanyOwner || access.can("vehicle.read"),
+  );
+  const [activeTab, setActiveTab] = useState<PageTab>("representatives");
+  const [visitedTabs, setVisitedTabs] = useState<Set<PageTab>>(
+    () => new Set<PageTab>(),
+  );
+
+  const activate = (tab: PageTab) => {
+    const allowed = tab === "representatives" ? canReadRepresentatives : canReadVehicles;
+    if (!allowed) return;
+    setActiveTab(tab);
+    setVisitedTabs((current) => {
+      const next = new Set(current);
+      next.add(tab);
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (access.isLoading) return;
+    const activeAllowed = activeTab === "representatives"
+      ? canReadRepresentatives
+      : canReadVehicles;
+    if (activeAllowed) {
+      setVisitedTabs((current) => {
+        if (current.has(activeTab)) return current;
+        const next = new Set(current);
+        next.add(activeTab);
+        return next;
+      });
+      return;
+    }
+    if (canReadRepresentatives) {
+      setActiveTab("representatives");
+      setVisitedTabs(new Set<PageTab>(["representatives"]));
+    } else if (canReadVehicles) {
+      setActiveTab("vehicles");
+      setVisitedTabs(new Set<PageTab>(["vehicles"]));
+    }
+  }, [access.isLoading, activeTab, canReadRepresentatives, canReadVehicles]);
+
+  const noReadableTab = !access.isLoading && !canReadRepresentatives && !canReadVehicles;
 
   return (
     <main className="relative flex min-h-0 flex-1 flex-col overflow-visible text-foreground" dir={i18n.dir()}>
@@ -22,31 +74,56 @@ export default function RepresentativesVehiclesPage() {
           </header>
 
           <div className="inline-flex shrink-0 items-center rounded-xl border border-white/15 bg-white/10 p-1 shadow-sm backdrop-blur" role="tablist" aria-label={t("representativesVehicles.title")}>
-            <button type="button" role="tab" aria-selected="true"
-              className="inline-flex h-8 items-center gap-2 rounded-lg bg-white px-3 text-xs font-black text-slate-900 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "representatives"}
+              aria-disabled={!canReadRepresentatives}
+              disabled={access.isLoading || !canReadRepresentatives}
+              onClick={() => activate("representatives")}
+              className={`inline-flex h-8 items-center gap-2 rounded-lg px-3 text-xs font-black shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-40 ${activeTab === "representatives" ? "bg-white text-slate-900" : "text-slate-200 hover:bg-white/10"}`}
+            >
               <UsersRound className="h-4 w-4" />{t("representativesVehicles.tabs.representatives")}
             </button>
             <button
               type="button"
               role="tab"
-              aria-selected="false"
-              aria-disabled="true"
-              aria-describedby="vehicles-gated-description"
-              disabled
-              title={t("representativesVehicles.vehicles.hint")}
-              className="inline-flex h-8 items-center gap-2 rounded-lg px-3 text-xs font-black text-slate-300 opacity-75"
+              aria-selected={activeTab === "vehicles"}
+              aria-disabled={!canReadVehicles}
+              disabled={access.isLoading || !canReadVehicles}
+              onClick={() => activate("vehicles")}
+              className={`inline-flex h-8 items-center gap-2 rounded-lg px-3 text-xs font-black shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-40 ${activeTab === "vehicles" ? "bg-white text-slate-900" : "text-slate-200 hover:bg-white/10"}`}
             >
               <CarFront className="h-4 w-4" />{t("representativesVehicles.tabs.vehicles")}
-              <span className="hidden rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-black text-slate-300 sm:inline">{t("representativesVehicles.vehicles.gated")}</span>
             </button>
-            <span id="vehicles-gated-description" className="sr-only">{t("representativesVehicles.vehicles.hint")}</span>
           </div>
         </div>
       </WorkspaceTopBar>
 
       <div className="relative z-10 flex min-h-0 flex-1 flex-col px-3 pb-3 pt-2 sm:px-4">
         <div className="mx-auto flex min-h-0 w-full max-w-[1500px] flex-1 flex-col">
-          <RepresentativesTab />
+          {access.isLoading ? (
+            <div className="grid min-h-[320px] flex-1 place-items-center text-sm font-bold text-slate-500" role="status">
+              {t("common.loading")}
+            </div>
+          ) : noReadableTab ? (
+            <div className="grid min-h-[320px] flex-1 place-items-center rounded-[26px] border border-white/85 bg-white/70 p-6 text-center text-sm font-bold text-slate-600 shadow-sm">
+              {t("representativesVehicles.noAccess")}
+            </div>
+          ) : (
+            <>
+              {canReadRepresentatives && visitedTabs.has("representatives") ? (
+                <div className={activeTab === "representatives" ? "flex min-h-0 flex-1 flex-col" : "hidden"} aria-hidden={activeTab !== "representatives"}>
+                  <RepresentativesTab />
+                </div>
+              ) : null}
+              {canReadVehicles && visitedTabs.has("vehicles") ? (
+                <div className={activeTab === "vehicles" ? "flex min-h-0 flex-1 flex-col" : "hidden"} aria-hidden={activeTab !== "vehicles"}>
+                  <VehiclesTab />
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
       </div>
     </main>
