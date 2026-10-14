@@ -315,6 +315,17 @@ Backend rule:
 - stock may remain in a Vehicle that is in maintenance; Inventory remains stock authority. Operational transfer/reconciliation workflows must be used when stock should be removed.
 - changing back to `Active` does not create/replace custody.
 
+Required V1 runtime coverage is exact:
+
+- `GET /dispatch/init`: an inactive or `In_Maintenance` Vehicle must never be advertised as executable/selectable for new operational use.
+- `POST /dispatch/route`: route creation must require an active, operational Vehicle.
+- `PUT /dispatch/route/{route_id}/status`: assigning/changing a Vehicle or transitioning a route into a live operational state must require an active, operational Vehicle.
+- `PUT /dispatch/route/{route_id}/adjust_inventory`: route-load mutation must fail when the bound Vehicle is inactive or in maintenance.
+- `PUT /dispatch/session/{session_id}/undo_end_work`: reopening work must require the historical Vehicle to remain active and operational.
+- `POST /driver/sessions/start`: session start must require the assigned Vehicle to remain active and operational. Because this path already locks the route before the Vehicle identity is known, it must **not** introduce a reverse `Route -> Vehicle FOR UPDATE` order. It must acquire the canonical VEHICLE location guard already required for the opening snapshot and re-check `Vehicle.is_active` + `maintenance_status` while that guard is held. Vehicle lifecycle mutations also hold that location guard before changing lifecycle state, so the race is closed without a new ABBA order.
+
+Cleanup/closure paths such as ending work, transfer response/cancellation, stock removal, reconciliation, stocktake, and financial settlement must remain usable as their own current invariants allow; maintenance must not trap custody by blocking the workflows needed to clear it.
+
 This is operational eligibility, not permanent warehouse assignment.
 
 ---
@@ -328,13 +339,22 @@ Request:
 - `request_id: UUID`
 - `expected_version: positive integer`
 
-Before state change, resolve exactly one canonical Vehicle custody location and acquire locks/guards in a deterministic order compatible with current Dispatch/Inventory paths.
+Before state change, resolve exactly one canonical Vehicle custody location and use this lock hierarchy for Vehicle master/lifecycle writes:
+
+1. serialize the Vehicle command request identity through the existing idempotency/request guard;
+2. lock the tenant-owned `Vehicle` row `FOR UPDATE`;
+3. resolve **all** `InventoryLocation` rows for `(company_id, vehicle_id, location_type='VEHICLE')` - never `LIMIT 1`; `0` rows is custody-missing and `>1` is custody-ambiguous;
+4. acquire the exclusive canonical InventoryLocation advisory guard **after** the Vehicle row lock;
+5. lock that one `InventoryLocation` row `FOR UPDATE` and revalidate tenant/type/vehicle identity;
+6. run lifecycle blocker queries.
+
+After the Vehicle row and exclusive location guard are held, blocker queries against `DispatchRoute`, `WorkSession`, `InventoryTransferHeader`, `InventoryBalance`, `InventoryLock`, and `StocktakeSession` are plain reads, **not `FOR UPDATE`**. This is intentional: current Dispatch/Reconciliation paths can lock WorkSession/Route before Vehicle or location guards, so adding reverse blocker row locks here would create ABBA deadlock risk.
 
 Deactivation is blocked by any of:
 
 1. `DispatchRoute` using the Vehicle in `active`, `waiting`, or `postponed` state.
 2. any WorkSession tied through a route for this Vehicle whose `inventory_reconciled_at IS NULL`; this includes an active session and an ended session still awaiting inventory reconciliation.
-3. nonzero `InventoryBalance.on_hand_quantity` or `reserved_quantity` in the Vehicle custody location.
+3. nonzero aggregate `InventoryBalance.on_hand_quantity` or `reserved_quantity` in the Vehicle custody location **across all `stock_status` values**. No `AVAILABLE`-only filter is permitted; DAMAGED, QUARANTINED, BLOCKED, RECALLED, DISPOSAL_PENDING, or any other persisted status still represents custody that must not be stranded.
 4. any transfer where that location is source/destination and status is not one of `POSTED`, `REJECTED`, `CANCELLED`.
 5. any unreleased `InventoryLock` on the Vehicle custody location.
 6. any Stocktake on that location in `DRAFT`, `COUNTING`, `PENDING_REVIEW`, `RECOUNT_REQUIRED`, or `APPROVED`, including VEHICLE_RECON.
@@ -372,8 +392,10 @@ Rules:
 
 - same-company target only;
 - Vehicle must currently be inactive;
-- resolve the same historical canonical VEHICLE custody location;
-- if custody is missing or ambiguous, fail closed rather than creating a replacement;
+- resolve **all** historical VEHICLE custody rows for the tenant + Vehicle without `LIMIT 1`;
+- `0` rows -> deterministic custody-missing conflict; `>1` rows -> deterministic custody-ambiguous conflict;
+- exactly `1` row is the historical canonical custody location and is the only row that may be reactivated;
+- never create a replacement custody row during reactivation;
 - reactivate that same location;
 - reactivate Vehicle;
 - increment Vehicle and InventoryLocation versions appropriately;
@@ -406,11 +428,13 @@ Existing Dispatch remains owner of route/source-warehouse choice and route assig
 Required integration change after the Vehicle master backend is stable:
 
 - Dispatch selectors consume canonical active/eligible Vehicle records.
-- route creation and route mutation must enforce `is_active && maintenance_status == 'Active'` server-side, not only in UI filtering.
+- the exact operational entry/load paths listed in section 12 enforce `is_active && maintenance_status == 'Active'` server-side, not only in UI filtering.
 - explicit `source_location_id` remains mandatory and independent from Vehicle identity.
 - active-route uniqueness remains the existing database invariant.
-- session start continues requiring a valid active VEHICLE custody location.
+- session start continues requiring a valid active VEHICLE custody location and performs its Vehicle eligibility re-check while the existing location guard is held, without introducing a reverse Route -> Vehicle row-lock order.
 - Live Stock attribution remains route/source based and is not replaced by Vehicle master warehouse ownership.
+
+Existing authorization nuance is preserved deliberately: current `dispatch_access.vehicle_filter()` / `require_vehicle()` and Live Stock visibility authorize through the concrete VEHICLE `InventoryLocation`. Creating a Vehicle does **not** auto-seed `UserLocationAccess`. Company-wide roles continue to see permitted Vehicles; a user relying only on location-scoped Dispatch/Inventory grants needs an explicit grant on that VEHICLE location under current V1 behavior. This is operational access to the custody location, not Vehicle master ownership, and it must not be confused with the future V2 warehouse-association visibility policy.
 
 Do not refactor unrelated Dispatch logic during this phase.
 
@@ -433,6 +457,12 @@ dashboard/src/pages/representatives-vehicles/
 ```
 
 Additional small files are allowed only when they preserve Single Responsibility. Do not collapse these responsibilities into `RepresentativesVehiclesPage.tsx`.
+
+Additional Dashboard ownership required by the capability catalog:
+
+- `dashboard/src/pages/inventory/TabInventoryAccess.tsx` and its focused permission-catalog tests must add business labels for `vehicle.read` / `vehicle.manage`; raw capability codes must never be the intended operator label.
+- `dashboard/src/pages/representatives-vehicles/RepresentativesVehiclesPage.test.tsx` must be updated when the Vehicles tab changes from permanently disabled to capability-gated.
+- exact Arabic/English permission labels belong to the existing i18n resources used by these surfaces.
 
 Page/navigation rules:
 
@@ -480,9 +510,10 @@ May start only after the HTTP wire contract from Wave 1A is confirmed unchanged 
 Own:
 
 - `dashboard/src/pages/representatives-vehicles/vehicles/**`;
-- the minimal shared page-shell tab wiring;
-- exact Vehicle i18n keys;
+- the minimal shared page-shell tab wiring, including `RepresentativesVehiclesPage.test.tsx`;
+- exact Vehicle and permission-catalog Arabic/English i18n keys;
 - sidebar gating change required for `vehicle.read`;
+- `dashboard/src/pages/inventory/TabInventoryAccess.tsx` plus its focused permission-catalog tests for `vehicle.read` / `vehicle.manage`;
 - focused frontend tests.
 
 Do not modify backend/Dispatch.
@@ -513,7 +544,8 @@ After each meaningful backend/integration PR, an independent specialist review s
 - update expected-version conflict proven;
 - update never replaces custody location;
 - maintenance status finite enum proven;
-- maintenance/Dispatch backend bypass rejection proven when integration wave lands;
+- maintenance/Dispatch backend bypass rejection proven for every exact path frozen in section 12 when the integration wave lands;
+- `POST /driver/sessions/start` race acceptance proves Vehicle eligibility is rechecked under the canonical location guard without adding a Route -> Vehicle row-lock inversion;
 - open route blocker proven;
 - active/ended-unreconciled WorkSession blocker proven;
 - nonzero/reserved stock blocker proven;

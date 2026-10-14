@@ -83,6 +83,8 @@ Vehicles status:
 - [x] Exact Vehicle HTTP/view/create/update/lifecycle/custody/idempotency contract frozen, including backend maintenance eligibility and same-location reactivation semantics.
 - [x] Backend/Dashboard module ownership and non-overlapping implementation-wave map frozen; `dispatch.py`/`driver.py` remain shrinking compatibility surfaces.
 - [x] Canonical implementation contract recorded in `docs/architecture/VEHICLES_V1_IMPLEMENTATION_CONTRACT.md`.
+- [x] Independent adversarial specialist findings reviewed against current `c4010598...` source; accepted lock-order, complete maintenance-entry, all-stock-status blocker, strict custody-resolution, current location-grant, and Dashboard permission-catalog corrections are frozen into PR #308.
+- [x] Specialist endpoint naming corrected to the actual runtime route `PUT /dispatch/route/{route_id}/adjust_inventory`; no speculative full inactive-location unique index or case-insensitive plate index was accepted without data/business evidence.
 
 ---
 
