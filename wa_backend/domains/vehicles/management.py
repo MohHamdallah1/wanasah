@@ -224,15 +224,15 @@ async def update_vehicle(
             )
         )
 
-        if (
+        plate_changed = (
             "plate_number" in fields
             and fields["plate_number"] != vehicle.plate_number
-            and await plate_exists(
-                db,
-                company_id=company_id,
-                plate_number=str(fields["plate_number"]),
-                exclude_vehicle_id=vehicle_id,
-            )
+        )
+        if plate_changed and await plate_exists(
+            db,
+            company_id=company_id,
+            plate_number=str(fields["plate_number"]),
+            exclude_vehicle_id=vehicle_id,
         ):
             raise VehicleError(
                 "VEHICLE_PLATE_CONFLICT",
@@ -255,7 +255,7 @@ async def update_vehicle(
                 setattr(vehicle, field, value)
                 changed = True
 
-        if "plate_number" in fields:
+        if plate_changed:
             desired_name = f"Vehicle {vehicle.plate_number}"
             if location.name != desired_name:
                 location.name = desired_name
