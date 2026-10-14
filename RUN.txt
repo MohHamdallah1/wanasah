@@ -168,9 +168,24 @@ Baseline confirmed before this order:
 1. [ ] Users / Drivers Administration
    إنشاء وتعديل المستخدم/المندوب، تعطيل/إعادة تفعيل، إدارة كلمة المرور، وربطه بالأدوار وصلاحيات المواقع المطلوبة.
 
-2. [ ] Vehicles Basic Administration
+2. [x] Vehicles Basic Administration
    إنشاء وتعديل وتعطيل/إعادة تفعيل السيارة، وربطها بشكل authoritative بموقع مخزون VEHICLE اللازم للتوزيع.
    لا ندخل صيانة أسطول متقدمة أو وقود/GPS في V1.
+
+Representatives + Vehicles Administration closure — 2026-10-15
+
+[x] REPRESENTATIVES V1 COMPLETE + OWNER ACCEPTED — 2026-10-14.
+[x] VEHICLES V1 COMPLETE + OWNER ACCEPTED — accepted on runtime main a5722a2ba699954e2189b941ddd30c8f13670299.
+[x] REPRESENTATIVES + VEHICLES ADMINISTRATION V1 DONE.
+
+Vehicle Owner Acceptance closed with no V1 blockers.
+Dedicated owner-facing EOD UI is not required by frozen V1.
+Narrow-phone horizontal scrolling is accepted as non-blocking V1 polish.
+Final test-only cleanup merged later at:
+2132f9bf1908b1e27c8ef0ab0fa680547fd748cc
+
+This closure applies only to Representatives + Vehicles Administration.
+All unrelated RUN.txt V1 items remain unchanged.
 
 3. [ ] Minimal Company Operational Settings
    المنطقة الزمنية وما يلزم فعليًا فقط من إعدادات التشغيل الحالية. لا نبني Settings Center ضخم.
