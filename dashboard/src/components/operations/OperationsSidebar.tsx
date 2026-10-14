@@ -408,7 +408,7 @@ export function OperationsSidebar({
                 access.isCompanyOwner ||
                 (item.path === "/suppliers" && access.can("supplier.read")) ||
                 (item.path === "/representatives-vehicles" &&
-                  access.can("representative.read")) ||
+                  (access.can("representative.read") || access.can("vehicle.read"))) ||
                 item.path ===
                   "/inventory" ||
                 (item.path ===
