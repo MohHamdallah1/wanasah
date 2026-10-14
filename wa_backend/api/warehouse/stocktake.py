@@ -496,15 +496,34 @@ async def _load_stocktake_session(
 # ====================================================
 # 11.11 جلب موقع جلسة الجرد بسرعة للتحقق من الصلاحيات
 # ====================================================
-async def _probe_stocktake_location_id(db: AsyncSession, company_id: int, session_id: int) -> int:
-    location_id = (
+async def _probe_stocktake_location_id(
+    db: AsyncSession,
+    company_id: int,
+    session_id: int,
+) -> tuple[int, str, int | None]:
+    probe = (
         await db.execute(
-            select(StocktakeSession.location_id).filter_by(id=session_id, company_id=company_id)
+            select(
+                StocktakeSession.location_id,
+                StocktakeSession.stocktake_type,
+                StocktakeSession.related_work_session_id,
+            ).filter_by(
+                id=session_id,
+                company_id=company_id,
+            )
         )
-    ).scalar_one_or_none()
-    if location_id is None:
-        raise HTTPException(status_code=404, detail="جلسة الجرد غير موجودة أو لا تتبع شركتك.")
-    return int(location_id)
+    ).one_or_none()
+    if probe is None:
+        raise HTTPException(
+            status_code=404,
+            detail="جلسة الجرد غير موجودة أو لا تتبع شركتك.",
+        )
+    location_id, stocktake_type, related_work_session_id = probe
+    return (
+        int(location_id),
+        str(stocktake_type),
+        int(related_work_session_id) if related_work_session_id is not None else None,
+    )
 
 
 # ====================================================
@@ -1563,15 +1582,6 @@ async def start_unified_stocktake(
             if batch_id is None:
                 raise HTTPException(status_code=404, detail="الدفعة المحددة غير موجودة أو لا تتبع الصنف والشركة.")
 
-        # ترتيب القفل ثابت: موقع المخزون أولاً، ثم WorkSession.
-        # هذا يطابق posting ويمنع سباق Start/Approve مع التسوية.
-        await acquire_inventory_location_guard(
-            db,
-            company_id,
-            payload.location_id,
-            exclusive=True,
-        )
-
         if payload.stocktake_type == 'VEHICLE_RECON':
             if location.vehicle_id is None:
                 raise HTTPException(
@@ -1579,14 +1589,7 @@ async def start_unified_stocktake(
                     detail="موقع السيارة لا يحمل vehicle_id صالحاً.",
                 )
 
-            await resolve_vehicle_custody_location_id(
-                db,
-                company_id=company_id,
-                vehicle_id=int(location.vehicle_id),
-                require_active=True,
-                expected_location_id=int(payload.location_id),
-            )
-
+            # VEHICLE_RECON lock order is WorkSession -> inventory-location guard.
             try:
                 await validate_vehicle_recon_work_session(
                     db,
@@ -1599,6 +1602,24 @@ async def start_unified_stocktake(
                     status_code=409,
                     detail=str(exc),
                 ) from exc
+
+        # WAREHOUSE stocktakes retain their existing location-first guard path.
+        await acquire_inventory_location_guard(
+            db,
+            company_id,
+            payload.location_id,
+            exclusive=True,
+        )
+
+        if payload.stocktake_type == 'VEHICLE_RECON':
+            # Revalidate canonical custody after the guard closes the identity race.
+            await resolve_vehicle_custody_location_id(
+                db,
+                company_id=company_id,
+                vehicle_id=int(location.vehicle_id),
+                require_active=True,
+                expected_location_id=int(payload.location_id),
+            )
 
             existing_recon_id = (
                 await db.execute(
@@ -2386,10 +2407,47 @@ async def approve_stocktake_session(
         raise HTTPException(status_code=403, detail="كلمة المرور غير صحيحة؛ تم رفض الاعتماد وتوثيق المحاولة.")
 
     try:
-        location_id = await _probe_stocktake_location_id(db, company_id, session_id)
+        probe = await _probe_stocktake_location_id(db, company_id, session_id)
+        try:
+            probed_location_id, probed_stocktake_type, probed_work_session_id = probe
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=409,
+                detail="جلسة الجرد تغيرت أثناء الاعتماد؛ أعد المحاولة.",
+            ) from None
+        location_id = int(probed_location_id)
+        if probed_stocktake_type == 'VEHICLE_RECON':
+            if probed_work_session_id is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="VEHICLE_RECON بدون WorkSession مرتبط.",
+                )
+            locked_work_session_id = (
+                await db.execute(
+                    select(WorkSession.id).filter_by(
+                        company_id=company_id,
+                        id=probed_work_session_id,
+                    ).with_for_update()
+                )
+            ).scalar_one_or_none()
+            if locked_work_session_id is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="جلسة العمل المرتبطة بـ VEHICLE_RECON غير موجودة أو خارج الشركة.",
+                )
+
         await acquire_inventory_location_guard(db, company_id, location_id, exclusive=True)
 
         session = await _load_stocktake_session(db, company_id, session_id, for_update=True)
+        if (
+            int(session.location_id) != location_id
+            or session.stocktake_type != probed_stocktake_type
+            or session.related_work_session_id != probed_work_session_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="جلسة الجرد تغيرت أثناء الاعتماد؛ أعد المحاولة.",
+            )
         if session.status != 'PENDING_REVIEW':
             raise HTTPException(status_code=409, detail=f"لا يمكن اعتماد جلسة بحالة ({session.status}).")
 
@@ -2595,7 +2653,7 @@ async def cancel_stocktake_session(
         raise HTTPException(status_code=403, detail="كلمة المرور غير صحيحة؛ تم رفض الإلغاء وتوثيق المحاولة.")
 
     try:
-        location_id = await _probe_stocktake_location_id(db, company_id, session_id)
+        location_id, _, _ = await _probe_stocktake_location_id(db, company_id, session_id)
         await acquire_inventory_location_guard(db, company_id, location_id, exclusive=True)
 
         session = await _load_stocktake_session(db, company_id, session_id, for_update=True)
