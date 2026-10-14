@@ -39,15 +39,17 @@ export function RepresentativeTable({
   return (
     <table className="w-full min-w-[880px] table-fixed border-separate border-spacing-0 text-start text-sm">
       <colgroup>
-        <col className="w-[24%]" />
+        <col className="w-[6%]" />
+        <col className="w-[22%]" />
+        <col className="w-[16%]" />
         <col className="w-[17%]" />
-        <col className="w-[18%]" />
-        <col className="w-[24%]" />
+        <col className="w-[22%]" />
         <col className="w-[10%]" />
         <col className="w-[7%]" />
       </colgroup>
       <thead className="sticky top-0 z-10 bg-slate-50/95 text-[11px] font-black text-slate-500 backdrop-blur">
         <tr>
+          <th className="border-b border-slate-200 px-3 py-2.5 text-center">#</th>
           <th className="border-b border-slate-200 px-4 py-2.5 text-start">{t("representativesVehicles.representatives.fields.name")}</th>
           <th className="border-b border-slate-200 px-4 py-2.5 text-start">{t("representativesVehicles.representatives.fields.username")}</th>
           <th className="border-b border-slate-200 px-4 py-2.5 text-start">{t("representativesVehicles.representatives.fields.phone")}</th>
@@ -57,8 +59,9 @@ export function RepresentativeTable({
         </tr>
       </thead>
       <tbody>
-        {items.map((representative) => (
+        {items.map((representative, index) => (
           <tr key={representative.id} className="group transition hover:bg-amber-50/55">
+            <td className="border-b border-slate-100 px-3 py-3 text-center font-mono font-semibold tabular-nums text-slate-500"><bdi dir="ltr">{index + 1}</bdi></td>
             <td className="border-b border-slate-100 px-4 py-3 text-start font-black text-slate-800">{representative.full_name}</td>
             <td className="border-b border-slate-100 px-4 py-3 text-start font-semibold text-slate-600"><bdi dir="ltr">{representative.username}</bdi></td>
             <td className="border-b border-slate-100 px-4 py-3 text-start font-semibold text-slate-600"><bdi dir="ltr">{representative.phone_number || "—"}</bdi></td>

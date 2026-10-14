@@ -36,22 +36,24 @@ const tableProps = {
 afterEach(cleanup);
 
 describe("RepresentativeTable", () => {
-  it("uses one explicit six-column geometry for header and rows", () => {
+  it("uses one explicit seven-column geometry with a stable row number", () => {
     const { container } = render(<RepresentativeTable items={[allowed]} {...tableProps} />);
     const table = container.querySelector("table")!;
     expect(table.className).toContain("table-fixed");
-    expect(table.querySelectorAll("colgroup col")).toHaveLength(6);
-    expect(table.querySelectorAll("thead th")).toHaveLength(6);
-    expect(table.querySelectorAll("tbody tr:first-child td")).toHaveLength(6);
+    expect(table.querySelectorAll("colgroup col")).toHaveLength(7);
+    expect(table.querySelectorAll("thead th")).toHaveLength(7);
+    expect(table.querySelectorAll("tbody tr:first-child td")).toHaveLength(7);
 
     const cells = table.querySelectorAll("tbody tr:first-child td");
-    expect(cells[0]?.textContent).toBe("Ahmad");
-    expect(cells[1]?.textContent).toBe("rep-1");
-    expect(cells[2]?.textContent).toBe("+962790000001");
-    expect(cells[3]?.textContent).toBe("credit:50,000 د.أ");
-    expect(cells[5]?.textContent).toContain("row-actions");
-    expect(cells[1]?.querySelector("bdi")?.getAttribute("dir")).toBe("ltr");
+    expect(cells[0]?.textContent).toBe("1");
+    expect(cells[1]?.textContent).toBe("Ahmad");
+    expect(cells[2]?.textContent).toBe("rep-1");
+    expect(cells[3]?.textContent).toBe("+962790000001");
+    expect(cells[4]?.textContent).toBe("credit:50,000 د.أ");
+    expect(cells[6]?.textContent).toContain("row-actions");
+    expect(cells[0]?.querySelector("bdi")?.getAttribute("dir")).toBe("ltr");
     expect(cells[2]?.querySelector("bdi")?.getAttribute("dir")).toBe("ltr");
+    expect(cells[3]?.querySelector("bdi")?.getAttribute("dir")).toBe("ltr");
   });
 
   it("shows disabled credit authority explicitly without implying the stored limit is usable", () => {

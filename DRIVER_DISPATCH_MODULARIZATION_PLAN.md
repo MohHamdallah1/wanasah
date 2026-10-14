@@ -5,7 +5,7 @@
 **Status:** PLANNED — NOT YET IMPLEMENTED  
 **Owner decision date:** 2026-10-10  
 **Primary evidence:** `DRIVER_DISPATCH_SEAM_INVENTORY.md`  
-**Canonical references:** `.rules`, `AGENTS.md`, `ARCHITECTURE.md`, `RUN.txt`, `V1_SCOPE_FREEZE.md`, `PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md`, `REPRESENTATIVES_VEHICLES_V1_PLAN.md`.
+**Canonical references:** `.rules`, `AGENTS.md`, `ARCHITECTURE.md`, `RUN.txt`, `V1_SCOPE_FREEZE.md`, `PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md`.
 
 ---
 

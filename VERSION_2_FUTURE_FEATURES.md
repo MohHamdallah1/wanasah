@@ -1,10 +1,10 @@
-# Wanasah Version 2 — Deferred Product Capabilities
+# Wanasah Version 2 — Deferred Capabilities
 
 **Status:** CANONICAL V2 BACKLOG — DO NOT DELETE OR ARCHIVE AS TEMPORARY NOTES  
-**Scope:** Product capabilities intentionally deferred from Version 1  
-**Last updated:** 2026-10-05
+**Scope:** Product and operational capabilities intentionally deferred from Version 1
+**Last updated:** 2026-10-15
 
-This file is the source of truth for Product capabilities that already have meaningful backend/domain foundations but are intentionally **not exposed as active Version 1 workflows**.
+This file is the canonical source of truth for capabilities intentionally deferred from Version 1. Some already have meaningful backend/domain foundations; others are future product or operational workflows that must not be mistaken for unfinished V1 work.
 
 The rule for V1 is:
 
@@ -599,7 +599,73 @@ Archival is not complete until a non-technical user can understand why archiving
 
 ---
 
-## 10. Preservation rule
+## 10. Representatives, Vehicles, notifications, and bulk onboarding
+
+These items are intentionally outside the closed Representatives + Vehicles V1 scope.
+They are future capabilities, not unfinished V1 work.
+
+### 10.1 Organizational scope and fleet expansion
+
+- [ ] Branch switcher or Branch-scoped page mode.
+- [ ] Branch-owned Representatives or Vehicles.
+- [ ] Permanent warehouse ownership/assignment for Representatives or Vehicles.
+- [ ] HR, payroll, attendance, or commission management.
+- [ ] Representative performance analytics beyond the later Reports scope.
+- [ ] GPS / telematics.
+- [ ] Fuel management.
+- [ ] Advanced fleet maintenance, work orders, parts, workshop, and cost accounting.
+- [ ] Permanent Vehicle-to-Representative pairing.
+- [ ] Multi-company user identities.
+
+Company remains the tenant/master boundary. Future organizational assignments must be
+added as explicit optional scopes without corrupting the current company-wide identities.
+
+### 10.2 Canonical identity compatibility migration
+
+- [ ] Retire the bounded legacy Driver compatibility sidecar only through a separately
+  approved migration that proves all remaining operational foreign keys/client contracts
+  have canonical replacements. Do not remove compatibility code merely because the V1
+  Representatives/Vehicles plan is closed.
+
+### 10.3 Notification center and operational reminders
+
+The background-worker foundation already reserves a `notifications` queue, but there are
+currently no registered notification-delivery tasks. A future notification center should
+reuse that worker foundation rather than inventing a second scheduler.
+
+- [ ] Persist company/user notifications with read/unread state, stable deduplication keys,
+  authorization-safe recipients, retention, and deep links to the owning workflow.
+- [ ] Resolve recipients from canonical Company Owner / Backoffice capability authority;
+  never reintroduce generic `is_admin` shortcuts.
+- [ ] Add Vehicle license-expiry reminders from `license_expiry_date`.
+- [ ] Add Vehicle maintenance reminders from `next_maintenance_date`; reminder state must
+  never auto-transition `maintenance_status`.
+- [ ] Add oil-change reminders by comparing maintained `current_mileage` with
+  `next_oil_change`. Without telematics, reminder accuracy depends on operators keeping
+  the stored mileage current.
+- [ ] Keep in-app notification state authoritative. Optional email/push/other delivery
+  channels are adapters and must not become business-state authority.
+- [ ] Make reminder thresholds/configuration explicit and tenant-safe rather than hard-coded
+  independently in Dashboard code.
+
+### 10.4 Bulk onboarding for Representatives and Vehicles
+
+Do not copy the Product Import workflow blindly. Product import solves a much larger
+Catalog/price/barcode problem; Representative and Vehicle onboarding have different safety
+contracts. Add file onboarding only when real customer volume justifies it.
+
+- [ ] Optional CSV/XLSX Representative onboarding using the canonical Representative domain.
+  Avoid long-lived plaintext password columns; prefer a deliberate credential setup/reset
+  flow and preserve identity/session/idempotency rules.
+- [ ] Optional CSV/XLSX Vehicle onboarding using the canonical Vehicle create path so every
+  accepted row creates exactly one authoritative VEHICLE custody location and preserves
+  plate uniqueness/idempotency.
+- [ ] Define row-level validation, retry/correction, partial-success semantics, audit, and
+  tenant isolation before exposing either import to operators.
+
+---
+
+## 11. Preservation rule
 
 This file is intentional product/architecture scope, not a temporary handoff note.
 

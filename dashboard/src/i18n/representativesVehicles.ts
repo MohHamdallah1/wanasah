@@ -2,7 +2,7 @@ export const representativesVehicles = {
   ar: {
     title: "المندوبون والسيارات",
     subtitle: "إدارة مندوبي الشركة وحالاتهم وبيانات الدخول من مكان واحد",
-    tabs: { representatives: "المندوبون", vehicles: "السيارات" },
+    tabs: { representatives: "المندوبين", vehicles: "السيارات" },
     noAccess: "حسابك لا يملك صلاحية عرض المندوبين أو السيارات.",
     representatives: {
       add: "إضافة مندوب",

@@ -31,6 +31,7 @@ const base: Vehicle = {
 describe("VehicleTable maintenance schedule", () => {
   it("shows an overdue business date compactly without changing maintenance state and keeps Western digits", () => {
     render(<VehicleTable items={[base]} canManage onEdit={() => undefined} onLifecycle={() => undefined} />);
+    expect(screen.getByText("1")).toBeTruthy();
     expect(screen.getByText("representativesVehicles.vehicles.maintenance.active")).toBeTruthy();
     expect(screen.getByText(/representativesVehicles\.vehicles\.fields\.nextMaintenanceDate/)).toBeTruthy();
     expect(screen.getByText(/representativesVehicles\.vehicles\.maintenanceSchedule\.overdue/)).toBeTruthy();
