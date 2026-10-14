@@ -18,7 +18,7 @@ def upgrade() -> None:
         sa.Column("version", sa.Integer(), nullable=False, server_default="1"),
     )
     op.create_check_constraint(
-        "ck_vehicles_version_positive",
+        "version_positive",
         "vehicles",
         "version > 0",
     )
@@ -32,5 +32,5 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # Permission rows are retained so historical RBAC evidence is never invalidated.
-    op.drop_constraint("ck_vehicles_version_positive", "vehicles", type_="check")
+    op.drop_constraint("version_positive", "vehicles", type_="check")
     op.drop_column("vehicles", "version")

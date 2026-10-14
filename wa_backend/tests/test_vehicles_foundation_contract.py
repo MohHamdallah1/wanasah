@@ -9,7 +9,7 @@ def test_vehicle_model_has_version_and_positive_constraint():
     end = source.index("class WorkSession(Base):", start)
     vehicle = source[start:end]
     assert "version            = Column(Integer, nullable=False, default=1, server_default='1')" in vehicle
-    assert "CheckConstraint('version > 0', name='ck_vehicles_version_positive')" in vehicle
+    assert "CheckConstraint('version > 0', name='version_positive')" in vehicle
 
 
 def test_vehicle_capabilities_are_company_only():

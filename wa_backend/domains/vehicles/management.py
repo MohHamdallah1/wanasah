@@ -37,6 +37,16 @@ from .validation import (
 )
 
 
+def _stable_hash(operation: str, payload: dict) -> str:
+    body = json.dumps(
+        {"operation": operation, **payload},
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
 async def create_vehicle(
     db: AsyncSession,
     *,
