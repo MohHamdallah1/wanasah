@@ -2,10 +2,13 @@
 
 ## Build Representatives completely first, then Vehicles, on top of the canonical identity/authorization foundation
 
-**Status:** REPRESENTATIVES V1 COMPLETE + OWNER ACCEPTED; VEHICLES TECHNICAL CHECKPOINT 8 COMPLETE; VEHICLE OWNER ACCEPTANCE OPEN
+**Status:** REPRESENTATIVES V1 COMPLETE + OWNER ACCEPTED; VEHICLES V1 COMPLETE + OWNER ACCEPTED; REPRESENTATIVES + VEHICLES ADMINISTRATION V1 DONE
 **Owner decision date:** 2026-10-10  
 **Representative owner acceptance date:** 2026-10-14  
-**Execution rule:** Representatives must be completed and owner-accepted before Vehicles implementation starts. This gate is now satisfied.  
+**Vehicle owner acceptance date:** 2026-10-15
+**Vehicle owner-accepted runtime main:** `a5722a2ba699954e2189b941ddd30c8f13670299`
+**Post-acceptance test-only cleanup:** `2132f9bf1908b1e27c8ef0ab0fa680547fd748cc`; this later `main` commit changes tests only and does not change the accepted Vehicle Runtime.
+**Execution rule:** Representatives had to be completed and owner-accepted before Vehicles implementation started. That gate was satisfied; both Representatives and Vehicles are now V1 complete and owner-accepted.
 **Prerequisite status:** COMPLETE — Backoffice and Field Representative identities are cleanly separated and capability-based authorization is authoritative under `ARCHITECTURE.md`, `.rules`, and `AGENTS.md`.
 **Canonical references:** `ARCHITECTURE.md`, `.rules`, `AGENTS.md`, `RUN.txt`, `V1_SCOPE_FREEZE.md`, `PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md`.
 
@@ -70,7 +73,7 @@ Representative owner-complete gate:
 
 Vehicles status:
 
-- [x] Vehicles technical implementation - **BACKEND MERGED + DASHBOARD MERGED + DISPATCH/INVENTORY INTEGRATION MERGED; CHECKPOINT 8 TECHNICALLY COMPLETE**. Vehicle Owner Acceptance remains **OPEN**.
+- [x] Vehicles implementation - **BACKEND MERGED + DASHBOARD MERGED + DISPATCH/INVENTORY INTEGRATION MERGED; CHECKPOINT 8 COMPLETE; OWNER ACCEPTANCE PASS; NO VEHICLES V1 BLOCKERS**.
 
 ### Vehicles Checkpoint-8 technical closure - 2026-10-15
 
@@ -78,7 +81,30 @@ Vehicles status:
 - [x] PR #331 Vehicle `vehicle.read` / `vehicle.manage` company-only authorization correction is included in the merged runtime.
 - [x] PostgreSQL Dispatch/Inventory, reconciliation, strict-custody, and permanent ABBA lock-order acceptance are closed.
 - [x] Historical evidence PRs #315, #319, #323, and #325 are closed unmerged; their evidence is retained without merging test-only branches.
-- [ ] Vehicle Owner Acceptance remains open and is not implied by technical Checkpoint-8 closure.
+- [x] Checkpoint-8 technical closure did not itself imply Owner Acceptance; Vehicle Owner Acceptance was subsequently completed on 2026-10-15 with no Vehicles V1 blockers.
+
+
+### Vehicle Owner Acceptance closure — 2026-10-15
+
+Accepted runtime: `a5722a2ba699954e2189b941ddd30c8f13670299`.
+
+The later `main` commit `2132f9bf1908b1e27c8ef0ab0fa680547fd748cc` is test-only legacy-test cleanup and does not change the accepted Runtime.
+
+- [x] **Owner Acceptance PASS — no Vehicles V1 blockers.**
+- [x] Vehicle CRUD PASS.
+- [x] Maintenance PASS.
+- [x] Lifecycle PASS.
+- [x] Custody identity PASS.
+- [x] Dispatch PASS.
+- [x] FIELD PASS.
+- [x] Vehicle inventory PASS.
+- [x] VEHICLE_RECON PASS.
+- [x] Dashboard UX PASS.
+- [x] RTL/LTR PASS.
+- [x] Keyboard/focus PASS.
+- [x] Phone-width PASS; narrow-phone horizontal scrolling is accepted as non-blocking V1 polish.
+- [x] Tab URL PASS.
+- [x] Backend EOD reconciliation is proven. A dedicated owner-facing EOD UI is not required by frozen Vehicles V1; no such dedicated client flow is claimed or added, and its absence is non-blocking for V1 closure.
 
 ### Vehicles source/contract audit closure — 2026-10-14
 
@@ -353,15 +379,15 @@ Page tabs:
 Execution behavior:
 
 - [x] Shared page shell and the **Representatives** tab are implemented.
-- [x] Vehicles tab exists as a visible gated/disabled tab; no Vehicle workflow has been implemented.
-- [x] Representative owner acceptance is complete; the Vehicles phase may now begin on a clean branch from latest `main`.
+- [x] Vehicles tab is fully implemented and independently capability-gated.
+- [x] Representative owner acceptance and Vehicle owner acceptance are both complete.
 - [x] Page/tab naming remains presentation-level and does not change domain contracts.
 
 ## 1.2 Page UX constitution
 
 - [x] Use the same compact Wanasah shell language as Products/Inventory/Suppliers.
 - [x] Compact top bar; no oversized dashboard cards.
-- [ ] Primary action changes by tab: `إضافة مندوب` or `إضافة سيارة` — Vehicle action is now implemented; final integrated/owner acceptance remains open.
+- [x] Primary action changes by tab: `إضافة مندوب` or `إضافة سيارة`; final integrated/owner acceptance is complete.
 - [x] Search/filter controls stay close to the Representative table.
 - [x] Infinite scrolling / cursor pagination is used for Representatives.
 - [x] Row actions/detail surface follow the accepted compact Wanasah interaction pattern.
@@ -713,7 +739,7 @@ Owner acceptance:
 
 - [x] **REPRESENTATIVES V1 COMPLETE + OWNER ACCEPTED**
 
-**This gate is closed. Vehicles implementation may now start on a clean branch from latest `main`.**
+**This Representative gate is closed. Vehicles implementation is also complete and owner-accepted; final integrated closure is recorded below.**
 
 ---
 
@@ -767,7 +793,7 @@ This is the most important backend integration rule for Vehicles.
 
 # 15. Vehicles — capability and security model
 
-Frozen capability family; names/semantics are decided, implementation/provisioning remains pending:
+Frozen capability family; names/semantics are implemented, provisioned, and accepted:
 
 - [x] implement/provision `vehicle.read` for Vehicle list/detail/search.
 - [x] implement/provision `vehicle.manage` for create/update/maintenance/lifecycle.
@@ -824,7 +850,7 @@ Rules:
 
 - [x] Source audit completed and the exact V1 blocker matrix is frozen in `docs/architecture/VEHICLES_V1_IMPLEMENTATION_CONTRACT.md`.
 
-The implementation checkboxes below remain open until the blocker behavior is actually coded and accepted:
+The blocker behaviors below are implemented and accepted:
 
 - [x] active/waiting/postponed route using vehicle.
 - [x] active WorkSession tied through that route/vehicle.
@@ -919,10 +945,12 @@ On save:
 
 ---
 
-EOD reconciliation boundary after Checkpoint 8:
+EOD reconciliation boundary at final Vehicles V1 closure:
 
 - Backend EOD reconciliation is proven and merged.
-- The exact owner-facing EOD client/UI workflow is not claimed as implemented here; it remains to be adjudicated during Vehicle Owner Acceptance without reopening the closed backend/runtime gate.
+- Dedicated owner-facing EOD UI is not required by frozen Vehicles V1.
+- No new dedicated EOD client/UI was added or is claimed to exist.
+- The absence of a dedicated EOD client/UI is non-blocking for Vehicles V1 closure.
 
 # 21. Vehicles — i18n/accessibility/acceptance gates
 
@@ -943,8 +971,8 @@ Frontend:
 - [x] list/search/filter pass.
 - [x] add/edit/state flows pass.
 - [x] RTL/LTR/keyboard/focus pass.
-- [ ] phone-width usability pass.
-- [ ] real-backend browser acceptance for critical flow.
+- [x] phone-width usability pass; narrow-phone horizontal scrolling is accepted as non-blocking V1 polish.
+- [x] real-backend browser acceptance for critical flow.
 
 Dispatch/Inventory:
 
@@ -955,16 +983,16 @@ Dispatch/Inventory:
 
 Owner acceptance:
 
-- [ ] Functional behavior accepted.
-- [ ] Arabic wording accepted.
-- [ ] table density accepted.
-- [ ] add form accepted.
-- [ ] edit/actions experience accepted.
-- [ ] no unnecessary steps identified.
+- [x] Functional behavior accepted.
+- [x] Arabic wording accepted.
+- [x] table density accepted.
+- [x] add form accepted.
+- [x] edit/actions experience accepted.
+- [x] no unnecessary steps identified.
 
 **Gate:**
 
-- [ ] **VEHICLES V1 COMPLETE + OWNER ACCEPTED**
+- [x] **VEHICLES V1 COMPLETE + OWNER ACCEPTED**
 
 ---
 
@@ -991,11 +1019,11 @@ Only after both individual gates pass:
 - [x] No Representative hard-delete path leaves broken history.
 - [x] Representative UI strings are i18n-backed.
 - [x] No new Representative mega-file/god-hook introduced.
-- [ ] `RUN.txt` closure is deferred until each actual V1 item is truly complete.
+- [x] `RUN.txt` closure completed after Representative + Vehicle owner acceptance.
 
 **Final gate:**
 
-- [ ] **REPRESENTATIVES + VEHICLES ADMINISTRATION V1 DONE**
+- [x] **REPRESENTATIVES + VEHICLES ADMINISTRATION V1 DONE**
 
 ---
 
@@ -1013,8 +1041,8 @@ Current checkpoints:
 6. [x] Vehicles backend/domain + InventoryLocation integration - COMPLETED + MERGED IN PR #309.
 7. [x] Vehicles Dashboard implementation - COMPLETED + MERGED IN PR #310; bounded maintenance/date/form/list/tab URL amendment merged in PR #320.
 8. [x] Vehicles Dispatch/Inventory integration + acceptance - **TECHNICALLY COMPLETE; merged in PR #312 on main**.
-9. [ ] **Vehicle owner-acceptance checkpoint; merge/cleanup if stable.**
-10. [ ] Final integrated page acceptance and `RUN.txt` closure.
+9. [x] **Vehicle owner-acceptance checkpoint completed.**
+10. [x] Final integrated page acceptance and `RUN.txt` closure.
 
 Rules:
 
@@ -1054,7 +1082,7 @@ This section is a hard implementation constraint, not a UI suggestion.
 
 - The project already contains substantial operational Representative logic: Flutter `/driver/*` workflows, sessions, visits, sales/returns-related behavior, transfers, reconciliation, Dispatch assignment, and route context.
 - The project already contains substantial vehicle operational logic: `Vehicle` master model, Dispatch assignment, vehicle inventory/custody locations, live stock, transfers, reconciliation, and stocktake integration.
-- Clean company-master administration modules and Dashboard UX now exist for Representatives and Vehicles. Vehicles Dispatch/Inventory integration and final acceptance remain open; this plan does not treat them as closed.
+- Clean company-master administration modules and Dashboard UX exist for Representatives and Vehicles. Vehicles Dispatch/Inventory integration and final owner acceptance are closed for V1.
 - Legacy `wa_backend/api/driver.py` and `wa_backend/api/dispatch.py` remain large operational compatibility surfaces. New administration logic MUST NOT be piled into them.
 
 ## Backend target structure
@@ -1065,7 +1093,7 @@ Representative administration now lives under the dedicated domain/module bounda
 
 with responsibility-focused contracts, repository/query, management, lifecycle, and credential modules, plus thin HTTP routes under `wa_backend/api/representatives/`.
 
-New vehicle administration must similarly use a dedicated boundary when that phase begins, for example:
+Vehicle administration uses a dedicated boundary:
 
 `wa_backend/domains/vehicles/`
 
@@ -1081,7 +1109,7 @@ Exact filenames may be adjusted by the technical lead to match existing reposito
 - Inventory continues to own stock quantity and custody movement.
 - Shared identity/auth owns credential/session/authentication infrastructure.
 - Representatives domain owns Field Representative profile/lifecycle business rules.
-- Vehicles domain will own vehicle master/lifecycle business rules when Vehicles starts.
+- Vehicles domain owns vehicle master/lifecycle business rules.
 - Integrations call authoritative services; they must not copy validation logic.
 
 ## File-size and function-design guardrails
@@ -1102,11 +1130,11 @@ The page shell and both tabs remain separated:
 
 - page shell / tabs / page-level orchestration;
 - `representatives/` for list, filters, table, form, row actions, lifecycle/credential modals, and focused contracts/hooks;
-- `vehicles/` remains the dedicated boundary for the next implementation phase;
+- `vehicles/` is the dedicated boundary for the implemented Vehicle feature;
 - shared page-only primitives only when truly shared.
 
 Do not create one giant `RepresentativesVehiclesPage.tsx` containing all API calls, forms, table logic, validation, dialogs, and both tabs.
 
 ## Acceptance condition
 
-The merged Representative administration implementation satisfies the architecture, HTTP contract, Dashboard, PostgreSQL runtime, tenant-isolation, lifecycle/reset, idempotency/concurrency, RBAC provisioning, adversarial-review, audit/security, FIELD/Flutter compatibility, final form/credential contract, and final modal/copy acceptance gates. Representatives are **V1 complete and owner accepted**. Vehicles are now authorized to start on a clean branch from latest `main` while preserving all frozen boundaries above.
+The merged Representative and Vehicle administration implementations satisfy their frozen architecture, HTTP, Dashboard, PostgreSQL/runtime, tenant-isolation, lifecycle, authorization, inventory/custody, Dispatch/FIELD, reconciliation, UX, and owner-acceptance gates. Representatives are **V1 complete and owner accepted**. Vehicles are **V1 complete and owner accepted**. **REPRESENTATIVES + VEHICLES ADMINISTRATION V1 DONE**.
