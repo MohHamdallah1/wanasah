@@ -706,26 +706,26 @@ A Vehicle is company-wide operational master data. It is not a user and never au
 
 Current useful V1 concepts to preserve unless code review proves otherwise:
 
-- [ ] `company_id` tenant authority.
-- [ ] stable vehicle ID.
-- [ ] plate number, unique per company.
-- [ ] vehicle type (optional/basic).
-- [ ] current mileage if already useful.
-- [ ] next oil change if retained as a basic existing field, without expanding to fleet-maintenance product scope.
-- [ ] license expiry date if retained as a basic existing field.
-- [ ] maintenance status (`Active` / `In_Maintenance` or final normalized equivalent).
-- [ ] active/inactive lifecycle state.
-- [ ] version/timestamps according to project convention.
+- [x] `company_id` tenant authority frozen.
+- [x] stable vehicle ID preserved.
+- [x] plate number remains unique per company.
+- [x] vehicle type retained as optional/basic.
+- [x] current mileage retained as a basic existing field.
+- [x] next oil change retained as an optional basic existing field without fleet-maintenance expansion.
+- [x] license expiry date retained as an optional basic existing field.
+- [x] maintenance status frozen to existing `Active` / `In_Maintenance` values.
+- [x] active/inactive lifecycle state preserved.
+- [x] optimistic concurrency frozen as `Vehicle.version`; V1 will not fabricate historical Vehicle timestamps for legacy rows.
 
 Explicit non-goals for V1:
 
-- [ ] no GPS tracking.
-- [ ] no fuel management.
-- [ ] no advanced maintenance scheduling/work orders.
-- [ ] no fleet cost accounting.
-- [ ] no permanent representative assignment.
-- [ ] no permanent warehouse ownership.
-- [ ] no branch selector/ownership.
+- [x] no GPS tracking in V1.
+- [x] no fuel management in V1.
+- [x] no advanced maintenance scheduling/work orders in V1.
+- [x] no fleet cost accounting in V1.
+- [x] no permanent representative assignment in V1.
+- [x] no permanent warehouse ownership in V1.
+- [x] no branch selector/ownership in V1.
 
 ---
 
