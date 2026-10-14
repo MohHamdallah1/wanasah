@@ -20,6 +20,10 @@ from domains.auth_sessions.context import (
     FieldRequestContext,
 )
 from domains.authorization.backoffice_access import BackofficeCapabilityAccessRejected
+from domains.vehicles.eligibility import (
+    read_vehicle_operational_state,
+    vehicle_is_operational,
+)
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from quantity import QUANTITY_MAX
@@ -319,6 +323,18 @@ async def start_work_session(
             raise HTTPException(
                 status_code=409,
                 detail="موقع مخزون السيارة تغير أو أصبح غير فعال أثناء بدء الجلسة."
+            )
+
+        vehicle_state = await read_vehicle_operational_state(
+            db,
+            company_id=company_id,
+            vehicle_id=int(active_route.vehicle_id),
+        )
+        if not vehicle_is_operational(vehicle_state):
+            await db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="السيارة المخصصة متوقفة أو في الصيانة؛ لا يمكن بدء جلسة العمل."
             )
 
         new_session = WorkSession(

@@ -85,6 +85,16 @@ def load_routes():
         require_route_commercial_context=AsyncMock(return_value=SimpleNamespace(id=1001)),
         commercial_context_payload=Mock(return_value={"id": 1001}),
         acquire_inventory_location_guard=AsyncMock(), get_utc_now=Mock(return_value=NOW),
+        read_vehicle_operational_state=AsyncMock(
+            return_value=SimpleNamespace(is_active=True, maintenance_status="Active")
+        ),
+        vehicle_is_operational=Mock(
+            side_effect=lambda vehicle: bool(
+                vehicle is not None
+                and vehicle.is_active
+                and vehicle.maintenance_status == "Active"
+            )
+        ),
     )
     # Keep the real decorators, annotations, signatures and function bodies.
     exec(compile(ast.Module(body=nodes, type_ignores=[]), str(BACKEND / "api" / "driver.py"),
@@ -207,6 +217,10 @@ class DriverSessionFieldContextCutoverTests(unittest.IsolatedAsyncioTestCase):
         self.namespace["get_company_local_date"].assert_awaited_once_with(db, 7)
         self.namespace["require_route_commercial_context"].assert_awaited_once_with(db, company_id=7, dispatch_route_id=701)
         self.namespace["acquire_inventory_location_guard"].assert_awaited_once_with(db, 7, 501, exclusive=True)
+        self.namespace["read_vehicle_operational_state"].assert_awaited_once_with(
+            db, company_id=7, vehicle_id=801
+        )
+        self.namespace["vehicle_is_operational"].assert_called_once()
         db.flush.assert_awaited_once_with()
         self.assert_transactions(db)
 
@@ -223,6 +237,24 @@ class DriverSessionFieldContextCutoverTests(unittest.IsolatedAsyncioTestCase):
                     self.assertIn("company_id = 7", sql(query.whereclause))
                     self.assertNotIn("company_id = 999", sql(query.whereclause))
                     self.assert_transactions(setup.db)
+
+    async def test_start_rejects_vehicle_in_maintenance_after_location_guard(self):
+        setup = fixture("start_work_session")
+        self.namespace["read_vehicle_operational_state"].return_value = SimpleNamespace(
+            is_active=True, maintenance_status="In_Maintenance"
+        )
+        with self.assertRaises(HTTPException) as rejected:
+            await self.invoke("start_work_session", setup)
+        self.assertEqual(rejected.exception.status_code, 409)
+        self.namespace["acquire_inventory_location_guard"].assert_awaited_once_with(
+            setup.db, 7, 501, exclusive=True
+        )
+        self.namespace["read_vehicle_operational_state"].assert_awaited_once_with(
+            setup.db, company_id=7, vehicle_id=801
+        )
+        setup.db.add.assert_not_called()
+        setup.db.flush.assert_not_awaited()
+        self.assert_transactions(setup.db, commits=0, rollbacks=2)
 
     async def test_start_rejects_unsettled_custody_before_route_lookup(self):
         setup = fixture("start_work_session")

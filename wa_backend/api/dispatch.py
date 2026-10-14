@@ -13,6 +13,12 @@ from api.authentication.backoffice_compatibility import (
     get_current_backoffice_legacy_driver,
 )
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
+from domains.vehicles.eligibility import (
+    read_vehicle_operational_state,
+    route_requires_operational_vehicle,
+    vehicle_is_operational,
+    vehicle_operational_predicate,
+)
 from dispatch_access import (
     require_any_location,
     require_location,
@@ -89,6 +95,7 @@ from services import (
     get_company_local_date,
     allocate_fefo_inventory_batch,
     apply_inventory_movements_batch,
+    acquire_inventory_location_guard,
     acquire_inventory_location_guards,
     inventory_business_error,
     warehouse_setup_required_detail,
@@ -1115,10 +1122,10 @@ async def dispatch_init(
         ).order_by(Driver.id.asc())
     )).scalars().all()
     vehicles = (await db.execute(
-        select(Vehicle).filter_by(company_id=company_id, is_active=True).filter(vehicle_filter(access, 'dispatch.read', Vehicle.id)).order_by(Vehicle.id.asc())
+        select(Vehicle).filter_by(company_id=company_id).filter(vehicle_operational_predicate(Vehicle), vehicle_filter(access, 'dispatch.read', Vehicle.id)).order_by(Vehicle.id.asc())
     )).scalars().all()
     executable_vehicles = set((await db.scalars(select(Vehicle.id).where(
-        Vehicle.company_id == company_id, vehicle_filter(access, 'dispatch.execute', Vehicle.id)))).all())
+        Vehicle.company_id == company_id, vehicle_operational_predicate(Vehicle), vehicle_filter(access, 'dispatch.execute', Vehicle.id)))).all())
     warehouses = (await db.execute(select(InventoryLocation).where(
         InventoryLocation.company_id == company_id,
         InventoryLocation.location_type == 'WAREHOUSE',
@@ -1447,14 +1454,18 @@ async def dispatch_route(
                 .filter_by(
                     company_id=company_id,
                     id=payload.vehicle_id,
-                    is_active=True,
                 )
                 .order_by(Vehicle.id.asc())
                 .with_for_update()
             )
         ).scalar_one_or_none()
         if vehicle is None:
-            raise HTTPException(status_code=404, detail="السيارة غير موجودة أو غير فعالة.")
+            raise HTTPException(status_code=404, detail="السيارة غير موجودة داخل الشركة.")
+        if not vehicle_is_operational(vehicle):
+            raise HTTPException(
+                status_code=409,
+                detail="السيارة غير جاهزة للتشغيل لأنها متوقفة أو في الصيانة.",
+            )
 
         zone = (
             await db.execute(
@@ -2580,6 +2591,22 @@ async def adjust_route_inventory(
         vehicle_location_id = await _dispatch_vehicle_location_id(
             db, company_id=company_id, vehicle_id=route.vehicle_id
         )
+        await acquire_inventory_location_guard(
+            db,
+            company_id,
+            vehicle_location_id,
+            exclusive=True,
+        )
+        vehicle_state = await read_vehicle_operational_state(
+            db,
+            company_id=company_id,
+            vehicle_id=int(route.vehicle_id),
+        )
+        if not vehicle_is_operational(vehicle_state):
+            raise HTTPException(
+                status_code=409,
+                detail="لا يمكن تعديل حمولة المسار لأن السيارة متوقفة أو في الصيانة.",
+            )
         current = await _dispatch_available_totals(
             db, company_id=company_id, location_id=vehicle_location_id
         )
@@ -3755,9 +3782,9 @@ async def update_route_status(
                     ),
                 )
 
-            requires_live_assets = (
-                target_status == "active"
-                or payload.inventory is not None
+            requires_live_assets = route_requires_operational_vehicle(
+                target_status=target_status,
+                inventory_mutation=payload.inventory is not None,
             )
             if requires_live_assets:
                 if driver is None or not driver.is_active or not driver_has_field_identity:
@@ -3765,7 +3792,7 @@ async def update_route_status(
                         status_code=409,
                         detail="لا يمكن تشغيل/تعديل حمولة المسار لأن المندوب غير فعال حالياً.",
                     )
-                if vehicle is None or not vehicle.is_active:
+                if not vehicle_is_operational(vehicle):
                     raise HTTPException(
                         status_code=409,
                         detail="لا يمكن تشغيل/تعديل حمولة المسار لأن السيارة غير فعالة حالياً.",
@@ -3898,6 +3925,18 @@ async def update_route_status(
             )
             driver_changed = target_driver_id != route.driver_id
             vehicle_changed = target_vehicle_id != route.vehicle_id
+            requires_operational_vehicle = route_requires_operational_vehicle(
+                target_status=target_status,
+                vehicle_changed=vehicle_changed,
+                inventory_mutation=payload.inventory is not None,
+            )
+            if requires_operational_vehicle and target_vehicle_id is not None:
+                target_vehicle = vehicle_map.get(int(target_vehicle_id))
+                if not vehicle_is_operational(target_vehicle):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="لا يمكن إسناد/تشغيل المسار لأن السيارة متوقفة أو في الصيانة.",
+                    )
 
         old_status = route.status
         old_driver_id = route.driver_id
@@ -4405,7 +4444,7 @@ async def undo_end_work(
                 .with_for_update()
             )
         ).scalar_one_or_none()
-        if vehicle is None:
+        if not vehicle_is_operational(vehicle):
             raise HTTPException(
                 status_code=409,
                 detail="لا يمكن إعادة فتح الجلسة لأن السيارة غير فعالة حالياً.",
