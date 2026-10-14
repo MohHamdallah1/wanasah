@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import uuid4
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -29,22 +30,35 @@ from models import (
     Driver,
     InventoryBalance,
     InventoryLocation,
+    InventoryMovement,
+    InventoryTransferHeader,
+    InventoryTransferLine,
     Product,
+    ProductBatch,
+    ProductLocation,
     ProductVariant,
     RouteCommercialContext,
+    Shop,
+    SystemAuditLog,
     UOM,
     Vehicle,
+    Visit,
     WorkSession,
     Zone,
     utc_now,
 )
 from schemas import (
     AdjustRouteInventoryRequest,
+    BatchTransferResponseRequest,
     DispatchRouteRequest,
     InventoryAdjustmentDelta,
     SessionStartRequest,
+    TransferResponseRequest,
     UpdateRouteStatusRequest,
+    VisitUpdateRequest,
 )
+from product_lifecycle import DEFAULT_PRODUCT_LOCATION_FLAGS
+
 from tests.canonical_actor_fixtures import (
     seed_company_owner_fixture,
     seed_field_fixture,
@@ -948,3 +962,634 @@ async def test_11_custody_is_inventory_location_only_and_vehicle_crud_never_crea
     location = await db.get(InventoryLocation, location_id)
     assert location.location_type == "VEHICLE" and int(location.vehicle_id) == vehicle_id
     assert await _count(db, InventoryBalance, InventoryBalance.company_id == company_id) == before
+
+
+async def _seed_driver_operational_context(gate, *, plate: str, password: str, with_visit: bool = False):
+    db = gate["db"]
+    company_id = gate["company_id"]
+    field = await seed_field_fixture(db, company_id, password=password)
+    driver_id = int(field.driver.id)
+    vehicle = await _create_vehicle(db, gate["owner"], company_id, plate=plate)
+    vehicle_id = int(vehicle["id"])
+    custody_id = int(await dispatch_api._dispatch_vehicle_location_id(
+        db, company_id=company_id, vehicle_id=vehicle_id, require_active=True
+    ))
+    zone = Zone(company_id=company_id, name=f"{plate} Zone")
+    db.add(zone)
+    await db.flush()
+    session = WorkSession(
+        company_id=company_id,
+        driver_id=driver_id,
+        session_date=date.today(),
+        is_authorized_to_sell=True,
+        is_settled=False,
+    )
+    db.add(session)
+    await db.flush()
+    route = DispatchRoute(
+        company_id=company_id,
+        zone_id=int(zone.id),
+        driver_id=driver_id,
+        vehicle_id=vehicle_id,
+        work_session_id=int(session.id),
+        source_location_id=gate["wh_a_id"],
+        dispatch_date=await dispatch_api.get_company_local_date(db, company_id),
+        status="active",
+    )
+    db.add(route)
+    await db.flush()
+    visit = None
+    shop = None
+    if with_visit:
+        shop = Shop(
+            company_id=company_id,
+            name=f"{plate} Shop",
+            zone_id=int(zone.id),
+            current_balance=Decimal("0"),
+            max_debt_limit=Decimal("0"),
+            is_active=True,
+        )
+        db.add(shop)
+        await db.flush()
+        visit = Visit(
+            id=1_800_000_000 + int(uuid4().hex[:7], 16) % 250_000_000,
+            company_id=company_id,
+            driver_id=driver_id,
+            shop_id=int(shop.id),
+            work_session_id=int(session.id),
+            operational_date=date.today(),
+            status="Pending",
+            outcome="Pending",
+        )
+        db.add(visit)
+        await db.flush()
+    await db.commit()
+    return SimpleNamespace(
+        field=field,
+        driver=SimpleNamespace(id=driver_id, company_id=company_id),
+        driver_id=driver_id,
+        vehicle_id=vehicle_id,
+        custody_id=custody_id,
+        zone_id=int(zone.id),
+        session_id=int(session.id),
+        route_id=int(route.id),
+        visit_id=(int(visit.id) if visit is not None else None),
+        shop_id=(int(shop.id) if shop is not None else None),
+    )
+
+
+async def _add_historical_custody(db, *, company_id: int, vehicle_id: int, suffix: str, active: bool = False):
+    row = InventoryLocation(
+        company_id=company_id,
+        name=f"Historical custody {suffix}",
+        code=f"VEH-HIST-{suffix}-{vehicle_id}",
+        location_type="VEHICLE",
+        vehicle_id=vehicle_id,
+        is_active=active,
+        version=1,
+    )
+    db.add(row)
+    await db.flush()
+    return row
+
+
+async def _seed_batch_and_balance(gate, *, location_id: int, quantity: int, suffix: str, reserved: int = 0):
+    db = gate["db"]
+    company_id = gate["company_id"]
+    variant_id = gate["variant_id"]
+    batch = ProductBatch(
+        company_id=company_id,
+        product_variant_id=variant_id,
+        batch_number=f"ACC-{suffix}-{uuid4().hex[:10]}",
+        disposition="RELEASED",
+        is_active=True,
+    )
+    db.add(batch)
+    await db.flush()
+    balance = InventoryBalance(
+        company_id=company_id,
+        location_id=location_id,
+        product_variant_id=variant_id,
+        batch_id=int(batch.id),
+        stock_status="AVAILABLE",
+        on_hand_quantity=quantity,
+        reserved_quantity=reserved,
+    )
+    db.add(balance)
+    await db.flush()
+    return int(batch.id)
+
+
+async def _seed_handshake(gate, ctx, *, suffix: str, quantity: int = 1):
+    db = gate["db"]
+    company_id = gate["company_id"]
+    batch_id = await _seed_batch_and_balance(
+        gate, location_id=ctx.custody_id, quantity=max(quantity, 2), suffix=suffix, reserved=quantity
+    )
+    header = InventoryTransferHeader(
+        company_id=company_id,
+        reference_number=f"HS-ACC-{suffix}-{uuid4().hex[:10]}",
+        source_location_id=ctx.custody_id,
+        destination_location_id=gate["wh_a_id"],
+        workflow_type="HANDSHAKE",
+        status="PENDING",
+        transfer_purpose="ROUTE_RETURN",
+        commercial_context={"schema_version": 1, "route_id": ctx.route_id},
+        work_session_id=ctx.session_id,
+        expected_receiver_id=ctx.driver_id,
+        dispatched_by=gate["owner"].driver_id,
+    )
+    db.add(header)
+    await db.flush()
+    variant = await db.get(ProductVariant, gate["variant_id"])
+    db.add(InventoryTransferLine(
+        company_id=company_id,
+        transfer_header_id=int(header.id),
+        product_variant_id=gate["variant_id"],
+        batch_id=batch_id,
+        quantity=quantity,
+        source_stock_status="AVAILABLE",
+        lifecycle_revision_snapshot=int(variant.lifecycle_revision),
+        lifecycle_status_snapshot=str(variant.lifecycle_status),
+        operational_hold_snapshot=str(variant.operational_hold),
+    ))
+    await db.commit()
+    return int(header.id), batch_id
+
+
+@pytest.mark.asyncio
+async def test_12a_driver_update_visit_canonical_active_positive(gate):
+    db = gate["db"]
+    positive = await _seed_driver_operational_context(
+        gate, plate="ACC-VISIT-POS", password="SyntheticVisitPositive123", with_visit=True
+    )
+    result = await driver_api.update_visit(
+        visit_id=positive.visit_id,
+        payload=VisitUpdateRequest(
+            request_id=uuid4(), outcome="NoSale", notes="Acceptance no sale", cart_items=[], returns=[]
+        ),
+        db=db, field_context=positive.field.context, legacy_actor=positive.driver,
+    )
+    assert result["message"] == "Visit updated successfully"
+    visit = await db.get(Visit, positive.visit_id)
+    assert visit.status == "Completed" and visit.outcome == "NoSale"
+
+
+@pytest.mark.asyncio
+async def test_12b_driver_update_visit_ambiguous_custody_precedes_mutation(gate):
+    db = gate["db"]
+    company_id = gate["company_id"]
+    ctx = await _seed_driver_operational_context(
+        gate, plate="ACC-VISIT-AMB", password="SyntheticVisitAmbiguous123", with_visit=True
+    )
+    await _add_historical_custody(
+        db, company_id=company_id, vehicle_id=ctx.vehicle_id, suffix="VISIT-AMB", active=False
+    )
+    await db.commit()
+    before_movements = await _count(
+        db, InventoryMovement,
+        InventoryMovement.company_id == company_id,
+        InventoryMovement.work_session_id == ctx.session_id,
+    )
+    caught = None
+    try:
+        await driver_api.update_visit(
+            visit_id=ctx.visit_id,
+            payload=VisitUpdateRequest(
+                request_id=uuid4(), outcome="NoSale", notes="Acceptance no sale", cart_items=[], returns=[]
+            ),
+            db=db, field_context=ctx.field.context, legacy_actor=ctx.driver,
+        )
+    except HTTPException as exc:
+        caught = exc
+    after_movements = await _count(
+        db, InventoryMovement,
+        InventoryMovement.company_id == company_id,
+        InventoryMovement.work_session_id == ctx.session_id,
+    )
+    visit = await db.get(Visit, ctx.visit_id)
+    assert caught is not None and caught.status_code == 409, (
+        f"update_visit accepted ambiguous custody; visit={visit.status}/{visit.outcome}; "
+        f"movements_before={before_movements}; movements_after={after_movements}"
+    )
+    assert after_movements == before_movements
+    assert visit.status == "Pending" and visit.outcome == "Pending"
+
+
+@pytest.mark.asyncio
+async def test_13a_single_handshake_canonical_active_positive(gate):
+    db = gate["db"]
+    company_id = gate["company_id"]
+    ctx = await _seed_driver_operational_context(
+        gate, plate="ACC-HS-SINGLE-POS", password="SyntheticHsSinglePositive123"
+    )
+    header_id, _ = await _seed_handshake(gate, ctx, suffix="SINGLE-POS")
+    result = await driver_api.respond_to_transfer(
+        transfer_id=header_id, payload=TransferResponseRequest(response="accepted"),
+        db=db, field_context=ctx.field.context, legacy_actor=ctx.driver,
+    )
+    assert result["message"]
+    header = await db.get(InventoryTransferHeader, header_id)
+    assert header.status == "POSTED" and int(header.received_by) == ctx.driver_id
+    assert await _count(
+        db, InventoryMovement,
+        InventoryMovement.company_id == company_id,
+        InventoryMovement.transfer_header_id == header_id,
+    ) == 2
+
+
+@pytest.mark.asyncio
+async def test_13b_single_handshake_active_plus_inactive_duplicate_fails_closed(gate):
+    db = gate["db"]
+    company_id = gate["company_id"]
+    ctx = await _seed_driver_operational_context(
+        gate, plate="ACC-HS-SINGLE-AMB", password="SyntheticHsSingleAmb123"
+    )
+    header_id, _ = await _seed_handshake(gate, ctx, suffix="SINGLE-AMB")
+    await _add_historical_custody(
+        db, company_id=company_id, vehicle_id=ctx.vehicle_id, suffix="HS-SINGLE-AMB", active=False
+    )
+    await db.commit()
+    before = await _count(
+        db, InventoryMovement,
+        InventoryMovement.company_id == company_id,
+        InventoryMovement.transfer_header_id == header_id,
+    )
+    caught = None
+    try:
+        await driver_api.respond_to_transfer(
+            transfer_id=header_id, payload=TransferResponseRequest(response="accepted"),
+            db=db, field_context=ctx.field.context, legacy_actor=ctx.driver,
+        )
+    except HTTPException as exc:
+        caught = exc
+    after = await _count(
+        db, InventoryMovement,
+        InventoryMovement.company_id == company_id,
+        InventoryMovement.transfer_header_id == header_id,
+    )
+    header = await db.get(InventoryTransferHeader, header_id)
+    assert caught is not None and caught.status_code == 409, (
+        f"single handshake accepted ambiguous custody; status={header.status}; "
+        f"movements_before={before}; movements_after={after}"
+    )
+    assert after == before and header.status == "PENDING"
+
+
+@pytest.mark.asyncio
+async def test_13c_single_handshake_multiple_inactive_fails_closed(gate):
+    db = gate["db"]
+    company_id = gate["company_id"]
+    ctx = await _seed_driver_operational_context(
+        gate, plate="ACC-HS-SINGLE-INACT", password="SyntheticHsSingleInactive123"
+    )
+    header_id, _ = await _seed_handshake(gate, ctx, suffix="SINGLE-INACT")
+    canonical = await db.get(InventoryLocation, ctx.custody_id)
+    canonical.is_active = False
+    await _add_historical_custody(db, company_id=company_id, vehicle_id=ctx.vehicle_id, suffix="HS-SINGLE-I1")
+    await _add_historical_custody(db, company_id=company_id, vehicle_id=ctx.vehicle_id, suffix="HS-SINGLE-I2")
+    await db.commit()
+    before = await _count(db, InventoryMovement, InventoryMovement.transfer_header_id == header_id)
+    with pytest.raises(HTTPException) as exc:
+        await driver_api.respond_to_transfer(
+            transfer_id=header_id, payload=TransferResponseRequest(response="accepted"),
+            db=db, field_context=ctx.field.context, legacy_actor=ctx.driver,
+        )
+    assert exc.value.status_code == 409
+    assert await _count(db, InventoryMovement, InventoryMovement.transfer_header_id == header_id) == before
+
+
+@pytest.mark.asyncio
+async def test_14a_batch_handshake_canonical_active_positive(gate):
+    db = gate["db"]
+    ctx = await _seed_driver_operational_context(
+        gate, plate="ACC-HS-BATCH-POS", password="SyntheticHsBatchPositive123"
+    )
+    header_id, _ = await _seed_handshake(gate, ctx, suffix="BATCH-POS")
+    result = await driver_api.batch_respond_to_transfers(
+        payload=BatchTransferResponseRequest(transfers=[{"transfer_id": header_id, "status": "accepted"}]),
+        db=db, field_context=ctx.field.context, legacy_actor=ctx.driver,
+    )
+    assert result["message"]
+    header = await db.get(InventoryTransferHeader, header_id)
+    assert header.status == "POSTED" and int(header.received_by) == ctx.driver_id
+
+
+@pytest.mark.asyncio
+async def test_14b_batch_handshake_active_plus_inactive_duplicate_fails_closed(gate):
+    db = gate["db"]
+    company_id = gate["company_id"]
+    ctx = await _seed_driver_operational_context(
+        gate, plate="ACC-HS-BATCH-AMB", password="SyntheticHsBatchAmb123"
+    )
+    header_id, _ = await _seed_handshake(gate, ctx, suffix="BATCH-AMB")
+    await _add_historical_custody(
+        db, company_id=company_id, vehicle_id=ctx.vehicle_id, suffix="HS-BATCH-AMB", active=False
+    )
+    await db.commit()
+    before = await _count(db, InventoryMovement, InventoryMovement.transfer_header_id == header_id)
+    caught = None
+    try:
+        await driver_api.batch_respond_to_transfers(
+            payload=BatchTransferResponseRequest(transfers=[{"transfer_id": header_id, "status": "accepted"}]),
+            db=db, field_context=ctx.field.context, legacy_actor=ctx.driver,
+        )
+    except HTTPException as exc:
+        caught = exc
+    after = await _count(db, InventoryMovement, InventoryMovement.transfer_header_id == header_id)
+    header = await db.get(InventoryTransferHeader, header_id)
+    assert caught is not None and caught.status_code == 409, (
+        f"batch handshake accepted ambiguous custody; status={header.status}; "
+        f"movements_before={before}; movements_after={after}"
+    )
+    assert after == before and header.status == "PENDING"
+
+
+@pytest.mark.asyncio
+async def test_14c_batch_handshake_multiple_inactive_fails_closed(gate):
+    db = gate["db"]
+    company_id = gate["company_id"]
+    ctx = await _seed_driver_operational_context(
+        gate, plate="ACC-HS-BATCH-INACT", password="SyntheticHsBatchInactive123"
+    )
+    header_id, _ = await _seed_handshake(gate, ctx, suffix="BATCH-INACT")
+    canonical = await db.get(InventoryLocation, ctx.custody_id)
+    canonical.is_active = False
+    await _add_historical_custody(db, company_id=company_id, vehicle_id=ctx.vehicle_id, suffix="HS-BATCH-I1")
+    await _add_historical_custody(db, company_id=company_id, vehicle_id=ctx.vehicle_id, suffix="HS-BATCH-I2")
+    await db.commit()
+    before = await _count(db, InventoryMovement, InventoryMovement.transfer_header_id == header_id)
+    with pytest.raises(HTTPException) as exc:
+        await driver_api.batch_respond_to_transfers(
+            payload=BatchTransferResponseRequest(transfers=[{"transfer_id": header_id, "status": "accepted"}]),
+            db=db, field_context=ctx.field.context, legacy_actor=ctx.driver,
+        )
+    assert exc.value.status_code == 409
+    assert await _count(db, InventoryMovement, InventoryMovement.transfer_header_id == header_id) == before
+
+
+@pytest.mark.asyncio
+async def test_15_driver_inventory_projection_rejects_ambiguous_custody(gate):
+    db = gate["db"]
+    company_id = gate["company_id"]
+    ctx = await _seed_driver_operational_context(
+        gate, plate="ACC-DRIVER-PROJ", password="SyntheticDriverProjection123"
+    )
+    await _add_historical_custody(
+        db, company_id=company_id, vehicle_id=ctx.vehicle_id, suffix="DRIVER-PROJ", active=False
+    )
+    await db.commit()
+    caught = None
+    try:
+        await driver_api._load_vehicle_inventory_projection(
+            db,
+            company_id=company_id,
+            vehicle_id=ctx.vehicle_id,
+            work_session_id=ctx.session_id,
+        )
+    except HTTPException as exc:
+        caught = exc
+    assert caught is not None and caught.status_code == 409, (
+        "_load_vehicle_inventory_projection silently selected one active custody from an ambiguous mapping"
+    )
+
+
+@pytest.mark.asyncio
+async def test_16_dispatch_session_projection_no_snapshot_rejects_first_row_wins(gate):
+    db = gate["db"]
+    company_id = gate["company_id"]
+    ctx = await _seed_driver_operational_context(
+        gate, plate="ACC-DSP-PROJ", password="SyntheticDispatchProjection123"
+    )
+    await _add_historical_custody(
+        db, company_id=company_id, vehicle_id=ctx.vehicle_id, suffix="DSP-PROJ", active=False
+    )
+    await db.commit()
+    session = await db.get(WorkSession, ctx.session_id)
+    caught = None
+    try:
+        await dispatch_api._dispatch_session_inventory_projection(
+            db,
+            company_id=company_id,
+            sessions=[session],
+        )
+    except HTTPException as exc:
+        caught = exc
+    assert caught is not None and caught.status_code == 409, (
+        "dispatch no-snapshot projection silently used first historical VEHICLE location"
+    )
+
+
+@pytest.mark.asyncio
+async def test_17_dispatch_init_selector_requires_strict_operational_custody(gate):
+    db = gate["db"]
+    company_id = gate["company_id"]
+    owner = gate["owner"]
+
+    active = await _create_vehicle(db, owner, company_id, plate="ACC-INIT-A")
+    missing = await _create_vehicle(db, owner, company_id, plate="ACC-INIT-B")
+    duplicate = await _create_vehicle(db, owner, company_id, plate="ACC-INIT-C")
+    inactive = await _create_vehicle(db, owner, company_id, plate="ACC-INIT-D")
+    maintenance = await _create_vehicle(db, owner, company_id, plate="ACC-INIT-E")
+
+    missing_id = int(missing["id"])
+    duplicate_id = int(duplicate["id"])
+    inactive_id = int(inactive["id"])
+    maintenance_id = int(maintenance["id"])
+    await db.execute(delete(InventoryLocation).where(
+        InventoryLocation.company_id == company_id,
+        InventoryLocation.vehicle_id == missing_id,
+        InventoryLocation.location_type == "VEHICLE",
+    ))
+    await _add_historical_custody(
+        db, company_id=company_id, vehicle_id=duplicate_id, suffix="INIT-C", active=False
+    )
+    inactive_custody = await db.scalar(select(InventoryLocation).where(
+        InventoryLocation.company_id == company_id,
+        InventoryLocation.vehicle_id == inactive_id,
+        InventoryLocation.location_type == "VEHICLE",
+    ))
+    inactive_custody.is_active = False
+    maintenance_vehicle = await db.get(Vehicle, maintenance_id)
+    maintenance_vehicle.maintenance_status = "In_Maintenance"
+    await db.commit()
+
+    init = await dispatch_api.dispatch_init(db=db, access=owner.access(db))
+    selector = {int(item["id"]): bool(item["can_execute"]) for item in init["vehicles"]}
+    assert selector.get(int(active["id"])) is True
+    observed = {
+        "missing": selector.get(missing_id),
+        "duplicate": selector.get(duplicate_id),
+        "inactive": selector.get(inactive_id),
+        "maintenance": selector.get(maintenance_id),
+    }
+    wrongly_selectable = {name: value for name, value in observed.items() if value is True}
+    assert not wrongly_selectable, f"noncanonical/not-operational vehicles selectable: {wrongly_selectable}"
+
+
+async def _seed_route_status_inventory_context(gate, *, suffix: str, with_session: bool):
+    db = gate["db"]
+    company_id = gate["company_id"]
+    owner = gate["owner"]
+    field = await seed_field_fixture(db, company_id, password=f"SyntheticStatus{suffix}123")
+    vehicle = await _create_vehicle(db, owner, company_id, plate=f"ACC-STATUS-{suffix}")
+    vehicle_id = int(vehicle["id"])
+    custody_id = int(await dispatch_api._dispatch_vehicle_location_id(
+        db, company_id=company_id, vehicle_id=vehicle_id, require_active=True
+    ))
+    zone = Zone(company_id=company_id, name=f"Status {suffix} Zone")
+    db.add(zone)
+    await db.flush()
+    session = None
+    if with_session:
+        session = WorkSession(
+            company_id=company_id,
+            driver_id=int(field.driver.id),
+            session_date=date.today(),
+            is_authorized_to_sell=True,
+            is_settled=False,
+        )
+        db.add(session)
+        await db.flush()
+    route = DispatchRoute(
+        company_id=company_id,
+        zone_id=int(zone.id),
+        driver_id=int(field.driver.id),
+        vehicle_id=vehicle_id,
+        work_session_id=(int(session.id) if session is not None else None),
+        source_location_id=gate["wh_a_id"],
+        dispatch_date=await dispatch_api.get_company_local_date(db, company_id),
+        status=("active" if session is not None else "waiting"),
+    )
+    db.add(route)
+    await db.flush()
+    batch_id = await _seed_batch_and_balance(
+        gate, location_id=gate["wh_a_id"], quantity=50, suffix=f"STATUS-{suffix}"
+    )
+    existing_assignment = await db.scalar(select(ProductLocation).where(
+        ProductLocation.company_id == company_id,
+        ProductLocation.location_id == gate["wh_a_id"],
+        ProductLocation.product_variant_id == gate["variant_id"],
+    ))
+    if existing_assignment is None:
+        db.add(ProductLocation(
+            company_id=company_id,
+            location_id=gate["wh_a_id"],
+            product_variant_id=gate["variant_id"],
+            operational_flags=dict(DEFAULT_PRODUCT_LOCATION_FLAGS),
+            created_by=owner.driver_id,
+        ))
+    await db.commit()
+    return SimpleNamespace(
+        route_id=int(route.id),
+        vehicle_id=vehicle_id,
+        custody_id=custody_id,
+        driver_id=int(field.driver.id),
+        session_id=(int(session.id) if session is not None else None),
+        batch_id=batch_id,
+    )
+
+
+@pytest.mark.asyncio
+async def test_18_route_status_inventory_direct_path_consequence_provenance_retry_and_rollback(gate):
+    db = gate["db"]
+    company_id = gate["company_id"]
+    owner = gate["owner"]
+    ctx = await _seed_route_status_inventory_context(gate, suffix="DIRECT", with_session=False)
+    variant = await db.get(ProductVariant, gate["variant_id"])
+    packs_per_carton = int(variant.packs_per_carton)
+
+    caught = None
+    try:
+        await dispatch_api.update_route_status(
+            ctx.route_id,
+            UpdateRouteStatusRequest(status="waiting", inventory={str(gate["variant_id"]): 1}),
+            db=db,
+            access=owner.access(db),
+            legacy_actor=owner.operational_driver,
+        )
+    except HTTPException as exc:
+        caught = exc
+    assert caught is None or caught.status_code != 500, (
+        f"route status inventory DIRECT raised HTTP {caught.status_code if caught else None}: {caught.detail if caught else None}"
+    )
+    assert caught is None
+    movements = (
+        await db.execute(select(InventoryMovement).where(
+            InventoryMovement.company_id == company_id,
+            InventoryMovement.reference_type == "DISPATCH_LOAD",
+            InventoryMovement.reference_id == str(ctx.route_id),
+        ))
+    ).scalars().all()
+    assert sum(int(m.quantity) for m in movements) == packs_per_carton
+    assert {int(m.performed_by) for m in movements} == {int(owner.operational_driver.id)}
+
+    movement_count = len(movements)
+    await dispatch_api.update_route_status(
+        ctx.route_id,
+        UpdateRouteStatusRequest(status="waiting", inventory={str(gate["variant_id"]): 1}),
+        db=db,
+        access=owner.access(db),
+        legacy_actor=owner.operational_driver,
+    )
+    assert await _count(
+        db, InventoryMovement,
+        InventoryMovement.company_id == company_id,
+        InventoryMovement.reference_type == "DISPATCH_LOAD",
+        InventoryMovement.reference_id == str(ctx.route_id),
+    ) == movement_count
+
+    before_bad = await _count(db, InventoryMovement, InventoryMovement.company_id == company_id)
+    with pytest.raises(HTTPException):
+        await dispatch_api.update_route_status(
+            ctx.route_id,
+            UpdateRouteStatusRequest(status="waiting", inventory={str(gate["variant_id"]): 999999}),
+            db=db,
+            access=owner.access(db),
+            legacy_actor=owner.operational_driver,
+        )
+    assert await _count(db, InventoryMovement, InventoryMovement.company_id == company_id) == before_bad
+
+
+@pytest.mark.asyncio
+async def test_19_route_status_inventory_active_session_handshake_path(gate):
+    db = gate["db"]
+    company_id = gate["company_id"]
+    owner = gate["owner"]
+    ctx = await _seed_route_status_inventory_context(gate, suffix="HANDSHAKE", with_session=True)
+    caught = None
+    try:
+        await dispatch_api.update_route_status(
+            ctx.route_id,
+            UpdateRouteStatusRequest(status="active", inventory={str(gate["variant_id"]): 1}),
+            db=db,
+            access=owner.access(db),
+            legacy_actor=owner.operational_driver,
+        )
+    except HTTPException as exc:
+        caught = exc
+    assert caught is None or caught.status_code != 500, (
+        f"route status inventory HANDSHAKE raised HTTP {caught.status_code if caught else None}: {caught.detail if caught else None}"
+    )
+    assert caught is None
+    headers = (
+        await db.execute(select(InventoryTransferHeader).where(
+            InventoryTransferHeader.company_id == company_id,
+            InventoryTransferHeader.work_session_id == ctx.session_id,
+            InventoryTransferHeader.workflow_type == "HANDSHAKE",
+        ))
+    ).scalars().all()
+    assert len(headers) == 1
+    header = headers[0]
+    assert header.status == "PENDING"
+    assert int(header.dispatched_by) == int(owner.operational_driver.id)
+    assert int(header.expected_receiver_id) == ctx.driver_id
+    reservation_movements = (
+        await db.execute(select(InventoryMovement).where(
+            InventoryMovement.company_id == company_id,
+            InventoryMovement.transfer_header_id == int(header.id),
+            InventoryMovement.movement_kind == "RESERVATION",
+        ))
+    ).scalars().all()
+    assert reservation_movements
+    assert {int(m.performed_by) for m in reservation_movements} == {int(owner.operational_driver.id)}
