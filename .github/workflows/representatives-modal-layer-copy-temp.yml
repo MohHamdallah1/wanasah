@@ -1,0 +1,433 @@
+name: Representatives modal layer and copy acceptance
+
+on:
+  push:
+    branches:
+      - sol/representatives-modal-layer-copy-ux
+    paths:
+      - .github/workflows/representatives-modal-layer-copy-temp.yml
+
+permissions:
+  contents: write
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      BASE_HEAD: 10223fd237775ca1fc70fdd771693a93a8386243
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: sol/representatives-modal-layer-copy-ux
+          fetch-depth: 0
+
+      - name: Apply focused Dashboard UX correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          modal = Path('dashboard/src/components/ui/modal.tsx')
+          text = modal.read_text(encoding='utf-8')
+          old = 'import { useId } from "react";\nimport { motion, AnimatePresence } from "framer-motion";'
+          new = 'import { useId } from "react";\nimport { createPortal } from "react-dom";\nimport { motion, AnimatePresence } from "framer-motion";'
+          assert old in text
+          text = text.replace(old, new, 1)
+          old = '  return (\n    <AnimatePresence>'
+          new = '  if (typeof document === "undefined") return null;\n\n  return createPortal(\n    <AnimatePresence>'
+          assert old in text
+          text = text.replace(old, new, 1)
+          old = '    </AnimatePresence>\n  );\n}'
+          new = '    </AnimatePresence>,\n    document.body,\n  );\n}'
+          assert old in text
+          text = text.replace(old, new, 1)
+          modal.write_text(text, encoding='utf-8')
+
+          form = Path('dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm.tsx')
+          text = form.read_text(encoding='utf-8')
+          old = '            <p id="representative-debt-hint" className="text-[11px] font-semibold leading-5 text-slate-500">{t("representativesVehicles.representatives.form.debtHint")}</p>'
+          new = '            <span id="representative-debt-hint" className="sr-only">{t("representativesVehicles.representatives.form.debtA11yHint")}</span>'
+          assert old in text
+          text = text.replace(old, new, 1)
+          form.write_text(text, encoding='utf-8')
+
+          i18n = Path('dashboard/src/i18n/representativesVehicles.ts')
+          text = i18n.read_text(encoding='utf-8')
+          replacements = {
+              'usernameHint: "استخدم أحرفًا عربية أو إنجليزية، ويمكن إضافة الأرقام و . _ - دون خلط العربية والإنجليزية في الاسم نفسه.",': 'usernameHint: "استخدم العربية أو الإنجليزية دون خلط، ويمكن إضافة الأرقام و . _ -",',
+              'debtHint: "هذا الحد هو أقصى مبلغ ذمم جديد في عملية بيع واحدة. ليس حدًا يوميًا ولا يتجدد تلقائيًا، ويظل سقف ذمة المحل مطبقًا بشكل مستقل.",': 'debtA11yHint: "الحد الأقصى للذمم الجديدة في عملية بيع واحدة.",',
+              'debtLimit: "Per-sale credit limit",': 'debtLimit: "Debt limit per sale",',
+              'usernameHint: "Use Arabic or Latin letters, optionally with numbers and . _ -. Do not mix Arabic and Latin letters in the same username.",': 'usernameHint: "Use Arabic or Latin letters without mixing them; numbers and . _ - are allowed.",',
+              'debtHint: "This is the maximum new credit for a single sale. It is not a daily limit and does not reset automatically. The shop’s total credit limit still applies independently.",': 'debtA11yHint: "Maximum new debt for one sale.",',
+          }
+          for old, new in replacements.items():
+              assert old in text, old
+              text = text.replace(old, new, 1)
+          i18n.write_text(text, encoding='utf-8')
+
+          tests = Path('dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm.test.tsx')
+          text = tests.read_text(encoding='utf-8')
+          old = '''  it("keeps disabled credit limit hidden and reveals an empty localized input", () => {
+    render(<RepresentativeForm onCancel={() => undefined} onSubmit={vi.fn()} />);
+    expect(screen.queryByLabelText(field.debtLimit)).toBeNull();
+    fireEvent.click(screen.getByLabelText(field.debtPermission));
+    const limit = screen.getByLabelText(field.debtLimit) as HTMLInputElement;
+    expect(limit.value).toBe("");
+    expect(limit.placeholder).toBe("مثال: 50.000");
+  });'''
+          new = '''  it("keeps disabled credit limit hidden and reveals a compact accessible input", () => {
+    render(<RepresentativeForm onCancel={() => undefined} onSubmit={vi.fn()} />);
+    expect(screen.queryByLabelText(field.debtLimit)).toBeNull();
+    fireEvent.click(screen.getByLabelText(field.debtPermission));
+    const limit = screen.getByLabelText(field.debtLimit) as HTMLInputElement;
+    expect(limit.value).toBe("");
+    expect(limit.placeholder).toBe("مثال: 50.000");
+    expect(limit).toHaveAttribute("aria-describedby", "representative-debt-hint");
+    expect(screen.getByText("representativesVehicles.representatives.form.debtA11yHint")).toHaveClass("sr-only");
+    expect(screen.queryByText("representativesVehicles.representatives.form.debtHint")).toBeNull();
+  });'''
+          assert old in text
+          text = text.replace(old, new, 1)
+          old = '''describe("Representative final form copy", () => {
+  it("keeps accepted credit semantics in Arabic and English", () => {
+    const ar = representativesVehicles.ar.representatives.form.debtHint;
+    const en = representativesVehicles.en.representatives.form.debtHint;
+    expect(ar).toContain("عملية بيع واحدة");
+    expect(ar).toContain("ليس حدًا يوميًا");
+    expect(ar).toContain("لا يتجدد تلقائيًا");
+    expect(ar).toContain("سقف ذمة المحل");
+    expect(en).toContain("single sale");
+    expect(en).toContain("not a daily limit");
+    expect(en).toContain("does not reset automatically");
+  });
+
+  it("has required phone and equal-status Arabic username copy", () => {
+    expect(representativesVehicles.ar.representatives.form.phoneRequired).toBe("أدخل رقم هاتف المندوب.");
+    expect(representativesVehicles.en.representatives.form.phoneRequired).toBe("Enter the representative’s phone number.");
+    expect(representativesVehicles.ar.representatives.form.usernameHint).toContain("أحرفًا عربية أو إنجليزية");
+    expect(representativesVehicles.en.representatives.form.usernameHint).toContain("Arabic or Latin letters");
+  });
+});'''
+          new = '''describe("Representative final form copy", () => {
+  it("uses the exact compact username helper in Arabic and English", () => {
+    expect(representativesVehicles.ar.representatives.form.usernameHint).toBe(
+      "استخدم العربية أو الإنجليزية دون خلط، ويمكن إضافة الأرقام و . _ -",
+    );
+    expect(representativesVehicles.en.representatives.form.usernameHint).toBe(
+      "Use Arabic or Latin letters without mixing them; numbers and . _ - are allowed.",
+    );
+    expect(JSON.stringify(representativesVehicles)).not.toContain(
+      "استخدم أحرفًا عربية أو إنجليزية، ويمكن إضافة الأرقام و . _ - دون خلط العربية والإنجليزية في الاسم نفسه.",
+    );
+  });
+
+  it("removes the visible debt paragraph while preserving the concise business label and a11y description", () => {
+    expect("debtHint" in representativesVehicles.ar.representatives.form).toBe(false);
+    expect("debtHint" in representativesVehicles.en.representatives.form).toBe(false);
+    expect(representativesVehicles.ar.representatives.fields.debtLimit).toBe("حد الذمم لكل عملية بيع");
+    expect(representativesVehicles.en.representatives.fields.debtLimit).toBe("Debt limit per sale");
+    expect(representativesVehicles.ar.representatives.form.debtA11yHint).toBe("الحد الأقصى للذمم الجديدة في عملية بيع واحدة.");
+    expect(representativesVehicles.en.representatives.form.debtA11yHint).toBe("Maximum new debt for one sale.");
+    expect(JSON.stringify(representativesVehicles)).not.toContain(
+      "هذا الحد هو أقصى مبلغ ذمم جديد في عملية بيع واحدة. ليس حدًا يوميًا ولا يتجدد تلقائيًا، ويظل سقف ذمة المحل مطبقًا بشكل مستقل.",
+    );
+  });
+
+  it("keeps required phone copy unchanged", () => {
+    expect(representativesVehicles.ar.representatives.form.phoneRequired).toBe("أدخل رقم هاتف المندوب.");
+    expect(representativesVehicles.en.representatives.form.phoneRequired).toBe("Enter the representative’s phone number.");
+  });
+});'''
+          assert old in text
+          text = text.replace(old, new, 1)
+          tests.write_text(text, encoding='utf-8')
+          PY
+
+          cat > dashboard/src/components/ui/modal.test.tsx <<'EOF'
+          import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+          import { afterEach, describe, expect, it, vi } from "vitest";
+
+          vi.mock("react-i18next", () => ({
+            useTranslation: () => ({
+              t: (key: string) => key,
+              i18n: { dir: () => "rtl" },
+            }),
+          }));
+
+          import { Modal } from "./modal";
+
+          afterEach(cleanup);
+
+          describe("Modal portal layering contract", () => {
+            it("portals the fixed z-50 layer to document.body outside a lower page stacking context", () => {
+              const onClose = vi.fn();
+              const { container } = render(
+                <div className="relative z-10" data-testid="page-stack">
+                  <header className="sticky z-40" data-testid="app-header">header</header>
+                  <Modal isOpen onClose={onClose} title="Create representative">
+                    <button type="button">first body action</button>
+                  </Modal>
+                </div>,
+              );
+
+              const layer = document.querySelector<HTMLElement>(".app-modal");
+              expect(layer).not.toBeNull();
+              expect(layer?.parentElement).toBe(document.body);
+              expect(container.querySelector(".app-modal")).toBeNull();
+              expect(layer?.className).toContain("fixed");
+              expect(layer?.className).toContain("inset-0");
+              expect(layer?.className).toContain("z-50");
+              expect(screen.getByTestId("app-header").className).toContain("z-40");
+              expect(screen.getByRole("dialog")).toHaveAttribute("aria-modal", "true");
+              expect(screen.getByRole("dialog")).toHaveAttribute("aria-labelledby");
+            });
+
+            it("preserves outside-click and Escape dismissal through the portal", () => {
+              const onClose = vi.fn();
+              render(
+                <Modal isOpen onClose={onClose} title="Representative status">
+                  <button type="button">body action</button>
+                </Modal>,
+              );
+              fireEvent.click(document.querySelector(".app-modal-backdrop")!);
+              expect(onClose).toHaveBeenCalledTimes(1);
+              fireEvent.keyDown(document, { key: "Escape" });
+              expect(onClose).toHaveBeenCalledTimes(2);
+            });
+          });
+          EOF
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci
+
+      - name: Focused Representatives and shared modal tests
+        working-directory: dashboard
+        run: npx vitest run src/pages/representatives-vehicles src/components/ui/modal.test.tsx
+
+      - name: Affected ESLint
+        working-directory: dashboard
+        run: npx eslint src/components/ui/modal.tsx src/components/ui/modal.test.tsx src/pages/representatives-vehicles src/i18n/representativesVehicles.ts
+
+      - name: TypeScript baseline check
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf baseline
+          mkdir baseline
+          git archive --format=tar --output=/tmp/dashboard-base.tar "$BASE_HEAD" dashboard
+          tar -xf /tmp/dashboard-base.tar -C baseline
+          cd dashboard
+          node scripts/check-types-against-baseline.mjs ../baseline/dashboard
+
+      - name: Production build
+        working-directory: dashboard
+        run: npm run build
+
+      - name: Install browser acceptance dependency
+        working-directory: dashboard
+        run: npm install --no-save --package-lock=false @playwright/test@1.56.1
+
+      - name: Real Chrome modal layering and responsive acceptance
+        working-directory: dashboard
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > representative-modal-acceptance.html <<'HTML'
+          <!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/src/representative-modal-acceptance.tsx"></script></body></html>
+          HTML
+          cat > src/representative-modal-acceptance.tsx <<'TSX'
+          import React, { useState } from "react";
+          import { createRoot } from "react-dom/client";
+          import { createInstance } from "i18next";
+          import { I18nextProvider } from "react-i18next";
+          import "./index.css";
+          import { WorkspaceTopBar } from "./components/dashboard/WorkspaceTopBar";
+          import { Modal } from "./components/ui/modal";
+          import { representativesVehicles } from "./i18n/representativesVehicles";
+          import { RepresentativeForm } from "./pages/representatives-vehicles/representatives/RepresentativeForm";
+
+          type Kind = "create" | "edit" | "lifecycle" | "credentials" | null;
+          const lang = new URLSearchParams(location.search).get("lang") === "en" ? "en" : "ar";
+          const i18n = createInstance();
+          await i18n.init({
+            lng: lang,
+            fallbackLng: "en",
+            initImmediate: false,
+            interpolation: { escapeValue: false },
+            resources: {
+              ar: { translation: { representativesVehicles: representativesVehicles.ar, common: { close: "إغلاق", cancel: "إلغاء", save: "حفظ", saving: "جارٍ الحفظ" } } },
+              en: { translation: { representativesVehicles: representativesVehicles.en, common: { close: "Close", cancel: "Cancel", save: "Save", saving: "Saving" } } },
+            },
+          });
+          document.documentElement.dir = i18n.dir();
+          document.documentElement.lang = lang;
+
+          const rep = {
+            id: 17,
+            full_name: "Ahmad Saleh",
+            username: "rep17",
+            phone_number: "+962790000000",
+            is_active: true,
+            can_allow_debt: false,
+            max_debt_limit: "25.500",
+          };
+
+          function App() {
+            const [kind, setKind] = useState<Kind>(null);
+            const title = kind === "create"
+              ? (lang === "ar" ? "إضافة مندوب جديد" : "Add representative")
+              : kind === "edit"
+                ? (lang === "ar" ? "تعديل البيانات" : "Edit details")
+                : kind === "lifecycle"
+                  ? (lang === "ar" ? "حالة المندوب" : "Representative status")
+                  : (lang === "ar" ? "بيانات الدخول" : "Sign-in access");
+            return (
+              <main className="min-h-[1400px] bg-slate-100 p-4" dir={i18n.dir()}>
+                <WorkspaceTopBar variant="page" className="shrink-0">
+                  <header data-testid="app-header" className="w-full text-white">APP HEADER</header>
+                </WorkspaceTopBar>
+                <div className="relative z-10 mt-4 space-x-2">
+                  {(["create", "edit", "lifecycle", "credentials"] as const).map((value) => (
+                    <button key={value} data-testid={`open-${value}`} type="button" onClick={() => setKind(value)}>{value}</button>
+                  ))}
+                  <Modal isOpen={kind !== null} onClose={() => setKind(null)} title={title} maxWidth="max-w-lg">
+                    {kind === "create" ? (
+                      <RepresentativeForm onCancel={() => setKind(null)} onSubmit={() => undefined} />
+                    ) : kind === "edit" ? (
+                      <RepresentativeForm representative={rep} onCancel={() => setKind(null)} onSubmit={() => undefined} />
+                    ) : kind === "lifecycle" ? (
+                      <div className="space-y-3"><p>{lang === "ar" ? "تعطيل المندوب؟" : "Deactivate representative?"}</p><button type="button">confirm lifecycle</button></div>
+                    ) : kind === "credentials" ? (
+                      <div className="space-y-3"><label htmlFor="credential-test">{lang === "ar" ? "كلمة المرور الجديدة" : "New password"}</label><input id="credential-test" className="h-10 w-full border" /><button type="button">confirm credentials</button></div>
+                    ) : null}
+                  </Modal>
+                </div>
+              </main>
+            );
+          }
+          createRoot(document.getElementById("root")!).render(<I18nextProvider i18n={i18n}><App /></I18nextProvider>);
+          TSX
+          cat > playwright.modal.config.cjs <<'JS'
+          module.exports = { testDir: ".", testMatch: "representative-modal.acceptance.spec.cjs", workers: 1, reporter: "line", use: { headless: true, channel: "chrome" } };
+          JS
+          cat > representative-modal.acceptance.spec.cjs <<'JS'
+          const { test, expect } = require("@playwright/test");
+          const base = "http://127.0.0.1:4182/representative-modal-acceptance.html";
+          const widths = [320, 375, 768, 1024, 1440];
+          const kinds = ["create", "edit", "lifecycle", "credentials"];
+
+          async function assertLayer(page, width) {
+            const layer = page.locator(".app-modal");
+            const backdrop = page.locator(".app-modal-backdrop");
+            const panel = page.locator(".app-modal-panel");
+            await expect(page.getByRole("dialog")).toBeVisible();
+            expect(await layer.evaluate((el) => el.parentElement === document.body)).toBe(true);
+            expect(await layer.evaluate((el) => getComputedStyle(el).position)).toBe("fixed");
+            const overlayBox = await backdrop.boundingBox();
+            expect(overlayBox).not.toBeNull();
+            expect(Math.round(overlayBox.x)).toBe(0);
+            expect(Math.round(overlayBox.y)).toBe(0);
+            expect(Math.round(overlayBox.width)).toBe(width);
+            expect(Math.round(overlayBox.height)).toBe(800);
+            const topElementIsBackdrop = await page.evaluate(() => {
+              const el = document.elementFromPoint(4, 4);
+              return Boolean(el && el.classList.contains("app-modal-backdrop"));
+            });
+            expect(topElementIsBackdrop).toBe(true);
+            const panelBox = await panel.boundingBox();
+            expect(panelBox).not.toBeNull();
+            expect(panelBox.top).toBeGreaterThanOrEqual(0);
+            expect(panelBox.bottom).toBeLessThanOrEqual(800.5);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+          }
+
+          for (const width of widths) {
+            for (const kind of kinds) {
+              test(`Arabic ${kind} modal covers app chrome at ${width}px`, async ({ page }) => {
+                await page.setViewportSize({ width, height: 800 });
+                await page.goto(`${base}?lang=ar`);
+                await page.getByTestId(`open-${kind}`).click();
+                await assertLayer(page, width);
+                await expect(page.getByTestId("app-header")).toBeVisible();
+                if (width >= 1024) {
+                  expect(await page.getByTestId("app-header").evaluate((el) => getComputedStyle(el.closest(".workspace-top-bar-frame")).zIndex)).toBe("40");
+                  expect(await page.locator(".app-modal").evaluate((el) => getComputedStyle(el).zIndex)).toBe("50");
+                }
+                const body = page.locator(".app-modal-body");
+                await body.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+                await expect(page.locator(".app-modal-header")).toBeVisible();
+              });
+            }
+          }
+
+          test("Arabic create uses compact copy and preserves the debt label without visible debt paragraph", async ({ page }) => {
+            await page.setViewportSize({ width: 375, height: 800 });
+            await page.goto(`${base}?lang=ar`);
+            await page.getByTestId("open-create").click();
+            await expect(page.getByText("استخدم العربية أو الإنجليزية دون خلط، ويمكن إضافة الأرقام و . _ -")).toBeVisible();
+            await expect(page.getByText("استخدم أحرفًا عربية أو إنجليزية، ويمكن إضافة الأرقام و . _ - دون خلط العربية والإنجليزية في الاسم نفسه.")).toHaveCount(0);
+            await expect(page.getByText("هذا الحد هو أقصى مبلغ ذمم جديد في عملية بيع واحدة. ليس حدًا يوميًا ولا يتجدد تلقائيًا، ويظل سقف ذمة المحل مطبقًا بشكل مستقل.")).toHaveCount(0);
+            await page.getByLabel("السماح بالبيع بالذمم").check();
+            await expect(page.getByLabel("حد الذمم لكل عملية بيع")).toBeVisible();
+            await expect(page.locator("#representative-debt-hint")).toHaveClass(/sr-only/);
+            await expect(page.getByRole("dialog")).toHaveAttribute("aria-modal", "true");
+            await page.keyboard.press("Escape");
+            await expect(page.getByRole("dialog")).toHaveCount(0);
+          });
+
+          test("English LTR uses the compact username helper and concise debt label", async ({ page }) => {
+            await page.setViewportSize({ width: 1024, height: 800 });
+            await page.goto(`${base}?lang=en`);
+            await page.getByTestId("open-create").click();
+            expect(await page.locator("html").getAttribute("dir")).toBe("ltr");
+            await expect(page.getByText("Use Arabic or Latin letters without mixing them; numbers and . _ - are allowed.")).toBeVisible();
+            await page.getByLabel("Allow credit sales").check();
+            await expect(page.getByLabel("Debt limit per sale")).toBeVisible();
+            await expect(page.getByText("This is the maximum new credit for a single sale. It is not a daily limit and does not reset automatically. The shop’s total credit limit still applies independently.")).toHaveCount(0);
+          });
+          JS
+          npm run dev -- --host 127.0.0.1 --port 4182 >/tmp/representative-modal-vite.log 2>&1 &
+          PID=$!
+          trap 'kill "$PID" 2>/dev/null || true' EXIT
+          for i in {1..30}; do if curl -fsS http://127.0.0.1:4182/representative-modal-acceptance.html >/dev/null; then break; fi; sleep 1; done
+          npx playwright test --config=playwright.modal.config.cjs
+          kill "$PID" 2>/dev/null || true
+          trap - EXIT
+          rm -f representative-modal-acceptance.html representative-modal.acceptance.spec.cjs playwright.modal.config.cjs src/representative-modal-acceptance.tsx
+
+      - name: Scope and semantic preservation gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check "$BASE_HEAD"
+          git diff --exit-code "$BASE_HEAD" -- dashboard/src/pages/representatives-vehicles/representatives/usernamePolicy.ts dashboard/src/pages/representatives-vehicles/representatives/usernamePolicy.test.ts
+          changed="$(git diff --name-only "$BASE_HEAD")"
+          printf '%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -E '^wa_backend/|^wanasah_frontend/|dashboard/src/pages/representatives-vehicles/vehicles/|alembic/versions/'; then exit 1; fi
+          allowed='^(\.github/workflows/representatives-modal-layer-copy-temp\.yml|dashboard/src/components/ui/modal\.tsx|dashboard/src/components/ui/modal\.test\.tsx|dashboard/src/i18n/representativesVehicles\.ts|dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm\.tsx|dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm\.test\.tsx)$'
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev "$allowed" || true)"
+          test -z "$unexpected"
+          grep -F 'import { Modal } from "@/components/ui/modal";' dashboard/src/pages/representatives-vehicles/representatives/RepresentativesTab.tsx
+          grep -F 'import { Modal } from "@/components/ui/modal";' dashboard/src/pages/representatives-vehicles/representatives/RepresentativeLifecycleActions.tsx
+          grep -F 'import { Modal } from "@/components/ui/modal";' dashboard/src/pages/representatives-vehicles/representatives/RepresentativeCredentialAction.tsx
+          ! grep -F 'form.debtHint' dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm.tsx
+          ! grep -F 'هذا الحد هو أقصى مبلغ ذمم جديد في عملية بيع واحدة' dashboard/src/i18n/representativesVehicles.ts
+
+      - name: Commit validated Dashboard changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add dashboard/src/components/ui/modal.tsx dashboard/src/components/ui/modal.test.tsx dashboard/src/i18n/representativesVehicles.ts dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm.tsx dashboard/src/pages/representatives-vehicles/representatives/RepresentativeForm.test.tsx
+          git commit -m 'fix(dashboard): correct representative modal layering and copy'
+          git push origin HEAD:sol/representatives-modal-layer-copy-ux
