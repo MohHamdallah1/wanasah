@@ -733,8 +733,8 @@ Explicit non-goals for V1:
 
 This is the most important backend integration rule for Vehicles.
 
-- [ ] Vehicle master remains owned by Fleet/Dispatch domain.
-- [ ] Inventory remains owner of stock truth.
+- [x] Vehicle master/lifecycle ownership is the dedicated Vehicles/Fleet domain; Dispatch remains owner of route/assignment workflow.
+- [x] Inventory remains owner of stock truth.
 - [ ] Each usable vehicle receives/links to exactly one authoritative active `InventoryLocation` of type `VEHICLE` according to the existing inventory contract.
 - [ ] Vehicle creation must create/link that `VEHICLE` location **atomically**; operator must not manually create the location in another page.
 - [ ] Repeated create/retry must not create duplicate Vehicle locations.
