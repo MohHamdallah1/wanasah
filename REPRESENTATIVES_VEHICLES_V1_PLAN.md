@@ -70,7 +70,21 @@ Representative owner-complete gate:
 
 Vehicles status:
 
-- [ ] Vehicles implementation — **NOT STARTED; READY TO START**. The Representatives owner-acceptance gate is closed.
+- [ ] Vehicles implementation — **NOT STARTED; V1 CONTRACT FROZEN / READY FOR WAVE 1**. The Representatives owner-acceptance gate is closed.
+
+### Vehicles source/contract audit closure — 2026-10-14
+
+- [x] Current `Vehicle` persistence, existing fields, tenant constraints, plate uniqueness, and missing legacy concurrency metadata audited from source.
+- [x] Current `InventoryLocation(type=VEHICLE)` custody contract, active-location uniqueness index, and Driver/Dispatch/Reconciliation consumers audited from source.
+- [x] Current Dispatch source-warehouse/vehicle separation, active-route uniqueness, WorkSession coupling, and Live Stock source attribution audited from source.
+- [x] Current InventoryBalance, transfer, InventoryLock, Stocktake/VEHICLE_RECON, and inventory-reconciliation lifecycle blockers audited from source.
+- [x] Vehicle master ownership and future warehouse-scoped visibility seam reconciled with `VEHICLE_MASTER_SCOPE_AND_VISIBILITY_DECISION.md`; no V1 warehouse ownership/assignment product introduced.
+- [x] Exact V1 capability family frozen as company-level `vehicle.read` + `vehicle.manage`; future warehouse visibility remains a separate intersecting scope concern.
+- [x] Exact Vehicle HTTP/view/create/update/lifecycle/custody/idempotency contract frozen, including backend maintenance eligibility and same-location reactivation semantics.
+- [x] Backend/Dashboard module ownership and non-overlapping implementation-wave map frozen; `dispatch.py`/`driver.py` remain shrinking compatibility surfaces.
+- [x] Canonical implementation contract recorded in `docs/architecture/VEHICLES_V1_IMPLEMENTATION_CONTRACT.md`.
+- [x] Independent adversarial specialist findings reviewed against current `c4010598...` source; accepted lock-order, complete maintenance-entry, all-stock-status blocker, strict custody-resolution, current location-grant, and Dashboard permission-catalog corrections are frozen into PR #308.
+- [x] Specialist endpoint naming corrected to the actual runtime route `PUT /dispatch/route/{route_id}/adjust_inventory`; no speculative full inactive-location unique index or case-insensitive plate index was accepted without data/business evidence.
 
 ---
 
@@ -694,26 +708,26 @@ A Vehicle is company-wide operational master data. It is not a user and never au
 
 Current useful V1 concepts to preserve unless code review proves otherwise:
 
-- [ ] `company_id` tenant authority.
-- [ ] stable vehicle ID.
-- [ ] plate number, unique per company.
-- [ ] vehicle type (optional/basic).
-- [ ] current mileage if already useful.
-- [ ] next oil change if retained as a basic existing field, without expanding to fleet-maintenance product scope.
-- [ ] license expiry date if retained as a basic existing field.
-- [ ] maintenance status (`Active` / `In_Maintenance` or final normalized equivalent).
-- [ ] active/inactive lifecycle state.
-- [ ] version/timestamps according to project convention.
+- [x] `company_id` tenant authority frozen.
+- [x] stable vehicle ID preserved.
+- [x] plate number remains unique per company.
+- [x] vehicle type retained as optional/basic.
+- [x] current mileage retained as a basic existing field.
+- [x] next oil change retained as an optional basic existing field without fleet-maintenance expansion.
+- [x] license expiry date retained as an optional basic existing field.
+- [x] maintenance status frozen to existing `Active` / `In_Maintenance` values.
+- [x] active/inactive lifecycle state preserved.
+- [x] optimistic concurrency frozen as `Vehicle.version`; V1 will not fabricate historical Vehicle timestamps for legacy rows.
 
 Explicit non-goals for V1:
 
-- [ ] no GPS tracking.
-- [ ] no fuel management.
-- [ ] no advanced maintenance scheduling/work orders.
-- [ ] no fleet cost accounting.
-- [ ] no permanent representative assignment.
-- [ ] no permanent warehouse ownership.
-- [ ] no branch selector/ownership.
+- [x] no GPS tracking in V1.
+- [x] no fuel management in V1.
+- [x] no advanced maintenance scheduling/work orders in V1.
+- [x] no fleet cost accounting in V1.
+- [x] no permanent representative assignment in V1.
+- [x] no permanent warehouse ownership in V1.
+- [x] no branch selector/ownership in V1.
 
 ---
 
@@ -721,8 +735,8 @@ Explicit non-goals for V1:
 
 This is the most important backend integration rule for Vehicles.
 
-- [ ] Vehicle master remains owned by Fleet/Dispatch domain.
-- [ ] Inventory remains owner of stock truth.
+- [x] Vehicle master/lifecycle ownership is the dedicated Vehicles/Fleet domain; Dispatch remains owner of route/assignment workflow.
+- [x] Inventory remains owner of stock truth.
 - [ ] Each usable vehicle receives/links to exactly one authoritative active `InventoryLocation` of type `VEHICLE` according to the existing inventory contract.
 - [ ] Vehicle creation must create/link that `VEHICLE` location **atomically**; operator must not manually create the location in another page.
 - [ ] Repeated create/retry must not create duplicate Vehicle locations.
@@ -736,10 +750,10 @@ This is the most important backend integration rule for Vehicles.
 
 # 15. Vehicles — capability and security model
 
-Proposed capability family; finalize against the global permission catalog:
+Frozen capability family; names/semantics are decided, implementation/provisioning remains pending:
 
-- [ ] vehicle read capability.
-- [ ] vehicle create/update/lifecycle management capability.
+- [ ] implement/provision `vehicle.read` for Vehicle list/detail/search.
+- [ ] implement/provision `vehicle.manage` for create/update/maintenance/lifecycle.
 
 Rules:
 
@@ -791,9 +805,9 @@ Rules:
 
 ## 16.5 Deactivate/reactivate contract
 
-Before implementation, inspect current Dispatch/WorkSession/Inventory constraints and define exact blockers.
+- [x] Source audit completed and the exact V1 blocker matrix is frozen in `docs/architecture/VEHICLES_V1_IMPLEMENTATION_CONTRACT.md`.
 
-At minimum evaluate:
+The implementation checkboxes below remain open until the blocker behavior is actually coded and accepted:
 
 - [ ] active/waiting/postponed route using vehicle.
 - [ ] active WorkSession tied through that route/vehicle.
