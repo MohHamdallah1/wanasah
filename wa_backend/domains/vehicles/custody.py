@@ -9,6 +9,8 @@ from .repository import (
     create_vehicle_custody,
     lock_canonical_custody,
     read_canonical_custody_location_id,
+    read_canonical_custody_location_ids,
+    vehicle_custody_ready_predicate,
 )
 
 
@@ -64,8 +66,22 @@ async def resolve_vehicle_custody_location_id(
     return location_id
 
 
+async def resolve_vehicle_custody_location_ids(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    vehicle_ids,
+    require_active: bool = False,
+) -> dict[int, int]:
+    return await read_canonical_custody_location_ids(
+        db, company_id=company_id, vehicle_ids=vehicle_ids, require_active=require_active
+    )
+
+
 __all__ = [
     "create_custody_for_vehicle",
     "lock_vehicle_custody",
     "resolve_vehicle_custody_location_id",
+    "resolve_vehicle_custody_location_ids",
+    "vehicle_custody_ready_predicate",
 ]

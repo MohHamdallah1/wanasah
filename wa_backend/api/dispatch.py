@@ -13,7 +13,12 @@ from api.authentication.backoffice_compatibility import (
     get_current_backoffice_legacy_driver,
 )
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
-from domains.vehicles import VehicleError, resolve_vehicle_custody_location_id
+from domains.vehicles import (
+    VehicleError,
+    resolve_vehicle_custody_location_id,
+    resolve_vehicle_custody_location_ids,
+    vehicle_custody_ready_predicate,
+)
 from domains.vehicles.eligibility import (
     read_vehicle_operational_state,
     route_requires_operational_vehicle,
@@ -312,30 +317,22 @@ async def _dispatch_session_inventory_projection(
         if sid not in location_by_session and route.vehicle_id is not None
     })
     if unresolved_vehicle_ids:
-        location_rows = (
-            await db.execute(
-                select(InventoryLocation.vehicle_id, InventoryLocation.id)
-                .filter(
-                    InventoryLocation.company_id == company_id,
-                    InventoryLocation.location_type == "VEHICLE",
-                    InventoryLocation.vehicle_id.in_(unresolved_vehicle_ids),
-                )
-                .order_by(
-                    InventoryLocation.vehicle_id.asc(),
-                    InventoryLocation.is_active.desc(),
-                    InventoryLocation.id.desc(),
-                )
+        try:
+            canonical_by_vehicle = await resolve_vehicle_custody_location_ids(
+                db,
+                company_id=company_id,
+                vehicle_ids=unresolved_vehicle_ids,
+                require_active=False,
             )
-        ).all()
-        first_location_by_vehicle = {}
-        for vehicle_id, location_id in location_rows:
-            first_location_by_vehicle.setdefault(int(vehicle_id), int(location_id))
+        except VehicleError as exc:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail={"code": exc.code, "message": exc.message, "context": exc.context},
+            ) from exc
         for sid, route in route_map.items():
             if sid in location_by_session or route.vehicle_id is None:
                 continue
-            location_id = first_location_by_vehicle.get(int(route.vehicle_id))
-            if location_id is not None:
-                location_by_session[sid] = location_id
+            location_by_session[sid] = canonical_by_vehicle[int(route.vehicle_id)]
 
     location_ids = sorted(set(location_by_session.values()))
     current_by_location = {}
@@ -640,6 +637,7 @@ async def _dispatch_vehicle_location_ids(
     company_id: int,
     vehicle_id: int,
 ) -> list[int]:
+    # Historical transfer evidence spans every custody ID; this never selects a canonical row.
     location_ids = list((
         await db.execute(
             select(InventoryLocation.id)
@@ -1123,10 +1121,10 @@ async def dispatch_init(
         ).order_by(Driver.id.asc())
     )).scalars().all()
     vehicles = (await db.execute(
-        select(Vehicle).filter_by(company_id=company_id).filter(vehicle_operational_predicate(Vehicle), vehicle_filter(access, 'dispatch.read', Vehicle.id)).order_by(Vehicle.id.asc())
+        select(Vehicle).filter_by(company_id=company_id).filter(vehicle_operational_predicate(Vehicle), vehicle_custody_ready_predicate(Vehicle), vehicle_filter(access, 'dispatch.read', Vehicle.id)).order_by(Vehicle.id.asc())
     )).scalars().all()
     executable_vehicles = set((await db.scalars(select(Vehicle.id).where(
-        Vehicle.company_id == company_id, vehicle_operational_predicate(Vehicle), vehicle_filter(access, 'dispatch.execute', Vehicle.id)))).all())
+        Vehicle.company_id == company_id, vehicle_operational_predicate(Vehicle), vehicle_custody_ready_predicate(Vehicle), vehicle_filter(access, 'dispatch.execute', Vehicle.id)))).all())
     warehouses = (await db.execute(select(InventoryLocation).where(
         InventoryLocation.company_id == company_id,
         InventoryLocation.location_type == 'WAREHOUSE',
@@ -2463,7 +2461,7 @@ async def _dispatch_absolute_targets(
         db,
         company_id=company_id,
         route=route,
-        admin=admin,
+        legacy_actor_id=legacy_actor_id,
         session=session,
         variants=variants,
         pack_deltas=deltas,

@@ -4,6 +4,7 @@ import ast
 import asyncio
 import hashlib
 import json
+from uuid import uuid4
 from datetime import date, timedelta
 import unittest
 from pathlib import Path
@@ -11,17 +12,23 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from fastapi import HTTPException
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, create_engine, func, or_, select, update
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domains.pricing.core import PricingError
-from domains.vehicles import VehicleError, resolve_vehicle_custody_location_id
+from domains.vehicles import (
+    VehicleError, resolve_vehicle_custody_location_id, resolve_vehicle_custody_location_ids,
+    vehicle_custody_ready_predicate, vehicle_operational_predicate,
+)
+from dispatch_access import vehicle_filter
 from domains.vehicles import repository as vehicle_repository
 from models import (
     DispatchRoute, Driver, InventoryBalance, InventoryLocation, Shop,
     ShortageRequest, SystemAuditLog, Vehicle, Visit, WorkSession,
+    ProductVariant, ProductLocation, InventoryTransferHeader, InventoryTransferLine,
+    SessionInventorySnapshot, InventoryMovement,
 )
 from services import InventoryMutationError
 
@@ -102,6 +109,7 @@ class VehicleOperationalEligibilityIntegrationTests(unittest.TestCase):
         source = _function_source(ELIGIBILITY, "read_vehicle_operational_state")
         self.assertIn("select(Vehicle)", source)
         self.assertNotIn("with_for_update", source)
+        self.assertIn("populate_existing=True", source)
 
 
 def _load_dispatch_functions(*names, **dependencies):
@@ -419,6 +427,265 @@ class DispatchCustodyWorkflowTests(unittest.IsolatedAsyncioTestCase):
         db.rollback.assert_not_awaited()
         self.assertEqual(len(db.add.call_args_list), 1)
         self.assertIsInstance(db.add.call_args.args[0], SystemAuditLog)
+
+
+
+class CompleteCustodyReadinessTests(unittest.IsolatedAsyncioTestCase):
+    async def test_bulk_resolver_checks_all_history_in_one_query(self):
+        db = MagicMock(spec=AsyncSession)
+        db.execute.return_value = _result(rows=[(801, 501, True), (802, 502, False)])
+        self.assertEqual(await resolve_vehicle_custody_location_ids(
+            db, company_id=7, vehicle_ids=[801, 802], require_active=False
+        ), {801: 501, 802: 502})
+        db.execute.assert_awaited_once()
+        statement = db.execute.await_args.args[0]
+        self.assertIsNone(statement._limit_clause)
+        self.assertIsNone(statement._for_update_arg)
+        self.assertNotIn("is_active IS", _sql(statement))
+
+    async def test_bulk_missing_duplicate_and_inactive_mapping_fail_closed(self):
+        for rows, active, code in (
+            ([], False, "VEHICLE_CUSTODY_LOCATION_MISSING"),
+            ([(801, 501, True), (801, 502, False)], False, "VEHICLE_CUSTODY_LOCATION_AMBIGUOUS"),
+            ([(801, 501, False), (801, 502, False)], True, "VEHICLE_CUSTODY_LOCATION_AMBIGUOUS"),
+            ([(801, 501, False)], True, "VEHICLE_CUSTODY_LOCATION_INACTIVE"),
+        ):
+            with self.subTest(code=code):
+                db = MagicMock(spec=AsyncSession)
+                db.execute.return_value = _result(rows=rows)
+                with self.assertRaises(VehicleError) as rejected:
+                    await resolve_vehicle_custody_location_ids(
+                        db, company_id=7, vehicle_ids=[801], require_active=active
+                    )
+                self.assertEqual(rejected.exception.code, code)
+                db.execute.assert_awaited_once()
+
+    def test_dispatch_ready_sql_filters_custody_maintenance_tenant_and_location_grants(self):
+        # Execute the real SQL predicate in SQLite memory, not PostgreSQL acceptance.
+        engine = create_engine("sqlite://")
+        with engine.begin() as db:
+            db.exec_driver_sql("CREATE TABLE vehicles (id INTEGER, company_id INTEGER, is_active BOOLEAN, maintenance_status TEXT)")
+            db.exec_driver_sql("CREATE TABLE inventory_locations (id INTEGER, company_id INTEGER, vehicle_id INTEGER, location_type TEXT, is_active BOOLEAN)")
+            for vehicle_id in range(1, 12):
+                db.exec_driver_sql("INSERT INTO vehicles VALUES (?, ?, ?, ?)", (
+                    vehicle_id, 9 if vehicle_id == 8 else 7, vehicle_id != 7,
+                    "In_Maintenance" if vehicle_id == 6 else "Active",
+                ))
+            rows = [
+                (11, 7, 1, "VEHICLE", True), (31, 7, 3, "VEHICLE", False),
+                (41, 7, 4, "VEHICLE", True), (42, 7, 4, "VEHICLE", False),
+                (51, 7, 5, "VEHICLE", False), (52, 7, 5, "VEHICLE", False),
+                (61, 7, 6, "VEHICLE", True), (71, 7, 7, "VEHICLE", True),
+                (81, 9, 8, "VEHICLE", True), (91, 7, 9, "WAREHOUSE", True),
+                (101, 9, 10, "VEHICLE", True), (111, 7, 11, "VEHICLE", True),
+            ]
+            db.exec_driver_sql("INSERT INTO inventory_locations VALUES (?, ?, ?, ?, ?)", rows)
+            for code in ("dispatch.read", "dispatch.execute"):
+                access = SimpleNamespace(company_id=7, allows=lambda code, column: column.in_([11, 41, 61, 71, 81, 91, 101]))
+                query = select(Vehicle.id).where(
+                    Vehicle.company_id == 7, vehicle_operational_predicate(Vehicle),
+                    vehicle_custody_ready_predicate(Vehicle), vehicle_filter(access, code, Vehicle.id),
+                )
+                self.assertEqual(list(db.scalars(query)), [1])
+        engine.dispose()
+        source = _function_source(DISPATCH, "dispatch_init")
+        self.assertEqual(source.count("vehicle_custody_ready_predicate(Vehicle)"), 2)
+        self.assertIn("vehicle_filter(access, 'dispatch.read'", source)
+        self.assertIn("vehicle_filter(access, 'dispatch.execute'", source)
+
+    async def test_dispatch_session_fallback_uses_bulk_strict_mapping_and_allows_historical_inactive_row(self):
+        from sqlalchemy.orm import joinedload
+        db = MagicMock(spec=AsyncSession)
+        session = SimpleNamespace(id=601, inventory_reconciled_at=None)
+        route = SimpleNamespace(work_session_id=601, vehicle_id=801)
+        db.execute.side_effect = [
+            _result(ids=[route]), _result(rows=[]), _result(rows=[(801, 501, False)]),
+            _result(rows=[]), _result(rows=[]),
+        ]
+        namespace = _load_dispatch_functions("_dispatch_session_inventory_projection", joinedload=joinedload)
+        projection, routes = await namespace["_dispatch_session_inventory_projection"](db, company_id=7, sessions=[session])
+        self.assertEqual(projection, {601: []})
+        self.assertIs(routes[601], route)
+        self.assertEqual(db.execute.await_count, 5)
+
+    async def test_dispatch_session_fallback_rejects_missing_and_duplicate_history(self):
+        from sqlalchemy.orm import joinedload
+        for rows, code in (
+            ([], "VEHICLE_CUSTODY_LOCATION_MISSING"),
+            ([(801, 501, True), (801, 502, False)], "VEHICLE_CUSTODY_LOCATION_AMBIGUOUS"),
+        ):
+            with self.subTest(code=code):
+                db = MagicMock(spec=AsyncSession)
+                db.execute.side_effect = [
+                    _result(ids=[SimpleNamespace(work_session_id=601, vehicle_id=801)]),
+                    _result(rows=[]), _result(rows=rows),
+                ]
+                namespace = _load_dispatch_functions("_dispatch_session_inventory_projection", joinedload=joinedload)
+                with self.assertRaises(HTTPException) as rejected:
+                    await namespace["_dispatch_session_inventory_projection"](db, company_id=7, sessions=[SimpleNamespace(id=601)])
+                self.assertEqual((rejected.exception.status_code, rejected.exception.detail["code"]), (409, code))
+                self.assertEqual(db.execute.await_count, 3)
+
+    async def test_transfer_history_query_intentionally_keeps_all_custody_ids(self):
+        db = MagicMock(spec=AsyncSession)
+        db.execute.return_value = _result(ids=[501, 502])
+        namespace = _load_dispatch_functions("_dispatch_vehicle_location_ids")
+        self.assertEqual(await namespace["_dispatch_vehicle_location_ids"](db, company_id=7, vehicle_id=801), [501, 502])
+        query = db.execute.await_args.args[0]
+        self.assertIsNone(query._limit_clause)
+        self.assertNotIn("is_active", _sql(query))
+        self.assertIn("Historical transfer evidence", _function_source(DISPATCH, "_dispatch_vehicle_location_ids"))
+
+    def test_no_operational_router_query_chooses_vehicle_custody_directly(self):
+        remaining = {}
+        for path in (DRIVER, DISPATCH):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            owners = []
+            for node in tree.body:
+                if not isinstance(node, ast.AsyncFunctionDef):
+                    continue
+                selects = [
+                    call for call in ast.walk(node) if isinstance(call, ast.Call)
+                    and isinstance(call.func, ast.Name) and call.func.id == "select"
+                    and any(isinstance(arg, ast.Attribute) and isinstance(arg.value, ast.Name)
+                            and arg.value.id == "InventoryLocation" for arg in call.args)
+                ]
+                filters = [
+                    call for call in ast.walk(node) if isinstance(call, ast.Call)
+                    and any(kw.arg == "vehicle_id" for kw in call.keywords)
+                    and any(kw.arg == "location_type" and isinstance(kw.value, ast.Constant)
+                            and kw.value.value == "VEHICLE" for kw in call.keywords)
+                ] + [
+                    attribute for attribute in ast.walk(node) if isinstance(attribute, ast.Attribute)
+                    and isinstance(attribute.value, ast.Name) and attribute.value.id == "InventoryLocation"
+                    and attribute.attr == "vehicle_id"
+                ]
+                if selects and filters:
+                    owners.append(node.name)
+            remaining[path.name] = owners
+        self.assertEqual(remaining, {
+            "driver.py": ["start_work_session"], "dispatch.py": ["_dispatch_vehicle_location_ids"],
+        })
+        source = _function_source(DRIVER, "start_work_session")
+        self.assertIn("id=vehicle_location_id", source)
+        self.assertEqual(source.count("resolve_vehicle_custody_location_id("), 2)
+
+
+class RouteStatusAbsoluteInventoryRegressionTests(unittest.IsolatedAsyncioTestCase):
+    def setup_route(self, bound=False, fail=False):
+        db = MagicMock(spec=AsyncSession)
+        route = SimpleNamespace(id=701, driver_id=303, vehicle_id=801, zone_id=1001,
+            work_session_id=601 if bound else None, status="active", source_location_id=901)
+        driver = SimpleNamespace(id=303, is_active=True)
+        vehicle = SimpleNamespace(id=801, is_active=True, maintenance_status="Active")
+        session = SimpleNamespace(id=601, end_time=None, inventory_reconciled_at=None, commercial_context_id=1001)
+        snapshot = SimpleNamespace(**vars(route))
+        def execute(statement):
+            descriptions = getattr(statement, "column_descriptions", ())
+            entity = descriptions[0].get("entity") if descriptions else None
+            if entity is DispatchRoute:
+                if len(descriptions) == 5:
+                    return _result(snapshot)
+                return _result(route) if descriptions[0]["name"] == "DispatchRoute" else _result()
+            if entity is Driver:
+                return _result((driver, True), rows=[(driver, True)])
+            if entity is Vehicle:
+                return _result(vehicle, ids=[vehicle])
+            if entity is WorkSession:
+                return _result(session)
+            if entity is InventoryLocation:
+                return _result(ids=[501])
+            if entity in (InventoryBalance, Shop):
+                return _result()
+            raise AssertionError(f"Unexpected SQL: {statement}")
+        db.execute.side_effect = execute
+        db.scalar.return_value = True
+        db.scalars.return_value = _result(rows=[SimpleNamespace(product_variant_id=111, operational_flags={})])
+        current, pending = {}, {}
+        async def movements(*args, **kwargs):
+            if fail:
+                raise InventoryMutationError("synthetic downstream inventory failure")
+            for spec in kwargs["movements"]:
+                sign = -1 if spec["source_location_id"] == 501 else 1
+                if spec["movement_kind"] == "RESERVATION":
+                    pending[111] = pending.get(111, 0) + sign * spec["quantity"]
+                else:
+                    current[111] = (current.get(111, (0, 0))[0] + sign * spec["quantity"], 0)
+        async def flush():
+            for call in db.add.call_args_list:
+                if isinstance(call.args[0], InventoryTransferHeader) and call.args[0].id is None:
+                    call.args[0].id = 21
+        db.flush.side_effect = flush
+        namespace = _load_dispatch_functions(
+            "_dispatch_vehicle_location_id", "_dispatch_absolute_targets", "_dispatch_apply_pack_deltas", "update_route_status",
+            require_route=AsyncMock(), require_vehicle=AsyncMock(),
+            has_canonical_field_identity=Mock(return_value=True),
+            _dispatch_lock_zone_rows=AsyncMock(return_value={1001: SimpleNamespace(is_active=True, start_date=None, interval_days=None)}),
+            _dispatch_assert_vehicle_custody_reconciled=AsyncMock(),
+            _dispatch_source_warehouse=AsyncMock(return_value=SimpleNamespace(id=901)),
+            _dispatch_available_totals=AsyncMock(side_effect=lambda *a, **k: dict(current)),
+            _dispatch_pending_handshake_net=AsyncMock(side_effect=lambda *a, **k: dict(pending)),
+            _dispatch_variant_map=AsyncMock(return_value={111: SimpleNamespace(variant_name="Synthetic",
+                packs_per_carton=5, lifecycle_status="ACTIVE", operational_hold="NONE", lifecycle_revision=1)}),
+            acquire_inventory_location_guards=AsyncMock(), acquire_product_lifecycle_guards=AsyncMock(),
+            check_inventory_lock=AsyncMock(), evaluate_product_capability=Mock(return_value=SimpleNamespace(allowed=True)),
+            product_location_allows=Mock(return_value=True), ROUTE_LOAD_NEW="ROUTE_LOAD_NEW",
+            _dispatch_allocate_available_batches=AsyncMock(side_effect=lambda *a, **k: [(1, k["quantity"])]),
+            apply_inventory_movements_batch=AsyncMock(side_effect=movements),
+            _dispatch_set_load_plan_target=AsyncMock(), _DB_INT_MAX_DISPATCH=2_147_483_647,
+            get_company_local_date=AsyncMock(return_value=date(2026, 10, 14)),
+            lock_route_commercial_context=AsyncMock(return_value=SimpleNamespace(id=1001)),
+            require_route_commercial_context=AsyncMock(return_value=SimpleNamespace(id=1001)),
+            commercial_context_payload=Mock(return_value={"id": 1001}),
+            dispatch_manager=SimpleNamespace(broadcast=AsyncMock()), logger=Mock(),
+        )
+        kwargs = dict(route_id=701, payload=SimpleNamespace(status=None, driverId=None, vehicleId=None, inventory={"111": 2}),
+            db=db, access=SimpleNamespace(company_id=7, principal_id=101, backoffice_user_id=202), legacy_actor=SimpleNamespace(id=404))
+        return SimpleNamespace(db=db, namespace=namespace, kwargs=kwargs, route=route)
+
+    async def test_route_status_inventory_before_and_during_session_forwards_exact_legacy_provenance(self):
+        for bound in (False, True):
+            with self.subTest(bound=bound):
+                setup = self.setup_route(bound)
+                await setup.namespace["update_route_status"](**setup.kwargs)
+                movement = setup.namespace["apply_inventory_movements_batch"]
+                movement.assert_awaited_once()
+                self.assertEqual(movement.await_args.kwargs["performed_by"], 404)
+                self.assertTrue(all(spec["movement_kind"] == ("RESERVATION" if bound else "PHYSICAL")
+                                    for spec in movement.await_args.kwargs["movements"]))
+                self.assertEqual(setup.namespace["_dispatch_set_load_plan_target"].await_args.kwargs["updated_by"], 404)
+                audits = [call.args[0] for call in setup.db.add.call_args_list if isinstance(call.args[0], SystemAuditLog)]
+                self.assertTrue(audits)
+                self.assertTrue(all(audit.admin_id == 404 for audit in audits))
+                if bound:
+                    header = next(call.args[0] for call in setup.db.add.call_args_list if isinstance(call.args[0], InventoryTransferHeader))
+                    self.assertEqual((header.dispatched_by, header.source_location_id, header.destination_location_id), (404, 901, 501))
+                setup.db.commit.assert_awaited_once()
+                setup.db.rollback.assert_not_awaited()
+
+    async def test_absolute_target_retry_with_no_delta_does_not_duplicate_stock_transfer_or_audit(self):
+        for bound in (False, True):
+            with self.subTest(bound=bound):
+                setup = self.setup_route(bound)
+                await setup.namespace["update_route_status"](**setup.kwargs)
+                added = setup.db.add.call_count
+                await setup.namespace["update_route_status"](**setup.kwargs)
+                setup.namespace["apply_inventory_movements_batch"].assert_awaited_once()
+                self.assertEqual(setup.db.add.call_count, added)
+                self.assertEqual(setup.namespace["_dispatch_set_load_plan_target"].await_count, 2)
+                self.assertEqual(setup.db.commit.await_count, 2)
+
+    async def test_route_status_inventory_rolls_back_real_downstream_error_type(self):
+        for bound in (False, True):
+            with self.subTest(bound=bound):
+                setup = self.setup_route(bound, fail=True)
+                with self.assertRaises(HTTPException) as rejected:
+                    await setup.namespace["update_route_status"](**setup.kwargs)
+                self.assertEqual(rejected.exception.status_code, 409)
+                setup.db.commit.assert_not_awaited()
+                setup.db.rollback.assert_awaited_once()
+                setup.namespace["_dispatch_set_load_plan_target"].assert_not_awaited()
+                self.assertFalse(any(isinstance(call.args[0], SystemAuditLog) for call in setup.db.add.call_args_list))
 
 
 if __name__ == "__main__":

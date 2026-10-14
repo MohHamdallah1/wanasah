@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Vehicle
 
-from .contracts import CURRENT_ROUTE_STATUSES
+from .contracts import CURRENT_ROUTE_STATUSES, VehicleError
 
 
 OPERATIONAL_MAINTENANCE_STATUS = "Active"
@@ -59,13 +59,32 @@ async def read_vehicle_operational_state(
         select(Vehicle).where(
             Vehicle.company_id == int(company_id),
             Vehicle.id == int(vehicle_id),
-        )
+        ).execution_options(populate_existing=True)
     )
+
+
+async def require_vehicle_operational_state(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    vehicle_id: int,
+) -> None:
+    """Validate persisted operational state without acquiring a Vehicle row lock."""
+    vehicle = await read_vehicle_operational_state(
+        db, company_id=company_id, vehicle_id=vehicle_id
+    )
+    if not vehicle_is_operational(vehicle):
+        raise VehicleError(
+            "VEHICLE_NOT_OPERATIONAL",
+            "السيارة متوقفة أو في الصيانة ولا تقبل عملية تشغيلية جديدة.",
+            status_code=409,
+        )
 
 
 __all__ = [
     "OPERATIONAL_MAINTENANCE_STATUS",
     "read_vehicle_operational_state",
+    "require_vehicle_operational_state",
     "route_requires_operational_vehicle",
     "vehicle_is_operational",
     "vehicle_operational_predicate",
