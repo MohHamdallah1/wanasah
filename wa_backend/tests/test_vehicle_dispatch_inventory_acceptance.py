@@ -673,6 +673,69 @@ async def test_07_strict_custody_zero_and_historical_duplicate_fail_closed(gate)
             db, company_id=company_id, vehicle_id=dup_id, require_active=True
         )
     assert duplicate_exc.value.status_code == 409
+    assert duplicate_exc.value.detail["code"] == "VEHICLE_CUSTODY_LOCATION_AMBIGUOUS"
+    assert duplicate_exc.value.detail["context"]["location_count"] == 2
+
+    single = await _create_vehicle(db, owner, company_id, plate="ACC-SINGLE-CUSTODY")
+    single_id = int(single["id"])
+    single_location_id = await dispatch_api._dispatch_vehicle_location_id(
+        db, company_id=company_id, vehicle_id=single_id, require_active=True
+    )
+    assert await _count(
+        db, InventoryLocation,
+        InventoryLocation.company_id == company_id,
+        InventoryLocation.vehicle_id == single_id,
+        InventoryLocation.location_type == "VEHICLE",
+    ) == 1
+    single_location = await db.get(InventoryLocation, single_location_id)
+    single_location.is_active = False
+    await db.commit()
+    with pytest.raises(HTTPException) as inactive_exc:
+        await dispatch_api._dispatch_vehicle_location_id(
+            db, company_id=company_id, vehicle_id=single_id, require_active=True
+        )
+    assert inactive_exc.value.status_code == 409
+    assert inactive_exc.value.detail["code"] == "VEHICLE_CUSTODY_LOCATION_INACTIVE"
+    assert int(await dispatch_api._dispatch_vehicle_location_id(
+        db, company_id=company_id, vehicle_id=single_id, require_active=False
+    )) == single_location_id
+
+    multiple = await _create_vehicle(db, owner, company_id, plate="ACC-MULTI-INACTIVE")
+    multiple_id = int(multiple["id"])
+    canonical = await db.scalar(select(InventoryLocation).where(
+        InventoryLocation.company_id == company_id,
+        InventoryLocation.vehicle_id == multiple_id,
+        InventoryLocation.location_type == "VEHICLE",
+    ))
+    canonical.is_active = False
+    db.add_all([
+        InventoryLocation(
+            company_id=company_id, name="Historical inactive duplicate A",
+            code=f"VEH-HIST-A-{multiple_id}", location_type="VEHICLE",
+            vehicle_id=multiple_id, is_active=False, version=1,
+        ),
+        InventoryLocation(
+            company_id=company_id, name="Historical inactive duplicate B",
+            code=f"VEH-HIST-B-{multiple_id}", location_type="VEHICLE",
+            vehicle_id=multiple_id, is_active=False, version=1,
+        ),
+    ])
+    await db.commit()
+    assert await _count(
+        db, InventoryLocation,
+        InventoryLocation.company_id == company_id,
+        InventoryLocation.vehicle_id == multiple_id,
+        InventoryLocation.location_type == "VEHICLE",
+    ) == 3
+    for require_active in (False, True):
+        with pytest.raises(HTTPException) as multiple_exc:
+            await dispatch_api._dispatch_vehicle_location_id(
+                db, company_id=company_id, vehicle_id=multiple_id,
+                require_active=require_active,
+            )
+        assert multiple_exc.value.status_code == 409
+        assert multiple_exc.value.detail["code"] == "VEHICLE_CUSTODY_LOCATION_AMBIGUOUS"
+        assert multiple_exc.value.detail["context"]["location_count"] == 3
 
 
 @pytest.mark.asyncio
@@ -721,6 +784,82 @@ async def test_08_driver_start_rejects_historical_duplicate_custody(gate):
             SessionStartRequest(), db=db, field_context=field_context, legacy_actor=field_driver
         )
     assert exc.value.status_code == 409
+    assert exc.value.detail["code"] == "VEHICLE_CUSTODY_LOCATION_AMBIGUOUS"
+
+
+@pytest.mark.asyncio
+async def test_08b_dispatch_route_and_load_adjustment_reject_ambiguous_custody(gate):
+    db = gate["db"]
+    company_id = gate["company_id"]
+    owner = gate["owner"]
+    variant_id = gate["variant_id"]
+    before_balances = await _count(db, InventoryBalance, InventoryBalance.company_id == company_id)
+
+    route_field = await seed_field_fixture(db, company_id, password="SyntheticFieldAmbRoute123")
+    route_field_id = int(route_field.driver.id)
+    route_zone = Zone(company_id=company_id, name="Ambiguous Route Create Zone")
+    db.add(route_zone)
+    await db.flush()
+    route_zone_id = int(route_zone.id)
+    await db.commit()
+    created = await _create_vehicle(db, owner, company_id, plate="ACC-AMB-ROUTE")
+    vehicle_id = int(created["id"])
+    db.add(InventoryLocation(
+        company_id=company_id, name="Ambiguous route historical custody",
+        code=f"VEH-HIST-ROUTE-{vehicle_id}", location_type="VEHICLE",
+        vehicle_id=vehicle_id, is_active=False, version=1,
+    ))
+    await db.commit()
+    with pytest.raises(HTTPException) as route_exc:
+        await dispatch_api.dispatch_route(
+            DispatchRouteRequest(
+                zone_id=route_zone_id, driver_id=route_field_id, vehicle_id=vehicle_id,
+                source_location_id=gate["wh_a_id"], inventory={},
+            ),
+            db=db, access=owner.access(db), legacy_actor=owner.operational_driver,
+        )
+    assert route_exc.value.status_code == 409
+    assert route_exc.value.detail["code"] == "VEHICLE_CUSTODY_LOCATION_AMBIGUOUS"
+    assert await _count(
+        db, DispatchRoute, DispatchRoute.company_id == company_id,
+        DispatchRoute.vehicle_id == vehicle_id,
+    ) == 0
+
+    adjust_field = await seed_field_fixture(db, company_id, password="SyntheticFieldAmbAdjust123")
+    adjust_field_id = int(adjust_field.driver.id)
+    adjust_zone = Zone(company_id=company_id, name="Ambiguous Load Adjustment Zone")
+    db.add(adjust_zone)
+    await db.flush()
+    adjust_zone_id = int(adjust_zone.id)
+    await db.commit()
+    adjusted = await _create_vehicle(db, owner, company_id, plate="ACC-AMB-ADJUST")
+    adjusted_vehicle_id = int(adjusted["id"])
+    db.add(InventoryLocation(
+        company_id=company_id, name="Ambiguous adjustment historical custody",
+        code=f"VEH-HIST-ADJUST-{adjusted_vehicle_id}", location_type="VEHICLE",
+        vehicle_id=adjusted_vehicle_id, is_active=False, version=1,
+    ))
+    adjust_route = DispatchRoute(
+        company_id=company_id, zone_id=adjust_zone_id, driver_id=adjust_field_id,
+        vehicle_id=adjusted_vehicle_id, source_location_id=gate["wh_a_id"],
+        dispatch_date=await dispatch_api.get_company_local_date(db, company_id),
+        status="active",
+    )
+    db.add(adjust_route)
+    await db.commit()
+    adjust_route_id = int(adjust_route.id)
+    with pytest.raises(HTTPException) as adjust_exc:
+        await dispatch_api.adjust_route_inventory(
+            adjust_route_id,
+            AdjustRouteInventoryRequest(
+                request_id=uuid4(),
+                deltas=[InventoryAdjustmentDelta(product_id=variant_id, delta_cartons=1)],
+            ),
+            db=db, access=owner.access(db), legacy_actor=owner.operational_driver,
+        )
+    assert adjust_exc.value.status_code == 409
+    assert adjust_exc.value.detail["code"] == "VEHICLE_CUSTODY_LOCATION_AMBIGUOUS"
+    assert await _count(db, InventoryBalance, InventoryBalance.company_id == company_id) == before_balances
 
 
 @pytest.mark.asyncio
