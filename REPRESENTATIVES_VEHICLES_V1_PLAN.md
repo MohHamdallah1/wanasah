@@ -2,7 +2,7 @@
 
 ## Build Representatives completely first, then Vehicles, on top of the canonical identity/authorization foundation
 
-**Status:** REPRESENTATIVES V1 COMPLETE + OWNER ACCEPTED; VEHICLES BACKEND + DASHBOARD MERGED; DISPATCH IN PROGRESS
+**Status:** REPRESENTATIVES V1 COMPLETE + OWNER ACCEPTED; VEHICLES TECHNICAL CHECKPOINT 8 COMPLETE; VEHICLE OWNER ACCEPTANCE OPEN
 **Owner decision date:** 2026-10-10  
 **Representative owner acceptance date:** 2026-10-14  
 **Execution rule:** Representatives must be completed and owner-accepted before Vehicles implementation starts. This gate is now satisfied.  
@@ -70,7 +70,15 @@ Representative owner-complete gate:
 
 Vehicles status:
 
-- [ ] Vehicles implementation - **BACKEND PR #309 + DASHBOARD PR #310 + MAINTENANCE/FORM/TAB UX PR #320 MERGED; DISPATCH/INVENTORY INTEGRATION + ACCEPTANCE REMAINS OPEN**. The Representatives owner-acceptance gate is closed.
+- [x] Vehicles technical implementation - **BACKEND MERGED + DASHBOARD MERGED + DISPATCH/INVENTORY INTEGRATION MERGED; CHECKPOINT 8 TECHNICALLY COMPLETE**. Vehicle Owner Acceptance remains **OPEN**.
+
+### Vehicles Checkpoint-8 technical closure - 2026-10-15
+
+- [x] PR #312 merged to `main`; merge commit: `eaea782f8e39c00785b006fe6a319d2c4eb65935`.
+- [x] PR #331 Vehicle `vehicle.read` / `vehicle.manage` company-only authorization correction is included in the merged runtime.
+- [x] PostgreSQL Dispatch/Inventory, reconciliation, strict-custody, and permanent ABBA lock-order acceptance are closed.
+- [x] Historical evidence PRs #315, #319, #323, and #325 are closed unmerged; their evidence is retained without merging test-only branches.
+- [ ] Vehicle Owner Acceptance remains open and is not implied by technical Checkpoint-8 closure.
 
 ### Vehicles source/contract audit closure — 2026-10-14
 
@@ -750,7 +758,7 @@ This is the most important backend integration rule for Vehicles.
 - [x] Vehicle creation must create/link that `VEHICLE` location **atomically**; operator must not manually create the location in another page.
 - [x] Repeated create/retry must not create duplicate Vehicle locations.
 - [x] Vehicle location must remain tenant-scoped and uniquely attributable to the vehicle.
-- [ ] UI uses business wording such as `عهدة السيارة جاهزة`; it does not expose raw InventoryLocation mechanics.
+- [x] UI uses business wording such as `عهدة السيارة جاهزة`; it does not expose raw InventoryLocation mechanics.
 - [x] Stock moves to/from the vehicle only through Inventory transfer/movement authority.
 - [x] Vehicle CRUD never mutates `InventoryBalance` directly.
 - [x] Vehicle deactivation must not erase or orphan inventory history/custody.
@@ -782,7 +790,7 @@ Rules:
 ## 16.1 Module ownership
 
 - [x] Dedicated Vehicles administration service/module; avoid growing `dispatch.py` into CRUD authority.
-- [ ] Dispatch consumes Vehicle public contract.
+- [x] Dispatch consumes Vehicle public contract.
 - [x] Inventory contract is called for VEHICLE location creation/linking.
 - [x] Do not duplicate inventory-location tables or stock logic in Fleet/Dispatch.
 
@@ -839,21 +847,21 @@ Rules:
 Recommended compact columns:
 
 - [ ] row number/identity indicator if useful.
-- [ ] plate number.
-- [ ] vehicle type.
-- [ ] active/inactive state.
-- [ ] maintenance/operational status.
-- [ ] custody readiness indicator.
-- [ ] actions.
+- [x] plate number.
+- [x] vehicle type.
+- [x] active/inactive state.
+- [x] maintenance/operational status.
+- [x] custody readiness indicator.
+- [x] actions.
 
 Rules:
 
 - [x] #320 adds a compact next-maintenance date display: null is silent; overdue is visually distinguishable but not alarming; Western digits are used; overdue never changes operational status.
-- [ ] Search plate/type.
-- [ ] Filter all / ready-active / in maintenance / inactive, with final wording based on actual state model.
-- [ ] No raw location ID shown.
-- [ ] No warehouse assignment column, because vehicle is company-wide.
-- [ ] Active/usable vehicles first by default.
+- [x] Search plate/type.
+- [x] Filter all / ready-active / in maintenance / inactive, with final wording based on actual state model.
+- [x] No raw location ID shown.
+- [x] No warehouse assignment column, because vehicle is company-wide.
+- [x] Active/usable vehicles first by default.
 - [ ] Same pagination/search/error/keyboard quality as Representatives.
 
 ---
@@ -869,47 +877,52 @@ Initial form stays minimal:
 - [x] `license_expiry_date` shown as **Optional / اختياري**.
 - [x] `next_maintenance_date` shown as **Optional / اختياري**.
 - [x] `maintenance_status` shown as **Default / افتراضي**.
-- [ ] active by default when appropriate.
+- [x] active by default when appropriate.
 
 Not shown:
 
-- [ ] no branch selector.
-- [ ] no warehouse selector.
-- [ ] no representative selector.
-- [ ] no manual InventoryLocation setup.
+- [x] no branch selector.
+- [x] no warehouse selector.
+- [x] no representative selector.
+- [x] no manual InventoryLocation setup.
 
 On save:
 
 - [x] backend creates Vehicle and custody location atomically.
-- [ ] UI reports a simple success.
-- [ ] newly created vehicle becomes selectable by Dispatch according to existing route rules.
+- [x] UI reports a simple success.
+- [x] newly created vehicle becomes selectable by Dispatch according to existing route rules.
 
 ---
 
 # 19. Vehicles — Edit/details/actions UX
 
 - [ ] Compact drawer/action surface consistent with Representatives.
-- [ ] Edit plate/type/allowed basic fields.
-- [ ] Change maintenance status with clear wording.
-- [ ] Deactivate/reactivate with blocker feedback.
-- [ ] Show `عهدة السيارة جاهزة` / equivalent readiness state, not technical inventory jargon.
-- [ ] No hard-delete control.
-- [ ] Do not expose stock-management controls here; link/navigate to Inventory only if a real operator need is accepted later.
+- [x] Edit plate/type/allowed basic fields.
+- [x] Change maintenance status with clear wording.
+- [x] Deactivate/reactivate with blocker feedback.
+- [x] Show `عهدة السيارة جاهزة` / equivalent readiness state, not technical inventory jargon.
+- [x] No hard-delete control.
+- [x] Do not expose stock-management controls here; link/navigate to Inventory only if a real operator need is accepted later.
 
 ---
 
 # 20. Vehicles — Dispatch integration acceptance
 
-- [ ] Dispatch vehicle selectors read from canonical Vehicle admin source.
-- [ ] Only same-company active/eligible vehicles are assignable.
-- [ ] In-maintenance/inactive vehicle rules are enforced by backend, not selector filtering alone.
-- [ ] Route creation keeps explicit source warehouse/location independent from vehicle master identity.
-- [ ] Active route uniqueness per vehicle remains intact.
-- [ ] WorkSession requires valid route + vehicle + vehicle InventoryLocation as existing business invariant requires.
-- [ ] Existing loading/launch/reconciliation logic continues to work with the newly administered Vehicle records.
-- [ ] No duplicate vehicle-location mapping after retry/reactivation.
+- [x] Dispatch vehicle selectors read from canonical Vehicle admin source.
+- [x] Only same-company active/eligible vehicles are assignable.
+- [x] In-maintenance/inactive vehicle rules are enforced by backend, not selector filtering alone.
+- [x] Route creation keeps explicit source warehouse/location independent from vehicle master identity.
+- [x] Active route uniqueness per vehicle remains intact.
+- [x] WorkSession requires valid route + vehicle + vehicle InventoryLocation as existing business invariant requires.
+- [x] Existing loading/launch/reconciliation logic continues to work with the newly administered Vehicle records.
+- [x] No duplicate vehicle-location mapping after retry/reactivation.
 
 ---
+
+EOD reconciliation boundary after Checkpoint 8:
+
+- Backend EOD reconciliation is proven and merged.
+- The exact owner-facing EOD client/UI workflow is not claimed as implemented here; it remains to be adjudicated during Vehicle Owner Acceptance without reopening the closed backend/runtime gate.
 
 # 21. Vehicles — i18n/accessibility/acceptance gates
 
@@ -926,19 +939,19 @@ Backend/security:
 
 Frontend:
 
-- [ ] TypeScript/build pass.
-- [ ] list/search/filter pass.
-- [ ] add/edit/state flows pass.
-- [ ] RTL/LTR/keyboard/focus pass.
+- [x] TypeScript/build pass.
+- [x] list/search/filter pass.
+- [x] add/edit/state flows pass.
+- [x] RTL/LTR/keyboard/focus pass.
 - [ ] phone-width usability pass.
 - [ ] real-backend browser acceptance for critical flow.
 
 Dispatch/Inventory:
 
-- [ ] created vehicle selectable in Dispatch.
-- [ ] route can use explicit warehouse + vehicle independently.
-- [ ] vehicle inventory location recognized by live inventory/transfer/reconciliation flows.
-- [ ] inactive/maintenance vehicle cannot bypass backend rules by direct API.
+- [x] created vehicle selectable in Dispatch.
+- [x] route can use explicit warehouse + vehicle independently.
+- [x] vehicle inventory location recognized by live inventory/transfer/reconciliation flows.
+- [x] inactive/maintenance vehicle cannot bypass backend rules by direct API.
 
 Owner acceptance:
 
@@ -963,16 +976,16 @@ Only after both individual gates pass:
 - [x] `المندوبون` tab opens by intended default.
 - [x] `السيارات` tab is implemented and remains capability-gated independently from Representatives.
 - [x] #320 makes `?tab=representatives` / `?tab=vehicles` the selected-tab URL source of truth; refresh/direct URL preserves an authorized tab, invalid/unavailable tabs fall back safely, capability checks still control rendering, and no `window.location` reload navigation is used.
-- [ ] Search/filter state stays local to each tab once Vehicles is implemented.
-- [ ] Primary action changes correctly per tab once Vehicles is implemented.
-- [ ] Representative and Vehicle APIs have no duplicated ownership logic once Vehicles exists.
+- [x] Search/filter state stays local to each tab once Vehicles is implemented.
+- [x] Primary action changes correctly per tab once Vehicles is implemented.
+- [x] Representative and Vehicle APIs have no duplicated ownership logic once Vehicles exists.
 - [x] No Branch UI appears in the Representative page for V1.
 - [x] No mandatory warehouse ownership appears on Representative master records.
 - [x] Company Owner can perform required Representative management operations.
 - [x] Delegated Backoffice roles can be restricted by Representative capabilities.
 - [x] Field Representative cannot enter Dashboard Representative management through FIELD identity.
 - [x] Representative created here can login to the real Flutter client and receive Dispatch work.
-- [ ] Vehicle created here has valid custody location; end-to-end Dispatch usability remains open under Checkpoint 8.
+- [x] Vehicle created here has valid custody location; end-to-end Dispatch usability is technically proven under Checkpoint 8.
 - [x] Representative tenant isolation is proven.
 - [x] Representative audit/idempotency evidence exists for mutations.
 - [x] No Representative hard-delete path leaves broken history.
@@ -999,7 +1012,7 @@ Current checkpoints:
 5. [x] **Representative owner-acceptance checkpoint completed; Representatives V1 closed.**
 6. [x] Vehicles backend/domain + InventoryLocation integration - COMPLETED + MERGED IN PR #309.
 7. [x] Vehicles Dashboard implementation - COMPLETED + MERGED IN PR #310; bounded maintenance/date/form/list/tab URL amendment merged in PR #320.
-8. [ ] Vehicles Dispatch/Inventory integration + acceptance - **OPEN; not yet finally accepted/closed**.
+8. [x] Vehicles Dispatch/Inventory integration + acceptance - **TECHNICALLY COMPLETE; merged in PR #312 on main**.
 9. [ ] **Vehicle owner-acceptance checkpoint; merge/cleanup if stable.**
 10. [ ] Final integrated page acceptance and `RUN.txt` closure.
 
