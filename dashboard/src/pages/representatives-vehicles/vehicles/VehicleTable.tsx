@@ -39,11 +39,12 @@ export function VehicleTable({ items, loading = false, canManage, onEdit, onLife
   return (
     <table className="w-full min-w-[900px] table-fixed border-separate border-spacing-0 text-start text-sm">
       <colgroup>
-        <col className="w-[20%]" /><col className="w-[17%]" /><col className="w-[14%]" />
-        <col className="w-[14%]" /><col className="w-[15%]" /><col className="w-[13%]" /><col className="w-[7%]" />
+        <col className="w-[6%]" /><col className="w-[18%]" /><col className="w-[16%]" /><col className="w-[13%]" />
+        <col className="w-[13%]" /><col className="w-[15%]" /><col className="w-[12%]" /><col className="w-[7%]" />
       </colgroup>
       <thead className="sticky top-0 z-10 bg-slate-50/95 text-[11px] font-black text-slate-500 backdrop-blur">
         <tr>
+          <th className="border-b border-slate-200 px-3 py-2.5 text-center">#</th>
           <th className="border-b border-slate-200 px-4 py-2.5 text-start">{t("representativesVehicles.vehicles.fields.plate")}</th>
           <th className="border-b border-slate-200 px-4 py-2.5 text-start">{t("representativesVehicles.vehicles.fields.type")}</th>
           <th className="border-b border-slate-200 px-4 py-2.5 text-start">{t("representativesVehicles.vehicles.fields.mileage")}</th>
@@ -54,8 +55,9 @@ export function VehicleTable({ items, loading = false, canManage, onEdit, onLife
         </tr>
       </thead>
       <tbody>
-        {items.map((vehicle) => (
+        {items.map((vehicle, index) => (
           <tr key={vehicle.id} className="group transition hover:bg-amber-50/55">
+            <td className="border-b border-slate-100 px-3 py-3 text-center font-mono font-semibold tabular-nums text-slate-500"><bdi dir="ltr">{index + 1}</bdi></td>
             <td className="border-b border-slate-100 px-4 py-3 text-start font-black text-slate-800"><bdi dir="ltr">{vehicle.plate_number}</bdi></td>
             <td className="border-b border-slate-100 px-4 py-3 text-start font-semibold text-slate-600">{vehicle.vehicle_type || "—"}</td>
             <td className="border-b border-slate-100 px-4 py-3 text-start font-mono font-semibold tabular-nums text-slate-600"><bdi dir="ltr">{vehicle.current_mileage}</bdi></td>

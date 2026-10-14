@@ -110,10 +110,10 @@ export function VehiclesTab() {
   };
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-3" aria-labelledby="vehicles-tab-heading">
+    <section className="flex h-full min-h-0 flex-1 flex-col gap-0 overflow-hidden" aria-labelledby="vehicles-tab-heading">
       <h2 id="vehicles-tab-heading" className="sr-only">{t("representativesVehicles.tabs.vehicles")}</h2>
 
-      <div className="flex flex-col gap-2.5 rounded-[24px] border border-white/80 bg-white/65 p-2.5 shadow-[0_20px_60px_-44px_rgba(15,23,42,0.6)] backdrop-blur-xl lg:flex-row lg:items-center">
+      <div className="flex shrink-0 flex-col gap-2.5 rounded-t-xl border border-b-0 border-slate-200/80 bg-white px-3 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:px-4 lg:flex-row lg:items-center">
         <div className="min-w-0 flex-1">
           <div className="relative">
             <Search className="pointer-events-none absolute start-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -167,12 +167,12 @@ export function VehiclesTab() {
       </div>
 
       {!access.isLoading && !canManage ? (
-        <p id="vehicle-manage-blocked" className="px-2 text-[11px] font-semibold text-slate-500">
+        <p id="vehicle-manage-blocked" className="shrink-0 border-x border-slate-200/80 bg-white px-4 pb-2 text-[11px] font-semibold text-slate-500">
           {t("representativesVehicles.vehicles.permissions.manageRequired")}
         </p>
       ) : null}
 
-      <div className="flex min-h-[320px] flex-1 flex-col overflow-hidden rounded-[26px] border border-white/85 bg-white/70 shadow-[0_22px_65px_-46px_rgba(15,23,42,0.65)] backdrop-blur-2xl">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-b-xl border border-t-0 border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
         {vehicles.query.isError && !hasLoadedRows ? (
           <div className="grid flex-1 place-items-center p-6 text-center" role="alert">
             <div className="max-w-md">

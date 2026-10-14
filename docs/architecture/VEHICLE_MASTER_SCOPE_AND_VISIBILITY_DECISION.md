@@ -3,7 +3,7 @@
 **Status:** CANONICAL ARCHITECTURE DECISION FOR VEHICLES  
 **Decision date:** 2026-10-14  
 **Applies to:** Vehicle administration, Dispatch vehicle selection, warehouse-scoped Backoffice visibility, Inventory vehicle custody, and future vehicle/warehouse policy configuration.  
-**Companions:** `ARCHITECTURE.md`, `.rules`, `AGENTS.md`, `V1_SCOPE_FREEZE.md`, `REPRESENTATIVES_VEHICLES_V1_PLAN.md`.
+**Companions:** `ARCHITECTURE.md`, `.rules`, `AGENTS.md`, `V1_SCOPE_FREEZE.md`.
 
 ## 1. Core decision
 

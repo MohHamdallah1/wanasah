@@ -121,6 +121,27 @@ The Vehicle administration scope already implemented in merged PR #320 includes 
 - `/representatives-vehicles` uses `?tab=vehicles` and `?tab=representatives` as authorized selected-tab URL state. Refresh/direct URL preserves the authorized selection; invalid or unavailable tabs fall back safely; capability checks remain authoritative; navigation does not use `window.location` reloads.
 - This amendment does **not** add maintenance history, reminder/background jobs, workshop management, maintenance cost/parts tracking, work orders, or a broader fleet-maintenance system to V1.
 
+#### Final Representatives/Vehicles list UX closure — 2026-10-15
+
+- The Arabic Representatives tab label is **`المندوبين`**.
+- Representatives and Vehicles both use one integrated list surface: search/filter/actions
+  are visually attached to the table/list container instead of floating as a separate card.
+- Both tables show a compact visual row number (`1, 2, 3, ...`) using Western digits. The
+  number is list position, not a durable business identifier.
+- Both tabs use cursor-backed automatic infinite scrolling for large result sets; normal
+  operation has no Previous/Next pagination buttons.
+- Representative filters remain `all / active / inactive`; Vehicle filters remain
+  `all / ready / in maintenance / inactive`.
+- Vehicle list search/error/loading/infinite-scroll behavior uses the same quality pattern as
+  Representatives; this closes the stale V1 plan parity checkbox without introducing paging buttons.
+- Representative details intentionally use direct row actions/modals rather than a duplicate details
+  drawer; Vehicles follows the same compact row-action/modal pattern. No drawer is required for V1.
+- `next_oil_change`, `license_expiry_date`, and `next_maintenance_date` remain Vehicle
+  metadata in V1. V1 does not claim background reminder delivery for those fields. Future
+  in-app reminders/notifications are tracked in `VERSION_2_FUTURE_FEATURES.md`.
+- Bulk CSV/XLSX onboarding for Representatives/Vehicles is not required for V1 and is
+  tracked as an optional future capability in `VERSION_2_FUTURE_FEATURES.md`.
+
 Advanced route optimization, generalized fleet-management expansion, or unrelated logistics features are V2 unless explicitly promoted through the scope-change guard.
 
 ### 5.5 Flutter field application — V1 REQUIRED

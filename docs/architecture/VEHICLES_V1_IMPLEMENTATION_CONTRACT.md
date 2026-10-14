@@ -4,7 +4,7 @@
 **Freeze date:** 2026-10-14  
 **Base SHA audited:** `c4010598f48e92d3a609d3b58476f2d9dc26be4a`  
 **Owner-approved scope amendment:** 2026-10-14 — `next_maintenance_date` + bounded Dashboard form/list/tab URL UX, implemented in merged PR #320.
-**Authority:** `ARCHITECTURE.md`, `.rules`, `AGENTS.md`, `V1_SCOPE_FREEZE.md`, `PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md`, `REPRESENTATIVES_VEHICLES_V1_PLAN.md`, `docs/architecture/VEHICLE_MASTER_SCOPE_AND_VISIBILITY_DECISION.md`.
+**Authority:** `ARCHITECTURE.md`, `.rules`, `AGENTS.md`, `V1_SCOPE_FREEZE.md`, `PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md`, `docs/architecture/VEHICLE_MASTER_SCOPE_AND_VISIBILITY_DECISION.md`.
 
 This document freezes the exact V1 Vehicle administration contract after a source-first audit of the current Vehicle, Dispatch, WorkSession, InventoryLocation, transfer, reconciliation, stocktake, authorization, Live Stock, and Dashboard paths. Workers must not broaden or reinterpret it.
 
