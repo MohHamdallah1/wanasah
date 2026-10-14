@@ -2,9 +2,10 @@
 
 ## Build Representatives completely first, then Vehicles, on top of the canonical identity/authorization foundation
 
-**Status:** REPRESENTATIVES TECHNICALLY COMPLETE — OWNER UI ACCEPTANCE PENDING; VEHICLES NOT STARTED
+**Status:** REPRESENTATIVES V1 COMPLETE + OWNER ACCEPTED; VEHICLES READY TO START
 **Owner decision date:** 2026-10-10  
-**Execution rule:** Representatives must be completed and owner-accepted before Vehicles implementation starts.  
+**Representative owner acceptance date:** 2026-10-14  
+**Execution rule:** Representatives must be completed and owner-accepted before Vehicles implementation starts. This gate is now satisfied.  
 **Prerequisite status:** COMPLETE — Backoffice and Field Representative identities are cleanly separated and capability-based authorization is authoritative under `ARCHITECTURE.md`, `.rules`, and `AGENTS.md`.
 **Canonical references:** `ARCHITECTURE.md`, `.rules`, `AGENTS.md`, `RUN.txt`, `V1_SCOPE_FREEZE.md`, `PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md`.
 
@@ -41,8 +42,10 @@ Completed on merged `main`:
 - [x] Final adversarial Backend↔Dashboard review merged, including cache/retry/error hardening, PostgreSQL cursor-key consistency, and secret-free credential-reset recovery.
 - [x] Final FIELD/Flutter compatibility acceptance merged, including canonical FIELD login/session behavior and fail-closed preservation of unsynced offline work across account switching.
 - [x] Representative audit/security acceptance merged; mutation audit atomicity, replay behavior, tenant isolation, secret redaction, and bcrypt traceback redaction are proven.
+- [x] Final Representative modal layering fix merged: shared modal content is portaled to `document.body`, so backdrop/dialog stacking is independent from the page/header stacking context.
+- [x] Final Representative form copy compacted and accepted: username helper shortened and the visible debt-limit explanatory paragraph removed while preserving the `حد الذمم لكل عملية بيع` business label and accessibility semantics.
 
-Final Representative credit-policy closure validated on the acceptance branch (pending merge):
+Final Representative credit-policy closure validated on merged `main`:
 
 - [x] `FieldRepresentative.can_allow_debt` is the authoritative switch for whether a Representative may create any new credit sale.
 - [x] `FieldRepresentative.max_debt_limit` is the maximum **new credit amount in one sale transaction**; it is not daily, monthly, cumulative, or auto-resetting.
@@ -51,7 +54,7 @@ Final Representative credit-policy closure validated on the acceptance branch (p
 - [x] Credit policy has **no daily reset**; persisted canonical Representative policy is re-read for each new-credit decision so disable/limit changes take effect on the next attempt without FIELD re-login.
 - [x] Legacy `Driver.id` is only an operational locator through the company-scoped `FIELD_ONLY` mapping; legacy Driver credit flags/limits are not financial-policy authority.
 
-Final Representative form/credential identity UX closure validated on the acceptance branch (pending merge):
+Final Representative form/credential identity UX closure validated on merged `main`:
 
 - [x] Representative phone is required on create and cannot be cleared on update; historical nullable storage remains migration-free for compatibility.
 - [x] Representative username accepts Arabic or Latin letters with digits and `. _ -`, rejects mixed Arabic+Latin scripts, digits-only, separator-only, and internal whitespace on both Backend and Dashboard.
@@ -60,14 +63,14 @@ Final Representative form/credential identity UX closure validated on the accept
 - [x] Canonical password policy remains minimum 8 Unicode characters and maximum 72 UTF-8 bytes, including Arabic/Latin/mixed/symbol passwords.
 - [x] Accepted per-sale credit-limit semantics remain unchanged.
 
-Still pending before Representatives owner-complete gate:
+Representative owner-complete gate:
 
-- [ ] Final owner acceptance of Representative behavior/wording/density/forms/actions.
-- [ ] **REPRESENTATIVES V1 COMPLETE + OWNER ACCEPTED**.
+- [x] Final owner acceptance of Representative behavior/wording/density/forms/actions.
+- [x] **REPRESENTATIVES V1 COMPLETE + OWNER ACCEPTED**.
 
 Vehicles status:
 
-- [ ] Vehicles implementation — **NOT STARTED**. Do not begin until the Representatives owner-acceptance gate is explicitly closed.
+- [ ] Vehicles implementation — **NOT STARTED; READY TO START**. The Representatives owner-acceptance gate is closed.
 
 ---
 
@@ -148,11 +151,11 @@ dashboard/src/pages/representatives-vehicles/
     RepresentativeTable.tsx          # list/table rendering only
     RepresentativeForm.tsx           # create/edit form only
     RepresentativeRowActions.tsx     # portal row action menu only
-    representativeMoney.ts              # exact-string Representative money presentation only
+    representativeMoney.ts           # exact-string Representative money presentation only
     RepresentativeLifecycleActions.tsx  # lifecycle modal/controller only
     RepresentativeCredentialAction.tsx  # credential-reset modal/controller only
   vehicles/
-    VehiclesTabPlaceholder.tsx       # visible gated placeholder until Representatives acceptance
+    VehiclesTabPlaceholder.tsx       # visible gated placeholder until Vehicles implementation begins
 ```
 
 Exact filenames may change only by technical-lead approval when repository conventions prove a better equivalent; responsibility boundaries may not be collapsed.
@@ -192,7 +195,7 @@ List items, detail responses, create responses, and update responses expose only
 - `id` — canonical `FieldRepresentative.id`.
 - `full_name`.
 - `username`.
-- `phone_number` (`null` allowed).
+- `phone_number` — required/non-empty for all newly created or updated Representatives; historical legacy rows may still surface `null` because storage remains migration-free for compatibility.
 - `is_active` — canonical principal active state.
 - `can_allow_debt`.
 - `max_debt_limit` — exact decimal value; clients must not use binary-float arithmetic for business decisions.
@@ -237,7 +240,7 @@ Request body:
   "request_id": "UUID",
   "full_name": "string",
   "username": "string",
-  "phone_number": null,
+  "phone_number": "string",
   "password": "string",
   "can_allow_debt": false,
   "max_debt_limit": "0.000"
@@ -247,12 +250,14 @@ Request body:
 Constraints:
 
 - `full_name`: 1..120.
-- `username`: 1..80, canonical company-local uniqueness.
-- `phone_number`: optional/null, max 20.
-- `password`: 8..72 and hashed with the canonical company credential mechanism; never logged or returned.
+- `username`: 1..80, canonical company-local uniqueness; Arabic or Latin letters are accepted with digits and `. _ -`, but Arabic and Latin letters may not be mixed in the same username; digits-only/separator-only/internal-whitespace values are rejected.
+- `phone_number`: required, non-empty after trim, max 20. It must not silently normalize to `null`.
+- `password`: minimum 8 Unicode characters and maximum 72 UTF-8 bytes; Arabic, Latin, mixed scripts, digits, and symbols are allowed. It is hashed with the canonical company credential mechanism and is never logged or returned.
 - `can_allow_debt`: defaults `false`.
-- `max_debt_limit`: nonnegative exact decimal, defaults `0.000`; if debt is disabled, the stored limit must remain business-safe and must not silently grant debt.
+- `max_debt_limit`: nonnegative exact decimal. When debt is disabled, create uses a business-safe `0.000`; when debt is enabled, an explicit per-sale limit is required and blank never means unlimited/default/zero.
 - `request_id`: UUID idempotency key in the body; no client-supplied `company_id`, principal id, representative id, role, capability, or profile type.
+
+Dashboard create additionally requires a matching confirmation-password field locally; confirmation is never sent to the API, stored, or included in idempotency/request identity.
 
 ### Update
 
@@ -262,7 +267,7 @@ Request body contains `request_id: UUID` plus any subset of:
 
 - `full_name`.
 - `username`.
-- `phone_number` (including explicit `null`).
+- `phone_number` — when supplied, must be non-empty after trim; `null`/blank cannot clear it.
 - `can_allow_debt`.
 - `max_debt_limit`.
 
@@ -285,7 +290,7 @@ Request body:
 }
 ```
 
-`new_password` is 8..72. On successful implementation the operation must be one transaction that:
+`new_password` follows the same canonical policy: minimum 8 Unicode characters and maximum 72 UTF-8 bytes. On successful implementation the operation must be one transaction that:
 
 1. tenant-safely resolves the canonical Field Representative principal;
 2. writes the new canonical password hash;
@@ -320,14 +325,14 @@ Execution behavior:
 
 - [x] Shared page shell and the **Representatives** tab are implemented.
 - [x] Vehicles tab exists as a visible gated/disabled tab; no Vehicle workflow has been implemented.
-- [ ] After the owner accepts the Representatives behavior and UI, mark the Representatives completion gate `[x]` and begin Vehicles.
+- [x] Representative owner acceptance is complete; the Vehicles phase may now begin on a clean branch from latest `main`.
 - [x] Page/tab naming remains presentation-level and does not change domain contracts.
 
 ## 1.2 Page UX constitution
 
 - [x] Use the same compact Wanasah shell language as Products/Inventory/Suppliers.
 - [x] Compact top bar; no oversized dashboard cards.
-- [ ] Primary action changes by tab: `إضافة مندوب` or `إضافة سيارة` — Vehicle action remains intentionally unavailable while Vehicles is gated.
+- [ ] Primary action changes by tab: `إضافة مندوب` or `إضافة سيارة` — Vehicle action remains intentionally unavailable until Vehicles implementation adds it.
 - [x] Search/filter controls stay close to the Representative table.
 - [x] Infinite scrolling / cursor pagination is used for Representatives.
 - [x] Row actions/detail surface follow the accepted compact Wanasah interaction pattern.
@@ -377,7 +382,7 @@ Required/owned concepts:
 - [x] `FIELD_ONLY` legacy mapping classification.
 - [x] full name.
 - [x] username/login identifier according to canonical company credential rules.
-- [x] phone number (optional).
+- [x] phone number — required for create and maintained as a non-empty Representative contact value on update; historical nullable storage is tolerated for compatibility only.
 - [x] active/inactive lifecycle state.
 - [x] commercial debt permission represented by `can_allow_debt`.
 - [x] maximum debt limit represented by `max_debt_limit`, preserving Decimal/Numeric precision and nonnegative invariant.
@@ -456,7 +461,7 @@ Rules:
 ## 5.3 Create contract
 
 - [x] Company ownership/tenant authority validated server-side.
-- [x] Full name/username/phone/password/debt inputs validated by frozen contracts.
+- [x] Full name/username/required phone/password/debt inputs validated by frozen contracts.
 - [x] Canonical Principal + Field Representative profile + temporary Driver sidecar + FIELD_ONLY mapping created atomically.
 - [x] No Backoffice profile is created for a Field Representative.
 - [x] FIELD channel/type is explicit.
@@ -467,6 +472,7 @@ Rules:
 
 - [x] Minimal-diff updates; omitted values are not silently reset.
 - [x] Username changes pass company uniqueness/security rules.
+- [x] Phone cannot be cleared to blank/null through update.
 - [x] Debt settings are validated atomically.
 - [x] Meaningful identity/profile compatibility fields stay synchronized without turning legacy Driver into authority.
 
@@ -528,9 +534,9 @@ Implemented feature boundary:
 pages/representatives-vehicles/
   RepresentativesVehiclesPage.tsx
   representatives/
-    ...representative list/search/form/drawer/actions...
+    ...representative list/search/table/form/row-actions/modals...
   vehicles/
-    ...gated placeholder only; implementation later...
+    ...gated placeholder only; implementation next...
 ```
 
 - [x] one shared page shell.
@@ -574,11 +580,12 @@ The operator reaches a usable Representative with the fewest safe steps.
 
 - [x] Full name.
 - [x] Username.
-- [x] Phone number.
+- [x] Phone number — required.
 - [x] Initial password using canonical policy including 72-byte UTF-8 ceiling.
+- [x] Dashboard-only password confirmation.
 - [x] Active by default according to the frozen create contract.
 - [x] Debt permission control.
-- [x] Maximum debt limit with exact-decimal validation.
+- [x] Maximum debt limit with exact-decimal validation; required when debt permission is enabled.
 
 Not shown:
 
@@ -591,6 +598,7 @@ Not shown:
 ## 9.2 Form UX
 
 - [x] Clear inline validation.
+- [x] Stable application-owned password visibility controls for create and credential reset.
 - [x] Duplicate-submit protection through request id / mutation state.
 - [x] Backend remains source of truth for uniqueness/conflicts.
 - [x] Success updates the Representative list without a full page reload.
@@ -598,18 +606,18 @@ Not shown:
 
 ---
 
-# 10. Representatives — Edit/details/actions UX
+# 10. Representatives — Edit/actions UX
 
-- [x] Row action opens a focused detail/action surface.
-- [x] View identity/basic info without exposing secrets.
-- [x] Edit allowed profile fields.
+- [x] Row action opens a direct capability-gated action menu rather than a duplicate details drawer.
+- [x] Edit opens a focused form modal for allowed profile fields.
 - [x] Username change follows the frozen identity contract.
-- [x] Separate credential-reset action.
-- [x] Separate deactivate/reactivate action with clear consequences.
-- [x] Debt settings use business wording.
+- [x] Separate credential-reset modal/action.
+- [x] Separate deactivate/reactivate modal/action with clear consequences.
+- [x] Debt settings use compact business wording.
 - [x] No hard-delete button.
 - [x] Deactivation blocker conflicts map to clear business feedback.
-- [x] Route/visit history is not dumped into the V1 administration drawer.
+- [x] Route/visit history is not dumped into Representative administration.
+- [x] Shared modal portal/backdrop covers the full viewport and cannot sit behind the application header.
 
 ---
 
@@ -621,6 +629,7 @@ Not shown:
 - [x] Password validation explains and enforces the 72-byte UTF-8 limit in both languages.
 - [x] API 401/403/409/422/5xx Representative states map to useful user feedback.
 - [x] Capability-denied states remain readable without granting mutation controls.
+- [x] Modal/dialog focus, Escape, outside-click, ARIA, and responsive behavior are preserved after portal layering closure.
 
 ---
 
@@ -653,7 +662,7 @@ Frontend:
 - [x] capability-gated action tests merged.
 - [x] Arabic/English translation resources merged.
 - [x] password UTF-8 byte validation merged/tested.
-- [ ] Final owner/browser acceptance is still pending as an owner checkpoint.
+- [x] Final owner/browser acceptance completed, including final modal layering and compact-copy pass.
 
 Field integration:
 
@@ -664,18 +673,18 @@ Field integration:
 
 Owner acceptance:
 
-- [ ] Functional behavior accepted.
-- [ ] Arabic wording accepted.
-- [ ] Table density accepted.
-- [ ] Add form accepted.
-- [ ] Edit/actions drawer accepted.
-- [ ] No unnecessary steps identified.
+- [x] Functional behavior accepted.
+- [x] Arabic wording accepted.
+- [x] Table density accepted.
+- [x] Add form accepted.
+- [x] Edit/actions experience accepted.
+- [x] No unnecessary steps identified.
 
 **Gate:**
 
-- [ ] **REPRESENTATIVES V1 COMPLETE + OWNER ACCEPTED**
+- [x] **REPRESENTATIVES V1 COMPLETE + OWNER ACCEPTED**
 
-**Only after this gate may Vehicles implementation start.**
+**This gate is closed. Vehicles implementation may now start on a clean branch from latest `main`.**
 
 ---
 
@@ -959,8 +968,8 @@ Current checkpoints:
 2. [x] Representatives backend/domain contract completed and merged.
 3. [x] Representatives Dashboard implementation completed and merged.
 4. [x] Representatives FIELD/Flutter compatibility integration acceptance completed and merged.
-5. [ ] **Representative owner-acceptance checkpoint; merge/cleanup if stable.**
-6. [ ] Vehicles backend/domain + InventoryLocation integration — NOT STARTED.
+5. [x] **Representative owner-acceptance checkpoint completed; Representatives V1 closed.**
+6. [ ] Vehicles backend/domain + InventoryLocation integration — READY TO START.
 7. [ ] Vehicles Dashboard implementation — NOT STARTED.
 8. [ ] Vehicles Dispatch/Inventory integration + acceptance — NOT STARTED.
 9. [ ] **Vehicle owner-acceptance checkpoint; merge/cleanup if stable.**
@@ -1004,7 +1013,7 @@ This section is a hard implementation constraint, not a UI suggestion.
 
 - The project already contains substantial operational Representative logic: Flutter `/driver/*` workflows, sessions, visits, sales/returns-related behavior, transfers, reconciliation, Dispatch assignment, and route context.
 - The project already contains substantial vehicle operational logic: `Vehicle` master model, Dispatch assignment, vehicle inventory/custody locations, live stock, transfers, reconciliation, and stocktake integration.
-- Clean company-master administration modules and Dashboard UX now exist for Representatives. Vehicle administration remains intentionally not started.
+- Clean company-master administration modules and Dashboard UX now exist for Representatives. Vehicle administration is the next approved phase and remains not started until its implementation branch begins.
 - Legacy `wa_backend/api/driver.py` and `wa_backend/api/dispatch.py` remain large operational compatibility surfaces. New administration logic MUST NOT be piled into them.
 
 ## Backend target structure
@@ -1015,7 +1024,7 @@ Representative administration now lives under the dedicated domain/module bounda
 
 with responsibility-focused contracts, repository/query, management, lifecycle, and credential modules, plus thin HTTP routes under `wa_backend/api/representatives/`.
 
-New vehicle administration must similarly use a dedicated boundary when that phase is approved, for example:
+New vehicle administration must similarly use a dedicated boundary when that phase begins, for example:
 
 `wa_backend/domains/vehicles/`
 
@@ -1051,12 +1060,12 @@ The page shell and both tabs remain separated:
 `dashboard/src/pages/representatives-vehicles/`
 
 - page shell / tabs / page-level orchestration;
-- `representatives/` for list, filters, drawer/form, actions, contracts/hooks;
-- `vehicles/` remains gated until its later approved phase;
+- `representatives/` for list, filters, table, form, row actions, lifecycle/credential modals, and focused contracts/hooks;
+- `vehicles/` remains the dedicated boundary for the next implementation phase;
 - shared page-only primitives only when truly shared.
 
-Do not create one giant `RepresentativesVehiclesPage.tsx` containing all API calls, forms, table logic, validation, drawers, and both tabs.
+Do not create one giant `RepresentativesVehiclesPage.tsx` containing all API calls, forms, table logic, validation, dialogs, and both tabs.
 
 ## Acceptance condition
 
-The merged Representative administration implementation now satisfies the architecture, HTTP contract, Dashboard, PostgreSQL runtime, tenant-isolation, lifecycle/reset, idempotency/concurrency, RBAC provisioning, adversarial-review, audit/security, and FIELD/Flutter compatibility gates. Representatives are **technically complete**; only explicit owner UI/wording/behavior acceptance remains before the owner-complete gate is checked. Vehicles remains gated and unimplemented until that final owner gate closes.
+The merged Representative administration implementation satisfies the architecture, HTTP contract, Dashboard, PostgreSQL runtime, tenant-isolation, lifecycle/reset, idempotency/concurrency, RBAC provisioning, adversarial-review, audit/security, FIELD/Flutter compatibility, final form/credential contract, and final modal/copy acceptance gates. Representatives are **V1 complete and owner accepted**. Vehicles are now authorized to start on a clean branch from latest `main` while preserving all frozen boundaries above.
