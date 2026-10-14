@@ -9,6 +9,7 @@ async function assertLayer(page, width) {
   const backdrop = page.locator(".app-modal-backdrop");
   const panel = page.locator(".app-modal-panel");
   await expect(page.getByRole("dialog")).toBeVisible();
+  await page.waitForTimeout(400);
   expect(await layer.evaluate((el) => el.parentElement === document.body)).toBe(true);
   expect(await layer.evaluate((el) => getComputedStyle(el).position)).toBe("fixed");
   const overlayBox = await backdrop.boundingBox();
