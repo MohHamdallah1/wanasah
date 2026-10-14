@@ -37,6 +37,7 @@ class VehicleResponse(StrictModel):
     current_mileage: int
     next_oil_change: int | None
     license_expiry_date: date | None
+    next_maintenance_date: date | None
     maintenance_status: Literal["Active", "In_Maintenance"]
     is_active: bool
     version: int = Field(gt=0)
@@ -56,6 +57,7 @@ class VehicleCreateRequest(StrictModel):
     current_mileage: int = Field(default=0, ge=0, le=_DB_INT_MAX)
     next_oil_change: int | None = Field(default=None, ge=0, le=_DB_INT_MAX)
     license_expiry_date: date | None = None
+    next_maintenance_date: date | None = None
     maintenance_status: Literal["Active", "In_Maintenance"] = "Active"
 
     @field_validator("plate_number")
@@ -77,6 +79,7 @@ class VehicleUpdateRequest(StrictModel):
     current_mileage: int | None = Field(default=None, ge=0, le=_DB_INT_MAX)
     next_oil_change: int | None = Field(default=None, ge=0, le=_DB_INT_MAX)
     license_expiry_date: date | None = None
+    next_maintenance_date: date | None = None
     maintenance_status: Literal["Active", "In_Maintenance"] | None = None
 
     @field_validator("plate_number")

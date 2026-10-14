@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { CarFront, UsersRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -9,53 +10,85 @@ import { VehiclesTab } from "./vehicles/VehiclesTab";
 
 type PageTab = "representatives" | "vehicles";
 
+const pageTabFromUrl = (value: string | null): PageTab | null =>
+  value === "representatives" || value === "vehicles" ? value : null;
+
 export default function RepresentativesVehiclesPage() {
   const { t, i18n } = useTranslation();
   const access = useInventoryAccess();
+  const location = useLocation();
+  const navigate = useNavigate();
   const canReadRepresentatives = Boolean(
     access.isCompanyOwner || access.can("representative.read"),
   );
   const canReadVehicles = Boolean(
     access.isCompanyOwner || access.can("vehicle.read"),
   );
-  const [activeTab, setActiveTab] = useState<PageTab>("representatives");
+  const rawTab = new URLSearchParams(location.search).get("tab");
+  const requestedTab = pageTabFromUrl(rawTab);
+  const firstReadableTab: PageTab | null = canReadRepresentatives
+    ? "representatives"
+    : canReadVehicles
+      ? "vehicles"
+      : null;
+  const requestedTabAllowed = requestedTab === "representatives"
+    ? canReadRepresentatives
+    : requestedTab === "vehicles"
+      ? canReadVehicles
+      : false;
+  const activeTab: PageTab = requestedTab && requestedTabAllowed
+    ? requestedTab
+    : firstReadableTab ?? "representatives";
   const [visitedTabs, setVisitedTabs] = useState<Set<PageTab>>(
     () => new Set<PageTab>(),
   );
 
+  const navigateToTab = (tab: PageTab, replace: boolean) => {
+    const params = new URLSearchParams(location.search);
+    params.set("tab", tab);
+    navigate(
+      { pathname: location.pathname, search: `?${params.toString()}`, hash: location.hash },
+      { replace },
+    );
+  };
+
   const activate = (tab: PageTab) => {
     const allowed = tab === "representatives" ? canReadRepresentatives : canReadVehicles;
-    if (!allowed) return;
-    setActiveTab(tab);
+    if (!allowed || tab === activeTab) return;
     setVisitedTabs((current) => {
       const next = new Set(current);
       next.add(tab);
       return next;
     });
+    navigateToTab(tab, false);
   };
 
   useEffect(() => {
-    if (access.isLoading) return;
-    const activeAllowed = activeTab === "representatives"
-      ? canReadRepresentatives
-      : canReadVehicles;
-    if (activeAllowed) {
-      setVisitedTabs((current) => {
-        if (current.has(activeTab)) return current;
-        const next = new Set(current);
-        next.add(activeTab);
-        return next;
-      });
-      return;
+    if (access.isLoading || firstReadableTab === null) return;
+    setVisitedTabs((current) => {
+      if (current.has(activeTab)) return current;
+      const next = new Set(current);
+      next.add(activeTab);
+      return next;
+    });
+    if (rawTab !== activeTab) {
+      const params = new URLSearchParams(location.search);
+      params.set("tab", activeTab);
+      navigate(
+        { pathname: location.pathname, search: `?${params.toString()}`, hash: location.hash },
+        { replace: true },
+      );
     }
-    if (canReadRepresentatives) {
-      setActiveTab("representatives");
-      setVisitedTabs(new Set<PageTab>(["representatives"]));
-    } else if (canReadVehicles) {
-      setActiveTab("vehicles");
-      setVisitedTabs(new Set<PageTab>(["vehicles"]));
-    }
-  }, [access.isLoading, activeTab, canReadRepresentatives, canReadVehicles]);
+  }, [
+    access.isLoading,
+    activeTab,
+    firstReadableTab,
+    location.hash,
+    location.pathname,
+    location.search,
+    navigate,
+    rawTab,
+  ]);
 
   const noReadableTab = !access.isLoading && !canReadRepresentatives && !canReadVehicles;
 

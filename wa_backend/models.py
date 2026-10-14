@@ -995,6 +995,7 @@ class Vehicle(Base):
     current_mileage    = Column(Integer,    nullable=False, default=0)
     next_oil_change    = Column(Integer,    nullable=True)
     license_expiry_date = Column(Date,      nullable=True)
+    next_maintenance_date = Column(Date,     nullable=True)
     maintenance_status = Column(String(50), nullable=False, default='Active')  # Active | In_Maintenance
     is_active          = Column(Boolean,    nullable=False, default=True)
     version            = Column(Integer, nullable=False, default=1, server_default='1')
