@@ -11,6 +11,9 @@ npm run dev
 worker - product import
 .\ops\development\run_product_import_worker.ps1
 
+doctor - windows dev environment check (read-only):
+.\ops\development\wanasah_doctor.ps1
+
 cd C:\Users\admin\AppData\Local\Android\Sdk\platform-tools
 .\adb connect 192.168.1.192:
 .\adb pair 192.168.0.192:
