@@ -70,7 +70,7 @@ Representative owner-complete gate:
 
 Vehicles status:
 
-- [ ] Vehicles implementation — **NOT STARTED; V1 CONTRACT FROZEN / READY FOR WAVE 1**. The Representatives owner-acceptance gate is closed.
+- [ ] Vehicles implementation - **BACKEND IMPLEMENTED IN PR #309 / UNDER REVIEW; DASHBOARD + DISPATCH INTEGRATION PENDING**. The Representatives owner-acceptance gate is closed.
 
 ### Vehicles source/contract audit closure — 2026-10-14
 
@@ -85,6 +85,7 @@ Vehicles status:
 - [x] Canonical implementation contract recorded in `docs/architecture/VEHICLES_V1_IMPLEMENTATION_CONTRACT.md`.
 - [x] Independent adversarial specialist findings reviewed against current `c4010598...` source; accepted lock-order, complete maintenance-entry, all-stock-status blocker, strict custody-resolution, current location-grant, and Dashboard permission-catalog corrections are frozen into PR #308.
 - [x] Specialist endpoint naming corrected to the actual runtime route `PUT /dispatch/route/{route_id}/adjust_inventory`; no speculative full inactive-location unique index or case-insensitive plate index was accepted without data/business evidence.
+- [x] Vehicles Backend PR #309 implementation evidence: compile/router/schema gates, Alembic PostgreSQL downgrade->upgrade, canonical Owner + delegated Role capability checks, same/cross-tenant HTTP checks, idempotent create replay, exact-custody lifecycle, duplicate-custody fail-closed, duplicate plate protection, and the source-derived lifecycle blocker matrix all PASS.
 
 ---
 
@@ -737,14 +738,14 @@ This is the most important backend integration rule for Vehicles.
 
 - [x] Vehicle master/lifecycle ownership is the dedicated Vehicles/Fleet domain; Dispatch remains owner of route/assignment workflow.
 - [x] Inventory remains owner of stock truth.
-- [ ] Each usable vehicle receives/links to exactly one authoritative active `InventoryLocation` of type `VEHICLE` according to the existing inventory contract.
-- [ ] Vehicle creation must create/link that `VEHICLE` location **atomically**; operator must not manually create the location in another page.
-- [ ] Repeated create/retry must not create duplicate Vehicle locations.
-- [ ] Vehicle location must remain tenant-scoped and uniquely attributable to the vehicle.
+- [x] Each usable vehicle receives/links to exactly one authoritative active `InventoryLocation` of type `VEHICLE` according to the existing inventory contract.
+- [x] Vehicle creation must create/link that `VEHICLE` location **atomically**; operator must not manually create the location in another page.
+- [x] Repeated create/retry must not create duplicate Vehicle locations.
+- [x] Vehicle location must remain tenant-scoped and uniquely attributable to the vehicle.
 - [ ] UI uses business wording such as `عهدة السيارة جاهزة`; it does not expose raw InventoryLocation mechanics.
-- [ ] Stock moves to/from the vehicle only through Inventory transfer/movement authority.
-- [ ] Vehicle CRUD never mutates `InventoryBalance` directly.
-- [ ] Vehicle deactivation must not erase or orphan inventory history/custody.
+- [x] Stock moves to/from the vehicle only through Inventory transfer/movement authority.
+- [x] Vehicle CRUD never mutates `InventoryBalance` directly.
+- [x] Vehicle deactivation must not erase or orphan inventory history/custody.
 
 ---
 
@@ -752,19 +753,19 @@ This is the most important backend integration rule for Vehicles.
 
 Frozen capability family; names/semantics are decided, implementation/provisioning remains pending:
 
-- [ ] implement/provision `vehicle.read` for Vehicle list/detail/search.
-- [ ] implement/provision `vehicle.manage` for create/update/maintenance/lifecycle.
+- [x] implement/provision `vehicle.read` for Vehicle list/detail/search.
+- [x] implement/provision `vehicle.manage` for create/update/maintenance/lifecycle.
 
 Rules:
 
-- [ ] Company Owner allowed automatically through owner authority.
-- [ ] Backoffice roles may receive vehicle capabilities.
-- [ ] Field representatives cannot access Dashboard vehicle administration endpoints.
-- [ ] Same-company tenant enforcement on every query/mutation.
-- [ ] Cross-company IDs fail closed.
-- [ ] No authorization based on `is_admin`.
-- [ ] Audit vehicle create/update/state changes.
-- [ ] Idempotent mutation behavior for create/state transitions following project conventions.
+- [x] Company Owner allowed automatically through owner authority.
+- [x] Backoffice roles may receive vehicle capabilities.
+- [x] Field representatives cannot access Dashboard vehicle administration endpoints.
+- [x] Same-company tenant enforcement on every query/mutation.
+- [x] Cross-company IDs fail closed.
+- [x] No authorization based on `is_admin`.
+- [x] Audit vehicle create/update/state changes.
+- [x] Idempotent mutation behavior for create/state transitions following project conventions.
 
 ---
 
@@ -772,36 +773,36 @@ Rules:
 
 ## 16.1 Module ownership
 
-- [ ] Dedicated Vehicles administration service/module; avoid growing `dispatch.py` into CRUD authority.
+- [x] Dedicated Vehicles administration service/module; avoid growing `dispatch.py` into CRUD authority.
 - [ ] Dispatch consumes Vehicle public contract.
-- [ ] Inventory contract is called for VEHICLE location creation/linking.
-- [ ] Do not duplicate inventory-location tables or stock logic in Fleet/Dispatch.
+- [x] Inventory contract is called for VEHICLE location creation/linking.
+- [x] Do not duplicate inventory-location tables or stock logic in Fleet/Dispatch.
 
 ## 16.2 List/read contract
 
-- [ ] Tenant-scoped vehicle list.
-- [ ] Search by plate number and type as appropriate.
-- [ ] Filter active/inactive and operational/maintenance status.
-- [ ] Cursor pagination/infinite-scroll compatible contract.
-- [ ] Stable sort; active/usable first by default.
-- [ ] Return custody-location readiness summary without heavy stock joins.
+- [x] Tenant-scoped vehicle list.
+- [x] Search by plate number and type as appropriate.
+- [x] Filter active/inactive and operational/maintenance status.
+- [x] Cursor pagination/infinite-scroll compatible contract.
+- [x] Stable sort; active/usable first by default.
+- [x] Return custody-location readiness summary without heavy stock joins.
 
 ## 16.3 Create contract
 
-- [ ] Validate/normalize plate number without destroying meaningful format.
-- [ ] Enforce company-scoped plate uniqueness.
-- [ ] Validate optional basic fields.
-- [ ] Create Vehicle + linked VEHICLE InventoryLocation atomically.
-- [ ] Idempotency/request ID prevents duplicates.
-- [ ] Audit creation.
+- [x] Validate/normalize plate number without destroying meaningful format.
+- [x] Enforce company-scoped plate uniqueness.
+- [x] Validate optional basic fields.
+- [x] Create Vehicle + linked VEHICLE InventoryLocation atomically.
+- [x] Idempotency/request ID prevents duplicates.
+- [x] Audit creation.
 
 ## 16.4 Update contract
 
-- [ ] Minimal-diff update.
-- [ ] Version/concurrency protection where applicable.
-- [ ] Plate uniqueness maintained.
-- [ ] Maintenance status validated against finite enum/state contract.
-- [ ] Updating vehicle does not replace/create a second InventoryLocation.
+- [x] Minimal-diff update.
+- [x] Version/concurrency protection where applicable.
+- [x] Plate uniqueness maintained.
+- [x] Maintenance status validated against finite enum/state contract.
+- [x] Updating vehicle does not replace/create a second InventoryLocation.
 
 ## 16.5 Deactivate/reactivate contract
 
@@ -809,19 +810,19 @@ Rules:
 
 The implementation checkboxes below remain open until the blocker behavior is actually coded and accepted:
 
-- [ ] active/waiting/postponed route using vehicle.
-- [ ] active WorkSession tied through that route/vehicle.
-- [ ] stock/custody currently held in the vehicle location.
-- [ ] pending/in-flight transfers involving vehicle location.
-- [ ] reconciliation/settlement requirements.
-- [ ] inventory locks or other explicit current invariants.
+- [x] active/waiting/postponed route using vehicle.
+- [x] active WorkSession tied through that route/vehicle.
+- [x] stock/custody currently held in the vehicle location.
+- [x] pending/in-flight transfers involving vehicle location.
+- [x] reconciliation/settlement requirements.
+- [x] inventory locks or other explicit current invariants.
 
 Rules:
 
-- [ ] never silently strand stock/history.
-- [ ] return clear business blocker message telling operator what must be completed.
-- [ ] no hard delete.
-- [ ] reactivation reuses the same vehicle and same valid inventory location; no duplicate location.
+- [x] never silently strand stock/history.
+- [x] return clear business blocker message telling operator what must be completed.
+- [x] no hard delete.
+- [x] reactivation reuses the same vehicle and same valid inventory location; no duplicate location.
 
 ---
 
@@ -867,7 +868,7 @@ Not shown:
 
 On save:
 
-- [ ] backend creates Vehicle and custody location atomically.
+- [x] backend creates Vehicle and custody location atomically.
 - [ ] UI reports a simple success.
 - [ ] newly created vehicle becomes selectable by Dispatch according to existing route rules.
 
@@ -902,14 +903,14 @@ On save:
 
 Backend/security:
 
-- [ ] create/read/update/deactivate/reactivate same-company vehicle.
-- [ ] cross-company blocked.
-- [ ] capability enforcement proven.
-- [ ] atomic vehicle + location creation proven.
-- [ ] duplicate plate/retry behavior proven.
-- [ ] active-route/work-session blocker proven.
-- [ ] stock/transfer safety blocker proven according to current invariants.
-- [ ] reactivation reuses vehicle location.
+- [x] create/read/update/deactivate/reactivate same-company vehicle.
+- [x] cross-company blocked.
+- [x] capability enforcement proven.
+- [x] atomic vehicle + location creation proven.
+- [x] duplicate plate/retry behavior proven.
+- [x] active-route/work-session blocker proven.
+- [x] stock/transfer safety blocker proven according to current invariants.
+- [x] reactivation reuses vehicle location.
 
 Frontend:
 
@@ -983,7 +984,7 @@ Current checkpoints:
 3. [x] Representatives Dashboard implementation completed and merged.
 4. [x] Representatives FIELD/Flutter compatibility integration acceptance completed and merged.
 5. [x] **Representative owner-acceptance checkpoint completed; Representatives V1 closed.**
-6. [ ] Vehicles backend/domain + InventoryLocation integration — READY TO START.
+6. [ ] Vehicles backend/domain + InventoryLocation integration - IMPLEMENTED IN PR #309 / UNDER ADVERSARIAL REVIEW.
 7. [ ] Vehicles Dashboard implementation — NOT STARTED.
 8. [ ] Vehicles Dispatch/Inventory integration + acceptance — NOT STARTED.
 9. [ ] **Vehicle owner-acceptance checkpoint; merge/cleanup if stable.**
