@@ -3,6 +3,7 @@
 **Status:** FROZEN FOR IMPLEMENTATION  
 **Freeze date:** 2026-10-14  
 **Base SHA audited:** `c4010598f48e92d3a609d3b58476f2d9dc26be4a`  
+**Owner-approved scope amendment:** 2026-10-14 — `next_maintenance_date` + bounded Dashboard form/list/tab URL UX, implemented in merged PR #320.
 **Authority:** `ARCHITECTURE.md`, `.rules`, `AGENTS.md`, `V1_SCOPE_FREEZE.md`, `PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md`, `REPRESENTATIVES_VEHICLES_V1_PLAN.md`, `docs/architecture/VEHICLE_MASTER_SCOPE_AND_VISIBILITY_DECISION.md`.
 
 This document freezes the exact V1 Vehicle administration contract after a source-first audit of the current Vehicle, Dispatch, WorkSession, InventoryLocation, transfer, reconciliation, stocktake, authorization, Live Stock, and Dashboard paths. Workers must not broaden or reinterpret it.
@@ -11,9 +12,9 @@ This document freezes the exact V1 Vehicle administration contract after a sourc
 
 ## 1. Source audit closure
 
-The audit established the following current runtime facts:
+The pre-implementation audit established the following runtime facts at audited base `c4010598f48e92d3a609d3b58476f2d9dc26be4a`:
 
-- `Vehicle` already exists as company-owned master data with `company_id`, `plate_number`, optional `vehicle_type`, `current_mileage`, optional `next_oil_change`, optional `license_expiry_date`, `maintenance_status`, and `is_active`.
+- `Vehicle` is company-owned master data with `company_id`, `plate_number`, optional `vehicle_type`, `current_mileage`, optional `next_oil_change`, optional `license_expiry_date`, optional `next_maintenance_date`, `maintenance_status`, and `is_active`. `next_maintenance_date` is bounded business-date metadata only, not a lifecycle or eligibility authority.
 - `(company_id, plate_number)` is already unique and `(company_id, id)` is tenant-guarded.
 - `DispatchRoute` stores `vehicle_id` and `source_location_id` independently. Source warehouse is route/workflow data, not Vehicle ownership.
 - active/waiting/postponed Dispatch routes already have a unique-per-vehicle database invariant.
@@ -24,10 +25,10 @@ The audit established the following current runtime facts:
 - Warehouse deactivation code already proves the relevant Inventory invariants for a location: nonzero on-hand/reserved stock, unfinished transfers, unreleased InventoryLock, active Stocktake, and unfinished route references.
 - transfer-destination policies are validated to WAREHOUSE locations, so a VEHICLE location is not a valid published special-transfer destination policy target.
 - `maintenance_status='In_Maintenance'` currently exists as stored Vehicle state but current Dispatch runtime does not consistently enforce it. V1 must make eligibility backend-authoritative.
-- the canonical permission catalog currently has no `vehicle.*` capability family.
-- the current Dashboard Vehicles tab is a disabled placeholder and the page navigation is currently gated only by `representative.read`.
+- at the audited pre-implementation base, the canonical permission catalog had no `vehicle.*` capability family.
+- at the audited pre-implementation base, the Dashboard Vehicles tab was a disabled placeholder and page navigation was gated only by `representative.read`; later Dashboard waves superseded that state.
 
-No Vehicle CRUD implementation currently owns atomic Vehicle + VEHICLE InventoryLocation creation.
+At the audited pre-implementation base, no Vehicle CRUD implementation owned atomic Vehicle + VEHICLE InventoryLocation creation; the later Vehicles backend implementation superseded that state.
 
 ---
 
@@ -107,11 +108,12 @@ Responsibilities:
 
 ---
 
-## 5. Persistence change allowed in V1
+## 5. Persistence changes allowed in V1
 
-The current legacy `vehicles` table has no optimistic-concurrency column. V1 adds:
+The current legacy `vehicles` table required these bounded V1 additions:
 
 - `Vehicle.version`: positive integer, non-null, default/server-default `1`.
+- `Vehicle.next_maintenance_date`: nullable business `DATE`, default `NULL`; past dates are valid; no timezone conversion or datetime semantics apply. This field is scheduling/reminder metadata only and does not drive lifecycle or operational eligibility.
 
 Do **not** fabricate historical Vehicle creation/update timestamps for existing rows in V1. The current table predates this administration surface and there is no truthful historical timestamp source. Adding fake `created_at` values would create false history.
 
@@ -129,6 +131,7 @@ List/detail/create/update responses expose:
 - `current_mileage`
 - `next_oil_change`
 - `license_expiry_date`
+- `next_maintenance_date`
 - `maintenance_status`
 - `is_active`
 - `version`
@@ -215,8 +218,9 @@ V1 does not introduce a speculative country-specific plate parser or silently re
 - `current_mileage`: integer >= 0, default 0 on create.
 - `next_oil_change`: optional integer >= 0.
 - `license_expiry_date`: optional date.
+- `next_maintenance_date`: optional nullable business date. Past dates are accepted. It carries no timezone semantics and is informational/scheduling metadata only.
 
-V1 does not invent fleet-maintenance scheduling, work orders, fuel, cost accounting, or automatic odometer policies.
+`next_maintenance_date` never changes `maintenance_status` automatically and is never an operational blocker. V1 does not invent maintenance history, reminder/background jobs, workshop workflows, work orders, parts tracking, fuel, fleet cost accounting, or automatic odometer policies.
 
 ### Maintenance status
 
@@ -241,6 +245,7 @@ Request includes:
 - optional `current_mileage` (default 0)
 - optional `next_oil_change`
 - optional `license_expiry_date`
+- optional `next_maintenance_date`
 - optional `maintenance_status` (default `Active`)
 
 Creation always creates an active Vehicle master and its active custody mapping. If an operator needs to take it out of service, lifecycle/maintenance commands are explicit after creation.
@@ -285,6 +290,7 @@ Request contains:
   - `current_mileage`
   - `next_oil_change`
   - `license_expiry_date`
+  - `next_maintenance_date`
   - `maintenance_status`
 
 `is_active` is not mutated through PATCH; lifecycle routes own active/inactive state.
@@ -309,6 +315,7 @@ The current database stores `In_Maintenance`, but existing Dispatch does not con
 Backend rule:
 
 - a Vehicle is Dispatch-assignable/activatable only when `Vehicle.is_active == true`, `Vehicle.maintenance_status == 'Active'`, and its canonical VEHICLE custody location is active/valid.
+- `next_maintenance_date` is not part of this predicate. A due or overdue date must not block Dispatch, session start, route inventory, or any other operational entry point by itself.
 - direct API calls must not bypass this rule.
 - changing a Vehicle to `In_Maintenance` is blocked while it has an active/waiting/postponed route or an unreconciled WorkSession tied through a route.
 - maintenance status does **not** destroy or deactivate custody by itself and does not silently move stock.
@@ -470,7 +477,10 @@ Page/navigation rules:
 - navigation is visible to Company Owner or users with `representative.read` **or** `vehicle.read`.
 - the page allows access to whichever tab the user is authorized to read; one capability never grants the other.
 - Vehicle-only users must not need `representative.read` to reach the page.
-- remove the gated Vehicle placeholder only when the real Vehicles tab is available.
+- the implemented tab is URL-backed: `?tab=representatives` and `?tab=vehicles` are the selected-tab source of truth.
+- refresh/direct URL preserves an authorized selected tab; an invalid or capability-unavailable tab falls back safely to a tab the user may read.
+- capability checks remain the rendering authority; URL state never grants access.
+- tab navigation must not use `window.location` reload navigation.
 
 Vehicle list:
 
@@ -478,12 +488,23 @@ Vehicle list:
 - optional type;
 - active/inactive;
 - operational/maintenance state;
+- compact `next_maintenance_date` when present; null remains visually silent; overdue is distinguishable without alarming treatment and never changes operational state;
 - custody readiness business wording;
 - actions.
 
+Dashboard Vehicle form presentation contract:
+
+- `plate_number`: **Required / مطلوب**.
+- `current_mileage`: **Required / مطلوب** in Dashboard UX only. Backend create semantics remain optional with default `0`; the UI requirement does not change the API/domain default.
+- `vehicle_type`: **Optional / اختياري**.
+- `next_oil_change`: **Optional / اختياري**.
+- `license_expiry_date`: **Optional / اختياري**.
+- `next_maintenance_date`: **Optional / اختياري**.
+- `maintenance_status`: **Default / افتراضي**.
+
 No raw location ID, warehouse-assignment column, permanent representative selector, GPS/fuel/fleet-cost UI, or hard-delete action.
 
-UI remains Arabic-first, English-ready, RTL/LTR, keyboard-first, compact, and Western-digit friendly.
+UI remains Arabic-first, English-ready, RTL/LTR, keyboard-first, compact, and Western-digit friendly; displayed dates/digits follow the locale contract while the current Arabic presentation uses Western digits.
 
 ---
 
@@ -565,7 +586,7 @@ After each meaningful backend/integration PR, an independent specialist review s
 
 - GPS/telematics;
 - fuel management;
-- advanced maintenance scheduling/work orders;
+- advanced maintenance scheduling/work orders, maintenance history, workshop workflows, reminder/background jobs, or parts management;
 - fleet cost accounting;
 - permanent Vehicle↔Representative assignment;
 - permanent Vehicle↔Warehouse ownership;

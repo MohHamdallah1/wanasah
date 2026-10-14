@@ -32,6 +32,7 @@ class VehicleRecord:
     current_mileage: int
     next_oil_change: int | None
     license_expiry_date: date | None
+    next_maintenance_date: date | None
     maintenance_status: str
     is_active: bool
     version: int
@@ -53,6 +54,7 @@ class CreateVehicleCommand:
     current_mileage: int = 0
     next_oil_change: int | None = None
     license_expiry_date: date | None = None
+    next_maintenance_date: date | None = None
     maintenance_status: str = "Active"
 
 

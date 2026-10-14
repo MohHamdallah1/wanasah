@@ -9,6 +9,7 @@ from typing import Iterable, Mapping, Sequence
 from sqlalchemy import Date, Integer, and_, any_, bindparam, case, cast, column, delete, func, or_, select, text, union, update, values
 from sqlalchemy.dialects.postgresql import ARRAY, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from domains.inventory_rules import (
     batch_metadata_is_sellable,
@@ -42,6 +43,20 @@ class LiveStockProjectionError(RuntimeError):
 
 class LiveStockProjectionDueTransitionError(LiveStockProjectionError):
     """A normal time boundary reached before the derived row was refreshed."""
+
+
+def _strict_vehicle_custody_count(company_id, vehicle_column):
+    history = aliased(InventoryLocation)
+    return (
+        select(func.count(history.id))
+        .where(
+            history.company_id == company_id,
+            history.vehicle_id == vehicle_column,
+            history.location_type == "VEHICLE",
+        )
+        .correlate_except(history)
+        .scalar_subquery()
+    )
 
 
 def _positive_int(value: object, field: str) -> int:
@@ -898,6 +913,7 @@ async def refresh_live_stock_keys(
                 InventoryLocation.location_type == "VEHICLE",
                 InventoryLocation.is_active.is_(True),
                 InventoryLocation.vehicle_id.is_not(None),
+                _strict_vehicle_custody_count(company_id, InventoryLocation.vehicle_id) == 1,
             ),
         )
         .join(
@@ -1290,6 +1306,7 @@ async def _candidate_keys_for_variants(
                     InventoryLocation.location_type == "VEHICLE",
                     InventoryLocation.is_active.is_(True),
                     InventoryLocation.vehicle_id.is_not(None),
+                    _strict_vehicle_custody_count(company_id, InventoryLocation.vehicle_id) == 1,
                 ),
             )
             .join(
@@ -2176,6 +2193,7 @@ async def refresh_live_stock_vehicle_attribution(
                     "live_stock_attribution_vehicle_ids",
                 ),
                 InventoryLocation.is_active.is_(True),
+                _strict_vehicle_custody_count(company_id, InventoryLocation.vehicle_id) == 1,
             )
         )
     ).all()
@@ -2498,6 +2516,7 @@ def _warehouse_candidate_variant_query(
                 InventoryLocation.location_type == "VEHICLE",
                 InventoryLocation.is_active.is_(True),
                 InventoryLocation.vehicle_id.is_not(None),
+                _strict_vehicle_custody_count(company_id, InventoryLocation.vehicle_id) == 1,
             ),
         )
         .join(

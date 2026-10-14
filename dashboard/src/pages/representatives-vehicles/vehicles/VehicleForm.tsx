@@ -25,6 +25,17 @@ type PendingOperation = { fingerprint: string; requestId: string };
 const editableNumber = (value: number | null | undefined) =>
   value === null || value === undefined ? "" : String(value);
 
+function FieldLabel({ htmlFor, label, badge }: { htmlFor: string; label: string; badge: string }) {
+  return (
+    <label htmlFor={htmlFor} className="flex items-center gap-2 text-start text-xs font-black text-slate-700">
+      <span>{label}</span>
+      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200">
+        {badge}
+      </span>
+    </label>
+  );
+}
+
 export function VehicleForm({
   vehicle = null,
   busy = false,
@@ -34,9 +45,10 @@ export function VehicleForm({
   const { t, i18n } = useTranslation();
   const [plate, setPlate] = useState(vehicle?.plate_number ?? "");
   const [vehicleType, setVehicleType] = useState(vehicle?.vehicle_type ?? "");
-  const [mileage, setMileage] = useState(editableNumber(vehicle?.current_mileage ?? 0));
+  const [mileage, setMileage] = useState(editableNumber(vehicle?.current_mileage));
   const [nextOilChange, setNextOilChange] = useState(editableNumber(vehicle?.next_oil_change));
   const [licenseExpiry, setLicenseExpiry] = useState(vehicle?.license_expiry_date ?? "");
+  const [nextMaintenanceDate, setNextMaintenanceDate] = useState(vehicle?.next_maintenance_date ?? "");
   const [maintenanceStatus, setMaintenanceStatus] = useState<VehicleMaintenanceStatus>(
     vehicle?.maintenance_status ?? "Active",
   );
@@ -46,9 +58,10 @@ export function VehicleForm({
   useEffect(() => {
     setPlate(vehicle?.plate_number ?? "");
     setVehicleType(vehicle?.vehicle_type ?? "");
-    setMileage(editableNumber(vehicle?.current_mileage ?? 0));
+    setMileage(editableNumber(vehicle?.current_mileage));
     setNextOilChange(editableNumber(vehicle?.next_oil_change));
     setLicenseExpiry(vehicle?.license_expiry_date ?? "");
+    setNextMaintenanceDate(vehicle?.next_maintenance_date ?? "");
     setMaintenanceStatus(vehicle?.maintenance_status ?? "Active");
     setValidation("");
     operation.current = null;
@@ -91,6 +104,7 @@ export function VehicleForm({
     }
     setValidation("");
     const normalizedLicense = licenseExpiry || null;
+    const normalizedMaintenanceDate = nextMaintenanceDate || null;
     const normalizedVehicleType = normalizedType || null;
 
     if (vehicle) {
@@ -110,6 +124,9 @@ export function VehicleForm({
       if (normalizedLicense !== vehicle.license_expiry_date) {
         update.license_expiry_date = normalizedLicense;
       }
+      if (normalizedMaintenanceDate !== vehicle.next_maintenance_date) {
+        update.next_maintenance_date = normalizedMaintenanceDate;
+      }
       if (maintenanceStatus !== vehicle.maintenance_status) {
         update.maintenance_status = maintenanceStatus;
       }
@@ -127,6 +144,7 @@ export function VehicleForm({
       current_mileage: parsedMileage,
       next_oil_change: parsedOil,
       license_expiry_date: normalizedLicense,
+      next_maintenance_date: normalizedMaintenanceDate,
       maintenance_status: maintenanceStatus,
     };
     await onSubmit(createInput, requestIdFor(createInput));
@@ -138,13 +156,12 @@ export function VehicleForm({
     <form dir={i18n.dir()} className="space-y-4" onSubmit={submit}>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="min-w-0 space-y-1.5">
-          <label htmlFor="vehicle-plate" className="block text-start text-xs font-black text-slate-700">
-            {t("representativesVehicles.vehicles.fields.plate")}
-          </label>
+          <FieldLabel htmlFor="vehicle-plate" label={t("representativesVehicles.vehicles.fields.plate")} badge={t("representativesVehicles.vehicles.form.badges.required")} />
           <input
             id="vehicle-plate"
             autoFocus
             required
+            aria-required="true"
             maxLength={20}
             value={plate}
             onChange={(event) => { resetValidation(); setPlate(event.target.value); }}
@@ -155,9 +172,7 @@ export function VehicleForm({
           />
         </div>
         <div className="min-w-0 space-y-1.5">
-          <label htmlFor="vehicle-type" className="block text-start text-xs font-black text-slate-700">
-            {t("representativesVehicles.vehicles.fields.type")}
-          </label>
+          <FieldLabel htmlFor="vehicle-type" label={t("representativesVehicles.vehicles.fields.type")} badge={t("representativesVehicles.vehicles.form.badges.optional")} />
           <input
             id="vehicle-type"
             maxLength={50}
@@ -170,12 +185,11 @@ export function VehicleForm({
           />
         </div>
         <div className="min-w-0 space-y-1.5">
-          <label htmlFor="vehicle-mileage" className="block text-start text-xs font-black text-slate-700">
-            {t("representativesVehicles.vehicles.fields.mileage")}
-          </label>
+          <FieldLabel htmlFor="vehicle-mileage" label={t("representativesVehicles.vehicles.fields.mileage")} badge={t("representativesVehicles.vehicles.form.badges.required")} />
           <input
             id="vehicle-mileage"
             required
+            aria-required="true"
             inputMode="numeric"
             dir="ltr"
             value={mileage}
@@ -186,9 +200,7 @@ export function VehicleForm({
           />
         </div>
         <div className="min-w-0 space-y-1.5">
-          <label htmlFor="vehicle-oil" className="block text-start text-xs font-black text-slate-700">
-            {t("representativesVehicles.vehicles.fields.nextOilChange")}
-          </label>
+          <FieldLabel htmlFor="vehicle-oil" label={t("representativesVehicles.vehicles.fields.nextOilChange")} badge={t("representativesVehicles.vehicles.form.badges.optional")} />
           <input
             id="vehicle-oil"
             inputMode="numeric"
@@ -202,9 +214,7 @@ export function VehicleForm({
           />
         </div>
         <div className="min-w-0 space-y-1.5">
-          <label htmlFor="vehicle-license" className="block text-start text-xs font-black text-slate-700">
-            {t("representativesVehicles.vehicles.fields.licenseExpiry")}
-          </label>
+          <FieldLabel htmlFor="vehicle-license" label={t("representativesVehicles.vehicles.fields.licenseExpiry")} badge={t("representativesVehicles.vehicles.form.badges.optional")} />
           <input
             id="vehicle-license"
             type="date"
@@ -216,9 +226,19 @@ export function VehicleForm({
           />
         </div>
         <div className="min-w-0 space-y-1.5">
-          <label htmlFor="vehicle-maintenance" className="block text-start text-xs font-black text-slate-700">
-            {t("representativesVehicles.vehicles.fields.maintenance")}
-          </label>
+          <FieldLabel htmlFor="vehicle-next-maintenance" label={t("representativesVehicles.vehicles.fields.nextMaintenanceDate")} badge={t("representativesVehicles.vehicles.form.badges.optional")} />
+          <input
+            id="vehicle-next-maintenance"
+            type="date"
+            dir="ltr"
+            value={nextMaintenanceDate}
+            onChange={(event) => { resetValidation(); setNextMaintenanceDate(event.target.value); }}
+            className={inputClass}
+            disabled={busy}
+          />
+        </div>
+        <div className="min-w-0 space-y-1.5">
+          <FieldLabel htmlFor="vehicle-maintenance" label={t("representativesVehicles.vehicles.fields.maintenance")} badge={t("representativesVehicles.vehicles.form.badges.default")} />
           <select
             id="vehicle-maintenance"
             value={maintenanceStatus}
