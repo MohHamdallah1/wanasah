@@ -986,6 +986,7 @@ class Vehicle(Base):
     __table_args__ = (
         UniqueConstraint('company_id', 'plate_number', name='uq_company_plate_number'),
         UniqueConstraint('company_id', 'id', name='uq_vehicles_company_id'), # +++ Parent Guard +++
+        CheckConstraint('version > 0', name='ck_vehicles_version_positive'),
     )
     id                 = Column(Integer, primary_key=True)
     company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -996,6 +997,7 @@ class Vehicle(Base):
     license_expiry_date = Column(Date,      nullable=True)
     maintenance_status = Column(String(50), nullable=False, default='Active')  # Active | In_Maintenance
     is_active          = Column(Boolean,    nullable=False, default=True)
+    version            = Column(Integer, nullable=False, default=1, server_default='1')
 
 # =================================================================================
 # ⑥ جلسات العمل (المحرك الموحد: العهدة أصبحت تدار عبر InventoryBalance لموقع السيارة)
