@@ -202,7 +202,7 @@ export function VehicleForm({
             dir="ltr"
             value={mileage}
             onChange={(event) => { resetValidation(); setMileage(event.target.value); }}
-            className={`${inputClass} font-mono tabular-nums`}
+            className={`${inputClass} text-right font-mono tabular-nums`}
             disabled={busy}
             autoComplete="off"
           />
@@ -215,7 +215,7 @@ export function VehicleForm({
             dir={nextOilChange ? "ltr" : i18n.dir()}
             value={nextOilChange}
             onChange={(event) => { resetValidation(); setNextOilChange(event.target.value); }}
-            className={`${inputClass} ${nextOilChange ? "text-left" : "text-start"} font-mono tabular-nums`}
+            className={`${inputClass} ${nextOilChange ? "text-right" : "text-start"} font-mono tabular-nums`}
             placeholder={t("representativesVehicles.vehicles.form.optional")}
             disabled={busy}
             autoComplete="off"

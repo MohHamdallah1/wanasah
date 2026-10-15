@@ -122,6 +122,7 @@ describe("VehicleForm frozen V1 contract", () => {
     expect(container.querySelector(".grid")?.className).toContain("sm:grid-cols-2");
     fireEvent.change(oil, { target: { value: "1500" } });
     expect(oil.getAttribute("dir")).toBe("ltr");
+    expect(oil).toHaveClass("text-right");
     direction = "ltr";
     rerender(<VehicleForm onCancel={() => undefined} onSubmit={() => undefined} />);
     expect(container.querySelector("form")?.getAttribute("dir")).toBe("ltr");

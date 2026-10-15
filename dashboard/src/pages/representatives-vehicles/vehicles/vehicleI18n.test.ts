@@ -20,6 +20,12 @@ describe("Vehicle bilingual copy", () => {
     expect(representativesVehicles.ar.noAccess).toMatch(/[\u0600-\u06FF]/);
   });
 
+  it("keeps vehicle information copy under the Vehicle namespace", () => {
+    expect(representativesVehicles.ar.vehicles.details.action).toMatch(/[\u0600-\u06FF]/);
+    expect(representativesVehicles.en.vehicles.details.action).toBe("Vehicle information");
+    expect(representativesVehicles.ar.representatives).not.toHaveProperty("details");
+  });
+
   it("keeps English action and lifecycle punctuation readable", () => {
     expect(representativesVehicles.en.vehicles.actionsMenu).toContain("—");
     expect(representativesVehicles.en.vehicles.lifecycle.deactivateConfirm).toContain("“{{plate}}”");

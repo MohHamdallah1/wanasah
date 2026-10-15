@@ -15,6 +15,7 @@ import type {
   VehicleListResult,
   VehicleStatusFilter,
 } from "./contracts";
+import { VehicleDetailsModal } from "./VehicleDetailsModal";
 import { VehicleForm } from "./VehicleForm";
 import { VehicleLifecycleActions } from "./VehicleLifecycleActions";
 import { VehicleTable } from "./VehicleTable";
@@ -23,7 +24,7 @@ import { useVehicleInfiniteScroll } from "./useVehicleInfiniteScroll";
 import { useVehicles } from "./useVehicles";
 
 const filters: VehicleStatusFilter[] = ["all", "ready", "maintenance", "inactive"];
-type VehicleAction = { type: "edit" | "lifecycle"; vehicle: Vehicle };
+type VehicleAction = { type: "view" | "edit" | "lifecycle"; vehicle: Vehicle };
 
 export function VehiclesTab() {
   const { t } = useTranslation();
@@ -195,6 +196,7 @@ export function VehiclesTab() {
               items={vehicles.items}
               loading={vehicles.query.isFetching && vehicles.items.length === 0}
               canManage={canManage}
+              onView={(vehicle) => setAction({ type: "view", vehicle })}
               onEdit={(vehicle) => { if (canManage) setAction({ type: "edit", vehicle }); }}
               onLifecycle={(vehicle) => { if (canManage) setAction({ type: "lifecycle", vehicle }); }}
             />
@@ -224,6 +226,14 @@ export function VehiclesTab() {
           onSubmit={(input, requestId) => create(input as CreateVehicleInput, requestId)}
         />
       </Modal>
+
+      {action?.type === "view" ? (
+        <VehicleDetailsModal
+          vehicle={action.vehicle}
+          open
+          onOpenChange={(open) => { if (!open) setAction(null); }}
+        />
+      ) : null}
 
       <Modal isOpen={action?.type === "edit"} onClose={() => { if (!editing) setAction(null); }} title={t("representativesVehicles.vehicles.edit")} maxWidth="max-w-xl">
         {action?.type === "edit" ? (

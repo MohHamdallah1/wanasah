@@ -132,6 +132,7 @@ export const representativesVehicles = {
       loadMore: "تحميل المزيد",
       loadingMore: "جاري تحميل المزيد...",
       edit: "تعديل السيارة",
+      details: { action: "معلومات السيارة", title: "معلومات السيارة", noNotes: "لا توجد ملاحظات حالية." },
       createTitle: "إضافة سيارة جديدة",
       createSuccess: "تمت إضافة السيارة وتجهيز عهدتها.",
       updateSuccess: "تم تحديث بيانات السيارة.",
@@ -176,6 +177,7 @@ export const representativesVehicles = {
       notes: {
         custodyUnavailable: "موقع عهدة السيارة غير جاهز",
         maintenanceUpcoming: "الصيانة القادمة: {{date}}",
+        maintenanceDue: "موعد الصيانة اليوم: {{date}}",
         maintenanceOverdue: "الصيانة متأخرة: {{date}}",
         licenseExpired: "الترخيص منتهي: {{date}}",
         oilDue: "تغيير الزيت مستحق عند عداد {{mileage}}",
@@ -338,6 +340,7 @@ export const representativesVehicles = {
       loadMore: "Load more",
       loadingMore: "Loading more...",
       edit: "Edit vehicle",
+      details: { action: "Vehicle information", title: "Vehicle information", noNotes: "No current notes." },
       createTitle: "Add vehicle",
       createSuccess: "Vehicle added and custody prepared.",
       updateSuccess: "Vehicle updated.",
@@ -382,6 +385,7 @@ export const representativesVehicles = {
       notes: {
         custodyUnavailable: "Vehicle custody location is not ready",
         maintenanceUpcoming: "Next maintenance: {{date}}",
+        maintenanceDue: "Maintenance due today: {{date}}",
         maintenanceOverdue: "Maintenance overdue: {{date}}",
         licenseExpired: "License expired: {{date}}",
         oilDue: "Oil change due at {{mileage}}",
