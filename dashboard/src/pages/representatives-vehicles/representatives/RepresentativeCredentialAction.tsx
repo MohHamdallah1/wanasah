@@ -16,7 +16,7 @@ import {
   type CredentialResetAttempt,
 } from "./credentialResetRecovery";
 import type { Representative } from "./contracts";
-import { isRepresentativePasswordValid } from "./passwordPolicy";
+import { representativePasswordValidation } from "./passwordPolicy";
 import { RepresentativePasswordInput } from "./RepresentativePasswordInput";
 import { representativeErrorMessage } from "./representativeErrorMessage";
 
@@ -78,8 +78,13 @@ export function RepresentativeCredentialAction({
 
   const run = async () => {
     if (!allowed) return;
-    if (!isRepresentativePasswordValid(password)) {
-      setValidation(t("representativesVehicles.representatives.form.passwordInvalid"));
+    const passwordIssue = representativePasswordValidation(password);
+    if (passwordIssue) {
+      setValidation(t(
+        passwordIssue === "tooShort"
+          ? "representativesVehicles.representatives.form.passwordTooShort"
+          : "representativesVehicles.representatives.form.passwordTooLong",
+      ));
       return;
     }
     if (password !== confirmPassword) {

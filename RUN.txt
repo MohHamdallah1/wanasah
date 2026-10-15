@@ -147,86 +147,63 @@ Start-Process powershell.exe -WorkingDirectory $root -ArgumentList "-NoExit","-E
 
 Start-Process powershell.exe -WorkingDirectory $root -ArgumentList "-NoExit","-ExecutionPolicy","Bypass","-File","$root\ops\development\run_product_import_worker.ps1"
 ============================================================
-V1 EXECUTION ORDER FREEZE — 2026-10-09
+V1 EXECUTION ORDER — OWNER UPDATE 2026-10-15
 ============================================================
-هذا هو ترتيب التنفيذ المعتمد بعد Dependency Audit صغير من الكود الفعلي على main.
-هذا القسم هو المرجع الوحيد لترتيب التنفيذ داخل RUN.txt ويلغي أي ترتيب/قائمة تنفيذ أقدم في هذا الملف؛ النصوص السابقة تبقى كسجل وملاحظات فقط وليست ترتيب العمل المعتمد.
-لا يغيّر V1_SCOPE_FREEZE.md ولا ARCHITECTURE.md؛ قواعد المعمارية والنطاق تظل أعلى سلطة.
+هذا هو الترتيب التنفيذي الحالي المعتمد. يلغي أي ترتيب تنفيذ أقدم داخل RUN.txt؛ الملاحظات التاريخية السابقة لا تُستخدم لترتيب العمل إذا تعارضت مع هذا القسم.
+V1_SCOPE_FREEZE.md و ARCHITECTURE.md يبقيان أعلى سلطة للنطاق والمعمارية.
 
-Baseline confirmed before this order:
-[x] Products page موجودة وقوية ضمن V1.
-[x] Suppliers page موجودة وSupplier Master مربوط بالتوريد/الأدلة.
-[x] Inventory يحتوي فعليًا: Live Stock / Batches / Inbound / Transfers / Ledger / Stocktake / Warehouses / Permissions.
-[x] Dispatch يحتوي فعليًا: Zones / Shops / Routes / Launch.
-[ ] لا توجد صفحات تشغيلية مستقلة لإدارة Users/Drivers أو Vehicles أو Reports أو Settings الدنيا.
+قاعدة Backoffice الملزمة أثناء البناء:
+- لا نؤجل هندسة الصلاحيات إلى حين بناء صفحة إدارة مسؤولي/موظفي الـBackoffice.
+- كل صفحة Dashboard جديدة أو نلمسها جوهريًا يجب أن تستخدم من الآن canonical Backoffice principal/profile + capability + company/location scope الصحيح، والـBackend هو السلطة النهائية.
+- ممنوع بناء صفحة على Owner-only مؤقتًا ثم ترك دين تقني لإضافة الصلاحيات لاحقًا.
+- صفحة Backoffice Users Administration نفسها مؤجلة حسب الترتيب أدناه؛ تأجيل واجهة إدارة المستخدمين لا يعني تأجيل authorization architecture.
 
-قاعدة منع التكرار:
-- لا نبني صفحة مستقلة جديدة لوظيفة موجودة أصلًا داخل Inventory أو Dispatch؛ نغلق فجواتها في مكانها الحالي.
-- كل بند جديد يبدأ من أحدث main على فرع جديد، وعند اكتماله يوضع [x] ثم يدمج إلى main ويحذف الفرع عند نقطة استقرار.
+منجز ومستقر قبل الترتيب الحالي:
+[x] Products / Catalog V1 administration.
+[x] Suppliers / Supplier Master V1 administration.
+[x] Representatives administration + Owner Acceptance.
+[x] Vehicles administration + Owner Acceptance.
 
-الترتيب المعتمد:
-1. [ ] Users / Drivers Administration
-   إنشاء وتعديل المستخدم/المندوب، تعطيل/إعادة تفعيل، إدارة كلمة المرور، وربطه بالأدوار وصلاحيات المواقع المطلوبة.
+الترتيب المعتمد من الآن:
+1. [ ] Inventory / Warehouses operational closure
+   نغلق الصفحات والتبويبات الحالية بدل إعادة بنائها: Inbound -> Batches & Expiry، Transfers، Stocktake، Warehouse Locations، Warehouse Access/Permissions، العزل والتكلفة وsellability المطلوبة لرحلة V1. أي جزء legacy نلمسه يُطابق canonical Backoffice authorization والـbackend الحالي.
 
-2. [x] Vehicles Basic Administration
-   إنشاء وتعديل وتعطيل/إعادة تفعيل السيارة، وربطها بشكل authoritative بموقع مخزون VEHICLE اللازم للتوزيع.
-   لا ندخل صيانة أسطول متقدمة أو وقود/GPS في V1.
+2. [ ] Dispatch + Zones + Shops operational closure
+   نغلق صفحة التوزيع الحالية والمناطق والمحلات والمسارات وتحميل/إطلاق السيارة كرحلة واحدة، مع مطابقة الـbackend الجديد والصلاحيات والـscope الصحيح. لا نعيد بناء Dispatch من الصفر.
 
-Representatives + Vehicles Administration closure — 2026-10-15
+3. [ ] Main Dashboard closure
+   نغلق الصفحة الرئيسية بعد استقرار Inventory وDispatch حتى تعرض بيانات وروابط وcapability-gating حقيقية بدل عقود قديمة أو افتراضات Owner-only.
 
-[x] REPRESENTATIVES V1 COMPLETE + OWNER ACCEPTED — 2026-10-14.
-[x] VEHICLES V1 COMPLETE + OWNER ACCEPTED — accepted on runtime main a5722a2ba699954e2189b941ddd30c8f13670299.
-[x] REPRESENTATIVES + VEHICLES ADMINISTRATION V1 DONE.
+4. [ ] Backoffice Users Administration
+   بعد استقرار الصفحات التشغيلية وصلاحياتها الفعلية: إنشاء/تعديل/تعطيل وإعادة تفعيل موظف Dashboard، إدارة/إعادة تعيين بيانات الدخول، وربطه بالأدوار/capabilities ونطاقات المواقع المطلوبة. لا نبني IAM عامًا.
 
-Vehicle Owner Acceptance closed with no V1 blockers.
-Dedicated owner-facing EOD UI is not required by frozen V1.
-Narrow-phone horizontal scrolling is accepted as non-blocking V1 polish.
-Final test-only cleanup merged later at:
-2132f9bf1908b1e27c8ef0ab0fa680547fd748cc
-
-This closure applies only to Representatives + Vehicles Administration.
-All unrelated RUN.txt V1 items remain unchanged.
-
-3. [ ] Minimal Company Operational Settings
-   المنطقة الزمنية وما يلزم فعليًا فقط من إعدادات التشغيل الحالية. لا نبني Settings Center ضخم.
-
-4. [ ] Inventory: Inbound -> Batches & Expiry closure
-   داخل صفحات Inventory الموجودة: Supplier identity موجودة؛ نغلق lot/expiry modes، صحة الدفعات والصلاحية، idempotency، التكلفة، الجودة وsellability.
-
-5. [ ] Inventory operational closure
-   Transfers + Stocktake + Warehouse Locations/Access والعزل/التكلفة المطلوبة لرحلة V1. لا صفحات مكررة جديدة.
+5. [ ] Minimal Company Operational Settings
+   نبني فقط الإعدادات التشغيلية التي ثبت احتياجها من الرحلات السابقة، مثل timezone وأي إعداد V1 حقيقي. لا نبني Settings Center ضخم.
 
 6. [ ] Commercial + Sales/Returns V1 closure
-   إغلاق الفجوات المطلوبة فقط في pricing/offers/taxes/returns والـimmutable evidence التي يحتاجها البيع الفعلي؛ بدون فتح ميزات Advanced المؤجلة.
+   نغلق pricing/offers/taxes/returns والـimmutable evidence المطلوبة للبيع الفعلي، بدون فتح الميزات Advanced المؤجلة.
 
-7. [ ] Dispatch operational closure
-   Zones + Shops + Routes + vehicle loading/launch كرحلة واحدة داخل Dispatch الحالي، بعد توفر Drivers وVehicles القابلة للإدارة من الواجهة.
-
-8. [ ] Flutter + Dispatch end-to-end acceptance
+7. [ ] Flutter + Dispatch end-to-end acceptance
    login -> assigned route -> work session -> shop visit -> sale/collection/return -> offline/retry -> end-day/settlement.
 
-9. [ ] Shop Account Statement
-   شاشة/واجهة تشغيلية تفسر رصيد المحل: المبيعات، الدين الجديد، التحصيلات، المرتجعات/الأرصدة الدائنة، والرصيد قبل/بعد.
+8. [ ] Shop Account Statement
+   واجهة تشغيلية تفسر رصيد المحل: المبيعات، الدين الجديد، التحصيلات، المرتجعات/الأرصدة الدائنة، والرصيد قبل/بعد.
 
-10. [ ] Minimal Reports
-    نتائج/إنجاز الزيارات، ملخص المبيعات والتحصيل والمرتجعات، وعهدة/تسوية المندوب. نعيد استخدام Inventory بدل تكرار تقارير مخزون.
+9. [ ] Minimal Reports
+   نتائج/إنجاز الزيارات، ملخص المبيعات والتحصيل والمرتجعات، وعهدة/تسوية المندوب. نعيد استخدام Inventory بدل تكرار تقارير مخزون.
 
-11. [ ] Final minimal settings + first-company decisions
-    إغلاق أي إعداد V1 متبقٍ فقط، وحسم قرار مستند العميل (إيصال/فاتورة/مشاركة/طباعة) حسب احتياج الشركة الأولى قبل تنفيذه.
-
-12. [ ] Production / Recovery acceptance
+10. [ ] Production / Recovery acceptance
     قاعدة تجربة مستقلة، backup/restore، نسخة تطبيق/worker ثابتة، network-loss/retry/session/worker-restart checks، ورحلة ممثلة كاملة.
 
-13. [ ] Integrated V1 acceptance -> V1 DONE
-    شركة جديدة -> مستخدم/مندوب -> سيارة -> مستودع/توريد -> مخزون -> Route -> Flutter visit/sale/return -> settlement/report بدون Word/Excel/WhatsApp للمسار الأساسي.
+11. [ ] Integrated V1 acceptance -> V1 DONE
+    شركة جديدة -> Backoffice user/مندوب -> سيارة -> مستودع/توريد -> مخزون -> Route -> Flutter visit/sale/return -> settlement/report بدون Word/Excel/WhatsApp للمسار الأساسي.
 
-Dependency rationale:
-- Driver work session يعتمد على active DispatchRoute لنفس المندوب.
-- Route يجب أن يكون مربوطًا بسيارة.
-- بدء الجلسة يرفض العمل إذا لم توجد InventoryLocation فعالة من نوع VEHICLE للسيارة.
-- لذلك Users/Drivers ثم Vehicles يسبقان Dispatch/Flutter acceptance.
-- Warehouses/Inbound/Batches/Transfers/Stocktake وZones/Shops موجودة أصلًا؛ المطلوب closure/hardening لا إعادة بناء صفحات جديدة.
-- Supplier Master منجز؛ لا نعيده إلى قائمة البناء.
+ملاحظات ترتيب ملزمة:
+- Inventory/Warehouses يسبق Dispatch لأن إطلاق المسار والعهدة يعتمد على مخزون/مواقع صحيحة.
+- Dispatch يسبق Main Dashboard closure حتى لا نثبت الصفحة الرئيسية على عقود قديمة.
+- Backoffice Users Administration يأتي بعد استقرار capability/scope الفعلي للصفحات التشغيلية، لكن كل تلك الصفحات تُبنى من الآن على Backoffice architecture الصحيح.
+- Minimal Company Operational Settings يأتي بعد الصفحات التشغيلية الأساسية حتى نبني فقط الإعدادات التي ثبت احتياجها فعليًا.
+- Driver/Dispatch modularization تبقى refactor هندسيًا مستقلاً حسب DRIVER_DISPATCH_MODULARIZATION_PLAN.md ولا تغيّر هذا ترتيب الميزات إلا إذا أصبح refactor محدد prerequisite مثبتًا لمسار نلمسه.
 
 Security dependency gate (parallel, before production release):
 [ ] GitHub Issue #164 — معالجة npm dependency advisories على فرع مستقل، بدون npm audit fix --force عشوائي.

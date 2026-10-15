@@ -23,9 +23,9 @@ const representativeErrorKeys: Record<string, string> = {
   REPRESENTATIVE_COMPANY_PASSWORD_INVALID:
     "representativesVehicles.representatives.form.passwordInvalid",
   REPRESENTATIVE_COMPANY_PASSWORD_TOO_SHORT:
-    "representativesVehicles.representatives.form.passwordInvalid",
+    "representativesVehicles.representatives.form.passwordTooShort",
   REPRESENTATIVE_COMPANY_PASSWORD_TOO_LONG:
-    "representativesVehicles.representatives.form.passwordInvalid",
+    "representativesVehicles.representatives.form.passwordTooLong",
   REPRESENTATIVE_CURSOR_INVALID:
     "representativesVehicles.representatives.errors.cursorInvalid",
   REPRESENTATIVE_IDENTITY_INCONSISTENT:

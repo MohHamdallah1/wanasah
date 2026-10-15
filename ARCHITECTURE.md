@@ -66,7 +66,7 @@ Before high-risk refactors or any renewed Codex Desktop usage after a tooling/ru
 
 **Status:** CANONICAL ARCHITECTURE DIRECTION  
 **Scope:** Entire repository and all future modules  
-**Last updated:** 2026-10-08
+**Last updated:** 2026-10-15
 
 This document is the architectural constitution of the Wanasah platform. It records the intended long-term direction so future work does not accidentally optimize one feature at the expense of the platform.
 
@@ -434,6 +434,17 @@ The permanent company authorization model is:
 - Roles are bundles of capabilities only; role names are not authorization contracts.
 - Capabilities and grants come from persisted server authority. JWT role/capability claims must never become authorization authority.
 - Tenant, object, location, structural, lifecycle, accounting, and other business invariants remain mandatory even for Company Owner or any actor with a full capability set.
+
+### Backoffice authorization must be correct before Backoffice administration UI exists
+
+The Dashboard may continue to be built and hardened before the dedicated Backoffice-user administration page is complete, but authorization architecture is **not deferred** with that UI.
+
+- Every new or materially modified Dashboard page/workflow must use the canonical Backoffice principal/profile, capability, tenant, and applicable scope model immediately.
+- A page must never be implemented as "Owner-only for now" with a promise to retrofit Backoffice authorization later. Company Owner is one canonical Backoffice authority subject, not a substitute for the authorization model.
+- Backend authorization remains authoritative. UI visibility/gating is UX only and must reflect, never replace, backend capability/scope decisions.
+- When a legacy Dashboard page is touched, migrate the touched authority seam toward canonical Backoffice authorization and fail-closed scope semantics rather than adding new legacy debt.
+- The future Backoffice Users Administration surface manages identities, roles/capability bundles, credentials, activation, and scopes; it must not be responsible for retrofitting security into business pages after they are built.
+- Pages that depend on location/warehouse scope must define and enforce that scope now, even if the operator-management UI that grants those scopes is scheduled later.
 - Branch is an organizational scope only where a workflow explicitly defines it; it is never a tenant substitute and never a warehouse/location permission substitute.
 - Any missing, revoked, cross-company, cross-channel, or wrong-scope authority fails closed.
 

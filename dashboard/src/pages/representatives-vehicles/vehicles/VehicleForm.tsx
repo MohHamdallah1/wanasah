@@ -25,13 +25,11 @@ type PendingOperation = { fingerprint: string; requestId: string };
 const editableNumber = (value: number | null | undefined) =>
   value === null || value === undefined ? "" : String(value);
 
-function FieldLabel({ htmlFor, label, badge }: { htmlFor: string; label: string; badge: string }) {
+function FieldLabel({ htmlFor, label, required = false }: { htmlFor: string; label: string; required?: boolean }) {
   return (
-    <label htmlFor={htmlFor} className="flex items-center gap-2 text-start text-xs font-black text-slate-700">
-      <span>{label}</span>
-      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200">
-        {badge}
-      </span>
+    <label htmlFor={htmlFor} className="block text-start text-xs font-black text-slate-700">
+      {label}
+      {required ? <span aria-hidden="true" className="ms-1 text-sm font-black text-rose-500">*</span> : null}
     </label>
   );
 }
@@ -153,10 +151,14 @@ export function VehicleForm({
   const inputClass = "h-10 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-cyan-300 focus:ring-4 focus:ring-cyan-100/60 disabled:bg-slate-50 disabled:text-slate-500";
 
   return (
-    <form dir={i18n.dir()} className="space-y-4" onSubmit={submit}>
+    <form dir={i18n.dir()} className="space-y-4" onSubmit={submit} noValidate>
+      <p className="text-start text-[11px] font-semibold text-slate-500">
+        <span aria-hidden="true" className="font-black text-rose-500">*</span>{" "}
+        {t("representativesVehicles.vehicles.form.requiredHint")}
+      </p>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="min-w-0 space-y-1.5">
-          <FieldLabel htmlFor="vehicle-plate" label={t("representativesVehicles.vehicles.fields.plate")} badge={t("representativesVehicles.vehicles.form.badges.required")} />
+          <FieldLabel htmlFor="vehicle-plate" label={t("representativesVehicles.vehicles.fields.plate")} required />
           <input
             id="vehicle-plate"
             autoFocus
@@ -172,7 +174,7 @@ export function VehicleForm({
           />
         </div>
         <div className="min-w-0 space-y-1.5">
-          <FieldLabel htmlFor="vehicle-type" label={t("representativesVehicles.vehicles.fields.type")} badge={t("representativesVehicles.vehicles.form.badges.optional")} />
+          <FieldLabel htmlFor="vehicle-type" label={t("representativesVehicles.vehicles.fields.type")} />
           <input
             id="vehicle-type"
             maxLength={50}
@@ -185,7 +187,7 @@ export function VehicleForm({
           />
         </div>
         <div className="min-w-0 space-y-1.5">
-          <FieldLabel htmlFor="vehicle-mileage" label={t("representativesVehicles.vehicles.fields.mileage")} badge={t("representativesVehicles.vehicles.form.badges.required")} />
+          <FieldLabel htmlFor="vehicle-mileage" label={t("representativesVehicles.vehicles.fields.mileage")} required />
           <input
             id="vehicle-mileage"
             required
@@ -200,21 +202,21 @@ export function VehicleForm({
           />
         </div>
         <div className="min-w-0 space-y-1.5">
-          <FieldLabel htmlFor="vehicle-oil" label={t("representativesVehicles.vehicles.fields.nextOilChange")} badge={t("representativesVehicles.vehicles.form.badges.optional")} />
+          <FieldLabel htmlFor="vehicle-oil" label={t("representativesVehicles.vehicles.fields.nextOilChange")} />
           <input
             id="vehicle-oil"
             inputMode="numeric"
-            dir="ltr"
+            dir={nextOilChange ? "ltr" : i18n.dir()}
             value={nextOilChange}
             onChange={(event) => { resetValidation(); setNextOilChange(event.target.value); }}
-            className={`${inputClass} font-mono tabular-nums`}
+            className={`${inputClass} ${nextOilChange ? "text-left" : "text-start"} font-mono tabular-nums`}
             placeholder={t("representativesVehicles.vehicles.form.optional")}
             disabled={busy}
             autoComplete="off"
           />
         </div>
         <div className="min-w-0 space-y-1.5">
-          <FieldLabel htmlFor="vehicle-license" label={t("representativesVehicles.vehicles.fields.licenseExpiry")} badge={t("representativesVehicles.vehicles.form.badges.optional")} />
+          <FieldLabel htmlFor="vehicle-license" label={t("representativesVehicles.vehicles.fields.licenseExpiry")} />
           <input
             id="vehicle-license"
             type="date"
@@ -226,7 +228,7 @@ export function VehicleForm({
           />
         </div>
         <div className="min-w-0 space-y-1.5">
-          <FieldLabel htmlFor="vehicle-next-maintenance" label={t("representativesVehicles.vehicles.fields.nextMaintenanceDate")} badge={t("representativesVehicles.vehicles.form.badges.optional")} />
+          <FieldLabel htmlFor="vehicle-next-maintenance" label={t("representativesVehicles.vehicles.fields.nextMaintenanceDate")} />
           <input
             id="vehicle-next-maintenance"
             type="date"
@@ -238,7 +240,7 @@ export function VehicleForm({
           />
         </div>
         <div className="min-w-0 space-y-1.5">
-          <FieldLabel htmlFor="vehicle-maintenance" label={t("representativesVehicles.vehicles.fields.maintenance")} badge={t("representativesVehicles.vehicles.form.badges.default")} />
+          <FieldLabel htmlFor="vehicle-maintenance" label={t("representativesVehicles.vehicles.fields.maintenance")} />
           <select
             id="vehicle-maintenance"
             value={maintenanceStatus}

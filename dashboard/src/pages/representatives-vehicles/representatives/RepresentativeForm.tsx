@@ -9,7 +9,7 @@ import {
   type Representative,
   type UpdateRepresentativeInput,
 } from "./contracts";
-import { isRepresentativePasswordValid } from "./passwordPolicy";
+import { representativePasswordValidation } from "./passwordPolicy";
 import { formatRepresentativeMoney } from "./representativeMoney";
 import { RepresentativePasswordInput } from "./RepresentativePasswordInput";
 import { isRepresentativeUsernameValid } from "./usernamePolicy";
@@ -38,6 +38,19 @@ const usernameDirection = (value: string, fallback: "rtl" | "ltr") => {
   if (!value) return fallback;
   return /[A-Za-z]/.test(value) ? "ltr" : "rtl";
 };
+
+function RequiredMark() {
+  return <span aria-hidden="true" className="text-sm font-black text-rose-500">*</span>;
+}
+
+function RequiredFieldLabel({ htmlFor, label }: { htmlFor: string; label: string }) {
+  return (
+    <div className="flex items-center gap-1">
+      <label htmlFor={htmlFor} className="block text-start text-xs font-black text-slate-700">{label}</label>
+      <RequiredMark />
+    </div>
+  );
+}
 
 export function RepresentativeForm({
   representative = null,
@@ -131,8 +144,13 @@ export function RepresentativeForm({
       return;
     }
     if (!representative) {
-      if (!isRepresentativePasswordValid(password)) {
-        setValidation(t("representativesVehicles.representatives.form.passwordInvalid"));
+      const passwordIssue = representativePasswordValidation(password);
+      if (passwordIssue) {
+        setValidation(t(
+          passwordIssue === "tooShort"
+            ? "representativesVehicles.representatives.form.passwordTooShort"
+            : "representativesVehicles.representatives.form.passwordTooLong",
+        ));
         return;
       }
       if (!confirmPassword) {
@@ -201,28 +219,32 @@ export function RepresentativeForm({
   const inputClass = "h-10 min-w-0 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-cyan-300 focus:ring-4 focus:ring-cyan-100/60 disabled:bg-slate-50 disabled:text-slate-500";
 
   return (
-    <form dir={formDirection} className="space-y-4" onSubmit={submit}>
+    <form dir={formDirection} className="space-y-4" onSubmit={submit} noValidate>
+      <p className="text-start text-[11px] font-semibold text-slate-500">
+        <span aria-hidden="true" className="font-black text-rose-500">*</span>{" "}
+        {t("representativesVehicles.representatives.form.requiredHint")}
+      </p>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="min-w-0 space-y-1.5 sm:col-span-2">
-          <label htmlFor="representative-name" className="block text-start text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.name")}</label>
+          <RequiredFieldLabel htmlFor="representative-name" label={t("representativesVehicles.representatives.fields.name")} />
           <input id="representative-name" autoFocus required aria-required="true" maxLength={120} value={fullName} onChange={(event) => { resetOperation(); setFullName(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.namePlaceholder")} className={inputClass} disabled={busy} autoComplete="off" />
         </div>
 
         <div className="min-w-0 space-y-1.5">
-          <label htmlFor="representative-username" className="block text-start text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.username")}</label>
+          <RequiredFieldLabel htmlFor="representative-username" label={t("representativesVehicles.representatives.fields.username")} />
           <input id="representative-username" aria-describedby="representative-username-hint" required aria-required="true" dir={usernameDirection(username, formDirection)} maxLength={80} value={username} onChange={(event) => { resetOperation(); setUsername(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.usernamePlaceholder")} className={`${inputClass} ${localeTextAlignment}`} disabled={busy} autoComplete="off" />
           <p id="representative-username-hint" className="text-[11px] font-semibold leading-5 text-slate-500">{t("representativesVehicles.representatives.form.usernameHint")}</p>
         </div>
 
         <div className="min-w-0 space-y-1.5">
-          <label htmlFor="representative-phone" className="block text-start text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.phone")}</label>
+          <RequiredFieldLabel htmlFor="representative-phone" label={t("representativesVehicles.representatives.fields.phone")} />
           <input id="representative-phone" required aria-required="true" dir={phone ? "ltr" : formDirection} inputMode="tel" maxLength={20} value={phone} onChange={(event) => { resetOperation(); setPhone(event.target.value); }} placeholder={t("representativesVehicles.representatives.form.phonePlaceholder")} className={`${inputClass} ${localeTextAlignment}`} disabled={busy} autoComplete="tel" />
         </div>
 
         {!representative ? (
           <>
             <div className="min-w-0 space-y-1.5 sm:col-span-2">
-              <label htmlFor="representative-password" className="block text-start text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.password")}</label>
+              <RequiredFieldLabel htmlFor="representative-password" label={t("representativesVehicles.representatives.fields.password")} />
               <RepresentativePasswordInput
                 id="representative-password"
                 value={password}
@@ -234,7 +256,7 @@ export function RepresentativeForm({
               />
             </div>
             <div className="min-w-0 space-y-1.5 sm:col-span-2">
-              <label htmlFor="representative-confirm-password" className="block text-start text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.confirmPassword")}</label>
+              <RequiredFieldLabel htmlFor="representative-confirm-password" label={t("representativesVehicles.representatives.fields.confirmPassword")} />
               <RepresentativePasswordInput
                 id="representative-confirm-password"
                 value={confirmPassword}
@@ -265,7 +287,7 @@ export function RepresentativeForm({
         </label>
         {canAllowDebt ? (
           <div className="mt-3 space-y-1.5">
-            <label htmlFor="representative-debt-limit" className="block text-start text-xs font-black text-slate-700">{t("representativesVehicles.representatives.fields.debtLimit")}</label>
+            <RequiredFieldLabel htmlFor="representative-debt-limit" label={t("representativesVehicles.representatives.fields.debtLimit")} />
             <input
               id="representative-debt-limit"
               aria-describedby="representative-debt-hint"
