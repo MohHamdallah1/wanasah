@@ -72,6 +72,19 @@ describe("whole-product quality financial preview", () => {
     ]);
   });
 
+  it("accepts anonymous public lots in preview and valuation evidence", () => {
+    const raw = movingAveragePreview();
+    (raw.batches as Array<Record<string, unknown>>)[0].batch_number = null;
+    (raw.valuation_lines as Array<Record<string, unknown>>)[0].batch_number = null;
+    const parsed = parseWholeProductQualityPreview(raw);
+    expect(parsed.batches[0]).toMatchObject({ batchId: 101, batchNumber: null });
+    expect(parsed.valuationLines[0]).toMatchObject({ batchId: 101, batchNumber: null });
+
+    const bad = movingAveragePreview();
+    (bad.batches as Array<Record<string, unknown>>)[0].batch_number = "";
+    expect(() => parseWholeProductQualityPreview(bad)).toThrow("WHOLE_PRODUCT_QUALITY_PREVIEW_INVALID");
+  });
+
   it("preserves authoritative book value and per-line cost as exact strings", () => {
     const parsed = parseWholeProductQualityPreview(movingAveragePreview());
     expect(parsed.totalBookValue).toBe("30.000000");

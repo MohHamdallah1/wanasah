@@ -1,4 +1,5 @@
 import { compareQuantity, parseQuantity, type Quantity } from "../quantity";
+import { parsePublicBatchNumber } from "../publicBatchNumber";
 
 type CodedContractError = Error & { code: string };
 
@@ -278,11 +279,12 @@ export function parseBulkMinimumStockPlan(raw: unknown): BulkMinimumStockPlan {
 
 export interface WarehouseBatchInventoryItem {
   batch_id: number;
-  batch_number: string;
+  batch_number: string | null;
   production_date: string | null;
   expiry_date: string | null;
   disposition: "RELEASED" | "QUARANTINED" | "BLOCKED" | "RECALLED";
   disposition_revision: number;
+  allowed_disposition_targets: Array<"RELEASED" | "QUARANTINED" | "BLOCKED" | "RECALLED">;
   disposition_reason: string | null;
   days_to_expiry: number | null;
 
@@ -622,6 +624,18 @@ export function parseBatchDetailResponse(
           ? row.days_to_expiry
           : contractError(code);
 
+    if (!Array.isArray(row.allowed_disposition_targets) || row.allowed_disposition_targets.length > 3) {
+      return contractError(code);
+    }
+    const allowedDispositionTargets = row.allowed_disposition_targets.map((value) =>
+      value === "RELEASED" || value === "QUARANTINED" || value === "BLOCKED" || value === "RECALLED"
+        ? value
+        : contractError(code),
+    );
+    if (new Set(allowedDispositionTargets).size !== allowedDispositionTargets.length) {
+      return contractError(code);
+    }
+
     const restrictedQuantity = parseQuantity(
       row.restricted_quantity,
       "restricted_quantity",
@@ -643,7 +657,7 @@ export function parseBatchDetailResponse(
 
     return {
       batch_id: batchId,
-      batch_number: str(row.batch_number, code, 100),
+      batch_number: parsePublicBatchNumber(row.batch_number, () => contractError(code)),
       production_date: isoDateOrNull(
         row.production_date,
         code,
@@ -651,6 +665,7 @@ export function parseBatchDetailResponse(
       expiry_date: isoDateOrNull(row.expiry_date, code),
       disposition: disposition as WarehouseBatchInventoryItem["disposition"],
       disposition_revision: int(row.disposition_revision, code, 1),
+      allowed_disposition_targets: allowedDispositionTargets,
       disposition_reason: nullableStr(
         row.disposition_reason,
         code,

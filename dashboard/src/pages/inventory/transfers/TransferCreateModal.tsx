@@ -1,5 +1,7 @@
 import { Search, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
+import { useTranslation } from "react-i18next";
+import { formatPublicBatchNumber } from "../publicBatchNumber";
 import type { TransferCreateController } from "./hooks/useTransferCreate";
 import { compareQuantity } from "../quantity";
 import { FefoOverrideEditor } from "./FefoOverrideEditor";
@@ -13,6 +15,7 @@ export function TransferCreateModal({
   locationId,
   controller,
 }: TransferCreateModalProps) {
+  const { t } = useTranslation();
   const {
     canOutgoing, canIncoming, canSubmit, canOverride,
     createOpen,
@@ -315,7 +318,7 @@ export function TransferCreateModal({
                       الإجمالي: {item.quantity || "0"} {item.base_uom_name}
                       {item.fefo_mode === "override" &&
                       selectedBatch
-                        ? ` من الدفعة ${selectedBatch.batch_number}`
+                        ? ` من الدفعة ${formatPublicBatchNumber(selectedBatch.batch_number, t("inventoryLive.noLotSupplied"))}`
                         : ""}
                       {invalid ? " — يتجاوز المتاح" : ""}
                     </div>

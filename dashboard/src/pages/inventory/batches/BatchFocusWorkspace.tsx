@@ -5,6 +5,7 @@ import type { BatchFocusIdentity } from "@/features/inventory/batchFocusNavigati
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { resolveI18nLocale } from "@/lib/locale";
+import { formatPublicBatchNumber } from "../publicBatchNumber";
 import { BatchDispositionManager } from "./BatchDispositionManager";
 import { BatchQuantityActions } from "./BatchQuantityActions";
 import type { BatchSpecialTransferResult } from "./batchSpecialTransferContract";
@@ -65,7 +66,7 @@ export function BatchFocusWorkspace({ identity, onConsumed, onClose, onOpenTrans
       <button type="button" onClick={() => void (access.isError ? access.refetch() : refresh())} disabled={query.isFetching} className="mt-2 rounded-lg border px-3 py-2 focus-visible:ring-2">{t("common.retry")}</button>
     </div> : !ready || !data ? <p role="status">{t("inventoryBatches.quantityActions.loading")}</p> : <>
       <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <h2 className="font-bold">{data.batch.batch_number}</h2>
+        <h2 className="font-bold">{formatPublicBatchNumber(data.batch.batch_number, t("inventoryLive.noLotSupplied"))}</h2>
         <p>{t(`inventoryLive.batchDisposition.${data.batch.disposition}`)}</p>
         {data.batch.disposition_reason && <p>{t("inventoryBatches.disposition.reasonDisplay", { reason: data.batch.disposition_reason })}</p>}
         <p>{t("inventoryLive.expiryDate")}: {date(data.batch.expiry_date)}</p>

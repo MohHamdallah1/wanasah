@@ -50,7 +50,7 @@ export interface WarehouseTransferLine {
   product_variant_id: number;
   product_name: string;
   batch_id: number;
-  batch_number: string;
+  batch_number: string | null;
   expiry_date: string;
   quantity: Quantity;
   uom_id: number;
@@ -116,7 +116,7 @@ export interface TransferOverrideReason {
 
 export interface TransferOverrideBatch {
   id: number;
-  batch_number: string;
+  batch_number: string | null;
   production_date: string | null;
   expiry_date: string;
   available_quantity: Quantity;

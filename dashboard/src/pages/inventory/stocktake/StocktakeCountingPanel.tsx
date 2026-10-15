@@ -1,4 +1,6 @@
 import { Check, Scan } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { formatPublicBatchNumber } from "../publicBatchNumber";
 import type { StocktakeRow } from "../inventoryUtils";
 
 interface StocktakeCountingPanelProps {
@@ -27,6 +29,7 @@ export function StocktakeCountingPanel({
   onCancel,
   onSubmit,
 }: StocktakeCountingPanelProps) {
+  const { t } = useTranslation();
   return (
     <div className="glass-card inventory-data-panel flex flex-col border border-slate-200 shadow-sm flex-1 min-h-0 pt-0 overflow-hidden">
       <div className="px-5 py-3 bg-slate-900 text-white flex items-center justify-between gap-4">
@@ -72,7 +75,7 @@ export function StocktakeCountingPanel({
                 <td className="px-4 py-3">
                   <div className="flex flex-col gap-0.5">
                     <span className="text-xs font-bold text-slate-700">
-                      {row.batch_number || "بدون دفعة"}
+                      {formatPublicBatchNumber(row.batch_number, t("inventoryLive.noLotSupplied"))}
                     </span>
                     <span className="text-[11px] text-slate-400">
                       {row.expiry_date || "-"}

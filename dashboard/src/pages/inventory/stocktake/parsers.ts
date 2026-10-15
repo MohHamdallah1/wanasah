@@ -16,6 +16,7 @@ import type {
   VehicleReconCandidateCursorPage,
 } from "./types";
 import type { StocktakeStockStatus } from "../inventoryUtils";
+import { parsePublicBatchNumber } from "../publicBatchNumber";
 import { parseQuantity } from "../quantity";
 
 const STOCKTAKE_TYPES: readonly StocktakeType[] = [
@@ -76,6 +77,10 @@ const requiredString = (
 
 const optionalString = (value: unknown): string | null =>
   typeof value === "string" ? value : null;
+const publicBatchNumber = (value: unknown, field: string): string | null =>
+  parsePublicBatchNumber(value, () => {
+    throw new Error(`Invalid ${field}.`);
+  });
 
 const optionalPositiveInt = (value: unknown): number | null =>
   value === null || value === undefined
@@ -170,7 +175,7 @@ export const parseCycleBatchPage = (
     return {
       id: positiveInt(item.id, "batch.id"),
       product_variant_id: productVariantId,
-      batch_number: requiredString(item.batch_number, "batch.batch_number"),
+      batch_number: publicBatchNumber(item.batch_number, "batch.batch_number"),
       production_date: optionalString(item.production_date),
       expiry_date: requiredString(item.expiry_date, "batch.expiry_date"),
       is_active: item.is_active === true,
@@ -366,7 +371,7 @@ export const parseCountSheet = (
       base_uom_name: requiredString(item.base_uom_name, "base_uom_name"),
       quantity_scale: nonNegativeInt(item.quantity_scale, "quantity_scale"),
       quantity_step: parseQuantity(item.quantity_step, "quantity_step"),
-      batch_number: optionalString(item.batch_number),
+      batch_number: publicBatchNumber(item.batch_number, "batch_number"),
       expiry_date: optionalString(item.expiry_date),
     };
   });
@@ -457,7 +462,7 @@ const parseReviewLine = (raw: unknown): ReviewLine => {
     base_uom_name: requiredString(raw.base_uom_name, "base_uom_name"),
     quantity_scale: nonNegativeInt(raw.quantity_scale, "quantity_scale"),
     quantity_step: parseQuantity(raw.quantity_step, "quantity_step"),
-    batch_number: optionalString(raw.batch_number),
+    batch_number: publicBatchNumber(raw.batch_number, "batch_number"),
     expiry_date: optionalString(raw.expiry_date),
     expected_quantity: parseQuantity(raw.expected_quantity, "expected_quantity", { allowZero: true }),
     actual_quantity: parseQuantity(raw.actual_quantity, "actual_quantity", { allowZero: true }),
@@ -564,8 +569,9 @@ const parseSessionSummary = (
     scope_batch_id: optionalPositiveInt(
       raw.scope_batch_id
     ),
-    scope_batch_number: optionalString(
-      raw.scope_batch_number
+    scope_batch_number: publicBatchNumber(
+      raw.scope_batch_number,
+      "scope_batch_number"
     ),
     related_work_session_id: optionalPositiveInt(
       raw.related_work_session_id

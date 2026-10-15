@@ -11,6 +11,7 @@ const response = {
   disposition: "QUARANTINED",
   disposition_reason: "اشتباه في تاريخ الصلاحية",
   disposition_revision: 3,
+  allowed_disposition_targets: ["QUARANTINED", "BLOCKED", "RECALLED"],
   days_to_expiry: 332,
   base_uom_id: 7,
   base_uom_code: "EA",
@@ -76,6 +77,7 @@ describe("batch stock-source action contract", () => {
       disposition: "QUARANTINED",
       disposition_reason: "اشتباه في تاريخ الصلاحية",
       disposition_revision: 3,
+      allowed_disposition_targets: ["QUARANTINED", "BLOCKED", "RECALLED"],
       days_to_expiry: 332,
     });
     expect(parsed.base_uom_code).toBe("EA");
@@ -102,6 +104,15 @@ describe("batch stock-source action contract", () => {
         ],
       },
     });
+  });
+
+  it("accepts an anonymous public lot while retaining batch-id action identity", () => {
+    const anonymous = parseBatchStockSources({ ...response, batch_number: null });
+    expect(anonymous.batch).toMatchObject({ batch_id: 41, batch_number: null });
+    expect(anonymous.sources[0].statuses[0].special_actions[0].allowed).toBe(true);
+
+    const real = parseBatchStockSources({ ...response, batch_number: "REAL-LOT-41" });
+    expect(real.batch.batch_number).toBe("REAL-LOT-41");
   });
 
   it("fails closed when action-critical batch revision or metadata is invalid", () => {

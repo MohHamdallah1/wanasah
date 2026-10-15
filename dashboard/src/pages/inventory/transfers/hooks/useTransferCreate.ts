@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { formatPublicBatchNumber } from "../../publicBatchNumber";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { toast } from "sonner";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
@@ -33,6 +35,7 @@ export function useTransferCreate({
   onInventoryChanged,
   onCompleted,
 }: UseTransferCreateArgs) {
+  const { t } = useTranslation();
   const authenticatedFetch = useAuthFetch();
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -775,7 +778,7 @@ export function useTransferCreate({
 
         if (compareQuantity(quantity, batch.available_quantity) > 0) {
           throw new Error(
-            `كمية ${item.name} تتجاوز المتاح في الدفعة ${batch.batch_number}.`
+            `كمية ${item.name} تتجاوز المتاح في الدفعة ${formatPublicBatchNumber(batch.batch_number, t("inventoryLive.noLotSupplied"))}.`
           );
         }
 

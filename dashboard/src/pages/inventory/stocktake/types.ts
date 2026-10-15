@@ -127,7 +127,7 @@ export interface CycleProductCursorPage {
 export interface CycleBatchOption {
   id: number;
   product_variant_id: number;
-  batch_number: string;
+  batch_number: string | null;
   production_date: string | null;
   expiry_date: string;
   is_active: boolean;

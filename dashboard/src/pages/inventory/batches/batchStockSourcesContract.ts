@@ -1,4 +1,5 @@
 import type { BatchActionSnapshot, BatchDisposition } from "./contracts";
+import { parsePublicBatchNumber } from "../publicBatchNumber";
 import {
   compareQuantity,
   parseQuantity,
@@ -440,7 +441,7 @@ export function parseBatchStockSources(
   const allowedDispositionTargets = parseAllowedBatchDispositionTargets(
     row.allowed_disposition_targets,
   );
-  const batchNumber = row.batch_number;
+  const batchNumber = parsePublicBatchNumber(row.batch_number, invalid);
   const productionDate = row.production_date;
   const expiryDate = row.expiry_date;
   const reason = row.disposition_reason;
@@ -452,9 +453,6 @@ export function parseBatchStockSources(
       disposition !== "QUARANTINED" &&
       disposition !== "BLOCKED" &&
       disposition !== "RECALLED") ||
-    typeof batchNumber !== "string" ||
-    !batchNumber.trim() ||
-    batchNumber.length > 100 ||
     (productionDate !== null &&
       (typeof productionDate !== "string" || !isoDate.test(productionDate))) ||
     (expiryDate !== null &&
@@ -475,7 +473,7 @@ export function parseBatchStockSources(
     product_variant_id: positiveInt(row.product_variant_id),
     batch: {
       batch_id: batchId,
-      batch_number: batchNumber.trim(),
+      batch_number: batchNumber,
       production_date: productionDate as string | null,
       expiry_date: expiryDate as string | null,
       disposition,

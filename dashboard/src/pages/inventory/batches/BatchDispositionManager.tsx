@@ -16,6 +16,7 @@ import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { BatchQuantityActions } from "./BatchQuantityActions";
 import type { BatchActionSnapshot, BatchDisposition } from "./contracts";
 import type { BatchSpecialTransferResult } from "./batchSpecialTransferContract";
+import { formatPublicBatchNumber } from "../publicBatchNumber";
 import type { ReservationOwner } from "./batchStockSourcesContract";
 import { useBatchDispositionCommand } from "./useBatchDispositionCommand";
 
@@ -134,7 +135,7 @@ export function BatchDispositionManager({
       isOpen
       onClose={onClose}
       title={t("inventoryBatches.disposition.title", {
-        batch: batch.batch_number,
+        batch: formatPublicBatchNumber(batch.batch_number, t("inventoryLive.noLotSupplied")),
       })}
       subtitle={t(
         "inventoryBatches.disposition.scopeHint",

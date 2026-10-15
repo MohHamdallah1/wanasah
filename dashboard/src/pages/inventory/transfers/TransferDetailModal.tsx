@@ -1,4 +1,6 @@
 import { Modal } from "@/components/ui/modal";
+import { useTranslation } from "react-i18next";
+import { formatPublicBatchNumber } from "../publicBatchNumber";
 import { STATUS_META } from "./constants";
 import type { WarehouseTransferDetail } from "./types";
 import { formatDate } from "./utils";
@@ -14,6 +16,7 @@ export function TransferDetailModal({
   loading,
   onClose,
 }: TransferDetailModalProps) {
+  const { t } = useTranslation();
   return (
     <Modal
       isOpen={detail !== null || loading}
@@ -91,7 +94,7 @@ export function TransferDetailModal({
                       {line.product_name}
                     </td>
                     <td className="p-3 font-mono text-xs">
-                      {line.batch_number}
+                      {formatPublicBatchNumber(line.batch_number, t("inventoryLive.noLotSupplied"))}
                     </td>
                     <td className="p-3 text-xs text-slate-600">
                       {line.expiry_date}

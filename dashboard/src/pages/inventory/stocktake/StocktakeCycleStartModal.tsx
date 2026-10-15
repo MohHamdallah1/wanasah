@@ -1,5 +1,7 @@
 import { ChevronLeft, Layers3, Search, X } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
+import { useTranslation } from "react-i18next";
+import { formatPublicBatchNumber } from "../publicBatchNumber";
 import type { CycleCountStartController } from "./hooks/useCycleCountStart";
 
 interface StocktakeCycleStartModalProps {
@@ -10,6 +12,7 @@ interface StocktakeCycleStartModalProps {
 }
 
 export function StocktakeCycleStartModal({ open, controller, onClose, onStart }: StocktakeCycleStartModalProps) {
+  const { t } = useTranslation();
   const {
     productSearchInput, setProductSearchInput, products, productsNextCursor,
     productsLoading, productsLoadingMore, selectedProduct, chooseProduct,
@@ -84,7 +87,7 @@ export function StocktakeCycleStartModal({ open, controller, onClose, onStart }:
               <div className="max-h-52 overflow-auto rounded-xl border border-slate-200 divide-y divide-slate-100">
                 {batches.map((batch) => (
                   <button type="button" key={batch.id} onClick={() => setSelectedBatch(batch)} className={`w-full px-4 py-3 text-right transition-colors ${selectedBatch?.id === batch.id ? "bg-blue-50" : "bg-white hover:bg-slate-50"}`}>
-                    <div className="flex items-center justify-between gap-3"><span className="font-black text-sm text-slate-800">{batch.batch_number}</span>{!batch.is_active && <span className="text-[10px] font-bold bg-slate-200 text-slate-600 px-2 py-0.5 rounded-md">غير فعالة</span>}</div>
+                    <div className="flex items-center justify-between gap-3"><span className="font-black text-sm text-slate-800">{formatPublicBatchNumber(batch.batch_number, t("inventoryLive.noLotSupplied"))}</span>{!batch.is_active && <span className="text-[10px] font-bold bg-slate-200 text-slate-600 px-2 py-0.5 rounded-md">غير فعالة</span>}</div>
                     <div className="text-[11px] text-slate-500 mt-1">الصلاحية: {batch.expiry_date}{batch.production_date ? ` · الإنتاج: ${batch.production_date}` : ""}</div>
                   </button>
                 ))}

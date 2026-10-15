@@ -29,6 +29,23 @@ describe("batch disposition controls", () => {
     expect(manager).not.toContain("allowedBatchDispositionTargets");
   });
 
+  it("accepts a null public lot without changing batch-id authority", () => {
+    const base = {
+      batch_id: 7,
+      product_variant_id: 11,
+      batch_number: null,
+      disposition: "QUARANTINED",
+      disposition_reason: "Inspection",
+      disposition_revision: 2,
+      updated_at: "2026-10-03T12:00:00Z",
+    };
+    expect(parseBatchDispositionMutation(base)).toMatchObject({ batch_id: 7, batch_number: null });
+    expect(parseBatchDispositionMutation({ ...base, batch_number: "REAL-LOT-7" }).batch_number).toBe("REAL-LOT-7");
+    expect(() => parseBatchDispositionMutation({ ...base, batch_number: "" })).toThrow(
+      "BATCH_DISPOSITION_RESPONSE_INVALID",
+    );
+  });
+
   it("requires the server revision returned by a disposition mutation", () => {
     const parsed = parseBatchDispositionMutation({
       batch_id: 7,
