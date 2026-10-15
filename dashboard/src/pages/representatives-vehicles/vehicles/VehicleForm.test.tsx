@@ -90,6 +90,29 @@ describe("VehicleForm frozen V1 contract", () => {
     expect(onSubmit.mock.calls[0]?.[0]).toEqual({ next_maintenance_date: null });
   });
 
+  it("clears a stale maintenance date and focuses scheduling when a maintained vehicle returns to service", () => {
+    const onSubmit = vi.fn();
+    const vehicle = {
+      id: 9, plate_number: "99-99999", vehicle_type: null, current_mileage: 900,
+      next_oil_change: null, license_expiry_date: null, next_maintenance_date: "2000-01-02",
+      maintenance_status: "In_Maintenance" as const, is_active: true, version: 3, custody_ready: true,
+    };
+    render(<VehicleForm vehicle={vehicle} onCancel={() => undefined} onSubmit={onSubmit} />);
+
+    const nextMaintenance = screen.getByLabelText(/representativesVehicles\.vehicles\.fields\.nextMaintenanceDate/) as HTMLInputElement;
+    fireEvent.change(screen.getByLabelText(/representativesVehicles\.vehicles\.fields\.maintenance/), { target: { value: "Active" } });
+
+    expect(nextMaintenance.value).toBe("");
+    expect(document.activeElement).toBe(nextMaintenance);
+
+    fireEvent.submit(screen.getByRole("button", { name: "common.save" }).closest("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0]?.[0]).toEqual({
+      next_maintenance_date: null,
+      maintenance_status: "Active",
+    });
+  });
+
   it("keeps the compact form phone-first and locale-directed", () => {
     const { container, rerender } = render(<VehicleForm onCancel={() => undefined} onSubmit={() => undefined} />);
     expect(container.querySelector("form")?.getAttribute("dir")).toBe("rtl");
