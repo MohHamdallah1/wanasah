@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { CarFront, UsersRound } from "lucide-react";
+import { CarFront, Truck, UsersRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { WorkspaceTopBar } from "@/components/dashboard/WorkspaceTopBar";
@@ -23,6 +23,9 @@ export default function RepresentativesVehiclesPage() {
   );
   const canReadVehicles = Boolean(
     access.isCompanyOwner || access.can("vehicle.read"),
+  );
+  const canReadSuppliers = Boolean(
+    access.isCompanyOwner || access.can("supplier.read"),
   );
   const rawTab = new URLSearchParams(location.search).get("tab");
   const requestedTab = pageTabFromUrl(rawTab);
@@ -64,6 +67,7 @@ export default function RepresentativesVehiclesPage() {
   };
 
   useEffect(() => {
+    if (location.pathname !== "/representatives-vehicles") return;
     if (access.isLoading || firstReadableTab === null) return;
     setVisitedTabs((current) => {
       if (current.has(activeTab)) return current;
@@ -106,7 +110,8 @@ export default function RepresentativesVehiclesPage() {
             <p className="mt-0.5 hidden text-[11px] font-semibold leading-5 text-slate-300/80 sm:block">{t("representativesVehicles.subtitle")}</p>
           </header>
 
-          <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:justify-end" role="tablist" aria-label={t("representativesVehicles.title")}>
+          <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:justify-end">
+            <div className="flex min-w-0 items-center gap-2" role="tablist" aria-label={t("representativesVehicles.title")}>
             <button
               type="button"
               role="tab"
@@ -128,6 +133,16 @@ export default function RepresentativesVehiclesPage() {
               className={`inline-flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-xl border px-4 text-xs font-black shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:cursor-not-allowed disabled:opacity-40 ${activeTab === "vehicles" ? "border-amber-400 bg-amber-400 text-slate-950 hover:bg-amber-300" : "border-white/10 bg-white/[0.06] text-slate-100 hover:border-white/15 hover:bg-white/[0.1] hover:text-white"}`}
             >
               <CarFront className="h-4 w-4" />{t("representativesVehicles.tabs.vehicles")}
+            </button>
+            </div>
+            <button
+              type="button"
+              aria-disabled={!canReadSuppliers}
+              disabled={access.isLoading || !canReadSuppliers}
+              onClick={() => navigate("/suppliers")}
+              className="inline-flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-4 text-xs font-black text-slate-100 shadow-sm transition hover:border-white/15 hover:bg-white/[0.1] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Truck className="h-4 w-4" />{t("suppliers.title")}
             </button>
           </div>
         </div>

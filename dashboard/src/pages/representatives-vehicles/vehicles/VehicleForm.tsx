@@ -56,6 +56,9 @@ export function VehicleForm({
     vehicle?.maintenance_status ?? "Active",
   );
   const [validation, setValidation] = useState("");
+  const returningFromMaintenance = Boolean(
+    vehicle?.maintenance_status === "In_Maintenance" && maintenanceStatus === "Active",
+  );
   const operation = useRef<PendingOperation | null>(null);
   const nextMaintenanceDateRef = useRef<HTMLInputElement>(null);
 
@@ -104,6 +107,11 @@ export function VehicleForm({
     }
     if (parsedOil === undefined) {
       setValidation(t("representativesVehicles.vehicles.form.oilInvalid"));
+      return;
+    }
+    if (returningFromMaintenance && !nextMaintenanceDate) {
+      setValidation(t("representativesVehicles.vehicles.form.returnToServiceScheduleRequired"));
+      nextMaintenanceDateRef.current?.focus();
       return;
     }
     setValidation("");
@@ -234,17 +242,27 @@ export function VehicleForm({
           />
         </div>
         <div className="min-w-0 space-y-1.5">
-          <FieldLabel htmlFor="vehicle-next-maintenance" label={t("representativesVehicles.vehicles.fields.nextMaintenanceDate")} />
+          <FieldLabel
+            htmlFor="vehicle-next-maintenance"
+            label={t("representativesVehicles.vehicles.fields.nextMaintenanceDate")}
+            required={returningFromMaintenance}
+          />
           <input
             ref={nextMaintenanceDateRef}
             id="vehicle-next-maintenance"
             type="date"
             dir="ltr"
+            min={returningFromMaintenance ? localDateKey() : undefined}
             value={nextMaintenanceDate}
             onChange={(event) => { resetValidation(); setNextMaintenanceDate(event.target.value); }}
             className={inputClass}
             disabled={busy}
           />
+          {returningFromMaintenance ? (
+            <p className="text-start text-[10px] font-bold leading-4 text-amber-700">
+              {t("representativesVehicles.vehicles.form.returnToServiceScheduleHint")}
+            </p>
+          ) : null}
         </div>
         <div className="min-w-0 space-y-1.5">
           <FieldLabel htmlFor="vehicle-maintenance" label={t("representativesVehicles.vehicles.fields.maintenance")} />
@@ -255,10 +273,8 @@ export function VehicleForm({
               resetValidation();
               const nextStatus = event.target.value as VehicleMaintenanceStatus;
               if (vehicle?.maintenance_status === "In_Maintenance" && nextStatus === "Active") {
-                if (nextMaintenanceDate && nextMaintenanceDate <= localDateKey()) {
-                  setNextMaintenanceDate("");
-                }
-                nextMaintenanceDateRef.current?.focus();
+                setNextMaintenanceDate("");
+                window.requestAnimationFrame(() => nextMaintenanceDateRef.current?.focus());
               }
               setMaintenanceStatus(nextStatus);
             }}

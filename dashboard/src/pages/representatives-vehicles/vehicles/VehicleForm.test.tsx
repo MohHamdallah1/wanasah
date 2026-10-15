@@ -90,7 +90,7 @@ describe("VehicleForm frozen V1 contract", () => {
     expect(onSubmit.mock.calls[0]?.[0]).toEqual({ next_maintenance_date: null });
   });
 
-  it("clears a stale maintenance date and focuses scheduling when a maintained vehicle returns to service", () => {
+  it("requires a fresh maintenance schedule before a maintained vehicle returns to service", async () => {
     const onSubmit = vi.fn();
     const vehicle = {
       id: 9, plate_number: "99-99999", vehicle_type: null, current_mileage: 900,
@@ -103,12 +103,18 @@ describe("VehicleForm frozen V1 contract", () => {
     fireEvent.change(screen.getByLabelText(/representativesVehicles\.vehicles\.fields\.maintenance/), { target: { value: "Active" } });
 
     expect(nextMaintenance.value).toBe("");
-    expect(document.activeElement).toBe(nextMaintenance);
+    expect(nextMaintenance.getAttribute("min")).toBeTruthy();
+    expect(screen.getByText("representativesVehicles.vehicles.form.returnToServiceScheduleHint")).toBeTruthy();
 
+    fireEvent.submit(screen.getByRole("button", { name: "common.save" }).closest("form")!);
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText("representativesVehicles.vehicles.form.returnToServiceScheduleRequired")).toBeTruthy();
+
+    fireEvent.change(nextMaintenance, { target: { value: "2099-01-02" } });
     fireEvent.submit(screen.getByRole("button", { name: "common.save" }).closest("form")!);
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit.mock.calls[0]?.[0]).toEqual({
-      next_maintenance_date: null,
+      next_maintenance_date: "2099-01-02",
       maintenance_status: "Active",
     });
   });

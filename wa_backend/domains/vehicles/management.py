@@ -33,6 +33,7 @@ from .validation import (
     normalize_maintenance_status,
     normalize_plate,
     normalize_vehicle_type,
+    require_fresh_return_to_service_schedule,
     validated_update_fields,
 )
 
@@ -241,6 +242,11 @@ async def update_vehicle(
                 "Vehicle plate number already exists in this company.",
                 status_code=409,
             )
+        require_fresh_return_to_service_schedule(
+            current_status=str(vehicle.maintenance_status),
+            current_next_maintenance_date=vehicle.next_maintenance_date,
+            fields=fields,
+        )
         if (
             fields.get("maintenance_status") == "In_Maintenance"
             and vehicle.maintenance_status != "In_Maintenance"

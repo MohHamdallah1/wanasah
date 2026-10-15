@@ -69,6 +69,26 @@ describe("RepresentativesVehiclesPage", () => {
     expect(screen.getByTestId("vehicles-workflow")).toBeTruthy();
   });
 
+  it("opens Suppliers from the top workspace without treating it as a local tab", async () => {
+    permissions = new Set(["representative.read", "vehicle.read", "supplier.read"]);
+    renderPage();
+
+    expect(within(screen.getByRole("tablist")).getAllByRole("tab")).toHaveLength(2);
+    const suppliers = screen.getByRole("button", { name: "suppliers.title" });
+    expect((suppliers as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(suppliers);
+
+    await waitFor(() => expect(screen.getByTestId("route-location").textContent).toBe("/suppliers"));
+  });
+
+  it("keeps the Suppliers workspace reachable for a supplier-only backoffice user", () => {
+    permissions = new Set(["supplier.read"]);
+    renderPage();
+
+    expect(screen.getByText("representativesVehicles.noAccess")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "suppliers.title" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("allows vehicle-only users to reach the page without representative.read", async () => {
     permissions = new Set(["vehicle.read"]);
     renderPage();
