@@ -41,6 +41,7 @@ export function RepresentativeCredentialAction({
   const [validation, setValidation] = useState("");
   const [recovering, setRecovering] = useState(false);
   const [recoveryConflict, setRecoveryConflict] = useState(false);
+  const formId = `representative-credential-reset-${representative.id}`;
 
   useEffect(() => {
     if (!open || !allowed) return;
@@ -77,7 +78,7 @@ export function RepresentativeCredentialAction({
   };
 
   const run = async () => {
-    if (!allowed) return;
+    if (!allowed || busy) return;
     const passwordIssue = representativePasswordValidation(password);
     if (passwordIssue) {
       setValidation(t(
@@ -147,11 +148,11 @@ export function RepresentativeCredentialAction({
       footer={
         <>
           <button type="button" disabled={busy} onClick={close} className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 disabled:opacity-50">{t("common.cancel")}</button>
-          <button type="button" disabled={busy || !allowed} onClick={() => void run()} className="h-10 rounded-xl bg-slate-900 px-4 text-sm font-black text-white disabled:opacity-50">{busy ? t("common.saving") : t("common.confirm")}</button>
+          <button type="submit" form={formId} disabled={busy || !allowed} className="h-10 rounded-xl bg-slate-900 px-4 text-sm font-black text-white disabled:opacity-50">{busy ? t("common.saving") : t("common.confirm")}</button>
         </>
       }
     >
-      <div className="space-y-4">
+      <form id={formId} className="space-y-4" onSubmit={(event) => { event.preventDefault(); void run(); }}>
         <p className="text-sm font-semibold leading-6 text-slate-600">{representative.full_name}</p>
         <p className="text-[11px] font-semibold leading-5 text-slate-500">{t("representativesVehicles.representatives.credentials.hint")}</p>
         <div className="space-y-1.5">
@@ -183,7 +184,7 @@ export function RepresentativeCredentialAction({
           </div>
         ) : null}
         {validation ? <p role="alert" className="text-xs font-bold text-rose-700">{validation}</p> : null}
-      </div>
+      </form>
     </Modal>
   );
 }
