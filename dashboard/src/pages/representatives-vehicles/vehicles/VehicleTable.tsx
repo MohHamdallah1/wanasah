@@ -15,7 +15,7 @@ type VehicleNote =
   | { kind: "custody" }
   | { kind: "maintenance"; date: string; overdue: boolean }
   | { kind: "license"; date: string }
-  | { kind: "oil"; mileage: number };
+  | { kind: "oil"; mileage: number; due: boolean };
 
 const localDateKey = () => {
   const now = new Date();
@@ -50,11 +50,21 @@ const notesForVehicle = (vehicle: Vehicle): VehicleNote[] => {
   if (vehicle.license_expiry_date && vehicle.license_expiry_date < today) {
     notes.push({ kind: "license", date: vehicle.license_expiry_date });
   }
-  if (vehicle.next_oil_change !== null && vehicle.next_oil_change !== undefined && vehicle.current_mileage >= vehicle.next_oil_change) {
-    notes.push({ kind: "oil", mileage: vehicle.next_oil_change });
+  if (vehicle.next_oil_change !== null && vehicle.next_oil_change !== undefined) {
+    notes.push({
+      kind: "oil",
+      mileage: vehicle.next_oil_change,
+      due: vehicle.current_mileage >= vehicle.next_oil_change,
+    });
   }
   return notes;
 };
+
+const noteIsOverdue = (note: VehicleNote) =>
+  note.kind === "custody" ||
+  note.kind === "license" ||
+  (note.kind === "maintenance" && note.overdue) ||
+  (note.kind === "oil" && note.due);
 
 export function VehicleTable({ items, loading = false, canManage, onEdit, onLifecycle }: VehicleTableProps) {
   const { t, i18n } = useTranslation();
@@ -70,7 +80,10 @@ export function VehicleTable({ items, loading = false, canManage, onEdit, onLife
     if (note.kind === "license") {
       return t("representativesVehicles.vehicles.notes.licenseExpired", { date: formatBusinessDate(note.date, i18n.language) });
     }
-    return t("representativesVehicles.vehicles.notes.oilDue", { mileage: formatBusinessNumber(note.mileage, i18n.language) });
+    if (note.due) {
+      return t("representativesVehicles.vehicles.notes.oilDue", { mileage: formatBusinessNumber(note.mileage, i18n.language) });
+    }
+    return `${t("representativesVehicles.vehicles.fields.nextOilChange")}: ${formatBusinessNumber(note.mileage, i18n.language)}`;
   };
 
   if (loading && items.length === 0) {
@@ -114,7 +127,7 @@ export function VehicleTable({ items, loading = false, canManage, onEdit, onLife
                 </span>
               </td>
               <td className="border-b border-slate-100 px-4 py-3 text-start">
-                <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-black ${vehicle.maintenance_status === "Active" ? "bg-cyan-50 text-cyan-700 ring-1 ring-cyan-200" : "bg-amber-50 text-amber-800 ring-1 ring-amber-200"}`}>
+                <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-black ${vehicle.maintenance_status === "Active" ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "bg-amber-50 text-amber-800 ring-1 ring-amber-200"}`}>
                   {t(vehicle.maintenance_status === "Active" ? "representativesVehicles.vehicles.maintenance.active" : "representativesVehicles.vehicles.maintenance.inMaintenance")}
                 </span>
               </td>
@@ -122,7 +135,7 @@ export function VehicleTable({ items, loading = false, canManage, onEdit, onLife
                 {notes.length ? (
                   <div className="space-y-1">
                     {notes.map((note, noteIndex) => (
-                      <p key={`${vehicle.id}-${note.kind}-${noteIndex}`} className={`text-[10px] font-bold leading-4 ${note.kind === "custody" || note.kind === "license" ? "text-rose-700" : note.kind === "oil" || (note.kind === "maintenance" && note.overdue) ? "text-amber-700" : "text-slate-500"}`}>
+                      <p key={`${vehicle.id}-${note.kind}-${noteIndex}`} className={`text-[10px] font-bold leading-4 ${noteIsOverdue(note) ? "text-rose-700" : "text-slate-500"}`}>
                         {noteText(note)}
                       </p>
                     ))}
