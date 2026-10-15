@@ -16,10 +16,11 @@ interface VehicleTableProps {
   onView: (vehicle: Vehicle) => void;
   onEdit: (vehicle: Vehicle) => void;
   onLifecycle: (vehicle: Vehicle) => void;
+  onNoteAction: (vehicle: Vehicle, note: VehicleNote) => void;
 }
 
 
-export function VehicleTable({ items, loading = false, canManage, onView, onEdit, onLifecycle }: VehicleTableProps) {
+export function VehicleTable({ items, loading = false, canManage, onView, onEdit, onLifecycle, onNoteAction }: VehicleTableProps) {
   const { t, i18n } = useTranslation();
 
   const noteText = (note: VehicleNote) => {
@@ -84,11 +85,24 @@ export function VehicleTable({ items, loading = false, canManage, onView, onEdit
               <td className="border-b border-slate-100 px-4 py-3 text-start">
                 {notes.length ? (
                   <div className="space-y-1">
-                    {notes.map((note, noteIndex) => (
-                      <p key={`${vehicle.id}-${note.kind}-${noteIndex}`} className={`text-[10px] font-bold leading-4 ${note.kind === "maintenance" && !note.overdue ? "text-amber-700" : "text-rose-700"}`}>
-                        {noteText(note)}
-                      </p>
-                    ))}
+                    {notes.map((note, noteIndex) => {
+                      const noteClass = `text-start text-[10px] font-bold leading-4 ${note.kind === "maintenance" && !note.overdue ? "text-amber-700" : "text-rose-700"}`;
+                      const actionable = note.kind === "custody" || canManage;
+                      return actionable ? (
+                        <button
+                          key={`${vehicle.id}-${note.kind}-${noteIndex}`}
+                          type="button"
+                          onClick={() => onNoteAction(vehicle, note)}
+                          className={`${noteClass} block max-w-full rounded-sm underline-offset-2 transition hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400`}
+                        >
+                          {noteText(note)}
+                        </button>
+                      ) : (
+                        <p key={`${vehicle.id}-${note.kind}-${noteIndex}`} className={noteClass}>
+                          {noteText(note)}
+                        </p>
+                      );
+                    })}
                   </div>
                 ) : <span className="text-xs font-semibold text-slate-400">—</span>}
               </td>

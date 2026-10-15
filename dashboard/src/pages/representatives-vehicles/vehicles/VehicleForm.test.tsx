@@ -136,6 +136,23 @@ describe("VehicleForm frozen V1 contract", () => {
     expect(onSubmit.mock.calls[0]?.[0]).toEqual({ vehicle_type: "Truck" });
   });
 
+  it("submits an edited vehicle with Enter from the maintenance selector", () => {
+    const onSubmit = vi.fn();
+    const vehicle = {
+      id: 13, plate_number: "13-13000", vehicle_type: "Van", current_mileage: 800,
+      next_oil_change: 1200, license_expiry_date: null, next_maintenance_date: "2026-12-01",
+      maintenance_status: "Active" as const, is_active: true, version: 4, custody_ready: true,
+    };
+    render(<VehicleForm vehicle={vehicle} onCancel={() => undefined} onSubmit={onSubmit} />);
+
+    const status = screen.getByLabelText(/representativesVehicles\.vehicles\.fields\.maintenance/) as HTMLSelectElement;
+    fireEvent.change(status, { target: { value: "In_Maintenance" } });
+    fireEvent.keyDown(status, { key: "Enter", code: "Enter" });
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0]?.[0]).toEqual({ maintenance_status: "In_Maintenance" });
+  });
+
   it("keeps the compact form phone-first and locale-directed", () => {
     const { container, rerender } = render(<VehicleForm onCancel={() => undefined} onSubmit={() => undefined} />);
     expect(container.querySelector("form")?.getAttribute("dir")).toBe("rtl");

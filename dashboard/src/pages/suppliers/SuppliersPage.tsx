@@ -73,7 +73,7 @@ export default function SuppliersPage({ embedded = false }: SuppliersPageProps) 
     ) : null}
 
     <div className={`relative z-10 min-h-0 flex-1 overflow-hidden ${embedded ? "" : "px-3 pb-3 pt-3 sm:px-4"}`}>
-      <section className={`flex h-full min-h-0 w-full flex-col gap-3 ${embedded ? "" : "mx-auto max-w-[1500px]"}`}>
+      <section className={`flex h-full min-h-0 w-full flex-col ${embedded ? "gap-0" : "mx-auto max-w-[1500px] gap-3"}`}>
         {!commands.online ? <div role="status" className="flex items-center gap-2 rounded-2xl border border-amber-200/70 bg-amber-50/80 px-4 py-3 text-sm font-bold text-amber-800 shadow-sm backdrop-blur-xl"><WifiOff className="h-4 w-4" />{t("suppliers.offline")}</div> : null}
         {commands.error ? <div role="alert" className="flex items-center gap-2 rounded-2xl border border-rose-200/70 bg-rose-50/[0.85] px-4 py-3 text-sm font-bold text-rose-700 shadow-sm backdrop-blur-xl"><AlertTriangle className="h-4 w-4" />{commands.error}</div> : null}
         {commands.pending ? <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200/70 bg-white/75 px-4 py-3 shadow-sm backdrop-blur-xl">
@@ -82,8 +82,8 @@ export default function SuppliersPage({ embedded = false }: SuppliersPageProps) 
             className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">{t("common.retry")}</button>
         </div> : null}
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[26px] border border-white/[0.85] bg-white/[0.62] shadow-[0_22px_65px_-46px_rgba(15,23,42,0.65)] backdrop-blur-2xl">
-          <div className="shrink-0 border-b border-slate-200/70 bg-white/[0.62] p-2.5">
+        <div className={`flex min-h-0 flex-1 flex-col overflow-hidden ${embedded ? "rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]" : "rounded-[26px] border border-white/[0.85] bg-white/[0.62] shadow-[0_22px_65px_-46px_rgba(15,23,42,0.65)] backdrop-blur-2xl"}`}>
+          <div className={`shrink-0 border-b border-slate-200/70 p-2.5 ${embedded ? "bg-white" : "bg-white/[0.62]"}`}>
             <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center">
               <div className="relative min-w-0 flex-1">
                 <Search className="pointer-events-none absolute start-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
