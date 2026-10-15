@@ -494,6 +494,7 @@ Dashboard pages must follow the same ownership discipline as backend modules. A 
 - The route-level page entry should be a thin composition/orchestration layer. It may coordinate page-level state, but it must not become a dumping ground for every workflow and visual component.
 - Page-specific components, hooks/workflows, runtime contracts, helpers, and display logic belong inside that page folder unless they are genuinely reusable across multiple pages.
 - Shared folders are for truly cross-page technical primitives only. Do not move page-specific logic into a generic shared folder merely to make the page file smaller.
+- A shared Dashboard shell may group independent business pages behind one tab/navigation surface for operator convenience, but that composition is **navigation/presentation only**. Each grouped page keeps its own page folder, hooks, API client/contracts, capability gates, tests, and business ownership. Grouping Suppliers, Representatives, and Vehicles in one visible workspace must not create imports between their feature internals, shared mutation state, shared domain authority, or any backend coupling between those domains.
 
 ### Vertical feature-slice rule
 

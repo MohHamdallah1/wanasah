@@ -151,17 +151,6 @@ export function OperationsSidebar({
     item: (typeof navItems)[number]
   ) => {
     if (
-      item.path === "/representatives-vehicles" &&
-      !access.isCompanyOwner &&
-      !access.can("representative.read") &&
-      !access.can("vehicle.read") &&
-      access.can("supplier.read")
-    ) {
-      navigate("/suppliers");
-      onClose();
-      return;
-    }
-    if (
       item.path === "/" ||
       item.path === "/dispatch" ||
       item.path === "/inventory" ||
@@ -439,9 +428,7 @@ export function OperationsSidebar({
                     )))
             )
             .map((item) => {
-              const active =
-                location.pathname === item.path ||
-                (item.path === "/representatives-vehicles" && location.pathname === "/suppliers");
+              const active = location.pathname === item.path;
               return (
                 <button
                   key={item.path}

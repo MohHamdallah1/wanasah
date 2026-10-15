@@ -1,9 +1,9 @@
 export const representativesVehicles = {
   ar: {
-    title: "المندوبون والسيارات",
-    subtitle: "إدارة مندوبي الشركة وحالاتهم وبيانات الدخول من مكان واحد",
-    tabs: { representatives: "المندوبين", vehicles: "السيارات" },
-    noAccess: "حسابك لا يملك صلاحية عرض المندوبين أو السيارات.",
+    title: "المندوبون والسيارات والموردون",
+    subtitle: "إدارة المندوبين والسيارات والموردين من مكان واحد",
+    tabs: { representatives: "المندوبين", vehicles: "السيارات", suppliers: "الموردين" },
+    noAccess: "حسابك لا يملك صلاحية عرض المندوبين أو السيارات أو الموردين.",
     representatives: {
       add: "إضافة مندوب",
       search: "ابحث بالاسم أو اسم المستخدم أو رقم الهاتف",
@@ -208,10 +208,10 @@ export const representativesVehicles = {
     },
   },
   en: {
-    title: "Representatives & Vehicles",
-    subtitle: "Manage company representatives, lifecycle, and sign-in access in one place",
-    tabs: { representatives: "Representatives", vehicles: "Vehicles" },
-    noAccess: "Your account cannot view representatives or vehicles.",
+    title: "Representatives, Vehicles & Suppliers",
+    subtitle: "Manage representatives, vehicles, and suppliers in one place",
+    tabs: { representatives: "Representatives", vehicles: "Vehicles", suppliers: "Suppliers" },
+    noAccess: "Your account cannot view representatives, vehicles, or suppliers.",
     representatives: {
       add: "Add representative",
       search: "Search name, username, or phone number",
