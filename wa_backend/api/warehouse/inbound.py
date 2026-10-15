@@ -66,6 +66,11 @@ from product_lifecycle import (
 )
 from domains.suppliers.public import SupplierError, select_active_supplier, require_supplier_permission
 from domains.inventory_supplier_evidence import record_supplier_evidence
+from domains.product_tracking import (
+    build_internal_no_lot_batch_number,
+    is_reserved_internal_batch_number,
+    public_batch_number,
+)
 
 
 from ._shared import _stable_request_hash
@@ -319,6 +324,288 @@ async def _ensure_first_inbound_product_locations(
     }
 
 
+def _inbound_batch_context(
+    *,
+    product_variant_id: int,
+    uom_id: int | None = None,
+    production_date: date | None = None,
+    expiry_date: date | None = None,
+    batch_number: object = None,
+) -> dict:
+    """Build safe operator error context without leaking anonymous storage ids."""
+
+    context: dict[str, object] = {
+        "product_variant_id": int(product_variant_id),
+    }
+    if uom_id is not None:
+        context["uom_id"] = int(uom_id)
+    if production_date is not None:
+        context["production_date"] = production_date.isoformat()
+    if expiry_date is not None:
+        context["expiry_date"] = expiry_date.isoformat()
+    visible_batch = public_batch_number(batch_number)
+    if visible_batch is not None:
+        context["batch_number"] = visible_batch
+    return context
+
+
+def _resolve_inbound_lot_identity(
+    *,
+    request_id: uuid.UUID,
+    product_variant_id: int,
+    uom_id: int,
+    lot_control_mode: str,
+    supplied_batch_number: str | None,
+    production_date: date | None,
+    expiry_date: date | None,
+) -> tuple[str, bool]:
+    context = _inbound_batch_context(
+        product_variant_id=product_variant_id,
+        uom_id=uom_id,
+        production_date=production_date,
+        expiry_date=expiry_date,
+        batch_number=supplied_batch_number,
+    )
+    if lot_control_mode == "REQUIRED":
+        if supplied_batch_number is None:
+            raise HTTPException(
+                status_code=422,
+                detail=inventory_business_error(
+                    "INBOUND_LOT_REQUIRED",
+                    "A batch/lot number is required for this product.",
+                    context=context,
+                ),
+            )
+        if is_reserved_internal_batch_number(supplied_batch_number):
+            raise HTTPException(
+                status_code=422,
+                detail=inventory_business_error(
+                    "INBOUND_LOT_RESERVED",
+                    "The supplied batch/lot number uses a reserved internal namespace.",
+                    context=context,
+                ),
+            )
+        return supplied_batch_number, False
+
+    if lot_control_mode == "OPTIONAL":
+        if supplied_batch_number is not None:
+            if is_reserved_internal_batch_number(supplied_batch_number):
+                raise HTTPException(
+                    status_code=422,
+                    detail=inventory_business_error(
+                        "INBOUND_LOT_RESERVED",
+                        "The supplied batch/lot number uses a reserved internal namespace.",
+                        context=context,
+                    ),
+                )
+            return supplied_batch_number, False
+        return (
+            build_internal_no_lot_batch_number(
+                request_id=request_id,
+                production_date=production_date,
+                expiry_date=expiry_date,
+            ),
+            True,
+        )
+
+    if lot_control_mode == "NONE":
+        if supplied_batch_number is not None:
+            raise HTTPException(
+                status_code=422,
+                detail=inventory_business_error(
+                    "INBOUND_LOT_NOT_ALLOWED",
+                    "This product does not accept a user-supplied batch/lot number.",
+                    context=context,
+                ),
+            )
+        return (
+            build_internal_no_lot_batch_number(
+                request_id=request_id,
+                production_date=production_date,
+                expiry_date=expiry_date,
+            ),
+            True,
+        )
+
+    raise HTTPException(
+        status_code=409,
+        detail=inventory_business_error(
+            "INBOUND_LOT_MODE_INVALID",
+            "The product lot-control mode is invalid.",
+            context={"product_variant_id": int(product_variant_id)},
+        ),
+    )
+
+
+def _validate_inbound_dates(
+    *,
+    product_variant_id: int,
+    uom_id: int,
+    expiry_control_mode: str,
+    production_date: date | None,
+    expiry_date: date | None,
+    as_of_date: date,
+    batch_number: object,
+) -> None:
+    context = _inbound_batch_context(
+        product_variant_id=product_variant_id,
+        uom_id=uom_id,
+        production_date=production_date,
+        expiry_date=expiry_date,
+        batch_number=batch_number,
+    )
+    if expiry_control_mode == "REQUIRED" and expiry_date is None:
+        raise HTTPException(
+            status_code=422,
+            detail=inventory_business_error(
+                "INBOUND_EXPIRY_REQUIRED",
+                "Expiry date is required for this product.",
+                context=context,
+            ),
+        )
+    if expiry_control_mode == "NONE" and expiry_date is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=inventory_business_error(
+                "INBOUND_EXPIRY_NOT_ALLOWED",
+                "This product does not use expiry tracking.",
+                context=context,
+            ),
+        )
+    if expiry_date is not None and expiry_date < as_of_date:
+        raise HTTPException(
+            status_code=422,
+            detail=inventory_business_error(
+                "INBOUND_BATCH_EXPIRED",
+                "Expired stock cannot be received as available inventory.",
+                context=context,
+            ),
+        )
+    if production_date is not None and production_date > as_of_date:
+        raise HTTPException(
+            status_code=422,
+            detail=inventory_business_error(
+                "INBOUND_PRODUCTION_DATE_FUTURE",
+                "Production date cannot be in the future.",
+                context=context,
+            ),
+        )
+    if (
+        production_date is not None
+        and expiry_date is not None
+        and production_date > expiry_date
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=inventory_business_error(
+                "INBOUND_BATCH_DATES_INVALID",
+                "Production date cannot be after expiry date.",
+                context=context,
+            ),
+        )
+
+
+def _ensure_named_batch_metadata_matches(
+    batch: ProductBatch,
+    *,
+    production_date: date | None,
+    expiry_date: date | None,
+) -> None:
+    if (
+        batch.production_date == production_date
+        and batch.expiry_date == expiry_date
+    ):
+        return
+    raise HTTPException(
+        status_code=409,
+        detail=inventory_business_error(
+            "INBOUND_BATCH_METADATA_CONFLICT",
+            "The batch already exists with different production or expiry metadata.",
+            context=_inbound_batch_context(
+                product_variant_id=int(batch.product_variant_id),
+                production_date=production_date,
+                expiry_date=expiry_date,
+                batch_number=batch.batch_number,
+            ),
+        ),
+    )
+
+
+async def _ensure_anonymous_batch_keys_unused(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    anonymous_batch_keys: set[tuple[int, str]],
+    requested_batches: dict[
+        tuple[int, str],
+        tuple[Optional[date], Optional[date]],
+    ],
+) -> None:
+    if not anonymous_batch_keys:
+        return
+    unexpected = (
+        await db.execute(
+            select(
+                ProductBatch.product_variant_id,
+                ProductBatch.batch_number,
+            ).where(
+                ProductBatch.company_id == company_id,
+                tuple_(
+                    ProductBatch.product_variant_id,
+                    ProductBatch.batch_number,
+                ).in_(sorted(anonymous_batch_keys)),
+            )
+        )
+    ).first()
+    if unexpected is None:
+        return
+    conflict_key = (
+        int(unexpected.product_variant_id),
+        str(unexpected.batch_number),
+    )
+    production_date, expiry_date = requested_batches[conflict_key]
+    raise HTTPException(
+        status_code=409,
+        detail=inventory_business_error(
+            "INBOUND_ANONYMOUS_BATCH_COLLISION",
+            "An internal anonymous batch identity already exists for this new receipt.",
+            context=_inbound_batch_context(
+                product_variant_id=conflict_key[0],
+                production_date=production_date,
+                expiry_date=expiry_date,
+            ),
+        ),
+    )
+
+
+def _ensure_anonymous_batch_keys_created(
+    *,
+    anonymous_batch_keys: set[tuple[int, str]],
+    created_batch_keys: set[tuple[int, str]],
+    requested_batches: dict[
+        tuple[int, str],
+        tuple[Optional[date], Optional[date]],
+    ],
+) -> None:
+    missing = anonymous_batch_keys - created_batch_keys
+    if not missing:
+        return
+    conflict_key = sorted(missing)[0]
+    production_date, expiry_date = requested_batches[conflict_key]
+    raise HTTPException(
+        status_code=409,
+        detail=inventory_business_error(
+            "INBOUND_ANONYMOUS_BATCH_COLLISION",
+            "A concurrent anonymous batch identity collision was detected.",
+            context=_inbound_batch_context(
+                product_variant_id=conflict_key[0],
+                production_date=production_date,
+                expiry_date=expiry_date,
+            ),
+        ),
+    )
+
+
 # ====================================================
 # 1.4 جلب خيارات وحدات القياس والعملات اللازمة لنموذج التوريد
 # ====================================================
@@ -344,6 +631,31 @@ async def warehouse_inbound_options(
     if company is None:
         raise HTTPException(status_code=404, detail="Company was not found.")
 
+    tracking_rows = (
+        await db.execute(
+            select(
+                ProductVariant.id,
+                ProductVariant.lot_control_mode,
+                ProductVariant.expiry_control_mode,
+            ).where(
+                ProductVariant.company_id == company_id,
+                ProductVariant.id.in_(sorted(base_by_variant)),
+            )
+        )
+    ).all()
+    tracking_by_variant = {
+        int(row.id): (str(row.lot_control_mode), str(row.expiry_control_mode))
+        for row in tracking_rows
+    }
+    if set(tracking_by_variant) != set(base_by_variant):
+        raise HTTPException(
+            status_code=409,
+            detail=inventory_business_error(
+                "INBOUND_VARIANT_RULES_UNAVAILABLE",
+                "Inbound tracking rules are unavailable for one or more products.",
+            ),
+        )
+
     items = []
     for variant_id in sorted(base_by_variant):
         base_uom_id = base_by_variant[variant_id]
@@ -365,9 +677,12 @@ async def warehouse_inbound_options(
                 int(row["id"]),
             )
         )
+        lot_control_mode, expiry_control_mode = tracking_by_variant[variant_id]
         items.append({
             "product_variant_id": variant_id,
             "base_uom_id": base_uom_id,
+            "lot_control_mode": lot_control_mode,
+            "expiry_control_mode": expiry_control_mode,
             "uoms": option_rows,
         })
 
@@ -568,6 +883,7 @@ async def warehouse_inbound(
                     ProductVariant.base_uom_id,
                     ProductVariant.quantity_scale,
                     ProductVariant.quantity_step,
+                    ProductVariant.lot_control_mode,
                     ProductVariant.expiry_control_mode,
                     ProductVariant.lifecycle_status,
                     ProductVariant.operational_hold,
@@ -653,6 +969,7 @@ async def warehouse_inbound(
                 "base_uom_id": int(row.base_uom_id),
                 "quantity_scale": int(row.quantity_scale),
                 "quantity_step": row.quantity_step,
+                "lot_control_mode": str(row.lot_control_mode),
                 "expiry_control_mode": str(row.expiry_control_mode),
             }
 
@@ -666,41 +983,64 @@ async def warehouse_inbound(
             tuple[int, str],
             tuple[Optional[date], Optional[date]],
         ] = {}
+        anonymous_batch_keys: set[tuple[int, str]] = set()
+        named_batch_keys: set[tuple[int, str]] = set()
         inbound_lines: list[dict] = []
         seen_batch_uoms: set[tuple[int, str, int]] = set()
 
         for item in payload.items:
-            batch_key = (int(item.product_variant_id), str(item.batch_number))
+            variant_id = int(item.product_variant_id)
+            rules = variant_rules[variant_id]
+            lot_mode = rules["lot_control_mode"]
+            supplied_batch_number = item.batch_number
             metadata = (item.production_date, item.expiry_date)
+
+            resolved_batch_number, is_anonymous = _resolve_inbound_lot_identity(
+                request_id=payload.request_id,
+                product_variant_id=variant_id,
+                uom_id=int(item.uom_id),
+                lot_control_mode=lot_mode,
+                supplied_batch_number=supplied_batch_number,
+                production_date=item.production_date,
+                expiry_date=item.expiry_date,
+            )
+
+            batch_key = (variant_id, str(resolved_batch_number))
+            if is_anonymous:
+                anonymous_batch_keys.add(batch_key)
+            else:
+                named_batch_keys.add(batch_key)
+
             if batch_key in requested_batches and requested_batches[batch_key] != metadata:
                 raise HTTPException(
                     status_code=422,
                     detail=inventory_business_error(
                         "INBOUND_BATCH_METADATA_CONFLICT",
                         "The same product batch cannot carry conflicting dates in one receipt.",
-                        context={
-                            "product_variant_id": int(item.product_variant_id),
-                            "batch_number": str(item.batch_number),
-                        },
+                        context=_inbound_batch_context(
+                            product_variant_id=variant_id,
+                            uom_id=int(item.uom_id),
+                            production_date=item.production_date,
+                            expiry_date=item.expiry_date,
+                            batch_number=resolved_batch_number,
+                        ),
                     ),
                 )
 
-            line_key = (
-                int(item.product_variant_id),
-                str(item.batch_number),
-                int(item.uom_id),
-            )
+            line_key = (variant_id, str(resolved_batch_number), int(item.uom_id))
             if line_key in seen_batch_uoms:
                 raise HTTPException(
                     status_code=422,
                     detail=inventory_business_error(
                         "INBOUND_DUPLICATE_BATCH_UOM_LINE",
                         "The same product, batch and purchasing unit may appear only once per receipt.",
-                        context={
-                            "product_variant_id": int(item.product_variant_id),
-                            "batch_number": str(item.batch_number),
-                            "uom_id": int(item.uom_id),
-                        },
+                        context=_inbound_batch_context(
+                            product_variant_id=variant_id,
+                            uom_id=int(item.uom_id),
+                            production_date=item.production_date,
+                            expiry_date=item.expiry_date,
+                            batch_number=resolved_batch_number,
+                        ),
                     ),
                 )
             seen_batch_uoms.add(line_key)
@@ -739,55 +1079,15 @@ async def warehouse_inbound(
                 ) from exc
 
             expiry_mode = variant_rules[item.product_variant_id]["expiry_control_mode"]
-            if expiry_mode == 'REQUIRED' and item.expiry_date is None:
-                raise HTTPException(
-                    status_code=422,
-                    detail=inventory_business_error(
-                        "INBOUND_EXPIRY_REQUIRED",
-                        "Expiry date is required for this product.",
-                        context={"product_variant_id": int(item.product_variant_id)},
-                    ),
-                )
-            if expiry_mode == 'NONE' and item.expiry_date is not None:
-                raise HTTPException(
-                    status_code=422,
-                    detail=inventory_business_error(
-                        "INBOUND_EXPIRY_NOT_ALLOWED",
-                        "This product does not use expiry tracking.",
-                        context={"product_variant_id": int(item.product_variant_id)},
-                    ),
-                )
-            if item.expiry_date is not None and item.expiry_date < as_of_date:
-                raise HTTPException(
-                    status_code=422,
-                    detail=inventory_business_error(
-                        "INBOUND_BATCH_EXPIRED",
-                        "Expired stock cannot be received as available inventory.",
-                        context={"batch_number": str(item.batch_number)},
-                    ),
-                )
-            if item.production_date is not None and item.production_date > as_of_date:
-                raise HTTPException(
-                    status_code=422,
-                    detail=inventory_business_error(
-                        "INBOUND_PRODUCTION_DATE_FUTURE",
-                        "Production date cannot be in the future.",
-                        context={"batch_number": str(item.batch_number)},
-                    ),
-                )
-            if (
-                item.production_date is not None
-                and item.expiry_date is not None
-                and item.production_date > item.expiry_date
-            ):
-                raise HTTPException(
-                    status_code=422,
-                    detail=inventory_business_error(
-                        "INBOUND_BATCH_DATES_INVALID",
-                        "Production date cannot be after expiry date.",
-                        context={"batch_number": str(item.batch_number)},
-                    ),
-                )
+            _validate_inbound_dates(
+                product_variant_id=variant_id,
+                uom_id=int(item.uom_id),
+                expiry_control_mode=expiry_mode,
+                production_date=item.production_date,
+                expiry_date=item.expiry_date,
+                as_of_date=as_of_date,
+                batch_number=resolved_batch_number,
+            )
 
             if batch_key not in requested_batches:
                 requested_batches[batch_key] = metadata
@@ -803,20 +1103,41 @@ async def warehouse_inbound(
                 ),
             })
 
-        await db.execute(
-            pg_insert(ProductBatch).values([
-                {
-                    "company_id": company_id,
-                    "product_variant_id": product_variant_id,
-                    "batch_number": batch_number,
-                    "production_date": requested_batches[(product_variant_id, batch_number)][0],
-                    "expiry_date": requested_batches[(product_variant_id, batch_number)][1],
-                    "is_active": True,
-                }
-                for product_variant_id, batch_number in sorted(requested_batches)
-            ]).on_conflict_do_nothing(
-                index_elements=['company_id', 'product_variant_id', 'batch_number']
+        await _ensure_anonymous_batch_keys_unused(
+            db,
+            company_id=company_id,
+            anonymous_batch_keys=anonymous_batch_keys,
+            requested_batches=requested_batches,
+        )
+
+        created_batch_rows = (
+            await db.execute(
+                pg_insert(ProductBatch).values([
+                    {
+                        "company_id": company_id,
+                        "product_variant_id": product_variant_id,
+                        "batch_number": batch_number,
+                        "production_date": requested_batches[(product_variant_id, batch_number)][0],
+                        "expiry_date": requested_batches[(product_variant_id, batch_number)][1],
+                        "is_active": True,
+                    }
+                    for product_variant_id, batch_number in sorted(requested_batches)
+                ]).on_conflict_do_nothing(
+                    index_elements=['company_id', 'product_variant_id', 'batch_number']
+                ).returning(
+                    ProductBatch.product_variant_id,
+                    ProductBatch.batch_number,
+                )
             )
+        ).all()
+        created_batch_keys = {
+            (int(row.product_variant_id), str(row.batch_number))
+            for row in created_batch_rows
+        }
+        _ensure_anonymous_batch_keys_created(
+            anonymous_batch_keys=anonymous_batch_keys,
+            created_batch_keys=created_batch_keys,
+            requested_batches=requested_batches,
         )
 
         batch_rows = (
@@ -850,40 +1171,37 @@ async def warehouse_inbound(
                     detail=inventory_business_error(
                         "INBOUND_BATCH_UNAVAILABLE",
                         "The batch is not released for available inventory.",
-                        context={"batch_number": str(batch.batch_number)},
+                        context=_inbound_batch_context(product_variant_id=int(batch.product_variant_id), batch_number=batch.batch_number),
                     ),
                 )
             expiry_mode = variant_rules[int(batch.product_variant_id)]["expiry_control_mode"]
             if expiry_mode == 'REQUIRED' and batch.expiry_date is None:
                 raise HTTPException(status_code=409, detail=inventory_business_error(
                     "INBOUND_EXPIRY_REQUIRED", "The existing batch is missing its required expiry date.",
-                    context={"batch_number": str(batch.batch_number)},
+                    context=_inbound_batch_context(product_variant_id=int(batch.product_variant_id), batch_number=batch.batch_number),
                 ))
             if expiry_mode == 'NONE' and batch.expiry_date is not None:
                 raise HTTPException(status_code=409, detail=inventory_business_error(
                     "INBOUND_EXPIRY_NOT_ALLOWED", "The existing batch has expiry data for a non-expiry product.",
-                    context={"batch_number": str(batch.batch_number)},
+                    context=_inbound_batch_context(product_variant_id=int(batch.product_variant_id), batch_number=batch.batch_number),
                 ))
             if batch.expiry_date is not None and batch.expiry_date < as_of_date:
                 raise HTTPException(status_code=409, detail=inventory_business_error(
                     "INBOUND_BATCH_EXPIRED", "The existing batch is expired.",
-                    context={"batch_number": str(batch.batch_number)},
+                    context=_inbound_batch_context(product_variant_id=int(batch.product_variant_id), batch_number=batch.batch_number),
                 ))
             if batch.production_date is not None and batch.production_date > as_of_date:
                 raise HTTPException(status_code=409, detail=inventory_business_error(
                     "INBOUND_PRODUCTION_DATE_FUTURE", "The existing batch has a future production date.",
-                    context={"batch_number": str(batch.batch_number)},
+                    context=_inbound_batch_context(product_variant_id=int(batch.product_variant_id), batch_number=batch.batch_number),
                 ))
-            if batch.expiry_date != expiry_date:
-                raise HTTPException(status_code=409, detail=inventory_business_error(
-                    "INBOUND_BATCH_METADATA_CONFLICT", "The batch already exists with a different expiry date.",
-                    context={"batch_number": str(batch.batch_number)},
-                ))
-            if batch.production_date is not None and production_date is not None and batch.production_date != production_date:
-                raise HTTPException(status_code=409, detail=inventory_business_error(
-                    "INBOUND_BATCH_METADATA_CONFLICT", "The batch already exists with a different production date.",
-                    context={"batch_number": str(batch.batch_number)},
-                ))
+            if key in named_batch_keys:
+                _ensure_named_batch_metadata_matches(
+                    batch,
+                    production_date=production_date,
+                    expiry_date=expiry_date,
+                )
+
 
         # Policy activation is serialized and happens before the first physical receipt.
         await activate_costing_for_first_receipt(

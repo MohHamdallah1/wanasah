@@ -42,6 +42,7 @@ from models import (
 from quantity import canonical_quantity
 from product_lifecycle import recall_completion_blockers
 from domains.inventory_rules import batch_metadata_is_sellable
+from domains.product_tracking import public_batch_number
 from domains.inventory_quality_source_bounds import first_quality_source_limit_excess
 from domains.inventory_quality_reads import (
     read_quality_batch_candidates,
@@ -2358,7 +2359,7 @@ async def get_warehouse_inventory_batches(
             batches.append(
                 {
                     "batch_id": int(row.batch_id),
-                    "batch_number": str(row.batch_number),
+                    "batch_number": public_batch_number(row.batch_number),
                     "production_date": row.production_date,
                     "expiry_date": row.expiry_date,
                     "disposition": str(row.disposition),
@@ -2742,7 +2743,7 @@ async def get_whole_product_quality_issue_sources(
                 {
                     "batch_id": batch_id,
                     "product_variant_id": product_variant_id,
-                    "batch_number": str(row.batch_number),
+                    "batch_number": public_batch_number(row.batch_number),
                     "production_date": row.production_date,
                     "expiry_date": row.expiry_date,
                     "disposition": str(row.disposition),
@@ -3141,7 +3142,7 @@ async def get_batch_stock_sources(
     return {
         "batch_id": int(batch_row.id),
         "product_variant_id": int(batch_row.product_variant_id),
-        "batch_number": str(batch_row.batch_number),
+        "batch_number": public_batch_number(batch_row.batch_number),
         "production_date": batch_row.production_date,
         "expiry_date": batch_row.expiry_date,
         "disposition": str(batch_row.disposition),

@@ -45,6 +45,7 @@ from services import (
     validate_vehicle_recon_work_session,
 )
 from quantity import QuantityError, canonical_quantity, validate_variant_quantity
+from domains.product_tracking import public_batch_number
 from schemas import StocktakeActiveSessionCursorPage, StocktakeApprovalRequest, StocktakeCancelRequest, StocktakeCycleBatchCursorPage, StocktakeRecountRequest, StocktakeSessionContextResponse, UnifiedStocktakeCountRequest, UnifiedStocktakeStartRequest, VehicleReconCandidateCursorPage
 
 from models import (
@@ -712,7 +713,7 @@ async def list_stocktake_cycle_batches(
             {
                 "id": int(row.id),
                 "product_variant_id": int(row.product_variant_id),
-                "batch_number": str(row.batch_number),
+                "batch_number": public_batch_number(row.batch_number),
                 "production_date": row.production_date,
                 "expiry_date": row.expiry_date,
                 "is_active": bool(row.is_active),
@@ -1311,7 +1312,7 @@ async def list_active_stocktake_sessions(
                     if row.scope_batch_id is not None
                     else None
                 ),
-                "scope_batch_number": row.scope_batch_number,
+                "scope_batch_number": public_batch_number(row.scope_batch_number),
                 "related_work_session_id": (
                     int(row.related_work_session_id)
                     if row.related_work_session_id is not None
@@ -1871,7 +1872,7 @@ async def get_stocktake_count_sheet(
         "base_uom_name": base_uom_name,
         "quantity_scale": quantity_scale,
         "quantity_step": canonical_quantity(quantity_step),
-        "batch_number": batch_number,
+        "batch_number": public_batch_number(batch_number),
         "expiry_date": expiry_date.isoformat(),
     } for (
         line, product_name, base_uom_id, quantity_scale, quantity_step,
@@ -2359,7 +2360,7 @@ async def get_stocktake_review(
             "base_uom_name": base_uom_name,
             "quantity_scale": quantity_scale,
             "quantity_step": canonical_quantity(quantity_step),
-            "batch_number": batch_number,
+            "batch_number": public_batch_number(batch_number),
             "expiry_date": expiry_date.isoformat(),
             "expected_quantity": canonical_quantity(attempt_line.expected_quantity),
             "actual_quantity": canonical_quantity(attempt_line.actual_quantity),
