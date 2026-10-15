@@ -109,6 +109,11 @@ export function VehicleForm({
       setValidation(t("representativesVehicles.vehicles.form.oilInvalid"));
       return;
     }
+    const oilTargetChanged = !vehicle || parsedOil !== vehicle.next_oil_change;
+    if (oilTargetChanged && parsedOil !== null && parsedOil <= parsedMileage) {
+      setValidation(t("representativesVehicles.vehicles.form.oilMustBeFuture"));
+      return;
+    }
     if (returningFromMaintenance && !nextMaintenanceDate) {
       setValidation(t("representativesVehicles.vehicles.form.returnToServiceScheduleRequired"));
       nextMaintenanceDateRef.current?.focus();

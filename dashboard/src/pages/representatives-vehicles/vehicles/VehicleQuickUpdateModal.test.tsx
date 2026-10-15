@@ -7,7 +7,7 @@ import { VehicleQuickUpdateModal } from "./VehicleQuickUpdateModal";
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string) => key,
-    i18n: { dir: () => "rtl" },
+    i18n: { dir: () => "rtl", language: "ar" },
   }),
 }));
 
@@ -44,6 +44,27 @@ describe("VehicleQuickUpdateModal", () => {
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit.mock.calls[0]?.[0]).toEqual({ next_oil_change: 20000 });
+  });
+
+
+  it("rejects an oil-change target that is equal to or below the current mileage", () => {
+    const onSubmit = vi.fn();
+    render(
+      <VehicleQuickUpdateModal
+        vehicle={vehicle}
+        kind="oil"
+        open
+        onClose={() => undefined}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    const input = screen.getByLabelText("representativesVehicles.vehicles.fields.nextOilChange");
+    fireEvent.change(input, { target: { value: "14000" } });
+    fireEvent.submit(screen.getByRole("button", { name: "common.save" }).closest("form")!);
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText("representativesVehicles.vehicles.quickActions.oilMustBeFuture")).toBeTruthy();
   });
 
   it("can finish maintenance and schedule the next date in one action", () => {

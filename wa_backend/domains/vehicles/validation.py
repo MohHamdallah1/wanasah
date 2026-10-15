@@ -66,6 +66,21 @@ def normalize_maintenance_status(value: object) -> str:
     return value
 
 
+def require_future_oil_change_target(*, current_mileage: int, next_oil_change: int | None) -> None:
+    if next_oil_change is None:
+        return
+    if next_oil_change <= current_mileage:
+        raise VehicleError(
+            "VEHICLE_OIL_CHANGE_TARGET_INVALID",
+            "Next oil-change mileage must be greater than the current mileage.",
+            status_code=422,
+            context={
+                "current_mileage": int(current_mileage),
+                "next_oil_change": int(next_oil_change),
+            },
+        )
+
+
 def require_fresh_return_to_service_schedule(
     *,
     current_status: str,
@@ -129,5 +144,6 @@ __all__ = [
     "normalize_plate",
     "normalize_vehicle_type",
     "require_fresh_return_to_service_schedule",
+    "require_future_oil_change_target",
     "validated_update_fields",
 ]

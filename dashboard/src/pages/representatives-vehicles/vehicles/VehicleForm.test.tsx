@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 describe("VehicleForm frozen V1 contract", () => {
-  it("allows any nonnegative next oil-change mileage independently of current mileage", () => {
+  it("rejects a new oil-change target that is not ahead of the current mileage", () => {
     const onSubmit = vi.fn();
     render(<VehicleForm onCancel={() => undefined} onSubmit={onSubmit} />);
 
@@ -26,8 +26,21 @@ describe("VehicleForm frozen V1 contract", () => {
     fireEvent.change(screen.getByLabelText(/representativesVehicles\.vehicles\.fields\.nextOilChange/), { target: { value: "50" } });
     fireEvent.submit(screen.getByRole("button", { name: "common.save" }).closest("form")!);
 
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText("representativesVehicles.vehicles.form.oilMustBeFuture")).toBeTruthy();
+  });
+
+  it("accepts a new oil-change target only when it is ahead of current mileage", () => {
+    const onSubmit = vi.fn();
+    render(<VehicleForm onCancel={() => undefined} onSubmit={onSubmit} />);
+
+    fireEvent.change(screen.getByLabelText(/representativesVehicles\.vehicles\.fields\.plate/), { target: { value: "12-34567" } });
+    fireEvent.change(screen.getByLabelText(/representativesVehicles\.vehicles\.fields\.mileage/), { target: { value: "100" } });
+    fireEvent.change(screen.getByLabelText(/representativesVehicles\.vehicles\.fields\.nextOilChange/), { target: { value: "150" } });
+    fireEvent.submit(screen.getByRole("button", { name: "common.save" }).closest("form")!);
+
     expect(onSubmit).toHaveBeenCalledTimes(1);
-    expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({ current_mileage: 100, next_oil_change: 50 });
+    expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({ current_mileage: 100, next_oil_change: 150 });
   });
 
   it("uses required stars without optional/default badge clutter and keeps create mileage explicit", () => {

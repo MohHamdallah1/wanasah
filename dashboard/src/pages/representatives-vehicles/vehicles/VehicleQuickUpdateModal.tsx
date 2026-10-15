@@ -54,6 +54,14 @@ export function VehicleQuickUpdateModal({
         setValidation(t("representativesVehicles.vehicles.quickActions.oilInvalid"));
         return;
       }
+      if (nextOil <= vehicle.current_mileage) {
+        setValidation(t("representativesVehicles.vehicles.quickActions.oilMustBeFuture", {
+          mileage: new Intl.NumberFormat(
+            i18n.language.startsWith("ar") ? "ar-JO-u-nu-latn" : "en-US-u-nu-latn",
+          ).format(vehicle.current_mileage),
+        }));
+        return;
+      }
       if (nextOil === vehicle.next_oil_change) {
         setValidation(t("representativesVehicles.vehicles.form.noChanges"));
         return;

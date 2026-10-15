@@ -34,6 +34,7 @@ from .validation import (
     normalize_plate,
     normalize_vehicle_type,
     require_fresh_return_to_service_schedule,
+    require_future_oil_change_target,
     validated_update_fields,
 )
 
@@ -64,6 +65,10 @@ async def create_vehicle(
         optional=True,
     )
     maintenance = normalize_maintenance_status(command.maintenance_status)
+    require_future_oil_change_target(
+        current_mileage=int(mileage),
+        next_oil_change=next_oil,
+    )
     request_hash = _stable_hash(
         "VEHICLE_CREATE",
         {
@@ -247,6 +252,11 @@ async def update_vehicle(
             current_next_maintenance_date=vehicle.next_maintenance_date,
             fields=fields,
         )
+        if "next_oil_change" in fields:
+            require_future_oil_change_target(
+                current_mileage=int(fields.get("current_mileage", vehicle.current_mileage)),
+                next_oil_change=fields["next_oil_change"],
+            )
         if (
             fields.get("maintenance_status") == "In_Maintenance"
             and vehicle.maintenance_status != "In_Maintenance"

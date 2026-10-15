@@ -390,6 +390,7 @@ export const representativesVehicles = {
         typeInvalid: "Vehicle type must be 50 characters or fewer.",
         mileageInvalid: "Enter a valid nonnegative mileage.",
         oilInvalid: "Enter a valid next oil-change mileage or leave it blank.",
+        oilMustBeFuture: "The next oil-change mileage must be greater than the current mileage.",
         licenseInvalid: "License expiry date is invalid.",
         maintenanceInvalid: "Operational status is invalid.",
         returnToServiceScheduleRequired: "Set the next maintenance date before returning the vehicle to service.",
@@ -409,6 +410,7 @@ export const representativesVehicles = {
         success: "Next service information updated.",
         dateRequired: "Choose a new date to continue.",
         oilInvalid: "Enter a valid next oil-change odometer reading.",
+        oilMustBeFuture: "Enter a number greater than the current mileage ({{mileage}}).",
         oil: { title: "Record oil change", placeholder: "Example: 20,000" },
         maintenance: {
           title: "Schedule next maintenance",
@@ -437,6 +439,7 @@ export const representativesVehicles = {
         deactivationBlocked: "Close the vehicle's operational work, stock, or movement blockers before deactivating it.",
         maintenanceBlocked: "Close the vehicle's current route or unreconciled work session before placing it in maintenance.",
         maintenanceScheduleRequired: "Set a new maintenance date before returning the vehicle to service.",
+        oilChangeTargetInvalid: "The next oil-change mileage must be greater than the current mileage.",
         custodyUnavailable: "Vehicle stock is not ready for operation. Refresh the data and contact support if the issue continues.",
         cursorInvalid: "Could not continue the list. Refresh the list and try again.",
       },
