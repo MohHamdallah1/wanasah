@@ -44,13 +44,19 @@ describe("representativeErrorMessage", () => {
     ).toBe("representativesVehicles.representatives.errors.sessionInvalidationRejected");
   });
 
-  it("maps canonical credential-policy rejections to the local password copy", () => {
+  it("maps canonical credential-policy rejections to specific localized password copy", () => {
     expect(
       representativeErrorMessage(
         { code: "REPRESENTATIVE_COMPANY_PASSWORD_TOO_LONG" },
         "fallback",
       ),
-    ).toBe("representativesVehicles.representatives.form.passwordInvalid");
+    ).toBe("representativesVehicles.representatives.form.passwordTooLong");
+    expect(
+      representativeErrorMessage(
+        { code: "REPRESENTATIVE_COMPANY_PASSWORD_TOO_SHORT" },
+        "fallback",
+      ),
+    ).toBe("representativesVehicles.representatives.form.passwordTooShort");
   });
 
   it("keeps the shared safe fallback for unknown codes", () => {

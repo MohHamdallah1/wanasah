@@ -30,7 +30,7 @@ describe("VehicleForm frozen V1 contract", () => {
     expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({ current_mileage: 100, next_oil_change: 50 });
   });
 
-  it("marks Dashboard required/default/optional fields accessibly and keeps create mileage explicit", () => {
+  it("uses required stars without optional/default badge clutter and keeps create mileage explicit", () => {
     render(<VehicleForm onCancel={() => undefined} onSubmit={() => undefined} />);
 
     const plate = screen.getByLabelText(/representativesVehicles\.vehicles\.fields\.plate/) as HTMLInputElement;
@@ -52,6 +52,10 @@ describe("VehicleForm frozen V1 contract", () => {
     expect(nextMaintenance.required).toBe(false);
     expect(status.required).toBe(false);
     expect(status.value).toBe("Active");
+    expect(screen.getByText("representativesVehicles.vehicles.form.requiredHint")).toBeTruthy();
+    expect(screen.queryByText("representativesVehicles.vehicles.form.badges.optional")).toBeNull();
+    expect(screen.queryByText("representativesVehicles.vehicles.form.badges.default")).toBeNull();
+    expect(screen.getAllByText("*")).toHaveLength(3);
   });
 
   it("accepts a past next-maintenance date without changing maintenance status", () => {
@@ -89,7 +93,12 @@ describe("VehicleForm frozen V1 contract", () => {
   it("keeps the compact form phone-first and locale-directed", () => {
     const { container, rerender } = render(<VehicleForm onCancel={() => undefined} onSubmit={() => undefined} />);
     expect(container.querySelector("form")?.getAttribute("dir")).toBe("rtl");
+    expect(container.querySelector("form")).toHaveAttribute("novalidate");
+    const oil = screen.getByLabelText(/representativesVehicles\.vehicles\.fields\.nextOilChange/) as HTMLInputElement;
+    expect(oil.getAttribute("dir")).toBe("rtl");
     expect(container.querySelector(".grid")?.className).toContain("sm:grid-cols-2");
+    fireEvent.change(oil, { target: { value: "1500" } });
+    expect(oil.getAttribute("dir")).toBe("ltr");
     direction = "ltr";
     rerender(<VehicleForm onCancel={() => undefined} onSubmit={() => undefined} />);
     expect(container.querySelector("form")?.getAttribute("dir")).toBe("ltr");

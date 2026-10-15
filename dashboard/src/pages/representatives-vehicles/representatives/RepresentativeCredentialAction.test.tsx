@@ -114,7 +114,10 @@ describe("RepresentativeCredentialAction", () => {
     expect(confirmPassword.type).toBe("password");
   });
 
-  it.each(["ع".repeat(37), "😀".repeat(4)])("rejects a reset password outside canonical character/UTF-8 bounds", (password) => {
+  it.each([
+    ["short", "representativesVehicles.representatives.form.passwordTooShort"],
+    ["ع".repeat(37), "representativesVehicles.representatives.form.passwordTooLong"],
+  ])("explains the exact reset-password validation problem", (password, errorKey) => {
     renderAction();
 
     changePassword(password);
@@ -122,9 +125,7 @@ describe("RepresentativeCredentialAction", () => {
 
     expect(mocks.reset).not.toHaveBeenCalled();
     expect(sessionStorage.length).toBe(0);
-    expect(screen.getByRole("alert").textContent).toBe(
-      "representativesVehicles.representatives.form.passwordInvalid",
-    );
+    expect(screen.getByRole("alert").textContent).toBe(errorKey);
   });
 
   it("reuses the same request id when an unchanged credential reset is retried", async () => {

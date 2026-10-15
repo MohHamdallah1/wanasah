@@ -99,7 +99,7 @@ describe("RepresentativeForm", () => {
     [field.name, "", "representativesVehicles.representatives.form.required"],
     [field.username, "", "representativesVehicles.representatives.form.required"],
     [field.phone, "   ", "representativesVehicles.representatives.form.phoneRequired"],
-    [field.password, "", "representativesVehicles.representatives.form.passwordInvalid"],
+    [field.password, "", "representativesVehicles.representatives.form.passwordTooShort"],
     [field.confirm, "", "representativesVehicles.representatives.form.confirmRequired"],
   ])("blocks create when %s is blank", (label, value, errorKey) => {
     const onSubmit = vi.fn();
@@ -200,7 +200,7 @@ describe("RepresentativeForm", () => {
     fillCreateBasics({ password, confirm: password });
     fireEvent.submit(container.querySelector("form")!);
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.getByRole("alert")).toHaveTextContent("representativesVehicles.representatives.form.passwordInvalid");
+    expect(screen.getByRole("alert")).toHaveTextContent("representativesVehicles.representatives.form.passwordTooLong");
   });
 
   it("accepts exactly 72 UTF-8 bytes", async () => {
@@ -298,13 +298,16 @@ describe("RepresentativeForm", () => {
   });
 
   it("uses semantic required and username helper association", () => {
-    render(<RepresentativeForm onCancel={() => undefined} onSubmit={vi.fn()} />);
+    const { container } = render(<RepresentativeForm onCancel={() => undefined} onSubmit={vi.fn()} />);
+    expect(container.querySelector("form")).toHaveAttribute("novalidate");
     for (const label of [field.name, field.username, field.phone, field.password, field.confirm]) {
       const input = screen.getByLabelText(label) as HTMLInputElement;
       expect(input.required).toBe(true);
       expect(input.getAttribute("aria-required")).toBe("true");
     }
     expect(screen.getByLabelText(field.username)).toHaveAttribute("aria-describedby", "representative-username-hint");
+    expect(screen.getByText("representativesVehicles.representatives.form.requiredHint")).toBeTruthy();
+    expect(screen.getAllByText("*")).toHaveLength(6);
     expect(screen.getByText("representativesVehicles.representatives.form.usernameHint")).toBeTruthy();
   });
 
@@ -387,5 +390,11 @@ describe("Representative final form copy", () => {
   it("keeps required phone copy unchanged", () => {
     expect(representativesVehicles.ar.representatives.form.phoneRequired).toBe("أدخل رقم هاتف المندوب.");
     expect(representativesVehicles.en.representatives.form.phoneRequired).toBe("Enter the representative’s phone number.");
+  });
+
+  it("owns password validation copy in the active application locale", () => {
+    expect(representativesVehicles.ar.representatives.form.passwordTooShort).toBe("كلمة المرور يجب أن تكون 8 أحرف على الأقل.");
+    expect(representativesVehicles.ar.representatives.form.passwordTooLong).not.toMatch(/UTF-8|بايت/i);
+    expect(representativesVehicles.en.representatives.form.passwordTooShort).toBe("Password must be at least 8 characters.");
   });
 });
