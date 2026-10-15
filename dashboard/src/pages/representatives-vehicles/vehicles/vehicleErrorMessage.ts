@@ -12,6 +12,8 @@ const vehicleErrorKeys: Record<string, string> = {
   VEHICLE_ALREADY_INACTIVE: "representativesVehicles.vehicles.errors.alreadyInactive",
   VEHICLE_DEACTIVATION_BLOCKED: "representativesVehicles.vehicles.errors.deactivationBlocked",
   VEHICLE_MAINTENANCE_BLOCKED: "representativesVehicles.vehicles.errors.maintenanceBlocked",
+  VEHICLE_MAINTENANCE_SCHEDULE_REQUIRED: "representativesVehicles.vehicles.errors.maintenanceScheduleRequired",
+  VEHICLE_OIL_CHANGE_TARGET_INVALID: "representativesVehicles.vehicles.errors.oilChangeTargetInvalid",
   VEHICLE_CUSTODY_LOCATION_MISSING: "representativesVehicles.vehicles.errors.custodyUnavailable",
   VEHICLE_CUSTODY_LOCATION_AMBIGUOUS: "representativesVehicles.vehicles.errors.custodyUnavailable",
   VEHICLE_CUSTODY_LOCATION_INCONSISTENT: "representativesVehicles.vehicles.errors.custodyUnavailable",

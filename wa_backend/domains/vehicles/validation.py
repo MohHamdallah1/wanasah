@@ -66,6 +66,44 @@ def normalize_maintenance_status(value: object) -> str:
     return value
 
 
+def require_future_oil_change_target(*, current_mileage: int, next_oil_change: int | None) -> None:
+    if next_oil_change is None:
+        return
+    if next_oil_change <= current_mileage:
+        raise VehicleError(
+            "VEHICLE_OIL_CHANGE_TARGET_INVALID",
+            "Next oil-change mileage must be greater than the current mileage.",
+            status_code=422,
+            context={
+                "current_mileage": int(current_mileage),
+                "next_oil_change": int(next_oil_change),
+            },
+        )
+
+
+def require_fresh_return_to_service_schedule(
+    *,
+    current_status: str,
+    current_next_maintenance_date: date | None,
+    fields: dict[str, object],
+) -> None:
+    if current_status != "In_Maintenance" or fields.get("maintenance_status") != "Active":
+        return
+    if "next_maintenance_date" not in fields:
+        raise VehicleError(
+            "VEHICLE_MAINTENANCE_SCHEDULE_REQUIRED",
+            "A new next-maintenance date is required before returning the vehicle to service.",
+            status_code=422,
+        )
+    next_date = fields.get("next_maintenance_date")
+    if next_date is None or next_date == current_next_maintenance_date:
+        raise VehicleError(
+            "VEHICLE_MAINTENANCE_SCHEDULE_REQUIRED",
+            "A new next-maintenance date is required before returning the vehicle to service.",
+            status_code=422,
+        )
+
+
 def validated_update_fields(command: UpdateVehicleCommand) -> dict[str, object]:
     if command.expected_version <= 0:
         raise VehicleError("VEHICLE_VERSION_INVALID", "Vehicle expected version is invalid.", status_code=422)
@@ -105,5 +143,7 @@ __all__ = [
     "normalize_maintenance_status",
     "normalize_plate",
     "normalize_vehicle_type",
+    "require_fresh_return_to_service_schedule",
+    "require_future_oil_change_target",
     "validated_update_fields",
 ]

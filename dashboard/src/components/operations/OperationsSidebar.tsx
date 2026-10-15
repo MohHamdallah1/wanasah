@@ -54,7 +54,6 @@ const navItems = [
     icon: Package,
     path: "/inventory",
   },
-  { labelKey: "suppliers.title", icon: Truck, path: "/suppliers" },
   {
     labelKey: "representativesVehicles.title",
     icon: UsersRound,
@@ -156,7 +155,6 @@ export function OperationsSidebar({
       item.path === "/dispatch" ||
       item.path === "/inventory" ||
       item.path === "/products" ||
-      item.path === "/suppliers" ||
       item.path === "/representatives-vehicles" ||
       item.path === "/commercial-rules" ||
       item.path === "/sales-returns"
@@ -406,9 +404,8 @@ export function OperationsSidebar({
             .filter(
               (item) =>
                 access.isCompanyOwner ||
-                (item.path === "/suppliers" && access.can("supplier.read")) ||
                 (item.path === "/representatives-vehicles" &&
-                  (access.can("representative.read") || access.can("vehicle.read"))) ||
+                  (access.can("representative.read") || access.can("vehicle.read") || access.can("supplier.read"))) ||
                 item.path ===
                   "/inventory" ||
                 (item.path ===
@@ -431,9 +428,7 @@ export function OperationsSidebar({
                     )))
             )
             .map((item) => {
-              const active =
-                location.pathname ===
-                item.path;
+              const active = location.pathname === item.path;
               return (
                 <button
                   key={item.path}

@@ -24,7 +24,9 @@ const filterOptions = [
   { value: null, key: "suppliers.all" },
 ] as const;
 
-export default function SuppliersPage() {
+interface SuppliersPageProps { embedded?: boolean; }
+
+export default function SuppliersPage({ embedded = false }: SuppliersPageProps) {
   const { t, i18n } = useTranslation();
   const [active, setActive] = useState<boolean | null>(true);
   const search = useSupplierListSearch(active);
@@ -43,11 +45,12 @@ export default function SuppliersPage() {
   }
 
   return <main className="relative flex min-h-0 flex-1 flex-col overflow-visible text-foreground" dir={i18n.dir()}>
-    <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+    {!embedded ? <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
       <div className="absolute -right-20 top-12 h-72 w-72 rounded-full bg-cyan-200/25 blur-3xl" />
       <div className="absolute bottom-10 left-12 h-72 w-72 rounded-full bg-amber-100/[0.35] blur-3xl" />
-    </div>
+    </div> : null}
 
+    {!embedded ? (
     <WorkspaceTopBar variant="page" className="shrink-0">
       <header className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
@@ -67,9 +70,10 @@ export default function SuppliersPage() {
         </div>
       </header>
     </WorkspaceTopBar>
+    ) : null}
 
-    <div className="relative z-10 min-h-0 flex-1 overflow-hidden px-3 pb-3 pt-3 sm:px-4">
-      <section className="mx-auto flex h-full min-h-0 w-full max-w-[1500px] flex-col gap-3">
+    <div className={`relative z-10 min-h-0 flex-1 overflow-hidden ${embedded ? "" : "px-3 pb-3 pt-3 sm:px-4"}`}>
+      <section className={`flex h-full min-h-0 w-full flex-col ${embedded ? "gap-0" : "mx-auto max-w-[1500px] gap-3"}`}>
         {!commands.online ? <div role="status" className="flex items-center gap-2 rounded-2xl border border-amber-200/70 bg-amber-50/80 px-4 py-3 text-sm font-bold text-amber-800 shadow-sm backdrop-blur-xl"><WifiOff className="h-4 w-4" />{t("suppliers.offline")}</div> : null}
         {commands.error ? <div role="alert" className="flex items-center gap-2 rounded-2xl border border-rose-200/70 bg-rose-50/[0.85] px-4 py-3 text-sm font-bold text-rose-700 shadow-sm backdrop-blur-xl"><AlertTriangle className="h-4 w-4" />{commands.error}</div> : null}
         {commands.pending ? <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200/70 bg-white/75 px-4 py-3 shadow-sm backdrop-blur-xl">
@@ -78,8 +82,8 @@ export default function SuppliersPage() {
             className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">{t("common.retry")}</button>
         </div> : null}
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[26px] border border-white/[0.85] bg-white/[0.62] shadow-[0_22px_65px_-46px_rgba(15,23,42,0.65)] backdrop-blur-2xl">
-          <div className="shrink-0 border-b border-slate-200/70 bg-white/[0.62] p-2.5">
+        <div className={`flex min-h-0 flex-1 flex-col overflow-hidden ${embedded ? "rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]" : "rounded-[26px] border border-white/[0.85] bg-white/[0.62] shadow-[0_22px_65px_-46px_rgba(15,23,42,0.65)] backdrop-blur-2xl"}`}>
+          <div className={`shrink-0 border-b border-slate-200/70 p-2.5 ${embedded ? "bg-white" : "bg-white/[0.62]"}`}>
             <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center">
               <div className="relative min-w-0 flex-1">
                 <Search className="pointer-events-none absolute start-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -99,6 +103,17 @@ export default function SuppliersPage() {
                   </button>;
                 })}
               </div>
+              {embedded ? <div className="flex items-center gap-2">
+                {manage ? <button type="button" disabled={blocked} onClick={() => setEditor({ supplier: null })}
+                  className="inline-flex h-10 items-center gap-2 rounded-xl bg-amber-400 px-4 text-sm font-black text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50">
+                  <Plus className="h-4 w-4" />{t("suppliers.add")}
+                </button> : null}
+                <button type="button" onClick={() => void search.query.refetch()} disabled={search.query.isFetching}
+                  aria-label={t("common.refresh")} title={t("common.refresh")}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:opacity-60">
+                  <RefreshCw className={`h-4 w-4 ${search.query.isFetching ? "animate-spin" : ""}`} />
+                </button>
+              </div> : null}
             </div>
           </div>
 

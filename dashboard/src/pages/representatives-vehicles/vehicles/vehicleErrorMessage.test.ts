@@ -16,7 +16,7 @@ describe("Vehicle merged backend error codes", () => {
     "VEHICLE_CUSTODY_LOCATION_INCONSISTENT",
   ])("maps %s to business copy instead of exposing the raw code", (code) => {
     const message = vehicleErrorMessage(coded(code), "fallback");
-    expect(message).toContain("Vehicle custody is not safely available");
+    expect(message).toContain("Vehicle stock is not ready for operation");
     expect(message).not.toContain(code);
   });
 

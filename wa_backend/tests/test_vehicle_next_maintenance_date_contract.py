@@ -3,6 +3,8 @@ from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
+
 
 BACKEND = Path(__file__).resolve().parents[1]
 
@@ -101,9 +103,40 @@ def test_domain_and_api_wiring_preserve_set_clear_without_automatic_status_chang
     assert "next_maintenance_date=payload.next_maintenance_date" in api
     assert '"next_maintenance_date": (' in queries
     assert "date.today" not in validation
-    assert "next_maintenance_date" not in management[
-        management.index('fields.get("maintenance_status")'):management.index("changed = False")
-    ]
+    assert "require_fresh_return_to_service_schedule" in validation
+    assert "require_fresh_return_to_service_schedule" in management
+
+
+def test_return_to_service_requires_an_explicit_fresh_schedule():
+    from domains.vehicles.contracts import VehicleError
+    from domains.vehicles.validation import require_fresh_return_to_service_schedule
+
+    previous = date(2026, 10, 15)
+    invalid_fields = (
+        {"maintenance_status": "Active"},
+        {"maintenance_status": "Active", "next_maintenance_date": None},
+        {"maintenance_status": "Active", "next_maintenance_date": previous},
+    )
+    for fields in invalid_fields:
+        with pytest.raises(VehicleError) as exc:
+            require_fresh_return_to_service_schedule(
+                current_status="In_Maintenance",
+                current_next_maintenance_date=previous,
+                fields=fields,
+            )
+        assert exc.value.code == "VEHICLE_MAINTENANCE_SCHEDULE_REQUIRED"
+        assert exc.value.status_code == 422
+
+    require_fresh_return_to_service_schedule(
+        current_status="In_Maintenance",
+        current_next_maintenance_date=previous,
+        fields={"maintenance_status": "Active", "next_maintenance_date": date(2026, 11, 15)},
+    )
+    require_fresh_return_to_service_schedule(
+        current_status="Active",
+        current_next_maintenance_date=previous,
+        fields={"maintenance_status": "Active"},
+    )
 
 
 def test_model_and_migration_are_nullable_business_date_and_non_destructive():

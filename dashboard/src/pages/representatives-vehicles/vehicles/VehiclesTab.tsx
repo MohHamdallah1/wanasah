@@ -15,15 +15,20 @@ import type {
   VehicleListResult,
   VehicleStatusFilter,
 } from "./contracts";
+import { VehicleDetailsModal } from "./VehicleDetailsModal";
 import { VehicleForm } from "./VehicleForm";
 import { VehicleLifecycleActions } from "./VehicleLifecycleActions";
 import { VehicleTable } from "./VehicleTable";
+import { VehicleQuickUpdateModal, type VehicleQuickActionKind } from "./VehicleQuickUpdateModal";
+import type { VehicleNote } from "./vehiclePresentation";
 import { vehicleErrorMessage } from "./vehicleErrorMessage";
 import { useVehicleInfiniteScroll } from "./useVehicleInfiniteScroll";
 import { useVehicles } from "./useVehicles";
 
 const filters: VehicleStatusFilter[] = ["all", "ready", "maintenance", "inactive"];
-type VehicleAction = { type: "edit" | "lifecycle"; vehicle: Vehicle };
+type VehicleAction =
+  | { type: "view" | "edit" | "lifecycle"; vehicle: Vehicle }
+  | { type: "quick"; vehicle: Vehicle; kind: VehicleQuickActionKind };
 
 export function VehiclesTab() {
   const { t } = useTranslation();
@@ -99,6 +104,38 @@ export function VehiclesTab() {
     } finally {
       setEditing(false);
     }
+  };
+
+  const saveQuick = async (input: UpdateVehicleInput, requestId: string) => {
+    const target = action?.type === "quick" ? action.vehicle : null;
+    if (!target) return;
+    setEditing(true);
+    try {
+      const updated = await updateVehicle(
+        authFetch,
+        target.id,
+        input,
+        requestId,
+        target.version,
+      );
+      replaceVehicleInCachedLists(updated);
+      await queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      toast.success(t("representativesVehicles.vehicles.quickActions.success"));
+      setAction(null);
+    } catch (error) {
+      toast.error(vehicleErrorMessage(error, t("representativesVehicles.vehicles.saveFailed")));
+    } finally {
+      setEditing(false);
+    }
+  };
+
+  const openNoteAction = (vehicle: Vehicle, note: VehicleNote) => {
+    if (note.kind === "custody") {
+      setAction({ type: "view", vehicle });
+      return;
+    }
+    if (!canManage) return;
+    setAction({ type: "quick", vehicle, kind: note.kind });
   };
 
   const retryRetainedData = () => {
@@ -195,8 +232,10 @@ export function VehiclesTab() {
               items={vehicles.items}
               loading={vehicles.query.isFetching && vehicles.items.length === 0}
               canManage={canManage}
+              onView={(vehicle) => setAction({ type: "view", vehicle })}
               onEdit={(vehicle) => { if (canManage) setAction({ type: "edit", vehicle }); }}
               onLifecycle={(vehicle) => { if (canManage) setAction({ type: "lifecycle", vehicle }); }}
+              onNoteAction={openNoteAction}
             />
             {vehicles.query.hasNextPage || vehicles.query.isFetchingNextPage || hasRetainedDataError ? (
               <div className="border-t border-slate-100 p-2 text-center">
@@ -225,6 +264,14 @@ export function VehiclesTab() {
         />
       </Modal>
 
+      {action?.type === "view" ? (
+        <VehicleDetailsModal
+          vehicle={action.vehicle}
+          open
+          onOpenChange={(open) => { if (!open) setAction(null); }}
+        />
+      ) : null}
+
       <Modal isOpen={action?.type === "edit"} onClose={() => { if (!editing) setAction(null); }} title={t("representativesVehicles.vehicles.edit")} maxWidth="max-w-xl">
         {action?.type === "edit" ? (
           <VehicleForm
@@ -235,6 +282,17 @@ export function VehiclesTab() {
           />
         ) : null}
       </Modal>
+
+      {action?.type === "quick" ? (
+        <VehicleQuickUpdateModal
+          vehicle={action.vehicle}
+          kind={action.kind}
+          open
+          busy={editing}
+          onClose={() => { if (!editing) setAction(null); }}
+          onSubmit={saveQuick}
+        />
+      ) : null}
 
       {action?.type === "lifecycle" ? (
         <VehicleLifecycleActions

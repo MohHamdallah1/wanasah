@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -24,6 +24,11 @@ type PendingOperation = { fingerprint: string; requestId: string };
 
 const editableNumber = (value: number | null | undefined) =>
   value === null || value === undefined ? "" : String(value);
+
+const localDateKey = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+};
 
 function FieldLabel({ htmlFor, label, required = false }: { htmlFor: string; label: string; required?: boolean }) {
   return (
@@ -51,7 +56,11 @@ export function VehicleForm({
     vehicle?.maintenance_status ?? "Active",
   );
   const [validation, setValidation] = useState("");
+  const returningFromMaintenance = Boolean(
+    vehicle?.maintenance_status === "In_Maintenance" && maintenanceStatus === "Active",
+  );
   const operation = useRef<PendingOperation | null>(null);
+  const nextMaintenanceDateRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setPlate(vehicle?.plate_number ?? "");
@@ -98,6 +107,16 @@ export function VehicleForm({
     }
     if (parsedOil === undefined) {
       setValidation(t("representativesVehicles.vehicles.form.oilInvalid"));
+      return;
+    }
+    const oilTargetChanged = !vehicle || parsedOil !== vehicle.next_oil_change;
+    if (oilTargetChanged && parsedOil !== null && parsedOil <= parsedMileage) {
+      setValidation(t("representativesVehicles.vehicles.form.oilMustBeFuture"));
+      return;
+    }
+    if (returningFromMaintenance && !nextMaintenanceDate) {
+      setValidation(t("representativesVehicles.vehicles.form.returnToServiceScheduleRequired"));
+      nextMaintenanceDateRef.current?.focus();
       return;
     }
     setValidation("");
@@ -150,8 +169,21 @@ export function VehicleForm({
 
   const inputClass = "h-10 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-cyan-300 focus:ring-4 focus:ring-cyan-100/60 disabled:bg-slate-50 disabled:text-slate-500";
 
+  const submitInputOnEnter = (event: KeyboardEvent<HTMLFormElement>) => {
+    if (
+      event.key !== "Enter" || event.shiftKey || event.ctrlKey ||
+      event.altKey || event.metaKey || event.isComposing
+    ) return;
+    const target = event.target;
+    if (target instanceof HTMLButtonElement || target instanceof HTMLTextAreaElement) return;
+    if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
+    if (target instanceof HTMLInputElement && ["button", "submit", "reset"].includes(target.type)) return;
+    event.preventDefault();
+    event.currentTarget.requestSubmit();
+  };
+
   return (
-    <form dir={i18n.dir()} className="space-y-4" onSubmit={submit} noValidate>
+    <form dir={i18n.dir()} className="space-y-4" onSubmit={submit} onKeyDownCapture={submitInputOnEnter} noValidate>
       <p className="text-start text-[11px] font-semibold text-slate-500">
         <span aria-hidden="true" className="font-black text-rose-500">*</span>{" "}
         {t("representativesVehicles.vehicles.form.requiredHint")}
@@ -196,7 +228,7 @@ export function VehicleForm({
             dir="ltr"
             value={mileage}
             onChange={(event) => { resetValidation(); setMileage(event.target.value); }}
-            className={`${inputClass} font-mono tabular-nums`}
+            className={`${inputClass} text-right font-mono tabular-nums`}
             disabled={busy}
             autoComplete="off"
           />
@@ -209,7 +241,7 @@ export function VehicleForm({
             dir={nextOilChange ? "ltr" : i18n.dir()}
             value={nextOilChange}
             onChange={(event) => { resetValidation(); setNextOilChange(event.target.value); }}
-            className={`${inputClass} ${nextOilChange ? "text-left" : "text-start"} font-mono tabular-nums`}
+            className={`${inputClass} ${nextOilChange ? "text-right" : "text-start"} font-mono tabular-nums`}
             placeholder={t("representativesVehicles.vehicles.form.optional")}
             disabled={busy}
             autoComplete="off"
@@ -228,16 +260,27 @@ export function VehicleForm({
           />
         </div>
         <div className="min-w-0 space-y-1.5">
-          <FieldLabel htmlFor="vehicle-next-maintenance" label={t("representativesVehicles.vehicles.fields.nextMaintenanceDate")} />
+          <FieldLabel
+            htmlFor="vehicle-next-maintenance"
+            label={t("representativesVehicles.vehicles.fields.nextMaintenanceDate")}
+            required={returningFromMaintenance}
+          />
           <input
+            ref={nextMaintenanceDateRef}
             id="vehicle-next-maintenance"
             type="date"
             dir="ltr"
+            min={returningFromMaintenance ? localDateKey() : undefined}
             value={nextMaintenanceDate}
             onChange={(event) => { resetValidation(); setNextMaintenanceDate(event.target.value); }}
             className={inputClass}
             disabled={busy}
           />
+          {returningFromMaintenance ? (
+            <p className="text-start text-[10px] font-bold leading-4 text-amber-700">
+              {t("representativesVehicles.vehicles.form.returnToServiceScheduleHint")}
+            </p>
+          ) : null}
         </div>
         <div className="min-w-0 space-y-1.5">
           <FieldLabel htmlFor="vehicle-maintenance" label={t("representativesVehicles.vehicles.fields.maintenance")} />
@@ -246,7 +289,12 @@ export function VehicleForm({
             value={maintenanceStatus}
             onChange={(event) => {
               resetValidation();
-              setMaintenanceStatus(event.target.value as VehicleMaintenanceStatus);
+              const nextStatus = event.target.value as VehicleMaintenanceStatus;
+              if (vehicle?.maintenance_status === "In_Maintenance" && nextStatus === "Active") {
+                setNextMaintenanceDate("");
+                window.requestAnimationFrame(() => nextMaintenanceDateRef.current?.focus());
+              }
+              setMaintenanceStatus(nextStatus);
             }}
             className={inputClass}
             disabled={busy}

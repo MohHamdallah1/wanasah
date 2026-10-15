@@ -29,6 +29,11 @@ vi.mock("./representatives/RepresentativesTab", () => ({
 vi.mock("./vehicles/VehiclesTab", () => ({
   VehiclesTab: () => <div data-testid="vehicles-workflow" />,
 }));
+vi.mock("../suppliers/SuppliersPage", () => ({
+  default: ({ embedded }: { embedded?: boolean }) => (
+    <div data-testid="suppliers-workflow" data-embedded={embedded ? "true" : "false"} />
+  ),
+}));
 
 import RepresentativesVehiclesPage from "./RepresentativesVehiclesPage";
 
@@ -52,11 +57,11 @@ afterEach(() => {
 });
 
 describe("RepresentativesVehiclesPage", () => {
-  it("lets a user with both read capabilities switch between real tabs", async () => {
-    permissions = new Set(["representative.read", "vehicle.read"]);
+  it("lets a user with all read capabilities switch between all three real tabs", async () => {
+    permissions = new Set(["representative.read", "vehicle.read", "supplier.read"]);
     renderPage();
     const tabs = within(screen.getByRole("tablist")).getAllByRole("tab");
-    expect(tabs).toHaveLength(2);
+    expect(tabs).toHaveLength(3);
     expect(tabs[0]?.getAttribute("aria-selected")).toBe("true");
     expect(tabs[0]?.className).toContain("bg-amber-400");
     expect(tabs[1]?.className).toContain("bg-white/[0.06]");
@@ -67,6 +72,35 @@ describe("RepresentativesVehiclesPage", () => {
     expect(tabs[1]?.className).toContain("bg-amber-400");
     expect(tabs[0]?.className).toContain("bg-white/[0.06]");
     expect(screen.getByTestId("vehicles-workflow")).toBeTruthy();
+  });
+
+  it("keeps Suppliers inside the same three-tab workspace", async () => {
+    permissions = new Set(["representative.read", "vehicle.read", "supplier.read"]);
+    renderPage();
+
+    const tabs = within(screen.getByRole("tablist")).getAllByRole("tab");
+    expect(tabs).toHaveLength(3);
+    fireEvent.click(tabs[2]!);
+
+    await waitFor(() => expect(screen.getByTestId("route-location").textContent).toBe(
+      "/representatives-vehicles?tab=suppliers",
+    ));
+    expect(tabs[2]?.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByTestId("suppliers-workflow").getAttribute("data-embedded")).toBe("true");
+  });
+
+  it("opens the Suppliers tab directly for a supplier-only backoffice user", async () => {
+    permissions = new Set(["supplier.read"]);
+    renderPage();
+
+    const tabs = within(screen.getByRole("tablist")).getAllByRole("tab");
+    await waitFor(() => expect(screen.getByTestId("route-location").textContent).toBe(
+      "/representatives-vehicles?tab=suppliers",
+    ));
+    expect((tabs[0] as HTMLButtonElement).disabled).toBe(true);
+    expect((tabs[1] as HTMLButtonElement).disabled).toBe(true);
+    expect((tabs[2] as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByTestId("suppliers-workflow")).toBeTruthy();
   });
 
   it("allows vehicle-only users to reach the page without representative.read", async () => {
@@ -94,6 +128,7 @@ describe("RepresentativesVehiclesPage", () => {
     expect(screen.getByText("representativesVehicles.noAccess")).toBeTruthy();
     expect(screen.queryByTestId("representatives-workflow")).toBeNull();
     expect(screen.queryByTestId("vehicles-workflow")).toBeNull();
+    expect(screen.queryByTestId("suppliers-workflow")).toBeNull();
   });
 
   it("follows i18n direction in Arabic RTL and English LTR", () => {

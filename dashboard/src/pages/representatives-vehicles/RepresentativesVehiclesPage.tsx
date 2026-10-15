@@ -1,17 +1,18 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { CarFront, UsersRound } from "lucide-react";
+import { CarFront, Truck, UsersRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { WorkspaceTopBar } from "@/components/dashboard/WorkspaceTopBar";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
+import SuppliersPage from "../suppliers/SuppliersPage";
 import { RepresentativesTab } from "./representatives/RepresentativesTab";
 import { VehiclesTab } from "./vehicles/VehiclesTab";
 
-type PageTab = "representatives" | "vehicles";
+type PageTab = "representatives" | "vehicles" | "suppliers";
 
 const pageTabFromUrl = (value: string | null): PageTab | null =>
-  value === "representatives" || value === "vehicles" ? value : null;
+  value === "representatives" || value === "vehicles" || value === "suppliers" ? value : null;
 
 export default function RepresentativesVehiclesPage() {
   const { t, i18n } = useTranslation();
@@ -24,18 +25,25 @@ export default function RepresentativesVehiclesPage() {
   const canReadVehicles = Boolean(
     access.isCompanyOwner || access.can("vehicle.read"),
   );
+  const canReadSuppliers = Boolean(
+    access.isCompanyOwner || access.can("supplier.read"),
+  );
   const rawTab = new URLSearchParams(location.search).get("tab");
   const requestedTab = pageTabFromUrl(rawTab);
   const firstReadableTab: PageTab | null = canReadRepresentatives
     ? "representatives"
     : canReadVehicles
       ? "vehicles"
-      : null;
+      : canReadSuppliers
+        ? "suppliers"
+        : null;
   const requestedTabAllowed = requestedTab === "representatives"
     ? canReadRepresentatives
     : requestedTab === "vehicles"
       ? canReadVehicles
-      : false;
+      : requestedTab === "suppliers"
+        ? canReadSuppliers
+        : false;
   const activeTab: PageTab = requestedTab && requestedTabAllowed
     ? requestedTab
     : firstReadableTab ?? "representatives";
@@ -43,17 +51,21 @@ export default function RepresentativesVehiclesPage() {
     () => new Set<PageTab>(),
   );
 
-  const navigateToTab = (tab: PageTab, replace: boolean) => {
+  const navigateToTab = useCallback((tab: PageTab, replace: boolean) => {
     const params = new URLSearchParams(location.search);
     params.set("tab", tab);
     navigate(
-      { pathname: location.pathname, search: `?${params.toString()}`, hash: location.hash },
+      { pathname: "/representatives-vehicles", search: `?${params.toString()}`, hash: location.hash },
       { replace },
     );
-  };
+  }, [location.hash, location.search, navigate]);
 
   const activate = (tab: PageTab) => {
-    const allowed = tab === "representatives" ? canReadRepresentatives : canReadVehicles;
+    const allowed = tab === "representatives"
+      ? canReadRepresentatives
+      : tab === "vehicles"
+        ? canReadVehicles
+        : canReadSuppliers;
     if (!allowed || tab === activeTab) return;
     setVisitedTabs((current) => {
       const next = new Set(current);
@@ -71,26 +83,26 @@ export default function RepresentativesVehiclesPage() {
       next.add(activeTab);
       return next;
     });
-    if (rawTab !== activeTab) {
-      const params = new URLSearchParams(location.search);
-      params.set("tab", activeTab);
-      navigate(
-        { pathname: location.pathname, search: `?${params.toString()}`, hash: location.hash },
-        { replace: true },
-      );
+    if (location.pathname !== "/representatives-vehicles" || rawTab !== activeTab) {
+      navigateToTab(activeTab, true);
     }
   }, [
     access.isLoading,
     activeTab,
     firstReadableTab,
-    location.hash,
     location.pathname,
-    location.search,
-    navigate,
+    navigateToTab,
     rawTab,
   ]);
 
-  const noReadableTab = !access.isLoading && !canReadRepresentatives && !canReadVehicles;
+  const noReadableTab = !access.isLoading
+    && !canReadRepresentatives
+    && !canReadVehicles
+    && !canReadSuppliers;
+
+  const tabClass = (selected: boolean) => `inline-flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-xl border px-4 text-xs font-black shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:cursor-not-allowed disabled:opacity-40 ${selected
+    ? "border-amber-400 bg-amber-400 text-slate-950 hover:bg-amber-300"
+    : "border-white/10 bg-white/[0.06] text-slate-100 hover:border-white/15 hover:bg-white/[0.1] hover:text-white"}`;
 
   return (
     <main className="relative flex min-h-0 flex-1 flex-col gap-2 overflow-visible text-foreground" dir={i18n.dir()}>
@@ -114,7 +126,7 @@ export default function RepresentativesVehiclesPage() {
               aria-disabled={!canReadRepresentatives}
               disabled={access.isLoading || !canReadRepresentatives}
               onClick={() => activate("representatives")}
-              className={`inline-flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-xl border px-4 text-xs font-black shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:cursor-not-allowed disabled:opacity-40 ${activeTab === "representatives" ? "border-amber-400 bg-amber-400 text-slate-950 hover:bg-amber-300" : "border-white/10 bg-white/[0.06] text-slate-100 hover:border-white/15 hover:bg-white/[0.1] hover:text-white"}`}
+              className={tabClass(activeTab === "representatives")}
             >
               <UsersRound className="h-4 w-4" />{t("representativesVehicles.tabs.representatives")}
             </button>
@@ -125,9 +137,20 @@ export default function RepresentativesVehiclesPage() {
               aria-disabled={!canReadVehicles}
               disabled={access.isLoading || !canReadVehicles}
               onClick={() => activate("vehicles")}
-              className={`inline-flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-xl border px-4 text-xs font-black shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:cursor-not-allowed disabled:opacity-40 ${activeTab === "vehicles" ? "border-amber-400 bg-amber-400 text-slate-950 hover:bg-amber-300" : "border-white/10 bg-white/[0.06] text-slate-100 hover:border-white/15 hover:bg-white/[0.1] hover:text-white"}`}
+              className={tabClass(activeTab === "vehicles")}
             >
               <CarFront className="h-4 w-4" />{t("representativesVehicles.tabs.vehicles")}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "suppliers"}
+              aria-disabled={!canReadSuppliers}
+              disabled={access.isLoading || !canReadSuppliers}
+              onClick={() => activate("suppliers")}
+              className={tabClass(activeTab === "suppliers")}
+            >
+              <Truck className="h-4 w-4" />{t("representativesVehicles.tabs.suppliers")}
             </button>
           </div>
         </div>
@@ -153,6 +176,11 @@ export default function RepresentativesVehiclesPage() {
               {canReadVehicles && visitedTabs.has("vehicles") ? (
                 <div className={activeTab === "vehicles" ? "flex min-h-0 flex-1 flex-col" : "hidden"} aria-hidden={activeTab !== "vehicles"}>
                   <VehiclesTab />
+                </div>
+              ) : null}
+              {canReadSuppliers && visitedTabs.has("suppliers") ? (
+                <div className={activeTab === "suppliers" ? "flex min-h-0 flex-1 flex-col" : "hidden"} aria-hidden={activeTab !== "suppliers"}>
+                  <SuppliersPage embedded />
                 </div>
               ) : null}
             </>

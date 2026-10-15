@@ -35,6 +35,8 @@ export function RepresentativeLifecycleActions({
   const authFetch = useAuthFetch();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  const formId = `representative-lifecycle-${representative.id}`;
   const command = useRef<LifecycleCommand>({
     representativeId: representative.id,
     fullName: representative.full_name,
@@ -48,7 +50,7 @@ export function RepresentativeLifecycleActions({
   };
 
   const run = async () => {
-    if (!allowed) return;
+    if (!allowed || busy) return;
     const pending = command.current;
     setBusy(true);
     try {
@@ -81,18 +83,21 @@ export function RepresentativeLifecycleActions({
       onClose={close}
       title={t("representativesVehicles.representatives.lifecycle.title")}
       maxWidth="max-w-md"
+      initialFocusRef={confirmButtonRef}
       footer={
         <>
           <button type="button" disabled={busy} onClick={close} className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 disabled:opacity-50">{t("common.cancel")}</button>
-          <button type="button" disabled={busy || !allowed} onClick={() => void run()} className="h-10 rounded-xl bg-slate-900 px-4 text-sm font-black text-white disabled:opacity-50">{busy ? t("common.saving") : t("common.confirm")}</button>
+          <button ref={confirmButtonRef} type="submit" form={formId} disabled={busy || !allowed} className="h-10 rounded-xl bg-slate-900 px-4 text-sm font-black text-white disabled:opacity-50">{busy ? t("common.saving") : t("common.confirm")}</button>
         </>
       }
     >
-      <p className="text-sm font-semibold leading-7 text-slate-600">
-        {t(command.current.action === "deactivate"
-          ? "representativesVehicles.representatives.lifecycle.deactivateConfirm"
-          : "representativesVehicles.representatives.lifecycle.reactivateConfirm", { name: command.current.fullName })}
-      </p>
+      <form id={formId} onSubmit={(event) => { event.preventDefault(); void run(); }}>
+        <p className="text-sm font-semibold leading-7 text-slate-600">
+          {t(command.current.action === "deactivate"
+            ? "representativesVehicles.representatives.lifecycle.deactivateConfirm"
+            : "representativesVehicles.representatives.lifecycle.reactivateConfirm", { name: command.current.fullName })}
+        </p>
+      </form>
     </Modal>
   );
 }

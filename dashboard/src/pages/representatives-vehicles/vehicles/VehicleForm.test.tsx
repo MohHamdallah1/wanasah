@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 describe("VehicleForm frozen V1 contract", () => {
-  it("allows any nonnegative next oil-change mileage independently of current mileage", () => {
+  it("rejects a new oil-change target that is not ahead of the current mileage", () => {
     const onSubmit = vi.fn();
     render(<VehicleForm onCancel={() => undefined} onSubmit={onSubmit} />);
 
@@ -26,8 +26,21 @@ describe("VehicleForm frozen V1 contract", () => {
     fireEvent.change(screen.getByLabelText(/representativesVehicles\.vehicles\.fields\.nextOilChange/), { target: { value: "50" } });
     fireEvent.submit(screen.getByRole("button", { name: "common.save" }).closest("form")!);
 
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText("representativesVehicles.vehicles.form.oilMustBeFuture")).toBeTruthy();
+  });
+
+  it("accepts a new oil-change target only when it is ahead of current mileage", () => {
+    const onSubmit = vi.fn();
+    render(<VehicleForm onCancel={() => undefined} onSubmit={onSubmit} />);
+
+    fireEvent.change(screen.getByLabelText(/representativesVehicles\.vehicles\.fields\.plate/), { target: { value: "12-34567" } });
+    fireEvent.change(screen.getByLabelText(/representativesVehicles\.vehicles\.fields\.mileage/), { target: { value: "100" } });
+    fireEvent.change(screen.getByLabelText(/representativesVehicles\.vehicles\.fields\.nextOilChange/), { target: { value: "150" } });
+    fireEvent.submit(screen.getByRole("button", { name: "common.save" }).closest("form")!);
+
     expect(onSubmit).toHaveBeenCalledTimes(1);
-    expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({ current_mileage: 100, next_oil_change: 50 });
+    expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({ current_mileage: 100, next_oil_change: 150 });
   });
 
   it("uses required stars without optional/default badge clutter and keeps create mileage explicit", () => {
@@ -90,6 +103,69 @@ describe("VehicleForm frozen V1 contract", () => {
     expect(onSubmit.mock.calls[0]?.[0]).toEqual({ next_maintenance_date: null });
   });
 
+  it("requires a fresh maintenance schedule before a maintained vehicle returns to service", async () => {
+    const onSubmit = vi.fn();
+    const vehicle = {
+      id: 9, plate_number: "99-99999", vehicle_type: null, current_mileage: 900,
+      next_oil_change: null, license_expiry_date: null, next_maintenance_date: "2000-01-02",
+      maintenance_status: "In_Maintenance" as const, is_active: true, version: 3, custody_ready: true,
+    };
+    render(<VehicleForm vehicle={vehicle} onCancel={() => undefined} onSubmit={onSubmit} />);
+
+    const nextMaintenance = screen.getByLabelText(/representativesVehicles\.vehicles\.fields\.nextMaintenanceDate/) as HTMLInputElement;
+    fireEvent.change(screen.getByLabelText(/representativesVehicles\.vehicles\.fields\.maintenance/), { target: { value: "Active" } });
+
+    expect(nextMaintenance.value).toBe("");
+    expect(nextMaintenance.getAttribute("min")).toBeTruthy();
+    expect(screen.getByText("representativesVehicles.vehicles.form.returnToServiceScheduleHint")).toBeTruthy();
+
+    fireEvent.submit(screen.getByRole("button", { name: "common.save" }).closest("form")!);
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText("representativesVehicles.vehicles.form.returnToServiceScheduleRequired")).toBeTruthy();
+
+    fireEvent.change(nextMaintenance, { target: { value: "2099-01-02" } });
+    fireEvent.submit(screen.getByRole("button", { name: "common.save" }).closest("form")!);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0]?.[0]).toEqual({
+      next_maintenance_date: "2099-01-02",
+      maintenance_status: "Active",
+    });
+  });
+
+  it("submits an edited vehicle with Enter from an input field", () => {
+    const onSubmit = vi.fn();
+    const vehicle = {
+      id: 12, plate_number: "12-12000", vehicle_type: "Van", current_mileage: 800,
+      next_oil_change: 1200, license_expiry_date: null, next_maintenance_date: "2026-12-01",
+      maintenance_status: "Active" as const, is_active: true, version: 4, custody_ready: true,
+    };
+    render(<VehicleForm vehicle={vehicle} onCancel={() => undefined} onSubmit={onSubmit} />);
+
+    const type = screen.getByLabelText(/representativesVehicles\.vehicles\.fields\.type/) as HTMLInputElement;
+    fireEvent.change(type, { target: { value: "Truck" } });
+    fireEvent.keyDown(type, { key: "Enter", code: "Enter" });
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0]?.[0]).toEqual({ vehicle_type: "Truck" });
+  });
+
+  it("submits an edited vehicle with Enter from the maintenance selector", () => {
+    const onSubmit = vi.fn();
+    const vehicle = {
+      id: 13, plate_number: "13-13000", vehicle_type: "Van", current_mileage: 800,
+      next_oil_change: 1200, license_expiry_date: null, next_maintenance_date: "2026-12-01",
+      maintenance_status: "Active" as const, is_active: true, version: 4, custody_ready: true,
+    };
+    render(<VehicleForm vehicle={vehicle} onCancel={() => undefined} onSubmit={onSubmit} />);
+
+    const status = screen.getByLabelText(/representativesVehicles\.vehicles\.fields\.maintenance/) as HTMLSelectElement;
+    fireEvent.change(status, { target: { value: "In_Maintenance" } });
+    fireEvent.keyDown(status, { key: "Enter", code: "Enter" });
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0]?.[0]).toEqual({ maintenance_status: "In_Maintenance" });
+  });
+
   it("keeps the compact form phone-first and locale-directed", () => {
     const { container, rerender } = render(<VehicleForm onCancel={() => undefined} onSubmit={() => undefined} />);
     expect(container.querySelector("form")?.getAttribute("dir")).toBe("rtl");
@@ -99,6 +175,7 @@ describe("VehicleForm frozen V1 contract", () => {
     expect(container.querySelector(".grid")?.className).toContain("sm:grid-cols-2");
     fireEvent.change(oil, { target: { value: "1500" } });
     expect(oil.getAttribute("dir")).toBe("ltr");
+    expect(oil).toHaveClass("text-right");
     direction = "ltr";
     rerender(<VehicleForm onCancel={() => undefined} onSubmit={() => undefined} />);
     expect(container.querySelector("form")?.getAttribute("dir")).toBe("ltr");

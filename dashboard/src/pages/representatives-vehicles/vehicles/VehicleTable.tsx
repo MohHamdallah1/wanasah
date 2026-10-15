@@ -2,68 +2,32 @@ import { useTranslation } from "react-i18next";
 
 import type { Vehicle } from "./contracts";
 import { VehicleRowActions } from "./VehicleRowActions";
+import {
+  formatBusinessDate,
+  formatBusinessNumber,
+  notesForVehicle,
+  type VehicleNote,
+} from "./vehiclePresentation";
 
 interface VehicleTableProps {
   items: Vehicle[];
   loading?: boolean;
   canManage: boolean;
+  onView: (vehicle: Vehicle) => void;
   onEdit: (vehicle: Vehicle) => void;
   onLifecycle: (vehicle: Vehicle) => void;
+  onNoteAction: (vehicle: Vehicle, note: VehicleNote) => void;
 }
 
-type VehicleNote =
-  | { kind: "custody" }
-  | { kind: "maintenance"; date: string; overdue: boolean }
-  | { kind: "license"; date: string }
-  | { kind: "oil"; mileage: number };
 
-const localDateKey = () => {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-};
-
-const formatBusinessDate = (value: string, language: string) => {
-  const [year, month, day] = value.split("-").map(Number);
-  const date = new Date(year, month - 1, day);
-  return new Intl.DateTimeFormat(
-    language.startsWith("ar") ? "ar-JO-u-nu-latn" : "en-US-u-nu-latn",
-    { year: "numeric", month: "2-digit", day: "2-digit" },
-  ).format(date);
-};
-
-const formatBusinessNumber = (value: number, language: string) =>
-  new Intl.NumberFormat(
-    language.startsWith("ar") ? "ar-JO-u-nu-latn" : "en-US-u-nu-latn",
-  ).format(value);
-
-const notesForVehicle = (vehicle: Vehicle): VehicleNote[] => {
-  const today = localDateKey();
-  const notes: VehicleNote[] = [];
-  if (!vehicle.custody_ready) notes.push({ kind: "custody" });
-  if (vehicle.next_maintenance_date) {
-    notes.push({
-      kind: "maintenance",
-      date: vehicle.next_maintenance_date,
-      overdue: vehicle.next_maintenance_date < today,
-    });
-  }
-  if (vehicle.license_expiry_date && vehicle.license_expiry_date < today) {
-    notes.push({ kind: "license", date: vehicle.license_expiry_date });
-  }
-  if (vehicle.next_oil_change !== null && vehicle.next_oil_change !== undefined && vehicle.current_mileage >= vehicle.next_oil_change) {
-    notes.push({ kind: "oil", mileage: vehicle.next_oil_change });
-  }
-  return notes;
-};
-
-export function VehicleTable({ items, loading = false, canManage, onEdit, onLifecycle }: VehicleTableProps) {
+export function VehicleTable({ items, loading = false, canManage, onView, onEdit, onLifecycle, onNoteAction }: VehicleTableProps) {
   const { t, i18n } = useTranslation();
 
   const noteText = (note: VehicleNote) => {
     if (note.kind === "custody") return t("representativesVehicles.vehicles.notes.custodyUnavailable");
     if (note.kind === "maintenance") {
       return t(
-        note.overdue ? "representativesVehicles.vehicles.notes.maintenanceOverdue" : "representativesVehicles.vehicles.notes.maintenanceUpcoming",
+        note.overdue ? "representativesVehicles.vehicles.notes.maintenanceOverdue" : "representativesVehicles.vehicles.notes.maintenanceDue",
         { date: formatBusinessDate(note.date, i18n.language) },
       );
     }
@@ -114,23 +78,36 @@ export function VehicleTable({ items, loading = false, canManage, onEdit, onLife
                 </span>
               </td>
               <td className="border-b border-slate-100 px-4 py-3 text-start">
-                <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-black ${vehicle.maintenance_status === "Active" ? "bg-cyan-50 text-cyan-700 ring-1 ring-cyan-200" : "bg-amber-50 text-amber-800 ring-1 ring-amber-200"}`}>
+                <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-black ${vehicle.maintenance_status === "Active" ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "bg-amber-50 text-amber-800 ring-1 ring-amber-200"}`}>
                   {t(vehicle.maintenance_status === "Active" ? "representativesVehicles.vehicles.maintenance.active" : "representativesVehicles.vehicles.maintenance.inMaintenance")}
                 </span>
               </td>
               <td className="border-b border-slate-100 px-4 py-3 text-start">
                 {notes.length ? (
                   <div className="space-y-1">
-                    {notes.map((note, noteIndex) => (
-                      <p key={`${vehicle.id}-${note.kind}-${noteIndex}`} className={`text-[10px] font-bold leading-4 ${note.kind === "custody" || note.kind === "license" ? "text-rose-700" : note.kind === "oil" || (note.kind === "maintenance" && note.overdue) ? "text-amber-700" : "text-slate-500"}`}>
-                        {noteText(note)}
-                      </p>
-                    ))}
+                    {notes.map((note, noteIndex) => {
+                      const noteClass = `text-start text-[10px] font-bold leading-4 ${note.kind === "maintenance" && !note.overdue ? "text-amber-700" : "text-rose-700"}`;
+                      const actionable = note.kind === "custody" || canManage;
+                      return actionable ? (
+                        <button
+                          key={`${vehicle.id}-${note.kind}-${noteIndex}`}
+                          type="button"
+                          onClick={() => onNoteAction(vehicle, note)}
+                          className={`${noteClass} block max-w-full rounded-sm underline-offset-2 transition hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400`}
+                        >
+                          {noteText(note)}
+                        </button>
+                      ) : (
+                        <p key={`${vehicle.id}-${note.kind}-${noteIndex}`} className={noteClass}>
+                          {noteText(note)}
+                        </p>
+                      );
+                    })}
                   </div>
                 ) : <span className="text-xs font-semibold text-slate-400">—</span>}
               </td>
               <td className="border-b border-slate-100 px-4 py-2 text-center">
-                <VehicleRowActions vehicle={vehicle} canManage={canManage} onEdit={onEdit} onLifecycle={onLifecycle} />
+                <VehicleRowActions vehicle={vehicle} canManage={canManage} onView={onView} onEdit={onEdit} onLifecycle={onLifecycle} />
               </td>
             </tr>
           );

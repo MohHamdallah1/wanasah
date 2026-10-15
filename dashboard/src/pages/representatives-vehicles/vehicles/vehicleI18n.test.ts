@@ -8,6 +8,14 @@ const flatten = (value: unknown): string[] => {
   return Object.values(value).flatMap(flatten);
 };
 
+const keyPaths = (value: unknown, prefix = ""): string[] => {
+  if (!value || typeof value !== "object") return prefix ? [prefix] : [];
+  return Object.entries(value).flatMap(([key, child]) => {
+    const path = prefix ? `${prefix}.${key}` : key;
+    return child && typeof child === "object" ? keyPaths(child, path) : [path];
+  });
+};
+
 describe("Vehicle bilingual copy", () => {
   it("keeps Arabic Vehicle copy intact instead of replacement question marks", () => {
     const values = flatten(representativesVehicles.ar.vehicles);
@@ -18,6 +26,23 @@ describe("Vehicle bilingual copy", () => {
 
   it("keeps the shared no-access state localized for Arabic Vehicle access", () => {
     expect(representativesVehicles.ar.noAccess).toMatch(/[\u0600-\u06FF]/);
+  });
+
+  it("keeps Arabic and English translation keys in exact parity", () => {
+    expect(keyPaths(representativesVehicles.ar).sort()).toEqual(keyPaths(representativesVehicles.en).sort());
+  });
+
+  it("localizes oil-target validation in both languages", () => {
+    expect(representativesVehicles.ar.vehicles.form.oilMustBeFuture).toMatch(/[\u0600-\u06FF]/);
+    expect(representativesVehicles.ar.vehicles.quickActions.oilMustBeFuture).toContain("{{mileage}}");
+    expect(representativesVehicles.ar.vehicles.errors.oilChangeTargetInvalid).toMatch(/[\u0600-\u06FF]/);
+    expect(representativesVehicles.en.vehicles.quickActions.oilMustBeFuture).toContain("{{mileage}}");
+  });
+
+  it("keeps vehicle information copy under the Vehicle namespace", () => {
+    expect(representativesVehicles.ar.vehicles.details.action).toMatch(/[\u0600-\u06FF]/);
+    expect(representativesVehicles.en.vehicles.details.action).toBe("Vehicle information");
+    expect(representativesVehicles.ar.representatives).not.toHaveProperty("details");
   });
 
   it("keeps English action and lifecycle punctuation readable", () => {
