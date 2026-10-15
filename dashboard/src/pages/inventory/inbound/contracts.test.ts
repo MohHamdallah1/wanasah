@@ -1,0 +1,252 @@
+import { describe, expect, it } from "vitest";
+
+import type { CatalogVariant } from "@/features/catalog/contracts";
+import {
+  buildInboundItems,
+  emptyInboundBatch,
+  InboundRowValidationError,
+  type InboundDraftMap,
+  type InboundVariantOptions,
+} from "./contracts";
+
+const options = new Map<number, InboundVariantOptions>([
+  [
+    7,
+    {
+      product_variant_id: 7,
+      base_uom_id: 1,
+      uoms: [
+        { id: 1, code: "EACH", name: "Each", factor_to_base: "1" },
+        { id: 2, code: "BOX", name: "Box", factor_to_base: "10" },
+      ],
+    },
+  ],
+]);
+
+const variant = (
+  lot: CatalogVariant["lot_control_mode"],
+  expiry: CatalogVariant["expiry_control_mode"],
+): CatalogVariant => ({
+  id: 7,
+  product_id: 3,
+  sku: "SKU-7",
+  gtin: null,
+  name: "Product",
+  base_uom: { id: 1, code: "EACH", name: "Each" },
+  quantity_scale: 3,
+  quantity_step: "0.125",
+  lot_control_mode: lot,
+  expiry_control_mode: expiry,
+  lifecycle_status: "ACTIVE",
+  operational_hold: "NONE",
+  lifecycle_revision: 1,
+  version: 1,
+  published_at: "2026-10-01T00:00:00Z",
+  retired_at: null,
+  archived_at: null,
+});
+
+const drafts = (
+  patch: Partial<ReturnType<typeof emptyInboundBatch>> = {},
+): InboundDraftMap => ({
+  "7": [
+    {
+      ...emptyInboundBatch("row-1", "1"),
+      quantity: "1.125",
+      unit_cost: "2.500000",
+      ...patch,
+    },
+  ],
+});
+
+const build = (
+  lot: CatalogVariant["lot_control_mode"],
+  expiry: CatalogVariant["expiry_control_mode"],
+  patch: Partial<ReturnType<typeof emptyInboundBatch>> = {},
+  defaultLot = "",
+) =>
+  buildInboundItems(
+    drafts(patch),
+    new Map([["7", variant(lot, expiry)]]),
+    options,
+    { batch_number: defaultLot },
+  );
+
+const expectRowError = (
+  run: () => unknown,
+  code: string,
+  field: string,
+  rowId = "row-1",
+) => {
+  try {
+    run();
+    throw new Error("Expected validation error");
+  } catch (error) {
+    expect(error).toBeInstanceOf(InboundRowValidationError);
+    expect(error).toMatchObject({ code, field, row_id: rowId });
+  }
+};
+
+describe("Checkpoint 1 inbound tracking contract", () => {
+  it("applies the document lot default only to REQUIRED rows", () => {
+    expect(build("REQUIRED", "OPTIONAL", {}, " DOC-LOT ")[0]).toMatchObject({
+      batch_number: "DOC-LOT",
+    });
+    expect(build("OPTIONAL", "OPTIONAL", {}, "DOC-LOT")[0]).toMatchObject({
+      batch_number: null,
+    });
+    expect(
+      build(
+        "NONE",
+        "OPTIONAL",
+        { batch_number: "STALE-LOT" },
+        "DOC-LOT",
+      )[0],
+    ).toMatchObject({ batch_number: null });
+  });
+
+  it("requires a lot only for REQUIRED mode", () => {
+    expectRowError(
+      () => build("REQUIRED", "OPTIONAL"),
+      "INBOUND_LOT_REQUIRED",
+      "batch_number",
+    );
+    expect(build("OPTIONAL", "OPTIONAL")[0].batch_number).toBeNull();
+    expect(build("NONE", "OPTIONAL")[0].batch_number).toBeNull();
+  });
+
+  it("implements REQUIRED / OPTIONAL / NONE expiry semantics", () => {
+    expectRowError(
+      () => build("OPTIONAL", "REQUIRED"),
+      "INBOUND_EXPIRY_REQUIRED",
+      "expiry_date",
+    );
+    expect(build("OPTIONAL", "OPTIONAL")[0].expiry_date).toBeNull();
+    expect(
+      build("OPTIONAL", "NONE", { expiry_date: "2030-01-01" })[0]
+        .expiry_date,
+    ).toBeNull();
+  });
+
+  it("keeps production optional when any tracking field is active", () => {
+    expect(
+      build("OPTIONAL", "NONE", { production_date: "2026-10-01" })[0]
+        .production_date,
+    ).toBe("2026-10-01");
+    expect(
+      build("NONE", "OPTIONAL", { production_date: "2026-10-01" })[0]
+        .production_date,
+    ).toBe("2026-10-01");
+  });
+
+  it("drops all hidden stale tracking values when both modes are NONE", () => {
+    expect(
+      build(
+        "NONE",
+        "NONE",
+        {
+          batch_number: "STALE-LOT",
+          production_date: "2026-10-01",
+          expiry_date: "2030-01-01",
+        },
+        "DOC-LOT",
+      )[0],
+    ).toMatchObject({
+      batch_number: null,
+      production_date: null,
+      expiry_date: null,
+    });
+  });
+
+  it("keeps duplicate and metadata validation scoped to real lots", () => {
+    const duplicateReal: InboundDraftMap = {
+      "7": [
+        {
+          ...emptyInboundBatch("row-1", "1"),
+          quantity: "1",
+          unit_cost: "2",
+          batch_number: "LOT-1",
+        },
+        {
+          ...emptyInboundBatch("row-2", "1"),
+          quantity: "1",
+          unit_cost: "2",
+          batch_number: "LOT-1",
+        },
+      ],
+    };
+    expectRowError(
+      () =>
+        buildInboundItems(
+          duplicateReal,
+          new Map([["7", variant("OPTIONAL", "OPTIONAL")]]),
+          options,
+        ),
+      "INBOUND_DUPLICATE_BATCH_UOM_LINE",
+      "uom_id",
+      "row-2",
+    );
+
+    const anonymous = structuredClone(duplicateReal);
+    anonymous["7"].forEach((row) => {
+      row.batch_number = "";
+    });
+    expect(
+      buildInboundItems(
+        anonymous,
+        new Map([["7", variant("OPTIONAL", "OPTIONAL")]]),
+        options,
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("reports the exact metadata field for a real-lot conflict", () => {
+    const conflict: InboundDraftMap = {
+      "7": [
+        {
+          ...emptyInboundBatch("row-1", "1"),
+          quantity: "1",
+          unit_cost: "2",
+          batch_number: "LOT-1",
+          expiry_date: "2030-01-01",
+        },
+        {
+          ...emptyInboundBatch("row-2", "2"),
+          quantity: "1",
+          unit_cost: "2",
+          batch_number: "LOT-1",
+          expiry_date: "2031-01-01",
+        },
+      ],
+    };
+    expectRowError(
+      () =>
+        buildInboundItems(
+          conflict,
+          new Map([["7", variant("REQUIRED", "OPTIONAL")]]),
+          options,
+        ),
+      "INBOUND_BATCH_METADATA_CONFLICT",
+      "expiry_date",
+      "row-2",
+    );
+  });
+
+  it("preserves exact quantity, UOM and money validation with row identity", () => {
+    expectRowError(
+      () => build("OPTIONAL", "OPTIONAL", { quantity: "1.001" }),
+      "INBOUND_QUANTITY_CONVERSION_INVALID",
+      "quantity",
+    );
+    expectRowError(
+      () => build("OPTIONAL", "OPTIONAL", { uom_id: "999" }),
+      "INBOUND_UOM_REQUIRED",
+      "uom_id",
+    );
+    expectRowError(
+      () => build("OPTIONAL", "OPTIONAL", { unit_cost: "1.1234567" }),
+      "INBOUND_UNIT_COST_INVALID",
+      "unit_cost",
+    );
+  });
+});
