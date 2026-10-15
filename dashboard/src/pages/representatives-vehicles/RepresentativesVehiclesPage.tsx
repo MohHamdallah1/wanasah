@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { CarFront, Truck, UsersRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -51,14 +51,14 @@ export default function RepresentativesVehiclesPage() {
     () => new Set<PageTab>(),
   );
 
-  const navigateToTab = (tab: PageTab, replace: boolean) => {
+  const navigateToTab = useCallback((tab: PageTab, replace: boolean) => {
     const params = new URLSearchParams(location.search);
     params.set("tab", tab);
     navigate(
       { pathname: "/representatives-vehicles", search: `?${params.toString()}`, hash: location.hash },
       { replace },
     );
-  };
+  }, [location.hash, location.search, navigate]);
 
   const activate = (tab: PageTab) => {
     const allowed = tab === "representatives"
@@ -91,6 +91,7 @@ export default function RepresentativesVehiclesPage() {
     activeTab,
     firstReadableTab,
     location.pathname,
+    navigateToTab,
     rawTab,
   ]);
 
