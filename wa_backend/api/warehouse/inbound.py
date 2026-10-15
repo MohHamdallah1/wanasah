@@ -472,6 +472,19 @@ def _validate_inbound_dates(
                 context=context,
             ),
         )
+    if (
+        production_date is not None
+        and expiry_date is not None
+        and production_date > expiry_date
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=inventory_business_error(
+                "INBOUND_BATCH_DATES_INVALID",
+                "Production date cannot be after expiry date.",
+                context=context,
+            ),
+        )
     if expiry_date is not None and expiry_date < as_of_date:
         raise HTTPException(
             status_code=422,
@@ -490,19 +503,7 @@ def _validate_inbound_dates(
                 context=context,
             ),
         )
-    if (
-        production_date is not None
-        and expiry_date is not None
-        and production_date > expiry_date
-    ):
-        raise HTTPException(
-            status_code=422,
-            detail=inventory_business_error(
-                "INBOUND_BATCH_DATES_INVALID",
-                "Production date cannot be after expiry date.",
-                context=context,
-            ),
-        )
+
 
 
 def _ensure_named_batch_metadata_matches(

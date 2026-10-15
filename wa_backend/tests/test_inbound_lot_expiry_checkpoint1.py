@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from datetime import date, timedelta
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import get_args
@@ -226,16 +227,81 @@ def test_expired_and_future_production_are_rejected():
     assert _error_code(future.value) == "INBOUND_PRODUCTION_DATE_FUTURE"
 
 
-def test_production_after_expiry_is_rejected_by_request_schema():
-    with pytest.raises(ValidationError):
-        InboundBatchItem(
-            product_variant_id=1,
-            quantity="1",
-            uom_id=1,
-            unit_cost="1",
-            production_date=date(2026, 10, 16),
-            expiry_date=date(2026, 10, 15),
-        )
+@pytest.mark.asyncio
+async def test_production_after_expiry_reaches_endpoint_stable_business_code():
+    # Pydantic parses the dates but intentionally does not own this business rule.
+    payload = UpgradedInboundRequest(
+        request_id=uuid4(),
+        supplier_id=1,
+        location_id=2,
+        items=[{
+            "product_variant_id": 7,
+            "quantity": "1",
+            "uom_id": 10,
+            "unit_cost": "2",
+            "batch_number": "REAL-LOT",
+            "production_date": date(2026, 10, 16),
+            "expiry_date": date(2026, 10, 15),
+        }],
+    )
+    assert payload.items[0].production_date > payload.items[0].expiry_date
+
+    class _ScalarResult:
+        def scalar_one_or_none(self):
+            return SimpleNamespace(id=2)
+
+    variant = SimpleNamespace(
+        id=7,
+        base_uom_id=10,
+        quantity_scale=0,
+        quantity_step=Decimal("1"),
+        lot_control_mode="REQUIRED",
+        expiry_control_mode="OPTIONAL",
+        lifecycle_status="ACTIVE",
+        operational_hold="NONE",
+        operational_flags={
+            "inbound_enabled": True,
+            "outbound_enabled": True,
+        },
+    )
+
+    class _RowsResult:
+        def all(self):
+            return [variant]
+
+    db = SimpleNamespace(
+        execute=AsyncMock(side_effect=[_ScalarResult(), _RowsResult()]),
+        rollback=AsyncMock(),
+    )
+    access = SimpleNamespace(company_id=3)
+    legacy_actor = SimpleNamespace(id=4)
+
+    with patch.object(inbound, "_require_inbound_access", AsyncMock()), \
+         patch.object(inbound, "_require_active_warehouse_setup", AsyncMock()), \
+         patch.object(inbound, "require_supplier_permission", AsyncMock()), \
+         patch.object(
+             inbound, "begin_idempotent_operation",
+             AsyncMock(return_value=(object(), None)),
+         ), \
+         patch.object(
+             inbound, "select_active_supplier",
+             AsyncMock(return_value=SimpleNamespace(id=1)),
+         ), \
+         patch.object(inbound, "acquire_product_lifecycle_guards", AsyncMock()), \
+         patch.object(
+             inbound, "_resolve_inbound_uom_options",
+             AsyncMock(return_value=({7: 10}, {(7, 10): Decimal("1")}, {})),
+         ), \
+         patch.object(
+             inbound, "get_company_local_date",
+             AsyncMock(return_value=date(2026, 10, 15)),
+         ):
+        with pytest.raises(HTTPException) as caught:
+            await inbound.warehouse_inbound(payload, db, access, legacy_actor)
+
+    assert caught.value.status_code == 422
+    assert _error_code(caught.value) == "INBOUND_BATCH_DATES_INVALID"
+    db.rollback.assert_awaited_once()
 
 
 def _batch(*, production, expiry, number="REAL-LOT"):

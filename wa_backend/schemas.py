@@ -1920,17 +1920,7 @@ class InboundBatchItem(RequestModel):
     def normalize_batch_number(cls, v: Any) -> Optional[str]:
         return _optional_text(v)
 
-    @model_validator(mode="after")
-    def validate_dates(self) -> "InboundBatchItem":
-        if (
-            self.production_date is not None
-            and self.expiry_date is not None
-            and self.production_date > self.expiry_date
-        ):
-            raise ValueError(
-                "تاريخ الإنتاج لا يجوز أن يكون بعد تاريخ الصلاحية."
-            )
-        return self
+
 
 
 class InboundOptionsRequest(RequestModel):

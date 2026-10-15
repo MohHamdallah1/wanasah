@@ -6,6 +6,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+from uuid import UUID
 
 from sqlalchemy import text
 
@@ -79,11 +80,14 @@ def static_checks() -> None:
         == "OPTIONAL",
         "Product tracking modes normalize to the canonical contract",
     )
+    gate_request_id = UUID("00000000-0000-4000-8000-000000000007")
     internal_batch = build_internal_no_lot_batch_number(
+        request_id=gate_request_id,
         production_date=None,
         expiry_date=None,
     )
     expiry_internal_batch = build_internal_no_lot_batch_number(
+        request_id=gate_request_id,
         production_date=None,
         expiry_date=__import__("datetime").date(2030, 1, 2),
     )
@@ -95,6 +99,7 @@ def static_checks() -> None:
     )
     try:
         build_internal_no_lot_batch_number(
+            request_id=gate_request_id,
             production_date=__import__("datetime").datetime.now(),
             expiry_date=None,
         )
