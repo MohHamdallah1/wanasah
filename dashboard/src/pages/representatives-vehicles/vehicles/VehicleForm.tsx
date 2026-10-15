@@ -25,6 +25,11 @@ type PendingOperation = { fingerprint: string; requestId: string };
 const editableNumber = (value: number | null | undefined) =>
   value === null || value === undefined ? "" : String(value);
 
+const localDateKey = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+};
+
 function FieldLabel({ htmlFor, label, required = false }: { htmlFor: string; label: string; required?: boolean }) {
   return (
     <label htmlFor={htmlFor} className="block text-start text-xs font-black text-slate-700">
@@ -52,6 +57,7 @@ export function VehicleForm({
   );
   const [validation, setValidation] = useState("");
   const operation = useRef<PendingOperation | null>(null);
+  const nextMaintenanceDateRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setPlate(vehicle?.plate_number ?? "");
@@ -230,6 +236,7 @@ export function VehicleForm({
         <div className="min-w-0 space-y-1.5">
           <FieldLabel htmlFor="vehicle-next-maintenance" label={t("representativesVehicles.vehicles.fields.nextMaintenanceDate")} />
           <input
+            ref={nextMaintenanceDateRef}
             id="vehicle-next-maintenance"
             type="date"
             dir="ltr"
@@ -246,7 +253,14 @@ export function VehicleForm({
             value={maintenanceStatus}
             onChange={(event) => {
               resetValidation();
-              setMaintenanceStatus(event.target.value as VehicleMaintenanceStatus);
+              const nextStatus = event.target.value as VehicleMaintenanceStatus;
+              if (vehicle?.maintenance_status === "In_Maintenance" && nextStatus === "Active") {
+                if (nextMaintenanceDate && nextMaintenanceDate <= localDateKey()) {
+                  setNextMaintenanceDate("");
+                }
+                nextMaintenanceDateRef.current?.focus();
+              }
+              setMaintenanceStatus(nextStatus);
             }}
             className={inputClass}
             disabled={busy}
