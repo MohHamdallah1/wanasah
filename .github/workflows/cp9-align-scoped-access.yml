@@ -1,0 +1,58 @@
+name: CP9 align ScopedAccess fixture
+
+on:
+  push:
+    branches:
+      - sol/cp9-stocktake-full-closure-wave2
+
+permissions:
+  contents: write
+
+jobs:
+  align:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: sol/cp9-stocktake-full-closure-wave2
+      - name: Match canonical BackofficeCapabilityAccess require signature
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('wa_backend/tests/test_cp9_stocktake_postgres.py')
+          s = p.read_text(encoding='utf-8')
+          old = '''    async def require(self, code: str, *, location_id: int | None = None):
+        self.require_calls.append((code, location_id))
+        allowed = self.grants.get(code, set())
+        if location_id is None or location_id not in allowed:
+            raise HTTPException(status_code=403, detail="Forbidden")
+'''
+          new = '''    async def require(
+        self,
+        code: str,
+        location_id: int | None = None,
+        *,
+        any_location: bool = False,
+    ):
+        self.require_calls.append((code, location_id))
+        allowed = self.grants.get(code, set())
+        if any_location:
+            if not allowed:
+                raise HTTPException(status_code=403, detail="Forbidden")
+            return
+        if location_id is None or location_id not in allowed:
+            raise HTTPException(status_code=403, detail="Forbidden")
+'''
+          if s.count(old) != 1:
+              raise SystemExit(f'expected one ScopedAccess block, got {s.count(old)}')
+          p.write_text(s.replace(old, new), encoding='utf-8')
+          PY
+          python -m py_compile wa_backend/tests/test_cp9_stocktake_postgres.py
+          rm .github/workflows/cp9-align-scoped-access.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add wa_backend/tests/test_cp9_stocktake_postgres.py .github/workflows/cp9-align-scoped-access.yml
+          git commit -m 'CP9: align PostgreSQL ScopedAccess fixture'
+          git push origin HEAD:sol/cp9-stocktake-full-closure-wave2
