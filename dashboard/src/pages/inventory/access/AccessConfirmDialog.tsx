@@ -20,13 +20,15 @@ export function AccessConfirmDialog({
 }: AccessConfirmDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
+    if (returnFocusTo) returnFocusRef.current = returnFocusTo;
     if (open) {
       cancelRef.current?.focus();
       return;
     }
-    returnFocusTo?.focus();
+    returnFocusRef.current?.focus();
   }, [open, returnFocusTo]);
 
   if (!open) return null;
