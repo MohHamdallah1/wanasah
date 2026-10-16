@@ -1,0 +1,183 @@
+name: Inventory CP13 Operations Consistency
+
+on:
+  pull_request:
+    branches:
+      - integration/inventory-wave-2
+    paths:
+      - "dashboard/src/pages/inventory/Tab1LiveStock.tsx"
+      - "dashboard/src/pages/inventory/liveStock/**"
+      - "dashboard/src/pages/inventory/TabTransfers.tsx"
+      - "dashboard/src/pages/inventory/transfers/**"
+      - "dashboard/src/pages/inventory/Tab4Ledger.tsx"
+      - "dashboard/src/pages/inventory/ledger/**"
+      - "dashboard/src/test/inventory-cp13-operations-consistency.test.tsx"
+      - ".github/workflows/inventory-cp13-operations-consistency.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cp13-operations-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install
+        run: npm ci --no-audit --no-fund
+      - name: CP13 operations presentation
+        run: npm test -- src/test/inventory-cp13-operations-consistency.test.tsx
+      - name: CP7 Live Stock Dashboard regressions
+        run: >-
+          npm test --
+          src/test/inventory-cp7-live-stock.test.tsx
+          src/test/inventory-cp7-live-stock-parity.test.tsx
+      - name: CP8 Transfer Dashboard regression
+        run: npm test -- src/pages/inventory/transfers/cp8-transfers.test.tsx
+      - name: Transfer public lot and date parity
+        run: >-
+          npm test --
+          src/test/inventory-public-batch-number-parity.test.ts
+          src/test/inventory-product-batch-date-parity.test.ts
+      - name: CP10 Ledger Dashboard regressions
+        run: >-
+          npm test --
+          src/test/inventory-cp10-ledger-dashboard.test.tsx
+          src/test/inventory-cp10-ledger-contract.test.ts
+          src/test/inventory-cp10-ledger-keyboard.test.tsx
+      - name: CP11 capability frontend smoke
+        run: npm test -- src/test/inventory-cp11-access-dashboard.test.tsx
+      - name: CP12 UI quality regressions
+        run: >-
+          npm test --
+          src/test/inventory-cp12-i18n.test.tsx
+          src/test/inventory-cp12-accessibility.test.tsx
+          src/test/inventory-cp12-responsive-contract.test.ts
+      - name: TypeScript noEmit
+        run: npx tsc --noEmit
+      - name: ESLint CP13 operations scope
+        run: >-
+          npx eslint
+          src/pages/inventory/Tab1LiveStock.tsx
+          src/pages/inventory/liveStock/LiveStockTable.tsx
+          src/pages/inventory/liveStock/LiveStockMobileCards.tsx
+          src/pages/inventory/liveStock/LiveStockWarehouseContext.tsx
+          src/pages/inventory/TabTransfers.tsx
+          src/pages/inventory/transfers/TransferTable.tsx
+          src/pages/inventory/transfers/TransferRowActions.tsx
+          src/pages/inventory/transfers/FefoOverrideEditor.tsx
+          src/pages/inventory/transfers/TransferCreateModal.tsx
+          src/pages/inventory/transfers/TransferDetailModal.tsx
+          src/pages/inventory/transfers/TransferDecisionModal.tsx
+          src/pages/inventory/Tab4Ledger.tsx
+          src/pages/inventory/ledger/LedgerFilters.tsx
+          src/pages/inventory/ledger/LedgerTable.tsx
+          src/pages/inventory/ledger/LedgerMobileCards.tsx
+          src/pages/inventory/ledger/LedgerAdjustmentModal.tsx
+          src/test/inventory-cp13-operations-consistency.test.tsx
+      - name: Production Dashboard build
+        env:
+          VITE_API_URL: https://api.example.invalid
+        run: npm run build
+
+  scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Dynamic CP13 operations scope
+        shell: bash
+        run: |
+          target="${{ github.event.pull_request.base.ref }}"
+          if [ -z "$target" ]; then target="integration/inventory-wave-2"; fi
+          git fetch origin "$target" --no-tags
+          base="$(git merge-base HEAD "origin/$target")"
+          test -n "$base"
+          export CP13_BASE="$base"
+          export CP13_TARGET="$target"
+          python - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["CP13_BASE"]
+          target = os.environ["CP13_TARGET"]
+          assert target == "integration/inventory-wave-2", target
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only", base, "HEAD"], text=True
+          ).splitlines())
+          exact = {
+              ".github/workflows/inventory-cp13-operations-consistency.yml",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              "dashboard/src/pages/inventory/TabTransfers.tsx",
+              "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+              "dashboard/src/test/inventory-cp13-operations-consistency.test.tsx",
+          }
+          allowed_prefixes = (
+              "dashboard/src/pages/inventory/liveStock/",
+              "dashboard/src/pages/inventory/transfers/",
+              "dashboard/src/pages/inventory/ledger/",
+          )
+          unexpected = sorted(
+              path for path in changed
+              if path not in exact and not path.startswith(allowed_prefixes)
+          )
+          if unexpected:
+              raise SystemExit("Unexpected CP13.5 files: " + ", ".join(unexpected))
+          forbidden_exact = {
+              "dashboard/src/pages/inventory/InventoryPage.tsx",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/InventoryTopDock.tsx",
+              "dashboard/src/pages/inventory/inventoryShellPolish.css",
+              "dashboard/src/pages/inventory/TabBatches.tsx",
+              "dashboard/src/pages/inventory/TabWarehouseLocations.tsx",
+              "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+          }
+          forbidden_prefixes = (
+              "dashboard/src/pages/inventory/batches/",
+              "dashboard/src/pages/inventory/warehouse-locations/",
+              "dashboard/src/pages/inventory/stocktake/",
+              "wa_backend/",
+          )
+          if changed & forbidden_exact or any(path.startswith(forbidden_prefixes) for path in changed):
+              raise SystemExit("Forbidden or parallel-owned CP13.5 scope touched")
+          required = {
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              "dashboard/src/pages/inventory/TabTransfers.tsx",
+              "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+              "dashboard/src/test/inventory-cp13-operations-consistency.test.tsx",
+          }
+          missing = sorted(required - changed)
+          if missing:
+              raise SystemExit("Missing CP13.5 surfaces: " + ", ".join(missing))
+          print("CP13.5_DYNAMIC_SCOPE=PASS")
+          for path in sorted(changed):
+              print(path)
+          PY
+      - name: git diff --check
+        shell: bash
+        run: |
+          target="${{ github.event.pull_request.base.ref }}"
+          if [ -z "$target" ]; then target="integration/inventory-wave-2"; fi
+          base="$(git merge-base HEAD "origin/$target")"
+          git diff --check "$base...HEAD"
