@@ -74,7 +74,7 @@ pytestmark = [
     pytest.mark.asyncio(loop_scope="function"),
 ]
 
-INTERNAL_NOLOT = "WANASAH_NOLOT"
+INTERNAL_NOLOT = "__WANASAH_NOLOT__"
 SCOPED = (
     "inbound.create",
     "inventory.read",
