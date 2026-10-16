@@ -1,0 +1,187 @@
+name: Inventory CP14-A2 Product readiness acceptance
+
+on:
+  push:
+    branches:
+      - sol/cp14a2-product-readiness-wave2
+    paths:
+      - "wa_backend/tests/test_cp14a2_product_readiness_postgres.py"
+      - ".github/workflows/inventory-cp14a2-product-readiness.yml"
+  pull_request:
+    branches:
+      - integration/inventory-wave-2
+    paths:
+      - "wa_backend/tests/test_cp14a2_product_readiness_postgres.py"
+      - ".github/workflows/inventory-cp14a2-product-readiness.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cp14a2-product-readiness-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-16:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp14A2PostgresSyntheticOnlyKeyAbc12345678901234567890123
+      DATABASE_URL: postgresql+asyncpg://cp14a2_app@127.0.0.1:55452/wanasah_cp14a2_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp14a2_admin@127.0.0.1:55452/wanasah_cp14a2_test
+      WANASAH_CP14A2_PG_GATE: "1"
+      WANASAH_CP14A2_PG_URL: postgresql+asyncpg://cp14a2_app@127.0.0.1:55452/wanasah_cp14a2_test
+      WANASAH_CP14A2_PG_ADMIN_URL: postgresql+asyncpg://cp14a2_admin@127.0.0.1:55452/wanasah_cp14a2_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL acceptance dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name cp14a2-postgres \
+            --env POSTGRES_USER=cp14a2_admin \
+            --env POSTGRES_DB=wanasah_cp14a2_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55452:55452 \
+            postgres:16 -p 55452
+          for attempt in $(seq 1 30); do
+            if docker exec cp14a2-postgres pg_isready -U cp14a2_admin -d wanasah_cp14a2_test -p 55452; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs cp14a2-postgres
+          exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              if conn.execute(
+                  "SELECT 1 FROM pg_roles WHERE rolname='cp14a2_app'"
+              ).fetchone() is None:
+                  conn.execute(
+                      "CREATE ROLE cp14a2_app LOGIN NOSUPERUSER NOCREATEDB "
+                      "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+                  )
+              flags = conn.execute(
+                  "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname='cp14a2_app'"
+              ).fetchone()
+              assert flags == (False, False), flags
+          PY
+      - name: Clean Alembic bootstrap
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: CP14-A2 PostgreSQL 16 Product readiness journey
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_cp14a2_product_readiness_postgres.py
+
+  focused-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp14A2FocusedSyntheticOnlyKeyAbc123456789012345678901234
+      DATABASE_URL: postgresql+asyncpg://cp14a2_unit@127.0.0.1:1/cp14a2_unit
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install focused Backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: CP5 ProductLocation focused regression
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_product_locations_canonical_auth_cutover.py
+      - name: CP1 tracking-mode contract smoke
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_inbound_lot_expiry_checkpoint1.py::test_missing_lot_is_anonymous_for_none_and_optional
+          tests/test_inbound_lot_expiry_checkpoint1.py::test_none_rejects_supplied_lot_without_silently_discarding_it
+          tests/test_inbound_lot_expiry_checkpoint1.py::test_optional_accepts_real_lot_unchanged
+          tests/test_inbound_lot_expiry_checkpoint1.py::test_required_rejects_missing_lot
+          tests/test_inbound_lot_expiry_checkpoint1.py::test_required_accepts_real_lot_unchanged
+          tests/test_inbound_lot_expiry_checkpoint1.py::test_expiry_modes_and_company_local_today_boundary
+      - name: CP6 policy read smoke
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_inventory_minimum_stock_capability_parity.py
+          tests/test_minimum_stock_canonical_authorization_cutover.py
+      - name: CP11 canonical capability/access smoke
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_authorization_core_compatibility.py
+      - name: Warehouse route manifest
+        working-directory: wa_backend
+        run: python scripts/gate_warehouse_route_manifest.py
+      - name: py_compile CP14-A2 bounded surface
+        run: >-
+          python -m py_compile
+          wa_backend/tests/test_cp14a2_product_readiness_postgres.py
+          wa_backend/api/product_locations.py
+          wa_backend/api/warehouse/inbound.py
+          wa_backend/product_lifecycle.py
+          wa_backend/domains/authorization/backoffice_access.py
+
+  dynamic-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Resolve dynamic Wave 2 merge-base
+        shell: bash
+        run: |
+          target="${{ github.event.pull_request.base.ref }}"
+          if [ -z "$target" ]; then target="integration/inventory-wave-2"; fi
+          git fetch origin "$target" --no-tags
+          base="$(git merge-base HEAD "origin/$target")"
+          echo "CP14A2_BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "CP14A2_TARGET_REF=$target" >> "$GITHUB_ENV"
+          echo "CP14A2_DYNAMIC_BASE=$base"
+      - name: Verify exact CP14-A2 ownership
+        shell: bash
+        run: |
+          test "$CP14A2_TARGET_REF" = "integration/inventory-wave-2"
+          test "$CP14A2_BASE_SHA" = "0c657ea1812f20e46f219d35f053d9de2e8a2212"
+          python - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["CP14A2_BASE_SHA"]
+          changed = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", base, "HEAD"], text=True
+              ).splitlines()
+          )
+          expected = {
+              ".github/workflows/inventory-cp14a2-product-readiness.yml",
+              "wa_backend/tests/test_cp14a2_product_readiness_postgres.py",
+          }
+          assert changed == expected, f"Unexpected CP14-A2 scope: {sorted(changed)}"
+          print("CP14A2_DYNAMIC_SCOPE=PASS")
+          PY
+      - name: git diff --check
+        run: git diff --check "$CP14A2_BASE_SHA" HEAD

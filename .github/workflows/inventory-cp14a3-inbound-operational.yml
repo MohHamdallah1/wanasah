@@ -1,0 +1,240 @@
+name: Inventory CP14-A3 Inbound operational acceptance
+# Final post-Wave-sync gate marker; keeps the dedicated acceptance rerunnable after normal merge.
+
+on:
+  push:
+    branches:
+      - sol/cp14a3-inbound-operational-wave2
+    paths:
+      - "wa_backend/tests/test_cp14a3_inbound_operational_postgres.py"
+      - ".github/workflows/inventory-cp14a3-inbound-operational.yml"
+  pull_request:
+    branches:
+      - integration/inventory-wave-2
+    paths:
+      - "wa_backend/tests/test_cp14a3_inbound_operational_postgres.py"
+      - ".github/workflows/inventory-cp14a3-inbound-operational.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cp14a3-inbound-operational-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-16:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp14A3PostgresSyntheticOnlyKeyAbc12345678901234567890123
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp14a3_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_CP14A3_PG_GATE: "1"
+      WANASAH_CP14A3_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_CP14A3_PG_ADMIN_URL: postgresql+asyncpg://cp14a3_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://cp14a3_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL acceptance dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name cp14a3-postgres \
+            --env POSTGRES_USER=cp14a3_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec cp14a3-postgres pg_isready -U cp14a3_admin -d wanasah_no_lot_contract_test -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs cp14a3-postgres
+          exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              if conn.execute("SELECT 1 FROM pg_roles WHERE rolname='wanasah_app'").fetchone() is None:
+                  conn.execute(
+                      "CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB "
+                      "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+                  )
+              flags = conn.execute(
+                  "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname='wanasah_app'"
+              ).fetchone()
+              assert flags == (False, False), flags
+          PY
+      - name: Clean Alembic bootstrap
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: Grant restricted runtime DML
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+          PY
+      - name: CP14-A3 real PostgreSQL 16 inbound journey
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_cp14a3_inbound_operational_postgres.py
+      - name: CP1 no-lot PostgreSQL acceptance
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q
+          tests/test_inbound_no_lot_frozen_postgres.py
+
+  focused-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp14A3FocusedSyntheticOnlyKeyAbc123456789012345678901234
+      DATABASE_URL: postgresql+asyncpg://cp14a3_unit@127.0.0.1:1/cp14a3_unit
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install focused Backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: CP1 Inbound Backend acceptance
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q tests/test_inbound_lot_expiry_checkpoint1.py
+          -k "missing_lot_is_anonymous_for_none_and_optional or none_rejects_supplied_lot or optional_accepts_real_lot_unchanged or required_rejects_missing_lot or required_accepts_real_lot_unchanged or expiry_modes_and_company_local_today_boundary or expired_and_future_production_are_rejected or production_after_expiry_reaches_endpoint_stable_business_code or committed_replay_returns_before_anonymous_identity"
+      - name: Supplier inbound focused regression
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_supplier_inbound_quality_canonical_auth_cutover.py
+      - name: CP5 ProductLocation smoke
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_product_locations_canonical_auth_cutover.py
+      - name: CP6 cost and policy compatibility smoke
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_inventory_cost_policy_explicit_c1.py
+      - name: CP7 Live Stock read smoke
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_live_stock_canonical_boundary.py
+          tests/test_live_stock_batch_detail_disposition_contract.py
+          -k "not all_original_business_bodies_and_query_builders_preserved"
+      - name: CP10 Ledger evidence smoke
+        working-directory: wa_backend
+        run: |
+          python -m pytest -q tests/test_warehouse_ledger_status_canonical_auth_cutover.py -k "both_read_families_use_only_canonical_backoffice_request_authority"
+          python - <<'PY'
+          from pathlib import Path
+
+          wrapper = Path("api/warehouse/ledger.py").read_text(encoding="utf-8")
+          read = Path("domains/ledger/read.py").read_text(encoding="utf-8")
+          assert "read_warehouse_ledger_page" in wrapper
+          for expected in (
+              "InventorySupplierEvidence",
+              "InventoryCostEvent",
+              "ProductBatch.batch_number",
+              "public_batch_number",
+              '"cost_method"',
+              '"total_cost"',
+              '"supplier_id"',
+              '"supplier_name"',
+              '"supplier_code"',
+          ):
+              assert expected in read, expected
+          print("CP10_LEDGER_EVIDENCE_SMOKE=PASS")
+          PY
+      - name: CP11 authorization smoke
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_authorization_core_compatibility.py
+      - name: Warehouse route manifest
+        working-directory: wa_backend
+        run: python scripts/gate_warehouse_route_manifest.py
+      - name: py_compile CP14-A3 bounded surface
+        run: >-
+          python -m py_compile
+          wa_backend/tests/test_cp14a3_inbound_operational_postgres.py
+          wa_backend/api/warehouse/inbound.py
+          wa_backend/api/warehouse/live_stock.py
+          wa_backend/api/warehouse/ledger.py
+          wa_backend/api/product_locations.py
+          wa_backend/domains/ledger/read.py
+          wa_backend/domains/inventory_costing/service.py
+          wa_backend/domains/suppliers/public.py
+          wa_backend/domains/authorization/backoffice_access.py
+
+  dynamic-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Resolve dynamic Wave 2 merge-base
+        shell: bash
+        run: |
+          target="${{ github.event.pull_request.base.ref }}"
+          if [ -z "$target" ]; then target="integration/inventory-wave-2"; fi
+          git fetch origin "$target" --no-tags
+          base="$(git merge-base HEAD "origin/$target")"
+          echo "CP14A3_BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "CP14A3_TARGET_REF=$target" >> "$GITHUB_ENV"
+          echo "CP14A3_DYNAMIC_BASE=$base"
+      - name: Verify exact CP14-A3 ownership
+        shell: bash
+        run: |
+          test "$CP14A3_TARGET_REF" = "integration/inventory-wave-2"
+          git merge-base --is-ancestor c82b7614600e995135830be22ca5c7a99ff87032 HEAD
+          python - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["CP14A3_BASE_SHA"]
+          changed = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", base, "HEAD"], text=True
+              ).splitlines()
+          )
+          expected = {
+              ".github/workflows/inventory-cp14a3-inbound-operational.yml",
+              "wa_backend/tests/test_cp14a3_inbound_operational_postgres.py",
+          }
+          assert changed == expected, f"Unexpected CP14-A3 scope: {sorted(changed)}"
+          print("CP14A3_DYNAMIC_SCOPE=PASS")
+          PY
+      - name: git diff --check
+        run: git diff --check "$CP14A3_BASE_SHA" HEAD

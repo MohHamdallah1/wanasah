@@ -1,0 +1,319 @@
+name: Inventory CP14-B Batch Quality Transfers
+
+on:
+  pull_request:
+    branches:
+      - integration/inventory-wave-2
+    paths:
+      - "wa_backend/tests/test_cp14b_batch_quality_transfers_postgres.py"
+      - ".github/workflows/inventory-cp14b-batch-quality-transfers.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cp14b-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cp14b-postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp14BPostgresKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://cp8_app@127.0.0.1:55448/wanasah_cp8_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp8_admin@127.0.0.1:55448/wanasah_cp8_test
+      WANASAH_CP8_PG_GATE: "1"
+      WANASAH_CP8_PG_URL: postgresql+asyncpg://cp8_app@127.0.0.1:55448/wanasah_cp8_test
+      WANASAH_CP8_PG_ADMIN_URL: postgresql+asyncpg://cp8_admin@127.0.0.1:55448/wanasah_cp8_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL acceptance dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start PostgreSQL 16
+        run: |
+          docker run --detach --name cp14b-pg --env POSTGRES_USER=cp8_admin --env POSTGRES_DB=wanasah_cp8_test --env POSTGRES_HOST_AUTH_METHOD=trust --publish 127.0.0.1:55448:55448 postgres:16 -p 55448
+          for attempt in $(seq 1 30); do docker exec cp14b-pg pg_isready -U cp8_admin -d wanasah_cp8_test -p 55448 && exit 0; sleep 1; done
+          docker logs cp14b-pg
+          exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("CREATE ROLE cp8_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Clean migrate CP14-B database
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: CP14-B real PostgreSQL journey
+        working-directory: wa_backend
+        run: python -m pytest -q -s tests/test_cp14b_batch_quality_transfers_postgres.py
+      - name: CP3 terminal focused PostgreSQL acceptance
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q -s
+          tests/test_cp34_quality_terminal_postgres.py::test_terminal_exit_is_exact_idempotent_concurrent_atomic_and_provenanced
+          tests/test_cp34_quality_terminal_postgres.py::test_terminal_staging_rejects_reservation_shape_and_overconsumption
+      - name: CP8 focused PostgreSQL acceptance
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q -s
+          tests/test_cp8_transfers_postgres.py::test_lifecycle_replay_scope_movement_and_reserved_stock
+          tests/test_cp8_transfers_postgres.py::test_fefo_order_override_exact_capability_and_audit
+          tests/test_cp8_transfers_postgres.py::test_vehicle_special_transfer_and_generic_direction_contract
+          tests/test_cp8_transfers_postgres.py::test_competing_receive_and_cancel_have_one_terminal_effect
+
+  backend-focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp14BBackendKeyAbc12345678901234567890123456789012
+      DATABASE_URL: postgresql+asyncpg://cp14b_unit@127.0.0.1:1/cp14b_unit
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Backend test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: CP3 combined focused Backend
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_cp3_batch_actions_contract.py
+          tests/test_batch_stock_sources_contract.py
+          tests/test_batch_reservation_owner_contract.py
+          tests/test_inventory_quality_action_availability.py
+          tests/test_terminal_disposal_service.py
+          tests/test_terminal_vendor_service.py
+          tests/test_terminal_provenance.py
+          tests/test_terminal_quality_workflow_chain.py
+          tests/test_cp34_quality_terminal_backend.py
+          tests/test_cp8_transfers_backend.py
+          tests/test_special_transfer_action_options.py
+          tests/test_cp7_live_stock_contract.py
+          tests/test_live_stock_batch_detail_disposition_contract.py
+          tests/test_cp10_ledger_backend.py
+          tests/test_cp6_policy_closure.py
+      - name: Canonical disposition/status regressions
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_inbound_no_lot_frozen_contract.py
+          tests/test_warehouse_transfers_canonical_auth_cutover.py
+          -k "not ledger"
+      - name: Warehouse route manifest
+        working-directory: wa_backend
+        run: python scripts/gate_warehouse_route_manifest.py
+      - name: py_compile CP14-B
+        run: python -m py_compile wa_backend/tests/test_cp14b_batch_quality_transfers_postgres.py
+
+  cp7-postgres-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp14BCp7KeyAbc123456789012345678901234567890123
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_CP7_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL acceptance dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start PostgreSQL 16
+        run: |
+          docker run --detach --name cp14b-cp7 --env POSTGRES_USER=cp1_admin --env POSTGRES_DB=wanasah_no_lot_contract_test --env POSTGRES_HOST_AUTH_METHOD=trust --publish 127.0.0.1:55439:55439 postgres:16 -p 55439
+          for attempt in $(seq 1 30); do docker exec cp14b-cp7 pg_isready -U cp1_admin -d wanasah_no_lot_contract_test -p 55439 && exit 0; sleep 1; done
+          docker logs cp14b-cp7
+          exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migrate and grant runtime
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+              conn.execute("INSERT INTO permissions(code) VALUES ('inventory.read'), ('inbound.create') ON CONFLICT(code) DO NOTHING")
+          PY
+      - name: CP7 Live Stock PostgreSQL smoke
+        working-directory: wa_backend
+        run: python -m pytest -q -s tests/test_cp7_live_stock_postgres.py
+
+  cp10-postgres-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp14BCp10KeyAbc12345678901234567890123456789012
+      DATABASE_URL: postgresql+asyncpg://cp10_app@127.0.0.1:55450/wanasah_cp10_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp10_admin@127.0.0.1:55450/wanasah_cp10_test
+      WANASAH_CP10_PG_GATE: "1"
+      WANASAH_CP10_PG_URL: postgresql+asyncpg://cp10_app@127.0.0.1:55450/wanasah_cp10_test
+      WANASAH_CP10_PG_ADMIN_URL: postgresql+asyncpg://cp10_admin@127.0.0.1:55450/wanasah_cp10_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL acceptance dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start PostgreSQL 16
+        run: |
+          docker run --detach --name cp14b-cp10 --env POSTGRES_USER=cp10_admin --env POSTGRES_DB=wanasah_cp10_test --env POSTGRES_HOST_AUTH_METHOD=trust --publish 127.0.0.1:55450:55450 postgres:16 -p 55450
+          for attempt in $(seq 1 30); do docker exec cp14b-cp10 pg_isready -U cp10_admin -d wanasah_cp10_test -p 55450 && exit 0; sleep 1; done
+          docker logs cp14b-cp10
+          exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("CREATE ROLE cp10_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migrate
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: CP10 Ledger movement smoke
+        working-directory: wa_backend
+        run: python -m pytest -q -s tests/test_cp10_ledger_postgres.py::test_company_location_scope_search_reference_cursor_and_non_owner_grant
+
+  clean-bootstrap:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: cp14b_bootstrap
+          POSTGRES_DB: cp14b_bootstrap_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U cp14b_bootstrap -d cp14b_bootstrap_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp14BBootstrapKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://wanasah_runtime@127.0.0.1:5432/cp14b_bootstrap_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp14b_bootstrap@127.0.0.1:5432/cp14b_bootstrap_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install migration dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("CREATE ROLE wanasah_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Clean Alembic bootstrap
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: Reject model and migration drift
+        working-directory: wa_backend
+        run: alembic check
+      - name: Verify restricted runtime and RLS
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn) as conn:
+              role = conn.execute("SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname='wanasah_runtime'").fetchone()
+              assert role == (False, False)
+              tenant_total, rls_enabled, rls_forced = conn.execute("""
+                  WITH tenant_tables AS (
+                      SELECT DISTINCT table_name FROM information_schema.columns
+                      WHERE table_schema='public' AND column_name='company_id'
+                  ), rls AS (
+                      SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
+                      FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+                      WHERE n.nspname='public' AND c.relkind='r'
+                  )
+                  SELECT count(*), count(*) FILTER (WHERE r.relrowsecurity),
+                         count(*) FILTER (WHERE r.relforcerowsecurity)
+                  FROM tenant_tables t JOIN rls r ON r.relname=t.table_name
+              """).fetchone()
+              assert tenant_total > 0 and tenant_total == rls_enabled == rls_forced
+          PY
+
+  scope-and-diff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Dynamic scope and diff check
+        shell: bash
+        run: |
+          git fetch origin integration/inventory-wave-2 --no-tags
+          base="$(git merge-base HEAD origin/integration/inventory-wave-2)"
+          test -n "$base"
+          git diff --check "$base" HEAD --
+          python - "$base" <<'PY'
+          import subprocess, sys
+          base = sys.argv[1]
+          changed = set(subprocess.check_output(["git", "diff", "--name-only", base, "HEAD"], text=True).splitlines())
+          allowed = {
+              "wa_backend/tests/test_cp14b_batch_quality_transfers_postgres.py",
+              ".github/workflows/inventory-cp14b-batch-quality-transfers.yml",
+          }
+          unexpected = sorted(changed - allowed)
+          if unexpected:
+              raise SystemExit(f"CP14B_SCOPE=FAIL unexpected={unexpected}")
+          print("CP14B_SCOPE=PASS", sorted(changed))
+          PY
