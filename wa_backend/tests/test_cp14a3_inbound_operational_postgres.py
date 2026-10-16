@@ -114,7 +114,9 @@ def _code(exc: HTTPException) -> str:
 
 
 def _assert_no_internal(value) -> None:
-    assert INTERNAL_NOLOT not in repr(value)
+    rendered = repr(value)
+    assert INTERNAL_NOLOT not in rendered
+    assert "WANASAH_NOLOT" not in rendered
 
 
 @asynccontextmanager
@@ -341,7 +343,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
     runtime_engine = create_async_engine(runtime_url, poolclass=NullPool)
     admin_engine = create_async_engine(admin_url, poolclass=NullPool)
     try:
-        # PostgreSQL 16, clean Alembic head, restricted runtime and FORCE RLS.
         async with runtime_engine.connect() as connection:
             identity = (
                 await connection.execute(
@@ -385,7 +386,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
             )
             assert actual_heads == expected_heads
 
-        # Synthetic multi-company fixtures only.
         async with AsyncSession(admin_engine, expire_on_commit=False) as seed:
             each = await seed.scalar(select(UOM).where(UOM.code == "EACH"))
             if each is None:
@@ -554,7 +554,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
         assert len({operator.context.principal_id, operator.context.backoffice_user_id, operator.driver_id}) == 3
         assert not hasattr(gate.actor, "company_id") and not hasattr(gate.actor, "is_admin")
 
-        # Canonical ProductLocation assignments: A1 only, exact flags.
         assignment_ids = {}
         async with gate.session() as db:
             access = operator.access(db)
@@ -580,7 +579,15 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
                 assert row["operational_flags"] == {"inbound_enabled": True, "outbound_enabled": True}
                 assignment_ids[variant_id] = int(row["id"])
 
-        # Cost method is explicitly selected before the first costed receipt.
+        # Bootstrap the projection only after canonical ProductLocation readiness exists.
+        async with AsyncSession(admin_engine, expire_on_commit=False) as projection_seed:
+            await projection_seed.execute(
+                text("SELECT set_config('app.current_tenant', :tenant, true)"),
+                {"tenant": str(ids.company_a)},
+            )
+            await rebuild_live_stock_company(projection_seed, company_id=ids.company_a)
+            await projection_seed.commit()
+
         async with gate.session() as db:
             selected = await inbound.update_warehouse_costing_policy(
                 InventoryCostPolicyUpdateRequest(
@@ -599,7 +606,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
             today = await get_company_local_date(db, ids.company_a)
         valid_expiry = today + timedelta(days=30)
 
-        # Supplier required; exact permission; denied actor; foreign Supplier is opaque.
         missing_supplier = gate.request(ids.p2).model_copy(update={"supplier_id": None})
         with pytest.raises(HTTPException) as caught:
             await gate.post(missing_supplier)
@@ -620,7 +626,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
         assert ids.supplier_b_name not in repr(caught.value.detail)
         assert ids.supplier_b_code not in repr(caught.value.detail)
 
-        # Exact location/company isolation; no A2 implication; foreign product unavailable.
         before_isolation = await _snapshot(runtime_engine, ids.company_a)
         with pytest.raises(HTTPException) as caught:
             await gate.post(gate.request(ids.p2, location_id=ids.a2))
@@ -636,7 +641,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
         after_isolation = await _snapshot(runtime_engine, ids.company_a)
         assert after_isolation == before_isolation
 
-        # DRAFT/RETIRING fail and auto-ProductLocation creation is rolled back.
         for variant_id in (ids.draft, ids.retiring):
             before = await _snapshot(runtime_engine, ids.company_a)
             with pytest.raises(HTTPException) as caught:
@@ -645,7 +649,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
             assert "INBOUND_NEW_BLOCKED" in _code(caught.value)
             assert await _snapshot(runtime_engine, ids.company_a) == before
 
-        # ProductLocation inbound_enabled is authoritative and update is canonical.
         async with gate.session() as db:
             access = operator.access(db)
             disabled = await product_locations.update_product_location(
@@ -676,7 +679,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
                 gate.actor,
             )
 
-        # P1 NONE/NONE: omitted lot/expiry posts; expiry is rejected; internal no-lot is private.
         p1_request = gate.request(ids.p1, quantity="2.500001", cost="0.123456")
         p1_response = await gate.post(p1_request)
         assert p1_response == {"message": "INBOUND_POSTED"}
@@ -697,7 +699,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
         assert _code(caught.value) == "INBOUND_EXPIRY_NOT_ALLOWED"
         _assert_no_internal(caught.value.detail)
 
-        # First successful costed receipt activates/locks the configured method.
         async with gate.session() as db:
             policy = await inbound.warehouse_costing_policy(db, operator.access(db))
             assert policy["method"] == costing_method
@@ -717,7 +718,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
                 )
             assert _code(caught.value) == "INVENTORY_COST_POLICY_LOCKED"
 
-        # P2 OPTIONAL lot/expiry: absent succeeds publicly null; real lot/expiry preserved.
         p2_anon_request = gate.request(ids.p2, quantity="1.250000", cost="1.111111")
         assert await gate.post(p2_anon_request) == {"message": "INBOUND_POSTED"}
         p2_real_lot = "A3-REAL-P2"
@@ -741,7 +741,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
             assert real is not None and real.batch_number == p2_real_lot
             assert real.production_date == today and real.expiry_date == valid_expiry
 
-        # P3 REQUIRED lot/expiry and P4 OPTIONAL lot + REQUIRED expiry.
         with pytest.raises(HTTPException) as caught:
             await gate.post(gate.request(ids.p3, expiry=valid_expiry))
         assert _code(caught.value) == "INBOUND_LOT_REQUIRED"
@@ -754,7 +753,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
         assert _code(caught.value) == "INBOUND_EXPIRY_REQUIRED"
         await gate.post(gate.request(ids.p4, expiry=valid_expiry))
 
-        # Company-local production/expiry rules and expired stock rollback.
         for payload, code in (
             (
                 gate.request(
@@ -786,7 +784,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
             _assert_no_internal(caught.value.detail)
             assert await _snapshot(runtime_engine, ids.company_a) == before
 
-        # Existing real-lot metadata is immutable/fail-closed.
         meta_lot = "A3-METADATA"
         await gate.post(
             gate.request(
@@ -809,7 +806,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
         assert _code(caught.value) == "INBOUND_BATCH_METADATA_CONFLICT"
         assert await _snapshot(runtime_engine, ids.company_a) == before_meta
 
-        # Direct UOM conversion + exact Decimal cost/quantity; unsupported UOM and duplicate line fail closed.
         uom_request = gate.request(
             ids.p2,
             uom_id=ids.case,
@@ -901,14 +897,12 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
             await gate.post(duplicate)
         assert _code(caught.value) == "INBOUND_DUPLICATE_BATCH_UOM_LINE"
 
-        # No direct balance mutation / no float business math in the canonical endpoint.
         source = inspect.getsource(inbound.warehouse_inbound)
         assert "apply_inventory_movements_batch" in source
         assert "InventoryBalance" not in source
         assert "Decimal(item.quantity)" in source and "Decimal(item.unit_cost)" in source
         assert "float(" not in source
 
-        # Goods Receipt -> Batch -> Balance -> Movement -> Live Stock -> Batches -> Ledger reconcile.
         async with gate.session() as db:
             access = operator.access(db)
             live = await live_stock.get_warehouse_inventory(
@@ -953,7 +947,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
             assert ledger_row["cost_method"] == costing_method
             assert Decimal(ledger_row["total_cost"]) == Decimal("3.375000")
 
-        # Anonymous identities are null on every public A3 read; prefix cannot be searched out.
         async with gate.session() as db:
             access = operator.access(db)
             p1_batches = await live_stock.get_warehouse_inventory_batches(ids.p1, ids.a1, None, 100, db, access)
@@ -977,7 +970,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
             for public_value in (p1_batches, sources, anon_ledger, batch_search, ledger_search):
                 _assert_no_internal(public_value)
 
-        # Same request replay is exact and history/quantity/evidence are not duplicated.
         replay_request = gate.request(ids.p3, lot="A3-REPLAY", expiry=valid_expiry, quantity="4", cost="1.5")
         first = await gate.post(replay_request)
         before_replay = await _snapshot(runtime_engine, ids.company_a)
@@ -994,7 +986,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
         assert caught.value.status_code == 409
         assert await _snapshot(runtime_engine, ids.company_a) == before_replay
 
-        # Original movement history remains immutable after replay/conflicts.
         async with gate.session() as db:
             persisted = await db.get(InventoryMovement, original_movement[0])
             assert (
@@ -1007,7 +998,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
                 persisted.created_at,
             ) == original_movement
 
-        # Simultaneous same-batch receipts with identical metadata: one batch, two movements, exact sum.
         race_lot = "A3-SAME-BATCH-RACE"
         left = gate.request(ids.p2, lot=race_lot, production=today, expiry=valid_expiry, quantity="1", cost="1")
         right = gate.request(ids.p2, lot=race_lot, production=today, expiry=valid_expiry, quantity="2", cost="1")
@@ -1047,7 +1037,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
             assert race_moves == 2
             assert Decimal(race_balance.on_hand_quantity) == Decimal("3.000000")
 
-        # Same request_id race: second caller fails closed, committed replay is exact.
         same_request = gate.request(ids.p3, lot="A3-IDEM-RACE", expiry=valid_expiry)
         reached, release = asyncio.Event(), asyncio.Event()
         real_apply = inbound.apply_inventory_movements_batch
@@ -1085,7 +1074,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
                         assert await asyncio.wait_for(first_task, 10) == {"message": "INBOUND_POSTED"}
         assert await gate.post(same_request) == {"message": "INBOUND_POSTED"}
 
-        # Metadata conflict under concurrent pressure stays fail-closed and metadata remains consistent.
         metadata_race_lot = "A3-META-RACE"
         base_meta = gate.request(
             ids.p3,
@@ -1128,7 +1116,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
             assert meta_batch.production_date == today
             assert meta_batch.expiry_date == today + timedelta(days=40)
 
-        # Synthetic failure at transaction boundary proves rollback leaves no partial state.
         rollback_request = gate.request(ids.p3, lot="A3-ROLLBACK", expiry=valid_expiry)
         before_rollback = await _snapshot(runtime_engine, ids.company_a)
         async with gate.session() as db:
@@ -1145,7 +1132,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
                 _assert_no_internal(caught.value.detail)
         assert await _snapshot(runtime_engine, ids.company_a) == before_rollback
 
-        # RLS/no-count-leak: A runtime cannot infer B rows even without explicit tenant predicate.
         async with gate.session() as db:
             assert await db.scalar(select(Supplier).where(Supplier.id == ids.supplier_b)) is None
             assert await db.scalar(select(InventoryLocation).where(InventoryLocation.id == ids.b1)) is None
@@ -1157,7 +1143,6 @@ async def test_cp14a3_real_inbound_operational_journey(costing_method):
             ).all()
             assert all(Decimal(row.on_hand_quantity) >= 0 for row in balances)
 
-        # Cost-method-specific persistent evidence.
         async with gate.session() as db:
             policy_row = await db.scalar(
                 select(InventoryCostPolicy).where(InventoryCostPolicy.company_id == ids.company_a)
