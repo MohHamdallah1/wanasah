@@ -1,5 +1,5 @@
 name: Inventory CP9 Stocktake acceptance
-# Clean final-head CP9 proof gate with Vehicle metadata registration in-process.
+# Current-Wave CP9 proof gate with Vehicle metadata registration in-process.
 
 on:
   push:
@@ -52,6 +52,9 @@ jobs:
       - name: CP4 Stocktake blocker source regression
         working-directory: wa_backend
         run: python -m pytest -q tests/test_cp4_warehouse_branch_lifecycle_closure.py
+      - name: CP7 live-stock company and warehouse isolation regression
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_cp7_live_stock_contract.py
       - name: py_compile CP9 Backend
         run: >-
           python -m py_compile
@@ -171,11 +174,11 @@ jobs:
           echo "CP9_BASE_SHA=$base" >> "$GITHUB_ENV"
           echo "CP9_TARGET_REF=$target" >> "$GITHUB_ENV"
           echo "CP9_DYNAMIC_BASE=$base"
-      - name: Verify frozen base target and exact CP9 ownership
+      - name: Verify current Wave target and exact CP9 ownership
         shell: bash
         run: |
           test "$CP9_TARGET_REF" = "integration/inventory-wave-2"
-          test "$CP9_BASE_SHA" = "832b3872004251bd2a66d115c89fcba13542743f"
+          test "$CP9_BASE_SHA" = "6445440566eb770cda384e3d9999df7bee0af3d2"
           python - <<'PY'
           import os
           import subprocess
@@ -204,13 +207,26 @@ jobs:
           forbidden = {
               "wa_backend/schemas.py",
               "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              "wa_backend/api/warehouse/live_stock_source_detail.py",
+              "wa_backend/api/warehouse/transfers.py",
+              "wa_backend/api/warehouse/inventory_permissions.py",
           }
           assert not forbidden.intersection(changed), sorted(forbidden.intersection(changed))
+          forbidden_prefixes = (
+              "dashboard/src/pages/inventory/liveStock/",
+              "wa_backend/domains/ledger/",
+              "wa_backend/domains/inventory_access/",
+              "dashboard/src/pages/inventory/access/",
+          )
+          foreign = [path for path in changed if path.startswith(forbidden_prefixes)]
+          assert not foreign, foreign
           print("CP9_DYNAMIC_SCOPE=PASS")
-          print("CP9_FROZEN_BASE=PASS")
-          print("SCHEMAS_UNTOUCHED=PASS")
-          print("MAIN_INVENTORY_UNTOUCHED=PASS")
-          print("CP2_CP4_CP5_CP6_CP7_CP8_CP10_RUNTIME_UNTOUCHED=PASS")
+          print("CP9_CURRENT_WAVE_BASE=PASS")
+          print("CP7_RUNTIME_UNTOUCHED=PASS")
+          print("CP8_RUNTIME_UNTOUCHED=PASS")
+          print("CP10_RUNTIME_UNTOUCHED=PASS")
+          print("CP11_RUNTIME_UNTOUCHED=PASS")
           PY
       - name: Dynamic diff whitespace gate
         run: git diff --check "$CP9_BASE_SHA" HEAD
