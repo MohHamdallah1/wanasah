@@ -1302,21 +1302,13 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             )
 
         async with _runtime_session(runtime_engine, a.company_id) as db:
-            blocker_session = StocktakeSession(
-                company_id=a.company_id,
-                location_id=a.a1,
-                reference_number="CP14C-BLOCKER-" + uuid4().hex[:10],
-                stocktake_type="FULL_COUNT",
-                status="COUNTING",
-                started_by=a.operator.driver_id,
-            )
-            db.add(blocker_session)
-            await db.commit()
+            _, blocker_started = await _start(db, a.operator, a.a1)
+            blocker_session_id = int(blocker_started["session_id"])
             with pytest.raises(HTTPException) as stocktake_blocked:
                 await _deactivate(db, a, expected_version=1)
             _blocker(stocktake_blocked.value, "OPEN_STOCKTAKE")
             cancelled = await stocktake.cancel_stocktake_session(
-                blocker_session.id,
+                blocker_session_id,
                 StocktakeCancelCommand(
                     request_id=uuid4(), password=PASSWORD, reason="resolve blocker"
                 ),
