@@ -6,7 +6,6 @@ import { parseBranchPage, type BranchItem } from "./branchContracts";
 
 interface BranchSelectorProps {
   value: number | null;
-  currentBranchId: number | null;
   currentLabel: string | null;
   disabled: boolean;
   refreshKey: number;
@@ -16,7 +15,6 @@ interface BranchSelectorProps {
 
 export function BranchSelector({
   value,
-  currentBranchId,
   currentLabel,
   disabled,
   refreshKey,
@@ -48,12 +46,23 @@ export function BranchSelector({
         more: "More results exist; use search to find the required branch.",
       };
   const requestSeq = useRef(0);
+  const currentBranchIdRef = useRef<number | null>(value);
+  const currentLabelRef = useRef<string | null>(currentLabel);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [items, setItems] = useState<BranchItem[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (currentLabel !== currentLabelRef.current) {
+      currentLabelRef.current = currentLabel;
+      currentBranchIdRef.current = value;
+    } else if (currentLabel === null) {
+      currentBranchIdRef.current = null;
+    }
+  }, [currentLabel, value]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -96,6 +105,7 @@ export function BranchSelector({
     void load();
   }, [authenticatedFetch, canReadBranches, copy.loadFailed, refreshKey, search]);
 
+  const currentBranchId = currentBranchIdRef.current;
   const options = useMemo(() => {
     if (
       currentBranchId === null ||
