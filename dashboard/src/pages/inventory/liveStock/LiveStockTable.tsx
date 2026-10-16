@@ -19,7 +19,7 @@ function HeaderHelp({ text }: { text: string }) {
     <Tooltip.Provider delayDuration={150}>
       <Tooltip.Root>
         <Tooltip.Trigger asChild>
-          <button type="button" className="live-header-help" aria-label={text}>
+          <button type="button" className="live-header-help outline-none focus-visible:ring-2 focus-visible:ring-amber-400" aria-label={text}>
             <Info className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </Tooltip.Trigger>
@@ -70,9 +70,10 @@ export function LiveStockTable({ products, loading, onOpen }: Props) {
 
   return (
     <table
-      className="live-stock-table hidden md:table"
+      className="live-stock-table hidden md:table min-w-[1180px]"
       aria-label={t("inventoryShell.tabs.live")}
       aria-busy={loading}
+      data-cp13-stock-table="compact"
     >
       <thead>
         <tr className="live-stock-columns">
@@ -117,12 +118,12 @@ export function LiveStockTable({ products, loading, onOpen }: Props) {
               })
             : null;
           const values = [
-            product.on_hand_quantity,
-            product.reserved_quantity,
-            product.available_for_sale_quantity,
-            product.unavailable_quantity,
-            product.vehicle_quantity,
-          ];
+            [product.on_hand_quantity, "text-slate-900", "on-hand"],
+            [product.reserved_quantity, "text-amber-700", "reserved"],
+            [product.available_for_sale_quantity, "text-emerald-700", "available"],
+            [product.unavailable_quantity, "text-rose-700", "unavailable"],
+            [product.vehicle_quantity, "text-blue-700", "vehicle"],
+          ] as const;
 
           return (
             <tr
@@ -130,8 +131,9 @@ export function LiveStockTable({ products, loading, onOpen }: Props) {
               className={`live-stock-row border-b border-slate-100/80 transition-colors ${
                 isAlert ? "bg-red-50/45 hover:bg-red-50/75" : "bg-white hover:bg-slate-50/65"
               }`}
+              data-cp13-stock-row="compact"
             >
-              <td className="live-stock-number-cell px-3 py-3 text-center text-xs font-bold tabular-nums text-slate-400">
+              <td className="live-stock-number-cell px-3 py-2 text-center text-xs font-bold tabular-nums text-slate-400">
                 <span
                   className="live-stock-row-number tabular-nums"
                   aria-label={t("inventoryLive.rowNumber", { number: index + 1 })}
@@ -139,11 +141,11 @@ export function LiveStockTable({ products, loading, onOpen }: Props) {
                   {new Intl.NumberFormat(locale, { numberingSystem: "latn" }).format(index + 1)}
                 </span>
               </td>
-              <td className="live-product-cell px-4 py-3">
+              <td className="live-product-cell px-3 py-2">
                 <button
                   type="button"
                   onClick={() => onOpen(product)}
-                  className="max-w-[260px] text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                  className="max-w-[260px] rounded-md text-start outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
                   aria-label={`${copy.openBatchDetails}: ${product.name}`}
                 >
                   <span className="flex items-center gap-2">
@@ -160,30 +162,31 @@ export function LiveStockTable({ products, loading, onOpen }: Props) {
                   <span className="mt-0.5 block truncate text-[11px] font-semibold text-slate-500" dir="ltr">
                     {product.sku ?? "—"}
                   </span>
-                  <span className="live-stock-minimum-row mt-0.5 block text-[11px] font-semibold text-slate-500">
+                  <span className="live-stock-minimum-row mt-0.5 block text-[10px] font-semibold text-slate-500">
                     {t("inventoryLive.minimumStockLabel")}: {hasMinimum
                       ? quantity(product.minimum_quantity).primary
                       : t("inventoryLive.minimumStockUnset")}
                   </span>
                 </button>
               </td>
-              <td className="live-family-cell px-4 py-3 text-start text-xs font-bold text-slate-600">
+              <td className="live-family-cell px-3 py-2 text-start text-xs font-bold text-slate-600">
                 <div className="live-family-name" title={product.family_name}>{product.family_name}</div>
               </td>
-              {values.map((value, quantityIndex) => {
+              {values.map(([value, tone, metric], quantityIndex) => {
                 const rendered = quantity(value);
                 return (
                   <td
                     key={quantityIndex}
-                    className="px-4 py-3 text-center text-xs font-black tabular-nums text-slate-900"
+                    className={`px-3 py-2 text-center text-xs font-black tabular-nums ${tone}`}
                     dir="ltr"
                     title={rendered.secondary ?? undefined}
+                    data-cp13-quantity={metric}
                   >
                     {rendered.primary}
                   </td>
                 );
               })}
-              <td className="px-4 py-3 text-center text-xs">
+              <td className="px-3 py-2 text-center text-xs">
                 {product.last_purchase_cost && lastPurchaseUom ? (
                   <div
                     className="font-black tabular-nums text-slate-900"
@@ -193,7 +196,7 @@ export function LiveStockTable({ products, loading, onOpen }: Props) {
                   </div>
                 ) : "—"}
               </td>
-              <td className="px-4 py-3 text-center text-xs">
+              <td className="px-3 py-2 text-center text-xs">
                 {product.average_cost_display ? (
                   <div
                     className="font-black tabular-nums text-slate-900"
