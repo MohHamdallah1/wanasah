@@ -70,13 +70,21 @@ jobs:
           src/pages/inventory/inbound/contracts.test.ts
           src/test/inventory-product-batch-date-parity.test.ts
 
-      - name: CP6 minimum-stock Dashboard regression
-        working-directory: dashboard
-        run: npm test -- src/test/inventory-cp6-minimum-stock-dashboard.test.tsx
-
       - name: CP4 branch Dashboard regression
         working-directory: dashboard
         run: npm test -- src/test/inventory-cp4-branch-dashboard.test.tsx
+
+      - name: CP5 ProductLocation integration regressions
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/test/cp5-product-location-dashboard.test.tsx
+          src/test/cp5-product-location-modal.test.tsx
+          src/test/catalog-inventory-boundary.test.ts
+
+      - name: CP6 minimum-stock Dashboard regression
+        working-directory: dashboard
+        run: npm test -- src/test/inventory-cp6-minimum-stock-dashboard.test.tsx
 
       - name: TypeScript noEmit
         working-directory: dashboard
