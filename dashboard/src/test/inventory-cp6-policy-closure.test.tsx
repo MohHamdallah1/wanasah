@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// CP15 reproduction marker only: assertions below are intentionally unchanged in this commit.
 const mocks = vi.hoisted(() => ({ authFetch: vi.fn() }));
 
 vi.mock("@/hooks/useAuthFetch", () => ({
