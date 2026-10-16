@@ -31,6 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v5
         with:
@@ -408,7 +409,7 @@ jobs:
               r"perf_reports|fixtures|development|dev)/|\.(?:test|spec)\."
           )
           core = {"wa_backend/services.py", "wa_backend/models.py", "wa_backend/schemas.py"}
-          production_roots = ("wa_backend/", "dashboard/src/", "wa_mobile/lib/", "lib/")
+          production_roots = ("wa_backend/", "dashboard/src/", "wanasah_frontend/lib/")
           suffixes = (".py", ".ts", ".tsx", ".css", ".dart")
           reviewed_exceptions = {
               # Exact path + exact source line only, with a reviewed V1 rationale.
