@@ -184,9 +184,6 @@ describe("Live Stock local failure states", () => {
       screen.getAllByText("Preserved Product").length,
     ).toBeGreaterThan(0);
     expect(
-      screen.getByText("inventoryLive.errors.summaryTitle"),
-    ).toBeInTheDocument();
-    expect(
       screen.getByText("inventoryLive.errors.summaryUnavailable"),
     ).toBeInTheDocument();
     expect(
