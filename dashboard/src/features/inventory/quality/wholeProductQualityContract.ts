@@ -1,4 +1,5 @@
 import { parseQuantity, type Quantity } from "@/lib/quantity";
+import { parsePublicBatchNumber } from "@/pages/inventory/publicBatchNumber";
 
 export type QualityStockStatus =
   | "AVAILABLE"
@@ -36,7 +37,7 @@ export type ProductQualitySource = {
 
 export type ProductQualityBatch = {
   batchId: number;
-  batchNumber: string;
+  batchNumber: string | null;
   expiryDate: string | null;
   baseUomId: number;
   baseUomCode: string;
@@ -154,7 +155,7 @@ export function parseProductQualityPage(raw: unknown): ProductQualityPage {
     const expiryDate = batch.expiry_date === null ? null : text(batch.expiry_date, 32);
     return {
       batchId,
-      batchNumber: text(batch.batch_number, 100),
+      batchNumber: parsePublicBatchNumber(batch.batch_number, invalid),
       expiryDate,
       baseUomId,
       baseUomCode,

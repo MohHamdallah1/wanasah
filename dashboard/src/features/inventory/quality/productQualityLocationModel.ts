@@ -15,7 +15,7 @@ import type {
 
 export type QualityActionLine = {
   batchId: number;
-  batchNumber: string;
+  batchNumber: string | null;
   expiryDate: string | null;
   stockStatus: QualityStockStatus;
   eligibleQuantity: Quantity;

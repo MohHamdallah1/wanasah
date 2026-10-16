@@ -4,6 +4,8 @@ import {
   ClipboardCheck,
   RefreshCcw,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { formatPublicBatchNumber } from "../publicBatchNumber";
 import type {
   StocktakeSessionSummary,
   StocktakeStatus,
@@ -62,7 +64,8 @@ const canOpenSession = (
   status === "RECOUNT_REQUIRED";
 
 const sessionScope = (
-  session: StocktakeSessionSummary
+  session: StocktakeSessionSummary,
+  noLotLabel: string,
 ): string => {
   if (session.stocktake_type === "FULL_COUNT") {
     return "الموقع كاملاً";
@@ -78,8 +81,8 @@ const sessionScope = (
     session.scope_product_name ||
     `الصنف #${session.scope_product_variant_id ?? "—"}`;
 
-  return session.scope_batch_number
-    ? `${product} · دفعة ${session.scope_batch_number}`
+  return session.scope_batch_id !== null
+    ? `${product} · دفعة ${formatPublicBatchNumber(session.scope_batch_number, noLotLabel)}`
     : product;
 };
 
@@ -98,6 +101,7 @@ export function StocktakeSessionCenter({
   onLoadMore,
   onOpenSession,
 }: StocktakeSessionCenterProps) {
+  const { t } = useTranslation();
   return (
     <section className="glass-card inventory-data-panel rounded-2xl border border-slate-200 overflow-hidden shrink-0">
       <div className="inventory-panel-toolbar px-4 py-3 flex items-center justify-between gap-3 bg-white/70">
@@ -206,7 +210,7 @@ export function StocktakeSessionCenter({
 
                       <div className="text-[11px] text-slate-500 mt-1 truncate">
                         {session.reference_number} ·{" "}
-                        {sessionScope(session)} · بدأها{" "}
+                        {sessionScope(session, t("inventoryLive.noLotSupplied"))} · بدأها{" "}
                         {session.started_by_name}
                       </div>
                     </div>

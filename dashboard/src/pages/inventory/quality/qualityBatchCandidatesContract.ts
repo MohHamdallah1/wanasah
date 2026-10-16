@@ -1,4 +1,5 @@
 import { parseQuantity } from "../quantity";
+import { parsePublicBatchNumber } from "../publicBatchNumber";
 
 export type QualityBatchCandidateSource = {
   location_id: number;
@@ -10,7 +11,7 @@ export type QualityBatchCandidateSource = {
 
 export type QualityBatchCandidate = {
   batch_id: number;
-  batch_number: string;
+  batch_number: string | null;
   production_date: string | null;
   expiry_date: string | null;
   disposition: "RELEASED" | "QUARANTINED" | "BLOCKED" | "RECALLED";
@@ -78,9 +79,6 @@ const parseItem = (raw: unknown): QualityBatchCandidate => {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return invalid();
   const row = raw as Record<string, unknown>;
   if (
-    typeof row.batch_number !== "string" ||
-    !row.batch_number.trim() ||
-    row.batch_number.length > 100 ||
     !["RELEASED", "QUARANTINED", "BLOCKED", "RECALLED"].includes(String(row.disposition)) ||
     (row.disposition_reason !== null && typeof row.disposition_reason !== "string") ||
     !Array.isArray(row.sources_preview) ||
@@ -92,7 +90,7 @@ const parseItem = (raw: unknown): QualityBatchCandidate => {
   if (sources.length > sourceCount || (!row.sources_truncated && sources.length !== sourceCount)) return invalid();
   return {
     batch_id: positiveInt(row.batch_id),
-    batch_number: row.batch_number.trim(),
+    batch_number: parsePublicBatchNumber(row.batch_number, invalid),
     production_date: optionalDate(row.production_date),
     expiry_date: optionalDate(row.expiry_date),
     disposition: row.disposition as QualityBatchCandidate["disposition"],

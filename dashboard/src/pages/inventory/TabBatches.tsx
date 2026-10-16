@@ -15,6 +15,7 @@ import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { resolveI18nLocale } from "@/lib/locale";
 import { formatMoneyExact } from "@/lib/money";
+import { formatPublicBatchNumber } from "./publicBatchNumber";
 import type { InventoryBatchFocusIntent } from "@/features/inventory/navigation";
 import { BatchDispositionManager } from "./batches/BatchDispositionManager";
 import type { BatchActionSnapshot } from "./batches/contracts";
@@ -576,7 +577,7 @@ export function TabBatches({
                         return (
                           <tr key={batch.batch_id}>
                             <td>
-                              <strong>{batch.batch_number}</strong>
+                              <strong>{formatPublicBatchNumber(batch.batch_number, t("inventoryLive.noLotSupplied"))}</strong>
                             </td>
                             <td>
                               <span

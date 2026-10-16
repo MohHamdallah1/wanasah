@@ -1,3 +1,6 @@
+import { useTranslation } from "react-i18next";
+import { formatPublicBatchNumber } from "../publicBatchNumber";
+
 import type {
   FefoMode,
   TransferDraftItem,
@@ -27,6 +30,7 @@ export function FefoOverrideEditor({
   onReasonChange,
   onAddBatchLine,
 }: FefoOverrideEditorProps) {
+  const { t } = useTranslation();
   const selectedBatch =
     item.override_batch_id !== null
       ? options?.batches.find(
@@ -115,8 +119,8 @@ export function FefoOverrideEditor({
                         key={batch.id}
                         value={batch.id}
                       >
-                        {batch.batch_number} — صلاحية{" "}
-                        {batch.expiry_date} — متاح{" "}
+                        {formatPublicBatchNumber(batch.batch_number, t("inventoryLive.noLotSupplied"))} — صلاحية{" "}
+                        {batch.expiry_date ?? "-"} — متاح{" "}
                         {batch.available_quantity}
                         {batch.is_fefo_head
                           ? " — FEFO الحالي"

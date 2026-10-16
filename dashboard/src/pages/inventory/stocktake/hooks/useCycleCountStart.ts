@@ -5,6 +5,8 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
+import { formatPublicBatchNumber } from "../../publicBatchNumber";
 import type {
   CycleBatchOption,
   CycleProductOption,
@@ -43,6 +45,7 @@ export function useCycleCountStart({
   loadCountSheet,
   notifyStocktakeChanged,
 }: UseCycleCountStartArgs) {
+  const { t } = useTranslation();
   const [productSearchInput, setProductSearchInput] = useState("");
   const [productSearch, setProductSearch] = useState("");
   const [products, setProducts] = useState<CycleProductOption[]>([]);
@@ -269,7 +272,7 @@ export function useCycleCountStart({
 
       toast.success(
         selectedBatch
-          ? `تم بدء جرد دوري للصنف ${selectedProduct.name} — الدفعة ${selectedBatch.batch_number}.`
+          ? `تم بدء جرد دوري للصنف ${selectedProduct.name} — الدفعة ${formatPublicBatchNumber(selectedBatch.batch_number, t("inventoryLive.noLotSupplied"))}.`
           : `تم بدء جرد دوري للصنف ${selectedProduct.name} بكل دفعاته.`
       );
       resetForm();
@@ -293,6 +296,7 @@ export function useCycleCountStart({
     sessionKey,
     setSessionId,
     setSessionLocationId,
+    t,
   ]);
 
   return {

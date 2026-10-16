@@ -111,7 +111,7 @@ describe("Inventory batch expiry semantics", () => {
                 expiry_date: "2026-09-24",
                 disposition: "RELEASED",
                 disposition_reason: null,
-                disposition_revision: 1,
+                disposition_revision: 1, allowed_disposition_targets: ["QUARANTINED", "BLOCKED", "RECALLED"],
                 days_to_expiry: -1,
                 on_hand_quantity: "10",
                 reserved_quantity: "0",

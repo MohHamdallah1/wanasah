@@ -1,4 +1,5 @@
 import { parseQuantity, type Quantity } from "@/lib/quantity";
+import { parsePublicBatchNumber } from "@/pages/inventory/publicBatchNumber";
 
 export type WholeProductCostingMethod = "MOVING_AVERAGE" | "FIFO";
 export type WholeProductQualityPreviewLocationType = "WAREHOUSE" | "VEHICLE" | "IN_TRANSIT" | "SCRAP";
@@ -12,7 +13,7 @@ export type WholeProductQualityPreviewLocation = {
 
 export type WholeProductQualityPreviewBatch = {
   batchId: number;
-  batchNumber: string;
+  batchNumber: string | null;
   quantity: Quantity;
 };
 
@@ -27,7 +28,7 @@ export type WholeProductQualitySupplierCandidate = {
 
 export type WholeProductQualityValuationLine = {
   batchId: number;
-  batchNumber: string;
+  batchNumber: string | null;
   quantity: Quantity;
   unitCost: string;
   bookValue: string;
@@ -177,7 +178,7 @@ export function parseWholeProductQualityPreview(raw: unknown): WholeProductQuali
     seenBatches.add(batchId);
     return {
       batchId,
-      batchNumber: text(batch.batch_number, 100),
+      batchNumber: parsePublicBatchNumber(batch.batch_number, invalid),
       quantity: quantity(batch.quantity, "batch.quantity"),
     } satisfies WholeProductQualityPreviewBatch;
   });
@@ -191,7 +192,7 @@ export function parseWholeProductQualityPreview(raw: unknown): WholeProductQuali
     seenValuationBatches.add(batchId);
     return {
       batchId,
-      batchNumber: text(line.batch_number, 100),
+      batchNumber: parsePublicBatchNumber(line.batch_number, invalid),
       quantity: quantity(line.quantity, "valuation.quantity"),
       unitCost: money(line.unit_cost),
       bookValue: money(line.book_value),

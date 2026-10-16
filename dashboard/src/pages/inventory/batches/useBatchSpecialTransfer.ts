@@ -17,6 +17,7 @@ import {
   getOrCreateDurableCommand,
 } from "@/lib/durableOperations";
 import type { Quantity } from "@/lib/quantity";
+import { formatPublicBatchNumber } from "../publicBatchNumber";
 
 import {
   parseBatchSpecialTransferResult,
@@ -81,7 +82,7 @@ export function useBatchSpecialTransfer({
     const notes = t(
       `inventoryBatches.quantityActions.notes.${choice.purpose}`,
       {
-        batch: batch.batch_number,
+        batch: formatPublicBatchNumber(batch.batch_number, t("inventoryLive.noLotSupplied")),
         reason:
           batch.disposition_reason ??
           t("inventoryBatches.quantityActions.defaultReason"),
