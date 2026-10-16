@@ -1,3 +1,4 @@
+import { useTransferTranslation as useTranslation, formatTransferNumber } from "./i18n";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import {
   ArrowDownToLine,
@@ -42,23 +43,24 @@ export function TransferTable({
   onPrevious,
   onNext,
 }: TransferTableProps) {
+  const { t } = useTranslation();
   const access = useInventoryAccess(locationId);
   return (
     <>
       <div className="glass-card inventory-data-panel rounded-2xl overflow-hidden min-h-0 flex-1">
         <div className="overflow-auto h-full">
-          <table className="w-full text-sm text-right">
+          <table className="w-full text-sm text-start">
             <thead className="bg-slate-50 sticky top-0 z-10">
               <tr>
-                <th className="p-3">الحوالة</th>
-                <th className="p-3">المصدر</th>
-                <th className="p-3">الوجهة</th>
-                <th className="p-3">الحالة</th>
-                <th className="p-3">الأصناف</th>
-                <th className="p-3">إجمالي العبوات</th>
-                <th className="p-3">أنشأها</th>
-                <th className="p-3">التاريخ</th>
-                <th className="p-3 text-center">إجراءات</th>
+                <th className="p-3">{t("inventoryTransfers.transfer")}</th>
+                <th className="p-3">{t("inventoryTransfers.source")}</th>
+                <th className="p-3">{t("inventoryTransfers.destination")}</th>
+                <th className="p-3">{t("inventoryTransfers.status")}</th>
+                <th className="p-3">{t("inventoryTransfers.products")}</th>
+                <th className="p-3">{t("inventoryTransfers.totalQuantity")}</th>
+                <th className="p-3">{t("inventoryTransfers.createdBy")}</th>
+                <th className="p-3">{t("inventoryTransfers.date")}</th>
+                <th className="p-3 text-center">{t("inventoryTransfers.actions")}</th>
               </tr>
             </thead>
 
@@ -76,8 +78,9 @@ export function TransferTable({
                       <div className="font-bold text-slate-800">
                         {transfer.reference_number}
                       </div>
+                      <div className="text-xs">{t(`inventoryTransfers.${transfer.transfer_purpose}`, { defaultValue: transfer.transfer_purpose })}</div>
                       <div className="text-[10px] text-slate-400">
-                        ID: {transfer.id}
+                        #{formatTransferNumber(transfer.id)}
                       </div>
                     </td>
                     <td className="p-3">
@@ -112,14 +115,14 @@ export function TransferTable({
                       <span
                         className={`px-2 py-1 rounded-lg text-xs font-bold ${STATUS_META[transfer.status].className}`}
                       >
-                        {STATUS_META[transfer.status].label}
+                        {t(STATUS_META[transfer.status].label)}
                       </span>
                     </td>
                     <td className="p-3 text-slate-600">
-                      {transfer.line_count}
+                      {formatTransferNumber(transfer.line_count)}
                     </td>
                     <td className="p-3 font-bold text-slate-700">
-                      {transfer.total_quantity}
+                      {formatTransferNumber(transfer.total_quantity)}
                     </td>
                     <td className="p-3 text-slate-600">
                       {transfer.dispatched_by_name}
@@ -132,7 +135,7 @@ export function TransferTable({
                         <button
                           onClick={() => void onOpenDetail(transfer)}
                           className="p-2 rounded-lg border border-slate-200 text-slate-600 hover:text-blue-600"
-                          title="التفاصيل"
+                          title={t("inventoryTransfers.details")}
                         >
                           <Eye className="w-4 h-4" />
                         </button>
@@ -145,7 +148,7 @@ export function TransferTable({
                               }
                               className="p-2 rounded-lg border border-emerald-200 text-emerald-600 hover:bg-emerald-50"
                               disabled={!access.can('transfer.receive')}
-                              title="استلام"
+                              title={t("inventoryTransfers.receive")}
                             >
                               <CheckCircle2 className="w-4 h-4" />
                             </button>
@@ -155,7 +158,7 @@ export function TransferTable({
                               }
                               className="p-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
                               disabled={!access.can('transfer.reject')}
-                              title="رفض"
+                              title={t("inventoryTransfers.reject")}
                             >
                               <XCircle className="w-4 h-4" />
                             </button>
@@ -169,7 +172,7 @@ export function TransferTable({
                             }
                             className="p-2 rounded-lg border border-amber-200 text-amber-600 hover:bg-amber-50"
                             disabled={!access.can('transfer.cancel')}
-                              title="إلغاء"
+                              title={t("inventoryTransfers.cancel")}
                           >
                             <Ban className="w-4 h-4" />
                           </button>
@@ -185,9 +188,7 @@ export function TransferTable({
                   <td
                     colSpan={9}
                     className="p-12 text-center text-slate-400"
-                  >
-                    لا توجد حوالات ضمن النطاق المحدد.
-                  </td>
+                  >{t("inventoryTransfers.empty")}</td>
                 </tr>
               )}
             </tbody>
@@ -197,11 +198,12 @@ export function TransferTable({
 
       <div className="flex items-center justify-between">
         <span className="text-xs text-slate-500">
-          الصفحة {cursorHistoryLength + 1}
+          {t("inventoryTransfers.page", { page: formatTransferNumber(cursorHistoryLength + 1) })}
         </span>
 
         <div className="flex gap-2">
           <button
+            aria-label={t("inventoryTransfers.previous")}
             onClick={onPrevious}
             disabled={cursorHistoryLength === 0 || loading}
             className="px-3 py-2 rounded-xl border border-slate-200 bg-white disabled:opacity-40"
@@ -209,6 +211,7 @@ export function TransferTable({
             <ChevronRight className="w-4 h-4" />
           </button>
           <button
+            aria-label={t("inventoryTransfers.next")}
             onClick={onNext}
             disabled={!nextCursor || loading}
             className="px-3 py-2 rounded-xl border border-slate-200 bg-white disabled:opacity-40"

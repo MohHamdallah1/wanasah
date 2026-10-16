@@ -1,5 +1,6 @@
 import { Modal } from "@/components/ui/modal";
-import { useTranslation } from "react-i18next";
+import { useTransferTranslation as useTranslation, formatTransferNumber } from "./i18n";
+import { formatTransferDateOnly } from "./utils";
 import { formatPublicBatchNumber } from "../publicBatchNumber";
 import { STATUS_META } from "./constants";
 import type { WarehouseTransferDetail } from "./types";
@@ -21,40 +22,38 @@ export function TransferDetailModal({
     <Modal
       isOpen={detail !== null || loading}
       onClose={onClose}
-      title="تفاصيل الحوالة"
+      title={t("inventoryTransfers.detailTitle")}
       maxWidth="max-w-5xl"
     >
       {loading && (
-        <div className="p-12 text-center text-slate-500 font-bold">
-          جاري جلب التفاصيل...
-        </div>
+        <div className="p-12 text-center text-slate-500 font-bold">{t("inventoryTransfers.detailLoading")}</div>
       )}
 
       {!loading && detail && (
         <div className="space-y-5">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="rounded-xl bg-slate-50 p-3">
-              <div className="text-[10px] text-slate-400">المرجع</div>
+              <div className="text-[10px] text-slate-400">{t("inventoryTransfers.reference")}</div>
               <div className="font-bold text-slate-800">
                 {detail.transfer.reference_number}
               </div>
             </div>
             <div className="rounded-xl bg-slate-50 p-3">
-              <div className="text-[10px] text-slate-400">المصدر</div>
+              <div className="text-[10px] text-slate-400">{t("inventoryTransfers.source")}</div>
               <div className="font-bold text-slate-800">
                 {detail.transfer.source_location_name}
               </div>
             </div>
             <div className="rounded-xl bg-slate-50 p-3">
-              <div className="text-[10px] text-slate-400">الوجهة</div>
+              <div className="text-[10px] text-slate-400">{t("inventoryTransfers.destination")}</div>
               <div className="font-bold text-slate-800">
                 {detail.transfer.destination_location_name}
               </div>
             </div>
             <div className="rounded-xl bg-slate-50 p-3">
-              <div className="text-[10px] text-slate-400">الحالة</div>
+              <div className="text-[10px] text-slate-400">{t("inventoryTransfers.status")}</div>
               <div className="font-bold text-slate-800">
-                {STATUS_META[detail.transfer.status].label}
+                {t(STATUS_META[detail.transfer.status].label)}
               </div>
             </div>
           </div>
@@ -63,13 +62,13 @@ export function TransferDetailModal({
             <div className="rounded-xl border border-slate-200 p-4 text-sm">
               {detail.transfer.notes && (
                 <p>
-                  <span className="font-bold">ملاحظات:</span>{" "}
+                  <span className="font-bold">{t("inventoryTransfers.notesLabel")}</span>{" "}
                   {detail.transfer.notes}
                 </p>
               )}
               {detail.transfer.decision_reason && (
                 <p className="mt-2">
-                  <span className="font-bold">سبب القرار:</span>{" "}
+                  <span className="font-bold">{t("inventoryTransfers.reasonLabel")}</span>{" "}
                   {detail.transfer.decision_reason}
                 </p>
               )}
@@ -77,13 +76,13 @@ export function TransferDetailModal({
           )}
 
           <div className="border border-slate-200 rounded-xl overflow-auto max-h-[45vh]">
-            <table className="w-full text-sm text-right">
+            <table className="w-full text-sm text-start">
               <thead className="bg-slate-50 sticky top-0">
                 <tr>
-                  <th className="p-3">المنتج</th>
-                  <th className="p-3">الدفعة</th>
-                  <th className="p-3">الصلاحية</th>
-                  <th className="p-3">الكمية</th>
+                  <th className="p-3">{t("inventoryTransfers.product")}</th>
+                  <th className="p-3">{t("inventoryTransfers.batch")}</th>
+                  <th className="p-3">{t("inventoryTransfers.expiry")}</th>
+                  <th className="p-3">{t("inventoryTransfers.quantity")}</th>
                   <th className="p-3">FEFO</th>
                 </tr>
               </thead>
@@ -97,13 +96,13 @@ export function TransferDetailModal({
                       {formatPublicBatchNumber(line.batch_number, t("inventoryLive.noLotSupplied"))}
                     </td>
                     <td className="p-3 text-xs text-slate-600">
-                      {line.expiry_date ?? "-"}
+                      {formatTransferDateOnly(line.expiry_date)}
                     </td>
-                    <td className="p-3 font-bold">{line.quantity}</td>
+                    <td className="p-3 font-bold">{formatTransferNumber(line.quantity)}</td>
                     <td className="p-3 text-xs">
                       {line.fefo_override_reason_id
-                        ? `تجاوز موثّق: ${line.fefo_override_note || "بدون وصف"}`
-                        : "FEFO تلقائي"}
+                        ? t("inventoryTransfers.overrideEvidence", { note: line.fefo_override_note || t("inventoryTransfers.noDescription") })
+                        : t("inventoryTransfers.fefoAuto")}
                     </td>
                   </tr>
                 ))}
@@ -113,25 +112,25 @@ export function TransferDetailModal({
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-slate-500">
             <div>
-              المرسل:{" "}
+              {t("inventoryTransfers.sender")}{" "}
               <span className="font-bold text-slate-700">
                 {detail.transfer.dispatched_by_name}
               </span>
             </div>
             <div>
-              المستلم:{" "}
+              {t("inventoryTransfers.receiver")}{" "}
               <span className="font-bold text-slate-700">
                 {detail.transfer.received_by_name || "—"}
               </span>
             </div>
             <div>
-              الإنشاء:{" "}
+              {t("inventoryTransfers.created")}{" "}
               <span className="font-bold text-slate-700">
                 {formatDate(detail.transfer.created_at)}
               </span>
             </div>
             <div>
-              الترحيل:{" "}
+              {t("inventoryTransfers.posted")}{" "}
               <span className="font-bold text-slate-700">
                 {formatDate(detail.transfer.posted_at)}
               </span>

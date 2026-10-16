@@ -20,6 +20,7 @@ export interface WarehouseTransferListItem {
   destination_location_id: number;
   destination_location_name: string;
   status: TransferStatus;
+  transfer_purpose: string;
   dispatched_by: number;
   dispatched_by_name: string;
   received_by: number | null;

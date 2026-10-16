@@ -1,3 +1,4 @@
+import { useTransferTranslation as useTranslation } from "./i18n";
 import { Modal } from "@/components/ui/modal";
 import type {
   TransferAction,
@@ -23,19 +24,20 @@ export function TransferDecisionModal({
   onDecisionReasonChange,
   onSubmit,
 }: TransferDecisionModalProps) {
+  const { t } = useTranslation();
   return (
     <Modal
       isOpen={action !== null && transfer !== null}
       onClose={onClose}
       title={
         action === "receive"
-          ? "تأكيد استلام الحوالة"
+          ? t("inventoryTransfers.receiveTitle")
           : action === "reject"
-            ? "رفض الحوالة"
-            : "إلغاء الحوالة"
+            ? t("inventoryTransfers.rejectTitle")
+            : t("inventoryTransfers.cancelTitle")
       }
     >
-      <div className="space-y-4">
+      <form className="space-y-4" onSubmit={event => { event.preventDefault(); void onSubmit(); }}>
         <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-sm">
           <div className="font-bold text-slate-800">
             {transfer?.reference_number}
@@ -49,9 +51,11 @@ export function TransferDecisionModal({
         {action !== "receive" && (
           <div>
             <label className="text-xs font-bold text-slate-600">
-              سبب {action === "reject" ? "الرفض" : "الإلغاء"}
+              {t("inventoryTransfers.decisionReason")}
             </label>
             <textarea
+              aria-label={t("inventoryTransfers.decisionReason")}
+              disabled={submitting}
               value={decisionReason}
               onChange={(event) =>
                 onDecisionReasonChange(event.target.value)
@@ -64,13 +68,12 @@ export function TransferDecisionModal({
 
         {action === "receive" && (
           <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-800 font-bold">
-            سيتم نقل كامل أسطر الحوالة من IN_TRANSIT إلى وجهتها الأصلية.
-            السيرفر يمنع المُرسل من تأكيد استلام حوالته بنفسه.
+            {t("inventoryTransfers.receiveHint")}
           </div>
         )}
 
         <button
-          onClick={() => void onSubmit()}
+          type="submit"
           disabled={submitting}
           className={`w-full py-3 rounded-xl text-white font-bold disabled:opacity-50 ${
             action === "receive"
@@ -81,14 +84,14 @@ export function TransferDecisionModal({
           }`}
         >
           {submitting
-            ? "جاري التنفيذ..."
+            ? t("inventoryTransfers.executing")
             : action === "receive"
-              ? "تأكيد الاستلام"
+              ? t("inventoryTransfers.confirmReceive")
               : action === "reject"
-                ? "تأكيد الرفض"
-                : "تأكيد الإلغاء"}
+                ? t("inventoryTransfers.confirmReject")
+                : t("inventoryTransfers.confirmCancel")}
         </button>
-      </div>
+      </form>
     </Modal>
   );
 }
