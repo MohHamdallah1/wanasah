@@ -859,7 +859,7 @@ Run from a realistic company setup, not isolated component demos.
 - [ ] Update `RUN.txt` notes only to remove stale contradictions and reflect the completed state; do not turn it into the primary plan.
 - [x] Reconcile or retire narrower Inventory plans only after their open items are demonstrably absorbed/closed here.
 - [x] Do not delete useful historical evidence until the lead confirms it is superseded.
-- [ ] Merge final stable PRs.
+- [x] Merge final stable PRs.
 - [ ] Local `main` fast-forwards to `origin/main` and is clean.
 - [ ] Remove temporary worktrees/branches only after verification; no destructive cleanup shortcuts.
 - [ ] Declare **Inventory / Warehouses V1 COMPLETE** only after Owner Acceptance.
