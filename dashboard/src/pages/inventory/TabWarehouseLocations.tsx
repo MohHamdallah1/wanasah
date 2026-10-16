@@ -198,10 +198,13 @@ export function TabWarehouseLocations({
   const authenticatedFetch = useAuthFetch();
   const { t, i18n } = useTranslation();
   const locale = resolveI18nLocale(i18n);
+  const loadFailedMessage = t("inventoryWarehouses.errors.loadFailed");
 
   const [items, setItems] = useState<WarehouseLocationItem[]>([]);
   const access = useInventoryAccess();
   const minimumStockAccess = useInventoryAccess(selectedLocationId);
+  const canReadLocations = access.canAny("location.read");
+  const canReadBranches = access.can("branch.read");
   const canAt = useLocationCapabilities(items.map(item => item.id));
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -240,6 +243,14 @@ export function TabWarehouseLocations({
   }, [searchInput]);
 
   const fetchPage = useCallback(async () => {
+    if (!canReadLocations) {
+      requestSeq.current += 1;
+      setItems([]);
+      setNextCursor(null);
+      setTotal(null);
+      setLoading(false);
+      return;
+    }
     const seq = ++requestSeq.current;
     setLoading(true);
     try {
@@ -258,11 +269,11 @@ export function TabWarehouseLocations({
       if (seq !== requestSeq.current) return;
       setItems([]);
       setNextCursor(null);
-      toast.error(apiErrorMessage(error, t("inventoryWarehouses.errors.loadFailed")));
+      toast.error(apiErrorMessage(error, loadFailedMessage));
     } finally {
       if (seq === requestSeq.current) setLoading(false);
     }
-  }, [authenticatedFetch, cursor, search, t]);
+  }, [authenticatedFetch, canReadLocations, cursor, loadFailedMessage, search]);
 
   useEffect(() => {
     void fetchPage();
@@ -460,7 +471,7 @@ export function TabWarehouseLocations({
               onApplied={onMinimumApplied}
             />
           )}
-          {access.isCompanyOwner && (
+          {canReadBranches && (
             <button
               type="button"
               onClick={() => setBranchManagerOpen(true)}
@@ -472,7 +483,7 @@ export function TabWarehouseLocations({
           )}
           <button
             onClick={() => setRefreshKey((value) => value + 1)}
-            disabled={loading}
+            disabled={loading || !canReadLocations}
             className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 font-bold text-xs disabled:opacity-50"
             title="تحديث"
           >
@@ -481,7 +492,7 @@ export function TabWarehouseLocations({
           <button
             disabled={!access.can("location.create")}
             onClick={openCreate}
-            className="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-sm flex items-center gap-2"
+            className="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-sm flex items-center gap-2 disabled:opacity-50"
           >
             <Plus className="w-4 h-4" />
             مستودع جديد
@@ -497,9 +508,10 @@ export function TabWarehouseLocations({
           <input
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
+            disabled={!canReadLocations}
             placeholder="بحث بالاسم أو الكود (حرفان على الأقل)"
             maxLength={100}
-            className="w-full pr-10 pl-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-500/20"
+            className="w-full pr-10 pl-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50"
           />
         </div>
       </div>
@@ -540,7 +552,7 @@ export function TabWarehouseLocations({
                       <button
                         disabled={!canAt(location.id, "location.update")}
                         onClick={() => openEdit(location)}
-                        className="p-2 rounded-lg border border-slate-200 text-slate-600 hover:text-blue-600"
+                        className="p-2 rounded-lg border border-slate-200 text-slate-600 hover:text-blue-600 disabled:opacity-50"
                         title="تعديل"
                       >
                         <Pencil className="w-4 h-4" />
@@ -550,7 +562,7 @@ export function TabWarehouseLocations({
                         <button
                           disabled={!canAt(location.id, "location.state")}
                           onClick={() => openStateAction(location, "deactivate")}
-                          className="p-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
+                          className="p-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
                           title="تعطيل"
                         >
                           <PowerOff className="w-4 h-4" />
@@ -559,7 +571,7 @@ export function TabWarehouseLocations({
                         <button
                           disabled={!canAt(location.id, "location.state")}
                           onClick={() => openStateAction(location, "activate")}
-                          className="p-2 rounded-lg border border-emerald-200 text-emerald-600 hover:bg-emerald-50"
+                          className="p-2 rounded-lg border border-emerald-200 text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
                           title="تفعيل"
                         >
                           <Power className="w-4 h-4" />
@@ -591,14 +603,14 @@ export function TabWarehouseLocations({
         <div className="flex gap-2">
           <button
             onClick={handlePrevious}
-            disabled={cursorHistory.length === 0 || loading}
+            disabled={cursorHistory.length === 0 || loading || !canReadLocations}
             className="px-3 py-2 rounded-xl border border-slate-200 bg-white disabled:opacity-40"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
           <button
             onClick={handleNext}
-            disabled={!nextCursor || loading}
+            disabled={!nextCursor || loading || !canReadLocations}
             className="px-3 py-2 rounded-xl border border-slate-200 bg-white disabled:opacity-40"
           >
             <ChevronLeft className="w-4 h-4" />
@@ -641,6 +653,7 @@ export function TabWarehouseLocations({
             currentLabel={editingLocation?.branch_name ?? null}
             disabled={formSubmitting}
             refreshKey={branchRefreshKey}
+            canReadBranches={canReadBranches}
             onChange={(branchId) => updateForm({ branch_id: branchId })}
           />
 
@@ -654,7 +667,7 @@ export function TabWarehouseLocations({
         </div>
       </Modal>
 
-      {access.isCompanyOwner && (
+      {canReadBranches && (
         <BranchManagementModal
           isOpen={branchManagerOpen}
           onClose={() => setBranchManagerOpen(false)}

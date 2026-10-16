@@ -8,6 +8,7 @@ interface BranchSelectorProps {
   currentLabel: string | null;
   disabled: boolean;
   refreshKey: number;
+  canReadBranches: boolean;
   onChange: (branchId: number | null) => void;
 }
 
@@ -16,6 +17,7 @@ export function BranchSelector({
   currentLabel,
   disabled,
   refreshKey,
+  canReadBranches,
   onChange,
 }: BranchSelectorProps) {
   const authenticatedFetch = useAuthFetch();
@@ -37,6 +39,13 @@ export function BranchSelector({
 
   useEffect(() => {
     const seq = ++requestSeq.current;
+    if (!canReadBranches) {
+      setItems([]);
+      setHasMore(false);
+      setLoading(false);
+      setError("");
+      return;
+    }
     const load = async () => {
       setLoading(true);
       setError("");
@@ -59,7 +68,7 @@ export function BranchSelector({
       }
     };
     void load();
-  }, [authenticatedFetch, refreshKey, search]);
+  }, [authenticatedFetch, canReadBranches, refreshKey, search]);
 
   const options = useMemo(() => {
     if (value === null || items.some((item) => item.id === value) || !currentLabel) return items;
@@ -74,6 +83,17 @@ export function BranchSelector({
       },
     ];
   }, [currentLabel, items, value]);
+
+  if (!canReadBranches) {
+    return (
+      <div className="space-y-2">
+        <span className="text-xs font-bold text-slate-600">الفرع</span>
+        <div className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
+          {currentLabel ?? (value === null ? "غير مرتبط بفرع" : `الفرع الحالي #${value}`)}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-2">
@@ -109,4 +129,3 @@ export function BranchSelector({
     </div>
   );
 }
-

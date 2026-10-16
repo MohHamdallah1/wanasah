@@ -1,0 +1,126 @@
+name: Inventory CP4 branch Dashboard acceptance
+
+on:
+  push:
+    branches:
+      - sol/cp4-branch-dashboard-parity
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "dashboard/src/pages/inventory/MainInventory.tsx"
+      - "dashboard/src/pages/inventory/TabWarehouseLocations.tsx"
+      - "dashboard/src/pages/inventory/warehouse-locations/BranchManagementModal.tsx"
+      - "dashboard/src/pages/inventory/warehouse-locations/BranchSelector.tsx"
+      - "dashboard/src/test/inventory-cp4-branch-dashboard.test.tsx"
+      - ".github/workflows/inventory-cp4-branch-dashboard-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cp4-branch-dashboard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dashboard-focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Locked Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+
+      - name: CP4 focused Branch Dashboard acceptance
+        working-directory: dashboard
+        run: npm test -- src/test/inventory-cp4-branch-dashboard.test.tsx
+
+      - name: Relevant branch authority and durable-operation regressions
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/test/inventory-access-canonical-contract.test.ts
+          src/test/durable-operations-p4.test.ts
+
+      - name: CP6 minimum-stock Dashboard regression
+        working-directory: dashboard
+        run: npm test -- src/test/inventory-cp6-minimum-stock-dashboard.test.tsx
+
+      - name: CP1 Dashboard regression
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/pages/inventory/inbound/Tab2Inbound.test.tsx
+          src/pages/inventory/inbound/contracts.test.ts
+          src/test/inventory-public-batch-number-parity.test.ts
+          src/test/inventory-product-batch-date-parity.test.ts
+          src/test/inventory-batch-disposition.test.ts
+          src/test/inventory-batch-stock-sources.test.ts
+          src/test/inventory-batches-expiry-semantics.test.tsx
+          src/test/inventory-batches-pagination.test.ts
+
+      - name: TypeScript noEmit
+        working-directory: dashboard
+        run: npx tsc --noEmit
+
+      - name: Production Dashboard build
+        working-directory: dashboard
+        run: npm run build
+
+      - name: CP4 diff whitespace gate
+        run: git diff --check 1629772a9215a4874d4d3c825d05f3cc564c38e4 HEAD
+
+      - name: Verify exact bounded CP4 Dashboard scope
+        run: |
+          python - <<'PY'
+          import subprocess
+
+          base = "1629772a9215a4874d4d3c825d05f3cc564c38e4"
+          allowed = {
+              ".github/workflows/inventory-cp4-branch-dashboard-acceptance.yml",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/TabWarehouseLocations.tsx",
+              "dashboard/src/pages/inventory/warehouse-locations/BranchManagementModal.tsx",
+              "dashboard/src/pages/inventory/warehouse-locations/BranchSelector.tsx",
+              "dashboard/src/test/inventory-cp4-branch-dashboard.test.tsx",
+          }
+          changed = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", base, "HEAD"],
+                  text=True,
+              ).splitlines()
+          )
+          assert changed == allowed, f"Unexpected CP4 Dashboard scope: {sorted(changed)}"
+          print("CP4_DASHBOARD_SCOPE=PASS")
+          print("BACKEND_UNTOUCHED=PASS")
+          print("CP6_MINIMUM_STOCK_RUNTIME_UNTOUCHED=PASS")
+          PY
+
+      - name: Prove unrelated frontend failures preexist on exact base
+        working-directory: dashboard
+        run: |
+          git checkout 1629772a9215a4874d4d3c825d05f3cc564c38e4 -- .
+          set +e
+          npm test -- \
+            src/test/inventory-access.test.ts \
+            src/test/inventory-live-stock-readonly-boundary.test.ts \
+            > /tmp/cp4-unrelated-base.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/cp4-unrelated-base.log
+          test "$status" -ne 0
+          grep -F "parses a location-scoped cursor page without losing movement snapshots" /tmp/cp4-unrelated-base.log
+          grep -F "never falls back from a blocker action to Live Stock" /tmp/cp4-unrelated-base.log
+          echo "UNRELATED_FRONTEND_BASELINE_FAILURES=PROVEN"
