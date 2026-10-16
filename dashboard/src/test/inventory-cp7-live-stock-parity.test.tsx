@@ -73,7 +73,7 @@ describe("CP7 Live Stock refactor parity", () => {
     const open = vi.fn();
     render(<LiveStockTable products={[product]} loading={false} onOpen={open} />);
 
-    const detail = screen.getByRole("button", { name: /Open batch details: Parity Product/i });
+    const detail = screen.getByRole("button", { name: /View batch details: Parity Product/i });
     detail.focus();
     expect(detail).toHaveFocus();
     fireEvent.click(detail);
