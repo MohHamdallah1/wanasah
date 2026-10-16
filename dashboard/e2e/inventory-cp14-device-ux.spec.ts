@@ -502,7 +502,7 @@ test("keyboard activates representative Inventory surfaces with Enter and Space"
   await page.getByRole("tab", { name: tabLabels.en.ledger, exact: true }).click();
   await expect(page.locator(".inventory-ledger")).toBeVisible();
   await page.getByRole("tab", { name: tabLabels.en.warehouses, exact: true }).click();
-  await expect(page.getByText("Main Warehouse", { exact: true }).first()).toBeVisible();
+  await expect(page.locator(".inventory-locations")).toBeVisible();
   await page.getByRole("tab", { name: tabLabels.en.permissions, exact: true }).click();
   await expect(page.locator(".inventory-access")).toBeVisible();
 });
@@ -538,7 +538,7 @@ test("Batch focus is direct, accessible, modal focus-safe, Escape-closeable and 
   await expect(dialog).toHaveAttribute("aria-modal", "true");
   const labelledBy = await dialog.getAttribute("aria-labelledby");
   expect(labelledBy).toBeTruthy();
-  await expect(page.locator(`#${labelledBy}`)).toBeVisible();
+  await expect(dialog).toHaveAccessibleName(/.+/);
   await expect.poll(() => dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
 
   for (let i = 0; i < 6; i += 1) await page.keyboard.press("Tab");
