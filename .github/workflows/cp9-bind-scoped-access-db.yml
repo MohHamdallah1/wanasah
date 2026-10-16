@@ -1,0 +1,51 @@
+name: CP9 bind scoped access db
+
+on:
+  push:
+    branches:
+      - sol/cp9-stocktake-full-closure-wave2
+
+permissions:
+  contents: write
+
+jobs:
+  adjust:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: sol/cp9-stocktake-full-closure-wave2
+      - name: Bind real AsyncSession into canonical-style access fixture
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path('wa_backend/tests/test_cp9_stocktake_postgres.py')
+          s = p.read_text(encoding='utf-8')
+
+          old = '    def __init__(self, company_id: int, grants: dict[str, set[int]]):\n        self.company_id = company_id'
+          new = '    def __init__(self, db: AsyncSession, company_id: int, grants: dict[str, set[int]]):\n        self.db = db\n        self.company_id = company_id'
+          if s.count(old) != 1:
+              raise SystemExit(f'expected one ScopedAccess constructor, got {s.count(old)}')
+          s = s.replace(old, new)
+
+          s, count_a = re.subn(r'ScopedAccess\(self\.company_a, \{', 'ScopedAccess(self.db, self.company_a, {', s)
+          s, count_b = re.subn(r'ScopedAccess\(self\.company_b, \{', 'ScopedAccess(self.db, self.company_b, {', s)
+          if count_a < 1 or count_b < 1:
+              raise SystemExit(f'expected company A/B ScopedAccess instances; got A={count_a}, B={count_b}')
+          if re.search(r'ScopedAccess\(self\.company_[ab], \{', s):
+              raise SystemExit('unbound ScopedAccess instance remains')
+
+          p.write_text(s, encoding='utf-8')
+          print(f'BOUND_SCOPED_ACCESS=A:{count_a},B:{count_b}')
+          PY
+          python -m py_compile wa_backend/tests/test_cp9_stocktake_postgres.py
+          rm .github/workflows/cp9-bind-scoped-access-db.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add wa_backend/tests/test_cp9_stocktake_postgres.py .github/workflows/cp9-bind-scoped-access-db.yml
+          git commit -m 'CP9: bind AsyncSession into PostgreSQL access fixture'
+          git push origin HEAD:sol/cp9-stocktake-full-closure-wave2
