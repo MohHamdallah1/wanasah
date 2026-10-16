@@ -1,150 +1,124 @@
-import {
-  useEffect,
-  useRef,
-  type KeyboardEvent,
-  type ReactNode,
-} from "react";
-import type { LucideIcon } from "lucide-react";
+import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 
-import { WorkspaceTopBar } from "@/components/dashboard/WorkspaceTopBar";
-import {
-  createInventoryTopDockController,
-  type InventoryTopDockOptions,
-} from "./inventoryTopDockController";
+import { WorkspaceTopBar } from "@/components/workspace/WorkspaceTopBar";
+import { cn } from "@/lib/utils";
+import { createInventoryTopDockController } from "./inventoryTopDockController";
+import "./inventoryShellPolish.css";
 
-type InventoryDockItem = {
+type DockItem = {
   id: string;
   label: string;
-  icon: LucideIcon;
+  icon: ReactNode;
 };
 
-interface InventoryTopDockProps {
-  items: readonly InventoryDockItem[];
+type InventoryTopDockProps = {
+  items: readonly DockItem[];
   activeId: string;
   ariaLabel: string;
   onChange: (id: string) => void;
   className?: string;
-}
-
-const OPTIONS: InventoryTopDockOptions = {
-  proximity: 95,
-  spring: 0.16,
-  damping: 0.55,
-  widthGrowth: 0,
-  heightGrowth: 4,
-  drop: 0.7,
-  lockTrack: true,
 };
 
-function useInventoryDockController() {
-  const rootRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    const root = rootRef.current;
-    if (!root) return undefined;
-
-    return createInventoryTopDockController(
-      root,
-      () => OPTIONS,
-    );
-  }, []);
-
-  return rootRef;
-}
-
-function DockIcon({
-  icon: Icon,
-}: {
-  icon: LucideIcon;
-}): ReactNode {
-  return (
-    <span
-      className="inventory-top-dock__icon"
-      aria-hidden="true"
-    >
-      <Icon />
-    </span>
-  );
-}
+const normalizeIndex = (index: number, length: number) =>
+  ((index % length) + length) % length;
 
 export function InventoryTopDock({
   items,
   activeId,
   ariaLabel,
   onChange,
-  className = "",
+  className,
 }: InventoryTopDockProps) {
-  const rootRef = useInventoryDockController();
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || items.length === 0) return;
+
+    return createInventoryTopDockController({
+      root,
+      activeId,
+      itemCount: items.length,
+      onSelect: (index) => {
+        const item = items[index];
+        if (item) onChangeRef.current(item.id);
+      },
+    });
+  }, [activeId, items]);
 
   const moveFocus = (
     event: KeyboardEvent<HTMLButtonElement>,
     currentIndex: number,
   ) => {
-    if (!items.length) return;
+    if (items.length < 2) return;
 
-    const root = rootRef.current;
-    if (!root) return;
-
-    const inheritedDir = root.closest<HTMLElement>("[dir]")?.getAttribute("dir");
-    const isRtl = inheritedDir === "rtl" || (
-      inheritedDir !== "ltr" && window.getComputedStyle(root).direction === "rtl"
-    );
+    const direction =
+      event.currentTarget.closest<HTMLElement>("[dir]")?.dir ||
+      window.getComputedStyle(event.currentTarget).direction;
+    const rtl = direction === "rtl";
     let nextIndex: number | null = null;
 
     if (event.key === "Home") nextIndex = 0;
-    else if (event.key === "End") nextIndex = items.length - 1;
-    else if (event.key === "ArrowRight") {
-      nextIndex = currentIndex + (isRtl ? -1 : 1);
-    } else if (event.key === "ArrowLeft") {
-      nextIndex = currentIndex + (isRtl ? 1 : -1);
-    } else {
-      return;
+    if (event.key === "End") nextIndex = items.length - 1;
+    if (event.key === "ArrowRight") {
+      nextIndex = currentIndex + (rtl ? -1 : 1);
     }
+    if (event.key === "ArrowLeft") {
+      nextIndex = currentIndex + (rtl ? 1 : -1);
+    }
+    if (nextIndex === null) return;
 
     event.preventDefault();
-    const normalized = (nextIndex + items.length) % items.length;
+    const normalized = normalizeIndex(nextIndex, items.length);
+    const tab = rootRef.current?.querySelectorAll<HTMLButtonElement>(
+      "[data-inventory-dock-item]",
+    )[normalized];
+    tab?.focus();
+    tab?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
     const nextItem = items[normalized];
-    const tabs = root.querySelectorAll<HTMLButtonElement>("[role='tab']");
-    tabs[normalized]?.focus();
-    onChange(nextItem.id);
+    if (nextItem) onChange(nextItem.id);
   };
 
   return (
     <WorkspaceTopBar
       variant="dock"
-      className={`inventory-top-dock-component${
-        className ? ` ${className}` : ""
-      }`}
+      ref={rootRef}
+      className={cn("inventory-top-dock-component", className)}
       data-dock-frame
     >
-      <div
-        className="inventory-top-dock__aurora"
-        aria-hidden="true"
-      />
+      <div className="inventory-top-dock__aurora" aria-hidden="true" />
       <nav
-        ref={rootRef}
         className="inventory-top-dock__dock"
-        aria-label={ariaLabel}
         role="tablist"
-        data-dock-state="idle"
-        data-dock-max="0.00"
+        aria-label={ariaLabel}
+        aria-orientation="horizontal"
       >
-        {items.map(({ id, label, icon }, index) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={activeId === id}
-            tabIndex={activeId === id ? 0 : -1}
-            data-inventory-dock-item
-            className="inventory-top-dock__item focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-            onClick={() => onChange(id)}
-            onKeyDown={(event) => moveFocus(event, index)}
-          >
-            <DockIcon icon={icon} />
-            <span>{label}</span>
-          </button>
-        ))}
+        {items.map(({ id, label, icon }, index) => {
+          const active = id === activeId;
+          return (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              aria-current={active ? "page" : undefined}
+              tabIndex={active ? 0 : -1}
+              data-inventory-dock-item
+              data-active={active ? "true" : "false"}
+              className="inventory-top-dock__item focus-visible:outline-none"
+              title={label}
+              onClick={() => onChange(id)}
+              onKeyDown={(event) => moveFocus(event, index)}
+            >
+              <span className="inventory-top-dock__icon" aria-hidden="true">
+                {icon}
+              </span>
+              <span className="inventory-top-dock__label">{label}</span>
+            </button>
+          );
+        })}
       </nav>
     </WorkspaceTopBar>
   );
