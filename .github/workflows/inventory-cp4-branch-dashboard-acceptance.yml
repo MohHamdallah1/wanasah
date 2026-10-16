@@ -11,6 +11,7 @@ on:
       - "wa_backend/api/warehouse/locations.py"
       - "wa_backend/tests/test_cp4_warehouse_branch_lifecycle_closure.py"
       - "wa_backend/tests/test_cp4_warehouse_branch_lifecycle_postgres.py"
+      - "wa_backend/tests/test_cp4_warehouse_deactivation_blockers_postgres.py"
       - "dashboard/src/pages/inventory/TabWarehouseLocations.tsx"
       - "dashboard/src/pages/inventory/warehouse-locations/BranchManagementModal.tsx"
       - "dashboard/src/pages/inventory/warehouse-locations/BranchSelector.tsx"
@@ -114,7 +115,10 @@ jobs:
         run: alembic upgrade head
       - name: CP4 PostgreSQL 16 acceptance
         working-directory: wa_backend
-        run: python -m pytest -q tests/test_cp4_warehouse_branch_lifecycle_postgres.py
+        run: >-
+          python -m pytest -q
+          tests/test_cp4_warehouse_branch_lifecycle_postgres.py
+          tests/test_cp4_warehouse_deactivation_blockers_postgres.py
 
   dashboard-focused:
     runs-on: ubuntu-24.04
@@ -192,6 +196,7 @@ jobs:
               "wa_backend/api/warehouse/locations.py",
               "wa_backend/tests/test_cp4_warehouse_branch_lifecycle_closure.py",
               "wa_backend/tests/test_cp4_warehouse_branch_lifecycle_postgres.py",
+              "wa_backend/tests/test_cp4_warehouse_deactivation_blockers_postgres.py",
               "dashboard/src/pages/inventory/TabWarehouseLocations.tsx",
               "dashboard/src/pages/inventory/warehouse-locations/BranchManagementModal.tsx",
               "dashboard/src/pages/inventory/warehouse-locations/BranchSelector.tsx",
