@@ -51,6 +51,30 @@
     },
     {
       "insert_after": {
+        "method": "GET",
+        "path": "/warehouse/batches/{batch_id}/stock-sources"
+      },
+      "method": "GET",
+      "path": "/warehouse/inventory/batches/cursor",
+      "function": "get_warehouse_inventory_batch_index_cursor",
+      "status_code": "200",
+      "response_model": "WarehouseInventoryBatchIndexCursorPage",
+      "expected_module": "batch_index"
+    },
+    {
+      "insert_after": {
+        "method": "GET",
+        "path": "/warehouse/inventory/batches/cursor"
+      },
+      "method": "GET",
+      "path": "/warehouse/inventory/batches/summary",
+      "function": "get_warehouse_inventory_batch_index_summary",
+      "status_code": "200",
+      "response_model": "WarehouseInventoryBatchIndexSummaryResponse",
+      "expected_module": "batch_index"
+    },
+    {
+      "insert_after": {
         "method": "POST",
         "path": "/warehouse/unified/transfer/special/dispatch"
       },
