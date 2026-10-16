@@ -1,4 +1,5 @@
 name: Inventory CP14-A3 Inbound operational acceptance
+# Final post-Wave-sync gate marker; keeps the dedicated acceptance rerunnable after normal merge.
 
 on:
   push:
