@@ -5,7 +5,7 @@ import hashlib
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -415,6 +415,9 @@ def _iso_utc(value):
     else:
         value = value.astimezone(timezone.utc)
     return value.isoformat()
+
+def _iso_date_or_none(value: date | None) -> str | None:
+    return value.isoformat() if value is not None else None
 
 
 # ====================================================
@@ -1873,7 +1876,7 @@ async def get_stocktake_count_sheet(
         "quantity_scale": quantity_scale,
         "quantity_step": canonical_quantity(quantity_step),
         "batch_number": public_batch_number(batch_number),
-        "expiry_date": expiry_date.isoformat(),
+        "expiry_date": _iso_date_or_none(expiry_date),
     } for (
         line, product_name, base_uom_id, quantity_scale, quantity_step,
         base_uom_code, base_uom_name, batch_number, expiry_date,
@@ -2361,7 +2364,7 @@ async def get_stocktake_review(
             "quantity_scale": quantity_scale,
             "quantity_step": canonical_quantity(quantity_step),
             "batch_number": public_batch_number(batch_number),
-            "expiry_date": expiry_date.isoformat(),
+            "expiry_date": _iso_date_or_none(expiry_date),
             "expected_quantity": canonical_quantity(attempt_line.expected_quantity),
             "actual_quantity": canonical_quantity(attempt_line.actual_quantity),
             "variance_quantity": canonical_quantity(attempt_line.variance_quantity),
