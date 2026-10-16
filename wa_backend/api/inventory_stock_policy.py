@@ -227,6 +227,32 @@ class BulkMinimumStockApplyRequest(BulkMinimumStockBase):
     request_id: UUID
 
 
+async def _require_minimum_stock_location_read(
+    access: BackofficeCapabilityAccess,
+    location_id: int,
+) -> None:
+    try:
+        await access.require("inventory.read", location_id=location_id)
+    except BackofficeCapabilityAccessRejected:
+        raise HTTPException(status_code=403, detail="Authorization denied.") from None
+
+
+async def _bulk_minimum_stock_access(
+    payload: BulkMinimumStockApplyRequest,
+    access: BackofficeCapabilityAccess = Depends(_manage_minimum_stock),
+) -> BackofficeCapabilityAccess:
+    await _require_minimum_stock_location_read(access, int(payload.location_id))
+    return access
+
+
+async def _single_minimum_stock_access(
+    payload: MinimumStockUpdateRequest,
+    access: BackofficeCapabilityAccess = Depends(_manage_minimum_stock),
+) -> BackofficeCapabilityAccess:
+    await _require_minimum_stock_location_read(access, int(payload.location_id))
+    return access
+
+
 def _bulk_request_hash(payload: BulkMinimumStockApplyRequest) -> str:
     data = payload.model_dump(mode="json")
     data.pop("request_id", None)
@@ -495,10 +521,7 @@ async def preview_bulk_minimum_stock(
     access: BackofficeCapabilityAccess = Depends(_manage_minimum_stock),
 ):
     company_id = access.company_id
-    try:
-        await access.require("inventory.read", location_id=int(payload.location_id))
-    except BackofficeCapabilityAccessRejected:
-        raise HTTPException(status_code=403, detail="Authorization denied.") from None
+    await _require_minimum_stock_location_read(access, int(payload.location_id))
 
     await _require_active_warehouse(
         db,
@@ -529,7 +552,7 @@ async def preview_bulk_minimum_stock(
 async def apply_bulk_minimum_stock(
     payload: BulkMinimumStockApplyRequest,
     db: AsyncSession = Depends(get_db),
-    access: BackofficeCapabilityAccess = Depends(_manage_minimum_stock),
+    access: BackofficeCapabilityAccess = Depends(_bulk_minimum_stock_access),
     legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     company_id = access.company_id
@@ -663,7 +686,7 @@ async def update_minimum_stock(
     product_variant_id: int,
     payload: MinimumStockUpdateRequest,
     db: AsyncSession = Depends(get_db),
-    access: BackofficeCapabilityAccess = Depends(_manage_minimum_stock),
+    access: BackofficeCapabilityAccess = Depends(_single_minimum_stock_access),
     legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     """Set the company-owned minimum stock threshold for one product/warehouse.
