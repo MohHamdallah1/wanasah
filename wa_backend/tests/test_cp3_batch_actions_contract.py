@@ -100,12 +100,16 @@ def test_cp3_source_detail_is_exact_location_capability_and_reservation_bound():
     source = (ROOT / "api" / "warehouse" / "live_stock_source_detail.py").read_text(
         encoding="utf-8"
     )
+    helper = (ROOT / "domains" / "batch_actions" / "status_change.py").read_text(
+        encoding="utf-8"
+    )
     assert 'access.allows(\n                    "inventory.status_change",\n                    location_id=location_id,' in source
     assert "InventoryBalance.location_id == location_id" in source
     assert "ProductBatch.company_id == company_id" in source
     assert "movable = on_hand - reserved" in source
-    assert "status_change_availability(" in source
-    assert "batch_metadata_is_sellable(" in source
+    assert "status_change_availability_for_batch(" in source
+    assert "batch_metadata_is_sellable(" not in source
+    assert "batch_metadata_is_sellable(" in helper
     assert "base_uom_id" in source
     assert "quantity_scale" in source
     assert "quantity_step" in source
@@ -120,5 +124,7 @@ def test_cp3_does_not_move_mutation_authority_into_read_route():
         "begin_idempotent_operation(",
         "complete_idempotent_operation(",
         "change_product_batch_disposition(",
+        "batch_metadata_is_sellable(",
+        "batch_sellability_predicate",
     ):
         assert forbidden not in source
