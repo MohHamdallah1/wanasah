@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const LOCATION = 55;
 const BRANCH = 7;
+const OTHER_BRANCH = 8;
 
 const mocks = vi.hoisted(() => ({
   authFetch: vi.fn(),
@@ -64,6 +65,7 @@ import { BranchManagementModal } from "@/pages/inventory/warehouse-locations/Bra
 import { BranchSelector } from "@/pages/inventory/warehouse-locations/BranchSelector";
 
 const branch = { id: BRANCH, name: "Amman Branch", code: "AMMAN", is_active: true, created_at: "2026-10-01T00:00:00Z" };
+const otherBranch = { id: OTHER_BRANCH, name: "Irbid Branch", code: "IRBID", is_active: true, created_at: "2026-10-01T00:00:00Z" };
 const warehouse = {
   id: LOCATION, name: "Main warehouse", code: "MAIN", branch_id: BRANCH, branch_name: branch.name,
   is_active: true, version: 1, created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-01T00:00:00Z",
@@ -86,6 +88,9 @@ const installFetch = () => {
   });
 };
 const calls = (prefix: string) => mocks.authFetch.mock.calls.filter(([url]) => String(url).startsWith(prefix));
+const exactCalls = (url: string, method?: string) => mocks.authFetch.mock.calls.filter(([calledUrl, opts]) =>
+  calledUrl === url && (!method || opts?.method === method),
+);
 const renderBranchModal = () => render(<BranchManagementModal isOpen onClose={vi.fn()} onBranchesChanged={vi.fn()} />);
 const renderWarehouses = (selectedLocationId: number | null = null) => render(
   <TabWarehouseLocations selectedLocationId={selectedLocationId} onLocationsChanged={vi.fn()} onMinimumApplied={vi.fn()} />,
@@ -147,7 +152,7 @@ describe("CP4 Warehouse/Branch Dashboard closure", () => {
     fireEvent.change(inputs[0], { target: { value: "New Branch" } });
     fireEvent.change(inputs[1], { target: { value: "NEW" } });
     fireEvent.submit(inputs[0].closest("form")!);
-    await waitFor(() => expect(calls("/warehouse/branches")).toHaveLength(1));
+    await waitFor(() => expect(exactCalls("/warehouse/branches", "POST")).toHaveLength(1));
   });
 
   it("keeps BranchSelector discovery gated and preserves but cannot reselect an inactive current relation", async () => {
@@ -183,8 +188,8 @@ describe("CP4 Warehouse/Branch Dashboard closure", () => {
     expect(document.activeElement).toBe(inputs[0]);
     fireEvent.change(inputs[0], { target: { value: "Renamed warehouse" } });
     fireEvent.submit(inputs[0].closest("form")!);
-    await waitFor(() => expect(calls(`/warehouse/locations/${LOCATION}`)).toHaveLength(1));
-    const update = calls(`/warehouse/locations/${LOCATION}`)[0];
+    await waitFor(() => expect(exactCalls(`/warehouse/locations/${LOCATION}`, "PATCH")).toHaveLength(1));
+    const update = exactCalls(`/warehouse/locations/${LOCATION}`, "PATCH")[0];
     expect(JSON.parse(String(update[1]?.body))).not.toHaveProperty("branch_id");
   });
 
@@ -204,7 +209,8 @@ describe("CP4 Warehouse/Branch Dashboard closure", () => {
     renderWarehouses(LOCATION);
     await screen.findByText("Main warehouse");
     fireEvent.click(screen.getByTitle("تعطيل"));
-    const reason = screen.getByRole("textbox");
+    const dialog = screen.getByRole("dialog", { name: "تعطيل المستودع" });
+    const reason = dialog.querySelector("textarea")!;
     fireEvent.change(reason, { target: { value: "planned shutdown" } });
     fireEvent.click(screen.getByRole("button", { name: "تأكيد التعطيل" }));
     expect(await screen.findByText("تعذر التعطيل: حوالة غير نهائية")).toBeTruthy();
@@ -261,9 +267,14 @@ describe("CP4 Warehouse/Branch Dashboard closure", () => {
     let optionCalls = 0;
     mocks.authFetch.mockImplementation(async (url: string, opts?: RequestInit) => {
       if (url.startsWith("/warehouse/locations/manage?")) return warehousePage;
-      if (url.startsWith("/warehouse/branches/options?")) { optionCalls += 1; return branchPage; }
+      if (url.startsWith("/warehouse/branches/options?")) {
+        optionCalls += 1;
+        return { items: [branch, otherBranch], next_cursor: null, has_more: false, total: 2 };
+      }
       if (url === `/warehouse/locations/${LOCATION}` && opts?.method === "PATCH") {
-        throw structuredError("WAREHOUSE_BRANCH_INACTIVE", { branch_id: BRANCH });
+        const body = JSON.parse(String(opts.body));
+        expect(body.branch_id).toBe(OTHER_BRANCH);
+        throw structuredError("WAREHOUSE_BRANCH_INACTIVE", { branch_id: OTHER_BRANCH });
       }
       throw new Error(`Unexpected request: ${url}`);
     });
@@ -272,8 +283,7 @@ describe("CP4 Warehouse/Branch Dashboard closure", () => {
     fireEvent.click(screen.getByTitle("تعديل"));
     await waitFor(() => expect(optionCalls).toBe(1));
     const select = screen.getByRole("combobox");
-    fireEvent.change(select, { target: { value: "" } });
-    fireEvent.change(select, { target: { value: String(BRANCH) } });
+    fireEvent.change(select, { target: { value: String(OTHER_BRANCH) } });
     fireEvent.submit(select.closest("form")!);
     expect(await screen.findByText(/الفرع المحدد غير نشط/)).toBeTruthy();
     await waitFor(() => expect(optionCalls).toBeGreaterThan(1));
