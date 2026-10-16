@@ -673,6 +673,8 @@ class CP9StocktakePostgresAcceptance(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(deactivated["location"]["is_active"])
 
         # Query-count evidence: fixed-query read paths do not grow per returned row.
+        perf_session = await self._start(self.a2, self.access_a_all, self.actor_a)
+        perf_sid = int(perf_session["session_id"])
         statements: list[str] = []
         def capture(conn, cursor, statement, parameters, context, executemany):
             if str(statement).lstrip().lower().startswith("select"):
@@ -686,7 +688,9 @@ class CP9StocktakePostgresAcceptance(unittest.IsolatedAsyncioTestCase):
             await stocktake_api.list_active_stocktake_sessions(location_id=self.a1, cursor=None, limit=100, db=self.db, access=self.access_a1)
             active_large = len(statements)
             statements.clear()
-            await stocktake_api.get_stocktake_count_sheet(sid, db=self.db, access=self.access_a_all)
+            await stocktake_api.get_stocktake_count_sheet(
+                perf_sid, db=self.db, access=self.access_a_all, legacy_actor=self.actor_a,
+            )
             sheet_queries = len(statements)
             statements.clear()
             await stocktake_api.list_stocktake_cycle_batches(location_id=self.a1, product_variant_id=self.variant_a, search=None, cursor=None, limit=1, db=self.db, access=self.access_a1)
