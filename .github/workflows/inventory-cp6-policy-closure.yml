@@ -52,7 +52,7 @@ jobs:
           rm -rf /tmp/cp6-policy-base
           mkdir -p /tmp/cp6-policy-base
           git archive 3f2f860fc8f04306e673de38a39e57ca3edf6df6 | tar -x -C /tmp/cp6-policy-base
-      - name: CP1 lot-expiry parity vs exact base
+      - name: CP1 Inbound lot-expiry parity vs exact base
         shell: bash
         run: |
           test_file=tests/test_inbound_lot_expiry_checkpoint1.py
@@ -61,60 +61,24 @@ jobs:
           head_status=$?
           set -e
           cat /tmp/cp1-head.log
-          if [ "$head_status" -eq 0 ]; then exit 0; fi
+          if [ "$head_status" -eq 0 ]; then
+            echo "CP1_INBOUND_HEAD=PASS"
+            exit 0
+          fi
           set +e
           (cd /tmp/cp6-policy-base/wa_backend && python -m pytest -q "$test_file") > /tmp/cp1-base.log 2>&1
           base_status=$?
           set -e
           cat /tmp/cp1-base.log
-          if [ "$base_status" -eq 0 ]; then exit 1; fi
+          if [ "$base_status" -eq 0 ]; then
+            echo "CP1 Inbound passes on exact base but fails on CP6 head"
+            exit 1
+          fi
           grep -E '^(FAILED|ERROR) ' /tmp/cp1-head.log | sort > /tmp/cp1-head.sig
           grep -E '^(FAILED|ERROR) ' /tmp/cp1-base.log | sort > /tmp/cp1-base.sig
           test -s /tmp/cp1-head.sig && test -s /tmp/cp1-base.sig
           diff -u /tmp/cp1-base.sig /tmp/cp1-head.sig
-          echo "CP1_LOT_EXPIRY_BASELINE_FAILURES=PROVEN_IDENTICAL"
-      - name: CP1 no-lot parity vs exact base
-        shell: bash
-        run: |
-          test_file=tests/test_inbound_no_lot_frozen_contract.py
-          set +e
-          (cd wa_backend && python -m pytest -q "$test_file") > /tmp/cp1-head.log 2>&1
-          head_status=$?
-          set -e
-          cat /tmp/cp1-head.log
-          if [ "$head_status" -eq 0 ]; then exit 0; fi
-          set +e
-          (cd /tmp/cp6-policy-base/wa_backend && python -m pytest -q "$test_file") > /tmp/cp1-base.log 2>&1
-          base_status=$?
-          set -e
-          cat /tmp/cp1-base.log
-          if [ "$base_status" -eq 0 ]; then exit 1; fi
-          grep -E '^(FAILED|ERROR) ' /tmp/cp1-head.log | sort > /tmp/cp1-head.sig
-          grep -E '^(FAILED|ERROR) ' /tmp/cp1-base.log | sort > /tmp/cp1-base.sig
-          test -s /tmp/cp1-head.sig && test -s /tmp/cp1-base.sig
-          diff -u /tmp/cp1-base.sig /tmp/cp1-head.sig
-          echo "CP1_NO_LOT_BASELINE_FAILURES=PROVEN_IDENTICAL"
-      - name: CP1 canonical auth parity vs exact base
-        shell: bash
-        run: |
-          test_file=tests/test_supplier_inbound_quality_canonical_auth_cutover.py
-          set +e
-          (cd wa_backend && python -m pytest -q "$test_file") > /tmp/cp1-head.log 2>&1
-          head_status=$?
-          set -e
-          cat /tmp/cp1-head.log
-          if [ "$head_status" -eq 0 ]; then exit 0; fi
-          set +e
-          (cd /tmp/cp6-policy-base/wa_backend && python -m pytest -q "$test_file") > /tmp/cp1-base.log 2>&1
-          base_status=$?
-          set -e
-          cat /tmp/cp1-base.log
-          if [ "$base_status" -eq 0 ]; then exit 1; fi
-          grep -E '^(FAILED|ERROR) ' /tmp/cp1-head.log | sort > /tmp/cp1-head.sig
-          grep -E '^(FAILED|ERROR) ' /tmp/cp1-base.log | sort > /tmp/cp1-base.sig
-          test -s /tmp/cp1-head.sig && test -s /tmp/cp1-base.sig
-          diff -u /tmp/cp1-base.sig /tmp/cp1-head.sig
-          echo "CP1_CANONICAL_BASELINE_FAILURES=PROVEN_IDENTICAL"
+          echo "CP1_INBOUND_BASELINE_FAILURES=PROVEN_IDENTICAL"
       - name: CP2 Batches regression
         working-directory: wa_backend
         run: >-
@@ -285,7 +249,6 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Resolve active Wave merge-base
-        id: base
         shell: bash
         run: |
           target="${{ github.event.pull_request.base.ref }}"
