@@ -2369,6 +2369,9 @@ async def get_warehouse_inventory_batches(
                         if row.disposition_reason is not None
                         else None
                     ),
+                    "allowed_disposition_targets": list(
+                        allowed_batch_disposition_targets(str(row.disposition))
+                    ),
                     "days_to_expiry": (
                         (row.expiry_date - as_of_date).days
                         if row.expiry_date is not None

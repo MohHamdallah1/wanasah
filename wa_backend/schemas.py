@@ -1473,6 +1473,9 @@ class WarehouseInventoryBatchItem(BaseModel):
     disposition: Literal["RELEASED", "QUARANTINED", "BLOCKED", "RECALLED"]
     disposition_revision: PositiveDbInt
     disposition_reason: Optional[str] = Field(None, max_length=2000)
+    allowed_disposition_targets: List[Literal["RELEASED", "QUARANTINED", "BLOCKED", "RECALLED"]] = Field(
+        default_factory=list, max_length=3
+    )
     days_to_expiry: Optional[int] = None
     on_hand_quantity: NonNegativeQuantity
     reserved_quantity: NonNegativeQuantity
