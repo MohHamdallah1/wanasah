@@ -19,6 +19,7 @@ from sqlalchemy.pool import NullPool
 from api.warehouse import locations as warehouse_locations
 from api.warehouse import stocktake as stocktake_api
 from domains.sales_evidence import models as _sales_evidence_models  # noqa: F401
+from domains.suppliers import models as _supplier_models  # noqa: F401
 from domains.stocktake.contracts import (
     StocktakeApprovalCommand,
     StocktakeCancelCommand,
