@@ -372,7 +372,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: 01688afb68918c49acb314924e9c1d2c66328f0f
+          ref: 3f2f860fc8f04306e673de38a39e57ca3edf6df6
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -424,7 +424,7 @@ jobs:
           PY
           git diff --check "$base" HEAD
           git merge-base --is-ancestor dc4fc371020abec02dd7f386ef90d1a4f1dea7aa HEAD
-          git merge-base --is-ancestor 01688afb68918c49acb314924e9c1d2c66328f0f HEAD
+          git merge-base --is-ancestor 3f2f860fc8f04306e673de38a39e57ca3edf6df6 HEAD
           git diff --exit-code dc4fc371020abec02dd7f386ef90d1a4f1dea7aa HEAD -- \
             wa_backend/api/warehouse/transfers.py wa_backend/api/warehouse/transfer_policy.py \
             wa_backend/domains/transfers dashboard/src/pages/inventory/TabTransfers.tsx \
