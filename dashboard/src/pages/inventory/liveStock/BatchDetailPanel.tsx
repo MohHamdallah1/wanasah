@@ -67,10 +67,10 @@ export function BatchDetailPanel({
     if (!product) return null;
     return {
       display: t(`uom.${product.display_uom_code}`, {
-        defaultValue: product.display_uom_code,
+        defaultValue: t("inventoryCommon.unit"),
       }),
       base: t(`uom.${product.base_uom_code}`, {
-        defaultValue: product.base_uom_code,
+        defaultValue: t("inventoryCommon.unit"),
       }),
     };
   }, [product, t]);
@@ -84,6 +84,7 @@ export function BatchDetailPanel({
       unitNames.base,
       product.display_factor_to_base,
     );
+  const quantityText = (value: Quantity) => quantity(value).primary;
 
   return (
     <Modal
@@ -157,14 +158,21 @@ export function BatchDetailPanel({
                   [copy.stockStatusLabels.BLOCKED, batch.blocked_quantity],
                   [copy.stockStatusLabels.RECALLED, batch.recalled_quantity],
                   [copy.stockStatusLabels.DISPOSAL_PENDING, batch.disposal_pending_quantity],
-                ].map(([label, value]) => (
-                  <div key={String(label)} className="rounded-xl bg-slate-50 px-3 py-2">
-                    <dt className="text-[10px] font-bold text-slate-500">{label}</dt>
-                    <dd className="mt-1 font-black tabular-nums text-slate-900" dir="ltr">
-                      {quantity(value as Quantity)}
-                    </dd>
-                  </div>
-                ))}
+                ].map(([label, value]) => {
+                  const rendered = quantity(value as Quantity);
+                  return (
+                    <div key={String(label)} className="rounded-xl bg-slate-50 px-3 py-2">
+                      <dt className="text-[10px] font-bold text-slate-500">{label}</dt>
+                      <dd
+                        className="mt-1 font-black tabular-nums text-slate-900"
+                        dir="ltr"
+                        title={rendered.secondary ?? undefined}
+                      >
+                        {rendered.primary}
+                      </dd>
+                    </div>
+                  );
+                })}
               </dl>
 
               <div className="mt-3 border-t border-slate-100 pt-3">
@@ -206,7 +214,7 @@ export function BatchDetailPanel({
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <strong>{copy.stockStatusLabels[status.stock_status]}</strong>
                           <span className="tabular-nums" dir="ltr">
-                            {t("inventoryLive.onHand")}: {quantity(status.on_hand_quantity)} · {t("inventoryLive.reserved")}: {quantity(status.reserved_quantity)}
+                            {t("inventoryLive.onHand")}: {quantityText(status.on_hand_quantity)} · {t("inventoryLive.reserved")}: {quantityText(status.reserved_quantity)}
                           </span>
                         </div>
                         <div className="mt-2 text-[11px] font-semibold text-slate-600">
@@ -218,7 +226,7 @@ export function BatchDetailPanel({
                           ) : null}
                           {status.reservation_evidence.unattributed_quantity !== "0" ? (
                             <span className="ms-2 tabular-nums" dir="ltr">
-                              {copy.unattributedReservation}: {quantity(status.reservation_evidence.unattributed_quantity)}
+                              {copy.unattributedReservation}: {quantityText(status.reservation_evidence.unattributed_quantity)}
                             </span>
                           ) : null}
                         </div>
