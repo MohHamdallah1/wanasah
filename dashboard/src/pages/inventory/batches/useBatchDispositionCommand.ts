@@ -36,6 +36,7 @@ type Params = {
   batch: BatchActionSnapshot | null;
   canChange: boolean;
   onSucceeded: () => void | Promise<void>;
+  onRevisionConflict: () => void | Promise<void>;
 };
 
 const isCommand = (
@@ -70,17 +71,17 @@ export function useBatchDispositionCommand({
   batch,
   canChange,
   onSucceeded,
+  onRevisionConflict,
 }: Params) {
   const { t } = useTranslation();
   const authFetch = useAuthFetch();
   const access = useInventoryAccess();
   const isOnline = useNetworkStatus();
-  const [target, setTarget] =
-    useState<BatchDisposition | null>(null);
+  const [target, setTargetState] = useState<BatchDisposition | null>(null);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
-  const [pendingBlocked, setPendingBlocked] =
-    useState(false);
+  const [pendingBlocked, setPendingBlocked] = useState(false);
+  const [revisionConflict, setRevisionConflict] = useState(false);
   const [pending, setPending] = useState<
     DurableCommand<BatchDispositionCommand> | null
   >(null);
@@ -98,17 +99,17 @@ export function useBatchDispositionCommand({
       : null;
 
   useEffect(() => {
-    setTarget(null);
+    setTargetState(null);
     setReason("");
     setPending(null);
     setPendingBlocked(false);
+    setRevisionConflict(false);
 
     if (!scope || !batch) return;
     let cancelled = false;
     void (async () => {
       try {
-        const stored =
-          await readDurableCommand<unknown>(scope);
+        const stored = await readDurableCommand<unknown>(scope);
         if (cancelled || !stored) return;
         if (
           !isCommand(stored.payload) ||
@@ -123,7 +124,7 @@ export function useBatchDispositionCommand({
           createdAt: stored.createdAt,
         };
         setPending(restored);
-        setTarget(restored.payload.disposition);
+        setTargetState(restored.payload.disposition);
         setReason(restored.payload.reason);
       } catch {
         if (!cancelled) setPendingBlocked(true);
@@ -132,7 +133,12 @@ export function useBatchDispositionCommand({
     return () => {
       cancelled = true;
     };
-  }, [batch, scope]);
+  }, [batch?.batch_id, scope]);
+
+  const setTarget = (value: BatchDisposition) => {
+    setRevisionConflict(false);
+    setTargetState(value);
+  };
 
   const submit = async () => {
     if (
@@ -203,20 +209,27 @@ export function useBatchDispositionCommand({
         durable.requestId,
       );
       setPending(null);
-      setTarget(null);
+      setTargetState(null);
       setReason("");
+      setRevisionConflict(false);
       toast.success(
         t("inventoryBatches.disposition.success"),
       );
       await onSucceeded();
     } catch (error) {
       const code = apiErrorCode(error);
-      const localBlocked =
-        code === "DURABLE_OPERATION_CORRUPT";
+      const conflict = code === "BATCH_DISPOSITION_REVISION_CONFLICT";
+      const localBlocked = code === "DURABLE_OPERATION_CORRUPT";
       if (localBlocked) {
         setPendingBlocked(true);
       }
-      if (
+      if (conflict) {
+        abandonDurableOperation(scope);
+        setPending(null);
+        setTargetState(null);
+        setRevisionConflict(true);
+        await onRevisionConflict();
+      } else if (
         !localBlocked &&
         code !== "DURABLE_OPERATION_PENDING" &&
         code !== "BATCH_DISPOSITION_RESPONSE_INVALID" &&
@@ -244,6 +257,7 @@ export function useBatchDispositionCommand({
     busy,
     pending,
     pendingBlocked,
+    revisionConflict,
     isOnline,
     submit,
   };
