@@ -25,7 +25,7 @@ export function useCycleCountStart({
   setSessionId, setSessionLocationId, loadCountSheet, notifyStocktakeChanged,
 }: UseCycleCountStartArgs) {
   const { t } = useTranslation();
-  const { copy, isArabic } = useStocktakeCopy();
+  const { copy } = useStocktakeCopy();
   const [productSearchInput, setProductSearchInput] = useState("");
   const [productSearch, setProductSearch] = useState("");
   const [products, setProducts] = useState<CycleProductOption[]>([]);
@@ -181,7 +181,7 @@ export function useCycleCountStart({
     if (!selectedProduct) { toast.error(copy.cycle.selectProduct); return false; }
     if (notes.trim().length > 4000) { toast.error(copy.cycle.notesTooLong); return false; }
     if (!durableIdentity) {
-      toast.error(isArabic ? "هوية مستخدم الجرد غير جاهزة بعد." : "The stocktake user identity is not ready yet.");
+      toast.error(copy.generic.identityNotReady);
       return false;
     }
 
@@ -221,7 +221,7 @@ export function useCycleCountStart({
       setStarting(false);
     }
   }, [
-    authenticatedFetch, copy.cycle, copy.generic.cycleStartFailed, durableIdentity, isArabic,
+    authenticatedFetch, copy.cycle, copy.generic.cycleStartFailed, copy.generic.identityNotReady, durableIdentity,
     loadCountSheet, locationId, notes, notifyStocktakeChanged, phaseKey, resetForm,
     selectedBatch, selectedProduct, sessionKey, setSessionId, setSessionLocationId, t,
   ]);
