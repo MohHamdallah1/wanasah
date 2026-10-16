@@ -7,12 +7,16 @@ import type { LedgerEntry } from "@/pages/inventory/ledger/contracts";
 import type { LedgerAdjustmentController } from "@/pages/inventory/ledger/useLedgerAdjustment";
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({
-    t: (key: string, options?: Record<string, unknown>) => String(options?.defaultValue ?? key),
-    i18n: { language: "en", resolvedLanguage: "en", dir: () => "ltr" },
-  }),
-}));
+vi.mock("react-i18next", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-i18next")>();
+  return {
+    ...actual,
+    useTranslation: () => ({
+      t: (key: string, options?: Record<string, unknown>) => String(options?.defaultValue ?? key),
+      i18n: { language: "en", resolvedLanguage: "en", dir: () => "ltr" },
+    }),
+  };
+});
 
 const entry: LedgerEntry = {
   id: 4,
