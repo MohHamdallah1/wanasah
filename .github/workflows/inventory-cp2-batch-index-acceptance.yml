@@ -68,19 +68,13 @@ jobs:
                   time.sleep(1)
 
           with psycopg.connect(admin_dsn, autocommit=True) as conn:
-              for role, password in (
-                  ("wanasah_migration", "migration"),
-                  ("wanasah_runtime", "runtime"),
-              ):
-                  if conn.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", [role]).fetchone() is None:
-                      conn.execute(
-                          sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(
-                              sql.Identifier(role), sql.Literal(password)
-                          )
-                      )
+              if conn.execute("SELECT 1 FROM pg_roles WHERE rolname = 'wanasah_migration'").fetchone() is None:
+                  conn.execute("CREATE ROLE wanasah_migration LOGIN BYPASSRLS PASSWORD 'migration'")
+              if conn.execute("SELECT 1 FROM pg_roles WHERE rolname = 'wanasah_runtime'").fetchone() is None:
+                  conn.execute("CREATE ROLE wanasah_runtime LOGIN NOBYPASSRLS PASSWORD 'runtime'")
               conn.execute("ALTER DATABASE wanasah_cp2 OWNER TO wanasah_migration")
               conn.execute("GRANT CONNECT ON DATABASE wanasah_cp2 TO wanasah_runtime")
-          print("POSTGRESQL_16=READY separate_roles=True")
+          print("POSTGRESQL_16=READY migration_bypassrls=True runtime_bypassrls=False")
           PY
       - name: Upgrade real PostgreSQL schema
         working-directory: wa_backend
