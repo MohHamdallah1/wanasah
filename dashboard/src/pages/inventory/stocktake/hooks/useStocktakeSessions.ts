@@ -5,11 +5,12 @@ import { getErrorMessage, parseStocktakeSessionPage } from "../parsers";
 import type { StocktakeAuthFetch, StocktakeSessionSummary } from "../types";
 
 interface UseStocktakeSessionsArgs {
+  enabled: boolean;
   locationId: number;
   authenticatedFetch: StocktakeAuthFetch;
 }
 
-export function useStocktakeSessions({ locationId, authenticatedFetch }: UseStocktakeSessionsArgs) {
+export function useStocktakeSessions({ enabled, locationId, authenticatedFetch }: UseStocktakeSessionsArgs) {
   const { copy } = useStocktakeCopy();
   const [sessions, setSessions] = useState<StocktakeSessionSummary[]>([]);
   const [total, setTotal] = useState<number | null>(null);
@@ -20,6 +21,8 @@ export function useStocktakeSessions({ locationId, authenticatedFetch }: UseStoc
   const requestSeq = useRef(0);
 
   const fetchSessions = useCallback(async (cursor: string | null = null, append = false) => {
+    if (!enabled) return;
+
     const seq = ++requestSeq.current;
     if (append) setLoadingMore(true);
     else { setLoading(true); setLoadFailed(false); setNextCursor(null); }
@@ -46,20 +49,27 @@ export function useStocktakeSessions({ locationId, authenticatedFetch }: UseStoc
     } finally {
       if (seq === requestSeq.current) append ? setLoadingMore(false) : setLoading(false);
     }
-  }, [authenticatedFetch, copy.generic.sessionsFailed, locationId]);
+  }, [authenticatedFetch, copy.generic.sessionsFailed, enabled, locationId]);
 
   useEffect(() => {
+    requestSeq.current += 1;
     setSessions([]);
     setTotal(null);
     setNextCursor(null);
-    void fetchSessions(null, false);
-  }, [fetchSessions, locationId]);
+    setLoading(false);
+    setLoadingMore(false);
+    setLoadFailed(false);
+    if (enabled) void fetchSessions(null, false);
+  }, [enabled, fetchSessions, locationId]);
 
-  const refreshSessions = useCallback(() => { void fetchSessions(null, false); }, [fetchSessions]);
+  const refreshSessions = useCallback(() => {
+    if (!enabled) return;
+    void fetchSessions(null, false);
+  }, [enabled, fetchSessions]);
   const loadMore = useCallback(() => {
-    if (!nextCursor || loadingMore) return;
+    if (!enabled || !nextCursor || loadingMore) return;
     void fetchSessions(nextCursor, true);
-  }, [fetchSessions, loadingMore, nextCursor]);
+  }, [enabled, fetchSessions, loadingMore, nextCursor]);
 
   return { sessions, total, nextCursor, loading, loadingMore, loadFailed, refreshSessions, loadMore };
 }
