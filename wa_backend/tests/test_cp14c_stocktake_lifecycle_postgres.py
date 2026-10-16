@@ -634,7 +634,11 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
 
             with pytest.raises(HTTPException) as foreign_list:
                 await stocktake.list_active_stocktake_sessions(
-                    b.a1, None, 50, None, db, a.operator.access(db)
+                    location_id=b.a1,
+                    cursor=None,
+                    limit=50,
+                    db=db,
+                    access=a.operator.access(db),
                 )
             assert foreign_list.value.status_code in {403, 404}
             _opaque(foreign_list.value, b.a1, b_session_id)
