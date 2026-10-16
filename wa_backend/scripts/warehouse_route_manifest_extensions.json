@@ -51,6 +51,54 @@
     },
     {
       "insert_after": {
+        "method": "GET",
+        "path": "/warehouse/batches/{batch_id}/stock-sources"
+      },
+      "method": "GET",
+      "path": "/warehouse/inventory/{product_variant_id}/batches/{batch_id}/source",
+      "function": "get_live_stock_batch_source",
+      "status_code": "200",
+      "response_model": "LiveStockWarehouseSourceResponse",
+      "expected_module": "live_stock_source_detail"
+    },
+    {
+      "insert_after": {
+        "method": "GET",
+        "path": "/warehouse/inventory/{product_variant_id}/batches/{batch_id}/source"
+      },
+      "method": "GET",
+      "path": "/warehouse/inventory/batches/cursor",
+      "function": "get_warehouse_inventory_batch_index_cursor",
+      "status_code": "200",
+      "response_model": "WarehouseInventoryBatchIndexCursorPage",
+      "expected_module": "batch_index"
+    },
+    {
+      "insert_after": {
+        "method": "GET",
+        "path": "/warehouse/inventory/batches/cursor"
+      },
+      "method": "GET",
+      "path": "/warehouse/inventory/batches/summary",
+      "function": "get_warehouse_inventory_batch_index_summary",
+      "status_code": "200",
+      "response_model": "WarehouseInventoryBatchIndexSummaryResponse",
+      "expected_module": "batch_index"
+    },
+    {
+      "insert_after": {
+        "method": "GET",
+        "path": "/warehouse/status"
+      },
+      "method": "GET",
+      "path": "/warehouse/ledger/{entry_id}/adjustment-state",
+      "function": "get_warehouse_entry_adjustment_state",
+      "status_code": "200",
+      "response_model": "LedgerAdjustmentStateResponse",
+      "expected_module": "inbound_adjustments"
+    },
+    {
+      "insert_after": {
         "method": "POST",
         "path": "/warehouse/unified/transfer/special/dispatch"
       },

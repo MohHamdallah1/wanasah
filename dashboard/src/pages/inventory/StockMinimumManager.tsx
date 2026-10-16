@@ -24,6 +24,7 @@ import {
   type MinimumStockScope,
   type WarehouseProduct,
 } from "./liveStock/contracts";
+import { ShelfLifePolicyExplainability } from "./stock-policy/ShelfLifePolicyExplainability";
 
 interface Props {
   locationId: number;
@@ -511,6 +512,13 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
             </div>
           )}
           </div>
+
+          {scope === "PRODUCT" && (
+            <ShelfLifePolicyExplainability
+              locationId={locationId}
+              productVariantId={productIds.length === 1 ? productIds[0] : null}
+            />
+          )}
 
           <div className="inventory-minimum-value-row">
             <label>

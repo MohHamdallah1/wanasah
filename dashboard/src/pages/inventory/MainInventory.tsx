@@ -410,6 +410,7 @@ export default function MainInventory() {
   const [stockFamilyId, setStockFamilyId] =
     useState<number | null>(null);
   const [stockRefreshKey, setStockRefreshKey] = useState(0);
+  const [stockPageRetryKey, setStockPageRetryKey] = useState(0);
   const [stockPageError, setStockPageError] = useState<string | null>(null);
   const [stockSummaryError, setStockSummaryError] = useState<string | null>(null);
   const stockRequestSeq = useRef(0);
@@ -964,6 +965,12 @@ export default function MainInventory() {
     setStockRefreshKey((value) => value + 1);
   }, [selectedLocationId]);
 
+  const retryStockPage = useCallback(() => {
+    if (selectedLocationId === null || loadingStock) return;
+    setStockPageError(null);
+    setStockPageRetryKey((value) => value + 1);
+  }, [loadingStock, selectedLocationId]);
+
   const handleStockSearchChange = useCallback((value: string) => {
     if (value === stockSearch) return;
     resetStockPagination();
@@ -1093,7 +1100,7 @@ export default function MainInventory() {
     if (selectedLocationId !== null) {
       void fetchStock();
     }
-  }, [selectedLocationId, fetchStock, stockRefreshKey]);
+  }, [selectedLocationId, fetchStock, stockRefreshKey, stockPageRetryKey]);
 
   useEffect(() => {
     if (selectedLocationId !== null) {
@@ -1341,6 +1348,7 @@ export default function MainInventory() {
               refreshStock();
               void fetchStatus();
             }}
+            onRetryPage={retryStockPage}
             alertCount={stockAlertCount}
             matchingTotal={stockMatchingTotal}
             hasMore={!!stockNextCursor}
@@ -1362,6 +1370,10 @@ export default function MainInventory() {
             onFocusConsumed={() => setBatchNavigationFocus(null)}
             onOpenTransfers={handleOpenTransfers}
             onOpenReservationOwner={handleOpenReservationOwner}
+            onInventoryChanged={async () => {
+              refreshStock();
+              setLedgerRefreshKey((value) => value + 1);
+            }}
           />
         )}
         {!locationAccess.isPending && activeTab === "inbound" && tabAllowed("inbound") && selectedLocationId !== null && locationAccess.data && (

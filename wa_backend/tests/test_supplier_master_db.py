@@ -321,10 +321,22 @@ async def test_whole_product_return_snapshot_and_dispose_parity(api, action):
     assert await api.db.scalar(text("SELECT sum(on_hand_quantity) FROM inventory_balances")) == 0
     assert await api.db.scalar(text("SELECT operational_hold FROM product_variants WHERE id=:variant"), {"variant": api.gate.variants[0].id}) == "NONE"
     assert await api.db.scalar(select(DomainAuditEvent.id).where(DomainAuditEvent.event_type == "ProductRecallClosed")) is not None
-    # A new valid supervisor credential must not change business command identity.
-    changed_credential = Driver(); changed_credential.set_password("RefreshedSupervisor123")
-    api.actor.password_hash = changed_credential.password_hash
-    assert (await api.client.post(path, json={**body, "confirmation_password": "RefreshedSupervisor123"})).json() == response.json()
+    # Only rotation of the canonical credential can authorize replay. A Driver
+    # hash change must have no authentication effect or change command identity.
+    import bcrypt
+    from domains.identity.models import CompanyPrincipal
+    changed_hash = bcrypt.hashpw(b"RefreshedSupervisor123", bcrypt.gensalt(rounds=4)).decode()
+    api.actor.password_hash = changed_hash
+    refreshed_body = {**body, "confirmation_password": "RefreshedSupervisor123"}
+    assert_code(await api.client.post(path, json=refreshed_body), "SUPERVISOR_CONFIRMATION_FAILED", 403)
+    principal = await api.db.scalar(select(CompanyPrincipal).where(
+        CompanyPrincipal.company_id == api.auth.company_id,
+        CompanyPrincipal.id == api.auth.principal_id,
+    ))
+    principal.password_hash = changed_hash
+    await api.db.commit()
+    assert (await api.client.post(path, json=refreshed_body)).json() == response.json()
+    assert_code(await api.client.post(path, json=body), "SUPERVISOR_CONFIRMATION_FAILED", 403)
     final_evidence = (await api.db.scalars(select(InventorySupplierEvidence).join(InventoryMovement,
         InventoryMovement.id == InventorySupplierEvidence.movement_id).where(InventoryMovement.reference_type == "FINAL_VENDOR_HANDOVER"))).all()
     if action == "RETURN_TO_VENDOR":

@@ -4,6 +4,8 @@ from . import (
     locations,
     inbound,
     live_stock,
+    live_stock_source_detail,
+    batch_index,
     ledger,
     status,
     inbound_adjustments,
@@ -22,6 +24,8 @@ router = APIRouter()
 router.include_router(locations.router)
 router.include_router(inbound.router)
 router.include_router(live_stock.router)
+router.include_router(live_stock_source_detail.router)
+router.include_router(batch_index.router)
 router.include_router(ledger.router)
 router.include_router(status.router)
 router.include_router(inbound_adjustments.router)

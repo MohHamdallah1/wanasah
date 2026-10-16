@@ -137,7 +137,7 @@ def test_whole_product_endpoint_verifies_then_closes_before_commit():
     source = Path(__file__).resolve().parents[1].joinpath(
         "api", "warehouse", "whole_product_quality.py"
     ).read_text(encoding="utf-8")
-    assert source.index("verify_actor_password") < source.index("begin_idempotent_operation")
+    assert source.index("verify_quality_confirmation") < source.index("begin_idempotent_operation")
     assert source.index("close_recall_after_terminal_resolution(") > source.index("confirm_final_disposal(")
     assert source.index("close_recall_after_terminal_resolution(") > source.index("confirm_vendor_handover(")
     assert source.index("close_recall_after_terminal_resolution(") < source.index("complete_idempotent_operation(idem")

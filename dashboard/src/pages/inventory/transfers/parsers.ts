@@ -1,4 +1,4 @@
-import { isTransferStatus } from "./constants";
+import { isTransferPurpose, isTransferStatus } from "./constants";
 import { parseQuantity } from "../quantity";
 import { parsePublicBatchNumber } from "../publicBatchNumber";
 import { parsePublicBatchDate } from "../publicBatchDate";
@@ -15,13 +15,15 @@ import type {
   WarehouseTransferListItem,
 } from "./types";
 
+const invalid = (field = "response") => Object.assign(new Error(), { code: "TRANSFER_RESPONSE_INVALID", context: { field } });
+
 const positiveInt = (value: unknown, field: string): number => {
   if (
     typeof value !== "number" ||
     !Number.isInteger(value) ||
     value <= 0
   ) {
-    throw new Error(`حقل ${field} غير صالح.`);
+    throw invalid(field);
   }
   return value;
 };
@@ -32,14 +34,14 @@ const nonNegativeInt = (value: unknown, field: string): number => {
     !Number.isInteger(value) ||
     value < 0
   ) {
-    throw new Error(`حقل ${field} غير صالح.`);
+    throw invalid(field);
   }
   return value;
 };
 
 const requiredString = (value: unknown, field: string): string => {
   if (typeof value !== "string" || !value) {
-    throw new Error(`حقل ${field} غير صالح.`);
+    throw invalid(field);
   }
   return value;
 };
@@ -48,7 +50,7 @@ const optionalString = (value: unknown): string | null =>
   typeof value === "string" ? value : null;
 const publicBatchNumber = (value: unknown, field: string): string | null =>
   parsePublicBatchNumber(value, () => {
-    throw new Error(`Invalid ${field}.`);
+    throw invalid(field);
   });
 
 
@@ -61,12 +63,13 @@ const optionalPositiveInt = (value: unknown): number | null =>
 
 const parseTransfer = (raw: unknown): WarehouseTransferListItem => {
   if (typeof raw !== "object" || raw === null) {
-    throw new Error("بيانات الحوالة غير صالحة.");
+    throw invalid();
   }
 
   const row = raw as Record<string, unknown>;
+  if (!isTransferPurpose(row.transfer_purpose)) throw invalid("transfer_purpose");
   if (!isTransferStatus(row.status)) {
-    throw new Error("حالة الحوالة غير معروفة.");
+    throw invalid();
   }
 
   return {
@@ -92,6 +95,7 @@ const parseTransfer = (raw: unknown): WarehouseTransferListItem => {
       "destination_location_name"
     ),
     status: row.status,
+    transfer_purpose: row.transfer_purpose,
     dispatched_by: positiveInt(row.dispatched_by, "dispatched_by"),
     dispatched_by_name: requiredString(
       row.dispatched_by_name,
@@ -124,7 +128,7 @@ export const parseTransferPage = (raw: unknown): WarehouseTransferCursorPage => 
     raw === null ||
     !Array.isArray((raw as { items?: unknown }).items)
   ) {
-    throw new Error("تنسيق صفحة الحوالات غير صالح.");
+    throw invalid();
   }
 
   const page = raw as Record<string, unknown>;
@@ -140,7 +144,7 @@ export const parseTransferPage = (raw: unknown): WarehouseTransferCursorPage => 
 
 const parseTransferLine = (raw: unknown): WarehouseTransferLine => {
   if (typeof raw !== "object" || raw === null) {
-    throw new Error("سطر حوالة غير صالح.");
+    throw invalid();
   }
 
   const row = raw as Record<string, unknown>;
@@ -155,7 +159,7 @@ const parseTransferLine = (raw: unknown): WarehouseTransferLine => {
     batch_id: positiveInt(row.batch_id, "batch_id"),
     batch_number: publicBatchNumber(row.batch_number, "batch_number"),
     expiry_date: parsePublicBatchDate(row.expiry_date, () => {
-      throw new Error("Invalid expiry_date.");
+      throw invalid();
     }),
     quantity: parseQuantity(row.quantity, "quantity"),
     uom_id: positiveInt(row.uom_id, "uom_id"),
@@ -178,7 +182,7 @@ export const parseTransferDetail = (
     !("lines" in raw) ||
     !Array.isArray((raw as { lines?: unknown }).lines)
   ) {
-    throw new Error("تنسيق تفاصيل الحوالة غير صالح.");
+    throw invalid();
   }
 
   const record = raw as Record<string, unknown>;
@@ -195,7 +199,7 @@ export const parseTransferDetail = (
 
   const lines = (record.lines as unknown[]).map(parseTransferLine);
   if (lines.length === 0) {
-    throw new Error("الحوالة لا تحتوي على أسطر مخزون.");
+    throw invalid();
   }
 
   return { transfer, lines };
@@ -204,13 +208,13 @@ export const parseTransferDetail = (
 
 const parseTransferLocation = (raw: unknown): TransferLocationOption => {
   if (typeof raw !== "object" || raw === null) {
-    throw new Error("موقع حوالة غير صالح.");
+    throw invalid();
   }
 
   const row = raw as Record<string, unknown>;
   const locationType = row.location_type;
   if (locationType !== "WAREHOUSE" && locationType !== "VEHICLE") {
-    throw new Error("نوع موقع الحوالة غير صالح.");
+    throw invalid();
   }
 
   return {
@@ -224,7 +228,7 @@ const parseTransferLocation = (raw: unknown): TransferLocationOption => {
 
 export const parseTransferLocations = (raw: unknown): TransferLocationOption[] => {
   if (!Array.isArray(raw)) {
-    throw new Error("تنسيق مواقع الحوالة غير صالح.");
+    throw invalid();
   }
 
   return raw.map(parseTransferLocation);
@@ -234,7 +238,7 @@ const parseSourceInventoryItem = (
   raw: unknown
 ): TransferSourceInventoryItem => {
   if (typeof raw !== "object" || raw === null) {
-    throw new Error("صنف مصدر الحوالة غير صالح.");
+    throw invalid();
   }
 
   const row = raw as Record<string, unknown>;
@@ -260,7 +264,7 @@ export const parseSourceInventoryPage = (
     raw === null ||
     !Array.isArray((raw as { items?: unknown }).items)
   ) {
-    throw new Error("تنسيق مخزون مصدر الحوالة غير صالح.");
+    throw invalid();
   }
 
   const page = raw as Record<string, unknown>;
@@ -276,7 +280,7 @@ export const parseSourceInventoryPage = (
 
 const parseOverrideReason = (raw: unknown): TransferOverrideReason => {
   if (typeof raw !== "object" || raw === null) {
-    throw new Error("سبب تجاوز FEFO غير صالح.");
+    throw invalid();
   }
 
   const row = raw as Record<string, unknown>;
@@ -292,22 +296,22 @@ const parseOverrideReason = (raw: unknown): TransferOverrideReason => {
 
 const parseOverrideBatch = (raw: unknown): TransferOverrideBatch => {
   if (typeof raw !== "object" || raw === null) {
-    throw new Error("دفعة تجاوز FEFO غير صالحة.");
+    throw invalid();
   }
 
   const row = raw as Record<string, unknown>;
   if (typeof row.is_fefo_head !== "boolean") {
-    throw new Error("حالة FEFO للدفعة غير صالحة.");
+    throw invalid();
   }
 
   return {
     id: positiveInt(row.id, "batch.id"),
     batch_number: publicBatchNumber(row.batch_number, "batch.batch_number"),
     production_date: parsePublicBatchDate(row.production_date, () => {
-      throw new Error("Invalid batch.production_date.");
+      throw invalid();
     }),
     expiry_date: parsePublicBatchDate(row.expiry_date, () => {
-      throw new Error("Invalid batch.expiry_date.");
+      throw invalid();
     }),
     available_quantity: parseQuantity(row.available_quantity, "batch.available_quantity", { allowZero: true }),
     is_fefo_head: row.is_fefo_head,
@@ -325,7 +329,7 @@ export const parseOverrideOptions = (
     !Array.isArray((raw as { batches?: unknown }).batches) ||
     !Array.isArray((raw as { reasons?: unknown }).reasons)
   ) {
-    throw new Error("تنسيق خيارات تجاوز FEFO غير صالح.");
+    throw invalid();
   }
 
   const row = raw as Record<string, unknown>;
@@ -352,7 +356,7 @@ export const parseOverrideOptions = (
     fefoBatchId !== null &&
     !batches.some((batch) => batch.id === fefoBatchId)
   ) {
-    throw new Error("دفعة FEFO المرجعية غير موجودة ضمن الخيارات.");
+    throw invalid();
   }
 
   return {

@@ -28,6 +28,7 @@ type Props = {
   canEditTracking: boolean;
   canManageBarcodes: boolean;
   canManageLifecycle: boolean;
+  canViewProductLocations?: boolean;
   columns?: Record<
     ProductDisplayColumn,
     boolean
@@ -54,6 +55,9 @@ type Props = {
   onManageLifecycle: (
     item: SimpleProduct,
   ) => void;
+  onManageProductLocations?: (
+    item: SimpleProduct,
+  ) => void;
 };
 
 export function ProductTableRow({
@@ -66,6 +70,7 @@ export function ProductTableRow({
   canEditTracking,
   canManageBarcodes,
   canManageLifecycle,
+  canViewProductLocations = false,
   columns,
   density =
     DEFAULT_PRODUCT_DISPLAY_PREFERENCES.density,
@@ -76,6 +81,7 @@ export function ProductTableRow({
   onEditTracking,
   onManageBarcodes,
   onManageLifecycle,
+  onManageProductLocations,
 }: Props) {
   const { t, i18n } =
     useTranslation();
@@ -249,6 +255,9 @@ export function ProductTableRow({
           canManageLifecycle={
             canManageLifecycle
           }
+          canViewProductLocations={
+            canViewProductLocations
+          }
           onOpenDetails={
             onOpenDetails
           }
@@ -269,6 +278,9 @@ export function ProductTableRow({
           }
           onManageLifecycle={
             onManageLifecycle
+          }
+          onManageProductLocations={
+            onManageProductLocations
           }
         />
       </td>

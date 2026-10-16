@@ -1,0 +1,232 @@
+name: Inventory CP9 Stocktake acceptance
+# Current-Wave CP9 proof gate with Vehicle metadata registration in-process.
+
+on:
+  push:
+    branches:
+      - sol/cp9-stocktake-full-closure-wave2
+  pull_request:
+    branches:
+      - integration/inventory-wave-2
+    paths:
+      - "wa_backend/api/warehouse/stocktake.py"
+      - "wa_backend/domains/stocktake/**"
+      - "wa_backend/tests/test_cp9_stocktake_*.py"
+      - "dashboard/src/pages/inventory/Tab3Stocktake.tsx"
+      - "dashboard/src/pages/inventory/stocktake/**"
+      - ".github/workflows/inventory-cp9-stocktake-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cp9-stocktake-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp9SyntheticOnlyKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://cp9_unit@127.0.0.1:1/cp9_unit
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: CP9 focused Backend contracts
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_cp9_stocktake_closure_contract.py
+          tests/test_stocktake_canonical_auth_cutover.py
+          tests/test_stocktake_nullable_expiry_serialization.py
+      - name: CP4 Stocktake blocker source regression
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_cp4_warehouse_branch_lifecycle_closure.py
+      - name: CP7 live-stock company and warehouse isolation regression
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_cp7_live_stock_contract.py
+      - name: py_compile CP9 Backend
+        run: >-
+          python -m py_compile
+          wa_backend/api/warehouse/stocktake.py
+          wa_backend/domains/stocktake/__init__.py
+          wa_backend/domains/stocktake/contracts.py
+          wa_backend/domains/stocktake/idempotency.py
+          wa_backend/tests/test_cp9_stocktake_closure_contract.py
+          wa_backend/tests/test_cp9_stocktake_postgres.py
+
+  postgres-16:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp9PostgresOnlyKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://cp9_admin@127.0.0.1:55449/cp9_acceptance
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp9_admin@127.0.0.1:55449/cp9_acceptance
+      WANASAH_CP9_PG_GATE: "1"
+      WANASAH_VEHICLE_RECON_LOCK_ORDER_DB_GATE: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL acceptance dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name cp9-postgres \
+            --env POSTGRES_USER=cp9_admin \
+            --env POSTGRES_DB=cp9_acceptance \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55449:55449 \
+            postgres:16 -p 55449
+          for attempt in $(seq 1 30); do
+            if docker exec cp9-postgres pg_isready -U cp9_admin -d cp9_acceptance -p 55449; then
+              docker exec cp9-postgres psql -U cp9_admin -d cp9_acceptance -p 55449 -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+              docker exec cp9-postgres psql -U cp9_admin -d cp9_acceptance -p 55449 -c "CREATE EXTENSION IF NOT EXISTS btree_gist;"
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs cp9-postgres
+          exit 1
+      - name: CP9 PostgreSQL 16 lifecycle isolation acceptance
+        working-directory: wa_backend
+        run: python -m pytest -q -s tests/test_cp9_stocktake_postgres.py
+      - name: Vehicle Recon PostgreSQL lock-order regression
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import pytest
+          from domains.sales_evidence import models as _sales_evidence_models  # noqa: F401
+          from domains.suppliers import models as _supplier_models  # noqa: F401
+
+          raise SystemExit(pytest.main([
+              "-q",
+              "-s",
+              "tests/test_vehicle_reconciliation_lock_order_postgres.py",
+          ]))
+          PY
+
+  dashboard-focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Locked Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: CP9 focused Dashboard acceptance
+        working-directory: dashboard
+        run: npm test -- src/pages/inventory/stocktake/StocktakeCp9Acceptance.test.tsx
+      - name: CP1 public lot and nullable date regression
+        working-directory: dashboard
+        run: npm test -- src/test/inventory-public-batch-number-parity.test.ts src/test/inventory-product-batch-date-parity.test.ts
+      - name: CP5 archive-owner Stocktake navigation regression
+        working-directory: dashboard
+        run: npm test -- src/test/archive-owner-receivers.test.tsx -t "Stocktake owner focus"
+      - name: CP6 inventory access regression
+        working-directory: dashboard
+        run: npm test -- src/test/inventory-access-canonical-contract.test.ts src/test/inventory-cp6-minimum-stock-dashboard.test.tsx
+      - name: TypeScript noEmit
+        working-directory: dashboard
+        run: npx tsc --noEmit
+      - name: Production Dashboard build
+        working-directory: dashboard
+        run: npm run build
+
+  dynamic-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Resolve dynamic Wave 2 merge-base
+        shell: bash
+        run: |
+          target="${{ github.event.pull_request.base.ref }}"
+          if [ -z "$target" ]; then target="integration/inventory-wave-2"; fi
+          git fetch origin "$target" --no-tags
+          base="$(git merge-base HEAD "origin/$target")"
+          echo "CP9_BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "CP9_TARGET_REF=$target" >> "$GITHUB_ENV"
+          echo "CP9_DYNAMIC_BASE=$base"
+      - name: Verify current Wave target and exact CP9 ownership
+        shell: bash
+        run: |
+          test "$CP9_TARGET_REF" = "integration/inventory-wave-2"
+          test "$CP9_BASE_SHA" = "6445440566eb770cda384e3d9999df7bee0af3d2"
+          python - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["CP9_BASE_SHA"]
+          changed = subprocess.check_output(
+              ["git", "diff", "--name-only", base, "HEAD"], text=True
+          ).splitlines()
+          exact = {
+              ".github/workflows/inventory-cp9-stocktake-acceptance.yml",
+              "wa_backend/api/warehouse/stocktake.py",
+              "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+          }
+          prefixes = (
+              "wa_backend/domains/stocktake/",
+              "dashboard/src/pages/inventory/stocktake/",
+          )
+          test_prefix = "wa_backend/tests/test_cp9_stocktake_"
+          unexpected = [
+              path for path in changed
+              if path not in exact
+              and not path.startswith(prefixes)
+              and not (path.startswith(test_prefix) and path.endswith(".py"))
+          ]
+          assert not unexpected, f"Unexpected CP9 scope: {unexpected}"
+          forbidden = {
+              "wa_backend/schemas.py",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              "wa_backend/api/warehouse/live_stock_source_detail.py",
+              "wa_backend/api/warehouse/transfers.py",
+              "wa_backend/api/warehouse/inventory_permissions.py",
+          }
+          assert not forbidden.intersection(changed), sorted(forbidden.intersection(changed))
+          forbidden_prefixes = (
+              "dashboard/src/pages/inventory/liveStock/",
+              "wa_backend/domains/ledger/",
+              "wa_backend/domains/inventory_access/",
+              "dashboard/src/pages/inventory/access/",
+          )
+          foreign = [path for path in changed if path.startswith(forbidden_prefixes)]
+          assert not foreign, foreign
+          print("CP9_DYNAMIC_SCOPE=PASS")
+          print("CP9_CURRENT_WAVE_BASE=PASS")
+          print("CP7_RUNTIME_UNTOUCHED=PASS")
+          print("CP8_RUNTIME_UNTOUCHED=PASS")
+          print("CP10_RUNTIME_UNTOUCHED=PASS")
+          print("CP11_RUNTIME_UNTOUCHED=PASS")
+          PY
+      - name: Dynamic diff whitespace gate
+        run: git diff --check "$CP9_BASE_SHA" HEAD

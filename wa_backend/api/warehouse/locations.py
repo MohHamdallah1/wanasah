@@ -221,13 +221,20 @@ async def _get_warehouse_branch(
     if row is None:
         raise HTTPException(
             status_code=404,
-            detail="الفرع المحدد غير موجود أو لا يتبع شركتك.",
+            detail=inventory_business_error(
+                "WAREHOUSE_BRANCH_NOT_FOUND",
+                "الفرع المحدد غير موجود أو لا يتبع شركتك.",
+            ),
         )
 
     if require_active and not bool(row.is_active):
         raise HTTPException(
             status_code=409,
-            detail="لا يمكن ربط المستودع بفرع غير فعال.",
+            detail=inventory_business_error(
+                "WAREHOUSE_BRANCH_INACTIVE",
+                "لا يمكن ربط المستودع بفرع غير فعال.",
+                context={"branch_id": int(branch_id)},
+            ),
         )
 
     return row
@@ -619,7 +626,11 @@ async def update_warehouse_location(
                 detail=inventory_business_error(
                     "LOCATION_VERSION_CONFLICT",
                     "تغير المستودع منذ فتحه. حدّث البيانات ثم أعد المحاولة.",
-                    context={"current_version": int(location.version)},
+                    context={
+                        "resource_id": int(location.id),
+                        "expected_version": int(payload.expected_version),
+                        "current_version": int(location.version),
+                    },
                 ),
             )
 
@@ -775,7 +786,11 @@ async def activate_warehouse_location(
                 detail=inventory_business_error(
                     "LOCATION_VERSION_CONFLICT",
                     "تغير المستودع منذ فتحه. حدّث البيانات ثم أعد المحاولة.",
-                    context={"current_version": int(location.version)},
+                    context={
+                        "resource_id": int(location.id),
+                        "expected_version": int(payload.expected_version),
+                        "current_version": int(location.version),
+                    },
                 ),
             )
 
@@ -783,7 +798,7 @@ async def activate_warehouse_location(
             db,
             company_id=company_id,
             branch_id=location.branch_id,
-            require_active=True,
+            require_active=False,
         )
 
         activated_now = not bool(location.is_active)
@@ -906,7 +921,11 @@ async def deactivate_warehouse_location(
                 detail=inventory_business_error(
                     "LOCATION_VERSION_CONFLICT",
                     "تغير المستودع منذ فتحه. حدّث البيانات ثم أعد المحاولة.",
-                    context={"current_version": int(location.version)},
+                    context={
+                        "resource_id": int(location.id),
+                        "expected_version": int(payload.expected_version),
+                        "current_version": int(location.version),
+                    },
                 ),
             )
 

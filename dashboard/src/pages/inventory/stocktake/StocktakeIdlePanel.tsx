@@ -1,4 +1,5 @@
 import { Lock, ShieldCheck } from "lucide-react";
+import { useStocktakeUiCopy } from "./uiCopy";
 
 interface StocktakeIdlePanelProps {
   onStart: () => void;
@@ -7,16 +8,18 @@ interface StocktakeIdlePanelProps {
 export function StocktakeIdlePanel({
   onStart,
 }: StocktakeIdlePanelProps) {
+  const { copy } = useStocktakeUiCopy();
+
   return (
     <div className="flex-1 flex flex-col items-center justify-center bg-slate-50/50 rounded-3xl border border-slate-200/50 overflow-hidden relative">
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-64 bg-amber-400/10 blur-[80px] rounded-full pointer-events-none" />
 
       <div className="text-center mb-10 z-10">
         <h2 className="text-3xl font-black text-slate-800 tracking-tight">
-          نظام تسوية المخزون
+          {copy.idle.title}
         </h2>
         <p className="text-slate-500 font-bold mt-2">
-          الجرد الشامل يبدأ بعد قفل المستودع المحدد وأخذ Snapshot ثابت
+          {copy.idle.body}
         </p>
       </div>
 
@@ -25,7 +28,7 @@ export function StocktakeIdlePanel({
         className="relative w-80 h-48 rounded-xl overflow-hidden shadow-[0_0_30px_rgba(245,158,11,0.2)] group cursor-pointer p-[3px] bg-slate-800"
         dir="ltr"
         onClick={onStart}
-        aria-label="إغلاق المستودع وبدء الجرد الشامل"
+        aria-label={copy.idle.startLabel}
       >
         <div
           className="absolute inset-[-150%] opacity-80 animate-spin pointer-events-none"
@@ -48,10 +51,10 @@ export function StocktakeIdlePanel({
           <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-amber-900/40 via-slate-900 to-slate-900">
             <div className="flex flex-col items-center gap-3 scale-90 opacity-0 group-hover:scale-100 group-hover:opacity-100 transition-all duration-500 delay-100">
               <div className="w-16 h-16 rounded-full bg-amber-500/20 flex items-center justify-center border border-amber-500/30 animate-pulse">
-                <Lock className="w-8 h-8 text-amber-500" />
+                <Lock className="w-8 h-8 text-amber-500" aria-hidden="true" />
               </div>
               <span className="text-white font-black text-lg tracking-wide drop-shadow-md">
-                إغلاق المستودع وبدء الجرد
+                {copy.idle.start}
               </span>
             </div>
           </div>
@@ -75,8 +78,8 @@ export function StocktakeIdlePanel({
       </button>
 
       <p className="mt-8 text-xs text-slate-400 font-bold flex items-center gap-1.5">
-        <ShieldCheck className="w-3.5 h-3.5" />
-        العد الأول أعمى، ولا يظهر الرصيد المتوقع إلا بعد تثبيت المحاولة
+        <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+        {copy.idle.blindHint}
       </p>
     </div>
   );

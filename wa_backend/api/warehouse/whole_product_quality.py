@@ -22,7 +22,7 @@ from domains.authorization.backoffice_access import (
     BackofficeCapabilityAccess,
     BackofficeCapabilityAccessRejected,
 )
-from domains.credential_confirmation import verify_actor_password
+from domains.inventory_quality_confirmation import verify_quality_confirmation
 from domains.inventory_quality_handling import (
     quality_stage_target_status,
     stage_quality_handling_direct,
@@ -163,7 +163,7 @@ async def resolve_whole_product_quality(
 
     await _require_quality_access(access, SPECIAL_TRANSFER_PERMISSION[purpose])
     try:
-        if not await verify_actor_password(legacy_actor, payload.confirmation_password.get_secret_value()):
+        if not await verify_quality_confirmation(db, access, payload.confirmation_password.get_secret_value()):
             raise HTTPException(
                 status_code=403,
                 detail=_business_detail(

@@ -5,8 +5,13 @@ import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
-import { resolveI18nLocale } from "@/lib/locale";
+import { apiErrorMessage } from "@/lib/apiErrors";
 import { parseBranchMutation, parseBranchPage, type BranchItem } from "./branchContracts";
+import {
+  branchManagementCopy,
+  formatInventoryDate,
+  formatInventoryInteger,
+} from "./i18n";
 
 interface BranchManagementModalProps {
   isOpen: boolean;
@@ -18,6 +23,7 @@ type View = "list" | "form" | "state";
 type FormMode = "create" | "edit";
 
 const BRANCH_CODE_RE = /^[A-Z0-9][A-Z0-9_-]*$/;
+const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30";
 
 export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: BranchManagementModalProps) {
   const authenticatedFetch = useAuthFetch();
@@ -27,7 +33,10 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
   const canUpdate = access.can("branch.update");
   const canState = access.can("branch.state");
   const { i18n } = useTranslation();
-  const locale = resolveI18nLocale(i18n);
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  const isArabic = (language ?? "").toLowerCase().startsWith("ar");
+  const dir = i18n.dir();
+  const copy = branchManagementCopy(language);
   const requestSeq = useRef(0);
   const [view, setView] = useState<View>("list");
   const [items, setItems] = useState<BranchItem[]>([]);
@@ -77,11 +86,11 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
       if (seq !== requestSeq.current) return;
       setItems([]);
       setNextCursor(null);
-      toast.error(error instanceof Error ? error.message : "تعذر جلب الفروع.");
+      toast.error(apiErrorMessage(error, copy.loadFailed));
     } finally {
       if (seq === requestSeq.current) setLoading(false);
     }
-  }, [authenticatedFetch, canRead, cursor, isOpen, search, view]);
+  }, [authenticatedFetch, canRead, copy.loadFailed, cursor, isOpen, search, view]);
 
   useEffect(() => { void fetchPage(); }, [fetchPage, refreshKey]);
 
@@ -144,15 +153,15 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
     const cleanName = name.trim();
     const cleanCode = code.trim().toUpperCase();
     if (!cleanName || cleanName.length > 150) {
-      toast.error("اسم الفرع مطلوب وبحد أقصى 150 حرفاً.");
+      toast.error(copy.nameInvalid);
       return;
     }
     if (!cleanCode || cleanCode.length > 50 || !BRANCH_CODE_RE.test(cleanCode)) {
-      toast.error("كود الفرع يجب أن يبدأ بحرف/رقم ويحتوي فقط A-Z و0-9 و _ و -.");
+      toast.error(copy.codeInvalid);
       return;
     }
     if (formMode === "edit" && selected?.name === cleanName && selected.code === cleanCode) {
-      toast.info("لا توجد تغييرات لحفظها.");
+      toast.info(copy.noChanges);
       return;
     }
 
@@ -169,7 +178,7 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
       resetList();
       await onBranchesChanged();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "تعذر حفظ الفرع.");
+      toast.error(apiErrorMessage(error, copy.saveFailed));
     } finally {
       setSubmitting(false);
     }
@@ -180,7 +189,7 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
     const activating = !selected.is_active;
     const cleanReason = reason.trim();
     if (!activating && !cleanReason) {
-      toast.error("سبب تعطيل الفرع مطلوب للتدقيق.");
+      toast.error(copy.reasonRequired);
       return;
     }
     setSubmitting(true);
@@ -196,31 +205,35 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
       resetList();
       await onBranchesChanged();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "تعذر تغيير حالة الفرع.");
+      toast.error(apiErrorMessage(error, copy.stateFailed));
     } finally {
       setSubmitting(false);
     }
   };
 
-  const title = view === "list" ? "إدارة الفروع" : view === "form"
-    ? (formMode === "create" ? "إضافة فرع" : "تعديل الفرع")
-    : (selected?.is_active ? "تعطيل الفرع" : "تفعيل الفرع");
+  const title = view === "list" ? copy.manage : view === "form"
+    ? (formMode === "create" ? copy.add : copy.edit)
+    : (selected?.is_active ? copy.deactivate : copy.activate);
   const canSaveForm = formMode === "create" ? canCreate : canUpdate;
+  const pageNumber = formatInventoryInteger(cursorHistory.length + 1, language);
+  const totalLabel = total === null ? "" : `${copy.total(formatInventoryInteger(total, language))} · `;
 
   return (
     <Modal isOpen={isOpen} onClose={() => !submitting && onClose()} title={title} maxWidth="max-w-4xl">
+      <div dir={dir}>
       {view === "list" && (
         <div className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="relative flex-1">
-              <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Search aria-hidden="true" className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
                 maxLength={100}
                 disabled={!canRead}
-                placeholder="بحث بالاسم أو الكود"
-                className="w-full rounded-xl border border-slate-200 py-2.5 pl-3 pr-10 text-sm outline-none disabled:opacity-50"
+                aria-label={copy.search}
+                placeholder={copy.search}
+                className={`w-full rounded-xl border border-slate-200 py-2.5 ps-10 pe-3 text-sm outline-none disabled:opacity-50 ${focusRing}`}
               />
             </div>
             <div className="flex gap-2">
@@ -228,31 +241,32 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
                 type="button"
                 onClick={() => setRefreshKey((value) => value + 1)}
                 disabled={loading || !canRead}
-                className="rounded-xl border border-slate-200 p-2.5 text-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
-                title="تحديث"
+                className={`rounded-xl border border-slate-200 p-2.5 text-slate-600 disabled:cursor-not-allowed disabled:opacity-40 ${focusRing}`}
+                title={copy.refresh}
+                aria-label={copy.refresh}
               >
-                <RefreshCcw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+                <RefreshCcw aria-hidden="true" className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
               </button>
               <button
                 type="button"
                 onClick={openCreate}
                 disabled={!canCreate}
-                className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                className={`flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40 ${focusRing}`}
               >
-                <Plus className="h-4 w-4" />
-                فرع جديد
+                <Plus aria-hidden="true" className="h-4 w-4" />
+                {copy.newBranch}
               </button>
             </div>
           </div>
-          <div className="overflow-auto rounded-xl border border-slate-200">
-            <table className="w-full min-w-[620px] text-right text-sm">
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className={`w-full min-w-[620px] text-sm ${isArabic ? "text-right" : "text-left"}`}>
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="p-3">الفرع</th>
-                  <th className="p-3">الكود</th>
-                  <th className="p-3">الحالة</th>
-                  <th className="p-3">تاريخ الإنشاء</th>
-                  <th className="p-3 text-center">إجراءات</th>
+                  <th className="p-3">{copy.branch}</th>
+                  <th className="p-3">{copy.code}</th>
+                  <th className="p-3">{copy.status}</th>
+                  <th className="p-3">{copy.created}</th>
+                  <th className="p-3 text-center">{copy.actions}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -262,11 +276,11 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
                     <td className="p-3 font-mono text-xs">{branch.code}</td>
                     <td className="p-3">
                       <span className={`rounded-lg px-2 py-1 text-xs font-bold ${branch.is_active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                        {branch.is_active ? "فعال" : "متوقف"}
+                        {branch.is_active ? copy.active : copy.inactive}
                       </span>
                     </td>
                     <td className="p-3 text-xs text-slate-500">
-                      {new Date(branch.created_at).toLocaleDateString(locale)}
+                      {formatInventoryDate(branch.created_at, language)}
                     </td>
                     <td className="p-3">
                       <div className="flex justify-center gap-2">
@@ -274,21 +288,23 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
                           type="button"
                           onClick={() => openEdit(branch)}
                           disabled={!canUpdate}
-                          className="rounded-lg border border-slate-200 p-2 text-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
-                          title="تعديل"
+                          className={`rounded-lg border border-slate-200 p-2 text-slate-600 disabled:cursor-not-allowed disabled:opacity-40 ${focusRing}`}
+                          title={copy.editAction}
+                          aria-label={`${copy.editAction}: ${branch.name}`}
                         >
-                          <Pencil className="h-4 w-4" />
+                          <Pencil aria-hidden="true" className="h-4 w-4" />
                         </button>
                         <button
                           type="button"
                           onClick={() => openState(branch)}
                           disabled={!canState}
-                          className={`rounded-lg border p-2 disabled:cursor-not-allowed disabled:opacity-40 ${branch.is_active ? "border-red-200 text-red-600" : "border-emerald-200 text-emerald-600"}`}
-                          title={branch.is_active ? "تعطيل" : "تفعيل"}
+                          className={`rounded-lg border p-2 disabled:cursor-not-allowed disabled:opacity-40 ${focusRing} ${branch.is_active ? "border-red-200 text-red-600" : "border-emerald-200 text-emerald-600"}`}
+                          title={branch.is_active ? copy.deactivateAction : copy.activateAction}
+                          aria-label={`${branch.is_active ? copy.deactivateAction : copy.activateAction}: ${branch.name}`}
                         >
                           {branch.is_active
-                            ? <PowerOff className="h-4 w-4" />
-                            : <Power className="h-4 w-4" />}
+                            ? <PowerOff aria-hidden="true" className="h-4 w-4" />
+                            : <Power aria-hidden="true" className="h-4 w-4" />}
                         </button>
                       </div>
                     </td>
@@ -297,18 +313,18 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
                 {!loading && items.length === 0 && (
                   <tr>
                     <td colSpan={5} className="p-10 text-center text-slate-400">
-                      لا توجد فروع مطابقة.
+                      {copy.empty}
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-500">
-              {total !== null ? `${total} فرع · ` : ""}الصفحة {cursorHistory.length + 1}
+          <div className="flex items-center justify-between gap-3">
+            <span className="min-w-0 break-words text-xs text-slate-500">
+              {totalLabel}{copy.page(pageNumber)}
             </span>
-            <div className="flex gap-2">
+            <div className="flex shrink-0 gap-2">
               <button
                 type="button"
                 disabled={!cursorHistory.length || loading || !canRead}
@@ -317,10 +333,11 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
                   setCursorHistory((history) => history.slice(0, -1));
                   setCursor(previous);
                 }}
-                className="rounded-xl border border-slate-200 p-2 disabled:opacity-40"
-                title="الصفحة السابقة"
+                className={`rounded-xl border border-slate-200 p-2 disabled:opacity-40 ${focusRing}`}
+                title={copy.previous}
+                aria-label={copy.previous}
               >
-                <ChevronRight className="h-4 w-4" />
+                {isArabic ? <ChevronRight aria-hidden="true" className="h-4 w-4" /> : <ChevronLeft aria-hidden="true" className="h-4 w-4" />}
               </button>
               <button
                 type="button"
@@ -329,10 +346,11 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
                   setCursorHistory((history) => [...history, cursor]);
                   setCursor(nextCursor);
                 }}
-                className="rounded-xl border border-slate-200 p-2 disabled:opacity-40"
-                title="الصفحة التالية"
+                className={`rounded-xl border border-slate-200 p-2 disabled:opacity-40 ${focusRing}`}
+                title={copy.next}
+                aria-label={copy.next}
               >
-                <ChevronLeft className="h-4 w-4" />
+                {isArabic ? <ChevronLeft aria-hidden="true" className="h-4 w-4" /> : <ChevronRight aria-hidden="true" className="h-4 w-4" />}
               </button>
             </div>
           </div>
@@ -340,10 +358,11 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
       )}
 
       {view === "form" && (
-        <div className="space-y-4">
-          <div>
-            <label className="text-xs font-bold text-slate-600">اسم الفرع</label>
+        <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void saveForm(); }}>
+          <label className="block text-xs font-bold text-slate-600">
+            {copy.branchName}
             <input
+              autoFocus
               value={name}
               onChange={(event) => {
                 setName(event.target.value);
@@ -351,11 +370,11 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
               }}
               maxLength={150}
               disabled={submitting || !canSaveForm}
-              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none disabled:opacity-50"
+              className={`mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none disabled:opacity-50 ${focusRing}`}
             />
-          </div>
-          <div>
-            <label className="text-xs font-bold text-slate-600">كود الفرع</label>
+          </label>
+          <label className="block text-xs font-bold text-slate-600">
+            {copy.branchCode}
             <input
               value={code}
               onChange={(event) => {
@@ -365,44 +384,42 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
               maxLength={50}
               disabled={submitting || !canSaveForm}
               dir="ltr"
-              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-mono outline-none disabled:opacity-50"
+              className={`mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-mono outline-none disabled:opacity-50 ${focusRing}`}
               placeholder="HQ"
             />
-          </div>
-          <div className="flex gap-2">
+          </label>
+          <div className="flex flex-col gap-2 sm:flex-row">
             <button
-              type="button"
-              onClick={saveForm}
+              type="submit"
               disabled={submitting || !canSaveForm}
-              className="rounded-xl bg-blue-600 px-5 py-2.5 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              className={`rounded-xl bg-blue-600 px-5 py-2.5 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
             >
-              {submitting ? "جارٍ الحفظ..." : "حفظ"}
+              {submitting ? copy.saving : copy.save}
             </button>
             <button
               type="button"
               onClick={() => setView("list")}
               disabled={submitting}
-              className="rounded-xl border border-slate-200 px-5 py-2.5 font-bold"
+              className={`rounded-xl border border-slate-200 px-5 py-2.5 font-bold ${focusRing}`}
             >
-              رجوع
+              {copy.back}
             </button>
           </div>
-        </div>
+        </form>
       )}
 
       {view === "state" && selected && (
-        <div className="space-y-4">
-          <p className="text-sm text-slate-600">
-            الفرع: <strong>{selected.name}</strong>
+        <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void changeState(); }}>
+          <p className="break-words text-sm text-slate-600">
+            {copy.branch}: <strong>{selected.name}</strong>
           </p>
           <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">
-            تغيير حالة الفرع لا يغير حالة المستودعات المرتبطة ولا صلاحيات المواقع.
+            {copy.nonCascade}
           </p>
-          <div>
-            <label className="text-xs font-bold text-slate-600">
-              {selected.is_active ? "سبب التعطيل - إجباري" : "ملاحظة التفعيل - اختيارية"}
-            </label>
+          <label className="block text-xs font-bold text-slate-600">
+            {selected.is_active ? copy.reasonDeactivate : copy.noteActivate}
             <textarea
+              autoFocus
               value={reason}
               onChange={(event) => {
                 setReason(event.target.value);
@@ -410,33 +427,33 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
               }}
               maxLength={1000}
               disabled={submitting || !canState}
-              className="mt-1 min-h-28 w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none disabled:opacity-50"
+              className={`mt-1 min-h-28 w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none disabled:opacity-50 ${focusRing}`}
             />
-          </div>
-          <div className="flex gap-2">
+          </label>
+          <div className="flex flex-col gap-2 sm:flex-row">
             <button
-              type="button"
-              onClick={changeState}
+              type="submit"
               disabled={submitting || !canState}
-              className={`rounded-xl px-5 py-2.5 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50 ${selected.is_active ? "bg-red-600" : "bg-emerald-600"}`}
+              className={`rounded-xl px-5 py-2.5 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50 ${focusRing} ${selected.is_active ? "bg-red-600" : "bg-emerald-600"}`}
             >
               {submitting
-                ? "جارٍ التنفيذ..."
+                ? copy.executing
                 : selected.is_active
-                  ? "تأكيد التعطيل"
-                  : "تأكيد التفعيل"}
+                  ? copy.deactivateAction
+                  : copy.activateAction}
             </button>
             <button
               type="button"
               onClick={() => setView("list")}
               disabled={submitting}
-              className="rounded-xl border border-slate-200 px-5 py-2.5 font-bold"
+              className={`rounded-xl border border-slate-200 px-5 py-2.5 font-bold ${focusRing}`}
             >
-              رجوع
+              {copy.back}
             </button>
           </div>
-        </div>
+        </form>
       )}
+      </div>
     </Modal>
   );
 }

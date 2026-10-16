@@ -1,0 +1,406 @@
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import type { WarehouseProduct } from "@/pages/inventory/liveStock/contracts";
+import { BatchDetailPanel } from "@/pages/inventory/liveStock/BatchDetailPanel";
+import { getLiveStockCp7Copy } from "@/pages/inventory/liveStock/i18n";
+import { LiveStockMobileCards } from "@/pages/inventory/liveStock/LiveStockMobileCards";
+import { parseLiveStockWarehouseSource } from "@/pages/inventory/liveStock/sourceContract";
+
+const mocks = vi.hoisted(() => ({
+  language: "en",
+  t: (key: string) => key,
+}));
+
+vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => undefined },
+  useTranslation: () => ({
+    t: mocks.t,
+    i18n: {
+      language: mocks.language,
+      resolvedLanguage: mocks.language,
+      dir: () => (mocks.language === "ar" ? "rtl" : "ltr"),
+    },
+  }),
+}));
+
+vi.mock("framer-motion", () => ({
+  AnimatePresence: ({ children }: { children: React.ReactNode }) => children,
+  motion: {
+    div: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+      <div {...props}>{children}</div>
+    ),
+  },
+}));
+
+afterEach(() => {
+  cleanup();
+  mocks.language = "en";
+});
+
+const product: WarehouseProduct = {
+  id: 41,
+  name: "Product 41",
+  sku: "SKU-41",
+  product_id: 4,
+  family_name: "Family",
+  base_uom_id: 1,
+  base_uom_code: "EA",
+  base_uom_name: "Each",
+  display_uom_id: 1,
+  display_uom_code: "EA",
+  display_uom_name: "Each",
+  display_factor_to_base: "1",
+  currency_code: "JOD",
+  average_cost_display: "1.250000",
+  last_purchase_cost: "1.500000",
+  last_purchase_uom_code: "EA",
+  last_purchase_date: "2026-10-15",
+  quantity_scale: 6,
+  quantity_step: "0.000001",
+  on_hand_quantity: "2.500001",
+  reserved_quantity: "0.500001",
+  available_for_sale_quantity: "2",
+  unavailable_quantity: "0",
+  vehicle_quantity: "0",
+  recalled_quantity: "0",
+  available_quantity: "2",
+  blocked_quantity: "0",
+  total_quantity: "2.500001",
+  damaged_quantity: "0",
+  minimum_quantity: "1",
+};
+
+const sourcePayload = () => ({
+  location_id: 11,
+  location_name: "Warehouse A1",
+  product_variant_id: 41,
+  batch_id: 71,
+  statuses: [
+    {
+      stock_status: "AVAILABLE",
+      on_hand_quantity: "2.500001",
+      reserved_quantity: "0.500001",
+      movable_quantity: "2",
+      reservation_evidence: {
+        coverage: "COMPLETE",
+        reason: null,
+        owners: [
+          {
+            owner_type: "DISPATCH_HANDSHAKE",
+            module: "DISPATCH",
+            transfer_id: 91,
+            reference_number: "TR-91",
+            transfer_purpose: "ROUTE_LOAD",
+            work_session_id: 31,
+            route_id: 21,
+            expected_receiver_id: 51,
+            created_by: 61,
+            quantity: "0.500001",
+            operation_status: "PENDING",
+            navigation_target: "DISPATCH_ROUTE_TRANSFERS",
+            action: null,
+          },
+        ],
+        unattributed_quantity: "0",
+        owners_truncated: false,
+      },
+    },
+  ],
+});
+
+const batch = {
+  batch_id: 71,
+  batch_number: null,
+  production_date: null,
+  expiry_date: null,
+  disposition: "RELEASED" as const,
+  disposition_reason: null,
+  disposition_revision: 1,
+  allowed_disposition_targets: ["QUARANTINED", "BLOCKED", "RECALLED"] as const,
+  days_to_expiry: null,
+  quantity_scale: 6,
+  quantity_step: "0.000001" as const,
+  on_hand_quantity: "2.500001" as const,
+  reserved_quantity: "0.500001" as const,
+  available_for_sale_quantity: "2" as const,
+  unavailable_quantity: "0" as const,
+  quarantined_quantity: "0" as const,
+  blocked_quantity: "0" as const,
+  recalled_quantity: "0" as const,
+  damaged_quantity: "0" as const,
+  disposal_pending_quantity: "0" as const,
+  total_cost: "3.125001",
+  average_cost: "1.250000",
+  latest_purchase_unit_cost: "1.500000",
+  latest_purchase_date: "2026-10-15",
+  purchase_count: 1,
+};
+
+const source = (...parts: string[]) =>
+  readFileSync(resolve(process.cwd(), ...parts), "utf8");
+
+describe("CP7 Live Stock Dashboard closure", () => {
+  it("has exact Arabic anonymous-lot presentation", () => {
+    expect(getLiveStockCp7Copy("ar").noLot).toBe("بدون رقم دفعة");
+  });
+
+  it("has exact English anonymous-lot presentation", () => {
+    expect(getLiveStockCp7Copy("en").noLot).toBe("No lot supplied");
+  });
+
+  it("never places the internal no-lot token in feature copy", () => {
+    expect(JSON.stringify(getLiveStockCp7Copy("ar"))).not.toContain("__WANASAH_NOLOT__");
+    expect(JSON.stringify(getLiveStockCp7Copy("en"))).not.toContain("__WANASAH_NOLOT__");
+  });
+
+  it("parses exact decimal warehouse source evidence without float conversion", () => {
+    const parsed = parseLiveStockWarehouseSource(sourcePayload());
+    expect(parsed.statuses[0].on_hand_quantity).toBe("2.500001");
+    expect(parsed.statuses[0].reserved_quantity).toBe("0.500001");
+    expect(parsed.statuses[0].movable_quantity).toBe("2");
+  });
+
+  it("rejects floating-point quantity business data", () => {
+    const payload = sourcePayload();
+    payload.statuses[0].on_hand_quantity = 2.5 as never;
+    expect(() => parseLiveStockWarehouseSource(payload)).toThrow(
+      "LIVE_STOCK_SOURCE_RESPONSE_INVALID",
+    );
+  });
+
+  it("rejects duplicate source status identities", () => {
+    const payload = sourcePayload();
+    payload.statuses.push({ ...payload.statuses[0] });
+    expect(() => parseLiveStockWarehouseSource(payload)).toThrow();
+  });
+
+  it("rejects reservation quantity larger than on-hand", () => {
+    const payload = sourcePayload();
+    payload.statuses[0].reserved_quantity = "9";
+    expect(() => parseLiveStockWarehouseSource(payload)).toThrow();
+  });
+
+  it("preserves bounded reservation owner identity evidence", () => {
+    const parsed = parseLiveStockWarehouseSource(sourcePayload());
+    expect(parsed.statuses[0].reservation_evidence.owners).toEqual([
+      { transfer_id: 91, reference_number: "TR-91", quantity: "0.500001" },
+    ]);
+  });
+
+  it("renders a bounded mobile card rather than a desktop table", () => {
+    render(<LiveStockMobileCards products={[product]} onOpen={vi.fn()} />);
+    expect(screen.getByTestId("live-stock-mobile-cards")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("opens batch detail from the mobile card with a keyboard-native button", () => {
+    const open = vi.fn();
+    render(<LiveStockMobileCards products={[product]} onOpen={open} />);
+    fireEvent.click(screen.getByRole("button"));
+    expect(open).toHaveBeenCalledWith(product);
+  });
+
+  it("renders exact decimal quantities on mobile", () => {
+    render(<LiveStockMobileCards products={[product]} onOpen={vi.fn()} />);
+    expect(screen.getByText(/2\.500001/)).toBeInTheDocument();
+  });
+
+  it("renders anonymous lot without leaking internal identity in batch detail", () => {
+    render(
+      <BatchDetailPanel
+        product={product}
+        batches={[batch]}
+        hasMore={false}
+        loading={false}
+        error={null}
+        sourceByBatch={{}}
+        sourceLoadingId={null}
+        sourceErrorId={null}
+        onClose={vi.fn()}
+        onRetry={vi.fn()}
+        onLoadMore={vi.fn()}
+        onLoadSource={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("No lot supplied")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("__WANASAH_NOLOT__");
+  });
+
+  it("renders Arabic detail copy and RTL through the shared modal", () => {
+    mocks.language = "ar";
+    render(
+      <BatchDetailPanel
+        product={product}
+        batches={[batch]}
+        hasMore={false}
+        loading={false}
+        error={null}
+        sourceByBatch={{}}
+        sourceLoadingId={null}
+        sourceErrorId={null}
+        onClose={vi.fn()}
+        onRetry={vi.fn()}
+        onLoadMore={vi.fn()}
+        onLoadSource={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("بدون رقم دفعة")).toBeInTheDocument();
+    expect(screen.getByRole("dialog").closest(".app-modal")).toHaveAttribute("dir", "rtl");
+  });
+
+  it("renders English detail copy and LTR", () => {
+    render(
+      <BatchDetailPanel
+        product={product}
+        batches={[batch]}
+        hasMore={false}
+        loading={false}
+        error={null}
+        sourceByBatch={{}}
+        sourceLoadingId={null}
+        sourceErrorId={null}
+        onClose={vi.fn()}
+        onRetry={vi.fn()}
+        onLoadMore={vi.fn()}
+        onLoadSource={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("dialog").closest(".app-modal")).toHaveAttribute("dir", "ltr");
+  });
+
+  it("requests warehouse-scoped source evidence from a normal button", () => {
+    const loadSource = vi.fn();
+    render(
+      <BatchDetailPanel
+        product={product}
+        batches={[batch]}
+        hasMore={false}
+        loading={false}
+        error={null}
+        sourceByBatch={{}}
+        sourceLoadingId={null}
+        sourceErrorId={null}
+        onClose={vi.fn()}
+        onRetry={vi.fn()}
+        onLoadMore={vi.fn()}
+        onLoadSource={loadSource}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Stock source and reservations" }));
+    expect(loadSource).toHaveBeenCalledWith(71);
+  });
+
+  it("shows read-only source and reservation evidence without CP3 mutation controls", () => {
+    const parsed = parseLiveStockWarehouseSource(sourcePayload());
+    render(
+      <BatchDetailPanel
+        product={product}
+        batches={[batch]}
+        hasMore={false}
+        loading={false}
+        error={null}
+        sourceByBatch={{ 71: parsed }}
+        sourceLoadingId={null}
+        sourceErrorId={null}
+        onClose={vi.fn()}
+        onRetry={vi.fn()}
+        onLoadMore={vi.fn()}
+        onLoadSource={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/Warehouse A1/)).toBeInTheDocument();
+    expect(screen.getByText(/Known reservations/)).toBeInTheDocument();
+    expect(
+      screen.queryAllByRole("button", {
+        name: /dispose|recall|quarantine|return to vendor/i,
+      }),
+    ).toHaveLength(0);
+  });
+
+  it("uses shared Modal focus/Escape/focus-restore authority", () => {
+    const panel = source("src/pages/inventory/liveStock/BatchDetailPanel.tsx");
+    const modal = source("src/components/ui/modal.tsx");
+    expect(panel).toContain('import { Modal } from "@/components/ui/modal"');
+    expect(modal).toContain("useDialogFocusTrap");
+    expect(modal).toContain("onClose");
+  });
+
+  it("keeps phone and desktop presentation separate without business-logic duplication", () => {
+    const tab = source("src/pages/inventory/Tab1LiveStock.tsx");
+    const desktop = source("src/pages/inventory/liveStock/LiveStockTable.tsx");
+    const mobile = source("src/pages/inventory/liveStock/LiveStockMobileCards.tsx");
+    expect(tab).toContain("<LiveStockTable");
+    expect(tab).toContain("<LiveStockMobileCards");
+    expect(desktop).toContain("hidden md:table");
+    expect(mobile).toContain("md:hidden");
+    expect(mobile).not.toContain("available_for_sale_quantity =");
+  });
+
+  it("keeps no-permission Live Stock requests fail-closed in MainInventory", () => {
+    const main = source("src/pages/inventory/MainInventory.tsx");
+    expect(main).toContain("if (selectedLocationId === null || !canReadStock) return;");
+    expect(main).toContain("const canReadStock = locationAccess.can('inventory.read')");
+  });
+
+  it("guards stale warehouse responses with request sequence and abort", () => {
+    const main = source("src/pages/inventory/MainInventory.tsx");
+    expect(main).toContain("const requestSeq = ++stockRequestSeq.current");
+    expect(main).toContain("stockAbortRef.current?.abort()");
+    expect(main).toContain("if (requestSeq !== stockRequestSeq.current) return;");
+  });
+
+  it("resets rows and continuation before search/filter/family changes", () => {
+    const main = source("src/pages/inventory/MainInventory.tsx");
+    expect(main).toContain("const resetStockPagination = useCallback");
+    expect(main).toContain("setStockCursor(null)");
+    expect(main).toContain("setStockNextCursor(null)");
+    expect(main).toContain("handleStockSearchChange");
+    expect(main).toContain("handleStockStateChange");
+    expect(main).toContain("handleStockIndicatorsChange");
+    expect(main).toContain("handleStockFamilyChange");
+  });
+
+  it("deduplicates continuation rows by authoritative variant identity", () => {
+    const main = source("src/pages/inventory/MainInventory.tsx");
+    expect(main).toContain("stockItemsRef.current.map((item) => item.id)");
+    expect(main).toContain("!seen.has(item.id)");
+  });
+
+  it("keeps summary request independent from cursor continuation", () => {
+    const main = source("src/pages/inventory/MainInventory.tsx");
+    expect(main).toContain("const fetchStockSummary = useCallback");
+    expect(main).toContain("/warehouse/inventory/summary?location_id=");
+    expect(main).toContain("stockSummaryRequestSeq.current");
+  });
+
+  it("retries the failed continuation cursor without clearing rows or rerunning summary", () => {
+    const main = source("src/pages/inventory/MainInventory.tsx");
+    const cp7Tab = source("src/pages/inventory/Tab1LiveStock.tsx");
+    expect(main).toContain("const [stockPageRetryKey, setStockPageRetryKey] = useState(0)");
+    expect(main).toContain("const retryStockPage = useCallback");
+    expect(main).toContain("setStockPageRetryKey((value) => value + 1)");
+    expect(main).toContain("[selectedLocationId, fetchStock, stockRefreshKey, stockPageRetryKey]");
+    expect(main).toContain("[selectedLocationId, fetchStockSummary, stockRefreshKey]");
+    expect(main).toContain("onRetryPage={retryStockPage}");
+    expect(cp7Tab).toContain("onClick={onRetryPage}");
+  });
+
+  it("keeps CP3 mutations out of the CP7 feature modules", () => {
+    const files = [
+      "BatchDetailPanel.tsx",
+      "LiveStockFilters.tsx",
+      "LiveStockMobileCards.tsx",
+      "LiveStockTable.tsx",
+      "LiveStockWarehouseContext.tsx",
+      "useLiveStockBatchDetail.ts",
+    ].map((name) => source("src/pages/inventory/liveStock", name));
+    for (const text of files) {
+      expect(text).not.toContain("/warehouse/quality/stage");
+      expect(text).not.toContain("/warehouse/quality/disposal/confirm");
+      expect(text).not.toContain("/warehouse/quality/vendor-return/confirm");
+    }
+  });
+});

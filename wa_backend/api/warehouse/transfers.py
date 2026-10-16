@@ -100,6 +100,7 @@ from services import (
 )
 
 
+from domains.transfers.replay import require_special_destination, require_transfer_replay
 from domains.inventory_terminal_quality import confirm_final_disposal
 from domains.inventory_terminal_vendor import confirm_vendor_handover
 from domains.inventory_quality_handling import stage_quality_handling_direct
@@ -880,6 +881,7 @@ async def get_unified_transfer_override_options(
         get_current_backoffice_capability_access
     ),
 ):
+    await _require_transfer_capability(access, 'transfer.send', location_id)
     await _require_transfer_capability(access, 'inventory.fefo_override', location_id)
 
     company_id = access.company_id
@@ -1550,9 +1552,11 @@ async def special_transfer_dispatch(
             request_hash=request_hash,
         )
         if replay_response is not None:
+            await require_transfer_replay(access, int(replay_response["header_id"]), destination=True)
             await db.rollback()
             return replay_response
 
+        await require_special_destination(access, purpose)
         requested_variant_ids = sorted({
             int(item.product_variant_id)
             for item in payload.items
@@ -2919,6 +2923,7 @@ async def unified_transfer_receive(
             request_hash=request_hash,
         )
         if replay_response is not None:
+            await require_transfer_replay(access, payload.transfer_header_id)
             await db.rollback()
             return replay_response
 
@@ -3054,6 +3059,7 @@ async def unified_transfer_cancel(
             request_hash=request_hash,
         )
         if replay_response is not None:
+            await require_transfer_replay(access, header_id)
             await db.rollback()
             return replay_response
 
@@ -3173,6 +3179,7 @@ async def unified_transfer_reject(
             request_hash=request_hash,
         )
         if replay_response is not None:
+            await require_transfer_replay(access, header_id)
             await db.rollback()
             return replay_response
 

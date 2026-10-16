@@ -1,25 +1,14 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { useStocktakeCopy } from "../copy";
+import { executeStocktakeDurableCommand, type StocktakeDurableIdentity } from "../durableCommand";
 import { formatPublicBatchNumber } from "../../publicBatchNumber";
-import type {
-  CycleBatchOption,
-  CycleProductOption,
-  StocktakeAuthFetch,
-} from "../types";
-import {
-  getErrorMessage,
-  parseCycleBatchPage,
-  parseCycleProductPage,
-  parseStartSessionId,
-} from "../parsers";
+import type { CycleBatchOption, CycleProductOption, StocktakeAuthFetch } from "../types";
+import { getErrorMessage, parseCycleBatchPage, parseCycleProductPage, parseStartSessionId } from "../parsers";
 
 interface UseCycleCountStartArgs {
+  durableIdentity: StocktakeDurableIdentity | null;
   locationId: number;
   enabled: boolean;
   authenticatedFetch: StocktakeAuthFetch;
@@ -27,25 +16,16 @@ interface UseCycleCountStartArgs {
   phaseKey: string;
   setSessionId: (value: string | null) => void;
   setSessionLocationId: (value: number | null) => void;
-  loadCountSheet: (
-    sessionId: string,
-    sessionLocationId?: number
-  ) => Promise<void>;
+  loadCountSheet: (sessionId: string, sessionLocationId?: number) => Promise<void>;
   notifyStocktakeChanged: () => Promise<void>;
 }
 
 export function useCycleCountStart({
-  locationId,
-  enabled,
-  authenticatedFetch,
-  sessionKey,
-  phaseKey,
-  setSessionId,
-  setSessionLocationId,
-  loadCountSheet,
-  notifyStocktakeChanged,
+  durableIdentity, locationId, enabled, authenticatedFetch, sessionKey, phaseKey,
+  setSessionId, setSessionLocationId, loadCountSheet, notifyStocktakeChanged,
 }: UseCycleCountStartArgs) {
   const { t } = useTranslation();
+  const { copy } = useStocktakeCopy();
   const [productSearchInput, setProductSearchInput] = useState("");
   const [productSearch, setProductSearch] = useState("");
   const [products, setProducts] = useState<CycleProductOption[]>([]);
@@ -54,7 +34,6 @@ export function useCycleCountStart({
   const [productsLoadingMore, setProductsLoadingMore] = useState(false);
   const productRequestSeq = useRef(0);
   const [selectedProduct, setSelectedProduct] = useState<CycleProductOption | null>(null);
-
   const [batchSearchInput, setBatchSearchInput] = useState("");
   const [batchSearch, setBatchSearch] = useState("");
   const [batches, setBatches] = useState<CycleBatchOption[]>([]);
@@ -63,7 +42,6 @@ export function useCycleCountStart({
   const [batchesLoadingMore, setBatchesLoadingMore] = useState(false);
   const batchRequestSeq = useRef(0);
   const [selectedBatch, setSelectedBatch] = useState<CycleBatchOption | null>(null);
-
   const [notes, setNotes] = useState("");
   const [starting, setStarting] = useState(false);
 
@@ -112,12 +90,8 @@ export function useCycleCountStart({
       setProductsLoading(true);
     }
     if (!append) setProductsNextCursor(null);
-
     try {
-      const params = new URLSearchParams({
-        location_id: String(locationId),
-        limit: "50",
-      });
+      const params = new URLSearchParams({ location_id: String(locationId), limit: "50" });
       if (productSearch) params.set("search", productSearch);
       if (cursor) params.set("cursor", cursor);
       const raw = await authenticatedFetch(`/warehouse/inventory/cursor?${params.toString()}`);
@@ -133,11 +107,8 @@ export function useCycleCountStart({
       setProductsNextCursor(page.next_cursor);
     } catch (error: unknown) {
       if (seq !== productRequestSeq.current) return;
-      if (!append) {
-        setProducts([]);
-        setProductsNextCursor(null);
-      }
-      toast.error(getErrorMessage(error, "فشل جلب أصناف الجرد الدوري."));
+      if (!append) { setProducts([]); setProductsNextCursor(null); }
+      toast.error(getErrorMessage(error, copy.generic.cycleProductsFailed));
     } finally {
       if (seq === productRequestSeq.current) {
         if (append) {
@@ -147,7 +118,7 @@ export function useCycleCountStart({
         }
       }
     }
-  }, [authenticatedFetch, enabled, locationId, productSearch]);
+  }, [authenticatedFetch, copy.generic.cycleProductsFailed, enabled, locationId, productSearch]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -157,11 +128,7 @@ export function useCycleCountStart({
   }, [enabled, fetchProducts]);
 
   const fetchBatches = useCallback(async (cursor: string | null = null, append = false) => {
-    if (!enabled || !selectedProduct) {
-      setBatches([]);
-      setBatchesNextCursor(null);
-      return;
-    }
+    if (!enabled || !selectedProduct) { setBatches([]); setBatchesNextCursor(null); return; }
     const seq = ++batchRequestSeq.current;
     if (append) {
       setBatchesLoadingMore(true);
@@ -169,12 +136,9 @@ export function useCycleCountStart({
       setBatchesLoading(true);
     }
     if (!append) setBatchesNextCursor(null);
-
     try {
       const params = new URLSearchParams({
-        location_id: String(locationId),
-        product_variant_id: String(selectedProduct.id),
-        limit: "50",
+        location_id: String(locationId), product_variant_id: String(selectedProduct.id), limit: "50",
       });
       if (batchSearch) params.set("search", batchSearch);
       if (cursor) params.set("cursor", cursor);
@@ -191,11 +155,8 @@ export function useCycleCountStart({
       setBatchesNextCursor(page.next_cursor);
     } catch (error: unknown) {
       if (seq !== batchRequestSeq.current) return;
-      if (!append) {
-        setBatches([]);
-        setBatchesNextCursor(null);
-      }
-      toast.error(getErrorMessage(error, "فشل جلب دفعات الصنف."));
+      if (!append) { setBatches([]); setBatchesNextCursor(null); }
+      toast.error(getErrorMessage(error, copy.generic.cycleBatchesFailed));
     } finally {
       if (seq === batchRequestSeq.current) {
         if (append) {
@@ -205,7 +166,7 @@ export function useCycleCountStart({
         }
       }
     }
-  }, [authenticatedFetch, batchSearch, enabled, locationId, selectedProduct]);
+  }, [authenticatedFetch, batchSearch, copy.generic.cycleBatchesFailed, enabled, locationId, selectedProduct]);
 
   useEffect(() => {
     batchRequestSeq.current += 1;
@@ -221,47 +182,46 @@ export function useCycleCountStart({
     setBatchSearch("");
     setSelectedBatch(null);
   }, []);
-
   const clearProduct = useCallback(() => {
     setSelectedProduct(null);
     setBatchSearchInput("");
     setBatchSearch("");
     setSelectedBatch(null);
   }, []);
-
   const loadMoreProducts = useCallback(() => {
     if (!productsNextCursor || productsLoadingMore) return;
     void fetchProducts(productsNextCursor, true);
   }, [fetchProducts, productsLoadingMore, productsNextCursor]);
-
   const loadMoreBatches = useCallback(() => {
     if (!batchesNextCursor || batchesLoadingMore) return;
     void fetchBatches(batchesNextCursor, true);
   }, [batchesLoadingMore, batchesNextCursor, fetchBatches]);
 
   const startCycleCount = useCallback(async () => {
-    if (!selectedProduct) {
-      toast.error("اختر الصنف الذي تريد جرده.");
-      return false;
-    }
-    if (notes.trim().length > 4000) {
-      toast.error("ملاحظات الجرد لا يجوز أن تتجاوز 4000 حرف.");
+    if (!selectedProduct) { toast.error(copy.cycle.selectProduct); return false; }
+    if (notes.trim().length > 4000) { toast.error(copy.cycle.notesTooLong); return false; }
+    if (!durableIdentity) {
+      toast.error(copy.generic.identityNotReady);
       return false;
     }
 
     setStarting(true);
     try {
-      const raw = await authenticatedFetch("/warehouse/unified/stocktake/start", {
-        method: "POST",
-        body: JSON.stringify({
+      const raw = await executeStocktakeDurableCommand({
+        identity: durableIdentity,
+        operation: "start-cycle",
+        target: `${locationId}:${selectedProduct.id}:${selectedBatch?.id ?? "all"}`,
+        payload: {
           location_id: locationId,
           stocktake_type: "CYCLE_COUNT",
           product_variant_id: selectedProduct.id,
           batch_id: selectedBatch?.id ?? null,
           notes: notes.trim() || null,
+        },
+        send: (body) => authenticatedFetch("/warehouse/unified/stocktake/start", {
+          method: "POST", body: JSON.stringify(body),
         }),
       });
-
       const sid = String(parseStartSessionId(raw));
       localStorage.setItem(sessionKey, sid);
       localStorage.setItem(phaseKey, "COUNTING");
@@ -269,61 +229,29 @@ export function useCycleCountStart({
       setSessionId(sid);
       await loadCountSheet(sid, locationId);
       await notifyStocktakeChanged();
-
-      toast.success(
-        selectedBatch
-          ? `تم بدء جرد دوري للصنف ${selectedProduct.name} — الدفعة ${formatPublicBatchNumber(selectedBatch.batch_number, t("inventoryLive.noLotSupplied"))}.`
-          : `تم بدء جرد دوري للصنف ${selectedProduct.name} بكل دفعاته.`
-      );
+      toast.success(selectedBatch
+        ? copy.cycle.startedBatch(selectedProduct.name, formatPublicBatchNumber(selectedBatch.batch_number, t("inventoryLive.noLotSupplied")))
+        : copy.cycle.startedAll(selectedProduct.name));
       resetForm();
       return true;
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "فشل بدء الجرد الدوري."));
+      toast.error(getErrorMessage(error, copy.generic.cycleStartFailed));
       return false;
     } finally {
       setStarting(false);
     }
   }, [
-    authenticatedFetch,
-    loadCountSheet,
-    locationId,
-    notes,
-    notifyStocktakeChanged,
-    phaseKey,
-    resetForm,
-    selectedBatch,
-    selectedProduct,
-    sessionKey,
-    setSessionId,
-    setSessionLocationId,
-    t,
+    authenticatedFetch, copy.cycle, copy.generic.cycleStartFailed, copy.generic.identityNotReady, durableIdentity,
+    loadCountSheet, locationId, notes, notifyStocktakeChanged, phaseKey, resetForm,
+    selectedBatch, selectedProduct, sessionKey, setSessionId, setSessionLocationId, t,
   ]);
 
   return {
-    productSearchInput,
-    setProductSearchInput,
-    products,
-    productsNextCursor,
-    productsLoading,
-    productsLoadingMore,
-    selectedProduct,
-    chooseProduct,
-    clearProduct,
-    loadMoreProducts,
-    batchSearchInput,
-    setBatchSearchInput,
-    batches,
-    batchesNextCursor,
-    batchesLoading,
-    batchesLoadingMore,
-    selectedBatch,
-    setSelectedBatch,
-    loadMoreBatches,
-    notes,
-    setNotes,
-    starting,
-    startCycleCount,
-    resetForm,
+    productSearchInput, setProductSearchInput, products, productsNextCursor,
+    productsLoading, productsLoadingMore, selectedProduct, chooseProduct, clearProduct,
+    loadMoreProducts, batchSearchInput, setBatchSearchInput, batches, batchesNextCursor,
+    batchesLoading, batchesLoadingMore, selectedBatch, setSelectedBatch, loadMoreBatches,
+    notes, setNotes, starting, startCycleCount, resetForm,
   };
 }
 

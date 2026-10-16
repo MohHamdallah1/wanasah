@@ -47,6 +47,7 @@ interface Props {
   locations: LocationOption[];
   focusLocationId?: number;
   focusAssignmentId?: number;
+  onChanged?: () => void | Promise<void>;
 }
 
 type OperationalFlags = {
@@ -206,6 +207,7 @@ export function ProductLocationManager({
   locations,
   focusLocationId,
   focusAssignmentId,
+  onChanged,
 }: Props) {
   const { t } = useTranslation();
   const authFetch = useAuthFetch();
@@ -258,8 +260,14 @@ export function ProductLocationManager({
       "product_location.read",
     );
   const canManageAssignments =
+    canReadAssignments &&
     access.canAny(
       "product_location.manage",
+    );
+  const canDiscoverLocations =
+    canManageAssignments &&
+    access.canAny(
+      "location.read",
     );
   const companyId =
     access.data?.company_id ??
@@ -268,6 +276,7 @@ export function ProductLocationManager({
     access.data?.backoffice_user_id ??
     null;
   const assignmentScope =
+    canManageAssignments &&
     companyId !== null &&
     backofficeUserId !== null
       ? durableScope(
@@ -419,6 +428,7 @@ export function ProductLocationManager({
     ) => {
       if (
         busy ||
+        !canManageAssignments ||
         !assignmentScope ||
         !isOnline ||
         pendingBlocked
@@ -581,6 +591,13 @@ export function ProductLocationManager({
           ),
         );
         await loadAssignments();
+        if (onChanged) {
+          try {
+            await onChanged();
+          } catch {
+            // The mutation already succeeded; parent refresh failure is isolated.
+          }
+        }
       } catch (error) {
         const code =
           apiErrorCode(error);
@@ -763,12 +780,14 @@ export function ProductLocationManager({
       ),
     );
   const availableLocations =
-    locations.filter(
-      (item) =>
-        !assignedIds.has(
-          item.id,
-        ),
-    );
+    canDiscoverLocations
+      ? locations.filter(
+          (item) =>
+            !assignedIds.has(
+              item.id,
+            ),
+        )
+      : [];
   const mutationDisabled =
     busy ||
     !isOnline ||
@@ -986,7 +1005,7 @@ export function ProductLocationManager({
             )}
           </div>
 
-          {canManageAssignments &&
+          {canDiscoverLocations &&
           variant.lifecycle_status ===
             "ACTIVE" &&
           availableLocations.length >

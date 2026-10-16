@@ -36,6 +36,8 @@ PACKAGE_MODULE_ORDER = (
     "locations",
     "inbound",
     "live_stock",
+    "live_stock_source_detail",
+    "batch_index",
     "ledger",
     "status",
     "inbound_adjustments",

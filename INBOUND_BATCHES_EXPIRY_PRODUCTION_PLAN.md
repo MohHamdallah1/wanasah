@@ -6,6 +6,10 @@
 > - `[x]` Completed
 > - `[!]` Blocked / requires decision
 >
+> **Status:** Execution is superseded by `INVENTORY_WAREHOUSE_V1_END_TO_END_CLOSURE_PLAN.md`. This file is retained as historical design/evidence; its historical checkboxes are not the canonical completion tracker.
+>
+> **Canonical mapping:** Parts A/B → CP1; C/D → CP2 + CP13; E → CP3; F → CP6 + CP13; G/I → CP12 + CP13; H → CP12; J → CP14 + CP15.
+>
 > **Execution rule:** We do not mark any item `[x]` until its implementation, tests/gates, and regression review are complete.
 >
 > **Architecture rule:** Tenant/company isolation and warehouse isolation are non-negotiable. Every read/filter/candidate stage must remain explicitly scoped before pagination or aggregation.
@@ -629,7 +633,9 @@ Final:
 
 ---
 
-## Next concrete step
+## Historical next concrete step (superseded)
+
+This section is retained as historical execution context; current execution is governed by `INVENTORY_WAREHOUSE_V1_END_TO_END_CLOSURE_PLAN.md`.
 
 **Next page to audit and finish: `Tab2Inbound` / Goods Receipt.**
 

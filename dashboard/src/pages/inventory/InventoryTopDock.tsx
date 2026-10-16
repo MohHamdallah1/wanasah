@@ -1,6 +1,7 @@
 import {
   useEffect,
   useRef,
+  type KeyboardEvent,
   type ReactNode,
 } from "react";
 import type { LucideIcon } from "lucide-react";
@@ -10,6 +11,7 @@ import {
   createInventoryTopDockController,
   type InventoryTopDockOptions,
 } from "./inventoryTopDockController";
+import "./inventoryShellPolish.css";
 
 type InventoryDockItem = {
   id: string;
@@ -75,6 +77,41 @@ export function InventoryTopDock({
 }: InventoryTopDockProps) {
   const rootRef = useInventoryDockController();
 
+  const moveFocus = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    currentIndex: number,
+  ) => {
+    if (!items.length) return;
+
+    const root = rootRef.current;
+    if (!root) return;
+
+    const inheritedDir = root.closest<HTMLElement>("[dir]")?.getAttribute("dir");
+    const isRtl = inheritedDir === "rtl" || (
+      inheritedDir !== "ltr" && window.getComputedStyle(root).direction === "rtl"
+    );
+    let nextIndex: number | null = null;
+
+    if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = items.length - 1;
+    else if (event.key === "ArrowRight") {
+      nextIndex = currentIndex + (isRtl ? -1 : 1);
+    } else if (event.key === "ArrowLeft") {
+      nextIndex = currentIndex + (isRtl ? 1 : -1);
+    } else {
+      return;
+    }
+
+    event.preventDefault();
+    const normalized = (nextIndex + items.length) % items.length;
+    const nextItem = items[normalized];
+    const tabs = root.querySelectorAll<HTMLButtonElement>("[role='tab']");
+    const nextTab = tabs[normalized];
+    nextTab?.focus();
+    nextTab?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    onChange(nextItem.id);
+  };
+
   return (
     <WorkspaceTopBar
       variant="dock"
@@ -87,29 +124,38 @@ export function InventoryTopDock({
         className="inventory-top-dock__aurora"
         aria-hidden="true"
       />
-        <nav
-          ref={rootRef}
-          className="inventory-top-dock__dock"
-          aria-label={ariaLabel}
-          role="tablist"
-          data-dock-state="idle"
-          data-dock-max="0.00"
-        >
-          {items.map(({ id, label, icon }) => (
+      <nav
+        ref={rootRef}
+        className="inventory-top-dock__dock"
+        aria-label={ariaLabel}
+        aria-orientation="horizontal"
+        role="tablist"
+        data-dock-state="idle"
+        data-dock-max="0.00"
+      >
+        {items.map(({ id, label, icon }, index) => {
+          const active = activeId === id;
+          return (
             <button
               key={id}
               type="button"
               role="tab"
-              aria-selected={activeId === id}
+              aria-selected={active}
+              aria-current={active ? "page" : undefined}
+              tabIndex={active ? 0 : -1}
               data-inventory-dock-item
-              className="inventory-top-dock__item"
+              data-active={active ? "true" : "false"}
+              className="inventory-top-dock__item focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+              title={label}
               onClick={() => onChange(id)}
+              onKeyDown={(event) => moveFocus(event, index)}
             >
               <DockIcon icon={icon} />
-              <span>{label}</span>
+              <span className="inventory-top-dock__label">{label}</span>
             </button>
-          ))}
-        </nav>
+          );
+        })}
+      </nav>
     </WorkspaceTopBar>
   );
 }

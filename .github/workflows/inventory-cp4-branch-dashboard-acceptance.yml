@@ -1,14 +1,17 @@
-name: Inventory CP4 branch Dashboard acceptance
+name: Inventory CP4 Warehouse Branch closure
 
 on:
   push:
     branches:
-      - sol/cp4-branch-dashboard-parity
+      - sol/cp4-warehouse-lifecycle-closure-wave2
   pull_request:
     branches:
-      - main
+      - integration/inventory-wave-2
     paths:
-      - "dashboard/src/pages/inventory/MainInventory.tsx"
+      - "wa_backend/api/warehouse/locations.py"
+      - "wa_backend/tests/test_cp4_warehouse_branch_lifecycle_closure.py"
+      - "wa_backend/tests/test_cp4_warehouse_branch_lifecycle_postgres.py"
+      - "wa_backend/tests/test_cp4_warehouse_deactivation_blockers_postgres.py"
       - "dashboard/src/pages/inventory/TabWarehouseLocations.tsx"
       - "dashboard/src/pages/inventory/warehouse-locations/BranchManagementModal.tsx"
       - "dashboard/src/pages/inventory/warehouse-locations/BranchSelector.tsx"
@@ -20,10 +23,103 @@ permissions:
   contents: read
 
 concurrency:
-  group: cp4-branch-dashboard-${{ github.ref }}
+  group: cp4-warehouse-branch-closure-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  backend-focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp4SyntheticOnlyKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://cp4_unit@127.0.0.1:1/cp4_unit
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: CP4 focused Backend acceptance
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_cp4_warehouse_branch_lifecycle_closure.py
+          tests/test_warehouse_locations_canonical_auth_cutover.py
+          tests/test_branch_canonical_authorization_cutover.py
+      - name: py_compile changed Backend
+        run: python -m py_compile wa_backend/api/warehouse/locations.py
+
+  postgres-16:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp4PostgresOnlyKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://cp4_app@127.0.0.1:55444/wanasah_cp4_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp4_admin@127.0.0.1:55444/wanasah_cp4_test
+      WANASAH_CP4_PG_GATE: "1"
+      WANASAH_CP4_PG_URL: postgresql+asyncpg://cp4_admin@127.0.0.1:55444/wanasah_cp4_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL acceptance dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name cp4-postgres \
+            --env POSTGRES_USER=cp4_admin \
+            --env POSTGRES_DB=wanasah_cp4_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55444:55444 \
+            postgres:16 -p 55444
+          for attempt in $(seq 1 30); do
+            if docker exec cp4-postgres pg_isready -U cp4_admin -d wanasah_cp4_test -p 55444; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs cp4-postgres
+          exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              exists = conn.execute(
+                  "SELECT 1 FROM pg_roles WHERE rolname='cp4_app'"
+              ).fetchone()
+              if not exists:
+                  conn.execute(
+                      "CREATE ROLE cp4_app LOGIN NOSUPERUSER "
+                      "NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS"
+                  )
+          PY
+      - name: Migrate disposable CP4 database
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: CP4 PostgreSQL 16 acceptance
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_cp4_warehouse_branch_lifecycle_postgres.py
+          tests/test_cp4_warehouse_deactivation_blockers_postgres.py
+
   dashboard-focused:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -32,32 +128,23 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
-
       - name: Locked Dashboard dependencies
         working-directory: dashboard
         run: npm ci --no-audit --no-fund
-
-      - name: CP4 focused Branch Dashboard acceptance
+      - name: CP4 focused Dashboard acceptance
         working-directory: dashboard
         run: npm test -- src/test/inventory-cp4-branch-dashboard.test.tsx
-
-      - name: Relevant branch authority and durable-operation regressions
+      - name: Relevant branch authority regression
         working-directory: dashboard
-        run: >-
-          npm test --
-          src/test/inventory-access-canonical-contract.test.ts
-          src/test/durable-operations-p4.test.ts
-
-      - name: CP6 minimum-stock Dashboard regression
+        run: npm test -- src/test/inventory-access-canonical-contract.test.ts src/test/durable-operations-p4.test.ts
+      - name: CP6 relevant regression
         working-directory: dashboard
         run: npm test -- src/test/inventory-cp6-minimum-stock-dashboard.test.tsx
-
       - name: CP1 Dashboard regression
         working-directory: dashboard
         run: >-
@@ -70,57 +157,59 @@ jobs:
           src/test/inventory-batch-stock-sources.test.ts
           src/test/inventory-batches-expiry-semantics.test.tsx
           src/test/inventory-batches-pagination.test.ts
-
       - name: TypeScript noEmit
         working-directory: dashboard
         run: npx tsc --noEmit
-
       - name: Production Dashboard build
         working-directory: dashboard
         run: npm run build
 
-      - name: CP4 diff whitespace gate
-        run: git diff --check 1629772a9215a4874d4d3c825d05f3cc564c38e4 HEAD
-
-      - name: Verify exact bounded CP4 Dashboard scope
+  dynamic-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Resolve PR target merge-base
+        shell: bash
         run: |
+          target="${{ github.event.pull_request.base.ref }}"
+          if [ -z "$target" ]; then target="integration/inventory-wave-2"; fi
+          git fetch origin "$target" --no-tags
+          base="$(git merge-base HEAD "origin/$target")"
+          echo "CP4_BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "CP4_TARGET_REF=$target" >> "$GITHUB_ENV"
+          echo "CP4_DYNAMIC_BASE=$base"
+      - name: Verify target and exact bounded CP4 scope
+        shell: bash
+        run: |
+          test "$CP4_TARGET_REF" = "integration/inventory-wave-2"
           python - <<'PY'
+          import os
           import subprocess
 
-          base = "1629772a9215a4874d4d3c825d05f3cc564c38e4"
+          base = os.environ["CP4_BASE_SHA"]
           allowed = {
               ".github/workflows/inventory-cp4-branch-dashboard-acceptance.yml",
-              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "wa_backend/api/warehouse/locations.py",
+              "wa_backend/tests/test_cp4_warehouse_branch_lifecycle_closure.py",
+              "wa_backend/tests/test_cp4_warehouse_branch_lifecycle_postgres.py",
+              "wa_backend/tests/test_cp4_warehouse_deactivation_blockers_postgres.py",
               "dashboard/src/pages/inventory/TabWarehouseLocations.tsx",
               "dashboard/src/pages/inventory/warehouse-locations/BranchManagementModal.tsx",
               "dashboard/src/pages/inventory/warehouse-locations/BranchSelector.tsx",
               "dashboard/src/test/inventory-cp4-branch-dashboard.test.tsx",
           }
-          changed = set(
-              subprocess.check_output(
-                  ["git", "diff", "--name-only", base, "HEAD"],
-                  text=True,
-              ).splitlines()
-          )
-          assert changed == allowed, f"Unexpected CP4 Dashboard scope: {sorted(changed)}"
-          print("CP4_DASHBOARD_SCOPE=PASS")
-          print("BACKEND_UNTOUCHED=PASS")
-          print("CP6_MINIMUM_STOCK_RUNTIME_UNTOUCHED=PASS")
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only", base, "HEAD"], text=True
+          ).splitlines())
+          assert changed == allowed, f"Unexpected CP4 closure scope: {sorted(changed)}"
+          print("CP4_DYNAMIC_SCOPE=PASS")
+          print("SCHEMAS_UNTOUCHED=PASS")
+          print("BRANCH_BACKEND_UNTOUCHED=PASS")
+          print("CP6_RUNTIME_UNTOUCHED=PASS")
           PY
-
-      - name: Prove unrelated frontend failures preexist on exact base
-        working-directory: dashboard
-        run: |
-          git checkout 1629772a9215a4874d4d3c825d05f3cc564c38e4 -- .
-          set +e
-          npm test -- \
-            src/test/inventory-access.test.ts \
-            src/test/inventory-live-stock-readonly-boundary.test.ts \
-            > /tmp/cp4-unrelated-base.log 2>&1
-          status=$?
-          set -e
-          cat /tmp/cp4-unrelated-base.log
-          test "$status" -ne 0
-          grep -F "parses a location-scoped cursor page without losing movement snapshots" /tmp/cp4-unrelated-base.log
-          grep -F "never falls back from a blocker action to Live Stock" /tmp/cp4-unrelated-base.log
-          echo "UNRELATED_FRONTEND_BASELINE_FAILURES=PROVEN"
+      - name: Dynamic diff whitespace gate
+        run: git diff --check "$CP4_BASE_SHA" HEAD

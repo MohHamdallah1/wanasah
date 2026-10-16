@@ -1,0 +1,171 @@
+name: Inventory CP2 Batch Index Acceptance
+
+on:
+  push:
+    branches:
+      - sol/cp2-batch-index-backend-main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cp2-batch-index-acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: wanasah_cp2
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d wanasah_cp2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: CP2-Batch-Index-Acceptance-Only-Secret-Key-2026-Aa7-Qm9
+      DATABASE_URL: postgresql+asyncpg://wanasah_runtime:runtime@127.0.0.1:5432/wanasah_cp2
+      DATABASE_URL_MIGRATION: postgresql+psycopg://wanasah_migration:migration@127.0.0.1:5432/wanasah_cp2
+      CI_ADMIN_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/wanasah_cp2
+      CP2_POSTGRES_ACCEPTANCE: "1"
+      COST_ZERO: "0.0000"
+      CP2_REQUESTED_BASE_SHA: 1629772a9215a4874d4d3c825d05f3cc564c38e4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt pytest pytest-asyncio httpx
+      - name: Wait for PostgreSQL 16 and provision separate roles
+        run: |
+          python - <<'PY'
+          import os
+          import time
+          import psycopg
+
+          admin_dsn = os.environ["CI_ADMIN_DATABASE_URL"]
+          for attempt in range(30):
+              try:
+                  with psycopg.connect(admin_dsn, autocommit=True) as conn:
+                      conn.execute("SELECT 1")
+                  break
+              except Exception:
+                  if attempt == 29:
+                      raise
+                  time.sleep(1)
+
+          with psycopg.connect(admin_dsn, autocommit=True) as conn:
+              if conn.execute("SELECT 1 FROM pg_roles WHERE rolname = 'wanasah_migration'").fetchone() is None:
+                  conn.execute("CREATE ROLE wanasah_migration LOGIN BYPASSRLS PASSWORD 'migration'")
+              if conn.execute("SELECT 1 FROM pg_roles WHERE rolname = 'wanasah_runtime'").fetchone() is None:
+                  conn.execute("CREATE ROLE wanasah_runtime LOGIN NOBYPASSRLS PASSWORD 'runtime'")
+              conn.execute("ALTER DATABASE wanasah_cp2 OWNER TO wanasah_migration")
+              conn.execute("GRANT CONNECT ON DATABASE wanasah_cp2 TO wanasah_runtime")
+          print("POSTGRESQL_16=READY migration_bypassrls=True runtime_bypassrls=False")
+          PY
+      - name: Upgrade real PostgreSQL schema
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: Grant restricted runtime DML for acceptance fixture
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          dsn = os.environ["DATABASE_URL_MIGRATION"].replace("postgresql+psycopg://", "postgresql://", 1)
+          with psycopg.connect(dsn) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_runtime")
+              conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_runtime")
+              conn.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_runtime")
+          print("CP2_RUNTIME_DML=READY ddl_privilege=False")
+          PY
+      - name: CP2 focused tests
+        working-directory: wa_backend
+        run: |
+          python -m pytest -q \
+            tests/test_inventory_batch_index_contract.py \
+            tests/test_inventory_batch_index_authorization.py
+      - name: CP2 real PostgreSQL acceptance
+        working-directory: wa_backend
+        run: python -m pytest -q -s tests/test_inventory_batch_index_postgres_acceptance.py
+      - name: CP1 regression
+        working-directory: wa_backend
+        run: |
+          python -m pytest -q \
+            tests/test_inbound_lot_expiry_checkpoint1.py \
+            tests/test_product_tracking_canonical_auth.py \
+            tests/test_supplier_inbound_quality_canonical_auth_cutover.py \
+            tests/test_batch_stock_sources_contract.py \
+            tests/test_batch_reservation_owner_contract.py \
+            tests/test_whole_product_quality_issue_sources.py
+      - name: Warehouse route manifest gate
+        working-directory: wa_backend
+        run: python scripts/gate_warehouse_route_manifest.py
+      - name: CP2 py_compile
+        working-directory: wa_backend
+        run: |
+          python -m py_compile \
+            api/warehouse/__init__.py \
+            api/warehouse/batch_index.py \
+            schemas.py \
+            scripts/gate_warehouse_route_manifest.py \
+            tests/test_inventory_batch_index_contract.py \
+            tests/test_inventory_batch_index_authorization.py \
+            tests/test_inventory_batch_index_postgres_acceptance.py
+      - name: Resolve CP2 audit base
+        id: audit-base
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            echo "sha=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=$CP2_REQUESTED_BASE_SHA" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Diff check
+        run: git diff --check "${{ steps.audit-base.outputs.sha }}" HEAD --
+      - name: Exact CP2 scope audit
+        env:
+          CP2_AUDIT_BASE_SHA: ${{ steps.audit-base.outputs.sha }}
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+
+          expected = {
+              ".github/workflows/inventory-cp2-batch-index-acceptance.yml",
+              "wa_backend/api/warehouse/__init__.py",
+              "wa_backend/api/warehouse/batch_index.py",
+              "wa_backend/schemas.py",
+              "wa_backend/scripts/warehouse_route_manifest_extensions.json",
+              "wa_backend/scripts/gate_warehouse_route_manifest.py",
+              "wa_backend/tests/test_inventory_batch_index_contract.py",
+              "wa_backend/tests/test_inventory_batch_index_authorization.py",
+              "wa_backend/tests/test_inventory_batch_index_postgres_acceptance.py",
+          }
+          changed = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", os.environ["CP2_AUDIT_BASE_SHA"], "HEAD", "--"],
+                  text=True,
+              ).splitlines()
+          )
+          if changed != expected:
+              raise SystemExit(
+                  "CP2_SCOPE=FAIL\n"
+                  f"missing={sorted(expected - changed)}\n"
+                  f"extra={sorted(changed - expected)}"
+              )
+          forbidden_prefixes = ("wa_backend/alembic/versions/", "dashboard/")
+          if any(path.startswith(forbidden_prefixes) for path in changed):
+              raise SystemExit("CP2_SCOPE=FAIL forbidden runtime expansion")
+          print("CP2_SCOPE=PASS exact_files=9 runtime_files=5 test_files=3 workflow_files=1")
+          PY

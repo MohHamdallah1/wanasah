@@ -1,0 +1,93 @@
+name: Inventory CP5 ProductLocation Dashboard acceptance
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "dashboard/src/features/inventory/productLocations/ProductLocationManager.tsx"
+      - "dashboard/src/pages/inventory/archive/ArchiveOwnerWorkspace.tsx"
+      - "dashboard/src/pages/products/ProductsPage.tsx"
+      - "dashboard/src/pages/products/list/ProductsListResults.tsx"
+      - "dashboard/src/pages/products/list/ProductTableRow.tsx"
+      - "dashboard/src/pages/products/list/ProductMobileCard.tsx"
+      - "dashboard/src/pages/products/list/ProductRowActions.tsx"
+      - "dashboard/src/pages/products/product-locations/**"
+      - "dashboard/src/i18n/archiveOwners.ts"
+      - "dashboard/src/test/cp5-product-location-dashboard.test.tsx"
+      - "dashboard/src/test/cp5-product-location-modal.test.tsx"
+      - ".github/workflows/inventory-cp5-product-location-dashboard-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cp5-product-location-dashboard-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dashboard-acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CP5_BASE_SHA: ${{ github.event.pull_request.base.sha || '69ceb7305351ae091411582ebc2911ed49be8c50' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Locked frontend dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: CP5 focused ProductLocation Dashboard acceptance
+        working-directory: dashboard
+        run: >-
+          timeout 120s npm test --
+          src/test/cp5-product-location-dashboard.test.tsx
+          src/test/cp5-product-location-modal.test.tsx
+          src/test/catalog-inventory-boundary.test.ts
+          --reporter=verbose
+      - name: TypeScript noEmit
+        working-directory: dashboard
+        run: npx tsc --noEmit
+      - name: Production Dashboard build
+        working-directory: dashboard
+        run: npm run build
+      - name: Diff whitespace gate
+        run: git diff --check "$CP5_BASE_SHA" HEAD
+      - name: Verify exact CP5 file scope
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["CP5_BASE_SHA"]
+          allowed = {
+              ".github/workflows/inventory-cp5-product-location-dashboard-acceptance.yml",
+              "dashboard/src/features/inventory/productLocations/ProductLocationManager.tsx",
+              "dashboard/src/i18n/archiveOwners.ts",
+              "dashboard/src/pages/inventory/archive/ArchiveOwnerWorkspace.tsx",
+              "dashboard/src/pages/products/ProductsPage.tsx",
+              "dashboard/src/pages/products/list/ProductMobileCard.tsx",
+              "dashboard/src/pages/products/list/ProductRowActions.tsx",
+              "dashboard/src/pages/products/list/ProductTableRow.tsx",
+              "dashboard/src/pages/products/list/ProductsListResults.tsx",
+              "dashboard/src/pages/products/product-locations/ProductLocationsModal.tsx",
+              "dashboard/src/pages/products/product-locations/useProductLocationWorkflow.ts",
+              "dashboard/src/test/cp5-product-location-dashboard.test.tsx",
+              "dashboard/src/test/cp5-product-location-modal.test.tsx",
+          }
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only", base, "HEAD"],
+              text=True,
+          ).splitlines())
+          assert changed == allowed, f"Unexpected CP5 scope: {sorted(changed)}"
+          assert not any(path.startswith("wa_backend/") for path in changed)
+          print("CP5_SCOPE=PASS")
+          PY

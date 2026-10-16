@@ -22,7 +22,7 @@ vi.mock("@/pages/inventory/MainInventory", () => ({ default: () => { mocks.shell
 const clients: QueryClient[] = [];
 beforeEach(() => {
   mocks.fetch.mockReset(); mocks.shell.mockReset(); mocks.toast.mockReset(); localStorage.clear();
-  localStorage.setItem("company_id", "1"); localStorage.setItem("driver_id", "7");
+  localStorage.setItem("company_id", "1"); localStorage.setItem("driver_id", "7"); localStorage.setItem("principal_id", "7");
   localStorage.setItem("inventory_selected_location:1", "999");
 });
 afterEach(() => { cleanup(); clients.forEach((client) => client.clear()); clients.length = 0; });
@@ -115,15 +115,17 @@ describe("batch-first Phase 1 acceptance", () => {
 
   it("hides a warm cache until a new owner read and fails closed after revocation", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    client.setQueryData(["batch-stock-sources", 1, 7, 41], parseBatchStockSources(batchFocusPayload([batchSource(12, "Hidden B")])));
+    client.setQueryData(["batch-stock-sources", 1, 17, 41], parseBatchStockSources(batchFocusPayload([batchSource(12, "Hidden B")])));
     let deny: (reason: unknown) => void = () => {};
     mocks.fetch.mockImplementation((url: string) => url === "/inventory/access/me" ? Promise.resolve(inventoryReadAccess())
       : new Promise((_resolve, reject) => { deny = reject; }));
-    await mount({ client });
+    const { i18n } = await mount({ client });
     await waitFor(() => expect(mocks.fetch).toHaveBeenCalledWith("/warehouse/batches/41/stock-sources", expect.anything()));
     expect(screen.queryByText("Hidden B")).not.toBeInTheDocument();
     deny(Object.assign(new Error("Denied"), { status: 403, code: "PERMISSION_DENIED", requestId: "batch-read-42" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("batch-read-42");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(i18n.t("inventoryBatches.errors.focus"));
+    expect(alert).not.toHaveTextContent("batch-read-42");
     expect(screen.queryByText("Hidden B")).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("route-state")).toHaveTextContent("null"));
   });
@@ -136,7 +138,7 @@ describe("batch-first Phase 1 acceptance", () => {
       ? new Promise((resolve) => { resolveAccess = resolve; })
       : Promise.resolve(batchFocusPayload([batchSource(11, "Readable A", "WAREHOUSE", false)])));
     const { i18n } = await mount({ client });
-    await waitFor(() => expect(client.getQueryData(["batch-stock-sources", 1, 7, 41])).toBeDefined());
+    await waitFor(() => expect(client.getQueryData(["batch-stock-sources", 1, 17, 41])).toBeDefined());
     expect(screen.queryByText("LOT-41")).not.toBeInTheDocument();
     expect(screen.getByTestId("route-state")).not.toHaveTextContent("null");
     resolveAccess(inventoryReadAccess(false));

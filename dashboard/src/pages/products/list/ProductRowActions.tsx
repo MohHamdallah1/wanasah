@@ -8,6 +8,7 @@ import {
   CircleDollarSign,
   Eye,
   FolderTree,
+  Link2,
   MoreHorizontal,
   Pencil,
   Waypoints,
@@ -33,6 +34,7 @@ type Props = {
   canEditTracking: boolean;
   canManageBarcodes: boolean;
   canManageLifecycle: boolean;
+  canViewProductLocations?: boolean;
   onOpenDetails: (
     item: SimpleProduct,
   ) => void;
@@ -54,6 +56,9 @@ type Props = {
   onManageLifecycle: (
     item: SimpleProduct,
   ) => void;
+  onManageProductLocations?: (
+    item: SimpleProduct,
+  ) => void;
 };
 
 export function ProductRowActions({
@@ -64,6 +69,7 @@ export function ProductRowActions({
   canEditTracking,
   canManageBarcodes,
   canManageLifecycle,
+  canViewProductLocations = false,
   onOpenDetails,
   onRenameProduct,
   onEditPrice,
@@ -71,6 +77,7 @@ export function ProductRowActions({
   onEditTracking,
   onManageBarcodes,
   onManageLifecycle,
+  onManageProductLocations,
 }: Props) {
   const { t, i18n } =
     useTranslation();
@@ -159,6 +166,26 @@ export function ProductRowActions({
             "products.details.open",
           )}
         </DropdownMenuItem>
+
+        {canViewProductLocations &&
+        onManageProductLocations ? (
+          <DropdownMenuItem
+            onSelect={() =>
+              queueAfterMenuClose(
+                () =>
+                  onManageProductLocations(
+                    item,
+                  ),
+              )
+            }
+            className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
+          >
+            <Link2 className="h-4 w-4 shrink-0 text-slate-400" />
+            {t(
+              "catalogLifecycle.assignments.title",
+            )}
+          </DropdownMenuItem>
+        ) : null}
 
         {(canRenameProduct &&
           lifecycleEditable) ||

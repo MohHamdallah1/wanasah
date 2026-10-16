@@ -46,6 +46,17 @@ from services import (
 )
 from quantity import QuantityError, canonical_quantity, validate_variant_quantity
 from domains.product_tracking import public_batch_number
+from domains.stocktake.contracts import (
+    StocktakeApprovalCommand,
+    StocktakeCancelCommand,
+    StocktakeCountCommand,
+    StocktakeRecountCommand,
+    StocktakeStartCommand,
+)
+from domains.stocktake.idempotency import (
+    begin_stocktake_command,
+    complete_stocktake_command,
+)
 from schemas import StocktakeActiveSessionCursorPage, StocktakeApprovalRequest, StocktakeCancelRequest, StocktakeCycleBatchCursorPage, StocktakeRecountRequest, StocktakeSessionContextResponse, UnifiedStocktakeCountRequest, UnifiedStocktakeStartRequest, VehicleReconCandidateCursorPage
 
 from models import (
@@ -1537,7 +1548,7 @@ async def get_stocktake_session_context(
 # ====================================================
 @router.post("/warehouse/unified/stocktake/start", status_code=201)
 async def start_unified_stocktake(
-    payload: UnifiedStocktakeStartRequest,
+    payload: StocktakeStartCommand,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
     legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
@@ -1546,8 +1557,17 @@ async def start_unified_stocktake(
     await _require_location_capability(access, 'stocktake.start', payload.location_id)
 
     company_id = access.company_id
+    actor_id = int(legacy_actor.id)
 
     try:
+        idempotency_record, replay_response = await begin_stocktake_command(
+            db, company_id=company_id, actor_id=actor_id, operation='STOCKTAKE_START',
+            payload=payload, target=payload.location_id,
+        )
+        if replay_response is not None:
+            await db.rollback()
+            return replay_response
+
         expected_location_type = 'VEHICLE' if payload.stocktake_type == 'VEHICLE_RECON' else 'WAREHOUSE'
         location_query = select(InventoryLocation).filter_by(
             id=payload.location_id,
@@ -1763,15 +1783,16 @@ async def start_unified_stocktake(
         session.snapshot_cutoff_at = cutoff
         session.status = 'COUNTING'
         session.updated_at = cutoff
-        await db.commit()
-
-        return {
+        response = {
             "message": "تم بدء جلسة الجرد وأخذ Snapshot مقفل بنجاح.",
             "reference_number": reference_number,
             "session_id": session.id,
             "stocktake_type": session.stocktake_type,
             "snapshot_lines": len(balances),
         }
+        complete_stocktake_command(idempotency_record, response)
+        await db.commit()
+        return response
 
     except HTTPException:
         await db.rollback()
@@ -1782,6 +1803,9 @@ async def start_unified_stocktake(
             status_code=exc.status_code,
             detail={"code": exc.code, "message": exc.message, "context": exc.context},
         ) from exc
+    except InventoryMutationError as e:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except IntegrityError as e:
         await db.rollback()
         logger.warning(f"تعارض متزامن أثناء بدء الجرد: {e}", exc_info=True)
@@ -1889,7 +1913,7 @@ async def get_stocktake_count_sheet(
 @router.post("/warehouse/unified/stocktake/{session_id}/count", status_code=200)
 async def submit_stocktake_count(
     session_id: int,
-    payload: UnifiedStocktakeCountRequest,
+    payload: StocktakeCountCommand,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
     legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
@@ -1898,8 +1922,17 @@ async def submit_stocktake_count(
     await _require_stocktake_capability(access, 'stocktake.count', session_id)
 
     company_id = access.company_id
+    actor_id = int(legacy_actor.id)
 
     try:
+        idempotency_record, replay_response = await begin_stocktake_command(
+            db, company_id=company_id, actor_id=actor_id, operation='STOCKTAKE_COUNT',
+            payload=payload, target=session_id,
+        )
+        if replay_response is not None:
+            await db.rollback()
+            return replay_response
+
         session = await _load_stocktake_session(db, company_id, session_id, for_update=True)
         if session.status not in {'COUNTING', 'RECOUNT_REQUIRED'}:
             raise HTTPException(status_code=409, detail=f"لا يمكن تثبيت عد بحالة ({session.status}).")
@@ -2174,19 +2207,23 @@ async def submit_stocktake_count(
                 "line_count": len(all_lines),
             }, ensure_ascii=False),
         ))
-        await db.commit()
-
-        return {
+        response = {
             "message": "تم تثبيت محاولة العد بنجاح.",
             "attempt_id": attempt.id,
             "attempt_number": attempt_number,
             "requires_independent_recount": requires_independent,
             "status": "PENDING_REVIEW",
         }
+        complete_stocktake_command(idempotency_record, response)
+        await db.commit()
+        return response
 
     except HTTPException:
         await db.rollback()
         raise
+    except InventoryMutationError as e:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except IntegrityError as e:
         await db.rollback()
         logger.warning(f"تعارض متزامن أثناء تثبيت الجرد: {e}", exc_info=True)
@@ -2383,7 +2420,7 @@ async def get_stocktake_review(
 @router.post("/warehouse/unified/stocktake/{session_id}/approve", status_code=200)
 async def approve_stocktake_session(
     session_id: int,
-    payload: StocktakeApprovalRequest,
+    payload: StocktakeApprovalCommand,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
     legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
@@ -2411,6 +2448,14 @@ async def approve_stocktake_session(
         raise HTTPException(status_code=403, detail="كلمة المرور غير صحيحة؛ تم رفض الاعتماد وتوثيق المحاولة.")
 
     try:
+        idempotency_record, replay_response = await begin_stocktake_command(
+            db, company_id=company_id, actor_id=int(legacy_actor.id), operation='STOCKTAKE_APPROVE',
+            payload=payload, target=session_id,
+        )
+        if replay_response is not None:
+            await db.rollback()
+            return replay_response
+
         probe = await _probe_stocktake_location_id(db, company_id, session_id)
         try:
             probed_location_id, probed_stocktake_type, probed_work_session_id = probe
@@ -2497,15 +2542,16 @@ async def approve_stocktake_session(
                 "movement_count": len(movements),
             }, ensure_ascii=False),
         ))
-        await db.commit()
-
-        return {
+        response = {
             "message": "تم اعتماد الجرد وترحيل الفروقات وفك الأقفال بنجاح.",
             "attempt_id": latest_attempt.id,
             "attempt_number": latest_attempt.attempt_number,
             "movement_count": len(movements),
             "status": "POSTED",
         }
+        complete_stocktake_command(idempotency_record, response)
+        await db.commit()
+        return response
 
     except HTTPException:
         await db.rollback()
@@ -2529,7 +2575,7 @@ async def approve_stocktake_session(
 @router.post("/warehouse/unified/stocktake/{session_id}/recount", status_code=200)
 async def recount_stocktake_session(
     session_id: int,
-    payload: StocktakeRecountRequest,
+    payload: StocktakeRecountCommand,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
     legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
@@ -2540,6 +2586,14 @@ async def recount_stocktake_session(
     company_id = access.company_id
 
     try:
+        idempotency_record, replay_response = await begin_stocktake_command(
+            db, company_id=company_id, actor_id=int(legacy_actor.id), operation='STOCKTAKE_RECOUNT',
+            payload=payload, target=session_id,
+        )
+        if replay_response is not None:
+            await db.rollback()
+            return replay_response
+
         session = await _load_stocktake_session(db, company_id, session_id, for_update=True)
         if session.status != 'PENDING_REVIEW':
             raise HTTPException(status_code=409, detail="لا يمكن طلب إعادة العد إلا لجلسة بانتظار المراجعة.")
@@ -2600,19 +2654,23 @@ async def recount_stocktake_session(
                 "independent_required": latest_attempt.requires_independent_recount,
             }, ensure_ascii=False),
         ))
-        await db.commit()
-
-        return {
+        response = {
             "message": "تم تفويض إعادة العد مع حفظ المحاولة السابقة كاملة.",
             "previous_attempt_id": latest_attempt.id,
             "previous_attempt_number": latest_attempt.attempt_number,
             "requires_independent_counter": latest_attempt.requires_independent_recount,
             "status": "RECOUNT_REQUIRED",
         }
+        complete_stocktake_command(idempotency_record, response)
+        await db.commit()
+        return response
 
     except HTTPException:
         await db.rollback()
         raise
+    except InventoryMutationError as e:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except IntegrityError as e:
         await db.rollback()
         logger.warning(f"تعارض متزامن أثناء تفويض Recount: {e}", exc_info=True)
@@ -2629,7 +2687,7 @@ async def recount_stocktake_session(
 @router.post("/warehouse/unified/stocktake/{session_id}/cancel", status_code=200)
 async def cancel_stocktake_session(
     session_id: int,
-    payload: StocktakeCancelRequest,
+    payload: StocktakeCancelCommand,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
     legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
@@ -2657,6 +2715,14 @@ async def cancel_stocktake_session(
         raise HTTPException(status_code=403, detail="كلمة المرور غير صحيحة؛ تم رفض الإلغاء وتوثيق المحاولة.")
 
     try:
+        idempotency_record, replay_response = await begin_stocktake_command(
+            db, company_id=company_id, actor_id=int(legacy_actor.id), operation='STOCKTAKE_CANCEL',
+            payload=payload, target=session_id,
+        )
+        if replay_response is not None:
+            await db.rollback()
+            return replay_response
+
         location_id, _, _ = await _probe_stocktake_location_id(db, company_id, session_id)
         await acquire_inventory_location_guard(db, company_id, location_id, exclusive=True)
 
@@ -2700,17 +2766,21 @@ async def cancel_stocktake_session(
                 "released_lock_count": released_lock_count,
             }, ensure_ascii=False),
         ))
-        await db.commit()
-
-        return {
+        response = {
             "message": "تم إلغاء جلسة الجرد وفك الأقفال مع حفظ سجل التدقيق.",
             "released_lock_count": released_lock_count,
             "status": "CANCELLED",
         }
+        complete_stocktake_command(idempotency_record, response)
+        await db.commit()
+        return response
 
     except HTTPException:
         await db.rollback()
         raise
+    except InventoryMutationError as e:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except IntegrityError as e:
         await db.rollback()
         logger.warning(f"تعارض متزامن أثناء إلغاء الجرد: {e}", exc_info=True)

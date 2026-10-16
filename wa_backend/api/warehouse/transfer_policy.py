@@ -35,6 +35,8 @@ from services import (
 )
 
 
+from domains.transfers.replay import policy_reference_payload
+
 from ._shared import _stable_request_hash
 
 
@@ -170,6 +172,11 @@ async def get_transfer_destination_policy(
             db,
             company_id=access.company_id,
         )
+        for policy in (draft, published):
+            if policy is not None:
+                await _require_transfer_policy_location_access(
+                    access, dict(policy.validated_payload),
+                )
         return {
             "draft": _transfer_policy_to_payload(draft),
             "published": _transfer_policy_to_payload(published),
@@ -208,6 +215,10 @@ async def save_transfer_destination_policy(
     company_id = access.company_id
 
     try:
+        # Revalidate exact referenced locations before writes and saved replay.
+        await _require_transfer_policy_location_access(
+            access, payload.payload.model_dump(mode="python"),
+        )
         request_hash = _stable_request_hash(payload)
         idem, replay = await begin_idempotent_operation(
             db,
@@ -301,6 +312,9 @@ async def publish_transfer_destination_policy_endpoint(
     company_id = access.company_id
 
     try:
+        await _require_transfer_policy_location_access(
+            access, await policy_reference_payload(access, policy_id),
+        )
         request_hash = _stable_request_hash(
             payload,
             context={"policy_id": int(policy_id)},
@@ -314,6 +328,9 @@ async def publish_transfer_destination_policy_endpoint(
             request_hash=request_hash,
         )
         if replay is not None:
+            await _require_transfer_policy_location_access(
+                access, dict(replay["policy"]["validated_payload"]),
+            )
             await db.rollback()
             return replay
 

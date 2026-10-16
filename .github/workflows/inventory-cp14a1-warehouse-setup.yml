@@ -1,0 +1,172 @@
+name: Inventory CP14-A1 Warehouse setup acceptance
+
+on:
+  push:
+    branches:
+      - sol/cp14-operational-acceptance-wave2
+    paths:
+      - "wa_backend/tests/test_cp14a1_warehouse_setup_postgres.py"
+      - ".github/workflows/inventory-cp14a1-warehouse-setup.yml"
+  pull_request:
+    branches:
+      - integration/inventory-wave-2
+    paths:
+      - "wa_backend/tests/test_cp14a1_warehouse_setup_postgres.py"
+      - ".github/workflows/inventory-cp14a1-warehouse-setup.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cp14a1-warehouse-setup-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-16:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp14A1PostgresSyntheticOnlyKeyAbc12345678901234567890123
+      DATABASE_URL: postgresql+asyncpg://cp14a1_app@127.0.0.1:55451/wanasah_cp14a1_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp14a1_admin@127.0.0.1:55451/wanasah_cp14a1_test
+      WANASAH_CP14A1_PG_GATE: "1"
+      WANASAH_CP14A1_PG_URL: postgresql+asyncpg://cp14a1_app@127.0.0.1:55451/wanasah_cp14a1_test
+      WANASAH_CP14A1_PG_ADMIN_URL: postgresql+asyncpg://cp14a1_admin@127.0.0.1:55451/wanasah_cp14a1_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL acceptance dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name cp14a1-postgres \
+            --env POSTGRES_USER=cp14a1_admin \
+            --env POSTGRES_DB=wanasah_cp14a1_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55451:55451 \
+            postgres:16 -p 55451
+          for attempt in $(seq 1 30); do
+            if docker exec cp14a1-postgres pg_isready -U cp14a1_admin -d wanasah_cp14a1_test -p 55451; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs cp14a1-postgres
+          exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              if conn.execute(
+                  "SELECT 1 FROM pg_roles WHERE rolname='cp14a1_app'"
+              ).fetchone() is None:
+                  conn.execute(
+                      "CREATE ROLE cp14a1_app LOGIN NOSUPERUSER NOCREATEDB "
+                      "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+                  )
+              flags = conn.execute(
+                  "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname='cp14a1_app'"
+              ).fetchone()
+              assert flags == (False, False), flags
+          PY
+      - name: Clean Alembic bootstrap
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: CP14-A1 PostgreSQL 16 warehouse setup journey
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_cp14a1_warehouse_setup_postgres.py
+
+  focused-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp14A1FocusedSyntheticOnlyKeyAbc123456789012345678901234
+      DATABASE_URL: postgresql+asyncpg://cp14a1_unit@127.0.0.1:1/cp14a1_unit
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install focused Backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: CP4 warehouse and Branch focused regression
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_cp4_warehouse_branch_lifecycle_closure.py
+      - name: CP11 canonical capability and access smoke
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_authorization_core_compatibility.py
+          tests/test_branch_canonical_authorization_cutover.py
+      - name: Warehouse route manifest
+        working-directory: wa_backend
+        run: python scripts/gate_warehouse_route_manifest.py
+      - name: py_compile CP14-A1 bounded surface
+        run: >-
+          python -m py_compile
+          wa_backend/tests/test_cp14a1_warehouse_setup_postgres.py
+          wa_backend/api/branches.py
+          wa_backend/api/warehouse/locations.py
+          wa_backend/domains/authorization/backoffice_access.py
+
+  dynamic-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Resolve dynamic Wave 2 merge-base
+        shell: bash
+        run: |
+          target="${{ github.event.pull_request.base.ref }}"
+          if [ -z "$target" ]; then target="integration/inventory-wave-2"; fi
+          git fetch origin "$target" --no-tags
+          base="$(git merge-base HEAD "origin/$target")"
+          echo "CP14A1_BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "CP14A1_TARGET_REF=$target" >> "$GITHUB_ENV"
+          echo "CP14A1_DYNAMIC_BASE=$base"
+      - name: Verify exact CP14-A1 ownership
+        shell: bash
+        run: |
+          test "$CP14A1_TARGET_REF" = "integration/inventory-wave-2"
+          python - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["CP14A1_BASE_SHA"]
+          changed = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", base, "HEAD"], text=True
+              ).splitlines()
+          )
+          expected = {
+              ".github/workflows/inventory-cp14a1-warehouse-setup.yml",
+              "wa_backend/tests/test_cp14a1_warehouse_setup_postgres.py",
+          }
+          assert changed == expected, f"Unexpected CP14-A1 scope: {sorted(changed)}"
+          print("CP14A1_DYNAMIC_SCOPE=PASS")
+          PY
+      - name: git diff --check
+        run: git diff --check "$CP14A1_BASE_SHA" HEAD

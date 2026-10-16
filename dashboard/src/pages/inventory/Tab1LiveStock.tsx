@@ -1,39 +1,18 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import {
-  AlertTriangle,
-  Check,
-  FilterX,
-  Info,
-  ListFilter,
-  RefreshCcw,
-  Search,
-} from "lucide-react";
+import { AlertTriangle, RefreshCcw } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import * as Tooltip from "@radix-ui/react-tooltip";
+
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { useAuthFetch } from "@/hooks/useAuthFetch";
-import { resolveI18nLocale } from "@/lib/locale";
-import { formatMoneyDisplay, formatMoneyExact } from "@/lib/money";
-import {
-  parseLiveStockFamilies,
-  type LiveStockFamilyOption,
   type LiveStockIndicator,
   type LiveStockStockState,
   type WarehouseProduct,
 } from "./liveStock/contracts";
-import {
-  compareQuantity,
-  formatCommercialQuantity,
-} from "@/lib/quantity";
+import { BatchDetailPanel } from "./liveStock/BatchDetailPanel";
+import { LiveStockFilters } from "./liveStock/LiveStockFilters";
+import { LiveStockMobileCards } from "./liveStock/LiveStockMobileCards";
+import { LiveStockTable } from "./liveStock/LiveStockTable";
+import { LiveStockWarehouseContext } from "./liveStock/LiveStockWarehouseContext";
+import { useLiveStockBatchDetail } from "./liveStock/useLiveStockBatchDetail";
 
 interface Props {
   locationId: number;
@@ -54,35 +33,12 @@ interface Props {
   familyId: number | null;
   onLocationChange: (value: string) => void;
   onRefresh: () => void;
+  onRetryPage: () => void;
   onSearchChange: (search: string) => void;
   onStockStateChange: (value: LiveStockStockState) => void;
   onIndicatorsChange: (value: LiveStockIndicator[]) => void;
   onFamilyChange: (value: number | null) => void;
   onLoadMore: () => void;
-}
-
-function HeaderHelp({
-  text,
-}: {
-  text: string;
-}) {
-  return (
-    <Tooltip.Provider delayDuration={150}>
-      <Tooltip.Root>
-        <Tooltip.Trigger asChild>
-          <button type="button" className="live-header-help" aria-label={text}>
-            <Info className="h-3.5 w-3.5" aria-hidden="true" />
-          </button>
-        </Tooltip.Trigger>
-        <Tooltip.Portal>
-          <Tooltip.Content sideOffset={8} collisionPadding={16} className="live-help-content">
-            {text}
-            <Tooltip.Arrow className="fill-slate-900" />
-          </Tooltip.Content>
-        </Tooltip.Portal>
-      </Tooltip.Root>
-    </Tooltip.Provider>
-  );
 }
 
 export function Tab1LiveStock({
@@ -103,103 +59,32 @@ export function Tab1LiveStock({
   familyId,
   onLocationChange,
   onRefresh,
+  onRetryPage,
   onSearchChange,
   onStockStateChange,
   onIndicatorsChange,
   onFamilyChange,
   onLoadMore,
 }: Props) {
-  const authFetch = useAuthFetch();
-  const { t, i18n } = useTranslation();
-  const locale = resolveI18nLocale(i18n);
-
-  const [searchInput, setSearchInput] = useState("");
-  const [familySearch, setFamilySearch] = useState("");
-  const [familyOptions, setFamilyOptions] =
-    useState<LiveStockFamilyOption[]>([]);
-  const [familyLoading, setFamilyLoading] = useState(false);
-
-  const tableScrollRef = useRef<HTMLDivElement | null>(null);
-  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
-  const emittedSearchRef = useRef("");
+  const { t } = useTranslation();
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const detail = useLiveStockBatchDetail(
+    locationId,
+    t("inventoryLive.errors.batchLoadFailed"),
+  );
 
   useEffect(() => {
-    setSearchInput("");
-    setFamilySearch("");
-    setFamilyOptions([]);
-    setFamilyLoading(false);
-    emittedSearchRef.current = "";
-
-  }, [locationId]);
-
-  useEffect(() => {
-    const handler = window.setTimeout(() => {
-      const clean = searchInput.trim();
-      const nextSearch = clean.length >= 2 ? clean : "";
-      if (nextSearch === emittedSearchRef.current) return;
-      emittedSearchRef.current = nextSearch;
-      onSearchChange(nextSearch);
-    }, 300);
-    return () => window.clearTimeout(handler);
-  }, [searchInput, onSearchChange]);
-
-  useEffect(() => {
-    if (alertCount === 0 && stockState === "low_stock") {
-      onStockStateChange("all");
-    }
-  }, [alertCount, onStockStateChange, stockState]);
-
-  useEffect(() => {
-    const clean = familySearch.trim();
-    if (clean.length === 1) {
-      setFamilyOptions([]);
-      return;
-    }
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      setFamilyLoading(true);
-      const params = new URLSearchParams({
-        location_id: String(locationId),
-        limit: "50",
-      });
-      if (clean.length >= 2) params.set("search", clean);
-
-      void authFetch(
-        `/warehouse/inventory/families?${params.toString()}`,
-        { signal: controller.signal },
-      )
-        .then((raw) => {
-          if (!controller.signal.aborted) {
-            setFamilyOptions(parseLiveStockFamilies(raw).items);
-          }
-        })
-        .catch((error: unknown) => {
-          if (
-            !controller.signal.aborted &&
-            !(error instanceof Error && error.name === "AbortError")
-          ) {
-            setFamilyOptions([]);
-          }
-        })
-        .finally(() => {
-          if (!controller.signal.aborted) setFamilyLoading(false);
-        });
-    }, 250);
-
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [authFetch, familySearch, locationId]);
-
-  useEffect(() => {
-    const root = tableScrollRef.current;
-    const target = loadMoreSentinelRef.current;
-    if (!root || !target) return;
-
+    const root = scrollRef.current;
+    const target = sentinelRef.current;
+    if (!root || !target || pageError) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting) && hasMore && !loading) {
+        if (
+          entries.some((entry) => entry.isIntersecting) &&
+          hasMore &&
+          !loading
+        ) {
           onLoadMore();
         }
       },
@@ -209,746 +94,154 @@ export function Tab1LiveStock({
         threshold: 0.01,
       },
     );
-
     observer.observe(target);
     return () => observer.disconnect();
-  }, [hasMore, loading, onLoadMore]);
-
-  const formatDate = useCallback(
-    (value: string | null): string => {
-      if (!value) return "—";
-      try {
-        return new Intl.DateTimeFormat(locale, {
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-          numberingSystem: "latn",
-          timeZone: "UTC",
-        }).format(new Date(`${value}T00:00:00Z`));
-      } catch {
-        return value;
-      }
-    },
-    [locale],
-  );
-
-  const activeFilterCount =
-    (stockState !== "all" ? 1 : 0) + indicators.length;
-
-  const toggleIndicator = (indicator: LiveStockIndicator) => {
-    onIndicatorsChange(
-      indicators.includes(indicator)
-        ? indicators.filter((item) => item !== indicator)
-        : [...indicators, indicator],
-    );
-  };
-
-  const clearFilters = () => {
-    onStockStateChange("all");
-    onIndicatorsChange([]);
-  };
-
-  const selectedFamily =
-    familyId === null
-      ? null
-      : familyOptions.find((family) => family.id === familyId) ?? null;
+  }, [hasMore, loading, onLoadMore, pageError]);
 
   return (
-    <div className="inventory-view inventory-live-stock flex min-h-0 flex-1 flex-col gap-3">
-      <div className="glass-card inventory-data-panel flex min-h-0 flex-1 flex-col overflow-hidden pt-0">
-        <div className="live-stock-toolbar">
-          <div className="live-stock-toolbar-search-group">
-            <div className="live-stock-search">
-              <Search className="absolute start-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-              <input
-                type="search"
-                aria-label={t("inventoryLive.searchPlaceholder")}
-                placeholder={t("inventoryLive.searchPlaceholder")}
-                value={searchInput}
-                onChange={(event) =>
-                  setSearchInput(event.target.value)
-                }
-                maxLength={100}
-                className="w-full rounded-xl border border-slate-200 bg-white py-2 pe-4 ps-9 text-xs shadow-sm outline-none"
-              />
-            </div>
-
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className={`live-stock-filter-button ${
-                    activeFilterCount > 0
-                      ? "live-stock-filter-button--active"
-                      : ""
-                  }`}
-                  aria-label={t("inventoryLive.filterButton")}
-                  title={t("inventoryLive.filterButton")}
-                >
-                  <ListFilter className="h-4 w-4" />
-                  <span>{t("inventoryLive.filterButton")}</span>
-                  {activeFilterCount > 0 && (
-                    <span className="live-stock-filter-count tabular-nums">
-                      {activeFilterCount}
-                    </span>
-                  )}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent
-                align="start"
-                sideOffset={8}
-                dir={i18n.dir()}
-                className="live-stock-filter-popover live-stock-filter-popover--compact"
-              >
-                <div className="live-stock-filter-choice-grid live-stock-filter-choice-grid--compact">
-                  {(
-                    [
-                      ["all", "filterAll"],
-                      ["on_hand", "filterOnHand"],
-                      ["sellable", "filterSellable"],
-                      ["out_of_stock", "filterOutOfStock"],
-                      ["low_stock", "filterLowStock"],
-                    ] as const
-                  ).map(([value, labelKey]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className="live-stock-filter-option live-stock-filter-option--compact"
-                      data-active={stockState === value}
-                      disabled={value === "low_stock" && alertCount === 0}
-                      onClick={() => onStockStateChange(value)}
-                    >
-                      <span>
-                        <strong>{t(`inventoryLive.${labelKey}`)}</strong>
-                        {value === "low_stock" && alertCount !== null && (
-                          <small>
-                            {t("inventoryLive.filterLowStockCount", {
-                              count: alertCount,
-                            })}
-                          </small>
-                        )}
-                      </span>
-                      {stockState === value && <Check className="h-3.5 w-3.5" />}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="live-stock-filter-chip-grid live-stock-filter-chip-grid--compact">
-                  {(
-                    [
-                      ["reserved", "indicatorReserved"],
-                      ["unavailable", "indicatorUnavailable"],
-                      ["damaged", "indicatorDamaged"],
-                      ["recalled", "indicatorRecalled"],
-                      ["vehicle", "indicatorVehicle"],
-                      ["minimum_unset", "indicatorMinimumUnset"],
-                    ] as const
-                  ).map(([value, labelKey]) => {
-                    const active = indicators.includes(value);
-                    return (
-                      <button
-                        key={value}
-                        type="button"
-                        className="live-stock-filter-chip"
-                        data-active={active}
-                        onClick={() => toggleIndicator(value)}
-                      >
-                        {active && <Check className="h-3.5 w-3.5" />}
-                        {t(`inventoryLive.${labelKey}`)}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {activeFilterCount > 0 && (
-                  <button
-                    type="button"
-                    className="live-stock-filter-reset live-stock-filter-reset--compact"
-                    onClick={clearFilters}
-                  >
-                    <FilterX className="h-3.5 w-3.5" />
-                    {t("inventoryLive.filterReset")}
-                  </button>
-                )}
-              </PopoverContent>
-            </Popover>
-
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className={`live-stock-family-button ${
-                    familyId !== null ? "live-stock-family-button--active" : ""
-                  }`}
-                  title={t("inventoryLive.familyTitle")}
-                  aria-label={t("inventoryLive.familyTitle")}
-                >
-                  <span className="live-stock-family-button-label">
-                    {selectedFamily?.name ?? t("inventoryLive.familyTitle")}
-                  </span>
-                  {familyId !== null && <Check className="h-3.5 w-3.5" />}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent
-                align="start"
-                sideOffset={8}
-                dir={i18n.dir()}
-                className="live-stock-family-popover"
-              >
-                <div className="live-stock-family-search-row">
-                  <input
-                    type="search"
-                    value={familySearch}
-                    onChange={(event) => setFamilySearch(event.target.value)}
-                    placeholder={t("inventoryLive.familySearch")}
-                    className="live-stock-family-search"
-                  />
-                  {familyId !== null && (
-                    <button
-                      type="button"
-                      className="live-stock-family-clear"
-                      onClick={() => onFamilyChange(null)}
-                      title={t("inventoryLive.clearFamily")}
-                      aria-label={t("inventoryLive.clearFamily")}
-                    >
-                      <FilterX className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-                <div className="live-stock-family-list custom-scrollbar">
-                  {familyLoading ? (
-                    <div className="live-stock-family-empty">
-                      {t("common.loading")}
-                    </div>
-                  ) : (
-                    familyOptions.map((family) => (
-                      <button
-                        key={family.id}
-                        type="button"
-                        className="live-stock-family-option"
-                        data-active={familyId === family.id}
-                        onClick={() => onFamilyChange(family.id)}
-                      >
-                        <span>
-                          <strong>{family.name}</strong>
-                          <small>{family.code}</small>
-                        </span>
-                        {familyId === family.id && (
-                          <Check className="h-3.5 w-3.5" />
-                        )}
-                      </button>
-                    ))
-                  )}
-                </div>
-              </PopoverContent>
-            </Popover>
-
-          </div>
-
-          <div className="live-stock-context-panel">
-            <label className="live-stock-context-location">
-              <span className="live-stock-context-label">
-                {t("inventoryShell.warehouseSelectLabel")}
-              </span>
-              <select
-                aria-label={t("inventoryShell.warehouseSelectLabel")}
-                value={locationId}
-                onChange={(event) =>
-                  onLocationChange(event.target.value)
-                }
-                className="live-stock-context-select"
-              >
-                {locations.map((location) => (
-                  <option key={location.id} value={location.id}>
-                    {location.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <div
-              className="live-stock-context-separator"
-              aria-hidden="true"
-            />
-
-            <div className="live-stock-context-status">
-              <div className="live-stock-context-count">
-                <span>{t("inventoryShell.liveStockCount")}</span>
-                <strong>
-                  {stockTotal === null
-                    ? "—"
-                    : new Intl.NumberFormat(locale, {
-                        numberingSystem: "latn",
-                      }).format(stockTotal)}
-                </strong>
-                {isAuditLocked && (
-                  <span className="live-stock-lock-chip">
-                    {t("inventoryShell.locked")}
-                  </span>
-                )}
-              </div>
-
-              <div className="live-stock-context-sync">
-                <span>
-                  {t("inventoryShell.lastUpdated")}:{" "}
-                  {lastSync
-                    ? new Intl.DateTimeFormat(locale, {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        second: "2-digit",
-                        hour12: false,
-                        numberingSystem: "latn",
-                      }).format(lastSync)
-                    : "—"}
-                </span>
-                <button
-                  type="button"
-                  onClick={onRefresh}
-                  disabled={loading}
-                  className="live-stock-context-refresh"
-                  title={t("inventoryShell.refreshNow")}
-                  aria-label={t("inventoryShell.refreshNow")}
-                >
-                  <RefreshCcw
-                    className={`h-3.5 w-3.5 ${
-                      loading ? "animate-spin" : ""
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
-          </div>
+    <div
+      className="inventory-view inventory-live-stock flex min-h-0 flex-1 flex-col gap-2"
+      data-cp13-density="compact"
+      data-cp13-surface="live-stock"
+    >
+      <section className="glass-card inventory-data-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl pt-0">
+        <div
+          className="live-stock-toolbar flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50/70 px-3 py-2"
+          data-cp13-controls="stock-list"
+        >
+          <LiveStockFilters
+            locationId={locationId}
+            alertCount={alertCount}
+            stockState={stockState}
+            indicators={indicators}
+            familyId={familyId}
+            onSearchChange={onSearchChange}
+            onStockStateChange={onStockStateChange}
+            onIndicatorsChange={onIndicatorsChange}
+            onFamilyChange={onFamilyChange}
+          />
+          <LiveStockWarehouseContext
+            locationId={locationId}
+            locations={locations}
+            stockTotal={stockTotal}
+            lastSync={lastSync}
+            isAuditLocked={isAuditLocked}
+            loading={loading}
+            onLocationChange={onLocationChange}
+            onRefresh={onRefresh}
+          />
         </div>
 
-        {pageError && pageReady && (
+        {pageError && pageReady ? (
           <div
             role="alert"
-            className="mx-3 mt-3 flex flex-wrap items-start justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950"
+            aria-live="polite"
+            data-cp13-state="stale"
+            className="mx-3 mt-2 flex flex-wrap items-start justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-950"
           >
-            <div className="flex min-w-0 flex-1 items-start gap-3">
-              <AlertTriangle
-                className="mt-0.5 h-5 w-5 shrink-0 text-amber-600"
-                aria-hidden="true"
-              />
+            <div className="flex min-w-0 flex-1 items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
               <div className="min-w-0">
-                <p className="text-sm font-black">
-                  {t("inventoryLive.errors.updateTitle")}
-                </p>
-                <p className="mt-1 text-xs font-bold text-amber-800">
+                <p className="text-xs font-black">{t("inventoryLive.errors.updateTitle")}</p>
+                <p className="mt-0.5 text-[11px] font-bold text-amber-800">
                   {t("inventoryLive.errors.staleData")}
                 </p>
-                <p className="mt-1 break-words text-xs text-amber-700">
-                  {pageError}
-                </p>
+                <p className="mt-0.5 break-words text-[11px] text-amber-700">{pageError}</p>
               </div>
             </div>
             <button
               type="button"
-              onClick={onRefresh}
+              onClick={onRetryPage}
               disabled={loading}
-              className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-black text-amber-900 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-[11px] font-black text-amber-900 outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-60"
             >
-              <RefreshCcw
-                className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
-                aria-hidden="true"
-              />
+              <RefreshCcw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
               {t("common.retry")}
             </button>
           </div>
-        )}
+        ) : null}
 
-        {!pageError && summaryError && (
+        {!pageError && summaryError ? (
           <div
             role="status"
-            className="mx-3 mt-3 flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700"
+            data-cp13-state="summary-unavailable"
+            className="mx-3 mt-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600"
           >
-            <AlertTriangle
-              className="mt-0.5 h-4 w-4 shrink-0 text-slate-500"
-              aria-hidden="true"
-            />
-            <div className="min-w-0">
-              <p className="text-xs font-black">
-                {t("inventoryLive.errors.summaryTitle")}
-              </p>
-              <p className="mt-1 text-xs font-bold text-slate-600">
-                {t("inventoryLive.errors.summaryUnavailable")}
-              </p>
-              <p className="mt-1 break-words text-xs text-slate-500">
-                {summaryError}
-              </p>
-            </div>
+            {t("inventoryLive.errors.summaryUnavailable")}
           </div>
-        )}
+        ) : null}
 
         <div
-          ref={tableScrollRef}
-          className={`custom-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-auto ${
-            loading && !pageReady && products.length === 0
-              ? "pointer-events-none select-none"
-              : ""
-          }`}
+          ref={scrollRef}
+          className="custom-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto md:overflow-x-auto"
+          data-cp13-stock-list="true"
         >
-          <table className="live-stock-table" aria-label={t("inventoryShell.tabs.live")} aria-busy={loading}>
-            <thead>
-              <tr className="live-stock-columns">
-                <th scope="col" className="live-stock-number-heading">
-                  #
-                </th>
-                <th scope="col" className="live-product-heading">
-                  {t("inventoryLive.product")}
-                </th>
-                <th scope="col" className="live-family-heading">
-                  {t("inventoryLive.family")}
-                </th>
-
-                <th scope="col">
-                  <div className="flex items-center justify-center gap-1.5">
-                    <span>{t("inventoryLive.onHand")}</span>
-                    <HeaderHelp text={t("inventoryLive.onHandHint")} />
-                  </div>
-                </th>
-
-                <th scope="col">
-                  <div className="flex items-center justify-center gap-1.5">
-                    <span>{t("inventoryLive.reserved")}</span>
-                    <HeaderHelp text={t("inventoryLive.reservedHint")} />
-                  </div>
-                </th>
-
-                <th scope="col">
-                  <div className="flex items-center justify-center gap-1.5">
-                    <span>{t("inventoryLive.availableForSale")}</span>
-                    <HeaderHelp
-                      text={t("inventoryLive.availableForSaleHint")}
-                    />
-                  </div>
-                </th>
-
-                <th scope="col">
-                  <div className="flex items-center justify-center gap-1.5">
-                    <span>{t("inventoryLive.unavailable")}</span>
-                    <HeaderHelp text={t("inventoryLive.unavailableHint")} />
-                  </div>
-                </th>
-
-                <th scope="col">
-                  <div className="flex items-center justify-center gap-1.5">
-                    <span>{t("inventoryLive.withVehicles")}</span>
-                    <HeaderHelp text={t("inventoryLive.withVehiclesHint")} />
-                  </div>
-                </th>
-
-                <th scope="col">
-                  <div className="flex items-center justify-center gap-1.5">
-                    <span>{t("inventoryLive.lastCompanyPurchase")}</span>
-                    <HeaderHelp
-                      text={t("inventoryLive.lastCompanyPurchaseHint")}
-                    />
-                  </div>
-                </th>
-
-                <th scope="col">
-                  <div className="flex items-center justify-center gap-1.5">
-                    <span>{t("inventoryLive.companyAverage")}</span>
-                    <HeaderHelp
-                      text={t("inventoryLive.companyAverageHint")}
-                    />
-                  </div>
-                </th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {products.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={10}
-                    className="py-14 text-center text-sm font-bold text-slate-400"
+          {products.length > 0 ? (
+            <>
+              <LiveStockTable
+                products={products}
+                loading={loading}
+                onOpen={detail.open}
+              />
+              <LiveStockMobileCards products={products} onOpen={detail.open} />
+            </>
+          ) : (
+            <div className="flex min-h-40 items-center justify-center p-4 text-center text-sm font-bold text-slate-500">
+              {pageError && !pageReady ? (
+                <div
+                  role="alert"
+                  data-cp13-state="error"
+                  className="max-w-xl rounded-xl border border-red-200 bg-red-50 p-4 text-red-900"
+                >
+                  <AlertTriangle className="mx-auto h-6 w-6 text-red-600" aria-hidden="true" />
+                  <p className="mt-2 text-sm font-black">{t("inventoryLive.errors.updateTitle")}</p>
+                  <p className="mt-1 text-xs font-bold text-red-800">{t("inventoryLive.errors.noData")}</p>
+                  <p className="mt-2 break-words text-xs text-red-700">{pageError}</p>
+                  <button
+                    type="button"
+                    onClick={onRetryPage}
+                    disabled={loading}
+                    className="mt-3 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-black outline-none focus-visible:ring-2 focus-visible:ring-red-300 disabled:opacity-60"
                   >
-                    {pageError && !pageReady ? (
-                      <div
-                        role="alert"
-                        className="mx-auto flex max-w-xl flex-col items-center gap-3 rounded-2xl border border-red-200 bg-red-50 px-6 py-5 text-red-950"
-                      >
-                        <AlertTriangle
-                          className="h-7 w-7 text-red-600"
-                          aria-hidden="true"
-                        />
-                        <div>
-                          <p className="text-sm font-black">
-                            {t("inventoryLive.errors.updateTitle")}
-                          </p>
-                          <p className="mt-1 text-xs font-bold text-red-800">
-                            {t("inventoryLive.errors.noData")}
-                          </p>
-                          <p className="mt-2 break-words text-xs text-red-700">
-                            {pageError}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={onRefresh}
-                          disabled={loading}
-                          className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-black text-red-900 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          <RefreshCcw
-                            className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
-                            aria-hidden="true"
-                          />
-                          {t("common.retry")}
-                        </button>
-                      </div>
-                    ) : loading && !pageReady
-                      ? t("common.loading")
-                      : t("inventoryLive.noMatches")}
-                  </td>
-                </tr>
+                    {t("common.retry")}
+                  </button>
+                </div>
+              ) : loading && !pageReady ? (
+                <span data-cp13-state="loading" role="status" className="inline-flex items-center gap-2">
+                  <RefreshCcw className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  {t("common.loading")}
+                </span>
+              ) : (
+                <span data-cp13-state="empty">{t("inventoryLive.noMatches")}</span>
               )}
+            </div>
+          )}
 
-              {products.map((product, index) => {
-                const isAlert =
-                  compareQuantity(
-                    product.minimum_quantity,
-                    "0",
-                  ) > 0 &&
-                  compareQuantity(
-                    product.available_for_sale_quantity,
-                    product.minimum_quantity,
-                  ) <= 0;
-
-                const displayName = t(
-                  `uom.${product.display_uom_code}`,
-                  {
-                    defaultValue: t(
-                      "inventoryCommon.unit",
-                    ),
-                  },
-                );
-                const baseName = t(
-                  `uom.${product.base_uom_code}`,
-                  {
-                    defaultValue: t(
-                      "inventoryCommon.unit",
-                    ),
-                  },
-                );
-                const renderQuantity = (
-                  value: typeof product.on_hand_quantity,
-                ) =>
-                  formatCommercialQuantity(
-                    value,
-                    displayName,
-                    baseName,
-                    product.display_factor_to_base,
-                  );
-
-                const onHand = renderQuantity(
-                  product.on_hand_quantity,
-                );
-                const reserved = renderQuantity(
-                  product.reserved_quantity,
-                );
-                const available = renderQuantity(
-                  product.available_for_sale_quantity,
-                );
-                const vehicles = renderQuantity(
-                  product.vehicle_quantity,
-                );
-                const unavailable = renderQuantity(
-                  product.unavailable_quantity,
-                );
-                const lastPurchaseUom =
-                  product.last_purchase_uom_code
-                    ? t(
-                        `uom.${product.last_purchase_uom_code}`,
-                        {
-                          defaultValue: t(
-                            "inventoryCommon.unit",
-                          ),
-                        },
-                      )
-                    : null;
-
-                return (
-                  <tr
-                      key={product.id}
-                      className={`live-stock-row border-b border-slate-100/80 transition-colors ${
-                        isAlert
-                          ? "bg-red-50/45 hover:bg-red-50/75"
-                          : "bg-white hover:bg-slate-50/65"
-                      }`}
-                    >
-                      <td className="live-stock-number-cell">
-                        <span
-                          className="live-stock-row-number tabular-nums"
-                          aria-label={t("inventoryLive.rowNumber", {
-                            number: index + 1,
-                          })}
-                        >
-                          {new Intl.NumberFormat(locale, {
-                            numberingSystem: "latn",
-                          }).format(index + 1)}
-                        </span>
-                      </td>
-
-                      <td className="live-product-cell px-4 py-3.5">
-                        <div className="flex items-center gap-2">
-
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 font-black text-slate-800">
-                              {isAlert && (
-                                <span
-                                  title={t(
-                                    "inventoryLive.atMinimum",
-                                  )}
-                                >
-                                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-red-500" />
-                                </span>
-                              )}
-                              <span className="live-product-name">
-                                {product.name}
-                              </span>
-                            </div>
-                            <div className="live-stock-minimum-row">
-                              <span>
-                                {t("inventoryLive.minimumStockLabel")}:{" "}
-                                {compareQuantity(
-                                  product.minimum_quantity,
-                                  "0",
-                                ) > 0
-                                  ? renderQuantity(
-                                      product.minimum_quantity,
-                                    ).primary
-                                  : t(
-                                      "inventoryLive.minimumStockUnset",
-                                    )}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-
-                      <td className="live-family-cell px-3 py-3.5">
-                        <div className="live-family-name" title={product.family_name}>
-                          {product.family_name}
-                        </div>
-                      </td>
-
-                      <td className="px-4 py-3.5 text-center font-black tabular-nums text-slate-800">
-                        {onHand.primary}
-                      </td>
-
-                      <td className="px-4 py-3.5 text-center font-black tabular-nums text-violet-700">
-                        {reserved.primary}
-                      </td>
-
-                      <td className="px-4 py-3.5 text-center font-black tabular-nums text-emerald-700">
-                        <span className="live-stock-sellable-chip">
-                          {available.primary}
-                        </span>
-                      </td>
-
-                      <td className="px-4 py-3.5 text-center font-black tabular-nums">
-                        {compareQuantity(
-                          product.unavailable_quantity,
-                          "0",
-                        ) > 0 ? (
-                          <span className="text-amber-700">
-                            {unavailable.primary}
-                          </span>
-                        ) : (
-                          <span className="text-slate-300">
-                            —
-                          </span>
-                        )}
-                      </td>
-
-                      <td className="px-4 py-3.5 text-center font-black tabular-nums text-sky-700">
-                        {compareQuantity(
-                          product.vehicle_quantity,
-                          "0",
-                        ) > 0
-                          ? vehicles.primary
-                          : "—"}
-                      </td>
-
-                      <td className="px-4 py-3.5 text-center">
-                        <div
-                          className="font-black tabular-nums text-slate-900"
-                          title={
-                            product.last_purchase_cost &&
-                            lastPurchaseUom
-                              ? `${formatMoneyExact(
-                                  product.last_purchase_cost,
-                                  product.currency_code,
-                                  locale,
-                                )} · ${t(
-                                  "inventoryLive.perUnit",
-                                  { unit: lastPurchaseUom },
-                                )}${
-                                  product.last_purchase_date
-                                    ? ` · ${formatDate(
-                                        product.last_purchase_date,
-                                      )}`
-                                    : ""
-                                }`
-                              : undefined
-                          }
-                        >
-                          {product.last_purchase_cost
-                            ? formatMoneyDisplay(
-                                product.last_purchase_cost,
-                                product.currency_code,
-                                locale,
-                              )
-                            : "—"}
-                        </div>
-                      </td>
-
-                      <td className="px-4 py-3.5 text-center">
-                        <div
-                          className="font-black tabular-nums text-slate-900"
-                          title={
-                            product.average_cost_display
-                              ? `${formatMoneyExact(
-                                  product.average_cost_display,
-                                  product.currency_code,
-                                  locale,
-                                )} · ${t(
-                                  "inventoryLive.perUnit",
-                                  { unit: displayName },
-                                )}`
-                              : undefined
-                          }
-                        >
-                          {product.average_cost_display
-                            ? formatMoneyDisplay(
-                                product.average_cost_display,
-                                product.currency_code,
-                                locale,
-                              )
-                            : "—"}
-                        </div>
-                      </td>
-
-
-                    </tr>
-                );
-              })}
-            </tbody>
-          </table>
           <div
-            ref={loadMoreSentinelRef}
-            className="live-stock-load-more-sentinel"
+            ref={sentinelRef}
+            className="live-stock-load-more-sentinel flex min-h-7 items-center justify-center text-[11px] font-bold text-slate-500"
             aria-hidden={!hasMore}
+            data-cp13-continuation="cursor"
           >
-            {hasMore && loading && (
-              <span>{t("common.loading")}</span>
-            )}
+            {hasMore && loading ? t("common.loading") : null}
           </div>
         </div>
-      </div>
+      </section>
 
+      <BatchDetailPanel
+        product={detail.product}
+        batches={detail.page?.batches ?? []}
+        hasMore={detail.page?.has_more ?? false}
+        loading={detail.loading}
+        error={detail.loadError}
+        sourceByBatch={detail.sourceByBatch}
+        sourceLoadingId={detail.sourceLoadingId}
+        sourceErrorId={detail.sourceErrorId}
+        onClose={detail.close}
+        onRetry={detail.retry}
+        onLoadMore={detail.loadMore}
+        onLoadSource={detail.loadSource}
+      />
     </div>
   );
 }
