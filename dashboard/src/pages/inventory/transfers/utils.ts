@@ -15,6 +15,6 @@ export const getMutationMessage = (raw: unknown): string => {
   return transferText("success");
 };
 export const formatDate = (value: string | null): string =>
-  value ? new Date(value).toLocaleString(`${currentLocale()}-u-nu-latn`) : "—";
+  value ? new Date(value).toLocaleString(currentLocale(), { numberingSystem: "latn" }) : "—";
 export const formatTransferDateOnly = (value: string | null): string =>
-  value ? new Intl.DateTimeFormat(`${currentLocale()}-u-nu-latn`).format(new Date(value + "T00:00:00")) : "—";
+  value ? new Intl.DateTimeFormat(currentLocale(), { numberingSystem: "latn" }).format(new Date(value + "T00:00:00")) : "—";

@@ -185,7 +185,7 @@ export function TabTransfers({
         </select>
       </div>
 
-      {transferList.failure && <div role="alert" className="rounded-xl border p-3 text-sm"><p>{transferList.failure.message}</p><button type="button" disabled={loading} onClick={transferList.retry}>{t("inventoryTransfers.retry")}</button></div>}
+      {transferList.failure && <div role="alert" className="rounded-xl border p-3 text-sm"><p>{t(`inventoryTransfers.${transferList.failure.phase === "first" ? "firstFailure" : transferList.failure.phase === "refresh" ? "refreshFailure" : "continuationFailure"}`)}</p><p>{transferList.failure.message}</p><button type="button" disabled={loading} onClick={transferList.retry}>{t("inventoryTransfers.retry")}</button></div>}
 
       <TransferTable
         items={focusedTransfer ? [items.find((item) => item.id === focusedTransfer.id) ?? focusedTransfer, ...items.filter((item) => item.id !== focusedTransfer.id)] : items}
@@ -199,8 +199,8 @@ export function TabTransfers({
         onNext={handleNext}
       />
 
-      {transferCreate.command.pending && <div role="alert" className="rounded-xl border p-3"><p>{t("inventoryTransfers.pending")}</p><button type="button" disabled={transferCreate.command.busy} onClick={() => void transferCreate.retryPendingDispatch()}>{t("inventoryTransfers.pendingTransfer")}</button></div>}
-      {transferActions.command.pending && <div role="alert" className="rounded-xl border p-3"><p>{t("inventoryTransfers.pending")}</p><button type="button" disabled={transferActions.command.busy} onClick={() => void transferActions.retryPendingAction()}>{t("inventoryTransfers.retry")}</button></div>}
+      {transferCreate.command.pending && !transferCreate.createOpen && <div role="alert" className="rounded-xl border p-3"><p>{t("inventoryTransfers.pending")}</p><button type="button" disabled={transferCreate.command.busy} onClick={() => void transferCreate.retryPendingDispatch()}>{t("inventoryTransfers.pendingTransfer")}</button></div>}
+      {transferActions.command.pending && !action && <div role="alert" className="rounded-xl border p-3"><p>{t("inventoryTransfers.pending")}</p><button type="button" disabled={transferActions.command.busy} onClick={() => void transferActions.retryPendingAction()}>{t("inventoryTransfers.retry")}</button></div>}
 
       <TransferCreateModal
         locationId={locationId}
@@ -217,7 +217,10 @@ export function TabTransfers({
         action={action}
         transfer={actionTransfer}
         decisionReason={decisionReason}
-        submitting={actionSubmitting}
+        submitting={actionSubmitting || transferActions.command.busy || Boolean(transferActions.command.pending)}
+        pending={Boolean(transferActions.command.pending)}
+        retrying={transferActions.command.busy}
+        onRetry={transferActions.retryPendingAction}
         onClose={closeAction}
         onDecisionReasonChange={updateDecisionReason}
         onSubmit={handleAction}

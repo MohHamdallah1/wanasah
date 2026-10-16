@@ -1,4 +1,4 @@
-import type { TransferStatus } from "./types";
+import type { TransferPurpose, TransferStatus } from "./types";
 
 export const TRANSFER_STATUSES: TransferStatus[] = [
   "DRAFT",
@@ -26,3 +26,6 @@ export const STATUS_META: Record<
 export const isTransferStatus = (value: unknown): value is TransferStatus =>
   typeof value === "string" &&
   TRANSFER_STATUSES.includes(value as TransferStatus);
+
+export const TRANSFER_PURPOSES: TransferPurpose[] = ["REPLENISHMENT", "ROUTE_LOAD", "ROUTE_RETURN", "WAREHOUSE_BALANCING", "RETURN_TO_VENDOR", "QUARANTINE", "RECALL_RETURN", "DISPOSAL"];
+export const isTransferPurpose = (value: unknown): value is TransferPurpose => typeof value === "string" && TRANSFER_PURPOSES.includes(value as TransferPurpose);

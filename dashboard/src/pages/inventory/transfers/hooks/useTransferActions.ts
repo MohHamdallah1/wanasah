@@ -1,5 +1,5 @@
 import { useTransferTranslation as useTranslation } from "../i18n";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTransferCommand } from "./useTransferCommand";
 import type {
@@ -21,6 +21,8 @@ export function useTransferActions({
 }: UseTransferActionsArgs) {
   const { t } = useTranslation();
   const command = useTransferCommand("TRANSFER_DECISION", locationId);
+  const currentLocation = useRef(locationId);
+  currentLocation.current = locationId;
 
   const [action, setAction] = useState<TransferAction | null>(null);
   const [actionTransfer, setActionTransfer] =
@@ -95,7 +97,7 @@ export function useTransferActions({
         path: `/warehouse/unified/transfer/${actionTransfer.id}/${action}`, method: "POST",
         body: { decision_reason: reason },
       }, getMutationMessage);
-      if (raw === undefined) return;
+      if (raw === undefined || currentLocation.current !== locationId) return;
 
       toast.success(getMutationMessage(raw));
       setAction(null);
@@ -107,7 +109,7 @@ export function useTransferActions({
       // Keep the same request_id for an unchanged safe retry.
       toast.error(getErrorMessage(error));
     } finally {
-      setActionSubmitting(false);
+      if (currentLocation.current === locationId) setActionSubmitting(false);
     }
   }, [
     action,
@@ -122,7 +124,7 @@ export function useTransferActions({
   const retryPendingAction = async () => {
     try {
       const raw = await command.execute(undefined, getMutationMessage);
-      if (raw === undefined) return;
+      if (raw === undefined || currentLocation.current !== locationId) return;
       toast.success(getMutationMessage(raw));
       setAction(null);
       setActionTransfer(null);

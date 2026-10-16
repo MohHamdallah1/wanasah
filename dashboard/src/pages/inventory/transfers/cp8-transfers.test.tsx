@@ -9,6 +9,8 @@ vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.f
 import { useTransferList } from "./hooks/useTransferList";
 import { useTransferCommand } from "./hooks/useTransferCommand";
 import { useTransferCreate } from "./hooks/useTransferCreate";
+import { formatDate, formatTransferDateOnly } from "./utils";
+import { formatTransferNumber } from "./i18n";
 import { TransferDecisionModal } from "./TransferDecisionModal";
 import { FefoOverrideEditor } from "./FefoOverrideEditor";
 import { parseTransferPage } from "./parsers";
@@ -16,7 +18,7 @@ import { readTransferDraft, writeTransferDraft } from "./draftStorage";
 import { transferCommandScope } from "./hooks/useTransferCommand";
 
 const transfer = (id = 1, location = 11) => ({ id, reference_number: "TRN-" + id, source_location_id: location, source_location_name: "A1",
-  destination_location_id: 12, destination_location_name: "A2", transfer_purpose: "WAREHOUSE_BALANCING", status: "IN_TRANSIT" as const,
+  destination_location_id: 12, destination_location_name: "A2", transfer_purpose: "WAREHOUSE_BALANCING" as const, status: "IN_TRANSIT" as const,
   dispatched_by: 81, dispatched_by_name: "Sender", received_by: null, received_by_name: null, cancelled_by: null, cancelled_by_name: null,
   line_count: 1, total_quantity: "4", notes: null, decision_reason: null, created_at: "2026-10-16T10:00:00Z", updated_at: "2026-10-16T10:00:00Z",
   accepted_at: null, rejected_at: null, cancelled_at: null, posted_at: null });
@@ -113,4 +115,11 @@ it("disables FEFO override without its exact capability and rejects malformed pu
   render(<FefoOverrideEditor canOverride={false} item={item} draftItems={[item]} options={undefined} loading={false} onModeChange={vi.fn()} onBatchChange={vi.fn()} onReasonChange={vi.fn()} onAddBatchLine={vi.fn()} />);
   expect(screen.getByRole("option", { name: "Audited FEFO override" })).toBeDisabled();
   expect(() => parseTransferPage(page([{ ...transfer(), transfer_purpose: undefined } as never]))).toThrow();
+});
+
+it.each(["ar", "en"])("formats western digits without duplicating locale extensions (%s)", async language => {
+  await i18n.changeLanguage(language);
+  expect(formatDate("2026-10-16T10:00:00Z")).not.toMatch(/[٠-٩]/);
+  expect(formatTransferDateOnly("2026-10-16")).not.toMatch(/[٠-٩]/);
+  expect(formatTransferNumber("2.5")).toMatch(/2/);
 });

@@ -1,4 +1,4 @@
-import i18n from "@/i18n";
+import i18n, { currentLocale } from "@/i18n";
 import { useTranslation } from "react-i18next";
 
 const copy = {
@@ -335,5 +335,5 @@ for (const language of ["ar", "en"] as const) {
 export const useTransferTranslation = () => useTranslation();
 export const transferText = (key: string, values?: Record<string, unknown>) => i18n.t(`inventoryTransfers.${key}`, values);
 export const formatTransferNumber = (value: string | number) => new Intl.NumberFormat(
-  `${i18n.language.split("-")[0]}-u-nu-latn`, { maximumFractionDigits: 6 },
+  currentLocale(), { maximumFractionDigits: 6, numberingSystem: "latn" },
 ).format(Number(value));

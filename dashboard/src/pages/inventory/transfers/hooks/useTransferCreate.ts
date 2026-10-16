@@ -22,6 +22,7 @@ import {
   getMutationMessage,
 } from "../utils";
 import { compareQuantity } from "../../quantity";
+import { apiErrorCode } from "@/lib/apiErrors";
 
 interface UseTransferCreateArgs {
   locationId: number;
@@ -37,6 +38,9 @@ export function useTransferCreate({
   const { t } = useTranslation();
   const authenticatedFetch = useAuthFetch();
   const command = useTransferCommand("TRANSFER_DISPATCH", locationId);
+  const currentLocation = useRef(locationId);
+  currentLocation.current = locationId;
+  const [policyBlocked, setPolicyBlocked] = useState(false);
   const restoringDraft = useRef(false);
   const draftScope = useRef<string | null>(null);
   const [transferPurpose, setTransferPurpose] = useState<"REPLENISHMENT" | "WAREHOUSE_BALANCING">("WAREHOUSE_BALANCING");
@@ -121,6 +125,7 @@ export function useTransferCreate({
     setCreateDirection("outgoing");
     setCounterpartLocationId(null);
     setCreateNotes("");
+    setPolicyBlocked(false);
     setTransferLocations([]);
     setTransferLocationSearchInput("");
     setTransferLocationSearch("");
@@ -450,6 +455,8 @@ export function useTransferCreate({
           transfer_purpose: transferPurpose, items, notes: createNotes.trim() },
       }, getMutationMessage);
       if (raw === undefined) return;
+      clearTransferDraft(transferCommandScope("TRANSFER_DRAFT", locationId));
+      if (currentLocation.current !== locationId) return;
 
       toast.success(getMutationMessage(raw));
       if (draftScope.current) clearTransferDraft(draftScope.current);
@@ -458,9 +465,11 @@ export function useTransferCreate({
       onCompleted();
       await onInventoryChanged();
     } catch (error: unknown) {
+      if (currentLocation.current !== locationId) return;
+      setPolicyBlocked((apiErrorCode(error) ?? "").startsWith("TRANSFER_POLICY_") || apiErrorCode(error) === "RETIRING_WAREHOUSE_BALANCING_POLICY_REQUIRED");
       toast.error(getErrorMessage(error));
     } finally {
-      setCreateSubmitting(false);
+      if (currentLocation.current === locationId) setCreateSubmitting(false);
     }
   };
 
@@ -468,6 +477,8 @@ export function useTransferCreate({
     try {
       const raw = await command.execute(undefined, getMutationMessage);
       if (raw === undefined) return;
+      clearTransferDraft(transferCommandScope("TRANSFER_DRAFT", locationId));
+      if (currentLocation.current !== locationId) return;
       toast.success(getMutationMessage(raw));
       if (draftScope.current) clearTransferDraft(draftScope.current);
       setCreateOpen(false);
@@ -478,7 +489,7 @@ export function useTransferCreate({
   };
 
   return {
-    command, retryPendingDispatch, transferPurpose, setTransferPurpose,
+    command, retryPendingDispatch, transferPurpose, setTransferPurpose, policyBlocked,
     canOutgoing, canIncoming, canSubmit, canOverride,
     createOpen,
     createDirection,

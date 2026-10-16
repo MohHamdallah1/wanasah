@@ -230,8 +230,9 @@ export function useTransferDestinationPolicy(onSaved?: () => void | Promise<void
       },
     } });
   };
+  const canPublish = policy.draft !== null && JSON.stringify(form) === JSON.stringify(formFromPolicy(policy.draft));
   const publish = async () => {
-    if (!policy.draft) return;
+    if (!policy.draft || !canPublish) return;
     await execute({ path: `/warehouse/operational-policy/transfer-destinations/${policy.draft.id}/publish`, method: "POST",
       body: { expected_revision: policy.draft.revision } });
   };
@@ -239,5 +240,5 @@ export function useTransferDestinationPolicy(onSaved?: () => void | Promise<void
   const options = Object.values(knownLocations);
   for (const id of ids) if (!knownLocations[id]) options.push({ id, name: "#" + new Intl.NumberFormat(i18n.language + "-u-nu-latn").format(id), code: "" });
   return { canManage, policy, form, setForm, options, searchInput, setSearchInput, hasMoreLocations,
-    loading, saving, pending, loadError, loadPolicy, saveDraft, publish, retry: () => execute() };
+    loading, saving, pending, loadError, loadPolicy, saveDraft, publish, canPublish, retry: () => execute() };
 }

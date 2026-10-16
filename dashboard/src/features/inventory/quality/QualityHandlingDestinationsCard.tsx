@@ -6,7 +6,7 @@ export function QualityHandlingDestinationsCard({ compact = false, onSaved }: { 
   const { t, i18n } = useTranslation();
   const controller = useTransferDestinationPolicy(onSaved);
   const { canManage, policy, form, setForm, options, searchInput, setSearchInput,
-    hasMoreLocations, loading, saving, pending, loadError, saveDraft, publish } = controller;
+    hasMoreLocations, loading, saving, pending, loadError, saveDraft, publish, canPublish } = controller;
   if (!canManage) return null;
 
   const select = (key: "quarantine" | "disposal" | "vendorReturn", labelKey: string, hintKey: string) => (
@@ -40,7 +40,7 @@ export function QualityHandlingDestinationsCard({ compact = false, onSaved }: { 
       {select("disposal", "inventoryWarehouses.qualityDestinations.disposal.label", "inventoryWarehouses.qualityDestinations.disposal.hint")}
     </div>
     <div className="mt-3 flex justify-end"><button type="submit" disabled={loading || saving} className="inline-flex min-h-9 items-center gap-2 rounded-xl bg-slate-950 px-4 text-xs font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"><Save className="h-4 w-4" />{saving ? t("common.loading") : t("transferDestinationSetup.saveDraft")}</button></div>
-    <button type="button" disabled={!policy.draft || loading || saving} onClick={() => void publish()} className="mt-3 rounded-xl border px-4 py-2">{t("transferDestinationSetup.publish")}</button>
+    <button type="button" disabled={!canPublish || loading || saving} onClick={() => void publish()} className="mt-3 rounded-xl border px-4 py-2">{t("transferDestinationSetup.publish")}</button>
     </fieldset></form>
     {pending && <div role="alert"><p>{t("transferDestinationSetup.pending")}</p><button type="button" disabled={saving} onClick={() => void controller.retry()}>{t("transferDestinationSetup.retry")}</button></div>}
   </section>;

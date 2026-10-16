@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+import { createInventoryTabNavigationState } from "@/features/inventory/navigation";
 import { Search, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { useTransferTranslation as useTranslation, formatTransferNumber } from "./i18n";
@@ -59,6 +61,8 @@ export function TransferCreateModal({
       title={t("inventoryTransfers.createTitle")}
       maxWidth="max-w-6xl"
     >
+      {controller.command.pending && <div role="alert" className="mb-3 rounded-xl border p-3"><p>{t("inventoryTransfers.pending")}</p><button type="button" disabled={controller.command.busy} onClick={() => void controller.retryPendingDispatch()}>{t("inventoryTransfers.retry")}</button></div>}
+      {controller.policyBlocked && <Link to="/inventory" state={createInventoryTabNavigationState("warehouses")} className="mb-3 block underline">{t("inventoryTransfers.policySetup")}</Link>}
       <form className="space-y-5" onSubmit={event => { event.preventDefault(); void handleDispatchTransfer(); }}>
         <fieldset disabled={createSubmitting || Boolean(controller.command.pending) || controller.command.busy} className="space-y-5 min-w-0">
           <label className="block text-xs font-bold">{t("inventoryTransfers.purpose")}

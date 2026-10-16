@@ -1,4 +1,4 @@
-import { isTransferStatus } from "./constants";
+import { isTransferPurpose, isTransferStatus } from "./constants";
 import { parseQuantity } from "../quantity";
 import { parsePublicBatchNumber } from "../publicBatchNumber";
 import { parsePublicBatchDate } from "../publicBatchDate";
@@ -67,6 +67,7 @@ const parseTransfer = (raw: unknown): WarehouseTransferListItem => {
   }
 
   const row = raw as Record<string, unknown>;
+  if (!isTransferPurpose(row.transfer_purpose)) throw invalid("transfer_purpose");
   if (!isTransferStatus(row.status)) {
     throw invalid();
   }
@@ -94,7 +95,7 @@ const parseTransfer = (raw: unknown): WarehouseTransferListItem => {
       "destination_location_name"
     ),
     status: row.status,
-    transfer_purpose: requiredString(row.transfer_purpose, "transfer_purpose"),
+    transfer_purpose: row.transfer_purpose,
     dispatched_by: positiveInt(row.dispatched_by, "dispatched_by"),
     dispatched_by_name: requiredString(
       row.dispatched_by_name,

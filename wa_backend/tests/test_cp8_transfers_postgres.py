@@ -373,6 +373,19 @@ async def test_lifecycle_replay_scope_movement_and_reserved_stock(pg, action, te
             return await getattr(transfers, "unified_transfer_" + action)(sent["header_id"],
                 UnifiedTransferDecisionRequest(request_id=command_id, decision_reason="CP8 decision"),
                 db, actor.access(db), actor.operational_driver)
+    from services import apply_inventory_movements_batch as real_apply
+    async def fail_after_terminal_movement(*args, **kwargs):
+        await real_apply(*args, **kwargs)
+        raise RuntimeError("Synthetic terminal failure")
+    with patch.object(transfers, "apply_inventory_movements_batch", fail_after_terminal_movement):
+        with pytest.raises(HTTPException) as failed:
+            await decision()
+        assert failed.value.status_code == 500
+    async with pg.session(pg.a) as db:
+        rolled_back = await db.get(InventoryTransferHeader, sent["header_id"])
+        assert rolled_back.status == "IN_TRANSIT"
+        assert await db.scalar(select(func.count()).select_from(InventoryMovement).where(
+            InventoryMovement.company_id == pg.a.company_id, InventoryMovement.transfer_header_id == rolled_back.id)) == 1
     result, duplicate = await asyncio.gather(decision(), decision())
     assert result == duplicate
     assert result["status"] == terminal and await decision() == result
@@ -556,6 +569,19 @@ async def test_query_counts_are_bounded_by_page_not_rows(pg):
                 reference_type="INBOUND_SUPPLIER", reference_id="SCALE", idempotency_key=str(uuid4()),
                 source_location_id=None, destination_location_id=pg.a.locations[0], source_stock_status=None, destination_stock_status="AVAILABLE")
         await db.commit()
+    async with pg.session(pg.a) as db:
+        first = await source_page(db, pg.a.ordinary.access(db), pg.a.locations[0], limit=1)
+        assert first["total"] == 9 and first["has_more"] and first["next_cursor"]
+        second = await source_page(db, pg.a.ordinary.access(db), pg.a.locations[0], limit=1, cursor=first["next_cursor"])
+        assert second["total"] is None and second["items"][0]["id"] != first["items"][0]["id"]
+        with pytest.raises(HTTPException) as changed_search:
+            await source_page(db, pg.a.ordinary.access(db), pg.a.locations[0], limit=1, search="Scale", cursor=first["next_cursor"])
+        assert changed_search.value.status_code == 400
+        first_list = await list_page(db, pg.a.ordinary.access(db), pg.a.locations[0], limit=1)
+        assert first_list["total"] == 6 and first_list["next_cursor"]
+        with pytest.raises(HTTPException) as changed_location:
+            await list_page(db, pg.a.owner.access(db), pg.a.locations[1], limit=1, cursor=first_list["next_cursor"])
+        assert changed_location.value.status_code == 400
     counts = {}
     async with pg.session(pg.a) as db:
         for name, size in [("source-small", 1), ("source-larger", 100), ("list-small", 1), ("list-larger", 100)]:
@@ -578,23 +604,27 @@ async def test_query_counts_are_bounded_by_page_not_rows(pg):
 
 async def test_wrong_side_stale_state_and_forged_receipt_fail_closed(pg):
     sent = await send(pg)
+    sender, receiver = pg.a.ordinary, pg.a.receiver
+    # Each HTTP-equivalent request owns a fresh tenant-scoped transaction.
     async with pg.session(pg.a) as db:
-        sender = pg.a.ordinary
-        receiver = pg.a.receiver
         with pytest.raises(HTTPException) as wrong_cancel:
             await transfers.unified_transfer_cancel(sent["header_id"], UnifiedTransferDecisionRequest(request_id=uuid4(), decision_reason="wrong side"),
                 db, receiver.access(db), receiver.operational_driver)
         assert wrong_cancel.value.status_code == 403
+    async with pg.session(pg.a) as db:
         with pytest.raises(HTTPException) as wrong_receive:
             await transfers.unified_transfer_receive(UnifiedReceiveRequest(request_id=uuid4(), transfer_header_id=sent["header_id"],
                 destination_location_id=pg.a.locations[1]), db, sender.access(db), sender.operational_driver)
         assert wrong_receive.value.status_code == 403
+    async with pg.session(pg.a) as db:
         with pytest.raises(HTTPException) as forged:
             await transfers.unified_transfer_receive(UnifiedReceiveRequest(request_id=uuid4(), transfer_header_id=sent["header_id"],
                 destination_location_id=pg.a.locations[0]), db, receiver.access(db), receiver.operational_driver)
         assert forged.value.status_code == 409
+    async with pg.session(pg.a) as db:
         await transfers.unified_transfer_cancel(sent["header_id"], UnifiedTransferDecisionRequest(request_id=uuid4(), decision_reason="cancel"),
                 db, sender.access(db), sender.operational_driver)
+    async with pg.session(pg.a) as db:
         with pytest.raises(HTTPException) as stale:
             await transfers.unified_transfer_reject(sent["header_id"], UnifiedTransferDecisionRequest(request_id=uuid4(), decision_reason="stale"),
                 db, receiver.access(db), receiver.operational_driver)

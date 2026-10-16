@@ -10,6 +10,9 @@ interface TransferDecisionModalProps {
   transfer: WarehouseTransferListItem | null;
   decisionReason: string;
   submitting: boolean;
+  pending?: boolean;
+  retrying?: boolean;
+  onRetry?: () => void | Promise<void>;
   onClose: () => void;
   onDecisionReasonChange: (value: string) => void;
   onSubmit: () => void | Promise<void>;
@@ -20,6 +23,9 @@ export function TransferDecisionModal({
   transfer,
   decisionReason,
   submitting,
+  pending = false,
+  retrying = false,
+  onRetry,
   onClose,
   onDecisionReasonChange,
   onSubmit,
@@ -37,6 +43,7 @@ export function TransferDecisionModal({
             : t("inventoryTransfers.cancelTitle")
       }
     >
+      {pending && <div role="alert" className="mb-3 rounded-xl border p-3"><p>{t("inventoryTransfers.pending")}</p><button type="button" disabled={retrying} onClick={() => void onRetry?.()}>{t("inventoryTransfers.retry")}</button></div>}
       <form className="space-y-4" onSubmit={event => { event.preventDefault(); void onSubmit(); }}>
         <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-sm">
           <div className="font-bold text-slate-800">
