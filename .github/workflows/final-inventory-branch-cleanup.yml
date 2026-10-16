@@ -1,0 +1,90 @@
+name: Final Inventory Branch Cleanup
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/final-inventory-branch-cleanup.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Verify accepted release is contained
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --no-tags
+          git merge-base --is-ancestor c1a8d9d87a2eb7575002ee49c00f8cdaa7e2c9b5 HEAD
+          git merge-base --is-ancestor cc94c4aebdf9ec5b0d52dd99ee9cc29375bf4eb0 HEAD
+          git merge-base --is-ancestor ed036c6778bddce628b69719ecc29938fc30bb51 HEAD
+          git merge-base --is-ancestor 7934c8d060426818f23f72d65a4db4e842c1d5af HEAD
+          git merge-base --is-ancestor b77a1561e6186382326058e0e11004a797758024 HEAD
+          echo "FINAL_RELEASE_CONTAINMENT=PASS"
+
+      - name: Delete exact superseded remote branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          branches=(
+            "codex/cp6-minimum-stock-auth-parity"
+            "integration/inventory-cp1-acceptance-ci-staging"
+            "integration/inventory-cp1-acceptance-workflow"
+            "integration/inventory-cp1-acceptance-yaml"
+            "integration/inventory-wave-2"
+            "sol/cp2-batch-index-backend"
+            "sol/cp5-product-location-dashboard"
+            "sol/inventory-inbound-independent-acceptance"
+            "unused-sentinel"
+            "chore/final-inventory-github-cleanup"
+          )
+          for branch in "${branches[@]}"; do
+            test "$branch" != "main"
+            if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+              git push origin --delete "$branch"
+            fi
+          done
+          echo "REMOTE_BRANCH_CLEANUP=PASS"
+
+      - name: Prepare final plan-state branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="chore/final-inventory-plan-close"
+          test "$branch" != "main"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "Unexpected existing $branch" >&2
+            exit 1
+          fi
+          python - <<'PY'
+          from pathlib import Path
+
+          plan = Path("INVENTORY_WAREHOUSE_V1_END_TO_END_CLOSURE_PLAN.md")
+          text = plan.read_text(encoding="utf-8")
+          old = "- [ ] Merge final stable PRs."
+          new = "- [x] Merge final stable PRs."
+          assert text.count(old) == 1, "Expected exactly one final-stable-PR checkbox"
+          plan.write_text(text.replace(old, new), encoding="utf-8")
+
+          workflow = Path(".github/workflows/final-inventory-branch-cleanup.yml")
+          assert workflow.exists(), "cleanup workflow missing"
+          workflow.unlink()
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add INVENTORY_WAREHOUSE_V1_END_TO_END_CLOSURE_PLAN.md .github/workflows/final-inventory-branch-cleanup.yml
+          git diff --cached --check
+          git commit -m "docs: close final stable Inventory merge"
+          git push origin "HEAD:refs/heads/$branch"
+          echo "PLAN_CLOSE_BRANCH_READY=$branch"
