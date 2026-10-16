@@ -198,6 +198,7 @@ export function TabWarehouseLocations({
   const authenticatedFetch = useAuthFetch();
   const { t, i18n } = useTranslation();
   const locale = resolveI18nLocale(i18n);
+  const loadFailedMessage = t("inventoryWarehouses.errors.loadFailed");
 
   const [items, setItems] = useState<WarehouseLocationItem[]>([]);
   const access = useInventoryAccess();
@@ -268,11 +269,11 @@ export function TabWarehouseLocations({
       if (seq !== requestSeq.current) return;
       setItems([]);
       setNextCursor(null);
-      toast.error(apiErrorMessage(error, t("inventoryWarehouses.errors.loadFailed")));
+      toast.error(apiErrorMessage(error, loadFailedMessage));
     } finally {
       if (seq === requestSeq.current) setLoading(false);
     }
-  }, [authenticatedFetch, canReadLocations, cursor, search, t]);
+  }, [authenticatedFetch, canReadLocations, cursor, loadFailedMessage, search]);
 
   useEffect(() => {
     void fetchPage();
