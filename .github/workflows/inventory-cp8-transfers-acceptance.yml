@@ -168,15 +168,18 @@ jobs:
           src/test/inventory-cp10-ledger-contract.test.ts
           src/test/inventory-cp10-ledger-keyboard.test.tsx
       - name: CP8 ESLint
+        if: ${{ !cancelled() }}
         working-directory: dashboard
         run: npx eslint src/pages/inventory/TabTransfers.tsx src/pages/inventory/transfers src/features/inventory/quality/QualityHandlingDestinationsCard.tsx src/features/inventory/quality/useTransferDestinationPolicy.ts src/test/cp8-quality-destinations.test.tsx
       - name: TypeScript noEmit
+        if: ${{ !cancelled() }}
         working-directory: dashboard
         run: |
           npx tsc --noEmit
           node --input-type=module -e 'import fs from "node:fs"; fs.writeFileSync(".cp8-tsconfig.json", JSON.stringify({extends:"./tsconfig.app.json",include:["src/vite-env.d.ts","src/test/setup.ts","src/pages/inventory/TabTransfers.tsx","src/pages/inventory/transfers/**/*","src/features/inventory/quality/QualityHandlingDestinationsCard.tsx","src/features/inventory/quality/useTransferDestinationPolicy.ts","src/test/cp8-quality-destinations.test.tsx"]}));'
           npx tsc --noEmit -p .cp8-tsconfig.json
       - name: Production Dashboard build
+        if: ${{ !cancelled() }}
         working-directory: dashboard
         run: npm run build
 
@@ -187,7 +190,7 @@ jobs:
     env:
       ENVIRONMENT: test
       SECRET_KEY: Cp8PostgresOnlyKeyAbc123456789012345678901234567890
-      DATABASE_URL: postgresql+asyncpg://cp4_admin@127.0.0.1:55444/wanasah_cp4_test
+      DATABASE_URL: postgresql+asyncpg://cp4_app@127.0.0.1:55444/wanasah_cp4_test
       DATABASE_URL_MIGRATION: postgresql+asyncpg://cp4_admin@127.0.0.1:55444/wanasah_cp4_test
       WANASAH_CP4_PG_GATE: "1"
       WANASAH_CP4_PG_URL: postgresql+asyncpg://cp4_admin@127.0.0.1:55444/wanasah_cp4_test
@@ -216,6 +219,17 @@ jobs:
           done
           docker logs cp4-postgres
           exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname='cp4_app'").fetchone():
+                  conn.execute("CREATE ROLE cp4_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
       - name: Migrate disposable CP4 database
         working-directory: wa_backend
         run: alembic upgrade head
@@ -350,6 +364,26 @@ jobs:
           python -m pytest -q -s
           tests/test_cp10_ledger_postgres.py
           tests/test_cp10_ledger_postgres_multibatch.py
+
+  cp3-wave-baseline-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: 01688afb68918c49acb314924e9c1d2c66328f0f
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Locked Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Unmodified Wave CP3 terminal actions baseline
+        working-directory: dashboard
+        run: npm test -- src/test/batch-terminal-actions.test.tsx --reporter=verbose
 
   dynamic-scope:
     runs-on: ubuntu-24.04
