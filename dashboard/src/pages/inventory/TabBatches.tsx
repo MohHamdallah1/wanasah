@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -41,7 +41,15 @@ interface Props {
     transfer?: BatchSpecialTransferResult,
   ) => void | Promise<void>;
   onOpenReservationOwner: (owner: ReservationOwner) => void;
+  onInventoryChanged: () => void | Promise<void>;
 }
+
+type SelectedBatchContext = {
+  batch: BatchActionSnapshot;
+  productVariantId: number;
+  baseUomCode: string;
+  detail: WarehouseBatchIndexItem | null;
+};
 
 const mergeFamilies = (
   current: BatchFilterFamilyOption[],
@@ -75,14 +83,14 @@ export function TabBatches({
   onFocusConsumed,
   onOpenTransfers,
   onOpenReservationOwner,
+  onInventoryChanged,
 }: Props) {
   const authFetch = useAuthFetch();
   const access = useInventoryAccess();
   const { t, i18n } = useTranslation();
   const locale = resolveI18nLocale(i18n);
   const language = i18n.resolvedLanguage || i18n.language || "en";
-  const canManageDisposition =
-    access.isCompanyOwner || access.can("batch.disposition");
+  const canManageDisposition = access.can("batch.disposition");
 
   const [searchInput, setSearchInput] = useState("");
   const [filters, setFilters] = useState<BatchIndexFilterState>(
@@ -93,11 +101,10 @@ export function TabBatches({
   );
   const [families, setFamilies] = useState<BatchFilterFamilyOption[]>([]);
   const [products, setProducts] = useState<BatchFilterProductOption[]>([]);
-  const [selectedBatchContext, setSelectedBatchContext] = useState<{
-    batch: BatchActionSnapshot;
-    productVariantId: number;
-    baseUomCode: string;
-  } | null>(null);
+  const [selectedBatchContext, setSelectedBatchContext] =
+    useState<SelectedBatchContext | null>(null);
+  const selectedRefreshSeq = useRef(0);
+  const selectedRefreshAbort = useRef<AbortController | null>(null);
 
   const batchIndex = useBatchIndex({
     locationId,
@@ -111,13 +118,20 @@ export function TabBatches({
     [language, t],
   );
 
+  const closeSelectedBatch = useCallback(() => {
+    selectedRefreshSeq.current += 1;
+    selectedRefreshAbort.current?.abort();
+    selectedRefreshAbort.current = null;
+    setSelectedBatchContext(null);
+  }, []);
+
   useEffect(() => {
     setSearchInput("");
     setFilters(DEFAULT_BATCH_INDEX_FILTERS);
     setFamilies([]);
     setProducts([]);
-    setSelectedBatchContext(null);
-  }, [locationId]);
+    closeSelectedBatch();
+  }, [closeSelectedBatch, locationId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -142,7 +156,73 @@ export function TabBatches({
     if (batchIndex.items.length === 0) return;
     setFamilies((current) => mergeFamilies(current, batchIndex.items));
     setProducts((current) => mergeProducts(current, batchIndex.items));
+    setSelectedBatchContext((current) => {
+      if (!current) return current;
+      const detail = batchIndex.items.find(
+        (item) =>
+          item.batch_id === current.batch.batch_id &&
+          item.product_variant_id === current.productVariantId,
+      );
+      return detail
+        ? {
+            batch: toBatchActionSnapshot(detail),
+            productVariantId: detail.product_variant_id,
+            baseUomCode: detail.base_uom_code,
+            detail,
+          }
+        : current;
+    });
   }, [batchIndex.items]);
+
+  const refreshSelectedBatch = useCallback(async () => {
+    const current = selectedBatchContext;
+    if (!current) return;
+    const expectedBatchId = current.batch.batch_id;
+    const expectedVariantId = current.productVariantId;
+    const requestSeq = ++selectedRefreshSeq.current;
+    selectedRefreshAbort.current?.abort();
+    const controller = new AbortController();
+    selectedRefreshAbort.current = controller;
+    try {
+      const sources = parseBatchStockSources(
+        await authFetch(
+          `/warehouse/batches/${expectedBatchId}/stock-sources`,
+          { signal: controller.signal },
+        ),
+      );
+      if (requestSeq !== selectedRefreshSeq.current) return;
+      if (
+        sources.batch_id !== expectedBatchId ||
+        sources.product_variant_id !== expectedVariantId
+      ) {
+        const error = new Error("BATCH_STOCK_SOURCES_SCOPE_MISMATCH") as Error & { code: string };
+        error.code = "BATCH_STOCK_SOURCES_SCOPE_MISMATCH";
+        throw error;
+      }
+      setSelectedBatchContext((latest) => {
+        if (
+          !latest ||
+          latest.batch.batch_id !== expectedBatchId ||
+          latest.productVariantId !== expectedVariantId
+        ) {
+          return latest;
+        }
+        return {
+          ...latest,
+          batch: sources.batch,
+          baseUomCode: sources.base_uom_code,
+        };
+      });
+    } catch (error: unknown) {
+      if (requestSeq !== selectedRefreshSeq.current) return;
+      if (error instanceof Error && error.name === "AbortError") return;
+      toast.error(apiErrorMessage(error, t("inventoryBatches.errors.focus")));
+    } finally {
+      if (selectedRefreshAbort.current === controller) {
+        selectedRefreshAbort.current = null;
+      }
+    }
+  }, [authFetch, selectedBatchContext, t]);
 
   useEffect(() => {
     if (focus?.batchId === null || focus?.batchId === undefined) return;
@@ -167,6 +247,7 @@ export function TabBatches({
           batch: sources.batch,
           productVariantId: sources.product_variant_id,
           baseUomCode: sources.base_uom_code,
+          detail: null,
         });
         onFocusConsumed();
       } catch (error: unknown) {
@@ -202,10 +283,14 @@ export function TabBatches({
   );
 
   const openBatchAction = useCallback((item: WarehouseBatchIndexItem) => {
+    selectedRefreshSeq.current += 1;
+    selectedRefreshAbort.current?.abort();
+    selectedRefreshAbort.current = null;
     setSelectedBatchContext({
       batch: toBatchActionSnapshot(item),
       productVariantId: item.product_variant_id,
       baseUomCode: item.base_uom_code,
+      detail: item,
     });
   }, []);
 
@@ -289,11 +374,20 @@ export function TabBatches({
         batch={selectedBatchContext?.batch ?? null}
         productVariantId={selectedBatchContext?.productVariantId ?? null}
         baseUomCode={selectedBatchContext?.baseUomCode ?? ""}
+        selectedWarehouseId={locationId}
+        batchDetail={selectedBatchContext?.detail ?? null}
         onOpenTransfers={onOpenTransfers}
         onOpenReservationOwner={onOpenReservationOwner}
-        onClose={() => setSelectedBatchContext(null)}
+        onClose={closeSelectedBatch}
+        onRefreshBatch={async () => {
+          await Promise.all([
+            refreshSelectedBatch(),
+            batchIndex.refresh(),
+          ]);
+        }}
         onChanged={async () => {
           await batchIndex.refresh();
+          await onInventoryChanged();
         }}
       />
     </div>
