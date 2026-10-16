@@ -1,0 +1,234 @@
+name: Inventory CP11 access seam closure
+
+on:
+  push:
+    branches:
+      - sol/cp11-inventory-access-seam-wave2
+  pull_request:
+    branches:
+      - integration/inventory-wave-2
+    paths:
+      - "wa_backend/api/inventory_permissions.py"
+      - "wa_backend/domains/inventory_access/**"
+      - "wa_backend/alembic/versions/a8c11d4e7f20_inventory_permission_catalog_parity.py"
+      - "wa_backend/tests/test_cp11_inventory_access_backend.py"
+      - "wa_backend/tests/test_cp11_inventory_access_postgres.py"
+      - "wa_backend/tests/test_inventory_access_canonical_boundary.py"
+      - "dashboard/src/hooks/useInventoryAccess.ts"
+      - "dashboard/src/pages/inventory/TabInventoryAccess.tsx"
+      - "dashboard/src/pages/inventory/TabInventoryAccess.vehicles.test.ts"
+      - "dashboard/src/pages/inventory/TabInventoryAccess.representatives.test.ts"
+      - "dashboard/src/pages/inventory/access/**"
+      - "dashboard/src/test/inventory-access-canonical-contract.test.ts"
+      - "dashboard/src/test/inventory-cp11-access-dashboard.test.tsx"
+      - ".github/workflows/inventory-cp11-access-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cp11-access-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp11SyntheticOnlyKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://cp11_unit@127.0.0.1:1/cp11_unit
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Backend test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: CP11 focused Backend acceptance
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_cp11_inventory_access_backend.py
+          tests/test_inventory_access_canonical_boundary.py
+      - name: CP7 access/read regression
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_live_stock_canonical_cutover.py
+          tests/test_cp7_live_stock_contract.py
+      - name: Relevant CP6 and CP10 access regressions
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_minimum_stock_canonical_authorization_cutover.py
+          tests/test_cp10_ledger_backend.py
+      - name: py_compile changed Backend
+        run: >-
+          python -m py_compile
+          wa_backend/api/inventory_permissions.py
+          wa_backend/domains/inventory_access/__init__.py
+          wa_backend/domains/inventory_access/administration.py
+          wa_backend/alembic/versions/a8c11d4e7f20_inventory_permission_catalog_parity.py
+
+  postgres-16:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp11PostgresOnlyKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://cp11_app@127.0.0.1:55451/wanasah_cp11_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp11_admin@127.0.0.1:55451/wanasah_cp11_test
+      WANASAH_CP11_PG_GATE: "1"
+      WANASAH_CP11_PG_URL: postgresql+asyncpg://cp11_app@127.0.0.1:55451/wanasah_cp11_test
+      WANASAH_CP11_PG_ADMIN_URL: postgresql+asyncpg://cp11_admin@127.0.0.1:55451/wanasah_cp11_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL acceptance dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name cp11-postgres \
+            --env POSTGRES_USER=cp11_admin \
+            --env POSTGRES_DB=wanasah_cp11_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55451:55451 \
+            postgres:16 -p 55451
+          for attempt in $(seq 1 30); do
+            if docker exec cp11-postgres pg_isready -U cp11_admin -d wanasah_cp11_test -p 55451; then exit 0; fi
+            sleep 1
+          done
+          docker logs cp11-postgres
+          exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname='cp11_app'").fetchone():
+                  conn.execute("CREATE ROLE cp11_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Clean bootstrap to Alembic head
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: CP11 PostgreSQL 16 acceptance
+        working-directory: wa_backend
+        run: python -m pytest -q -s tests/test_cp11_inventory_access_postgres.py
+
+  dashboard-focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Locked Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: CP11 focused Dashboard acceptance
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/test/inventory-cp11-access-dashboard.test.tsx
+          src/test/inventory-access-canonical-contract.test.ts
+          src/pages/inventory/TabInventoryAccess.vehicles.test.ts
+          src/pages/inventory/TabInventoryAccess.representatives.test.ts
+      - name: Relevant CP6 and CP10 access regressions
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/test/inventory-cp6-minimum-stock-dashboard.test.tsx
+          src/test/inventory-cp10-ledger-contract.test.ts
+      - name: TypeScript noEmit
+        working-directory: dashboard
+        run: npx tsc --noEmit
+      - name: Production Dashboard build
+        working-directory: dashboard
+        run: npm run build
+
+  dynamic-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Resolve active Wave merge-base
+        shell: bash
+        run: |
+          target="${{ github.event.pull_request.base.ref }}"
+          if [ -z "$target" ]; then target="integration/inventory-wave-2"; fi
+          git fetch origin "$target" --no-tags
+          base="$(git merge-base HEAD "origin/$target")"
+          test -n "$base"
+          echo "CP11_BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "CP11_TARGET_REF=$target" >> "$GITHUB_ENV"
+          echo "CP11_DYNAMIC_BASE=$base"
+      - name: Exact bounded CP11 scope audit
+        shell: bash
+        run: |
+          test "$CP11_TARGET_REF" = "integration/inventory-wave-2"
+          python - <<'PY'
+          import os
+          import subprocess
+          base = os.environ["CP11_BASE_SHA"]
+          changed = set(subprocess.check_output(["git", "diff", "--name-only", base, "HEAD"], text=True).splitlines())
+          exact = {
+              ".github/workflows/inventory-cp11-access-acceptance.yml",
+              "wa_backend/api/inventory_permissions.py",
+              "wa_backend/alembic/versions/a8c11d4e7f20_inventory_permission_catalog_parity.py",
+              "wa_backend/tests/test_cp11_inventory_access_backend.py",
+              "wa_backend/tests/test_cp11_inventory_access_postgres.py",
+              "wa_backend/tests/test_inventory_access_canonical_boundary.py",
+              "dashboard/src/hooks/useInventoryAccess.ts",
+              "dashboard/src/pages/inventory/TabInventoryAccess.tsx",
+              "dashboard/src/pages/inventory/TabInventoryAccess.vehicles.test.ts",
+              "dashboard/src/pages/inventory/TabInventoryAccess.representatives.test.ts",
+              "dashboard/src/test/inventory-access-canonical-contract.test.ts",
+              "dashboard/src/test/inventory-cp11-access-dashboard.test.tsx",
+          }
+          unexpected = {
+              path for path in changed
+              if path not in exact
+              and not path.startswith("wa_backend/domains/inventory_access/")
+              and not path.startswith("dashboard/src/pages/inventory/access/")
+          }
+          assert not unexpected, f"Unexpected CP11 scope: {sorted(unexpected)}"
+          forbidden = (
+              "dashboard/src/pages/inventory/live-stock/",
+              "dashboard/src/pages/inventory/transfers/",
+              "dashboard/src/pages/inventory/stocktake/",
+              "dashboard/src/pages/inventory/ledger/",
+              "dashboard/src/pages/inventory/batches/",
+              "dashboard/src/pages/products/",
+              "wa_backend/api/warehouse/ledger.py",
+              "wa_backend/api/warehouse/stocktake.py",
+              "wa_backend/api/warehouse/transfers.py",
+          )
+          assert not any(path.startswith(forbidden) for path in changed), sorted(changed)
+          assert "dashboard/src/pages/inventory/MainInventory.tsx" not in changed
+          print(f"CP11_CHANGED_FILES={len(changed)}")
+          print("CP11_SCOPE=PASS")
+          PY
+      - name: Dynamic diff whitespace gate
+        run: git diff --check "$CP11_BASE_SHA" HEAD

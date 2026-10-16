@@ -1,13 +1,11 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-
-const source = readFileSync(resolve(process.cwd(), "src/pages/inventory/TabInventoryAccess.tsx"), "utf8");
+import { permissionLabel } from "./access/permissionLabels";
 
 describe("Vehicle permission provisioning UI", () => {
-  it("provides business labels for both Vehicle capabilities", () => {
-    expect(source).toContain("'vehicle.read': 'representativesVehicles.vehicles.permissionCatalog.read'");
-    expect(source).toContain("'vehicle.manage': 'representativesVehicles.vehicles.permissionCatalog.manage'");
-    expect(source).toContain("MANAGEMENT_PERMISSION_LABEL_KEYS[code]");
+  it("provides bilingual business labels for both Vehicle capabilities", () => {
+    expect(permissionLabel("vehicle.read", "ar")).toBe("عرض المركبات");
+    expect(permissionLabel("vehicle.read", "en")).toBe("View vehicles");
+    expect(permissionLabel("vehicle.manage", "ar")).toBe("إدارة المركبات");
+    expect(permissionLabel("vehicle.manage", "en")).toBe("Manage vehicles");
   });
 });
