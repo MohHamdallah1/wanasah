@@ -4,7 +4,6 @@ import { resolve } from "node:path";
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// CP15 reproduction marker only: assertions below are intentionally unchanged in this commit.
 const mocks = vi.hoisted(() => ({ authFetch: vi.fn() }));
 
 vi.mock("@/hooks/useAuthFetch", () => ({
@@ -146,19 +145,27 @@ describe("CP6.2/6.3 policy closure Dashboard", () => {
       readFileSync(resolve(process.cwd(), "src", path), "utf8");
     const manager = read("pages/inventory/StockMinimumManager.tsx");
     const explain = read("pages/inventory/stock-policy/ShelfLifePolicyExplainability.tsx");
+    const policyI18n = read("pages/inventory/stock-policy/i18n.ts");
     const contract = read("pages/inventory/stock-policy/contracts.ts");
 
     expect(manager).toContain('from "./stock-policy/ShelfLifePolicyExplainability"');
     expect(manager).toContain("<ShelfLifePolicyExplainability");
-    expect(explain).toContain('ar: {');
-    expect(explain).toContain('en: {');
+    expect(explain).toContain('import { useShelfLifePolicyCopy } from "./i18n"');
+    expect(explain).toContain("useShelfLifePolicyCopy()");
+    expect(policyI18n).toContain("ar: {");
+    expect(policyI18n).toContain("en: {");
+    expect(policyI18n).toContain('title: "سياسة مدة الصلاحية الفعالة"');
+    expect(policyI18n).toContain('title: "Effective shelf-life policy"');
+    expect(policyI18n).toContain('locale: isArabic ? "ar-JO-u-nu-latn" : "en-US-u-nu-latn"');
     expect(explain).toContain('numberingSystem: "latn"');
     expect(explain).toContain("sm:grid-cols-2");
     expect(explain).toContain("xl:grid-cols-3");
     expect(explain).toContain('type="button"');
     expect(explain).toContain("focus-visible:ring-2");
-    expect(explain).toContain("server result");
-    expect(explain).toContain("Server code");
+    expect(policyI18n).toContain("server result");
+    expect(policyI18n).toContain("Server code");
+    expect(explain).toContain("text.sampleTitle");
+    expect(explain).toContain("text.reasonCode");
     expect(contract).toContain('management_mode: "READ_ONLY_V1"');
 
     for (const forbidden of [
