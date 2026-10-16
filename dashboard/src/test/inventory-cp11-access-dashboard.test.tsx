@@ -125,7 +125,7 @@ describe('CP11 Inventory access Dashboard', () => {
     expect(onAddGrant).toHaveBeenCalledTimes(1);
   });
 
-  it('traps focus in revoke confirmation, closes on Escape and restores focus', () => {
+  it('traps focus in revoke confirmation, closes on Escape and restores focus after state clears', () => {
     const copy = inventoryAccessCopy('en');
     const trigger = document.createElement('button');
     document.body.appendChild(trigger);
@@ -157,7 +157,7 @@ describe('CP11 Inventory access Dashboard', () => {
         open={false}
         copy={copy}
         busy={false}
-        returnFocusTo={trigger}
+        returnFocusTo={null}
         onCancel={onCancel}
         onConfirm={onConfirm}
       />,
