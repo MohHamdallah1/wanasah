@@ -201,6 +201,7 @@ export function TabWarehouseLocations({
 
   const [items, setItems] = useState<WarehouseLocationItem[]>([]);
   const access = useInventoryAccess();
+  const minimumStockAccess = useInventoryAccess(selectedLocationId);
   const canAt = useLocationCapabilities(items.map(item => item.id));
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -272,6 +273,11 @@ export function TabWarehouseLocations({
     [items]
   );
 
+  const canManageMinimumStock =
+    selectedLocationId !== null &&
+    access.can("inventory.minimum_stock.manage") &&
+    minimumStockAccess.can("inventory.read");
+
   const resetToFirstPageAndRefresh = useCallback(() => {
     setCursor(null);
     setCursorHistory([]);
@@ -318,6 +324,7 @@ export function TabWarehouseLocations({
       toast.error(t("inventoryWarehouses.errors.systemCodeReserved"));
       return;
     }
+
     if (
       formMode === "edit" &&
       editingLocation &&
@@ -447,7 +454,7 @@ export function TabWarehouseLocations({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {access.isCompanyOwner && selectedLocationId !== null && (
+          {canManageMinimumStock && (
             <StockMinimumManager
               locationId={selectedLocationId}
               onApplied={onMinimumApplied}
