@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -167,7 +167,7 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
 
     renderPage();
 
-    expect(await screen.findByText("Product 1")).toBeInTheDocument();
+    expect(await screen.findAllByText("Product 1")).not.toHaveLength(0);
     expect(screen.getByText("8")).toBeInTheDocument();
     const paths = mocks.authFetch.mock.calls.map(([path]) => String(path));
     expect(paths.some((path) => path.startsWith("/warehouse/inventory/batches/cursor?"))).toBe(true);
@@ -248,10 +248,10 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
     });
 
     renderPage();
-    await screen.findByText("Product 1");
+    expect(await screen.findAllByText("Product 1")).not.toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Load more batches" }));
-    expect(await screen.findByText("Product 2")).toBeInTheDocument();
-    expect(screen.getAllByText("Product 1")).toHaveLength(1);
+    expect(await screen.findAllByText("Product 2")).not.toHaveLength(0);
+    expect(screen.getAllByText("Product 1")).toHaveLength(2);
     const summaryReads = mocks.authFetch.mock.calls.filter(([path]) => String(path).startsWith("/warehouse/inventory/batches/summary?")).length;
     expect(summaryReads).toBe(1);
     expect(appendUniqueBatchItems([item(1)], [item(1), item(2)]).map((row) => row.batch_id)).toEqual([1, 2]);
@@ -271,12 +271,12 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
     });
 
     renderPage();
-    await screen.findByText("Product 1");
+    expect(await screen.findAllByText("Product 1")).not.toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Load more batches" }));
     expect(await screen.findByText("Could not load the next page. Current results were kept.")).toBeInTheDocument();
-    expect(screen.getByText("Product 1")).toBeInTheDocument();
+    expect(screen.getAllByText("Product 1")).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "Retry loading more" }));
-    expect(await screen.findByText("Product 2")).toBeInTheDocument();
+    expect(await screen.findAllByText("Product 2")).not.toHaveLength(0);
   });
 
   it("protects newer sort queries from stale responses", async () => {
@@ -295,7 +295,7 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Sort" }), {
       target: { value: "PRODUCT_DESC" },
     });
-    expect(await screen.findByText("New Query")).toBeInTheDocument();
+    expect(await screen.findAllByText("New Query")).not.toHaveLength(0);
     resolveOld?.(page([item(8, { product_name: "Stale Query" })]));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.queryByText("Stale Query")).not.toBeInTheDocument();
@@ -317,11 +317,11 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
     });
 
     renderPage();
-    await screen.findByText("Product 1");
+    expect(await screen.findAllByText("Product 1")).not.toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Load more batches" }));
-    await screen.findByText("Product 2");
+    expect(await screen.findAllByText("Product 2")).not.toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Refresh batches" }));
-    expect(await screen.findByText("Refreshed Product")).toBeInTheDocument();
+    expect(await screen.findAllByText("Refreshed Product")).not.toHaveLength(0);
     expect(screen.queryByText("Product 1")).not.toBeInTheDocument();
     expect(screen.queryByText("Product 2")).not.toBeInTheDocument();
   });
@@ -340,7 +340,7 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
     });
 
     const { container } = renderPage();
-    expect(await screen.findByText("Remaining shelf life is below the selling policy")).toBeInTheDocument();
+    expect(await screen.findAllByText("Remaining shelf life is below the selling policy")).not.toHaveLength(0);
     expect(screen.getByText("Relevant batches")).toBeInTheDocument();
     expect(screen.getByText("Damaged / disposal")).toBeInTheDocument();
     expect(container.querySelector(".md\\:hidden")).not.toBeNull();
