@@ -372,12 +372,16 @@ describe("CP7 Live Stock Dashboard closure", () => {
     expect(main).toContain("stockSummaryRequestSeq.current");
   });
 
-  it("documents the frozen MainInventory continuation-retry blocker without changing its owner", () => {
+  it("retries the failed continuation cursor without clearing rows or rerunning summary", () => {
     const main = source("src/pages/inventory/MainInventory.tsx");
     const cp7Tab = source("src/pages/inventory/Tab1LiveStock.tsx");
-    expect(main).toContain("setStockCursor(stockNextCursor)");
-    expect(cp7Tab).not.toContain("setStockCursor(");
-    expect(cp7Tab).not.toContain("MainInventory");
+    expect(main).toContain("const [stockPageRetryKey, setStockPageRetryKey] = useState(0)");
+    expect(main).toContain("const retryStockPage = useCallback");
+    expect(main).toContain("setStockPageRetryKey((value) => value + 1)");
+    expect(main).toContain("[selectedLocationId, fetchStock, stockRefreshKey, stockPageRetryKey]");
+    expect(main).toContain("[selectedLocationId, fetchStockSummary, stockRefreshKey]");
+    expect(main).toContain("onRetryPage={retryStockPage}");
+    expect(cp7Tab).toContain("onClick={onRetryPage}");
   });
 
   it("keeps CP3 mutations out of the CP7 feature modules", () => {
