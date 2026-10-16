@@ -4,23 +4,34 @@ from decimal import Decimal
 from pathlib import Path
 
 from domains.batch_actions import (
-    STATUS_CHANGE_DESTINATIONS,
     status_change_availability,
+    status_change_destinations,
 )
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_cp3_stock_status_matrix_is_backend_only_and_frozen():
-    assert STATUS_CHANGE_DESTINATIONS == {
-        "AVAILABLE": ("QUARANTINED", "BLOCKED", "RECALLED"),
-        "QUARANTINED": ("AVAILABLE", "BLOCKED", "RECALLED"),
-        "BLOCKED": ("RECALLED",),
-        "RECALLED": (),
-        "DAMAGED": (),
-        "DISPOSAL_PENDING": (),
-    }
+def test_cp3_stock_status_destinations_are_derived_from_movement_authority():
+    assert status_change_destinations("AVAILABLE") == (
+        "QUARANTINED",
+        "BLOCKED",
+        "RECALLED",
+    )
+    assert status_change_destinations("QUARANTINED") == (
+        "AVAILABLE",
+        "BLOCKED",
+        "RECALLED",
+    )
+    assert status_change_destinations("BLOCKED") == ("RECALLED",)
+    assert status_change_destinations("RECALLED") == ()
+    assert status_change_destinations("DAMAGED") == ()
+    assert status_change_destinations("DISPOSAL_PENDING") == ()
+    helper = (ROOT / "domains" / "batch_actions" / "status_change.py").read_text(
+        encoding="utf-8"
+    )
+    assert "_PORTION_STATUS_TRANSITIONS" in helper
+    assert '"AVAILABLE": ("QUARANTINED"' not in helper
 
 
 def test_cp3_status_availability_uses_free_quantity_permission_and_sellability():
