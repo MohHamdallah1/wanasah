@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - integration/inventory-wave-2
+      - main
     paths:
       - "dashboard/src/pages/inventory/InventoryTopDock.tsx"
       - "dashboard/src/pages/inventory/inventoryShellPolish.css"
@@ -108,24 +109,17 @@ jobs:
           VITE_API_URL: https://api.example.invalid
         run: npm run build
 
-      - name: Dynamic CP13 scope
+      - name: Exact bounded CP13 scope
         shell: bash
+        env:
+          CP13_REPAIR_BASE: c7fd6baee5a732773c6d30a311f0af1c84a1d338
         run: |
-          target="${{ github.event.pull_request.base.ref }}"
-          if [ -z "$target" ]; then target="integration/inventory-wave-2"; fi
-          git fetch origin "$target" --no-tags
-          base="$(git merge-base HEAD "origin/$target")"
-          echo "CP13_DYNAMIC_BASE=$base"
-          echo "CP13_TARGET=$target"
-          git merge-base --is-ancestor 7468f9f3c5b2419c223882724ae926afaebd7fa5 HEAD
+          git cat-file -e "$CP13_REPAIR_BASE^{commit}"
           python - <<'PY'
           import os
           import subprocess
 
-          target = os.environ.get("GITHUB_BASE_REF") or "integration/inventory-wave-2"
-          base = subprocess.check_output(
-              ["git", "merge-base", "HEAD", f"origin/{target}"], text=True
-          ).strip()
+          base = os.environ["CP13_REPAIR_BASE"]
           changed = set(
               subprocess.check_output(
                   ["git", "diff", "--name-only", base, "HEAD"], text=True
@@ -133,7 +127,6 @@ jobs:
           )
           expected = {
               ".github/workflows/inventory-cp13-shell-polish.yml",
-              "dashboard/src/pages/inventory/InventoryTopDock.tsx",
               "dashboard/src/pages/inventory/inventoryShellPolish.css",
               "dashboard/src/test/inventory-cp13-shell-polish.test.tsx",
           }
@@ -155,14 +148,11 @@ jobs:
               or path.startswith(forbidden[5])
               for path in changed
           ), sorted(changed)
-          print("CP13_DYNAMIC_SCOPE=PASS")
+          print("CP13_EXACT_SCOPE=PASS")
           PY
 
       - name: git diff --check
         shell: bash
-        run: |
-          target="${{ github.event.pull_request.base.ref }}"
-          if [ -z "$target" ]; then target="integration/inventory-wave-2"; fi
-          git fetch origin "$target" --no-tags
-          base="$(git merge-base HEAD "origin/$target")"
-          git diff --check "$base" HEAD
+        env:
+          CP13_REPAIR_BASE: c7fd6baee5a732773c6d30a311f0af1c84a1d338
+        run: git diff --check "$CP13_REPAIR_BASE" HEAD

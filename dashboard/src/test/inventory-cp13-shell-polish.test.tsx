@@ -27,6 +27,8 @@ describe("CP13.2 Inventory shell polish", () => {
     expect(shell).toContain("TABS.filter((tab) => tabAllowed(tab.id))");
     expect(shell).toContain('activeTab !== "live"');
     expect(shell).toContain('aria-label={t("inventoryShell.warehouseSelectLabel")}');
+    expect(shell).toContain('warehouseSetup?.warehouse_ready === false');
+    expect(shell).toContain('setActiveTab("warehouses")');
     expect(live).toContain("<LiveStockWarehouseContext");
     expect(live).toContain("onLocationChange={onLocationChange}");
   });
@@ -50,6 +52,19 @@ describe("CP13.2 Inventory shell polish", () => {
     expect(active).toHaveAttribute("data-active", "true");
     expect(active).toHaveAttribute("title", longLabel);
     expect(active).toHaveAttribute("tabindex", "0");
+  });
+
+  it("uses the full-width dock inset and the shared dark-bar tab visual language", () => {
+    const css = read("src/pages/inventory/inventoryShellPolish.css");
+
+    expect(css).toContain("--inventory-shell-inline-pad:");
+    expect(css).toContain("margin-inline: calc(0rem - var(--inventory-shell-inline-pad));");
+    expect(css).toContain("margin-inline: calc(-1rem - var(--inventory-shell-inline-pad));");
+    expect(css).toContain("background: rgb(255 255 255 / 0.06);");
+    expect(css).toContain("border-color: rgb(255 255 255 / 0.1);");
+    expect(css).toContain("background: #fbbf24;");
+    expect(css).toContain("border-color: #fbbf24;");
+    expect(css).not.toContain("linear-gradient(180deg, #fff7c7 0%, #f7d75f 100%)");
   });
 
   it("keeps deep-link consumption and persisted tab/Warehouse state contracts unchanged", () => {
