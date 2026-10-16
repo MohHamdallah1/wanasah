@@ -8,6 +8,7 @@ on:
       - "wa_backend/api/warehouse/live_stock.py"
       - "wa_backend/api/warehouse/live_stock_source_detail.py"
       - "wa_backend/api/warehouse/__init__.py"
+      - "wa_backend/scripts/gate_warehouse_route_manifest.py"
       - "wa_backend/scripts/warehouse_route_manifest_extensions.json"
       - "wa_backend/tests/test_cp7_live_stock_contract.py"
       - "wa_backend/tests/test_cp7_live_stock_postgres.py"
@@ -240,6 +241,7 @@ jobs:
               ".github/workflows/inventory-cp7-live-stock-acceptance.yml",
               "wa_backend/api/warehouse/__init__.py",
               "wa_backend/api/warehouse/live_stock_source_detail.py",
+              "wa_backend/scripts/gate_warehouse_route_manifest.py",
               "wa_backend/scripts/warehouse_route_manifest_extensions.json",
               "wa_backend/tests/test_cp7_live_stock_contract.py",
               "wa_backend/tests/test_cp7_live_stock_postgres.py",
