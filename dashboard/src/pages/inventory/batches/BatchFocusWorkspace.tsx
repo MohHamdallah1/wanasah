@@ -23,8 +23,8 @@ export function BatchFocusWorkspace({ identity, onConsumed, onClose, onOpenTrans
 }) {
   const { t, i18n } = useTranslation();
   const access = useInventoryAccess();
-  const canManageQualitySettings =
-    access.isCompanyOwner || access.can("inventory.transfer_policy.manage");
+  // Canonical Owner authority is already resolved by the server permission contract.
+  const canManageQualitySettings = access.can("inventory.transfer_policy.manage");
   const query = useBatchStockSources(identity.batchId);
   const consumed = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -46,9 +46,9 @@ export function BatchFocusWorkspace({ identity, onConsumed, onClose, onOpenTrans
   }, [failed, onConsumed, ready]);
 
   const refresh = async () => { await query.refetch(); };
-  const number = new Intl.NumberFormat(resolveI18nLocale(i18n));
+  const number = new Intl.NumberFormat(resolveI18nLocale(i18n), { numberingSystem: "latn" });
   const date = (value: string | null) => value === null ? t("batchFocus.noExpiry") : new Intl.DateTimeFormat(
-    resolveI18nLocale(i18n), { dateStyle: "medium", timeZone: "UTC" },
+    resolveI18nLocale(i18n), { dateStyle: "medium", timeZone: "UTC", numberingSystem: "latn" },
   ).format(new Date(`${value}T00:00:00Z`));
   const error = mismatch ? t("batchFocus.scopeMismatch") : apiErrorMessage(
     access.error ?? query.error, t("inventoryBatches.errors.focus"),
@@ -76,7 +76,7 @@ export function BatchFocusWorkspace({ identity, onConsumed, onClose, onOpenTrans
             : t("batchFocus.noReadableStock")}</p>
         <div className="mt-3 flex flex-wrap gap-2">
           <button type="button" onClick={() => void refresh()} disabled={query.isFetching} className="rounded-lg border px-3 py-2 text-sm focus-visible:ring-2">{t("common.refresh")}</button>
-          {(access.isCompanyOwner || access.can("batch.disposition")) && <button type="button" onClick={() => setEditingDisposition(true)} className="rounded-lg border px-3 py-2 text-sm focus-visible:ring-2">{t("batchFocus.changeDisposition")}</button>}
+          {access.can("batch.disposition") && <button type="button" onClick={() => setEditingDisposition(true)} className="rounded-lg border px-3 py-2 text-sm focus-visible:ring-2">{t("batchFocus.changeDisposition")}</button>}
         </div>
       </div>
       <BatchQuantityActions batch={data.batch} productVariantId={data.product_variant_id} baseUomCode={data.base_uom_code}
@@ -86,7 +86,7 @@ export function BatchFocusWorkspace({ identity, onConsumed, onClose, onOpenTrans
         onConfigureQualityDestinations={canManageQualitySettings ? onConfigureQualityDestinations : undefined} />
       {editingDisposition && <BatchDispositionManager batch={data.batch} productVariantId={data.product_variant_id}
         baseUomCode={data.base_uom_code} onClose={() => setEditingDisposition(false)} onChanged={refresh}
-        showQuantityActions={false} onOpenTransfers={(transfer) => { if (transfer) return onOpenTransfers(transfer); }} onOpenReservationOwner={onOpenReservationOwner} />}
+        onRefreshBatch={refresh} showQuantityActions={false} onOpenTransfers={(transfer) => { if (transfer) return onOpenTransfers(transfer); }} onOpenReservationOwner={onOpenReservationOwner} />}
     </>}
   </section>;
 }
