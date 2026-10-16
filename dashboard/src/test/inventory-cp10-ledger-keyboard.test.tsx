@@ -118,8 +118,8 @@ describe("CP10 Ledger keyboard/focus", () => {
     const quantity = await screen.findByRole("textbox", { name: "Requested correct total" });
     await waitFor(() => expect(quantity).toHaveFocus());
 
-    const cancel = screen.getByRole("button", { name: "Cancel" });
-    cancel.focus();
+    const lastControl = screen.getByRole("button", { name: "Record correction" });
+    lastControl.focus();
     fireEvent.keyDown(document, { key: "Tab" });
     expect(screen.getByRole("button", { name: "common.close" })).toHaveFocus();
 
