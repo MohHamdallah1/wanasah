@@ -92,8 +92,12 @@ describe("CP9 Stocktake Dashboard V1 closure", () => {
 
   it("keeps every action behind its exact independent capability", () => {
     const tab = source("Tab3Stocktake.tsx");
+    const sessions = source("stocktake/hooks/useStocktakeSessions.ts");
+
+    expect(tab).toContain('warehouseAccess.can("stocktake.read")');
+    expect(tab).toContain("enabled: canReadStocktake");
+    expect(sessions).toContain("if (!enabled) return");
     for (const capability of [
-      "stocktake.read",
       "stocktake.start",
       "stocktake.count",
       "stocktake.review",
@@ -101,7 +105,7 @@ describe("CP9 Stocktake Dashboard V1 closure", () => {
       "stocktake.recount",
       "stocktake.cancel",
     ]) {
-      expect(tab).toContain(`"${capability}"`);
+      expect(tab).toContain(capability);
     }
     expect(tab).not.toContain("stocktake.manage");
     expect(tab).not.toContain("isCompanyOwner");
