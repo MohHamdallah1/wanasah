@@ -10,6 +10,7 @@ on:
     paths:
       - "wa_backend/api/inventory_permissions.py"
       - "wa_backend/domains/inventory_access/**"
+      - "wa_backend/alembic/versions/a8c11d4e7f20_inventory_permission_catalog_parity.py"
       - "wa_backend/tests/test_cp11_inventory_access_backend.py"
       - "wa_backend/tests/test_cp11_inventory_access_postgres.py"
       - "wa_backend/tests/test_inventory_access_canonical_boundary.py"
@@ -66,6 +67,7 @@ jobs:
           wa_backend/api/inventory_permissions.py
           wa_backend/domains/inventory_access/__init__.py
           wa_backend/domains/inventory_access/administration.py
+          wa_backend/alembic/versions/a8c11d4e7f20_inventory_permission_catalog_parity.py
 
   postgres-16:
     runs-on: ubuntu-24.04
@@ -188,6 +190,7 @@ jobs:
           exact = {
               ".github/workflows/inventory-cp11-access-acceptance.yml",
               "wa_backend/api/inventory_permissions.py",
+              "wa_backend/alembic/versions/a8c11d4e7f20_inventory_permission_catalog_parity.py",
               "wa_backend/tests/test_cp11_inventory_access_backend.py",
               "wa_backend/tests/test_cp11_inventory_access_postgres.py",
               "wa_backend/tests/test_inventory_access_canonical_boundary.py",
