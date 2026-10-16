@@ -57,6 +57,10 @@ def _access(company_id: int):
     return NS(company_id=company_id, require=AsyncMock(return_value=None))
 
 
+def _actor(actor_id: int):
+    return NS(id=actor_id)
+
+
 @pytest_asyncio.fixture(loop_scope="function")
 async def pg():
     engine = create_async_engine(_checked_url(), poolclass=NullPool)
@@ -130,13 +134,12 @@ async def pg():
 
 async def test_branch_idempotency_reactivation_and_non_cascade(pg):
     access = _access(pg.company_a)
+    actor = _actor(pg.actor_id)
     async with AsyncSession(pg.engine, expire_on_commit=False) as db:
-        actor = await db.get(Driver, pg.actor_id)
         create_id = uuid4()
         payload = BranchCreateRequest(request_id=create_id, name="Idempotent branch", code="IDEM-" + uuid4().hex[:8].upper())
         first = await branches.create_branch(payload, db, access, actor)
     async with AsyncSession(pg.engine, expire_on_commit=False) as db:
-        actor = await db.get(Driver, pg.actor_id)
         replay = await branches.create_branch(payload, db, access, actor)
         assert replay == first
         assert await db.scalar(select(func.count(Branch.id)).where(Branch.company_id == pg.company_a, Branch.branch_code == payload.code)) == 1
@@ -145,7 +148,6 @@ async def test_branch_idempotency_reactivation_and_non_cascade(pg):
         update = BranchUpdateRequest(request_id=update_id, name="Idempotent branch renamed")
         updated = await branches.update_branch(first["branch"]["id"], update, db, access, actor)
     async with AsyncSession(pg.engine, expire_on_commit=False) as db:
-        actor = await db.get(Driver, pg.actor_id)
         assert await branches.update_branch(first["branch"]["id"], update, db, access, actor) == updated
 
         deactivate_id = uuid4()
@@ -153,7 +155,6 @@ async def test_branch_idempotency_reactivation_and_non_cascade(pg):
         deactivated = await branches.deactivate_branch(pg.active_branch, state, db, access, actor)
         assert deactivated["branch"]["is_active"] is False
     async with AsyncSession(pg.engine, expire_on_commit=False) as db:
-        actor = await db.get(Driver, pg.actor_id)
         replay_state = await branches.deactivate_branch(pg.active_branch, state, db, access, actor)
         assert replay_state == deactivated
         warehouse = await db.get(InventoryLocation, pg.linked)
@@ -175,6 +176,7 @@ async def test_branch_idempotency_reactivation_and_non_cascade(pg):
 
 async def test_warehouse_create_update_version_relations_and_inactive_branch_reactivation(pg):
     access = _access(pg.company_a)
+    actor = _actor(pg.actor_id)
     capability = AsyncMock(return_value=None)
     guard = AsyncMock(return_value=None)
     rebuild = AsyncMock(return_value=None)
@@ -187,7 +189,6 @@ async def test_warehouse_create_update_version_relations_and_inactive_branch_rea
         patch.object(locations, "remove_live_stock_warehouse_projection", remove),
     ):
         async with AsyncSession(pg.engine, expire_on_commit=False) as db:
-            actor = await db.get(Driver, pg.actor_id)
             create = await locations.create_warehouse_location(
                 WarehouseLocationCreateRequest(
                     request_id=uuid4(),
@@ -204,7 +205,6 @@ async def test_warehouse_create_update_version_relations_and_inactive_branch_rea
             assert create["location"]["version"] == 1
 
         async with AsyncSession(pg.engine, expire_on_commit=False) as db:
-            actor = await db.get(Driver, pg.actor_id)
             updated = await locations.update_warehouse_location(
                 location_id,
                 WarehouseLocationUpdateRequest(
@@ -220,7 +220,6 @@ async def test_warehouse_create_update_version_relations_and_inactive_branch_rea
             assert updated["location"]["branch_id"] == pg.active_branch
 
         async with AsyncSession(pg.engine, expire_on_commit=False) as db:
-            actor = await db.get(Driver, pg.actor_id)
             with pytest.raises(HTTPException) as stale:
                 await locations.update_warehouse_location(
                     location_id,
@@ -242,7 +241,6 @@ async def test_warehouse_create_update_version_relations_and_inactive_branch_rea
             assert row.version == 2
 
         async with AsyncSession(pg.engine, expire_on_commit=False) as db:
-            actor = await db.get(Driver, pg.actor_id)
             with pytest.raises(HTTPException) as inactive_create:
                 await locations.create_warehouse_location(
                     WarehouseLocationCreateRequest(
@@ -252,7 +250,6 @@ async def test_warehouse_create_update_version_relations_and_inactive_branch_rea
             assert _code(inactive_create.value) == "WAREHOUSE_BRANCH_INACTIVE"
 
         async with AsyncSession(pg.engine, expire_on_commit=False) as db:
-            actor = await db.get(Driver, pg.actor_id)
             with pytest.raises(HTTPException) as inactive_update:
                 await locations.update_warehouse_location(
                     location_id,
@@ -264,7 +261,6 @@ async def test_warehouse_create_update_version_relations_and_inactive_branch_rea
             assert row.branch_id == pg.active_branch and row.version == 2
 
         async with AsyncSession(pg.engine, expire_on_commit=False) as db:
-            actor = await db.get(Driver, pg.actor_id)
             with pytest.raises(HTTPException) as foreign:
                 await locations.update_warehouse_location(
                     location_id,
@@ -275,7 +271,6 @@ async def test_warehouse_create_update_version_relations_and_inactive_branch_rea
             assert _code(foreign.value) == "WAREHOUSE_BRANCH_NOT_FOUND"
 
         async with AsyncSession(pg.engine, expire_on_commit=False) as db:
-            actor = await db.get(Driver, pg.actor_id)
             await branches.deactivate_branch(
                 pg.active_branch,
                 BranchStateRequest(request_id=uuid4(), reason="organizational only"),
@@ -287,7 +282,6 @@ async def test_warehouse_create_update_version_relations_and_inactive_branch_rea
             assert row.is_active is True and row.branch_id == pg.active_branch and row.version == 2
 
         async with AsyncSession(pg.engine, expire_on_commit=False) as db:
-            actor = await db.get(Driver, pg.actor_id)
             deactivated = await locations.deactivate_warehouse_location(
                 location_id,
                 WarehouseLocationStateRequest(request_id=uuid4(), expected_version=2, reason="warehouse maintenance"),
@@ -299,7 +293,6 @@ async def test_warehouse_create_update_version_relations_and_inactive_branch_rea
             inactive_version = deactivated["location"]["version"]
 
         async with AsyncSession(pg.engine, expire_on_commit=False) as db:
-            actor = await db.get(Driver, pg.actor_id)
             reactivated = await locations.activate_warehouse_location(
                 location_id,
                 WarehouseLocationStateRequest(request_id=uuid4(), expected_version=inactive_version, reason="ready"),
