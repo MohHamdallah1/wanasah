@@ -1,7 +1,8 @@
 /* CP13.2 shell-only polish. Keep workflow IA and runtime ownership unchanged. */
 .inventory-workspace {
+  --inventory-shell-inline-pad: clamp(0.15rem, 0.65vw, 0.65rem);
   gap: clamp(0.45rem, 0.9vw, 0.7rem) !important;
-  padding-inline: clamp(0.15rem, 0.65vw, 0.65rem);
+  padding-inline: var(--inventory-shell-inline-pad);
   font-variant-numeric: lining-nums tabular-nums;
 }
 
@@ -11,7 +12,8 @@
   justify-content: flex-start;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 0.1rem 0.05rem 0.2rem;
+  margin-inline: calc(0rem - var(--inventory-shell-inline-pad));
+  padding: 0.1rem 0 0.2rem;
   scroll-snap-type: inline proximity;
   overscroll-behavior-inline: contain;
   scrollbar-width: none;
@@ -36,34 +38,38 @@
   max-width: clamp(8.5rem, 15vw, 12.5rem);
   height: 2.45rem;
   padding-inline: clamp(0.65rem, 1vw, 0.95rem);
-  color: #475569;
-  background: rgb(255 255 255 / 0.72);
-  border-color: rgb(203 213 225 / 0.88);
-  box-shadow: 0 1px 2px rgb(15 23 42 / 0.05);
+  color: #f1f5f9;
+  background: rgb(255 255 255 / 0.06);
+  border-color: rgb(255 255 255 / 0.1);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.12);
   scroll-snap-align: start;
   scroll-margin-inline: 0.3rem;
 }
 
 .inventory-workspace .inventory-top-dock__item:hover,
 .inventory-workspace .inventory-top-dock__item:focus-visible {
-  color: #0f172a;
-  border-color: #94a3b8;
-  background: #fff;
+  color: #fff;
+  border-color: rgb(255 255 255 / 0.15);
+  background: rgb(255 255 255 / 0.1);
 }
 
 .inventory-workspace .inventory-top-dock__item[aria-selected="true"] {
-  color: #172554;
-  border-color: #d6a928;
-  background: linear-gradient(180deg, #fff7c7 0%, #f7d75f 100%);
-  box-shadow:
-    inset 0 -2px 0 rgb(146 103 8 / 0.18),
-    0 3px 9px rgb(120 83 8 / 0.16);
+  color: #020617;
+  border-color: #fbbf24;
+  background: #fbbf24;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.12);
+}
+
+.inventory-workspace .inventory-top-dock__item[aria-selected="true"]:hover,
+.inventory-workspace .inventory-top-dock__item[aria-selected="true"]:focus-visible {
+  border-color: #fcd34d;
+  background: #fcd34d;
 }
 
 .inventory-workspace .inventory-top-dock__item:focus-visible {
-  outline: 3px solid rgb(14 116 144 / 0.42) !important;
+  outline: 3px solid rgb(252 211 77 / 0.78) !important;
   outline-offset: 2px;
-  box-shadow: 0 0 0 2px #fff;
+  box-shadow: 0 0 0 2px rgb(15 23 42 / 0.65);
 }
 
 .inventory-workspace .inventory-top-dock__label {
@@ -108,10 +114,17 @@
   display: none;
 }
 
+@media (min-width: 1024px) {
+  .inventory-workspace .inventory-top-dock-component {
+    margin-inline: calc(-1rem - var(--inventory-shell-inline-pad));
+  }
+}
+
 @media (max-width: 640px) {
   .inventory-workspace {
+    --inventory-shell-inline-pad: 0.1rem;
     gap: 0.4rem !important;
-    padding-inline: 0.1rem;
+    padding-inline: var(--inventory-shell-inline-pad);
   }
 
   .inventory-workspace .inventory-top-dock-component {
