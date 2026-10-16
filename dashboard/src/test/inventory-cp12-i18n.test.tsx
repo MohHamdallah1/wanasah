@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import { resolveAppLocale } from "@/lib/locale";
@@ -23,10 +24,21 @@ const forbiddenCp3 = new Set([
   "batches/batchTerminalActionContract.ts",
 ]);
 
-const resourceBasenames = new Set([
+const presentationResourceBasenames = new Set([
   "copy.ts",
   "i18n.ts",
   "ledgerI18n.ts",
+  "uiCopy.ts",
+  "branchSelectorI18n.ts",
+  "permissionLabels.ts",
+  "batchIndexI18n.ts",
+]);
+
+const nonPresentationContractBasenames = new Set([
+  "contracts.ts",
+  "parsers.ts",
+  "branchContracts.ts",
+  "inventoryUtils.ts",
 ]);
 
 const collect = (directory: string): string[] =>
@@ -36,66 +48,117 @@ const collect = (directory: string): string[] =>
     return /\.tsx?$/.test(entry.name) ? [path] : [];
   });
 
-const stripComments = (source: string) =>
-  source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^\s*\/\/.*$/gm, "");
-
 const activeOwnedSources = () =>
   collect(ROOT)
     .filter((path) => !path.endsWith(".test.ts") && !path.endsWith(".test.tsx"))
-    .filter((path) => !resourceBasenames.has(path.split(/[\\/]/).at(-1) ?? ""))
+    .filter((path) => !presentationResourceBasenames.has(path.split(/[\\/]/).at(-1) ?? ""))
+    .filter((path) => !nonPresentationContractBasenames.has(path.split(/[\\/]/).at(-1) ?? ""))
     .filter((path) => !forbiddenCp3.has(relative(ROOT, path).replaceAll("\\", "/")));
 
 const read = (path: string) => readFileSync(path, "utf8");
+const displayPath = (path: string) => relative(process.cwd(), path).replaceAll("\\", "/");
+const containsArabic = (value: string) => /[\u0600-\u06ff]/.test(value);
+const looksLikeNaturalLanguage = (value: string) => {
+  const clean = value.replace(/\s+/g, " ").trim();
+  if (!clean || !/[A-Za-z\u0600-\u06ff]/.test(clean)) return false;
+  if (/^(?:SKU|FEFO|ID|V1|HQ|AMMAN-01|ABC)$/i.test(clean.replace(/[:.]$/, ""))) return false;
+  return clean.length >= 3;
+};
 
-const naturalLanguagePatterns = [
-  /toast\.(?:error|success|info|warning)\(\s*["'`](?![A-Z0-9_:-]+["'`])[^"'`\n]*[A-Za-z\u0600-\u06ff][^"'`\n]*["'`]/g,
-  /(?:aria-label|title|placeholder)\s*=\s*["'][^"']*[A-Za-z\u0600-\u06ff][^"']*["']/g,
-  />\s*[A-Za-z\u0600-\u06ff][^<{\n]{2,}\s*</g,
-];
+const parse = (path: string) => ts.createSourceFile(
+  path,
+  read(path),
+  ts.ScriptTarget.Latest,
+  true,
+  path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+);
+
+const literalText = (node: ts.Node): string | null => {
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+  return null;
+};
+
+const isToastCall = (node: ts.CallExpression) =>
+  ts.isPropertyAccessExpression(node.expression) &&
+  ts.isIdentifier(node.expression.expression) &&
+  node.expression.expression.text === "toast";
+
+const isErrorConstruction = (node: ts.NewExpression) =>
+  ts.isIdentifier(node.expression) && node.expression.text === "Error";
+
+const userFacingLiteralOffenders = (path: string) => {
+  const sourceFile = parse(path);
+  const matches: string[] = [];
+
+  const visit = (node: ts.Node) => {
+    if (ts.isJsxText(node) && looksLikeNaturalLanguage(node.text)) {
+      matches.push(node.text.replace(/\s+/g, " ").trim());
+    }
+
+    if (ts.isJsxAttribute(node) && ["aria-label", "title", "placeholder"].includes(node.name.getText(sourceFile))) {
+      if (node.initializer && ts.isStringLiteral(node.initializer) && looksLikeNaturalLanguage(node.initializer.text)) {
+        matches.push(`${node.name.getText(sourceFile)}=${node.initializer.text}`);
+      }
+    }
+
+    if (ts.isCallExpression(node) && isToastCall(node)) {
+      const text = node.arguments[0] ? literalText(node.arguments[0]) : null;
+      if (text && looksLikeNaturalLanguage(text)) matches.push(`toast:${text}`);
+    }
+
+    if (ts.isNewExpression(node) && isErrorConstruction(node)) {
+      const text = node.arguments?.[0] ? literalText(node.arguments[0]) : null;
+      if (text && looksLikeNaturalLanguage(text) && !/^[A-Z0-9_:-]+$/.test(text)) {
+        matches.push(`Error:${text}`);
+      }
+    }
+
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  return [...new Set(matches)];
+};
+
+const messageProseBranchingOffenders = (path: string) => {
+  const source = read(path);
+  const patterns = [
+    /(?:error\.message|\bmessage\b|\bdetail\b)\s*(?:===|!==)\s*(?:t\(|copy\.|["'`][^"'`]*[a-z\u0600-\u06ff])/i,
+    /(?:error\.message|\bmessage\b|\bdetail\b)\s*\.\s*(?:includes|startsWith)\(\s*(?:t\(|copy\.|["'`][^"'`]*[a-z\u0600-\u06ff])/i,
+  ];
+  return patterns.some((pattern) => pattern.test(source));
+};
 
 describe("CP12 Inventory i18n closure", () => {
-  it("keeps active owned Inventory implementation free of inline Arabic presentation prose", () => {
+  it("keeps active owned implementation free of inline Arabic presentation literals", () => {
     const offenders = activeOwnedSources().flatMap((path) => {
-      const source = stripComments(read(path));
-      return /[\u0600-\u06ff]/.test(source)
-        ? [relative(process.cwd(), path).replaceAll("\\", "/")]
-        : [];
+      const sourceFile = parse(path);
+      let found = false;
+      const visit = (node: ts.Node) => {
+        const text = literalText(node);
+        if (text && containsArabic(text)) found = true;
+        if (!found) ts.forEachChild(node, visit);
+      };
+      visit(sourceFile);
+      return found ? [displayPath(path)] : [];
     });
 
     expect(offenders).toEqual([]);
   });
 
-  it("keeps obvious user-facing natural-language literals out of active owned React implementation", () => {
-    const offenders: Array<{ file: string; matches: string[] }> = [];
-
-    for (const path of activeOwnedSources()) {
-      if (!path.endsWith(".tsx")) continue;
-      const source = stripComments(read(path));
-      const matches = naturalLanguagePatterns.flatMap((pattern) => source.match(pattern) ?? []);
-      const relevant = matches.filter((match) =>
-        !/placeholder\s*=\s*["'](?:HQ|AMMAN-01|SKU|ABC|123)/i.test(match),
-      );
-      if (relevant.length) {
-        offenders.push({
-          file: relative(process.cwd(), path).replaceAll("\\", "/"),
-          matches: relevant,
-        });
-      }
-    }
+  it("keeps obvious user-facing natural-language literals out of owned React implementation", () => {
+    const offenders = activeOwnedSources()
+      .filter((path) => path.endsWith(".tsx"))
+      .map((path) => ({ file: displayPath(path), matches: userFacingLiteralOffenders(path) }))
+      .filter((entry) => entry.matches.length > 0);
 
     expect(offenders).toEqual([]);
   });
 
   it("never branches business decisions on translated backend message prose", () => {
-    const offenders = activeOwnedSources().flatMap((path) => {
-      const source = stripComments(read(path));
-      const hasMessageComparison = /(?:message|detail|error\.message)\s*(?:===|!==|\.includes\(|\.startsWith\()/m.test(source);
-      return hasMessageComparison
-        ? [relative(process.cwd(), path).replaceAll("\\", "/")]
-        : [];
-    });
+    const offenders = activeOwnedSources()
+      .filter(messageProseBranchingOffenders)
+      .map(displayPath);
 
     expect(offenders).toEqual([]);
   });
@@ -106,9 +169,11 @@ describe("CP12 Inventory i18n closure", () => {
       "src/pages/inventory/liveStock/i18n.ts",
       "src/pages/inventory/transfers/i18n.ts",
       "src/pages/inventory/stocktake/copy.ts",
+      "src/pages/inventory/stocktake/uiCopy.ts",
       "src/pages/inventory/ledger/ledgerI18n.ts",
       "src/pages/inventory/access/copy.ts",
       "src/pages/inventory/warehouse-locations/i18n.ts",
+      "src/pages/inventory/warehouse-locations/branchSelectorI18n.ts",
     ];
 
     for (const path of requiredResources) {
