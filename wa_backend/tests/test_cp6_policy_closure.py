@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from api import inventory_stock_policy
-from api.warehouse import batch_index, stock_policy_read
+from api.warehouse import batch_index
 from domains.authorization.capabilities import PERMISSIONS
 from domains.inventory_rules import batch_metadata_is_sellable
 from domains.inventory_stock_policy.read import (
@@ -18,6 +18,7 @@ from domains.inventory_stock_policy.read import (
 
 
 ROOT = Path(__file__).parents[1]
+REPO = ROOT.parent
 
 
 class _ScalarResult:
@@ -95,15 +96,26 @@ async def test_effective_shelf_life_read_is_exact_and_read_only():
 def test_v1_has_no_shelf_life_write_authority_and_no_cost_read_capability():
     assert "cost.read" not in PERMISSIONS
     assert not any("shelf" in code for code in PERMISSIONS)
-    assert "minimum_remaining_shelf_life_days" not in inventory_stock_policy.MinimumStockUpdateRequest.model_fields
-    assert "minimum_remaining_shelf_life_days" not in inventory_stock_policy.BulkMinimumStockRequest.model_fields
+    for request_model in (
+        inventory_stock_policy.MinimumStockUpdateRequest,
+        inventory_stock_policy.BulkMinimumStockBase,
+        inventory_stock_policy.BulkMinimumStockApplyRequest,
+    ):
+        assert "minimum_remaining_shelf_life_days" not in request_model.model_fields
 
     route = next(
         item
-        for item in stock_policy_read.router.routes
+        for item in inventory_stock_policy.router.routes
         if item.path == "/warehouse/inventory/stock-policy/effective"
     )
     assert route.methods == {"GET"}
+    assert route.response_model is inventory_stock_policy.EffectiveShelfLifePolicyResponse
+
+    read_source = (
+        ROOT / "domains" / "inventory_stock_policy" / "read.py"
+    ).read_text(encoding="utf-8")
+    assert "float(" not in read_source
+    assert "minimum_remaining_shelf_life_days" in read_source
 
 
 def test_authoritative_sellability_boundaries_and_warning_separation():
@@ -146,30 +158,45 @@ def test_authoritative_sellability_boundaries_and_warning_separation():
 
 
 def test_cost_visibility_v1_is_frozen_to_existing_server_surfaces():
-    live_schema = (ROOT / "schemas.py").read_text(encoding="utf-8")
+    schemas = (ROOT / "schemas.py").read_text(encoding="utf-8")
     live_api = (ROOT / "api" / "warehouse" / "live_stock.py").read_text(encoding="utf-8")
     batch_api = (ROOT / "api" / "warehouse" / "batch_index.py").read_text(encoding="utf-8")
     ledger_api = (ROOT / "api" / "warehouse" / "ledger.py").read_text(encoding="utf-8")
     ledger_read = (ROOT / "domains" / "ledger" / "read.py").read_text(encoding="utf-8")
     inbound_api = (ROOT / "api" / "warehouse" / "inbound.py").read_text(encoding="utf-8")
+    batch_contract = (
+        REPO / "dashboard" / "src" / "pages" / "inventory" / "batches" / "batchIndexContracts.ts"
+    ).read_text(encoding="utf-8")
 
-    # Frozen V1 rule: inventory.read exposes the server-computed Live Stock cost evidence.
-    assert "average_cost_display" in live_schema
-    assert "last_purchase_cost" in live_schema
+    # Frozen V1: inventory.read exposes server-computed Live Stock valuation and
+    # purchase evidence. The legacy product-batch detail also carries server purchase
+    # evidence; React does not create a new cost permission or derive a hidden value.
+    assert "average_cost_display" in schemas
+    assert "last_purchase_cost" in schemas
+    assert "latest_purchase_cost" in schemas
     assert "InventoryCostEvent" in live_api
     assert "inventory.read" in live_api
 
-    # Dedicated Batches intentionally exposes no cost evidence at all.
+    # The CP2 Batches primary index is deliberately non-cost-bearing. Cost data is
+    # absent from the backend/query contract, not merely hidden by Dashboard CSS.
     assert "InventoryCostEvent" not in batch_api
-    for forbidden in ("input_unit_cost", "total_cost", "average_cost_after", "last_purchase_cost"):
+    for forbidden in (
+        "input_unit_cost",
+        "total_cost",
+        "average_cost_after",
+        "last_purchase_cost",
+        "latest_purchase_cost",
+    ):
         assert forbidden not in batch_api
+        assert forbidden not in batch_contract
 
-    # Ledger cost evidence is server-computed and gated by the existing ledger.read capability.
+    # Ledger retains its existing explicit read authority and server-generated cost evidence.
     assert 'access.require("ledger.read"' in ledger_api
     for field in ("input_unit_cost", "total_cost", "average_cost_after"):
         assert field in ledger_read
 
-    # Inbound owns submitted acquisition-cost evidence; it does not establish a read capability.
+    # Inbound owns submitted acquisition-cost evidence under its existing write path;
+    # it does not establish a read capability or a second valuation formula.
     assert "unit_cost" in inbound_api
     assert "InventoryCostEvent" in inbound_api or "record_purchase" in inbound_api
     assert "cost.read" not in live_api + batch_api + ledger_api + inbound_api
