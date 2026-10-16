@@ -17,6 +17,7 @@ import { BatchFocusWorkspace } from "./batches/BatchFocusWorkspace";
 import type { BatchSpecialTransferResult } from "./batches/batchSpecialTransferContract";
 import type { ReservationOwner } from "./batches/batchStockSourcesContract";
 import MainInventory from "./MainInventory";
+import "./cp14DeviceUx.css";
 
 /** Exact batch-quality focus bypasses warehouse-shell initialization, not authority. */
 export default function InventoryPage() {
