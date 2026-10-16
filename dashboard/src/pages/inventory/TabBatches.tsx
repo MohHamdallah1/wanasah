@@ -217,9 +217,7 @@ export function TabBatches({
       <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-2.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
-            <h2 className="text-sm font-black text-slate-900">
-              {t("inventory.tabs.batches", { defaultValue: language.startsWith("ar") ? "الدفعات" : "Batches" })}
-            </h2>
+            <h2 className="text-sm font-black text-slate-900">{text("title")}</h2>
             <p className="text-[10px] font-semibold text-slate-500">
               {text("loadedCount", { count: loadedCount })}
             </p>
