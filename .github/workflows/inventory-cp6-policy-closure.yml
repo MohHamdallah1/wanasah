@@ -46,16 +46,28 @@ jobs:
       - name: CP6.2 and CP6.3 focused Backend acceptance
         working-directory: wa_backend
         run: python -m pytest -q tests/test_cp6_policy_closure.py
-      - name: Prove legacy CP1 lot-expiry baseline debt
+      - name: CP1 official Backend gate with exact-base parity
         shell: bash
         run: |
+          cp1_tests=(
+            tests/test_inbound_lot_expiry_checkpoint1.py
+            tests/test_inbound_no_lot_frozen_contract.py
+            tests/test_stocktake_nullable_expiry_serialization.py
+            tests/test_live_stock_batch_detail_disposition_contract.py
+            tests/test_batch_reservation_owner_contract.py
+            tests/test_whole_product_quality_issue_sources.py
+            tests/test_product_tracking_canonical_auth.py
+            tests/test_batch_stock_sources_contract.py
+            tests/test_supplier_inbound_quality_canonical_auth_cutover.py
+          )
+
           set +e
-          (cd wa_backend && python -m pytest -q tests/test_inbound_lot_expiry_checkpoint1.py) > /tmp/cp1-head.log 2>&1
+          (cd wa_backend && python -m pytest -q "${cp1_tests[@]}") > /tmp/cp1-head.log 2>&1
           head_status=$?
           set -e
           cat /tmp/cp1-head.log
           if [ "$head_status" -eq 0 ]; then
-            echo "CP1_LOT_EXPIRY_HEAD=PASS"
+            echo "CP1_BACKEND_HEAD=PASS"
             exit 0
           fi
 
@@ -63,12 +75,12 @@ jobs:
           mkdir -p /tmp/cp1-policy-base
           git archive 3f2f860fc8f04306e673de38a39e57ca3edf6df6 | tar -x -C /tmp/cp1-policy-base
           set +e
-          (cd /tmp/cp1-policy-base/wa_backend && python -m pytest -q tests/test_inbound_lot_expiry_checkpoint1.py) > /tmp/cp1-base.log 2>&1
+          (cd /tmp/cp1-policy-base/wa_backend && python -m pytest -q "${cp1_tests[@]}") > /tmp/cp1-base.log 2>&1
           base_status=$?
           set -e
           cat /tmp/cp1-base.log
           if [ "$base_status" -eq 0 ]; then
-            echo "CP1 lot/expiry passes on exact base but fails on CP6 head"
+            echo "CP1 official gate passes on exact base but fails on CP6 head"
             exit 1
           fi
 
@@ -77,13 +89,7 @@ jobs:
           test -s /tmp/cp1-head.sig
           test -s /tmp/cp1-base.sig
           diff -u /tmp/cp1-base.sig /tmp/cp1-head.sig
-          echo "CP1_LOT_EXPIRY_BASELINE_FAILURE=PROVEN"
-      - name: CP1 frozen and canonical Inbound regressions
-        working-directory: wa_backend
-        run: >-
-          python -m pytest -q
-          tests/test_inbound_no_lot_frozen_contract.py
-          tests/test_supplier_inbound_quality_canonical_auth_cutover.py
+          echo "CP1_BACKEND_BASELINE_FAILURES=PROVEN_IDENTICAL"
       - name: CP2 Batches regression
         working-directory: wa_backend
         run: >-
