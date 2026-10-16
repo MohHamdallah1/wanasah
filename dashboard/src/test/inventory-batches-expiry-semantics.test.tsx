@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -147,8 +147,11 @@ describe("Inventory batch expiry semantics", () => {
       expect(screen.getAllByText("Expired").length).toBeGreaterThan(0);
       expect(screen.getAllByText("Not sellable").length).toBeGreaterThan(0);
     });
-    expect(screen.queryByText("Blocked")).not.toBeInTheDocument();
-    expect(screen.queryByText("Quarantined")).not.toBeInTheDocument();
+    const desktopRow = screen.getAllByText("Expiry Product")[0].closest("tr");
+    expect(desktopRow).not.toBeNull();
+    expect(within(desktopRow as HTMLElement).getByText("Released")).toBeInTheDocument();
+    expect(within(desktopRow as HTMLElement).queryByText("Blocked")).not.toBeInTheDocument();
+    expect(within(desktopRow as HTMLElement).queryByText("Quarantined")).not.toBeInTheDocument();
     expect(mocks.toastError).not.toHaveBeenCalled();
   });
 });
