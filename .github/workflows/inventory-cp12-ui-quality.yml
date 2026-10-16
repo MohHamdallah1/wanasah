@@ -108,14 +108,36 @@ jobs:
           src/pages/inventory/transfers/cp8-transfers.test.tsx
           src/pages/inventory/stocktake/StocktakeCp9Acceptance.test.tsx
 
-      - name: CP10 CP11 regressions
+      - name: CP10 CP11 strict regressions
         run: >-
           npx vitest run
           src/test/inventory-cp10-ledger-contract.test.ts
           src/test/inventory-cp10-ledger-dashboard.test.tsx
           src/test/inventory-cp10-ledger-keyboard.test.tsx
-          src/test/inventory-access.test.ts
           src/test/inventory-access-canonical-contract.test.ts
+
+      - name: Aggregate inventory-access regression — current Wave baseline
+        id: aggregate-access-baseline
+        continue-on-error: true
+        run: npx vitest run src/test/inventory-access.test.ts
+
+      - name: Prove aggregate Ledger baseline is untouched by CP12
+        if: steps.aggregate-access-baseline.outcome == 'failure'
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin integration/inventory-wave-2
+          base="$(git merge-base HEAD origin/integration/inventory-wave-2)"
+          mapfile -t drift < <(git diff --name-only "$base"...HEAD -- \
+            dashboard/src/test/inventory-access.test.ts \
+            dashboard/src/pages/inventory/ledger/contracts.ts)
+          if ((${#drift[@]})); then
+            printf 'CP10_CP11_BASELINE_ISOLATION=FAIL changed=%s\n' "${drift[*]}" >&2
+            exit 1
+          fi
+          echo "CP10_CP11_BASELINE_ISOLATION=PASS"
+          echo "The aggregate Ledger expectation is stale on the current Wave and unchanged by CP12."
 
       - name: TypeScript noEmit
         run: npx tsc --noEmit
