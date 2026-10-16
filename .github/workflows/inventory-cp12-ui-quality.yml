@@ -103,6 +103,8 @@ jobs:
           src/pages/inventory/stocktake/hooks/useCycleCountStart.ts
           src/pages/inventory/warehouse-locations/BranchManagementModal.tsx
           src/pages/inventory/warehouse-locations/i18n.ts
+          src/pages/inventory/stock-policy/ShelfLifePolicyExplainability.tsx
+          src/pages/inventory/stock-policy/i18n.ts
           src/test/inventory-cp12-i18n.test.tsx
           src/test/inventory-cp12-accessibility.test.tsx
           src/test/inventory-cp12-responsive-contract.test.ts
