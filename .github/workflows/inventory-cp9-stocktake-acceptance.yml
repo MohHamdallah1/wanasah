@@ -93,6 +93,7 @@ jobs:
           for attempt in $(seq 1 30); do
             if docker exec cp9-postgres pg_isready -U cp9_admin -d cp9_acceptance -p 55449; then
               docker exec cp9-postgres psql -U cp9_admin -d cp9_acceptance -p 55449 -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+              docker exec cp9-postgres psql -U cp9_admin -d cp9_acceptance -p 55449 -c "CREATE EXTENSION IF NOT EXISTS btree_gist;"
               exit 0
             fi
             sleep 1
