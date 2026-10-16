@@ -131,6 +131,8 @@ async def _runtime_session(engine, company_id: int):
                     {"tenant": str(company_id)},
                 )
                 await db.execute(text("SET statement_timeout='15000ms'"))
+                # Persist session-scoped RLS tenant context across expected endpoint rollbacks.
+                await db.commit()
                 yield db
             finally:
                 await db.close()
