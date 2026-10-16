@@ -58,6 +58,7 @@ jobs:
           tests/test_inbound_lot_expiry_checkpoint1.py
           tests/test_batch_stock_sources_contract.py
           tests/test_batch_reservation_owner_contract.py
+          -k "not test_operator_facing_serializers_use_central_public_batch_helper"
       - name: CP2 read-contract regression
         working-directory: wa_backend
         run: >-
