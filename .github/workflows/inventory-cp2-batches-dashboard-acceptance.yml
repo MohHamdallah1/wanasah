@@ -1,0 +1,150 @@
+name: Inventory CP2 Batches Dashboard acceptance
+
+on:
+  push:
+    branches:
+      - sol/cp2-batches-dashboard-wave2
+  pull_request:
+    branches:
+      - integration/inventory-wave-2
+    paths:
+      - "dashboard/src/pages/inventory/TabBatches.tsx"
+      - "dashboard/src/pages/inventory/batches/BatchIndexFilters.tsx"
+      - "dashboard/src/pages/inventory/batches/BatchIndexSummary.tsx"
+      - "dashboard/src/pages/inventory/batches/BatchIndexTable.tsx"
+      - "dashboard/src/pages/inventory/batches/batchDisplayPreferences.ts"
+      - "dashboard/src/pages/inventory/batches/batchIndexContracts.ts"
+      - "dashboard/src/pages/inventory/batches/batchIndexI18n.ts"
+      - "dashboard/src/pages/inventory/batches/useBatchIndex.ts"
+      - "dashboard/src/test/inventory-batches-expiry-semantics.test.tsx"
+      - "dashboard/src/test/inventory-cp2-batches-dashboard.test.tsx"
+      - ".github/workflows/inventory-cp2-batches-dashboard-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cp2-batches-dashboard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dashboard-acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Locked Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+
+      - name: CP2 focused Batches Dashboard acceptance
+        working-directory: dashboard
+        run: npm test -- src/test/inventory-cp2-batches-dashboard.test.tsx
+
+      - name: Relevant existing Batches regressions
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/test/inventory-batches-expiry-semantics.test.tsx
+          src/test/inventory-batches-pagination.test.ts
+          src/test/inventory-batch-disposition.test.ts
+          src/test/inventory-batch-stock-sources.test.ts
+          src/test/inventory-public-batch-number-parity.test.ts
+
+      - name: CP1 Dashboard regression
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/pages/inventory/inbound/Tab2Inbound.test.tsx
+          src/pages/inventory/inbound/contracts.test.ts
+          src/test/inventory-product-batch-date-parity.test.ts
+
+      - name: CP4 branch Dashboard regression
+        working-directory: dashboard
+        run: npm test -- src/test/inventory-cp4-branch-dashboard.test.tsx
+
+      - name: CP5 ProductLocation integration regressions
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/test/cp5-product-location-dashboard.test.tsx
+          src/test/cp5-product-location-modal.test.tsx
+          src/test/catalog-inventory-boundary.test.ts
+
+      - name: CP6 minimum-stock Dashboard regression
+        working-directory: dashboard
+        run: npm test -- src/test/inventory-cp6-minimum-stock-dashboard.test.tsx
+
+      - name: TypeScript noEmit
+        working-directory: dashboard
+        run: npx tsc --noEmit
+
+      - name: Production Dashboard build
+        working-directory: dashboard
+        run: npm run build
+
+      - name: Resolve active wave merge-base
+        id: base
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git fetch origin "${{ github.event.pull_request.base.ref }}" --depth=1
+            base="$(git merge-base HEAD "origin/${{ github.event.pull_request.base.ref }}")"
+          else
+            git fetch origin integration/inventory-wave-2 --depth=1
+            base="$(git merge-base HEAD origin/integration/inventory-wave-2)"
+          fi
+          test -n "$base"
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
+          echo "CP2_DASHBOARD_BASE=$base"
+
+      - name: Diff check
+        run: git diff --check "${{ steps.base.outputs.sha }}" HEAD
+
+      - name: Exact CP2 Dashboard scope audit
+        env:
+          CP2_BASE: ${{ steps.base.outputs.sha }}
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["CP2_BASE"]
+          allowed = {
+              ".github/workflows/inventory-cp2-batches-dashboard-acceptance.yml",
+              "dashboard/src/pages/inventory/TabBatches.tsx",
+              "dashboard/src/pages/inventory/batches/BatchIndexFilters.tsx",
+              "dashboard/src/pages/inventory/batches/BatchIndexSummary.tsx",
+              "dashboard/src/pages/inventory/batches/BatchIndexTable.tsx",
+              "dashboard/src/pages/inventory/batches/batchDisplayPreferences.ts",
+              "dashboard/src/pages/inventory/batches/batchIndexContracts.ts",
+              "dashboard/src/pages/inventory/batches/batchIndexI18n.ts",
+              "dashboard/src/pages/inventory/batches/useBatchIndex.ts",
+              "dashboard/src/test/inventory-batches-expiry-semantics.test.tsx",
+              "dashboard/src/test/inventory-cp2-batches-dashboard.test.tsx",
+          }
+          changed = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", base, "HEAD"],
+                  text=True,
+              ).splitlines()
+          )
+          unexpected = changed - allowed
+          assert not unexpected, f"Unexpected CP2 Dashboard scope: {sorted(unexpected)}"
+          assert "wa_backend" not in "\n".join(changed), "Backend changed in CP2 Dashboard wave"
+          print(f"CP2_DASHBOARD_CHANGED_FILES={len(changed)}")
+          print("CP2_BATCHES_DASHBOARD_SCOPE=PASS")
+          print("BACKEND_UNTOUCHED=PASS")
+          print("CP3_MUTATION_RUNTIME_UNTOUCHED=PASS")
+          PY
