@@ -20,32 +20,13 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-
           p = Path('wa_backend/tests/test_cp9_stocktake_postgres.py')
           s = p.read_text(encoding='utf-8')
           anchor = '        await self.db.commit()\n\n        all_a = {self.a1, self.a2, self.empty, self.va_location}\n'
-          replacement = '''        await self.db.commit()
-
-        # Route-level idempotency replay intentionally rolls the transaction back.
-        # Keep legacy actor provenance independent from ORM expiration caused by that rollback.
-        self.actor_a = SimpleNamespace(
-            id=int(actor_a.id), username=str(actor_a.username),
-            full_name=str(actor_a.full_name), password_hash=password_hash,
-        )
-        self.actor_a2 = SimpleNamespace(
-            id=int(actor_a2.id), username=str(actor_a2.username),
-            full_name=str(actor_a2.full_name), password_hash=password_hash,
-        )
-        self.actor_b = SimpleNamespace(
-            id=int(actor_b.id), username=str(actor_b.username),
-            full_name=str(actor_b.full_name), password_hash=password_hash,
-        )
-
-        all_a = {self.a1, self.a2, self.empty, self.va_location}
-'''
+          insertion = '        await self.db.commit()\n\n        # Durable replay rollback must not expire the legacy actor test fixtures.\n        self.actor_a = SimpleNamespace(id=int(actor_a.id), username=str(actor_a.username), full_name=str(actor_a.full_name), password_hash=password_hash)\n        self.actor_a2 = SimpleNamespace(id=int(actor_a2.id), username=str(actor_a2.username), full_name=str(actor_a2.full_name), password_hash=password_hash)\n        self.actor_b = SimpleNamespace(id=int(actor_b.id), username=str(actor_b.username), full_name=str(actor_b.full_name), password_hash=password_hash)\n\n        all_a = {self.a1, self.a2, self.empty, self.va_location}\n'
           if s.count(anchor) != 1:
               raise SystemExit(f'expected one post-seed commit anchor, got {s.count(anchor)}')
-          p.write_text(s.replace(anchor, replacement), encoding='utf-8')
+          p.write_text(s.replace(anchor, insertion), encoding='utf-8')
           PY
           python -m py_compile wa_backend/tests/test_cp9_stocktake_postgres.py
           rm .github/workflows/cp9-stabilize-actor-fixture.yml
