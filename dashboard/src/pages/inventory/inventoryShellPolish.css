@@ -1,0 +1,158 @@
+/* CP13.2 shell-only polish. Keep workflow IA and runtime ownership unchanged. */
+.inventory-workspace {
+  gap: clamp(0.45rem, 0.9vw, 0.7rem) !important;
+  padding-inline: clamp(0.15rem, 0.65vw, 0.65rem);
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.inventory-workspace .inventory-top-dock-component {
+  min-height: 2.75rem;
+  align-items: stretch;
+  justify-content: flex-start;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.1rem 0.05rem 0.2rem;
+  scroll-snap-type: inline proximity;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
+}
+
+.inventory-workspace .inventory-top-dock-component::-webkit-scrollbar {
+  display: none;
+}
+
+.inventory-workspace .inventory-top-dock__dock {
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+  height: 2.55rem;
+  justify-content: flex-start;
+  gap: clamp(0.25rem, 0.55vw, 0.48rem);
+  padding-inline: 0.1rem;
+}
+
+.inventory-workspace .inventory-top-dock__item {
+  min-width: max-content;
+  max-width: clamp(8.5rem, 15vw, 12.5rem);
+  height: 2.45rem;
+  padding-inline: clamp(0.65rem, 1vw, 0.95rem);
+  color: #475569;
+  background: rgb(255 255 255 / 0.72);
+  border-color: rgb(203 213 225 / 0.88);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.05);
+  scroll-snap-align: start;
+  scroll-margin-inline: 0.3rem;
+}
+
+.inventory-workspace .inventory-top-dock__item:hover,
+.inventory-workspace .inventory-top-dock__item:focus-visible {
+  color: #0f172a;
+  border-color: #94a3b8;
+  background: #fff;
+}
+
+.inventory-workspace .inventory-top-dock__item[aria-selected="true"] {
+  color: #172554;
+  border-color: #d6a928;
+  background: linear-gradient(180deg, #fff7c7 0%, #f7d75f 100%);
+  box-shadow:
+    inset 0 -2px 0 rgb(146 103 8 / 0.18),
+    0 3px 9px rgb(120 83 8 / 0.16);
+}
+
+.inventory-workspace .inventory-top-dock__item:focus-visible {
+  outline: 3px solid rgb(14 116 144 / 0.42) !important;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px #fff;
+}
+
+.inventory-workspace .inventory-top-dock__label {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inventory-workspace .inventory-shared-context-row {
+  padding-inline: 0.1rem;
+}
+
+.inventory-workspace .inventory-shared-context-row .inventory-context-bar {
+  width: fit-content;
+  max-width: 100%;
+  min-height: 2.7rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.8rem;
+  box-shadow: 0 2px 8px rgb(15 23 42 / 0.06);
+}
+
+.inventory-workspace .inventory-location-field {
+  min-width: 0;
+}
+
+.inventory-workspace .inventory-location-select {
+  max-width: min(21rem, calc(100vw - 3rem));
+  min-height: 2.15rem;
+  text-overflow: ellipsis;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+/*
+ * The shared row belongs to non-Live workflows. Its old stock-sync cluster
+ * refreshed Live Stock regardless of the active workflow, so it is removed
+ * from the shell presentation. Live Stock keeps its own local Warehouse +
+ * refresh control; every other workflow keeps its own refresh actions.
+ */
+.inventory-workspace .inventory-shared-context-row .inventory-sync {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .inventory-workspace {
+    gap: 0.4rem !important;
+    padding-inline: 0.1rem;
+  }
+
+  .inventory-workspace .inventory-top-dock-component {
+    width: 100%;
+    min-height: 2.8rem;
+    padding-bottom: 0.3rem;
+  }
+
+  .inventory-workspace .inventory-top-dock__dock {
+    min-width: max-content;
+    gap: 0.25rem;
+  }
+
+  .inventory-workspace .inventory-top-dock__item {
+    min-width: 7.5rem;
+    max-width: 10.75rem;
+    height: 2.5rem;
+    padding-inline: 0.65rem;
+  }
+
+  .inventory-workspace .inventory-top-dock__label {
+    max-width: 8.25rem;
+  }
+
+  .inventory-workspace .inventory-shared-context-row,
+  .inventory-workspace .inventory-shared-context-row .inventory-context-bar,
+  .inventory-workspace .inventory-location-field,
+  .inventory-workspace .inventory-location-select {
+    width: 100%;
+  }
+
+  .inventory-workspace .inventory-shared-context-row .inventory-context-bar {
+    padding: 0.35rem;
+  }
+
+  .inventory-workspace .inventory-location-select {
+    max-width: 100%;
+  }
+}
+
+html[dir="rtl"] .inventory-workspace .inventory-top-dock__dock,
+html[dir="rtl"] .inventory-workspace .inventory-shared-context-row .inventory-context-bar {
+  direction: rtl;
+}
