@@ -15,6 +15,8 @@ const ar = {
     vehicleCandidatesFailed: "فشل جلب جلسات تسوية السيارات.",
     vehicleStartFailed: "فشل بدء أو فتح تسوية السيارة.",
     sessionsFailed: "فشل جلب جلسات الجرد النشطة.",
+    identityNotReady: "هوية مستخدم الجرد غير جاهزة بعد.",
+    authorizationRequired: "الجلسة محفوظة على السيرفر. المرحلة الحالية تحتاج مستخدماً مخولاً؛ يمكنك متابعة حالتها من مركز الجلسات.",
   },
   lifecycle: {
     unknownLocation: "موقع جلسة الجرد الفعلي غير معروف.",
@@ -113,6 +115,8 @@ const en: typeof ar = {
     vehicleCandidatesFailed: "Could not load vehicle reconciliation candidates.",
     vehicleStartFailed: "Could not start or open vehicle reconciliation.",
     sessionsFailed: "Could not load active stocktake sessions.",
+    identityNotReady: "The stocktake user identity is not ready yet.",
+    authorizationRequired: "The session is saved on the server. The current phase requires an authorized user; you can continue tracking it from the session center.",
   },
   lifecycle: {
     unknownLocation: "The authoritative stocktake location is unknown.",
