@@ -1,4 +1,4 @@
-name: CP9 Stocktake bootstrap
+name: CP9 Stocktake Dashboard bootstrap
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  patch-runtime:
+  patch-dashboard:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     steps:
@@ -17,108 +17,74 @@ jobs:
         with:
           ref: sol/cp9-stocktake-full-closure-wave2
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-node@v4
         with:
-          python-version: '3.12'
-      - name: Apply bounded Stocktake runtime patch
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Apply bounded Stocktake Dashboard durable patch
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          path = Path('wa_backend/api/warehouse/stocktake.py')
-          text = path.read_text(encoding='utf-8')
+          def patch(path: str, replacements: list[tuple[str, str]]) -> None:
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              for old, new in replacements:
+                  count = text.count(old)
+                  if count != 1:
+                      raise SystemExit(f'{path}: expected one match, got {count}: {old[:100]!r}')
+                  text = text.replace(old, new, 1)
+              p.write_text(text, encoding='utf-8')
 
-          def rep(old: str, new: str) -> None:
-              global text
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'expected one match, got {count}: {old[:120]!r}')
-              text = text.replace(old, new, 1)
+          patch('dashboard/src/pages/inventory/stocktake/hooks/useStocktakeLifecycle.ts', [
+            ('import { toast } from "sonner";\n', 'import { toast } from "sonner";\nimport { executeStocktakeDurableCommand, type StocktakeDurableIdentity } from "../durableCommand";\n'),
+            ('interface UseStocktakeLifecycleArgs {\n', 'interface UseStocktakeLifecycleArgs {\n  durableIdentity: StocktakeDurableIdentity | null;\n'),
+            ('export function useStocktakeLifecycle({\n  focusSessionId,', 'export function useStocktakeLifecycle({\n  durableIdentity,\n  focusSessionId,'),
+            ('      setLocking(true);\n\n      try {\n        const raw =\n          await authenticatedFetch(\n            "/warehouse/unified/stocktake/start",\n            {\n              method: "POST",\n              body: JSON.stringify({\n                location_id:\n                  locationId,\n                stocktake_type:\n                  "FULL_COUNT",\n                notes:\n                  "بدء جرد مركزي",\n              }),\n            }\n          );', '      if (!durableIdentity) {\n        toast.error("Stocktake identity is not ready yet. / هوية مستخدم الجرد غير جاهزة بعد.");\n        return false;\n      }\n\n      setLocking(true);\n\n      try {\n        const raw = await executeStocktakeDurableCommand({\n          identity: durableIdentity,\n          operation: "start-full",\n          target: locationId,\n          payload: {\n            location_id: locationId,\n            stocktake_type: "FULL_COUNT",\n            notes: "Central full stocktake",\n          },\n          send: (body) => authenticatedFetch(\n            "/warehouse/unified/stocktake/start",\n            { method: "POST", body: JSON.stringify(body) },\n          ),\n        });'),
+            ('      authenticatedFetch,\n      loadCountSheet,', '      authenticatedFetch,\n      durableIdentity,\n      loadCountSheet,'),
+          ])
 
-          def rep_in(start: str, end: str, old: str, new: str) -> None:
-              global text
-              left = text.find(start)
-              if left < 0:
-                  raise SystemExit(f'missing section start: {start!r}')
-              right = text.find(end, left + len(start)) if end else len(text)
-              if right < 0:
-                  raise SystemExit(f'missing section end: {end!r}')
-              body = text[left:right]
-              count = body.count(old)
-              if count != 1:
-                  raise SystemExit(f'expected one section match, got {count}: {old[:120]!r}')
-              body = body.replace(old, new, 1)
-              text = text[:left] + body + text[right:]
+          patch('dashboard/src/pages/inventory/stocktake/hooks/useStocktakeCounting.ts', [
+            ('import { toast } from "sonner";\n', 'import { toast } from "sonner";\nimport { executeStocktakeDurableCommand, type StocktakeDurableIdentity } from "../durableCommand";\n'),
+            ('interface UseStocktakeCountingArgs {\n', 'interface UseStocktakeCountingArgs {\n  durableIdentity: StocktakeDurableIdentity | null;\n'),
+            ('export function useStocktakeCounting({\n  companyScope,', 'export function useStocktakeCounting({\n  durableIdentity,\n  companyScope,'),
+            ('      setSubmitting(true);\n\n      try {\n        await authenticatedFetch(\n          `/warehouse/unified/stocktake/${sessionId}/count`,\n          {\n            method: "POST",\n            body: JSON.stringify({\n              items,\n              notes,\n            }),\n          }\n        );', '      if (!durableIdentity) {\n        toast.error("Stocktake identity is not ready yet. / هوية مستخدم الجرد غير جاهزة بعد.");\n        return false;\n      }\n\n      setSubmitting(true);\n\n      try {\n        await executeStocktakeDurableCommand({\n          identity: durableIdentity,\n          operation: "count",\n          target: `${sessionLocationId}:${sessionId}`,\n          payload: { items, notes },\n          send: (body) => authenticatedFetch(\n            `/warehouse/unified/stocktake/${sessionId}/count`,\n            { method: "POST", body: JSON.stringify(body) },\n          ),\n        });'),
+            ('      authenticatedFetch,\n      draftKey,', '      authenticatedFetch,\n      durableIdentity,\n      draftKey,'),
+          ])
 
-          marker = "from domains.product_tracking import public_batch_number\n"
-          rep(marker, marker + "from domains.stocktake.contracts import (\n    StocktakeApprovalCommand,\n    StocktakeCancelCommand,\n    StocktakeCountCommand,\n    StocktakeRecountCommand,\n    StocktakeStartCommand,\n)\nfrom domains.stocktake.idempotency import (\n    begin_stocktake_command,\n    complete_stocktake_command,\n)\n")
+          patch('dashboard/src/pages/inventory/stocktake/hooks/useCycleCountStart.ts', [
+            ('import { useTranslation } from "react-i18next";\n', 'import { useTranslation } from "react-i18next";\nimport { executeStocktakeDurableCommand, type StocktakeDurableIdentity } from "../durableCommand";\n'),
+            ('interface UseCycleCountStartArgs {\n', 'interface UseCycleCountStartArgs {\n  durableIdentity: StocktakeDurableIdentity | null;\n'),
+            ('export function useCycleCountStart({\n  locationId,', 'export function useCycleCountStart({\n  durableIdentity,\n  locationId,'),
+            ('    setStarting(true);\n    try {\n      const raw = await authenticatedFetch("/warehouse/unified/stocktake/start", {\n        method: "POST",\n        body: JSON.stringify({\n          location_id: locationId,\n          stocktake_type: "CYCLE_COUNT",\n          product_variant_id: selectedProduct.id,\n          batch_id: selectedBatch?.id ?? null,\n          notes: notes.trim() || null,\n        }),\n      });', '    if (!durableIdentity) {\n      toast.error("Stocktake identity is not ready yet. / هوية مستخدم الجرد غير جاهزة بعد.");\n      return false;\n    }\n\n    setStarting(true);\n    try {\n      const raw = await executeStocktakeDurableCommand({\n        identity: durableIdentity,\n        operation: "start-cycle",\n        target: `${locationId}:${selectedProduct.id}:${selectedBatch?.id ?? "all"}`,\n        payload: {\n          location_id: locationId,\n          stocktake_type: "CYCLE_COUNT",\n          product_variant_id: selectedProduct.id,\n          batch_id: selectedBatch?.id ?? null,\n          notes: notes.trim() || null,\n        },\n        send: (body) => authenticatedFetch("/warehouse/unified/stocktake/start", {\n          method: "POST", body: JSON.stringify(body),\n        }),\n      });'),
+            ('    authenticatedFetch,\n    loadCountSheet,', '    authenticatedFetch,\n    durableIdentity,\n    loadCountSheet,'),
+          ])
 
-          rep('payload: UnifiedStocktakeStartRequest,', 'payload: StocktakeStartCommand,')
-          rep('payload: UnifiedStocktakeCountRequest,', 'payload: StocktakeCountCommand,')
-          rep('payload: StocktakeApprovalRequest,', 'payload: StocktakeApprovalCommand,')
-          rep('payload: StocktakeRecountRequest,', 'payload: StocktakeRecountCommand,')
-          rep('payload: StocktakeCancelRequest,', 'payload: StocktakeCancelCommand,')
+          patch('dashboard/src/pages/inventory/stocktake/hooks/useVehicleReconStart.ts', [
+            ('import { toast } from "sonner";\n', 'import { toast } from "sonner";\nimport { executeStocktakeDurableCommand, type StocktakeDurableIdentity } from "../durableCommand";\n'),
+            ('interface UseVehicleReconStartArgs {\n', 'interface UseVehicleReconStartArgs {\n  durableIdentity: StocktakeDurableIdentity | null;\n'),
+            ('export function useVehicleReconStart({\n  sourceLocationId,', 'export function useVehicleReconStart({\n  durableIdentity,\n  sourceLocationId,'),
+            ('        const raw = await authenticatedFetch(\n          "/warehouse/unified/stocktake/start",\n          {\n            method: "POST",\n            body: JSON.stringify({\n              location_id:\n                candidate.vehicle_location_id,\n              stocktake_type:\n                "VEHICLE_RECON",\n              related_work_session_id:\n                candidate.work_session_id,\n              notes:\n                notes.trim() || null,\n            }),\n          }\n        );', '        if (!durableIdentity) {\n          toast.error("Stocktake identity is not ready yet. / هوية مستخدم الجرد غير جاهزة بعد.");\n          return false;\n        }\n\n        const raw = await executeStocktakeDurableCommand({\n          identity: durableIdentity,\n          operation: "start-vehicle-recon",\n          target: `${candidate.vehicle_location_id}:${candidate.work_session_id}`,\n          payload: {\n            location_id: candidate.vehicle_location_id,\n            stocktake_type: "VEHICLE_RECON",\n            related_work_session_id: candidate.work_session_id,\n            notes: notes.trim() || null,\n          },\n          send: (body) => authenticatedFetch(\n            "/warehouse/unified/stocktake/start",\n            { method: "POST", body: JSON.stringify(body) },\n          ),\n        });'),
+            ('      authenticatedFetch,\n      busyWorkSessionId,', '      authenticatedFetch,\n      durableIdentity,\n      busyWorkSessionId,'),
+          ])
 
-          START = 'async def start_unified_stocktake('
-          COUNT = 'async def submit_stocktake_count('
-          REVIEW = '@router.get("/warehouse/unified/stocktake/{session_id}/review"'
-          APPROVE = 'async def approve_stocktake_session('
-          RECOUNT = 'async def recount_stocktake_session('
-          CANCEL = 'async def cancel_stocktake_session('
-
-          rep_in(START, COUNT,
-              "    company_id = access.company_id\n\n    try:\n        expected_location_type = 'VEHICLE' if payload.stocktake_type == 'VEHICLE_RECON' else 'WAREHOUSE'\n",
-              "    company_id = access.company_id\n    actor_id = int(legacy_actor.id)\n\n    try:\n        idempotency_record, replay_response = await begin_stocktake_command(\n            db, company_id=company_id, actor_id=actor_id, operation='STOCKTAKE_START',\n            payload=payload, target=payload.location_id,\n        )\n        if replay_response is not None:\n            await db.rollback()\n            return replay_response\n\n        expected_location_type = 'VEHICLE' if payload.stocktake_type == 'VEHICLE_RECON' else 'WAREHOUSE'\n")
-          rep_in(START, COUNT,
-              "        await db.commit()\n\n        return {\n            \"message\": \"تم بدء جلسة الجرد وأخذ Snapshot مقفل بنجاح.\",\n            \"reference_number\": reference_number,\n            \"session_id\": session.id,\n            \"stocktake_type\": session.stocktake_type,\n            \"snapshot_lines\": len(balances),\n        }\n",
-              "        response = {\n            \"message\": \"تم بدء جلسة الجرد وأخذ Snapshot مقفل بنجاح.\",\n            \"reference_number\": reference_number,\n            \"session_id\": session.id,\n            \"stocktake_type\": session.stocktake_type,\n            \"snapshot_lines\": len(balances),\n        }\n        complete_stocktake_command(idempotency_record, response)\n        await db.commit()\n        return response\n")
-          rep_in(START, COUNT,
-              "    except IntegrityError as e:\n        await db.rollback()\n        logger.warning(f\"تعارض متزامن أثناء بدء الجرد: {e}\", exc_info=True)\n",
-              "    except InventoryMutationError as e:\n        await db.rollback()\n        raise HTTPException(status_code=409, detail=str(e)) from e\n    except IntegrityError as e:\n        await db.rollback()\n        logger.warning(f\"تعارض متزامن أثناء بدء الجرد: {e}\", exc_info=True)\n")
-
-          rep_in(COUNT, REVIEW,
-              "    company_id = access.company_id\n\n    try:\n        session = await _load_stocktake_session(db, company_id, session_id, for_update=True)\n",
-              "    company_id = access.company_id\n    actor_id = int(legacy_actor.id)\n\n    try:\n        idempotency_record, replay_response = await begin_stocktake_command(\n            db, company_id=company_id, actor_id=actor_id, operation='STOCKTAKE_COUNT',\n            payload=payload, target=session_id,\n        )\n        if replay_response is not None:\n            await db.rollback()\n            return replay_response\n\n        session = await _load_stocktake_session(db, company_id, session_id, for_update=True)\n")
-          rep_in(COUNT, REVIEW,
-              "        await db.commit()\n\n        return {\n            \"message\": \"تم تثبيت محاولة العد بنجاح.\",\n            \"attempt_id\": attempt.id,\n            \"attempt_number\": attempt_number,\n            \"requires_independent_recount\": requires_independent,\n            \"status\": \"PENDING_REVIEW\",\n        }\n",
-              "        response = {\n            \"message\": \"تم تثبيت محاولة العد بنجاح.\",\n            \"attempt_id\": attempt.id,\n            \"attempt_number\": attempt_number,\n            \"requires_independent_recount\": requires_independent,\n            \"status\": \"PENDING_REVIEW\",\n        }\n        complete_stocktake_command(idempotency_record, response)\n        await db.commit()\n        return response\n")
-          rep_in(COUNT, REVIEW,
-              "    except IntegrityError as e:\n        await db.rollback()\n        logger.warning(f\"تعارض متزامن أثناء تثبيت الجرد: {e}\", exc_info=True)\n",
-              "    except InventoryMutationError as e:\n        await db.rollback()\n        raise HTTPException(status_code=409, detail=str(e)) from e\n    except IntegrityError as e:\n        await db.rollback()\n        logger.warning(f\"تعارض متزامن أثناء تثبيت الجرد: {e}\", exc_info=True)\n")
-
-          rep_in(APPROVE, RECOUNT,
-              "    try:\n        probe = await _probe_stocktake_location_id(db, company_id, session_id)\n",
-              "    try:\n        idempotency_record, replay_response = await begin_stocktake_command(\n            db, company_id=company_id, actor_id=int(legacy_actor.id), operation='STOCKTAKE_APPROVE',\n            payload=payload, target=session_id,\n        )\n        if replay_response is not None:\n            await db.rollback()\n            return replay_response\n\n        probe = await _probe_stocktake_location_id(db, company_id, session_id)\n")
-          rep_in(APPROVE, RECOUNT,
-              "        await db.commit()\n\n        return {\n            \"message\": \"تم اعتماد الجرد وترحيل الفروقات وفك الأقفال بنجاح.\",\n            \"attempt_id\": latest_attempt.id,\n            \"attempt_number\": latest_attempt.attempt_number,\n            \"movement_count\": len(movements),\n            \"status\": \"POSTED\",\n        }\n",
-              "        response = {\n            \"message\": \"تم اعتماد الجرد وترحيل الفروقات وفك الأقفال بنجاح.\",\n            \"attempt_id\": latest_attempt.id,\n            \"attempt_number\": latest_attempt.attempt_number,\n            \"movement_count\": len(movements),\n            \"status\": \"POSTED\",\n        }\n        complete_stocktake_command(idempotency_record, response)\n        await db.commit()\n        return response\n")
-
-          rep_in(RECOUNT, CANCEL,
-              "    try:\n        session = await _load_stocktake_session(db, company_id, session_id, for_update=True)\n",
-              "    try:\n        idempotency_record, replay_response = await begin_stocktake_command(\n            db, company_id=company_id, actor_id=int(legacy_actor.id), operation='STOCKTAKE_RECOUNT',\n            payload=payload, target=session_id,\n        )\n        if replay_response is not None:\n            await db.rollback()\n            return replay_response\n\n        session = await _load_stocktake_session(db, company_id, session_id, for_update=True)\n")
-          rep_in(RECOUNT, CANCEL,
-              "        await db.commit()\n\n        return {\n            \"message\": \"تم تفويض إعادة العد مع حفظ المحاولة السابقة كاملة.\",\n            \"previous_attempt_id\": latest_attempt.id,\n            \"previous_attempt_number\": latest_attempt.attempt_number,\n            \"requires_independent_counter\": latest_attempt.requires_independent_recount,\n            \"status\": \"RECOUNT_REQUIRED\",\n        }\n",
-              "        response = {\n            \"message\": \"تم تفويض إعادة العد مع حفظ المحاولة السابقة كاملة.\",\n            \"previous_attempt_id\": latest_attempt.id,\n            \"previous_attempt_number\": latest_attempt.attempt_number,\n            \"requires_independent_counter\": latest_attempt.requires_independent_recount,\n            \"status\": \"RECOUNT_REQUIRED\",\n        }\n        complete_stocktake_command(idempotency_record, response)\n        await db.commit()\n        return response\n")
-          rep_in(RECOUNT, CANCEL,
-              "    except IntegrityError as e:\n        await db.rollback()\n        logger.warning(f\"تعارض متزامن أثناء تفويض Recount: {e}\", exc_info=True)\n",
-              "    except InventoryMutationError as e:\n        await db.rollback()\n        raise HTTPException(status_code=409, detail=str(e)) from e\n    except IntegrityError as e:\n        await db.rollback()\n        logger.warning(f\"تعارض متزامن أثناء تفويض Recount: {e}\", exc_info=True)\n")
-
-          rep_in(CANCEL, '',
-              "    try:\n        location_id, _, _ = await _probe_stocktake_location_id(db, company_id, session_id)\n",
-              "    try:\n        idempotency_record, replay_response = await begin_stocktake_command(\n            db, company_id=company_id, actor_id=int(legacy_actor.id), operation='STOCKTAKE_CANCEL',\n            payload=payload, target=session_id,\n        )\n        if replay_response is not None:\n            await db.rollback()\n            return replay_response\n\n        location_id, _, _ = await _probe_stocktake_location_id(db, company_id, session_id)\n")
-          rep_in(CANCEL, '',
-              "        await db.commit()\n\n        return {\n            \"message\": \"تم إلغاء جلسة الجرد وفك الأقفال مع حفظ سجل التدقيق.\",\n            \"released_lock_count\": released_lock_count,\n            \"status\": \"CANCELLED\",\n        }\n",
-              "        response = {\n            \"message\": \"تم إلغاء جلسة الجرد وفك الأقفال مع حفظ سجل التدقيق.\",\n            \"released_lock_count\": released_lock_count,\n            \"status\": \"CANCELLED\",\n        }\n        complete_stocktake_command(idempotency_record, response)\n        await db.commit()\n        return response\n")
-          rep_in(CANCEL, '',
-              "    except IntegrityError as e:\n        await db.rollback()\n        logger.warning(f\"تعارض متزامن أثناء إلغاء الجرد: {e}\", exc_info=True)\n",
-              "    except InventoryMutationError as e:\n        await db.rollback()\n        raise HTTPException(status_code=409, detail=str(e)) from e\n    except IntegrityError as e:\n        await db.rollback()\n        logger.warning(f\"تعارض متزامن أثناء إلغاء الجرد: {e}\", exc_info=True)\n")
-
-          path.write_text(text, encoding='utf-8')
+          patch('dashboard/src/pages/inventory/Tab3Stocktake.tsx', [
+            ('  const warehouseAccess = useInventoryAccess(locationId);\n  const sessionAccess = useInventoryAccess(stocktakeState.sessionLocationId ?? locationId);\n', '  const warehouseAccess = useInventoryAccess(locationId);\n  const sessionAccess = useInventoryAccess(stocktakeState.sessionLocationId ?? locationId);\n  const durableIdentity = warehouseAccess.data\n    ? {\n        companyId: warehouseAccess.data.company_id,\n        backofficeUserId: warehouseAccess.data.backoffice_user_id,\n      }\n    : null;\n'),
+            ('    useStocktakeCounting({\n      companyScope:', '    useStocktakeCounting({\n      durableIdentity,\n      companyScope:'),
+            ('    useCycleCountStart({\n      locationId,', '    useCycleCountStart({\n      durableIdentity,\n      locationId,'),
+            ('    useStocktakeActions({\n      authenticatedFetch,', '    useStocktakeActions({\n      authenticatedFetch,\n      durableIdentity,'),
+            ('    useStocktakeLifecycle({\n      focusSessionId,', '    useStocktakeLifecycle({\n      durableIdentity,\n      focusSessionId,'),
+            ('    useVehicleReconStart({\n      sourceLocationId:', '    useVehicleReconStart({\n      durableIdentity,\n      sourceLocationId:'),
+          ])
           PY
-          python -m py_compile wa_backend/api/warehouse/stocktake.py wa_backend/domains/stocktake/contracts.py wa_backend/domains/stocktake/idempotency.py
+          cd dashboard
+          npm ci --no-audit --no-fund
+          npx tsc --noEmit
+          cd ..
           git diff --check
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add wa_backend/api/warehouse/stocktake.py
-          git commit -m "CP9: make stocktake mutations durably idempotent"
+          git add dashboard/src/pages/inventory/Tab3Stocktake.tsx dashboard/src/pages/inventory/stocktake/hooks/useStocktakeLifecycle.ts dashboard/src/pages/inventory/stocktake/hooks/useStocktakeCounting.ts dashboard/src/pages/inventory/stocktake/hooks/useCycleCountStart.ts dashboard/src/pages/inventory/stocktake/hooks/useVehicleReconStart.ts
+          git commit -m "CP9: preserve durable Stocktake command identity in Dashboard"
           git push origin HEAD:sol/cp9-stocktake-full-closure-wave2
