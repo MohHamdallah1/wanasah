@@ -84,7 +84,11 @@ export function useCycleCountStart({
   const fetchProducts = useCallback(async (cursor: string | null = null, append = false) => {
     if (!enabled) return;
     const seq = ++productRequestSeq.current;
-    append ? setProductsLoadingMore(true) : setProductsLoading(true);
+    if (append) {
+      setProductsLoadingMore(true);
+    } else {
+      setProductsLoading(true);
+    }
     if (!append) setProductsNextCursor(null);
     try {
       const params = new URLSearchParams({ location_id: String(locationId), limit: "50" });
@@ -106,7 +110,13 @@ export function useCycleCountStart({
       if (!append) { setProducts([]); setProductsNextCursor(null); }
       toast.error(getErrorMessage(error, copy.generic.cycleProductsFailed));
     } finally {
-      if (seq === productRequestSeq.current) append ? setProductsLoadingMore(false) : setProductsLoading(false);
+      if (seq === productRequestSeq.current) {
+        if (append) {
+          setProductsLoadingMore(false);
+        } else {
+          setProductsLoading(false);
+        }
+      }
     }
   }, [authenticatedFetch, copy.generic.cycleProductsFailed, enabled, locationId, productSearch]);
 
@@ -120,7 +130,11 @@ export function useCycleCountStart({
   const fetchBatches = useCallback(async (cursor: string | null = null, append = false) => {
     if (!enabled || !selectedProduct) { setBatches([]); setBatchesNextCursor(null); return; }
     const seq = ++batchRequestSeq.current;
-    append ? setBatchesLoadingMore(true) : setBatchesLoading(true);
+    if (append) {
+      setBatchesLoadingMore(true);
+    } else {
+      setBatchesLoading(true);
+    }
     if (!append) setBatchesNextCursor(null);
     try {
       const params = new URLSearchParams({
@@ -144,7 +158,13 @@ export function useCycleCountStart({
       if (!append) { setBatches([]); setBatchesNextCursor(null); }
       toast.error(getErrorMessage(error, copy.generic.cycleBatchesFailed));
     } finally {
-      if (seq === batchRequestSeq.current) append ? setBatchesLoadingMore(false) : setBatchesLoading(false);
+      if (seq === batchRequestSeq.current) {
+        if (append) {
+          setBatchesLoadingMore(false);
+        } else {
+          setBatchesLoading(false);
+        }
+      }
     }
   }, [authenticatedFetch, batchSearch, copy.generic.cycleBatchesFailed, enabled, locationId, selectedProduct]);
 
