@@ -165,7 +165,7 @@ V1_SCOPE_FREEZE.md و ARCHITECTURE.md يبقيان أعلى سلطة للنطا�
 [x] Vehicles administration + Owner Acceptance.
 
 الترتيب المعتمد من الآن:
-1. [ ] Inventory / Warehouses operational closure
+1. [x] Inventory / Warehouses operational closure
    نغلق الصفحات والتبويبات الحالية بدل إعادة بنائها: Inbound -> Batches & Expiry، Transfers، Stocktake، Warehouse Locations، Warehouse Access/Permissions، العزل والتكلفة وsellability المطلوبة لرحلة V1. أي جزء legacy نلمسه يُطابق canonical Backoffice authorization والـbackend الحالي.
 
 2. [ ] Dispatch + Zones + Shops operational closure

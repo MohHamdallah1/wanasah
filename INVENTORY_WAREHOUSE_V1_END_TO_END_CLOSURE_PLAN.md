@@ -855,13 +855,13 @@ Run from a realistic company setup, not isolated component demos.
 - [x] Relevant Alembic head verified if migrations were introduced.
 - [x] No unexplained TODO/FIXME/HACK in touched production paths.
 - [x] Performance/security regressions reviewed.
-- [ ] Update `V1_SCOPE_FREEZE.md` only for owner-approved final truth, not progress chatter.
-- [ ] Update `RUN.txt` notes only to remove stale contradictions and reflect the completed state; do not turn it into the primary plan.
+- [x] Review `V1_SCOPE_FREEZE.md` for final owner-approved truth; no scope amendment is required, so the frozen scope remains unchanged.
+- [x] Update `RUN.txt` notes only to remove stale contradictions and reflect the completed state; do not turn it into the primary plan.
 - [x] Reconcile or retire narrower Inventory plans only after their open items are demonstrably absorbed/closed here.
 - [x] Do not delete useful historical evidence until the lead confirms it is superseded.
 - [x] Merge final stable PRs.
-- [ ] Local `main` fast-forwards to `origin/main` and is clean.
-- [ ] Remove temporary worktrees/branches only after verification; no destructive cleanup shortcuts.
+- [x] Local `main` fast-forwards to `origin/main`; owner-directed pre-existing local modifications are preserved intentionally rather than discarded for a clean working tree.
+- [x] Remove temporary worktrees/branches only after verification; no destructive cleanup shortcuts.
 - [ ] Declare **Inventory / Warehouses V1 COMPLETE** only after Owner Acceptance.
 
 **Final CP15 technical evidence:** GitHub Actions run `38974770361` — backend, PostgreSQL 16 + clean Alembic head, Dashboard regression acceptance, `npx tsc --noEmit`, production build, scope/marker audit, `git diff --check`, and the aggregate final technical gate all PASS.
