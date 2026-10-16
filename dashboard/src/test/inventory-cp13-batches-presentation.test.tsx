@@ -173,6 +173,29 @@ describe("CP13 final Batches presentation", () => {
     expect(container.querySelector('svg[aria-hidden="true"]')).toBeTruthy();
   });
 
+  it.each([
+    ["en", "No expiry supplied", "Expiry date missing", "Sellable"],
+    ["ar", "لم يُحدد تاريخ صلاحية", "تاريخ الصلاحية غير موجود", "قابل للبيع"],
+  ])("renders OPTIONAL without an expiry as neutral in %s without changing server sellability", (language, label, missingLabel, sellableLabel) => {
+    const row = item(1, {
+      expiry_control_mode: "OPTIONAL", expiry_date: null, days_to_expiry: null,
+      sellability_state: "SELLABLE", sellability_reason_codes: [],
+    });
+    const { container } = render(
+      <>
+        <BatchExpirySignal t={t} language={language} locale={language} item={row} warningDays={30} />
+        <BatchSellabilitySignal t={t} language={language} locale={language} item={row} />
+      </>,
+    );
+    const badge = screen.getByText(label);
+    expect(badge).toHaveClass("text-slate-600", "bg-slate-50", "border-slate-200");
+    expect(badge.className).not.toMatch(/(?:text|bg|border)-(?:rose|red|amber|orange)-/);
+    expect(badge).not.toHaveAttribute("role", "alert");
+    expect(screen.queryByText(missingLabel)).toBeNull();
+    expect(container.querySelector(".lucide-triangle-alert, .lucide-alert-triangle, .lucide-clock-3")).toBeNull();
+    expect(screen.getByText(sellableLabel)).toBeTruthy();
+  });
+
   it("shows the backend primary reason and shelf-life explanation without deriving sellability from warning days", () => {
     const row = item(1, { days_to_expiry: 60, sellability_state: "NOT_SELLABLE",
       sellability_reason_codes: ["DISPOSITION_NOT_RELEASED", "MINIMUM_REMAINING_SHELF_LIFE_NOT_MET", "BATCH_INACTIVE"] });

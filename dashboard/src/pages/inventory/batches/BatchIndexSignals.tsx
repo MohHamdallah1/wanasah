@@ -18,7 +18,8 @@ export function BatchExpirySignal({ t, language, locale, item, warningDays }: Pr
   // Days are supplied by the server as of its query date. This is visual severity
   // only: neither the warning preference nor this badge decides sellability.
   const key = !item.expiry_date
-    ? item.expiry_control_mode === "NONE" ? "noExpiryTracking" : "missingExpiry"
+    ? item.expiry_control_mode === "NONE" ? "noExpiryTracking"
+      : item.expiry_control_mode === "OPTIONAL" ? "noExpirySupplied" : "missingExpiry"
     : days === null ? "validExpiry"
       : days < 0 ? "expiry_EXPIRED"
         : days === 0 ? "expiresToday"
