@@ -332,11 +332,15 @@ async def test_http_request_matrix_uses_canonical_non_owner_dependencies(receipt
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["NONE", "OPTIONAL", "REQUIRED"])
+@pytest.mark.parametrize("mode,code", [
+    ("NONE", "INBOUND_LOT_NOT_ALLOWED"),
+    ("OPTIONAL", "INBOUND_LOT_RESERVED"),
+    ("REQUIRED", "INBOUND_LOT_RESERVED"),
+])
 @pytest.mark.parametrize("value", [INTERNAL, INTERNAL.lower(), "  " + INTERNAL + "  "])
-async def test_client_cannot_supply_reserved_storage_identity(receipt, mode, value):
+async def test_client_cannot_supply_reserved_storage_identity(receipt, mode, code, value):
     receipt.configure(mode)
-    await rejected(receipt, receipt.body(value), "INBOUND_LOT_RESERVED", status=422)
+    await rejected(receipt, receipt.body(value), code, status=422)
     assert receipt.batches() == []
 
 
@@ -495,10 +499,13 @@ async def test_company_local_date_boundaries_for_anonymous_stock(receipt, produc
         receipt.clock.assert_awaited_once_with(receipt.db, 1)
 
 
-def test_production_after_expiry_remains_rejected():
-    with pytest.raises(ValidationError):
-        InboundBatchItem(product_variant_id=101, quantity="1", uom_id=1,
-                         unit_cost="1", batch_number=REAL_LOT, production_date=FUTURE, expiry_date=PAST)
+@pytest.mark.asyncio
+async def test_production_after_expiry_remains_rejected(receipt):
+    receipt.configure("OPTIONAL", "OPTIONAL")
+    body = receipt.body(None, item={"production_date": FUTURE, "expiry_date": PAST})
+    await rejected(receipt, body, "INBOUND_BATCH_DATES_INVALID", status=422)
+    receipt.clock.assert_awaited_once_with(receipt.db, 1)
+    assert receipt.batches() == []
 
 
 @pytest.mark.asyncio
