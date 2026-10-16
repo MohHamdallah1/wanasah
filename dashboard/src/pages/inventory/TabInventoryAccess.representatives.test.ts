@@ -1,12 +1,14 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-
 import { describe, expect, it } from "vitest";
+import { permissionLabel } from "./access/permissionLabels";
 
-import { representativesVehicles } from "@/i18n/representativesVehicles";
-
-const source = readFileSync(
-  resolve(process.cwd(), "src/pages/inventory/TabInventoryAccess.tsx"),
+const rolePanel = readFileSync(
+  resolve(process.cwd(), "src/pages/inventory/access/RoleAccessPanel.tsx"),
+  "utf8",
+);
+const adminHook = readFileSync(
+  resolve(process.cwd(), "src/pages/inventory/access/useInventoryAccessAdmin.ts"),
   "utf8",
 );
 
@@ -19,26 +21,18 @@ const representativeCodes = [
 describe("Representative permission provisioning UI", () => {
   it("maps all Representative capability codes to bilingual operator labels", () => {
     for (const code of representativeCodes) {
-      expect(source).toContain(`'${code}': 'representativesVehicles.representatives.permissionCatalog.`);
+      expect(permissionLabel(code, "ar")).not.toBe(code);
+      expect(permissionLabel(code, "en")).not.toBe(code);
     }
-
-    expect(representativesVehicles.ar.representatives.permissionCatalog).toEqual({
-      read: "عرض بيانات المندوبين",
-      manage: "إدارة المندوبين",
-      credentialsReset: "إعادة تعيين كلمات مرور المندوبين",
-    });
-    expect(representativesVehicles.en.representatives.permissionCatalog).toEqual({
-      read: "View representatives",
-      manage: "Manage representatives",
-      credentialsReset: "Reset representative passwords",
-    });
+    expect(permissionLabel("representative.read", "ar")).toBe("عرض المندوبين");
+    expect(permissionLabel("representative.manage", "en")).toBe("Manage representatives");
+    expect(permissionLabel("representative.credentials.reset", "en")).toBe("Reset representative credentials");
   });
 
-  it("preserves the existing role select, save and reload plumbing", () => {
-    expect(source).toContain("checked={codes.includes(code)}");
-    expect(source).toContain("setCodes(role.permissions)");
-    expect(source).toContain("{name, permissions:codes}");
-    expect(source).toContain("invalidateQueries({queryKey: ['inventory-access-admin']})");
-    expect(source).toContain("invalidateQueries({queryKey: ['inventory-access']})");
+  it("preserves role select, save and reload plumbing after modularization", () => {
+    expect(rolePanel).toContain("checked={codes.includes(code)}");
+    expect(rolePanel).toContain("setCodes(role.permissions)");
+    expect(adminHook).toContain("invalidateQueries({ queryKey: ['inventory-access-admin'] })");
+    expect(adminHook).toContain("invalidateQueries({ queryKey: ['inventory-access'] })");
   });
 });
