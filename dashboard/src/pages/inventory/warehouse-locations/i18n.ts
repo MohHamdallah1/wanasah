@@ -304,6 +304,11 @@ export const formatInventoryInteger = (value: number, language: string | undefin
     maximumFractionDigits: 0,
   }).format(value);
 
+export const formatInventoryDecimal = (value: number, language: string | undefined) =>
+  new Intl.NumberFormat(inventoryPresentationLocale(language), {
+    maximumFractionDigits: 20,
+  }).format(value);
+
 export const formatInventoryDate = (value: string, language: string | undefined) =>
   new Intl.DateTimeFormat(inventoryPresentationLocale(language), {
     year: "numeric",
@@ -349,14 +354,15 @@ export const formatWarehouseDeactivationBlocker = (
   const referenceId = contextNumber(context, "reference_id");
   const policyId = contextNumber(context, "policy_id");
   const policyRevision = contextNumber(context, "policy_revision");
-  const number = (value: number) => formatInventoryInteger(value, language);
+  const quantity = (value: number) => formatInventoryDecimal(value, language);
+  const integer = (value: number) => formatInventoryInteger(value, language);
 
-  if (onHand !== null) details.push(`${copy.onHand}: ${number(onHand)}`);
-  if (reserved !== null) details.push(`${copy.reserved}: ${number(reserved)}`);
+  if (onHand !== null) details.push(`${copy.onHand}: ${quantity(onHand)}`);
+  if (reserved !== null) details.push(`${copy.reserved}: ${quantity(reserved)}`);
   if (reference) details.push(`${copy.reference}: ${reference}`);
-  if (referenceId !== null) details.push(`${copy.referenceId}: ${number(referenceId)}`);
-  if (policyId !== null) details.push(`${copy.policyId}: ${number(policyId)}`);
-  if (policyRevision !== null) details.push(`${copy.policyRevision}: ${number(policyRevision)}`);
+  if (referenceId !== null) details.push(`${copy.referenceId}: ${integer(referenceId)}`);
+  if (policyId !== null) details.push(`${copy.policyId}: ${integer(policyId)}`);
+  if (policyRevision !== null) details.push(`${copy.policyRevision}: ${integer(policyRevision)}`);
 
   return { title: copy.blockerTitle(label), details };
 };
