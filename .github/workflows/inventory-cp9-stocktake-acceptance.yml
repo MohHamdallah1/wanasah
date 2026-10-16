@@ -130,7 +130,7 @@ jobs:
         run: npm test -- src/test/inventory-public-batch-number-parity.test.ts src/test/inventory-product-batch-date-parity.test.ts
       - name: CP5 archive-owner Stocktake navigation regression
         working-directory: dashboard
-        run: npm test -- src/test/archive-owner-receivers.test.tsx
+        run: npm test -- src/test/archive-owner-receivers.test.tsx -t "Stocktake owner focus"
       - name: CP6 inventory access regression
         working-directory: dashboard
         run: npm test -- src/test/inventory-access-canonical-contract.test.ts src/test/inventory-cp6-minimum-stock-dashboard.test.tsx
