@@ -1,5 +1,5 @@
 name: Inventory CP9 Stocktake acceptance
-# Final-head CP9 proof gate for the frozen Wave 2 base, including PostgreSQL metadata closure.
+# Clean final-head CP9 proof gate for the frozen Wave 2 base.
 
 on:
   push:
