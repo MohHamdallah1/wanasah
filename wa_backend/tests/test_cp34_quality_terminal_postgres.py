@@ -394,11 +394,22 @@ async def test_canonical_password_and_whole_preview_resolve_isolation_are_real(p
         assert {row["location_id"] for row in data["locations"]} == set(pg.a.locations)
         assert data["supplier_resolution"] == "SINGLE"
         assert data["supplier_candidates"][0]["supplier_id"] == a.supplier
+        ordinary = pg.a.ordinary.access(db)
+        candidates = await live_stock.get_quality_batch_candidates(a.variant, None, 25, db, ordinary)
+        assert {row["batch_id"] for row in candidates["items"]} == {a.batch}
+        assert {source["location_id"] for row in candidates["items"] for source in row["sources_preview"]} == {pg.a.locations[0]}
+        issue = await live_stock.get_whole_product_quality_issue_sources(a.variant, None, 25, db, ordinary)
+        assert {row["batch_id"] for row in issue["batches"]} == {a.batch}
+        assert {source["location_id"] for row in issue["batches"] for source in row["sources"]} == {pg.a.locations[0]}
     for variant in (b.variant, 2147483647):
         async with pg.session(pg.a) as db:
             with pytest.raises(HTTPException) as opaque:
                 await preview.get_whole_product_quality_preview(variant, db, actor.access(db))
             assert opaque.value.status_code == 404
+            for read in (live_stock.get_quality_batch_candidates, live_stock.get_whole_product_quality_issue_sources):
+                with pytest.raises(HTTPException) as hidden:
+                    await read(variant, None, 25, db, actor.access(db))
+                assert hidden.value.status_code == 404
         with pytest.raises(HTTPException) as opaque:
             await resolve(pg, NS(variant=variant), whole_payload())
         assert opaque.value.status_code == 404
@@ -565,13 +576,14 @@ async def test_active_costing_transfers_preserve_value_and_only_terminal_exit_co
         await set_cost_policy(db, company_id=tenant.company_id, actor_id=owner.driver_id,
             method=method, expected_version=0)
         await activate_costing_for_first_receipt(db, company_id=tenant.company_id, actor_id=owner.driver_id)
-        await apply_inventory_movement(db, company_id=tenant.company_id, performed_by=owner.driver_id,
-            product_variant_id=tenant.variant_id, batch_id=tenant.batch_id, quantity=Decimal("20"),
-            movement_kind="PHYSICAL", reference_type="INBOUND_SUPPLIER", reference_id="COSTED-RECEIPT",
-            idempotency_key=str(uuid4()), source_location_id=None, destination_location_id=tenant.locations[0],
-            source_stock_status=None, destination_stock_status="AVAILABLE",
-            inventory_cost_input=build_purchase_cost_input(input_uom_id=tenant.uom_id,
-                input_quantity=Decimal("20"), input_unit_cost=Decimal("2"), base_quantity=Decimal("20")))
+        from services import apply_inventory_movements_batch
+        await apply_inventory_movements_batch(db, company_id=tenant.company_id, performed_by=owner.driver_id,
+            movements=[dict(product_variant_id=tenant.variant_id, batch_id=tenant.batch_id, quantity=Decimal("20"),
+                movement_kind="PHYSICAL", reference_type="INBOUND_SUPPLIER", reference_id="COSTED-RECEIPT",
+                idempotency_key=str(uuid4()), source_location_id=None, destination_location_id=tenant.locations[0],
+                source_stock_status=None, destination_stock_status="AVAILABLE",
+                inventory_cost_input=build_purchase_cost_input(input_uom_id=tenant.uom_id,
+                    input_quantity=Decimal("20"), input_unit_cost=Decimal("2"), base_quantity=Decimal("20")))])
         await db.commit()
     async def cost():
         async with gate.session(tenant) as db:

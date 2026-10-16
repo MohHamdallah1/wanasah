@@ -7,6 +7,7 @@ on:
     paths:
       - "dashboard/src/test/batch-terminal-actions.test.tsx"
       - "dashboard/src/test/suppliers-v1.test.tsx"
+      - "wa_backend/tests/test_supplier_master_db.py"
       - "wa_backend/domains/inventory_quality_confirmation.py"
       - "wa_backend/api/warehouse/whole_product_quality.py"
       - "wa_backend/tests/test_supplier_inbound_quality_canonical_auth_cutover.py"
@@ -14,6 +15,7 @@ on:
       - "dashboard/src/pages/inventory/batches/useBatchTerminalAction.ts"
       - "dashboard/src/test/cp34-quality-durable.test.tsx"
       - "wa_backend/tests/test_cp34_quality_terminal_postgres.py"
+      - "wa_backend/tests/test_cp34_quality_terminal_backend.py"
       - ".github/workflows/inventory-cp3-quality-terminal-acceptance.yml"
       - "dashboard/src/pages/inventory/batches/BatchTerminalActionDialog.tsx"
       - "dashboard/src/pages/inventory/batches/batchTerminalActionContract.ts"
@@ -404,7 +406,7 @@ jobs:
           import subprocess, sys
           base = sys.argv[1]
           changed = subprocess.check_output(["git", "diff", "--name-only", base, "HEAD"], text=True).splitlines()
-          allowed = ["dashboard/src/test/batch-terminal-actions.test.tsx","dashboard/src/test/suppliers-v1.test.tsx","wa_backend/domains/inventory_quality_confirmation.py","wa_backend/api/warehouse/whole_product_quality.py","wa_backend/tests/test_supplier_inbound_quality_canonical_auth_cutover.py","wa_backend/tests/test_whole_product_quality_terminal_completion.py","dashboard/src/pages/inventory/batches/useBatchTerminalAction.ts","dashboard/src/test/cp34-quality-durable.test.tsx","wa_backend/tests/test_cp34_quality_terminal_postgres.py",".github/workflows/inventory-cp3-quality-terminal-acceptance.yml","dashboard/src/pages/inventory/batches/BatchTerminalActionDialog.tsx","dashboard/src/pages/inventory/batches/batchTerminalActionContract.ts","dashboard/src/features/inventory/quality/WholeProductQualityActionsPanel.tsx","dashboard/src/features/inventory/quality/SupervisorPasswordField.tsx","dashboard/src/features/inventory/quality/useProductQualityCommands.ts","wa_backend/api/warehouse/transfers.py","wa_backend/tests/test_cp34_quality_terminal_backend.py"]
+          allowed = ["dashboard/src/test/batch-terminal-actions.test.tsx","dashboard/src/test/suppliers-v1.test.tsx","wa_backend/domains/inventory_quality_confirmation.py","wa_backend/api/warehouse/whole_product_quality.py","wa_backend/tests/test_supplier_inbound_quality_canonical_auth_cutover.py","wa_backend/tests/test_whole_product_quality_terminal_completion.py","dashboard/src/pages/inventory/batches/useBatchTerminalAction.ts","dashboard/src/test/cp34-quality-durable.test.tsx","wa_backend/tests/test_cp34_quality_terminal_postgres.py",".github/workflows/inventory-cp3-quality-terminal-acceptance.yml","dashboard/src/pages/inventory/batches/BatchTerminalActionDialog.tsx","dashboard/src/pages/inventory/batches/batchTerminalActionContract.ts","dashboard/src/features/inventory/quality/WholeProductQualityActionsPanel.tsx","dashboard/src/features/inventory/quality/SupervisorPasswordField.tsx","dashboard/src/features/inventory/quality/useProductQualityCommands.ts","wa_backend/api/warehouse/transfers.py","wa_backend/tests/test_cp34_quality_terminal_backend.py","wa_backend/tests/test_supplier_master_db.py"]
           assert all(path in allowed for path in changed), [path for path in changed if path not in allowed]
           deleted = subprocess.check_output(["git", "diff", "--diff-filter=D", "--name-only", base, "HEAD"], text=True).strip()
           assert not deleted, deleted
