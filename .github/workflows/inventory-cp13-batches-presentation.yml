@@ -87,6 +87,13 @@ jobs:
           src/test/inventory-cp12-responsive-contract.test.ts
       - name: TypeScript noEmit
         run: npx tsc --noEmit
+      - name: TypeScript app diagnostics against exact base
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline="$(mktemp -d)"
+          git -C .. archive 6e9264a8317575a636536ea02478ed1e85023c3f dashboard | tar -x -C "$baseline"
+          node scripts/check-types-against-baseline.mjs "$baseline/dashboard"
       - name: ESLint changed frontend
         run: >-
           npx eslint

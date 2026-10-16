@@ -17,7 +17,7 @@ vi.mock("react-i18next", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react-i18next")>();
   const translate = (key: string, options?: Record<string, unknown>) => {
     let value = typeof options?.defaultValue === "string" ? options.defaultValue : key;
-    for (const [name, candidate] of Object.entries(options ?? {})) value = value.replaceAll(`{{${name}}}`, String(candidate));
+    for (const [name, candidate] of Object.entries(options ?? {})) value = value.split(`{{${name}}}`).join(String(candidate));
     return value;
   };
   return { ...actual, useTranslation: () => ({
@@ -115,7 +115,7 @@ const summary = (overrides: Record<string, number> = {}) => ({
 
 const t = ((key: string, values?: Record<string, unknown>) => {
   let result = String(values?.defaultValue ?? key);
-  for (const [name, value] of Object.entries(values ?? {})) result = result.replaceAll(`{{${name}}}`, String(value));
+  for (const [name, value] of Object.entries(values ?? {})) result = result.split(`{{${name}}}`).join(String(value));
   return result;
 }) as TFunction;
 const renderPage = (focus: { batchId: number; variantId: number; productName: string } | null = null, onFocusConsumed = vi.fn()) => render(
