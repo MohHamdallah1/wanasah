@@ -9,7 +9,6 @@ from . import (
     ledger,
     status,
     inbound_adjustments,
-    stock_policy_read,
     transfer_policy,
     transfers,
     whole_product_quality_preview,
@@ -30,7 +29,6 @@ router.include_router(batch_index.router)
 router.include_router(ledger.router)
 router.include_router(status.router)
 router.include_router(inbound_adjustments.router)
-router.include_router(stock_policy_read.router)
 router.include_router(transfer_policy.router)
 router.include_router(transfers.router)
 router.include_router(whole_product_quality_preview.router)
