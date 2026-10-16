@@ -38,7 +38,10 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
   const canAdjust = access.can("ledger.adjust");
   const total = query.total === null
     ? null
-    : new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(query.total);
+    : new Intl.NumberFormat(locale, {
+        maximumFractionDigits: 0,
+        numberingSystem: "latn",
+      }).format(query.total);
 
   const openAdjustment = (entry: LedgerEntry) => {
     if (!canAdjust) return;
@@ -60,15 +63,19 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
     <div
       dir={i18n.dir()}
       className="inventory-view inventory-ledger flex min-h-0 flex-1 flex-col pt-1"
+      data-cp13-density="compact"
+      data-cp13-surface="ledger"
     >
       <section className="inventory-surface inventory-data-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-3 sm:px-4">
+        <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2.5 sm:px-4">
           <div className="min-w-0">
             <h2 className="flex items-center gap-2 text-sm font-black text-slate-900">
               <History aria-hidden="true" className="h-4 w-4 text-blue-700" />
               {text("title")}
             </h2>
-            {total !== null ? <p className="mt-0.5 text-[10px] font-bold text-slate-400">{total}</p> : null}
+            {total !== null ? (
+              <p className="mt-0.5 text-[10px] font-bold tabular-nums text-slate-400">{total}</p>
+            ) : null}
           </div>
         </header>
 
@@ -85,12 +92,20 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
         />
 
         {query.error ? (
-          <div role="alert" className="m-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-bold text-red-800">
+          <div
+            role="alert"
+            data-cp13-state={query.entries.length > 0 ? "stale" : "error"}
+            className={`m-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs font-bold ${
+              query.entries.length > 0
+                ? "border-amber-200 bg-amber-50 text-amber-900"
+                : "border-red-200 bg-red-50 text-red-800"
+            }`}
+          >
             <span>{text("loadFailed")}</span>
             <button
               type="button"
               onClick={query.retry}
-              className="ms-2 rounded-lg border border-red-200 bg-white px-2 py-1 outline-none focus-visible:ring-2 focus-visible:ring-red-300"
+              className="rounded-lg border border-current/20 bg-white px-2.5 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
             >
               {text("retry")}
             </button>
@@ -98,11 +113,15 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
         ) : null}
 
         {query.loading && query.entries.length === 0 ? (
-          <p role="status" className="flex flex-1 items-center justify-center p-8 text-sm font-bold text-slate-400">{text("loading")}</p>
+          <p role="status" data-cp13-state="loading" className="flex flex-1 items-center justify-center p-8 text-sm font-bold text-slate-400">
+            {text("loading")}
+          </p>
         ) : null}
 
         {!query.loading && !query.error && query.entries.length === 0 ? (
-          <p className="flex flex-1 items-center justify-center p-8 text-center text-sm font-semibold text-slate-400">{text("empty")}</p>
+          <p data-cp13-state="empty" className="flex flex-1 items-center justify-center p-8 text-center text-sm font-semibold text-slate-400">
+            {text("empty")}
+          </p>
         ) : null}
 
         {query.entries.length > 0 ? (

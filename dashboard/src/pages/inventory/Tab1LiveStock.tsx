@@ -99,9 +99,16 @@ export function Tab1LiveStock({
   }, [hasMore, loading, onLoadMore, pageError]);
 
   return (
-    <div className="inventory-view inventory-live-stock flex min-h-0 flex-1 flex-col gap-3">
-      <div className="glass-card inventory-data-panel flex min-h-0 flex-1 flex-col overflow-hidden pt-0">
-        <div className="live-stock-toolbar flex flex-wrap items-center gap-2">
+    <div
+      className="inventory-view inventory-live-stock flex min-h-0 flex-1 flex-col gap-2"
+      data-cp13-density="compact"
+      data-cp13-surface="live-stock"
+    >
+      <section className="glass-card inventory-data-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl pt-0">
+        <div
+          className="live-stock-toolbar flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50/70 px-3 py-2"
+          data-cp13-controls="stock-list"
+        >
           <LiveStockFilters
             locationId={locationId}
             alertCount={alertCount}
@@ -128,23 +135,25 @@ export function Tab1LiveStock({
         {pageError && pageReady ? (
           <div
             role="alert"
-            className="mx-3 mt-3 flex flex-wrap items-start justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950"
+            aria-live="polite"
+            data-cp13-state="stale"
+            className="mx-3 mt-2 flex flex-wrap items-start justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-950"
           >
-            <div className="flex min-w-0 flex-1 items-start gap-3">
-              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />
+            <div className="flex min-w-0 flex-1 items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
               <div className="min-w-0">
-                <p className="text-sm font-black">{t("inventoryLive.errors.updateTitle")}</p>
-                <p className="mt-1 text-xs font-bold text-amber-800">
+                <p className="text-xs font-black">{t("inventoryLive.errors.updateTitle")}</p>
+                <p className="mt-0.5 text-[11px] font-bold text-amber-800">
                   {t("inventoryLive.errors.staleData")}
                 </p>
-                <p className="mt-1 break-words text-xs text-amber-700">{pageError}</p>
+                <p className="mt-0.5 break-words text-[11px] text-amber-700">{pageError}</p>
               </div>
             </div>
             <button
               type="button"
               onClick={onRetryPage}
               disabled={loading}
-              className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-black text-amber-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-60"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-[11px] font-black text-amber-900 outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-60"
             >
               <RefreshCcw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
               {t("common.retry")}
@@ -153,7 +162,11 @@ export function Tab1LiveStock({
         ) : null}
 
         {!pageError && summaryError ? (
-          <div role="status" className="mx-3 mt-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-600">
+          <div
+            role="status"
+            data-cp13-state="summary-unavailable"
+            className="mx-3 mt-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600"
+          >
             {t("inventoryLive.errors.summaryUnavailable")}
           </div>
         ) : null}
@@ -161,6 +174,7 @@ export function Tab1LiveStock({
         <div
           ref={scrollRef}
           className="custom-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto md:overflow-x-auto"
+          data-cp13-stock-list="true"
         >
           {products.length > 0 ? (
             <>
@@ -172,10 +186,14 @@ export function Tab1LiveStock({
               <LiveStockMobileCards products={products} onOpen={detail.open} />
             </>
           ) : (
-            <div className="flex min-h-48 items-center justify-center p-4 text-center text-sm font-bold text-slate-500">
+            <div className="flex min-h-40 items-center justify-center p-4 text-center text-sm font-bold text-slate-500">
               {pageError && !pageReady ? (
-                <div role="alert" className="max-w-xl rounded-2xl border border-red-200 bg-red-50 p-5 text-red-900">
-                  <AlertTriangle className="mx-auto h-7 w-7 text-red-600" aria-hidden="true" />
+                <div
+                  role="alert"
+                  data-cp13-state="error"
+                  className="max-w-xl rounded-xl border border-red-200 bg-red-50 p-4 text-red-900"
+                >
+                  <AlertTriangle className="mx-auto h-6 w-6 text-red-600" aria-hidden="true" />
                   <p className="mt-2 text-sm font-black">{t("inventoryLive.errors.updateTitle")}</p>
                   <p className="mt-1 text-xs font-bold text-red-800">{t("inventoryLive.errors.noData")}</p>
                   <p className="mt-2 break-words text-xs text-red-700">{pageError}</p>
@@ -183,31 +201,32 @@ export function Tab1LiveStock({
                     type="button"
                     onClick={onRetryPage}
                     disabled={loading}
-                    className="mt-3 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                    className="mt-3 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-black outline-none focus-visible:ring-2 focus-visible:ring-red-300 disabled:opacity-60"
                   >
                     {t("common.retry")}
                   </button>
                 </div>
               ) : loading && !pageReady ? (
-                <span className="inline-flex items-center gap-2">
+                <span data-cp13-state="loading" role="status" className="inline-flex items-center gap-2">
                   <RefreshCcw className="h-4 w-4 animate-spin" aria-hidden="true" />
                   {t("common.loading")}
                 </span>
               ) : (
-                t("inventoryLive.noMatches")
+                <span data-cp13-state="empty">{t("inventoryLive.noMatches")}</span>
               )}
             </div>
           )}
 
           <div
             ref={sentinelRef}
-            className="live-stock-load-more-sentinel flex min-h-8 items-center justify-center text-xs font-bold text-slate-500"
+            className="live-stock-load-more-sentinel flex min-h-7 items-center justify-center text-[11px] font-bold text-slate-500"
             aria-hidden={!hasMore}
+            data-cp13-continuation="cursor"
           >
             {hasMore && loading ? t("common.loading") : null}
           </div>
         </div>
-      </div>
+      </section>
 
       <BatchDetailPanel
         product={detail.product}

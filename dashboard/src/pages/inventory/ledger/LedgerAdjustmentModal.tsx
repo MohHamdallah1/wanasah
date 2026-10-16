@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import type { TFunction } from "i18next";
+import { TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
@@ -46,6 +47,7 @@ export function LedgerAdjustmentModal({ t, language, controller, onChanged }: Pr
             form="ledger-adjustment-form"
             disabled={controller.loading || controller.submitting || !controller.password || controller.delta === null}
             className="rounded-xl bg-purple-700 px-4 py-2 text-xs font-black text-white outline-none disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-purple-300"
+            data-cp13-action-priority="exceptional"
           >
             {controller.submitting ? text("saving") : text("confirm")}
           </button>
@@ -63,6 +65,7 @@ export function LedgerAdjustmentModal({ t, language, controller, onChanged }: Pr
         <form
           id="ledger-adjustment-form"
           className="space-y-4"
+          data-cp13-ledger-correction="append-only"
           onSubmit={(event) => {
             event.preventDefault();
             if (!controller.submitting && controller.password && controller.delta !== null) void submit();
@@ -109,8 +112,9 @@ export function LedgerAdjustmentModal({ t, language, controller, onChanged }: Pr
             />
           </label>
 
-          <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] font-bold leading-5 text-amber-950">
-            {text("adjustmentMeaning")}
+          <p className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] font-bold leading-5 text-amber-950">
+            <TriangleAlert aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{text("adjustmentMeaning")}</span>
           </p>
         </form>
       ) : null}

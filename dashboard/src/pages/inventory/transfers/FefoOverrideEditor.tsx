@@ -1,3 +1,4 @@
+import { ShieldCheck, TriangleAlert } from "lucide-react";
 import { useTransferTranslation as useTranslation, formatTransferNumber } from "./i18n";
 import { formatTransferDateOnly } from "./utils";
 import { formatPublicBatchNumber } from "../publicBatchNumber";
@@ -46,32 +47,45 @@ export function FefoOverrideEditor({
 
   return (
     <>
-      <div className="mt-3">
+      <div className="mt-3" data-cp13-fefo-mode={item.fefo_mode}>
         <label className="text-[10px] font-bold text-slate-500">{t("inventoryTransfers.batchPolicy")}</label>
-        <select
-          aria-label={t("inventoryTransfers.batchPolicy")}
-          value={item.fefo_mode}
-          onChange={(event) => {
-            const mode = event.target.value;
-            if (mode === "auto" || mode === "override") {
-              void onModeChange(item.draft_key, mode);
-            }
-          }}
-          className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs"
-        >
-          <option value="auto">{t("inventoryTransfers.fefoRecommended")}</option>
-          <option value="override" disabled={!canOverride}>{t("inventoryTransfers.fefoOverride")}</option>
-        </select>
+        <div className="mt-1 flex items-center gap-2">
+          <span
+            className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${
+              item.fefo_mode === "override"
+                ? "border-amber-200 bg-amber-50 text-amber-700"
+                : "border-emerald-200 bg-emerald-50 text-emerald-700"
+            }`}
+            aria-hidden="true"
+          >
+            {item.fefo_mode === "override" ? <TriangleAlert className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
+          </span>
+          <select
+            aria-label={t("inventoryTransfers.batchPolicy")}
+            value={item.fefo_mode}
+            onChange={(event) => {
+              const mode = event.target.value;
+              if (mode === "auto" || mode === "override") {
+                void onModeChange(item.draft_key, mode);
+              }
+            }}
+            className="h-8 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 text-xs font-bold outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+          >
+            <option value="auto">{t("inventoryTransfers.fefoRecommended")}</option>
+            <option value="override" disabled={!canOverride}>{t("inventoryTransfers.fefoOverride")}</option>
+          </select>
+        </div>
       </div>
 
       {item.fefo_mode === "override" && (
-        <div className="mt-3 rounded-xl border border-amber-200 bg-white p-3 space-y-3">
-          <div className="text-[11px] font-bold text-amber-800">
-            {t("inventoryTransfers.overrideHint")}
+        <div className="mt-2 space-y-2 rounded-xl border border-amber-200 bg-amber-50/35 p-3" data-cp13-fefo-override="exceptional">
+          <div className="flex items-start gap-2 text-[11px] font-bold text-amber-900">
+            <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span>{t("inventoryTransfers.overrideHint")}</span>
           </div>
 
           {loading && (
-            <div className="text-xs text-slate-400">{t("inventoryTransfers.overrideLoading")}</div>
+            <div className="text-xs text-slate-500">{t("inventoryTransfers.overrideLoading")}</div>
           )}
 
           {!loading && options && (
@@ -80,6 +94,7 @@ export function FefoOverrideEditor({
                 <label className="text-[10px] font-bold text-slate-500">{t("inventoryTransfers.selectedBatch")}</label>
                 <select
                   aria-label={t("inventoryTransfers.selectedBatch")}
+                  aria-required="true"
                   value={item.override_batch_id ?? ""}
                   onChange={(event) => {
                     const value = event.target.value;
@@ -88,7 +103,7 @@ export function FefoOverrideEditor({
                       value ? Number(value) : null
                     );
                   }}
-                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs"
+                  className="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
                 >
                   <option value="">{t("inventoryTransfers.chooseBatch")}</option>
                   {options.batches
@@ -123,6 +138,7 @@ export function FefoOverrideEditor({
                 <label className="text-[10px] font-bold text-slate-500">{t("inventoryTransfers.overrideReason")}</label>
                 <select
                   aria-label={t("inventoryTransfers.overrideReason")}
+                  aria-required="true"
                   value={item.override_reason_id ?? ""}
                   onChange={(event) => {
                     const value = event.target.value;
@@ -131,7 +147,7 @@ export function FefoOverrideEditor({
                       value ? Number(value) : null
                     );
                   }}
-                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs"
+                  className="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
                 >
                   <option value="">{t("inventoryTransfers.chooseReason")}</option>
                   {options.reasons.map((reason) => (
@@ -139,15 +155,14 @@ export function FefoOverrideEditor({
                       key={reason.id}
                       value={reason.id}
                     >
-                      {reason.code} —{" "}
-                      {reason.description}
+                      {reason.code} — {reason.description}
                     </option>
                   ))}
                 </select>
               </div>
 
               {selectedBatch && (
-                <div className="text-[10px] text-slate-500">
+                <div className="text-[10px] text-slate-600">
                   {t("inventoryTransfers.batchAvailable")}{" "}
                   <span className="font-bold">
                     {formatTransferNumber(selectedBatch.available_quantity)} {item.base_uom_name}
@@ -164,13 +179,11 @@ export function FefoOverrideEditor({
               {item.draft_key === firstProductLineKey && (
                 <button
                   type="button"
-                  onClick={() =>
-                    void onAddBatchLine(
-                      item.product_variant_id
-                    )
-                  }
-                  className="text-xs font-bold text-amber-700 hover:text-amber-900"
-                >{t("inventoryTransfers.splitBatch")}</button>
+                  onClick={() => void onAddBatchLine(item.product_variant_id)}
+                  className="rounded-md text-xs font-bold text-amber-800 outline-none hover:text-amber-950 focus-visible:ring-2 focus-visible:ring-amber-300"
+                >
+                  {t("inventoryTransfers.splitBatch")}
+                </button>
               )}
             </>
           )}

@@ -28,7 +28,7 @@ export function LiveStockWarehouseContext({
   const locale = resolveI18nLocale(i18n);
 
   return (
-    <div className="live-stock-context-panel">
+    <div className="live-stock-context-panel" data-cp13-warehouse-context="true">
       <label className="live-stock-context-location">
         <span className="live-stock-context-label">
           {t("inventoryShell.warehouseSelectLabel")}
@@ -37,7 +37,7 @@ export function LiveStockWarehouseContext({
           aria-label={t("inventoryShell.warehouseSelectLabel")}
           value={locationId}
           onChange={(event) => onLocationChange(event.target.value)}
-          className="live-stock-context-select"
+          className="live-stock-context-select outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
         >
           {locations.map((location) => (
             <option key={location.id} value={location.id}>
@@ -52,7 +52,7 @@ export function LiveStockWarehouseContext({
       <div className="live-stock-context-status">
         <div className="live-stock-context-count">
           <span>{t("inventoryShell.liveStockCount")}</span>
-          <strong>
+          <strong className="tabular-nums">
             {stockTotal === null
               ? "—"
               : new Intl.NumberFormat(locale, {
@@ -80,7 +80,7 @@ export function LiveStockWarehouseContext({
             type="button"
             onClick={onRefresh}
             disabled={loading}
-            className="live-stock-context-refresh"
+            className="live-stock-context-refresh outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
             title={t("inventoryShell.refreshNow")}
             aria-label={t("inventoryShell.refreshNow")}
           >
