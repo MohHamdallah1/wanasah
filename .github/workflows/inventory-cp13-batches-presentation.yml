@@ -49,7 +49,7 @@ jobs:
         run: |
           set -euo pipefail
           baseline="$(mktemp -d)"
-          git archive 6e9264a8317575a636536ea02478ed1e85023c3f | tar -x -C "$baseline"
+          git -C .. archive 6e9264a8317575a636536ea02478ed1e85023c3f | tar -x -C "$baseline"
           ln -s "$PWD/node_modules" "$baseline/dashboard/node_modules"
           files=(src/test/batch-focus-workspace.test.tsx src/test/inventory-public-batch-number-parity.test.ts src/test/inventory-product-batch-date-parity.test.ts)
           set +e
