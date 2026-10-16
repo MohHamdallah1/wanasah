@@ -20,16 +20,20 @@ vi.mock("@/hooks/useAuthFetch", () => ({
   useAuthFetch: () => mocks.authFetch,
 }));
 
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({
-    t: (key: string) => key,
-    i18n: {
-      dir: () => "ltr",
-      resolvedLanguage: "en",
-      language: "en",
-    },
-  }),
-}));
+vi.mock("react-i18next", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-i18next")>();
+  return {
+    ...actual,
+    useTranslation: () => ({
+      t: (key: string) => key,
+      i18n: {
+        dir: () => "ltr",
+        resolvedLanguage: "en",
+        language: "en",
+      },
+    }),
+  };
+});
 
 vi.mock("sonner", () => ({
   toast: {
