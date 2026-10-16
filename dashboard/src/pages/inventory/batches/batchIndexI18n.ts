@@ -1,6 +1,7 @@
 import type { TFunction } from "i18next";
 
 const ar = {
+  title: "الدفعات",
   searchPlaceholder: "ابحث بالمنتج أو SKU أو رقم الدفعة...",
   refresh: "تحديث الدفعات",
   filters: "فلاتر الدفعات",
@@ -89,6 +90,7 @@ const ar = {
 } as const;
 
 const en: Record<keyof typeof ar, string> = {
+  title: "Batches",
   searchPlaceholder: "Search product, SKU, or lot number...",
   refresh: "Refresh batches",
   filters: "Batch filters",
