@@ -14,9 +14,9 @@ vi.mock("@/pages/inventory/inventoryTopDockController", () => ({
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
 const items = [
-  { id: "live", label: "Live stock", icon: <Boxes /> },
-  { id: "inbound", label: "Inbound receipt", icon: <FilePlus /> },
-  { id: "ledger", label: "Movement ledger", icon: <History /> },
+  { id: "live", label: "Live stock", icon: Boxes },
+  { id: "inbound", label: "Inbound receipt", icon: FilePlus },
+  { id: "ledger", label: "Movement ledger", icon: History },
 ] as const;
 
 describe("CP13.2 Inventory shell polish", () => {
@@ -36,7 +36,7 @@ describe("CP13.2 Inventory shell polish", () => {
     render(
       <div dir="ltr">
         <InventoryTopDock
-          items={[...items, { id: "long", label: longLabel, icon: <History /> }]}
+          items={[...items, { id: "long", label: longLabel, icon: History }]}
           activeId="long"
           ariaLabel="Inventory workflows"
           onChange={() => undefined}
@@ -109,7 +109,7 @@ describe("CP13.2 Inventory shell polish", () => {
     render(
       <div dir="rtl">
         <InventoryTopDock
-          items={[{ id: "inbound", label: "توريد بضاعة", icon: <FilePlus /> }]}
+          items={[{ id: "inbound", label: "توريد بضاعة", icon: FilePlus }]}
           activeId="inbound"
           ariaLabel="أقسام المخزون"
           onChange={() => undefined}
