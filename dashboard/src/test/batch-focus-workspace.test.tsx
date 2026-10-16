@@ -115,7 +115,7 @@ describe("batch-first Phase 1 acceptance", () => {
 
   it("hides a warm cache until a new owner read and fails closed after revocation", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    client.setQueryData(["batch-stock-sources", 1, 7, 41], parseBatchStockSources(batchFocusPayload([batchSource(12, "Hidden B")])));
+    client.setQueryData(["batch-stock-sources", 1, 17, 41], parseBatchStockSources(batchFocusPayload([batchSource(12, "Hidden B")])));
     let deny: (reason: unknown) => void = () => {};
     mocks.fetch.mockImplementation((url: string) => url === "/inventory/access/me" ? Promise.resolve(inventoryReadAccess())
       : new Promise((_resolve, reject) => { deny = reject; }));
@@ -138,7 +138,7 @@ describe("batch-first Phase 1 acceptance", () => {
       ? new Promise((resolve) => { resolveAccess = resolve; })
       : Promise.resolve(batchFocusPayload([batchSource(11, "Readable A", "WAREHOUSE", false)])));
     const { i18n } = await mount({ client });
-    await waitFor(() => expect(client.getQueryData(["batch-stock-sources", 1, 7, 41])).toBeDefined());
+    await waitFor(() => expect(client.getQueryData(["batch-stock-sources", 1, 17, 41])).toBeDefined());
     expect(screen.queryByText("LOT-41")).not.toBeInTheDocument();
     expect(screen.getByTestId("route-state")).not.toHaveTextContent("null");
     resolveAccess(inventoryReadAccess(false));
