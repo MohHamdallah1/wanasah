@@ -38,7 +38,7 @@ jobs:
       CI_ADMIN_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/wanasah_cp2
       CP2_POSTGRES_ACCEPTANCE: "1"
       COST_ZERO: "0.0000"
-      CP2_BASE_SHA: 1629772a9215a4874d4d3c825d05f3cc564c38e4
+      CP2_REQUESTED_BASE_SHA: 1629772a9215a4874d4d3c825d05f3cc564c38e4
     steps:
       - uses: actions/checkout@v4
         with:
@@ -123,9 +123,19 @@ jobs:
             tests/test_inventory_batch_index_contract.py \
             tests/test_inventory_batch_index_authorization.py \
             tests/test_inventory_batch_index_postgres_acceptance.py
+      - name: Resolve CP2 audit base
+        id: audit-base
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            echo "sha=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=$CP2_REQUESTED_BASE_SHA" >> "$GITHUB_OUTPUT"
+          fi
       - name: Diff check
-        run: git diff --check "$CP2_BASE_SHA" HEAD --
+        run: git diff --check "${{ steps.audit-base.outputs.sha }}" HEAD --
       - name: Exact CP2 scope audit
+        env:
+          CP2_AUDIT_BASE_SHA: ${{ steps.audit-base.outputs.sha }}
         run: |
           python - <<'PY'
           import os
@@ -144,7 +154,7 @@ jobs:
           }
           changed = set(
               subprocess.check_output(
-                  ["git", "diff", "--name-only", os.environ["CP2_BASE_SHA"], "HEAD", "--"],
+                  ["git", "diff", "--name-only", os.environ["CP2_AUDIT_BASE_SHA"], "HEAD", "--"],
                   text=True,
               ).splitlines()
           )
