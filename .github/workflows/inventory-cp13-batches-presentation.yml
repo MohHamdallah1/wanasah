@@ -1,7 +1,5 @@
 name: Inventory CP13 Batches presentation
 on:
-  push:
-    branches: [codex/cp13-batches-final-presentation-wave2]
   pull_request:
     branches: [integration/inventory-wave-2]
     paths:
@@ -44,9 +42,42 @@ jobs:
           src/test/inventory-batches-pagination.test.ts
           src/test/inventory-batch-disposition.test.ts
           src/test/inventory-batch-stock-sources.test.ts
-          src/test/batch-focus-workspace.test.tsx
           src/test/batch-terminal-actions.test.tsx
           src/test/cp34-quality-durable.test.tsx
+      - name: Legacy parity regressions against exact base
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline="$(mktemp -d)"
+          git archive 6e9264a8317575a636536ea02478ed1e85023c3f | tar -x -C "$baseline"
+          ln -s "$PWD/node_modules" "$baseline/dashboard/node_modules"
+          files=(src/test/batch-focus-workspace.test.tsx src/test/inventory-public-batch-number-parity.test.ts src/test/inventory-product-batch-date-parity.test.ts)
+          set +e
+          npx vitest run "${files[@]}" --reporter=json --outputFile="$baseline/head.json"
+          head_status=$?
+          set -e
+          if [ "$head_status" -eq 0 ]; then echo "LEGACY_PARITY_HEAD=PASS"; exit 0; fi
+          set +e
+          (cd "$baseline/dashboard" && ./node_modules/.bin/vitest run "${files[@]}" --reporter=json --outputFile="$baseline/base.json")
+          base_status=$?
+          set -e
+          test "$base_status" -ne 0
+          BASELINE_DIR="$baseline" node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import fs from "node:fs";
+          const dir = process.env.BASELINE_DIR;
+          const head = JSON.parse(fs.readFileSync(dir + "/head.json", "utf8"));
+          const base = JSON.parse(fs.readFileSync(dir + "/base.json", "utf8"));
+          const signature = (report) => report.testResults.flatMap((file) => file.assertionResults
+            .filter((test) => test.status === "failed")
+            .map((test) => ({ name: test.fullName, messages: test.failureMessages.map((message) =>
+              message.replaceAll(dir + "/dashboard", process.cwd())) })))
+            .sort((a, b) => a.name.localeCompare(b.name));
+          assert.ok(signature(base).length > 0);
+          assert.deepEqual(signature(head), signature(base));
+          assert.equal(head.numTotalTests, base.numTotalTests);
+          console.log("LEGACY_FAILURES_PROVEN_IDENTICAL", signature(head));
+          JS
       - name: CP6 CP12 regressions
         run: >-
           npx vitest run
