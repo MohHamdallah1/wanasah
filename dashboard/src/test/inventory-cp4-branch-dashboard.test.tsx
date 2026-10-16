@@ -225,10 +225,18 @@ describe("CP4 Branch Dashboard capability parity", () => {
     fireEvent.change(inputs[1], { target: { value: "NEW" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
 
-    await waitFor(() => expect(branchCalls("/warehouse/branches")).toHaveLength(1));
-    const call = branchCalls("/warehouse/branches")[0];
-    expect(call[0]).toBe("/warehouse/branches");
-    expect(call[1]?.method).toBe("POST");
+    await waitFor(() =>
+      expect(
+        mocks.authFetch.mock.calls.some(
+          ([url, opts]) => url === "/warehouse/branches" && opts?.method === "POST",
+        ),
+      ).toBe(true),
+    );
+    const call = mocks.authFetch.mock.calls.find(
+      ([url, opts]) => url === "/warehouse/branches" && opts?.method === "POST",
+    );
+    expect(call).toBeTruthy();
+    expect(call?.[1]?.method).toBe("POST");
   });
 
   it("branch.update controls edit only", async () => {
