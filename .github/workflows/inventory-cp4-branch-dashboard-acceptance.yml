@@ -59,7 +59,7 @@ jobs:
     env:
       ENVIRONMENT: test
       SECRET_KEY: Cp4PostgresOnlyKeyAbc123456789012345678901234567890
-      DATABASE_URL: postgresql+asyncpg://cp4_admin@127.0.0.1:55444/wanasah_cp4_test
+      DATABASE_URL: postgresql+asyncpg://cp4_app@127.0.0.1:55444/wanasah_cp4_test
       DATABASE_URL_MIGRATION: postgresql+asyncpg://cp4_admin@127.0.0.1:55444/wanasah_cp4_test
       WANASAH_CP4_PG_GATE: "1"
       WANASAH_CP4_PG_URL: postgresql+asyncpg://cp4_admin@127.0.0.1:55444/wanasah_cp4_test
@@ -89,6 +89,26 @@ jobs:
           done
           docker logs cp4-postgres
           exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              exists = conn.execute(
+                  "SELECT 1 FROM pg_roles WHERE rolname='cp4_app'"
+              ).fetchone()
+              if not exists:
+                  conn.execute(
+                      "CREATE ROLE cp4_app LOGIN NOSUPERUSER "
+                      "NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS"
+                  )
+          PY
       - name: Migrate disposable CP4 database
         working-directory: wa_backend
         run: alembic upgrade head
