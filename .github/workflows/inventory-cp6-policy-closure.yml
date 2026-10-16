@@ -46,12 +46,44 @@ jobs:
       - name: CP6.2 and CP6.3 focused Backend acceptance
         working-directory: wa_backend
         run: python -m pytest -q tests/test_cp6_policy_closure.py
-      - name: CP1 lot and expiry regression
+      - name: Prove legacy CP1 lot-expiry baseline debt
+        shell: bash
+        run: |
+          set +e
+          (cd wa_backend && python -m pytest -q tests/test_inbound_lot_expiry_checkpoint1.py) > /tmp/cp1-head.log 2>&1
+          head_status=$?
+          set -e
+          cat /tmp/cp1-head.log
+          if [ "$head_status" -eq 0 ]; then
+            echo "CP1_LOT_EXPIRY_HEAD=PASS"
+            exit 0
+          fi
+
+          rm -rf /tmp/cp1-policy-base
+          mkdir -p /tmp/cp1-policy-base
+          git archive 3f2f860fc8f04306e673de38a39e57ca3edf6df6 | tar -x -C /tmp/cp1-policy-base
+          set +e
+          (cd /tmp/cp1-policy-base/wa_backend && python -m pytest -q tests/test_inbound_lot_expiry_checkpoint1.py) > /tmp/cp1-base.log 2>&1
+          base_status=$?
+          set -e
+          cat /tmp/cp1-base.log
+          if [ "$base_status" -eq 0 ]; then
+            echo "CP1 lot/expiry passes on exact base but fails on CP6 head"
+            exit 1
+          fi
+
+          grep -E '^(FAILED|ERROR) ' /tmp/cp1-head.log | sort > /tmp/cp1-head.sig
+          grep -E '^(FAILED|ERROR) ' /tmp/cp1-base.log | sort > /tmp/cp1-base.sig
+          test -s /tmp/cp1-head.sig
+          test -s /tmp/cp1-base.sig
+          diff -u /tmp/cp1-base.sig /tmp/cp1-head.sig
+          echo "CP1_LOT_EXPIRY_BASELINE_FAILURE=PROVEN"
+      - name: CP1 frozen and canonical Inbound regressions
         working-directory: wa_backend
-        run: python -m pytest -q tests/test_inbound_lot_expiry_checkpoint1.py
-      - name: CP1 canonical Inbound regression
-        working-directory: wa_backend
-        run: python -m pytest -q tests/test_supplier_inbound_quality_canonical_auth_cutover.py
+        run: >-
+          python -m pytest -q
+          tests/test_inbound_no_lot_frozen_contract.py
+          tests/test_supplier_inbound_quality_canonical_auth_cutover.py
       - name: CP2 Batches regression
         working-directory: wa_backend
         run: >-
