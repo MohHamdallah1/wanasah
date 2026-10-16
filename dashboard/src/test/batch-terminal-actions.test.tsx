@@ -119,15 +119,15 @@ describe("terminal inventory actions", () => {
     await waitFor(() => expect(mocks.fetch).toHaveBeenCalledOnce());
   });
 
-  it("keeps Arabic terminal UX readable, RTL, Western-digit and backend-code free", async () => {
+  it.each(["ar", "en"] as const)("keeps %s terminal UX readable, locale-directed, Western-digit and backend-code free", async (language) => {
     const data = terminalPayload("CONFIRM_DISPOSAL");
-    const { i18n } = await mount(data, "ar");
+    const { i18n } = await mount(data, language);
     const trigger = screen.getByRole("button", { name: i18n.t("terminalQualityActions.actions.CONFIRM_DISPOSAL.label") });
     trigger.focus();
     fireEvent.click(trigger);
     const dialog = screen.getByRole("dialog");
-    expect(dialog.closest(".app-modal")).toHaveAttribute("dir", "rtl");
-    expect(dialog).toHaveTextContent("تأكيد إتلاف الكمية فعليًا");
+    expect(dialog.closest(".app-modal")).toHaveAttribute("dir", language === "ar" ? "rtl" : "ltr");
+    expect(dialog).toHaveTextContent(i18n.t("terminalQualityActions.actions.CONFIRM_DISPOSAL.title"));
     expect(dialog).toHaveTextContent("8");
     expect(dialog.textContent).not.toMatch(/[٠-٩]/);
     expect(dialog.textContent).not.toMatch(/\?{2,}|CONFIRM_DISPOSAL|DISPOSAL_PENDING|RECALL_RETURN|terminal operation|durable operation/i);

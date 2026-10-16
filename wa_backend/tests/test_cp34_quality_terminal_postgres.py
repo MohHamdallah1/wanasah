@@ -35,6 +35,7 @@ from models import (
 from schemas import (
     SpecialTransferDispatchRequest, TerminalDisposalConfirmRequest, TerminalVendorHandoverRequest,
     TransferDestinationPolicySaveRequest, TransferDestinationPolicyPublishRequest, UnifiedReceiveRequest,
+    WarehouseBatchStockSourcesResponse,
 )
 from services import apply_inventory_movement, SPECIAL_TRANSFER_PERMISSION
 from tests.test_cp8_transfers_postgres import pg, _grant_location
@@ -71,6 +72,7 @@ async def prepare(pg):
                               "inventory.disposal.confirm", "inventory.vendor_return.confirm")
         original = pg.a.ordinary
         pg.a.ordinary = pg.a.receiver
+        await grant_company(db, pg.a, *SPECIAL_TRANSFER_PERMISSION.values())
         await _grant_location(db, pg.a, pg.a.quarantine_id, "transfer.read", "transfer.receive")
         pg.a.ordinary = original
         for tenant in (pg.a, pg.b):
@@ -213,7 +215,8 @@ async def test_source_discovery_and_special_foreign_ids_are_opaque_and_location_
     await prepare(pg)
     async with pg.session(pg.a) as db:
         access = pg.a.ordinary.access(db)
-        source = await live_stock.get_batch_stock_sources(pg.a.expired_batch_id, db, access)
+        source = WarehouseBatchStockSourcesResponse.model_validate(
+            await live_stock.get_batch_stock_sources(pg.a.expired_batch_id, db, access)).model_dump(mode="json")
         assert {s["location_id"] for s in source["sources"]} == {pg.a.locations[0]}
         assert source["sources"][0]["statuses"][0]["reservation_evidence"]["coverage"] == "NONE"
         for batch in (pg.b.expired_batch_id, 2147483647):
@@ -229,10 +232,10 @@ async def test_source_discovery_and_special_foreign_ids_are_opaque_and_location_
             await dispatch(pg, payload)
         errors.append((opaque.value.status_code, opaque.value.detail["code"]))
     assert errors[0] == errors[1]
-    for location in (pg.a.locations[1], pg.b.locations[0]):
+    for location, expected_status in ((pg.a.locations[1], 403), (pg.b.locations[0], 404), (2147483647, 404)):
         with pytest.raises(HTTPException) as denied:
             await dispatch(pg, special(pg.a, source_location_id=location))
-        assert denied.value.status_code == 403
+        assert denied.value.status_code == expected_status
     assert await movement_snapshot(pg) == before
 
 
@@ -246,10 +249,10 @@ async def test_terminal_opacity_exact_location_and_batch_product(pg, action):
             await terminal(pg, action, terminal_payload(pg, action, batch_id=batch), pg.a.owner)
         errors.append((opaque.value.status_code, opaque.value.detail["code"]))
     assert errors[0] == errors[1]
-    for location in (pg.a.locations[1], pg.b.locations[0]):
+    for location, expected_status in ((pg.a.locations[1], 403), (pg.b.locations[0], 404), (2147483647, 404)):
         with pytest.raises(HTTPException) as denied:
             await terminal(pg, action, terminal_payload(pg, action, source_location_id=location))
-        assert denied.value.status_code == 403
+        assert denied.value.status_code == expected_status
     assert await movement_snapshot(pg) == before
 
 
@@ -476,3 +479,113 @@ async def test_whole_product_current_authorization_is_rechecked_on_completed_rep
         await resolve(pg, a, payload, pg.a.ordinary)
     assert revoked.value.status_code == 403
     assert await movement_snapshot(pg) == before
+
+
+@pytest.mark.parametrize("action", ["DISPOSAL", "RETURN_TO_VENDOR"])
+async def test_different_concurrent_terminal_commands_cannot_overallocate_one_origin(pg, action):
+    await prepare(pg)
+    first = await stage(pg, action)
+    second = await stage(pg, action)
+    one, two = await asyncio.gather(
+        terminal(pg, action, terminal_payload(pg, action, quantity="3")),
+        terminal(pg, action, terminal_payload(pg, action, quantity="3")))
+    assert one["movement_ids"] != two["movement_ids"]
+    assert await quantity(pg) == 174
+    async with pg.session(pg.a) as db:
+        consumed = dict((await db.execute(select(InventoryMovement.transfer_header_id,
+            func.sum(InventoryMovement.quantity)).where(
+                InventoryMovement.company_id == pg.a.company_id,
+                InventoryMovement.transfer_header_id.in_([first["header_id"], second["header_id"]]),
+                InventoryMovement.destination_location_id.is_(None)
+            ).group_by(InventoryMovement.transfer_header_id))).all())
+        assert sorted(consumed.values()) == [Decimal("2"), Decimal("4")]
+
+
+async def test_whole_reserved_stock_blocks_atomic_quality_and_changed_supplier_is_rejected(pg):
+    await prepare(pg)
+    a, b = await whole_stock(pg)
+    with pytest.raises(HTTPException) as changed:
+        await resolve(pg, a, whole_payload("RETURN_TO_VENDOR", supplier_id=b.supplier))
+    assert changed.value.detail["code"] == "WHOLE_PRODUCT_RETURN_SUPPLIER_CHANGED"
+    async with pg.session(pg.a) as db:
+        await apply_inventory_movement(db, company_id=pg.a.company_id, performed_by=pg.a.owner.driver_id,
+            product_variant_id=a.variant, batch_id=a.batch, quantity=Decimal("0.000001"),
+            movement_kind="RESERVATION", reservation_action="RESERVE", reference_type="CP34_RESERVE",
+            reference_id="whole-quality-reservation", idempotency_key=str(uuid4()),
+            source_location_id=pg.a.locations[0], destination_location_id=pg.a.locations[0],
+            source_stock_status="AVAILABLE", destination_stock_status="AVAILABLE")
+        await db.commit()
+    before = await movement_snapshot(pg)
+    with pytest.raises(HTTPException) as reserved:
+        await resolve(pg, a, whole_payload())
+    assert reserved.value.detail["code"] == "WHOLE_PRODUCT_QUALITY_RESERVED_STOCK"
+    assert await movement_snapshot(pg) == before
+
+
+@pytest.mark.parametrize("method", ["MOVING_AVERAGE", "FIFO"])
+@pytest.mark.parametrize("action", ["DISPOSAL", "RETURN_TO_VENDOR"])
+async def test_active_costing_transfers_preserve_value_and_only_terminal_exit_consumes_value(pg, method, action):
+    from datetime import date, timedelta
+    from models import Company, InventoryLocation, Product, InventoryCostState, InventoryCostEvent
+    from domains.inventory_costing.service import set_cost_policy, activate_costing_for_first_receipt, build_purchase_cost_input
+    from tests.canonical_actor_fixtures import seed_company_owner_fixture, seed_ordinary_backoffice_fixture
+    async with AsyncSession(pg.admin_engine, expire_on_commit=False) as db:
+        company = Company(name="Costed quality", company_code="CP34C-" + uuid4().hex, timezone="Asia/Amman", currency_code="JOD")
+        db.add(company)
+        await db.flush()
+        owner = await seed_company_owner_fixture(db, company.id, password=PASSWORD)
+        ordinary = await seed_ordinary_backoffice_fixture(db, company.id)
+        receiver = await seed_ordinary_backoffice_fixture(db, company.id)
+        product = Product(company_id=company.id, code="QUALITY-COST", name="Costed quality")
+        db.add(product)
+        await db.flush()
+        variant = ProductVariant(company_id=company.id, product_id=product.id, name="Costed quality",
+            sku="QUALITY-COST", base_uom_id=pg.a.uom_id, quantity_scale=0, quantity_step=Decimal("1"),
+            lot_control_mode="REQUIRED", expiry_control_mode="OPTIONAL", lifecycle_status="ACTIVE", published_at=utc_now())
+        db.add(variant)
+        warehouses = [InventoryLocation(company_id=company.id, name="Costed warehouse", code="COST-" + str(i),
+            location_type="WAREHOUSE") for i in range(3)]
+        db.add_all(warehouses)
+        await db.flush()
+        batch = ProductBatch(company_id=company.id, product_variant_id=variant.id, batch_number="COST-LOT",
+            expiry_date=date.today() - timedelta(days=1))
+        db.add(batch)
+        await db.flush()
+        for location in warehouses:
+            db.add(ProductLocation(company_id=company.id, location_id=location.id,
+                product_variant_id=variant.id, created_by=owner.driver_id))
+        tenant = NS(company_id=company.id, owner=owner, ordinary=ordinary, receiver=receiver,
+            locations=[warehouses[0].id, warehouses[1].id], quarantine_id=warehouses[2].id,
+            variant_id=variant.id, batch_id=batch.id, expired_batch_id=batch.id, uom_id=pg.a.uom_id)
+        await db.commit()
+    gate = NS(a=tenant, b=pg.b, admin_engine=pg.admin_engine, session=pg.session)
+    await prepare(gate)
+    async with gate.session(tenant) as db:
+        await _grant_location(db, tenant, tenant.locations[0], "transfer.send")
+        await set_cost_policy(db, company_id=tenant.company_id, actor_id=owner.driver_id,
+            method=method, expected_version=0)
+        await activate_costing_for_first_receipt(db, company_id=tenant.company_id, actor_id=owner.driver_id)
+        await apply_inventory_movement(db, company_id=tenant.company_id, performed_by=owner.driver_id,
+            product_variant_id=tenant.variant_id, batch_id=tenant.batch_id, quantity=Decimal("20"),
+            movement_kind="PHYSICAL", reference_type="INBOUND_SUPPLIER", reference_id="COSTED-RECEIPT",
+            idempotency_key=str(uuid4()), source_location_id=None, destination_location_id=tenant.locations[0],
+            source_stock_status=None, destination_stock_status="AVAILABLE",
+            inventory_cost_input=build_purchase_cost_input(input_uom_id=tenant.uom_id,
+                input_quantity=Decimal("20"), input_unit_cost=Decimal("2"), base_quantity=Decimal("20")))
+        await db.commit()
+    async def cost():
+        async with gate.session(tenant) as db:
+            state = await db.scalar(select(InventoryCostState).where(
+                InventoryCostState.company_id == tenant.company_id, InventoryCostState.product_variant_id == tenant.variant_id))
+            events = (await db.scalars(select(InventoryCostEvent).where(
+                InventoryCostEvent.company_id == tenant.company_id).order_by(InventoryCostEvent.id))).all()
+            return state.quantity, state.inventory_value, [(row.id, row.total_cost) for row in events]
+    before = await cost()
+    assert before[:2] == (Decimal("20"), Decimal("40"))
+    await stage(gate, action)
+    assert await cost() == before
+    await terminal(gate, action, terminal_payload(gate, action))
+    after = await cost()
+    assert after[:2] == (Decimal("18"), Decimal("36"))
+    assert after[2][0] == before[2][0] and len(after[2]) == 2
+    assert after[2][-1][1] == Decimal("4")

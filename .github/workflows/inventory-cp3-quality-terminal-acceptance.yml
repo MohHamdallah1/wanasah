@@ -135,7 +135,7 @@ jobs:
       - name: Migrate disposable CP8 database
         working-directory: wa_backend
         run: alembic upgrade head
-      - name: CP8 PostgreSQL 16 acceptance
+      - name: CP3.4 and CP8 PostgreSQL 16 acceptance
         working-directory: wa_backend
         run: >-
           python -m pytest -q -s
@@ -391,7 +391,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Dynamic PR merge-base and exact CP8 scope
+      - name: Dynamic PR merge-base and exact CP3.4 scope
         shell: bash
         env:
           TARGET_REF: ${{ github.event.pull_request.base.ref || 'integration/inventory-wave-2' }}
@@ -399,7 +399,7 @@ jobs:
           git fetch origin "$TARGET_REF" --no-tags
           base="$(git merge-base HEAD "origin/$TARGET_REF")"
           test -n "$base"
-          echo "CP8_BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "CP34_BASE_SHA=$base" >> "$GITHUB_ENV"
           python - "$base" <<'PY'
           import subprocess, sys
           base = sys.argv[1]
