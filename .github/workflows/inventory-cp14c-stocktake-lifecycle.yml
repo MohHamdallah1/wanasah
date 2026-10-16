@@ -12,7 +12,7 @@ on:
     branches:
       - integration/inventory-wave-2
     paths:
-      - "wa_backend/tests/test_cp14c_stocktake-lifecycle-wave2.py"
+      - "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py"
       - "wa_backend/services.py"
       - ".github/workflows/inventory-cp14c-stocktake-lifecycle.yml"
   workflow_dispatch:
