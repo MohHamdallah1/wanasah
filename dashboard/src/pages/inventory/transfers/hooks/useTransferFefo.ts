@@ -23,7 +23,8 @@ export function useTransferFefo(sourceLocationId: number | null, canOverride: bo
     setOverrideOptionsByProduct({});
     setOverrideLoadingProductIds([]);
   }, []);
-  useEffect(() => { resetFefo(); return () => { ++generation.current; }; }, [sourceLocationId, resetFefo]);
+  const invalidate = useCallback(() => { ++generation.current; }, []);
+  useEffect(() => { resetFefo(); return invalidate; }, [sourceLocationId, resetFefo, invalidate]);
   const loadOverrideOptions = useCallback(
     async (productId: number): Promise<TransferOverrideOptions | null> => {
       if (sourceLocationId === null) {
@@ -92,8 +93,21 @@ export function useTransferFefo(sourceLocationId: number | null, canOverride: bo
       authenticatedFetch,
       overrideOptionsByProduct,
       sourceLocationId,
+      t,
     ]
   );
+
+  const restoredProducts = useRef(new Set<number>());
+  useEffect(() => { restoredProducts.current = new Set(); }, [sourceLocationId]);
+  useEffect(() => {
+    if (!canOverride) return;
+    for (const item of draftItems) {
+      if (item.fefo_mode === "override" && !overrideOptionsByProduct[item.product_variant_id] && !restoredProducts.current.has(item.product_variant_id)) {
+        restoredProducts.current.add(item.product_variant_id);
+        void loadOverrideOptions(item.product_variant_id);
+      }
+    }
+  }, [canOverride, draftItems, overrideOptionsByProduct, loadOverrideOptions]);
 
   const setDraftFefoMode = async (
     draftKey: string,

@@ -3,13 +3,10 @@ import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
-  Ban,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  Eye,
-  XCircle,
 } from "lucide-react";
+import { TransferRowActions } from "./TransferRowActions";
 import { STATUS_META } from "./constants";
 import type {
   TransferAction,
@@ -49,7 +46,7 @@ export function TransferTable({
     <>
       <div className="glass-card inventory-data-panel rounded-2xl overflow-hidden min-h-0 flex-1">
         <div className="overflow-auto h-full">
-          <table className="w-full text-sm text-start">
+          <table className="hidden md:table w-full text-sm text-start">
             <thead className="bg-slate-50 sticky top-0 z-10">
               <tr>
                 <th className="p-3">{t("inventoryTransfers.transfer")}</th>
@@ -70,7 +67,6 @@ export function TransferTable({
                   transfer.source_location_id === locationId;
                 const isDestination =
                   transfer.destination_location_id === locationId;
-                const inTransit = transfer.status === "IN_TRANSIT";
 
                 return (
                   <tr key={transfer.id} className="hover:bg-slate-50/70">
@@ -131,53 +127,7 @@ export function TransferTable({
                       {formatDate(transfer.created_at)}
                     </td>
                     <td className="p-3">
-                      <div className="flex justify-center gap-1.5">
-                        <button
-                          onClick={() => void onOpenDetail(transfer)}
-                          className="p-2 rounded-lg border border-slate-200 text-slate-600 hover:text-blue-600"
-                          title={t("inventoryTransfers.details")}
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-
-                        {inTransit && isDestination && (
-                          <>
-                            <button
-                              onClick={() =>
-                                onOpenAction(transfer, "receive")
-                              }
-                              className="p-2 rounded-lg border border-emerald-200 text-emerald-600 hover:bg-emerald-50"
-                              disabled={!access.can('transfer.receive')}
-                              title={t("inventoryTransfers.receive")}
-                            >
-                              <CheckCircle2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() =>
-                                onOpenAction(transfer, "reject")
-                              }
-                              className="p-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
-                              disabled={!access.can('transfer.reject')}
-                              title={t("inventoryTransfers.reject")}
-                            >
-                              <XCircle className="w-4 h-4" />
-                            </button>
-                          </>
-                        )}
-
-                        {inTransit && isSource && (
-                          <button
-                            onClick={() =>
-                              onOpenAction(transfer, "cancel")
-                            }
-                            className="p-2 rounded-lg border border-amber-200 text-amber-600 hover:bg-amber-50"
-                            disabled={!access.can('transfer.cancel')}
-                              title={t("inventoryTransfers.cancel")}
-                          >
-                            <Ban className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
+                      <TransferRowActions transfer={transfer} locationId={locationId} can={access.can} onOpenDetail={onOpenDetail} onOpenAction={onOpenAction} />
                     </td>
                   </tr>
                 );
@@ -193,6 +143,20 @@ export function TransferTable({
               )}
             </tbody>
           </table>
+          <div className="md:hidden divide-y">
+            {items.map(transfer => <article key={transfer.id} className="p-3 space-y-2">
+              <div className="flex justify-between gap-2"><strong className="break-all">{transfer.reference_number}</strong><span>{t(STATUS_META[transfer.status].label)}</span></div>
+              <dl className="grid grid-cols-2 gap-2 text-xs">
+                <div><dt>{t("inventoryTransfers.source")}</dt><dd>{transfer.source_location_name}</dd></div>
+                <div><dt>{t("inventoryTransfers.destination")}</dt><dd>{transfer.destination_location_name}</dd></div>
+                <div><dt>{t("inventoryTransfers.purpose")}</dt><dd>{t(`inventoryTransfers.${transfer.transfer_purpose}`, { defaultValue: transfer.transfer_purpose })}</dd></div>
+                <div><dt>{t("inventoryTransfers.totalQuantity")}</dt><dd>{formatTransferNumber(transfer.total_quantity)}</dd></div>
+              </dl>
+              <TransferRowActions transfer={transfer} locationId={locationId} can={access.can} onOpenDetail={onOpenDetail} onOpenAction={onOpenAction} />
+            </article>)}
+            {!loading && items.length === 0 && <p className="p-4">{t("inventoryTransfers.empty")}</p>}
+          </div>
+
         </div>
       </div>
 

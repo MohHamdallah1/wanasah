@@ -163,7 +163,8 @@ export function useTransferDestinationPolicy(onSaved?: () => void | Promise<void
       if (seq === policySeq.current) setLoadError(apiErrorMessage(error, t("inventoryWarehouses.qualityDestinations.errors.loadPolicy")));
     } finally { if (seq === policySeq.current) setLoading(false); }
   }, [authFetch, canManage, scope, t]);
-  useEffect(() => { void loadPolicy(); return () => { ++policySeq.current; }; }, [loadPolicy]);
+  const invalidatePolicy = useCallback(() => { ++policySeq.current; }, []);
+  useEffect(() => { void loadPolicy(); return invalidatePolicy; }, [loadPolicy, invalidatePolicy]);
   useEffect(() => {
     const timer = window.setTimeout(() => { const clean = searchInput.trim(); setSearch(clean.length >= 2 ? clean : ""); }, 250);
     return () => window.clearTimeout(timer);
@@ -190,7 +191,7 @@ export function useTransferDestinationPolicy(onSaved?: () => void | Promise<void
         vendor_return_staging_location_id: form.vendorReturn, allow_retiring_warehouse_balancing: form.allowRetiringBalancing,
       }));
     } catch (error) { setLoadError(apiErrorMessage(error, t("inventoryWarehouses.qualityDestinations.errors.save"))); }
-  }, [scope, form]);
+  }, [scope, form, t]);
   const execute = async (wire?: Wire) => {
     if (busy.current || !canManage || !scope || !ready.current) return;
     busy.current = true;

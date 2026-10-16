@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { parseTransferDetail, parseTransferPage } from "../parsers";
@@ -67,16 +67,18 @@ export function useTransferList(locationId: number) {
     }
   }, [authenticatedFetch, locationId, direction, status, search, scope, t]);
 
+  const invalidateList = useCallback(() => { ++requestSeq.current; abort.current?.abort(); }, []);
+  const invalidateDetail = useCallback(() => { ++detailRequestSeq.current; }, []);
   useEffect(() => {
     void fetchPage({ cursor: null, history: [], phase: "first" });
-    return () => { ++requestSeq.current; abort.current?.abort(); };
-  }, [fetchPage]);
+    return invalidateList;
+  }, [fetchPage, invalidateList]);
   useEffect(() => {
     ++detailRequestSeq.current;
     setDetail(null);
     setDetailLoading(false);
-    return () => { ++detailRequestSeq.current; };
-  }, [locationId]);
+    return invalidateDetail;
+  }, [locationId, invalidateDetail]);
   const openDetailById = useCallback(async (headerId: number) => {
     const seq = ++detailRequestSeq.current;
     setDetailLoading(true);
@@ -94,7 +96,7 @@ export function useTransferList(locationId: number) {
   }, [authenticatedFetch, locationId, t]);
   const resetDetail = useCallback(() => { ++detailRequestSeq.current; setDetail(null); setDetailLoading(false); }, []);
   const items = current?.items ?? [];
-  const inTransitCount = useMemo(() => items.filter(item => item.status === "IN_TRANSIT").length, [items]);
+  const inTransitCount = items.filter(item => item.status === "IN_TRANSIT").length;
   return {
     items, status, setStatus, direction, setDirection, searchInput, setSearchInput,
     total: current?.total ?? null, loading, cursorHistory: current?.history ?? [], nextCursor: current?.next ?? null,

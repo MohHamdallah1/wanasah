@@ -195,6 +195,8 @@ export function useTransferCreate({
     createOpen,
     createDirection,
     locationId,
+    counterpartLocationId,
+    t,
     transferLocationSearch,
   ]);
 
@@ -206,7 +208,7 @@ export function useTransferCreate({
     setCreateOpen(false);
     resetCreateForm();
     return () => { ++sourceProductsRequestSeq.current; ++transferLocationsRequestSeq.current; resetFefo(); };
-  }, [locationId, resetCreateForm]);
+  }, [locationId, resetCreateForm, resetFefo]);
 
   const closeCreate = () => {
     if (createSubmitting) return;
@@ -289,6 +291,7 @@ export function useTransferCreate({
       createOpen,
       productSearch,
       sourceLocationId,
+      t,
     ]
   );
 

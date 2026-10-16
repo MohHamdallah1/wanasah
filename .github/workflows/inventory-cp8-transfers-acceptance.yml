@@ -1,9 +1,6 @@
 name: Inventory CP8 Transfers closure
 
 on:
-  push:
-    branches:
-      - codex/cp8-transfers-full-closure-wave2
   pull_request:
     branches:
       - integration/inventory-wave-2
@@ -136,7 +133,10 @@ jobs:
         run: npx eslint src/pages/inventory/TabTransfers.tsx src/pages/inventory/transfers src/features/inventory/quality/QualityHandlingDestinationsCard.tsx src/features/inventory/quality/useTransferDestinationPolicy.ts src/test/cp8-quality-destinations.test.tsx
       - name: TypeScript noEmit
         working-directory: dashboard
-        run: npx tsc --noEmit
+        run: |
+          npx tsc --noEmit
+          node --input-type=module -e 'import fs from "node:fs"; fs.writeFileSync(".cp8-tsconfig.json", JSON.stringify({extends:"./tsconfig.app.json",include:["src/pages/inventory/TabTransfers.tsx","src/pages/inventory/transfers/**/*","src/features/inventory/quality/QualityHandlingDestinationsCard.tsx","src/features/inventory/quality/useTransferDestinationPolicy.ts","src/test/cp8-quality-destinations.test.tsx"]}));'
+          npx tsc --noEmit -p .cp8-tsconfig.json
       - name: Production Dashboard build
         working-directory: dashboard
         run: npm run build

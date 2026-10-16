@@ -110,7 +110,7 @@ class Gate:
 async def _grant_location(seed: AsyncSession, tenant, location_id: int, *codes: str) -> None:
     for code in codes:
         permission = await seed.scalar(select(Permission).where(Permission.code == code))
-        assert permission is not None, f"Missing migrated permission {code}"
+        assert permission is not None, f"Missing canonical fixture permission {code}"
         role = Role(company_id=tenant.company_id, name=f"CP8 {code} {uuid4().hex}")
         seed.add(role)
         await seed.flush()
@@ -175,6 +175,14 @@ async def pg():
         expected_heads = set(ScriptDirectory.from_config(config).get_heads())
         async with AsyncSession(admin_engine, expire_on_commit=False) as seed:
             assert set((await seed.execute(text("SELECT version_num FROM alembic_version"))).scalars()) == expected_heads
+            # Permission rows are provisioning data; use only the canonical
+            # catalog for this synthetic least-privilege fixture.
+            from domains.authorization.capabilities import PERMISSIONS
+            needed = {code for code in PERMISSIONS if code.startswith("transfer.")} | {
+                "inventory.fefo_override", "inventory.transfer_policy.manage", "location.read"}
+            present = set((await seed.scalars(select(Permission.code).where(Permission.code.in_(needed)))).all())
+            seed.add_all([Permission(code=code) for code in sorted(needed - present)])
+            await seed.flush()
             uom = await seed.scalar(select(UOM).where(UOM.code == "EACH"))
             if uom is None:
                 uom = UOM(code="EACH", name="Each")

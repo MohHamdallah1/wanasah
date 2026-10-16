@@ -58,7 +58,7 @@ export function useTransferActions({
       setAction(nextAction);
       setDecisionReason("");
     },
-    [locationId]
+    [locationId, t]
   );
 
   const closeAction = useCallback(() => {
@@ -114,6 +114,7 @@ export function useTransferActions({
     actionTransfer,
     command,
     decisionReason,
+    t,
     onCompleted,
     onInventoryChanged,
   ]);
