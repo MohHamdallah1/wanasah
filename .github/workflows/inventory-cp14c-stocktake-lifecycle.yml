@@ -42,28 +42,20 @@ jobs:
 
           path = Path("wa_backend/services.py")
           source = path.read_text(encoding="utf-8")
-          old = '''            row = SessionInventorySnapshot(
-                company_id=company_id,
-                work_session_id=work_session.id,
-                location_id=vehicle_location_id,
-                product_variant_id=product_variant_id,
-                stock_status=stock_status,
-                starting_quantity=Decimal("0"),
-            )'''
-          new = '''            row = SessionInventorySnapshot(
-                company_id=company_id,
-                work_session_id=work_session.id,
-                location_id=vehicle_location_id,
-                product_variant_id=product_variant_id,
-                stock_status=stock_status,
-                starting_quantity=Decimal("0"),
-                created_at=settled_at,
-            )'''
-          if new in source:
+          function_start = source.index("async def _seal_vehicle_inventory_reconciliation(")
+          function_end = source.index("\n\n# ترحيل فروقات جرد معتمد", function_start)
+          segment = source[function_start:function_end]
+          needle = '                starting_quantity=Decimal("0"),\n'
+          addition = '                created_at=settled_at,\n'
+          if addition in segment:
               print("CP14C_RUNTIME_FIX_ALREADY_PRESENT=PASS")
           else:
-              assert source.count(old) == 1, "Vehicle Recon snapshot seam changed unexpectedly"
-              path.write_text(source.replace(old, new, 1), encoding="utf-8")
+              assert segment.count(needle) == 1, "Vehicle Recon snapshot seam changed unexpectedly"
+              segment = segment.replace(needle, needle + addition, 1)
+              path.write_text(
+                  source[:function_start] + segment + source[function_end:],
+                  encoding="utf-8",
+              )
               print("CP14C_RUNTIME_FIX_APPLIED=PASS")
           PY
           git diff --check
