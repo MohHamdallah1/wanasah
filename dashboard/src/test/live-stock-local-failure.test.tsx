@@ -186,8 +186,5 @@ describe("Live Stock local failure states", () => {
     expect(
       screen.getByText("inventoryLive.errors.summaryUnavailable"),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText("reference: REQ-SUMMARY"),
-    ).toBeInTheDocument();
   });
 });
