@@ -26,6 +26,7 @@ type Props = {
   canEditTracking: boolean;
   canManageBarcodes: boolean;
   canManageLifecycle: boolean;
+  canViewProductLocations?: boolean;
   columns?: Record<
     ProductDisplayColumn,
     boolean
@@ -50,6 +51,9 @@ type Props = {
     item: SimpleProduct,
   ) => void;
   onManageLifecycle: (
+    item: SimpleProduct,
+  ) => void;
+  onManageProductLocations?: (
     item: SimpleProduct,
   ) => void;
 };
@@ -92,6 +96,7 @@ export function ProductMobileCard({
   canEditTracking,
   canManageBarcodes,
   canManageLifecycle,
+  canViewProductLocations = false,
   columns,
   density =
     DEFAULT_PRODUCT_DISPLAY_PREFERENCES.density,
@@ -102,6 +107,7 @@ export function ProductMobileCard({
   onEditTracking,
   onManageBarcodes,
   onManageLifecycle,
+  onManageProductLocations,
 }: Props) {
   const { t, i18n } =
     useTranslation();
@@ -204,6 +210,9 @@ export function ProductMobileCard({
           canManageLifecycle={
             canManageLifecycle
           }
+          canViewProductLocations={
+            canViewProductLocations
+          }
           onOpenDetails={
             onOpenDetails
           }
@@ -224,6 +233,9 @@ export function ProductMobileCard({
           }
           onManageLifecycle={
             onManageLifecycle
+          }
+          onManageProductLocations={
+            onManageProductLocations
           }
         />
       </div>

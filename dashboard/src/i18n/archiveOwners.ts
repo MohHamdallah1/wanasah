@@ -1,12 +1,12 @@
 export const archiveOwners = {
   ar: {
     unknown: "مانع أرشفة مرتبط بعملية أخرى",
-    actions: { batch: "فتح كميات الدفعة وحجوزاتها", transfer: "فتح الحوالة المحددة", stocktake: "فتح جلسة الجرد", "product-location": "فتح ارتباط المنتج بالمستودع", "route-load": "فتح حمولة المسار", handshake: "فتح المصافحة المحددة", shortage: "فتح طلب النقص", settlement: "فتح التسوية المالية للعهدة" },
+    actions: { batch: "فتح كميات الدفعة وحجوزاتها", transfer: "فتح الحوالة المحددة", stocktake: "فتح جلسة الجرد", "product-location": "فتح الربط في المنتجات", "route-load": "فتح حمولة المسار", handshake: "فتح المصافحة المحددة", shortage: "فتح طلب النقص", settlement: "فتح التسوية المالية للعهدة" },
     hints: {
       batch: "تراجع المخزون كميات هذه الدفعة وحجوزاتها. نقل الكمية إلى موقع آخر لا يعني زوال مانع الأرشفة.",
       transfer: "راجع الحوالة لدى مالكها؛ الاستلام أو الإلغاء أو الرفض يخضع لحالتها وصلاحياتك الحالية.",
       stocktake: "أكمل جلسة الجرد المحددة أو ألغها عندما يسمح مالك الجرد بذلك. لا يوجد تحرير قفل مستقل.",
-      "product-location": "راجع الارتباط المحدد واحذفه فقط إذا سمحت شروط المخزون بذلك.",
+      "product-location": "تتم إدارة ارتباط المنتج بالموقع من صفحة المنتجات. سينقلك هذا المسار إلى المنتج والارتباط المحددين دون إنشاء محرر ثانٍ داخل المخزون.",
       "route-load": "راجع حمولة المسار المحدد لدى التوزيع. إنهاء المسار وتعديل حمولته يخضعان لشروطه الحالية.",
       handshake: "راجع المصافحة لدى التوزيع؛ الإلغاء متاح فقط إذا سمحت حالة العملية والصلاحيات الحالية.",
       shortage: "راجع طلب النقص المحدد لدى التوزيع، ثم استخدم إجراءات مالكه المتاحة.",
@@ -34,12 +34,12 @@ export const archiveOwners = {
   },
   en: {
     unknown: "Archive blocker owned by another operation",
-    actions: { batch: "Open batch quantities and reservations", transfer: "Open this transfer", stocktake: "Open this stocktake", "product-location": "Open product warehouse assignment", "route-load": "Open route load", handshake: "Open this handshake", shortage: "Open shortage request", settlement: "Open custody financial settlement" },
+    actions: { batch: "Open batch quantities and reservations", transfer: "Open this transfer", stocktake: "Open this stocktake", "product-location": "Open assignment in Products", "route-load": "Open route load", handshake: "Open this handshake", shortage: "Open shortage request", settlement: "Open custody financial settlement" },
     hints: {
       batch: "Inventory reviews this batch's quantities and reservations. Moving stock elsewhere does not clear the company-wide archive blocker.",
       transfer: "Review the transfer with its owner. Receipt, cancellation or rejection depends on its current state and your permissions.",
       stocktake: "Complete this stocktake or cancel it when its owner permits. There is no independent unlock action.",
-      "product-location": "Review this assignment and delete it only when Inventory's guards allow it.",
+      "product-location": "Product-to-location assignments are managed from Products. This handoff opens the intended product and assignment without creating a second Inventory editor.",
       "route-load": "Review this route's load in Dispatch. Load changes and route completion retain their current guards.",
       handshake: "Review the handshake in Dispatch. Cancellation depends on the current state and permissions.",
       shortage: "Review this shortage request in Dispatch and use the owner's available actions.",

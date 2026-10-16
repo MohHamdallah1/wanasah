@@ -33,6 +33,8 @@ import { ProductsListSection } from "@/pages/products/list/ProductsListSection";
 import { useProductsListWorkflow } from "@/pages/products/list/useProductsListWorkflow";
 import { PriceEditModal } from "@/pages/products/pricing/PriceEditModal";
 import { usePriceEditWorkflow } from "@/pages/products/pricing/usePriceEditWorkflow";
+import { ProductLocationsModal } from "@/pages/products/product-locations/ProductLocationsModal";
+import { useProductLocationWorkflow } from "@/pages/products/product-locations/useProductLocationWorkflow";
 import { ProductRenameDialog } from "@/pages/products/rename/ProductRenameDialog";
 import { deriveProductsCapabilities } from "@/pages/products/deriveProductsCapabilities";
 import { useProductsIdentityScopeReset } from "@/pages/products/useProductsIdentityScopeReset";
@@ -88,6 +90,19 @@ export default function ProductsPage() {
     canAny: access.canAny,
   });
 
+  const canReadProductLocations =
+    access.canAny(
+      "product_location.read",
+    );
+  const canManageProductLocations =
+    canReadProductLocations &&
+    access.canAny(
+      "product_location.manage",
+    );
+  const canDiscoverProductLocations =
+    canManageProductLocations &&
+    access.canAny("location.read");
+
   const {
     displayPreferences,
     setDisplayPreferences,
@@ -123,6 +138,28 @@ export default function ProductsPage() {
         }
       );
     };
+
+  const productLocationWorkflow =
+    useProductLocationWorkflow({
+      accessReady:
+        access.isSuccess &&
+        companyId !== null,
+      canReadAssignments:
+        canReadProductLocations,
+      canManageAssignments:
+        canManageProductLocations,
+      canDiscoverLocations:
+        canDiscoverProductLocations,
+      authFetch,
+      onChanged: async () => {
+        await onProductChanged();
+        await queryClient.invalidateQueries({
+          queryKey: [
+            "product-warehouse-filter-options",
+          ],
+        });
+      },
+    });
 
   const renameWorkflow =
     useProductRenameWorkflow({
@@ -368,6 +405,8 @@ export default function ProductsPage() {
           canManageBarcodes:
             canManageCatalog,
           canManageLifecycle,
+          canViewProductLocations:
+            canReadProductLocations,
           onOpenDetails:
             detailWorkflow.openProductDetails,
           onRenameProduct:
@@ -382,6 +421,8 @@ export default function ProductsPage() {
             barcodeWorkflow.openBarcodeManager,
           onManageLifecycle:
             lifecycleWorkflow.openLifecycleManager,
+          onManageProductLocations:
+            productLocationWorkflow.openProductLocations,
         }}
       />
 
@@ -419,6 +460,10 @@ export default function ProductsPage() {
 
       <ProductBarcodeManager
         {...barcodeWorkflow.managerProps}
+      />
+
+      <ProductLocationsModal
+        {...productLocationWorkflow.modalProps}
       />
 
       <ProductTrackingOverlays

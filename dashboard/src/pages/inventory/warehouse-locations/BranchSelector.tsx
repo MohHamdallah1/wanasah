@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Search } from "lucide-react";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { parseBranchPage, type BranchItem } from "./branchContracts";
@@ -21,13 +22,47 @@ export function BranchSelector({
   onChange,
 }: BranchSelectorProps) {
   const authenticatedFetch = useAuthFetch();
+  const { i18n } = useTranslation();
+  const isArabic = i18n.language.toLowerCase().startsWith("ar");
+  const copy = isArabic
+    ? {
+        branch: "الفرع",
+        none: "غير مرتبط بفرع",
+        current: "الارتباط الحالي",
+        currentNumber: "الفرع الحالي",
+        search: "ابحث عن فرع بحرفين على الأقل",
+        loadFailed: "تعذر جلب الفروع.",
+        loading: "جارٍ تحميل الفروع...",
+        more: "توجد نتائج إضافية؛ استخدم البحث للوصول إلى الفرع المطلوب.",
+      }
+    : {
+        branch: "Branch",
+        none: "No branch",
+        current: "current association",
+        currentNumber: "Current branch",
+        search: "Search branches using at least two characters",
+        loadFailed: "Could not load branches.",
+        loading: "Loading branches...",
+        more: "More results exist; use search to find the required branch.",
+      };
   const requestSeq = useRef(0);
+  const currentBranchIdRef = useRef<number | null>(value);
+  const currentLabelRef = useRef<string | null>(currentLabel);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [items, setItems] = useState<BranchItem[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (currentLabel !== currentLabelRef.current) {
+      currentLabelRef.current = currentLabel;
+      currentBranchIdRef.current = value;
+    } else if (currentLabel === null) {
+      currentBranchIdRef.current = null;
+    }
+  }, [currentLabel, value]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -62,52 +97,57 @@ export function BranchSelector({
         if (seq !== requestSeq.current) return;
         setItems([]);
         setHasMore(false);
-        setError(requestError instanceof Error ? requestError.message : "تعذر جلب الفروع.");
+        setError(requestError instanceof Error ? requestError.message : copy.loadFailed);
       } finally {
         if (seq === requestSeq.current) setLoading(false);
       }
     };
     void load();
-  }, [authenticatedFetch, canReadBranches, refreshKey, search]);
+  }, [authenticatedFetch, canReadBranches, copy.loadFailed, refreshKey, search]);
 
+  const currentBranchId = currentBranchIdRef.current;
   const options = useMemo(() => {
-    if (value === null || items.some((item) => item.id === value) || !currentLabel) return items;
+    if (
+      currentBranchId === null ||
+      items.some((item) => item.id === currentBranchId) ||
+      !currentLabel
+    ) return items;
     return [
       ...items,
       {
-        id: value,
+        id: currentBranchId,
         name: currentLabel,
         code: "",
         is_active: false,
         created_at: "",
       },
     ];
-  }, [currentLabel, items, value]);
+  }, [currentBranchId, currentLabel, items]);
 
   if (!canReadBranches) {
     return (
-      <div className="space-y-2">
-        <span className="text-xs font-bold text-slate-600">الفرع</span>
+      <div className="space-y-2" dir={isArabic ? "rtl" : "ltr"}>
+        <span className="text-xs font-bold text-slate-600">{copy.branch}</span>
         <div className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
-          {currentLabel ?? (value === null ? "غير مرتبط بفرع" : `الفرع الحالي #${value}`)}
+          {currentLabel ?? (currentBranchId === null ? copy.none : `${copy.currentNumber} #${currentBranchId}`)}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-2">
-      <label className="text-xs font-bold text-slate-600" htmlFor="warehouse-branch-search">الفرع</label>
+    <div className="space-y-2" dir={isArabic ? "rtl" : "ltr"}>
+      <label className="text-xs font-bold text-slate-600" htmlFor="warehouse-branch-search">{copy.branch}</label>
       <div className="relative">
-        <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <Search className={`absolute top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 ${isArabic ? "right-3" : "left-3"}`} />
         <input
           id="warehouse-branch-search"
           value={searchInput}
           onChange={(event) => setSearchInput(event.target.value)}
           disabled={disabled}
           maxLength={100}
-          placeholder="ابحث عن فرع بحرفين على الأقل"
-          className="w-full rounded-xl border border-slate-200 py-2.5 pl-3 pr-10 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50"
+          placeholder={copy.search}
+          className={`w-full rounded-xl border border-slate-200 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50 ${isArabic ? "pl-3 pr-10" : "pl-10 pr-3"}`}
         />
       </div>
       <select
@@ -116,16 +156,23 @@ export function BranchSelector({
         disabled={disabled || loading || Boolean(error)}
         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50"
       >
-        <option value="">غير مرتبط بفرع</option>
-        {options.map((branch) => (
-          <option key={branch.id} value={branch.id}>
-            {branch.name}{branch.code ? ` (${branch.code})` : " (غير فعال)"}
-          </option>
-        ))}
+        <option value="">{copy.none}</option>
+        {options.map((branch) => {
+          const preservedCurrent = !branch.is_active && branch.id === currentBranchId;
+          return (
+            <option
+              key={branch.id}
+              value={branch.id}
+              disabled={preservedCurrent && value !== currentBranchId}
+            >
+              {branch.name}{branch.code ? ` (${branch.code})` : ` (${copy.current})`}
+            </option>
+          );
+        })}
       </select>
-      {loading && <p className="text-xs font-semibold text-slate-400">جارٍ تحميل الفروع...</p>}
+      {loading && <p className="text-xs font-semibold text-slate-400">{copy.loading}</p>}
       {error && <p role="alert" className="text-xs font-semibold text-red-600">{error}</p>}
-      {hasMore && <p className="text-xs font-semibold text-amber-700">توجد نتائج إضافية؛ استخدم البحث للوصول إلى الفرع المطلوب.</p>}
+      {hasMore && <p className="text-xs font-semibold text-amber-700">{copy.more}</p>}
     </div>
   );
 }

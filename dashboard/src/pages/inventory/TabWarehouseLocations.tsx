@@ -3,7 +3,7 @@ import { Building2, ChevronLeft, ChevronRight, GitBranch, Pencil, Plus, Power, P
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Modal } from "@/components/ui/modal";
-import { apiErrorMessage } from "@/lib/apiErrors";
+import { apiErrorCode, apiErrorContext, apiErrorMessage } from "@/lib/apiErrors";
 import { resolveI18nLocale } from "@/lib/locale";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 
@@ -41,6 +41,11 @@ interface WarehouseFormState {
   name: string;
   code: string;
   branch_id: number | null;
+}
+
+interface OperatorIssue {
+  title: string;
+  details: string[];
 }
 
 interface Props {
@@ -190,6 +195,51 @@ const asMutationResponse = (value: unknown): WarehouseLocationMutationResponse =
   return value as WarehouseLocationMutationResponse;
 };
 
+const contextNumber = (context: Record<string, unknown> | null, key: string) => {
+  const value = context?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+};
+
+const contextText = (context: Record<string, unknown> | null, key: string) => {
+  const value = context?.[key];
+  return typeof value === "string" && value.trim() ? value : null;
+};
+
+const formatDeactivationBlocker = (
+  context: Record<string, unknown> | null,
+  isArabic: boolean,
+): OperatorIssue => {
+  const type = contextText(context, "blocker_type") ?? "UNKNOWN";
+  const labels: Record<string, [string, string]> = {
+    INVENTORY_BALANCE: ["رصيد مخزني", "Inventory balance"],
+    OPEN_TRANSFER: ["حوالة غير نهائية", "Open transfer"],
+    INVENTORY_LOCK: ["قفل مخزني نشط", "Active inventory lock"],
+    OPEN_STOCKTAKE: ["جلسة جرد غير نهائية", "Open stocktake"],
+    PUBLISHED_OPERATIONAL_POLICY: ["سياسة تشغيل منشورة", "Published operational policy"],
+    OPEN_DISPATCH_ROUTE: ["خط سير غير نهائي", "Open dispatch route"],
+  };
+  const label = labels[type]?.[isArabic ? 0 : 1] ?? type;
+  const details: string[] = [];
+  const onHand = contextNumber(context, "on_hand_quantity");
+  const reserved = contextNumber(context, "reserved_quantity");
+  const reference = contextText(context, "reference_number");
+  const referenceId = contextNumber(context, "reference_id");
+  const policyId = contextNumber(context, "policy_id");
+  const policyRevision = contextNumber(context, "policy_revision");
+
+  if (onHand !== null) details.push(`${isArabic ? "المتاح" : "On hand"}: ${onHand}`);
+  if (reserved !== null) details.push(`${isArabic ? "المحجوز" : "Reserved"}: ${reserved}`);
+  if (reference) details.push(`${isArabic ? "المرجع" : "Reference"}: ${reference}`);
+  if (referenceId !== null) details.push(`${isArabic ? "معرف المرجع" : "Reference ID"}: ${referenceId}`);
+  if (policyId !== null) details.push(`${isArabic ? "معرف السياسة" : "Policy ID"}: ${policyId}`);
+  if (policyRevision !== null) details.push(`${isArabic ? "إصدار السياسة" : "Policy revision"}: ${policyRevision}`);
+
+  return {
+    title: isArabic ? `تعذر التعطيل: ${label}` : `Deactivation blocked: ${label}`,
+    details,
+  };
+};
+
 export function TabWarehouseLocations({
   selectedLocationId,
   onLocationsChanged,
@@ -198,6 +248,41 @@ export function TabWarehouseLocations({
   const authenticatedFetch = useAuthFetch();
   const { t, i18n } = useTranslation();
   const locale = resolveI18nLocale(i18n);
+  const isArabic = locale.toLowerCase().startsWith("ar");
+  const dir = isArabic ? "rtl" : "ltr";
+  const copy = isArabic
+    ? {
+        add: "إضافة مستودع",
+        edit: "تعديل المستودع",
+        name: "اسم المستودع",
+        code: "كود المستودع",
+        deactivate: "تعطيل المستودع",
+        activate: "تفعيل المستودع",
+        warehouse: "المستودع",
+        deactivateReason: "سبب التعطيل - إجباري",
+        activateNote: "ملاحظة التفعيل - اختيارية",
+        confirmDeactivate: "تأكيد التعطيل",
+        confirmActivate: "تأكيد التفعيل",
+        versionChanged: "تغيرت بيانات المستودع. تم تحديث النسخة الحالية مع الإبقاء على مدخلاتك. راجعها ثم نفّذ العملية مرة أخرى.",
+        branchMissing: "الفرع المحدد لم يعد متاحاً. تم تحديث قائمة الفروع؛ اختر فرعاً متاحاً ثم أعد المحاولة.",
+        branchInactive: "الفرع المحدد غير نشط ولا يمكن إنشاء ارتباط جديد به. تم تحديث قائمة الفروع.",
+      }
+    : {
+        add: "Add warehouse",
+        edit: "Edit warehouse",
+        name: "Warehouse name",
+        code: "Warehouse code",
+        deactivate: "Deactivate warehouse",
+        activate: "Activate warehouse",
+        warehouse: "Warehouse",
+        deactivateReason: "Deactivation reason - required",
+        activateNote: "Activation note - optional",
+        confirmDeactivate: "Confirm deactivation",
+        confirmActivate: "Confirm activation",
+        versionChanged: "Warehouse data changed. The current version was refreshed while keeping your input. Review it and submit a fresh mutation deliberately.",
+        branchMissing: "The selected branch is no longer available. Branch options were refreshed; choose an available branch and retry.",
+        branchInactive: "The selected branch is inactive and cannot be used for a new association. Branch options were refreshed.",
+      };
   const loadFailedMessage = t("inventoryWarehouses.errors.loadFailed");
 
   const [items, setItems] = useState<WarehouseLocationItem[]>([]);
@@ -222,6 +307,7 @@ export function TabWarehouseLocations({
   const [form, setForm] = useState<WarehouseFormState>({ name: "", code: "", branch_id: null });
   const [formRequestId, setFormRequestId] = useState(() => crypto.randomUUID());
   const [formSubmitting, setFormSubmitting] = useState(false);
+  const [formIssue, setFormIssue] = useState<string | null>(null);
   const [branchManagerOpen, setBranchManagerOpen] = useState(false);
   const [branchRefreshKey, setBranchRefreshKey] = useState(0);
 
@@ -230,6 +316,7 @@ export function TabWarehouseLocations({
   const [stateReason, setStateReason] = useState("");
   const [stateRequestId, setStateRequestId] = useState(() => crypto.randomUUID());
   const [stateSubmitting, setStateSubmitting] = useState(false);
+  const [stateIssue, setStateIssue] = useState<OperatorIssue | null>(null);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -300,6 +387,7 @@ export function TabWarehouseLocations({
     setFormMode("create");
     setEditingLocation(null);
     setForm({ name: "", code: "", branch_id: null });
+    setFormIssue(null);
     setFormRequestId(crypto.randomUUID());
     setFormOpen(true);
   };
@@ -308,12 +396,14 @@ export function TabWarehouseLocations({
     setFormMode("edit");
     setEditingLocation(location);
     setForm({ name: location.name, code: location.code, branch_id: location.branch_id });
+    setFormIssue(null);
     setFormRequestId(crypto.randomUUID());
     setFormOpen(true);
   };
 
   const updateForm = (patch: Partial<WarehouseFormState>) => {
     setForm((prev) => ({ ...prev, ...patch }));
+    setFormIssue(null);
     setFormRequestId(crypto.randomUUID());
   };
 
@@ -348,6 +438,7 @@ export function TabWarehouseLocations({
     }
 
     setFormSubmitting(true);
+    setFormIssue(null);
     try {
       const mutationBody: Record<string, unknown> = {
         request_id: formRequestId,
@@ -378,7 +469,30 @@ export function TabWarehouseLocations({
       else setRefreshKey((value) => value + 1);
       await onLocationsChanged();
     } catch (error: unknown) {
-      toast.error(apiErrorMessage(error, t("inventoryWarehouses.errors.saveFailed")));
+      const codeValue = apiErrorCode(error);
+      const context = apiErrorContext(error);
+      if (codeValue === "LOCATION_VERSION_CONFLICT" && editingLocation) {
+        const currentVersion = contextNumber(context, "current_version");
+        await fetchPage();
+        if (currentVersion !== null) {
+          setEditingLocation((current) => current ? { ...current, version: currentVersion } : current);
+        }
+        setFormRequestId(crypto.randomUUID());
+        setFormIssue(copy.versionChanged);
+        toast.error(copy.versionChanged);
+      } else if (codeValue === "WAREHOUSE_BRANCH_NOT_FOUND") {
+        setBranchRefreshKey((value) => value + 1);
+        setFormRequestId(crypto.randomUUID());
+        setFormIssue(copy.branchMissing);
+        toast.error(copy.branchMissing);
+      } else if (codeValue === "WAREHOUSE_BRANCH_INACTIVE") {
+        setBranchRefreshKey((value) => value + 1);
+        setFormRequestId(crypto.randomUUID());
+        setFormIssue(copy.branchInactive);
+        toast.error(copy.branchInactive);
+      } else {
+        toast.error(apiErrorMessage(error, t("inventoryWarehouses.errors.saveFailed")));
+      }
     } finally {
       setFormSubmitting(false);
     }
@@ -388,6 +502,7 @@ export function TabWarehouseLocations({
     setStateLocation(location);
     setStateAction(action);
     setStateReason("");
+    setStateIssue(null);
     setStateRequestId(crypto.randomUUID());
   };
 
@@ -405,6 +520,7 @@ export function TabWarehouseLocations({
     }
 
     setStateSubmitting(true);
+    setStateIssue(null);
     try {
       const raw = await authenticatedFetch(
         `/warehouse/locations/${stateLocation.id}/${stateAction}`,
@@ -422,17 +538,34 @@ export function TabWarehouseLocations({
       toast.success(response.message);
       setStateAction(null);
       setStateLocation(null);
+      setStateIssue(null);
       setRefreshKey((value) => value + 1);
       await onLocationsChanged();
     } catch (error: unknown) {
-      toast.error(
-        apiErrorMessage(
-          error,
-          t(
-            "inventoryWarehouses.errors.stateFailed"
+      const codeValue = apiErrorCode(error);
+      const context = apiErrorContext(error);
+      if (codeValue === "LOCATION_DEACTIVATION_BLOCKED") {
+        const issue = formatDeactivationBlocker(context, isArabic);
+        setStateIssue(issue);
+        toast.error(issue.title);
+      } else if (codeValue === "LOCATION_VERSION_CONFLICT") {
+        const currentVersion = contextNumber(context, "current_version");
+        await fetchPage();
+        if (currentVersion !== null) {
+          setStateLocation((current) => current ? { ...current, version: currentVersion } : current);
+        }
+        setStateRequestId(crypto.randomUUID());
+        const issue = { title: copy.versionChanged, details: [] };
+        setStateIssue(issue);
+        toast.error(issue.title);
+      } else {
+        toast.error(
+          apiErrorMessage(
+            error,
+            t("inventoryWarehouses.errors.stateFailed")
           )
-        )
-      );
+        );
+      }
     } finally {
       setStateSubmitting(false);
     }
@@ -623,12 +756,20 @@ export function TabWarehouseLocations({
         onClose={() => {
           if (!formSubmitting) setFormOpen(false);
         }}
-        title={formMode === "create" ? "إضافة مستودع" : "تعديل المستودع"}
+        title={formMode === "create" ? copy.add : copy.edit}
       >
-        <div className="space-y-4">
+        <form
+          className="space-y-4"
+          dir={dir}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleSave();
+          }}
+        >
           <div>
-            <label className="text-xs font-bold text-slate-600">اسم المستودع</label>
+            <label className="text-xs font-bold text-slate-600">{copy.name}</label>
             <input
+              autoFocus
               value={form.name}
               onChange={(event) => updateForm({ name: event.target.value })}
               maxLength={150}
@@ -637,7 +778,7 @@ export function TabWarehouseLocations({
           </div>
 
           <div>
-            <label className="text-xs font-bold text-slate-600">كود المستودع</label>
+            <label className="text-xs font-bold text-slate-600">{copy.code}</label>
             <input
               value={form.code}
               onChange={(event) => updateForm({ code: event.target.value.toUpperCase() })}
@@ -657,14 +798,20 @@ export function TabWarehouseLocations({
             onChange={(branchId) => updateForm({ branch_id: branchId })}
           />
 
+          {formIssue ? (
+            <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">
+              {formIssue}
+            </p>
+          ) : null}
+
           <button
-            onClick={handleSave}
+            type="submit"
             disabled={formSubmitting}
             className="w-full py-3 rounded-xl bg-blue-600 text-white font-bold disabled:opacity-50"
           >
             {formSubmitting ? t("common.saving") : t("common.save")}
           </button>
-        </div>
+        </form>
       </Modal>
 
       {canReadBranches && (
@@ -685,25 +832,33 @@ export function TabWarehouseLocations({
           if (!stateSubmitting) {
             setStateAction(null);
             setStateLocation(null);
+            setStateIssue(null);
           }
         }}
-        title={stateAction === "deactivate" ? "تعطيل المستودع" : "تفعيل المستودع"}
+        title={stateAction === "deactivate" ? copy.deactivate : copy.activate}
       >
-        <div className="space-y-4">
+        <form
+          className="space-y-4"
+          dir={dir}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleStateChange();
+          }}
+        >
           <p className="text-sm text-slate-600">
-            المستودع: <span className="font-bold">{stateLocation?.name}</span>
+            {copy.warehouse}: <span className="font-bold">{stateLocation?.name}</span>
           </p>
 
           <div>
             <label className="text-xs font-bold text-slate-600">
-              {stateAction === "deactivate"
-                ? "سبب التعطيل - إجباري"
-                : "ملاحظة التفعيل - اختيارية"}
+              {stateAction === "deactivate" ? copy.deactivateReason : copy.activateNote}
             </label>
             <textarea
+              autoFocus
               value={stateReason}
               onChange={(event) => {
                 setStateReason(event.target.value);
+                setStateIssue(null);
                 setStateRequestId(crypto.randomUUID());
               }}
               maxLength={1000}
@@ -711,8 +866,19 @@ export function TabWarehouseLocations({
             />
           </div>
 
+          {stateIssue ? (
+            <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+              <p className="font-black">{stateIssue.title}</p>
+              {stateIssue.details.length ? (
+                <ul className="mt-2 list-disc space-y-1 ps-5 font-semibold">
+                  {stateIssue.details.map((detail) => <li key={detail}>{detail}</li>)}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
+
           <button
-            onClick={handleStateChange}
+            type="submit"
             disabled={stateSubmitting}
             className={`w-full py-3 rounded-xl text-white font-bold disabled:opacity-50 ${
               stateAction === "deactivate" ? "bg-red-600" : "bg-emerald-600"
@@ -721,10 +887,10 @@ export function TabWarehouseLocations({
             {stateSubmitting
               ? t("inventoryWarehouses.processing")
               : stateAction === "deactivate"
-                ? "تأكيد التعطيل"
-                : "تأكيد التفعيل"}
+                ? copy.confirmDeactivate
+                : copy.confirmActivate}
           </button>
-        </div>
+        </form>
       </Modal>
     </div>
   );
