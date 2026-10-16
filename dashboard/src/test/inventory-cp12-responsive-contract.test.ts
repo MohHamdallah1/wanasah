@@ -100,7 +100,8 @@ describe("CP12 Inventory responsive and RTL/LTR contracts", () => {
     expect(sources.ledger).toContain("ledgerText");
     expect(sources.ledger).toContain("ledgerI18n");
     expect(sources.warehouses).toContain("warehouseLocationsCopy");
-    expect(sources.access).toContain("useInventoryAccessCopy");
+    expect(sources.access).toContain("inventoryAccessCopy");
+    expect(sources.access).toContain("./access/copy");
 
     const combined = Object.values(sources).join("\n");
     expect(combined).not.toMatch(/fetch\([^)]*translated/i);
