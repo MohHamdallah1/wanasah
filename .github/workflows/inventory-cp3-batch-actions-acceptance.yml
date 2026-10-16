@@ -65,6 +65,40 @@ jobs:
           python -m pytest -q
           tests/test_cp7_live_stock_contract.py
           tests/test_live_stock_batch_detail_disposition_contract.py
+      - name: CP8 status and special-transfer compatibility smoke
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_warehouse_transfers_canonical_auth_cutover.py::WarehouseTransfersCanonicalAuthCutoverTests::test_exact_direct_capability_mapping_is_preserved
+      - name: CP9 stocktake movement compatibility smoke
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_cp9_stocktake_closure_contract.py::CP9StocktakeClosureContractTests::test_stock_correction_remains_authoritative_movement_posting
+      - name: CP10 Ledger movement evidence compatibility smoke
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_cp10_ledger_backend.py::test_append_only_command_uses_canonical_movement_path_and_exact_delta
+      - name: CP11 permission catalog and access compatibility smoke
+        working-directory: wa_backend
+        run: |
+          python -m pytest -q tests/test_cp11_inventory_access_backend.py::test_cp11_dashboard_labels_cover_the_entire_backend_registry_without_raw_fallback
+          python - <<'PY'
+          import inspect
+          from pathlib import Path
+          from api.warehouse import transfers
+          from domains.authorization.capabilities import PERMISSIONS
+
+          required = {"batch.disposition", "inventory.status_change"}
+          assert required <= set(PERMISSIONS)
+          migration = Path("alembic/versions/19c740dc40e8_stage4d_batch_disposition_and_portion_.py").read_text(encoding="utf-8")
+          for code in required:
+              assert code in migration
+          assert "batch.disposition" in inspect.getsource(transfers.change_batch_disposition)
+          assert "inventory.status_change" in inspect.getsource(transfers.change_inventory_status)
+          print("CP11_CP3_PERMISSION_COMPAT=PASS")
+          PY
       - name: CP3 changed-backend py_compile
         working-directory: wa_backend
         run: >-
