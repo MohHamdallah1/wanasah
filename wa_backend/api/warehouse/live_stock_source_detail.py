@@ -13,14 +13,13 @@ from api.authentication.backoffice_authorization import (
 )
 from database import get_db
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
-from domains.batch_actions import status_change_availability
+from domains.batch_actions import status_change_availability_for_batch
 from domains.batch_reservation_contracts import (
     OWNER_PREVIEW_LIMIT,
     ReservationEvidence,
 )
 from domains.batch_reservation_evidence import reservation_evidence
 from domains.dispatch_reservations import reservation_owner_projection
-from domains.inventory_rules import batch_metadata_is_sellable
 from models import (
     InventoryBalance,
     InventoryLocation,
@@ -185,17 +184,6 @@ async def get_live_stock_batch_source(
         )
     )
     as_of_date = await get_company_local_date(db, company_id)
-    batch_sellable = batch_metadata_is_sellable(
-        as_of_date=as_of_date,
-        expiry_control_mode=str(metadata.expiry_control_mode),
-        production_date=metadata.production_date,
-        expiry_date=metadata.expiry_date,
-        minimum_remaining_shelf_life_days=int(
-            metadata.minimum_remaining_shelf_life_days or 0
-        ),
-        is_active=bool(metadata.is_active),
-        disposition=str(metadata.disposition),
-    )
 
     owners = reservation_owner_projection(
         access,
@@ -286,11 +274,19 @@ async def get_live_stock_batch_source(
                         Decimal(action["eligible_quantity"])
                     ),
                 }
-                for action in status_change_availability(
+                for action in status_change_availability_for_batch(
                     key,
                     eligible_quantity=movable,
                     can_change=can_change_status,
-                    batch_sellable=batch_sellable,
+                    as_of_date=as_of_date,
+                    expiry_control_mode=str(metadata.expiry_control_mode),
+                    production_date=metadata.production_date,
+                    expiry_date=metadata.expiry_date,
+                    minimum_remaining_shelf_life_days=int(
+                        metadata.minimum_remaining_shelf_life_days or 0
+                    ),
+                    is_active=bool(metadata.is_active),
+                    disposition=str(metadata.disposition),
                 )
             ],
         }
