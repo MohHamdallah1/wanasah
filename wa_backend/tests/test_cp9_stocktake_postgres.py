@@ -523,14 +523,42 @@ class CP9StocktakePostgresAcceptance(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await stocktake_api.approve_stocktake_session(positive_sid, pos_cmd, db=self.db, access=self.access_a_all, legacy_actor=self.actor_a), pos_approved)
         self.assertEqual(int(await self.db.scalar(select(func.count()).select_from(InventoryMovement).where(InventoryMovement.stocktake_session_id == positive_sid)) or 0), movement_count)
 
-        # Negative variance, then a distinct recount flow on a new session.
+        # Negative variance must not post before an independent recount.
         negative = await self._start(self.a2, self.access_a_all, self.actor_a)
         negative_sid = int(negative["session_id"])
         negative_count, _ = await self._count(
             negative_sid, self.access_a_all, self.actor_a,
             {self.shared_batch: 9, self.a2_only: 5},
         )
-        neg_approved, _ = await self._approve(negative_sid, int(negative_count["attempt_id"]), self.access_a_all, self.actor_a)
+        with self.assertRaises(HTTPException) as direct_negative_approval:
+            await self._approve(
+                negative_sid, int(negative_count["attempt_id"]),
+                self.access_a_all, self.actor_a,
+            )
+        self.assertEqual(direct_negative_approval.exception.status_code, 409)
+        self.assertIn("إعادة عد مستقلة", str(direct_negative_approval.exception.detail))
+
+        negative_recount_cmd = StocktakeRecountCommand(
+            request_id=uuid4(),
+            count_attempt_id=int(negative_count["attempt_id"]),
+            reason="independent recount required for negative variance",
+            authorizer_username=self.actor_a2.username,
+            authorizer_password=PASSWORD,
+        )
+        with patch.object(stocktake_api, "_verify_stocktake_admin_credentials", AsyncMock(return_value=self.actor_a2)):
+            negative_recount = await stocktake_api.recount_stocktake_session(
+                negative_sid, negative_recount_cmd, db=self.db,
+                access=self.access_a_all, legacy_actor=self.actor_a,
+            )
+        self.assertEqual(negative_recount["status"], "RECOUNT_REQUIRED")
+        negative_second, _ = await self._count(
+            negative_sid, self.access_a_all, self.actor_a2,
+            {self.shared_batch: 9, self.a2_only: 5},
+        )
+        neg_approved, _ = await self._approve(
+            negative_sid, int(negative_second["attempt_id"]),
+            self.access_a_all, self.actor_a,
+        )
         self.assertGreater(neg_approved["movement_count"], 0)
         self.assertEqual(await self.db.scalar(select(InventoryBalance.on_hand_quantity).where(
             InventoryBalance.company_id == self.company_a,
@@ -538,6 +566,7 @@ class CP9StocktakePostgresAcceptance(unittest.IsolatedAsyncioTestCase):
             InventoryBalance.batch_id == self.shared_batch,
         )), Decimal("9"))
 
+        # Explicit recount remains available as a distinct workflow on a new session.
         recount_started = await self._start(self.a2, self.access_a_all, self.actor_a)
         recount_sid = int(recount_started["session_id"])
         first_attempt, _ = await self._count(
@@ -608,6 +637,8 @@ class CP9StocktakePostgresAcceptance(unittest.IsolatedAsyncioTestCase):
             snapshot_cutoff_at=utc_now().replace(tzinfo=None),
         )
         self.db.add(raw_session)
+        await self.db.flush()
+        raw_session_id = int(raw_session.id)
         await self.db.commit()
         location_access = SimpleNamespace(company_id=self.company_a)
         with patch.object(warehouse_locations, "_require_location_capability", AsyncMock(return_value=None)), patch.object(warehouse_locations, "acquire_inventory_location_guard", AsyncMock(return_value=None)):
@@ -624,7 +655,7 @@ class CP9StocktakePostgresAcceptance(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(detail["code"], "LOCATION_DEACTIVATION_BLOCKED")
             self.assertEqual(detail["context"]["blocker_type"], "OPEN_STOCKTAKE")
             await self.db.rollback()
-            raw_session = await self.db.get(StocktakeSession, int(raw_session.id))
+            raw_session = await self.db.get(StocktakeSession, raw_session_id)
             raw_session.status = "CANCELLED"
             await self.db.commit()
             deactivated = await warehouse_locations.deactivate_warehouse_location(
