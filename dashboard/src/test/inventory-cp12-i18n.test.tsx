@@ -32,6 +32,7 @@ const presentationResourceBasenames = new Set([
   "branchSelectorI18n.ts",
   "permissionLabels.ts",
   "batchIndexI18n.ts",
+  "batchActionsI18n.ts",
 ]);
 
 const nonPresentationContractBasenames = new Set([
@@ -254,6 +255,7 @@ describe("CP12 Inventory i18n closure", () => {
       "src/pages/inventory/access/copy.ts",
       "src/pages/inventory/warehouse-locations/i18n.ts",
       "src/pages/inventory/warehouse-locations/branchSelectorI18n.ts",
+      "src/pages/inventory/stock-policy/i18n.ts",
     ];
 
     for (const path of requiredResources) {
