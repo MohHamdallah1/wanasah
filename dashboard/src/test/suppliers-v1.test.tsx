@@ -22,7 +22,7 @@ const fake = vi.hoisted(() => ({ fetch: vi.fn(), read: true, manage: true, onlin
 vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => fake.fetch }));
 vi.mock("@/hooks/useNetworkStatus", () => ({ useNetworkStatus: () => fake.online }));
 vi.mock("@/hooks/useInventoryAccess", () => ({ useInventoryAccess: () => ({
-  data: { company_id: 1, driver_id: 2 }, can: (code: string) => code === "supplier.read" ? fake.read : fake.manage,
+  data: { company_id: 1, principal_id: 101, backoffice_user_id: 202, driver_id: 2 }, can: (code: string) => code === "supplier.read" ? fake.read : fake.manage,
   isPending: false,
 }) }));
 
@@ -193,9 +193,10 @@ describe("durable Supplier and Inbound commands", () => {
     await act(async () => { expect(await resumed.result.current.retryPending("fresh-credential")).toBe(true); });
     expect(JSON.parse(fake.fetch.mock.calls.at(-1)![1].body)).toEqual({ ...sent, confirmation_password: "fresh-credential" });
     expect(JSON.stringify(localStorage)).not.toContain("fresh-credential");
+    await waitFor(() => expect(resumed.result.current.pending).toBeNull());
   });
   it("replays a stored pre-Supplier quality command while new whole-product return resolves Supplier automatically", async () => {
-    const old = await getOrCreateDurableCommand(durableScope(1, 2, "whole-product-quality-resolve-v2", "7:RETURN_TO_VENDOR"),
+    const old = await getOrCreateDurableCommand(durableScope(1, 202, "whole-product-quality-resolve-v2", "7:RETURN_TO_VENDOR"),
       { action: "RETURN_TO_VENDOR", reason: "Issue", recipient_name: "Legacy recipient" });
     fake.fetch.mockResolvedValue({ message: "Completed", action: "RETURN_TO_VENDOR", product_variant_id: 7, total_quantity: "4", location_count: 1, post_resolution_hold: "NONE",
       locations: [{ location_id: 5, location_name: "Warehouse", quantity: "4" }] });
@@ -203,6 +204,7 @@ describe("durable Supplier and Inbound commands", () => {
     await waitFor(() => expect(hook.result.current.pending).not.toBeNull());
     await act(async () => { expect(await hook.result.current.retryPending("fresh-credential")).toBe(true); });
     expect(JSON.parse(fake.fetch.mock.calls[0][1].body).request_id).toBe(old.requestId);
+    await waitFor(() => expect(hook.result.current.pending).toBeNull());
     const source = readFileSync(resolve(process.cwd(), "src/features/inventory/quality/WholeProductQualityActionsPanel.tsx"), "utf8");
     const inbound = readFileSync(resolve(process.cwd(), "src/pages/inventory/Tab2Inbound.tsx"), "utf8");
     expect(source).not.toContain("<SupplierSelector"); expect(source).toContain("resolvedSupplier"); expect(source).not.toContain("recipientName"); expect(inbound).toContain("<SupplierSelector");
