@@ -1,90 +1,13 @@
-name: CP9 Stocktake Dashboard bootstrap
+name: Inventory CP9 Stocktake acceptance
 
 on:
-  push:
-    branches:
-      - sol/cp9-stocktake-full-closure-wave2
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  patch-dashboard:
-    if: github.actor != 'github-actions[bot]'
+  placeholder:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: sol/cp9-stocktake-full-closure-wave2
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: dashboard/package-lock.json
-      - name: Apply bounded Stocktake Dashboard durable patch
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          def patch(path: str, replacements: list[tuple[str, str]]) -> None:
-              p = Path(path)
-              text = p.read_text(encoding='utf-8')
-              for old, new in replacements:
-                  count = text.count(old)
-                  if count != 1:
-                      raise SystemExit(f'{path}: expected one match, got {count}: {old[:100]!r}')
-                  text = text.replace(old, new, 1)
-              p.write_text(text, encoding='utf-8')
-
-          patch('dashboard/src/pages/inventory/stocktake/hooks/useStocktakeLifecycle.ts', [
-            ('import { toast } from "sonner";\n', 'import { toast } from "sonner";\nimport { executeStocktakeDurableCommand, type StocktakeDurableIdentity } from "../durableCommand";\n'),
-            ('interface UseStocktakeLifecycleArgs {\n', 'interface UseStocktakeLifecycleArgs {\n  durableIdentity: StocktakeDurableIdentity | null;\n'),
-            ('export function useStocktakeLifecycle({\n  focusSessionId,', 'export function useStocktakeLifecycle({\n  durableIdentity,\n  focusSessionId,'),
-            ('      setLocking(true);\n\n      try {\n        const raw =\n          await authenticatedFetch(\n            "/warehouse/unified/stocktake/start",\n            {\n              method: "POST",\n              body: JSON.stringify({\n                location_id:\n                  locationId,\n                stocktake_type:\n                  "FULL_COUNT",\n                notes:\n                  "بدء جرد مركزي",\n              }),\n            }\n          );', '      if (!durableIdentity) {\n        toast.error("Stocktake identity is not ready yet. / هوية مستخدم الجرد غير جاهزة بعد.");\n        return false;\n      }\n\n      setLocking(true);\n\n      try {\n        const raw = await executeStocktakeDurableCommand({\n          identity: durableIdentity,\n          operation: "start-full",\n          target: locationId,\n          payload: {\n            location_id: locationId,\n            stocktake_type: "FULL_COUNT",\n            notes: "Central full stocktake",\n          },\n          send: (body) => authenticatedFetch(\n            "/warehouse/unified/stocktake/start",\n            { method: "POST", body: JSON.stringify(body) },\n          ),\n        });'),
-            ('      authenticatedFetch,\n      loadCountSheet,', '      authenticatedFetch,\n      durableIdentity,\n      loadCountSheet,'),
-          ])
-
-          patch('dashboard/src/pages/inventory/stocktake/hooks/useStocktakeCounting.ts', [
-            ('import { toast } from "sonner";\n', 'import { toast } from "sonner";\nimport { executeStocktakeDurableCommand, type StocktakeDurableIdentity } from "../durableCommand";\n'),
-            ('interface UseStocktakeCountingArgs {\n', 'interface UseStocktakeCountingArgs {\n  durableIdentity: StocktakeDurableIdentity | null;\n'),
-            ('export function useStocktakeCounting({\n  companyScope,', 'export function useStocktakeCounting({\n  durableIdentity,\n  companyScope,'),
-            ('      setSubmitting(true);\n\n      try {\n        await authenticatedFetch(\n          `/warehouse/unified/stocktake/${sessionId}/count`,\n          {\n            method: "POST",\n            body: JSON.stringify({\n              items,\n              notes,\n            }),\n          }\n        );', '      if (!durableIdentity) {\n        toast.error("Stocktake identity is not ready yet. / هوية مستخدم الجرد غير جاهزة بعد.");\n        return false;\n      }\n\n      setSubmitting(true);\n\n      try {\n        await executeStocktakeDurableCommand({\n          identity: durableIdentity,\n          operation: "count",\n          target: `${sessionLocationId}:${sessionId}`,\n          payload: { items, notes },\n          send: (body) => authenticatedFetch(\n            `/warehouse/unified/stocktake/${sessionId}/count`,\n            { method: "POST", body: JSON.stringify(body) },\n          ),\n        });'),
-            ('      authenticatedFetch,\n      draftKey,', '      authenticatedFetch,\n      durableIdentity,\n      draftKey,'),
-          ])
-
-          patch('dashboard/src/pages/inventory/stocktake/hooks/useCycleCountStart.ts', [
-            ('import { useTranslation } from "react-i18next";\n', 'import { useTranslation } from "react-i18next";\nimport { executeStocktakeDurableCommand, type StocktakeDurableIdentity } from "../durableCommand";\n'),
-            ('interface UseCycleCountStartArgs {\n', 'interface UseCycleCountStartArgs {\n  durableIdentity: StocktakeDurableIdentity | null;\n'),
-            ('export function useCycleCountStart({\n  locationId,', 'export function useCycleCountStart({\n  durableIdentity,\n  locationId,'),
-            ('    setStarting(true);\n    try {\n      const raw = await authenticatedFetch("/warehouse/unified/stocktake/start", {\n        method: "POST",\n        body: JSON.stringify({\n          location_id: locationId,\n          stocktake_type: "CYCLE_COUNT",\n          product_variant_id: selectedProduct.id,\n          batch_id: selectedBatch?.id ?? null,\n          notes: notes.trim() || null,\n        }),\n      });', '    if (!durableIdentity) {\n      toast.error("Stocktake identity is not ready yet. / هوية مستخدم الجرد غير جاهزة بعد.");\n      return false;\n    }\n\n    setStarting(true);\n    try {\n      const raw = await executeStocktakeDurableCommand({\n        identity: durableIdentity,\n        operation: "start-cycle",\n        target: `${locationId}:${selectedProduct.id}:${selectedBatch?.id ?? "all"}`,\n        payload: {\n          location_id: locationId,\n          stocktake_type: "CYCLE_COUNT",\n          product_variant_id: selectedProduct.id,\n          batch_id: selectedBatch?.id ?? null,\n          notes: notes.trim() || null,\n        },\n        send: (body) => authenticatedFetch("/warehouse/unified/stocktake/start", {\n          method: "POST", body: JSON.stringify(body),\n        }),\n      });'),
-            ('    authenticatedFetch,\n    loadCountSheet,', '    authenticatedFetch,\n    durableIdentity,\n    loadCountSheet,'),
-          ])
-
-          patch('dashboard/src/pages/inventory/stocktake/hooks/useVehicleReconStart.ts', [
-            ('import { toast } from "sonner";\n', 'import { toast } from "sonner";\nimport { executeStocktakeDurableCommand, type StocktakeDurableIdentity } from "../durableCommand";\n'),
-            ('interface UseVehicleReconStartArgs {\n', 'interface UseVehicleReconStartArgs {\n  durableIdentity: StocktakeDurableIdentity | null;\n'),
-            ('export function useVehicleReconStart({\n  sourceLocationId,', 'export function useVehicleReconStart({\n  durableIdentity,\n  sourceLocationId,'),
-            ('        const raw = await authenticatedFetch(\n          "/warehouse/unified/stocktake/start",\n          {\n            method: "POST",\n            body: JSON.stringify({\n              location_id:\n                candidate.vehicle_location_id,\n              stocktake_type:\n                "VEHICLE_RECON",\n              related_work_session_id:\n                candidate.work_session_id,\n              notes:\n                notes.trim() || null,\n            }),\n          }\n        );', '        if (!durableIdentity) {\n          toast.error("Stocktake identity is not ready yet. / هوية مستخدم الجرد غير جاهزة بعد.");\n          return false;\n        }\n\n        const raw = await executeStocktakeDurableCommand({\n          identity: durableIdentity,\n          operation: "start-vehicle-recon",\n          target: `${candidate.vehicle_location_id}:${candidate.work_session_id}`,\n          payload: {\n            location_id: candidate.vehicle_location_id,\n            stocktake_type: "VEHICLE_RECON",\n            related_work_session_id: candidate.work_session_id,\n            notes: notes.trim() || null,\n          },\n          send: (body) => authenticatedFetch(\n            "/warehouse/unified/stocktake/start",\n            { method: "POST", body: JSON.stringify(body) },\n          ),\n        });'),
-            ('      authenticatedFetch,\n      busyWorkSessionId,', '      authenticatedFetch,\n      durableIdentity,\n      busyWorkSessionId,'),
-          ])
-
-          patch('dashboard/src/pages/inventory/Tab3Stocktake.tsx', [
-            ('  const warehouseAccess = useInventoryAccess(locationId);\n  const sessionAccess = useInventoryAccess(stocktakeState.sessionLocationId ?? locationId);\n', '  const warehouseAccess = useInventoryAccess(locationId);\n  const sessionAccess = useInventoryAccess(stocktakeState.sessionLocationId ?? locationId);\n  const durableIdentity = warehouseAccess.data\n    ? {\n        companyId: warehouseAccess.data.company_id,\n        backofficeUserId: warehouseAccess.data.backoffice_user_id,\n      }\n    : null;\n'),
-            ('    useStocktakeCounting({\n      companyScope:', '    useStocktakeCounting({\n      durableIdentity,\n      companyScope:'),
-            ('    useCycleCountStart({\n      locationId,', '    useCycleCountStart({\n      durableIdentity,\n      locationId,'),
-            ('    useStocktakeActions({\n      authenticatedFetch,', '    useStocktakeActions({\n      authenticatedFetch,\n      durableIdentity,'),
-            ('    useStocktakeLifecycle({\n      focusSessionId,', '    useStocktakeLifecycle({\n      durableIdentity,\n      focusSessionId,'),
-            ('    useVehicleReconStart({\n      sourceLocationId:', '    useVehicleReconStart({\n      durableIdentity,\n      sourceLocationId:'),
-          ])
-          PY
-          cd dashboard
-          npm ci --no-audit --no-fund
-          npx tsc --noEmit
-          cd ..
-          git diff --check
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add dashboard/src/pages/inventory/Tab3Stocktake.tsx dashboard/src/pages/inventory/stocktake/hooks/useStocktakeLifecycle.ts dashboard/src/pages/inventory/stocktake/hooks/useStocktakeCounting.ts dashboard/src/pages/inventory/stocktake/hooks/useCycleCountStart.ts dashboard/src/pages/inventory/stocktake/hooks/useVehicleReconStart.ts
-          git commit -m "CP9: preserve durable Stocktake command identity in Dashboard"
-          git push origin HEAD:sol/cp9-stocktake-full-closure-wave2
+      - run: echo "Final CP9 acceptance workflow will replace this bounded bootstrap placeholder."
