@@ -7,6 +7,7 @@ import type {
   StocktakePhase,
   StocktakeReview,
 } from "../types";
+import { useStocktakeCopy } from "../copy";
 import { parseStocktakeReview } from "../parsers";
 import { compareQuantity } from "../../quantity";
 
@@ -33,6 +34,8 @@ export function useStocktakeReview({
   setSessionLocationId,
   setPhase,
 }: UseStocktakeReviewArgs) {
+  const { copy } = useStocktakeCopy();
+
   const loadReview = useCallback(
     async (
       sid: string,
@@ -46,16 +49,14 @@ export function useStocktakeReview({
         !Number.isInteger(effectiveLocationId) ||
         effectiveLocationId <= 0
       ) {
-        throw new Error(
-          "موقع جلسة الجرد الفعلي غير معروف."
-        );
+        throw new Error(copy.lifecycle.unknownLocation);
       }
 
       const capabilities = parseInventoryCapabilities(await authenticatedFetch(
         `/inventory/access/me?location_id=${effectiveLocationId}`
       ));
-      if (capabilities.location_id !== effectiveLocationId) throw new Error("نطاق الصلاحيات غير مطابق.");
-      if (!hasInventoryPermission(capabilities, 'stocktake.review')) {
+      if (capabilities.location_id !== effectiveLocationId) throw new Error(copy.count.scopeMismatch);
+      if (!hasInventoryPermission(capabilities, "stocktake.review")) {
         setSessionLocationId(effectiveLocationId);
         setSessionId(sid);
         setReview(null);
@@ -67,32 +68,23 @@ export function useStocktakeReview({
       const raw = await authenticatedFetch(
         `/warehouse/unified/stocktake/${sid}/review`
       );
-      const data =
-        parseStocktakeReview(raw);
+      const data = parseStocktakeReview(raw);
 
-      if (
-        data.location_id !==
-        effectiveLocationId
-      ) {
-        throw new Error(
-          "مرفوض: جلسة الجرد لا تطابق موقع الجلسة الفعلي."
-        );
+      if (data.location_id !== effectiveLocationId) {
+        throw new Error(copy.count.scopeMismatch);
       }
 
-      setSessionLocationId(
-        effectiveLocationId
-      );
+      setSessionLocationId(effectiveLocationId);
       setSessionId(sid);
       setReview(data);
       setRows([]);
       setPhase("REVIEW");
-      localStorage.setItem(
-        phaseKey,
-        "REVIEW"
-      );
+      localStorage.setItem(phaseKey, "REVIEW");
     },
     [
       authenticatedFetch,
+      copy.count.scopeMismatch,
+      copy.lifecycle.unknownLocation,
       phaseKey,
       sessionLocationId,
       setPhase,
@@ -117,26 +109,10 @@ export function useStocktakeReview({
     return review.lines.reduce(
       (acc, line) => {
         acc.total += 1;
-        if (
-          compareQuantity(line.variance_quantity, "0") === 0
-        ) {
-          acc.matched += 1;
-        }
-        if (
-          compareQuantity(line.variance_quantity, "0") < 0
-        ) {
-          acc.shortage += 1;
-        }
-        if (
-          compareQuantity(line.variance_quantity, "0") > 0
-        ) {
-          acc.overage += 1;
-        }
-        if (
-          compareQuantity(line.variance_quantity, "0") !== 0
-        ) {
-          acc.varianceItems += 1;
-        }
+        if (compareQuantity(line.variance_quantity, "0") === 0) acc.matched += 1;
+        if (compareQuantity(line.variance_quantity, "0") < 0) acc.shortage += 1;
+        if (compareQuantity(line.variance_quantity, "0") > 0) acc.overage += 1;
+        if (compareQuantity(line.variance_quantity, "0") !== 0) acc.varianceItems += 1;
         return acc;
       },
       {
@@ -150,10 +126,8 @@ export function useStocktakeReview({
   }, [review]);
 
   const approvalBlocked = Boolean(
-    review?.latest_attempt
-      .requires_independent_recount &&
-      !review
-        ?.independent_recount_satisfied
+    review?.latest_attempt.requires_independent_recount &&
+      !review?.independent_recount_satisfied
   );
 
   return {
