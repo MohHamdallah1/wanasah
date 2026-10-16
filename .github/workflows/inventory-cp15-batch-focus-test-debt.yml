@@ -1,0 +1,95 @@
+name: Inventory CP15 Batch Focus test debt
+
+on:
+  pull_request:
+    branches:
+      - integration/inventory-wave-2
+    paths:
+      - "dashboard/src/test/batch-focus-workspace.test.tsx"
+      - ".github/workflows/inventory-cp15-batch-focus-test-debt.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cp15-batch-focus-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dashboard-validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Locked Dashboard dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Batch focus workspace debt closure
+        run: npm test -- src/test/batch-focus-workspace.test.tsx
+      - name: CP11 and CP12 regressions
+        run: >-
+          npm test --
+          src/test/inventory-cp11-access-dashboard.test.tsx
+          src/test/inventory-cp12-accessibility.test.tsx
+          src/test/inventory-cp12-i18n.test.tsx
+      - name: TypeScript noEmit
+        run: npx tsc --noEmit
+      - name: Production Dashboard build
+        env:
+          VITE_API_URL: https://api.example.invalid
+        run: npm run build
+
+  scope-and-diff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Resolve current Wave merge-base
+        id: base
+        shell: bash
+        run: |
+          target="${{ github.event.pull_request.base.ref }}"
+          test "$target" = "integration/inventory-wave-2"
+          git fetch origin "$target" --no-tags
+          base="$(git merge-base HEAD "origin/$target")"
+          test -n "$base"
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
+      - name: Exact CP15 test-debt scope
+        env:
+          CP15_BASE: ${{ steps.base.outputs.sha }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+          base = os.environ["CP15_BASE"]
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only", base, "HEAD"], text=True
+          ).splitlines())
+          expected = {
+              ".github/workflows/inventory-cp15-batch-focus-test-debt.yml",
+              "dashboard/src/test/batch-focus-workspace.test.tsx",
+          }
+          assert changed == expected, f"Unexpected CP15 scope: {sorted(changed)}"
+          forbidden = (
+              "dashboard/src/pages/inventory/TabBatches.tsx",
+              "dashboard/src/pages/inventory/batches/",
+          )
+          assert not any(path == forbidden[0] or path.startswith(forbidden[1]) for path in changed)
+          print("CP15_TEST_ONLY_SCOPE=PASS")
+          PY
+      - name: git diff --check
+        run: git diff --check "${{ steps.base.outputs.sha }}" HEAD
