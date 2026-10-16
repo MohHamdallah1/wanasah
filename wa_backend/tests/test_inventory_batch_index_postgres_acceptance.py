@@ -449,7 +449,7 @@ async def test_cp2_batch_index_real_postgres_acceptance():
                     db=db,
                     access=owner,
                 )
-                assert {row["batch_id"] for row in drill_down["items"]} >= {
+                assert {row["batch_id"] for row in drill_down["batches"]} >= {
                     9141,
                     9143,
                     9144,
