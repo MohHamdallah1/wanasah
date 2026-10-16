@@ -47,7 +47,7 @@ jobs:
       - name: Install disposable Playwright Chromium runtime
         working-directory: dashboard
         run: |
-          npm install --no-save --package-lock=false playwright@1.55.0
+          npm install --no-save --package-lock=false --legacy-peer-deps playwright@1.55.0
           npx playwright install --with-deps chromium
 
       - name: Start Dashboard preview
