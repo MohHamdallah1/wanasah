@@ -1,0 +1,60 @@
+name: Transfer parity fixture repair validation
+
+on:
+  pull_request:
+    branches:
+      - integration/inventory-wave-2
+    paths:
+      - "dashboard/src/test/inventory-product-batch-date-parity.test.ts"
+      - "dashboard/src/test/inventory-public-batch-number-parity.test.ts"
+      - ".github/workflows/transfer-parity-fixture-repair-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  dashboard-validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Exact parity files first
+        working-directory: dashboard
+        run: npm test -- src/test/inventory-product-batch-date-parity.test.ts src/test/inventory-public-batch-number-parity.test.ts
+      - name: Full legacy regression group
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/pages/inventory/inbound/Tab2Inbound.test.tsx
+          src/pages/inventory/inbound/contracts.test.ts
+          src/test/inventory-public-batch-number-parity.test.ts
+          src/test/inventory-product-batch-date-parity.test.ts
+          src/test/inventory-batch-disposition.test.ts
+          src/test/inventory-batch-stock-sources.test.ts
+          src/test/inventory-batches-expiry-semantics.test.tsx
+          src/test/inventory-batches-pagination.test.ts
+      - name: CP8 Transfer parser and Dashboard regression
+        working-directory: dashboard
+        run: npm test -- src/pages/inventory/transfers/cp8-transfers.test.tsx
+      - name: Canonical transfer purpose remains required
+        working-directory: dashboard
+        run: grep -Fq 'if (!isTransferPurpose(row.transfer_purpose)) throw invalid("transfer_purpose");' src/pages/inventory/transfers/parsers.ts
+      - name: TypeScript noEmit
+        working-directory: dashboard
+        run: npx tsc --noEmit
+      - name: Production Dashboard build
+        working-directory: dashboard
+        run: npm run build
+      - name: git diff --check
+        run: git diff --check "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}"
