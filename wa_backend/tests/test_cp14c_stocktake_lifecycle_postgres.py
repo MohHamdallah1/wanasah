@@ -1396,11 +1396,12 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             )
             db.add(route)
             await db.commit()
+            route_id = int(route.id)
             with pytest.raises(HTTPException) as dispatch_blocked:
                 await _deactivate(db, a, expected_version=1)
             _blocker(dispatch_blocked.value, "OPEN_DISPATCH_ROUTE")
             closed = await dispatch.update_route_status(
-                route.id,
+                route_id,
                 UpdateRouteStatusRequest(status="closed"),
                 db,
                 a.operator.access(db),
