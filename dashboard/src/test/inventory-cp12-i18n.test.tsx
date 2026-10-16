@@ -64,6 +64,7 @@ const looksLikeNaturalLanguage = (value: string) => {
   if (/^(?:SKU|FEFO|ID|V1|HQ|AMMAN-01|ABC)$/i.test(clean.replace(/[:.]$/, ""))) return false;
   return clean.length >= 3;
 };
+const isMachineCode = (value: string) => /^[A-Z][A-Z0-9_:-]+$/.test(value);
 
 const parse = (path: string) => ts.createSourceFile(
   path,
@@ -76,6 +77,55 @@ const parse = (path: string) => ts.createSourceFile(
 const literalText = (node: ts.Node): string | null => {
   if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
   return null;
+};
+
+const unwrapExpression = (node: ts.Expression): ts.Expression => {
+  let current = node;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isTypeAssertionExpression(current) ||
+    ts.isNonNullExpression(current)
+  ) {
+    current = current.expression;
+  }
+  return current;
+};
+
+const isMessageLikeExpression = (node: ts.Expression): boolean => {
+  const expression = unwrapExpression(node);
+  if (ts.isIdentifier(expression)) {
+    return expression.text === "message" || expression.text === "detail";
+  }
+  if (ts.isPropertyAccessExpression(expression)) {
+    return expression.name.text === "message" || expression.name.text === "detail";
+  }
+  if (ts.isElementAccessExpression(expression) && expression.argumentExpression) {
+    const key = literalText(expression.argumentExpression);
+    return key === "message" || key === "detail";
+  }
+  return false;
+};
+
+const expressionRootIdentifier = (node: ts.Expression): string | null => {
+  const expression = unwrapExpression(node);
+  if (ts.isIdentifier(expression)) return expression.text;
+  if (ts.isPropertyAccessExpression(expression)) return expressionRootIdentifier(expression.expression);
+  if (ts.isElementAccessExpression(expression)) return expressionRootIdentifier(expression.expression);
+  return null;
+};
+
+const isTranslatedPresentationExpression = (node: ts.Expression): boolean => {
+  const expression = unwrapExpression(node);
+  const text = literalText(expression);
+  if (text !== null) return looksLikeNaturalLanguage(text) && !isMachineCode(text);
+
+  if (ts.isCallExpression(expression)) {
+    const callee = unwrapExpression(expression.expression);
+    if (ts.isIdentifier(callee) && ["t", "transferText", "ledgerText"].includes(callee.text)) return true;
+  }
+
+  return expressionRootIdentifier(expression) === "copy";
 };
 
 const isToastCall = (node: ts.CallExpression) =>
@@ -108,7 +158,7 @@ const userFacingLiteralOffenders = (path: string) => {
 
     if (ts.isNewExpression(node) && isErrorConstruction(node)) {
       const text = node.arguments?.[0] ? literalText(node.arguments[0]) : null;
-      if (text && looksLikeNaturalLanguage(text) && !/^[A-Z0-9_:-]+$/.test(text)) {
+      if (text && looksLikeNaturalLanguage(text) && !isMachineCode(text)) {
         matches.push(`Error:${text}`);
       }
     }
@@ -121,12 +171,42 @@ const userFacingLiteralOffenders = (path: string) => {
 };
 
 const messageProseBranchingOffenders = (path: string) => {
-  const source = read(path);
-  const patterns = [
-    /(?:error\.message|\bmessage\b|\bdetail\b)\s*(?:===|!==)\s*(?:t\(|copy\.|["'`][^"'`]*[a-z\u0600-\u06ff])/i,
-    /(?:error\.message|\bmessage\b|\bdetail\b)\s*\.\s*(?:includes|startsWith)\(\s*(?:t\(|copy\.|["'`][^"'`]*[a-z\u0600-\u06ff])/i,
-  ];
-  return patterns.some((pattern) => pattern.test(source));
+  const sourceFile = parse(path);
+  const matches: string[] = [];
+  const comparisonOperators = new Set([
+    ts.SyntaxKind.EqualsEqualsToken,
+    ts.SyntaxKind.EqualsEqualsEqualsToken,
+    ts.SyntaxKind.ExclamationEqualsToken,
+    ts.SyntaxKind.ExclamationEqualsEqualsToken,
+  ]);
+
+  const visit = (node: ts.Node) => {
+    if (ts.isBinaryExpression(node) && comparisonOperators.has(node.operatorToken.kind)) {
+      const leftMessage = isMessageLikeExpression(node.left);
+      const rightMessage = isMessageLikeExpression(node.right);
+      if (
+        (leftMessage && isTranslatedPresentationExpression(node.right)) ||
+        (rightMessage && isTranslatedPresentationExpression(node.left))
+      ) {
+        matches.push(node.getText(sourceFile));
+      }
+    }
+
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ["includes", "startsWith"].includes(node.expression.name.text) &&
+      isMessageLikeExpression(node.expression.expression) &&
+      node.arguments.some((argument) => isTranslatedPresentationExpression(argument))
+    ) {
+      matches.push(node.getText(sourceFile));
+    }
+
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  return [...new Set(matches)];
 };
 
 describe("CP12 Inventory i18n closure", () => {
@@ -157,8 +237,8 @@ describe("CP12 Inventory i18n closure", () => {
 
   it("never branches business decisions on translated backend message prose", () => {
     const offenders = activeOwnedSources()
-      .filter(messageProseBranchingOffenders)
-      .map(displayPath);
+      .map((path) => ({ file: displayPath(path), matches: messageProseBranchingOffenders(path) }))
+      .filter((entry) => entry.matches.length > 0);
 
     expect(offenders).toEqual([]);
   });
