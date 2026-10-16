@@ -22,15 +22,27 @@ jobs:
           from pathlib import Path
           p = Path('wa_backend/tests/test_cp9_stocktake_postgres.py')
           s = p.read_text(encoding='utf-8')
-          replacements = {
-              'self.assertEqual(int(await self.db.scalar(select(func.count()).select_from(InventoryMovement).where(InventoryMovement.stocktake_session_id == sid))) or 0, 0)': 'self.assertEqual(int((await self.db.scalar(select(func.count()).select_from(InventoryMovement).where(InventoryMovement.stocktake_session_id == sid))) or 0), 0)',
-              'self.assertEqual(int(await self.db.scalar(select(func.count()).select_from(InventoryLock).where(InventoryLock.stocktake_session_id == sid, InventoryLock.released_at.is_(None))) or 0, 0)': 'self.assertEqual(int((await self.db.scalar(select(func.count()).select_from(InventoryLock).where(InventoryLock.stocktake_session_id == sid, InventoryLock.released_at.is_(None))) or 0), 0)',
-              'self.assertEqual(int(await self.db.scalar(select(func.count()).select_from(InventoryLock).where(InventoryLock.stocktake_session_id == cancel_sid, InventoryLock.released_at.is_(None))) or 0, 0)': 'self.assertEqual(int((await self.db.scalar(select(func.count()).select_from(InventoryLock).where(InventoryLock.stocktake_session_id == cancel_sid, InventoryLock.released_at.is_(None))) or 0), 0)',
-          }
-          for old, new in replacements.items():
+          replacements = [
+              (
+                  'self.assertEqual(int(await self.db.scalar(select(func.count()).select_from(InventoryMovement).where(InventoryMovement.stocktake_session_id == sid))) or 0, 0)',
+                  'self.assertEqual(int((await self.db.scalar(select(func.count()).select_from(InventoryMovement).where(InventoryMovement.stocktake_session_id == sid))) or 0), 0)',
+                  2,
+              ),
+              (
+                  'self.assertEqual(int(await self.db.scalar(select(func.count()).select_from(InventoryLock).where(InventoryLock.stocktake_session_id == sid, InventoryLock.released_at.is_(None))) or 0, 0)',
+                  'self.assertEqual(int((await self.db.scalar(select(func.count()).select_from(InventoryLock).where(InventoryLock.stocktake_session_id == sid, InventoryLock.released_at.is_(None))) or 0), 0)',
+                  1,
+              ),
+              (
+                  'self.assertEqual(int(await self.db.scalar(select(func.count()).select_from(InventoryLock).where(InventoryLock.stocktake_session_id == cancel_sid, InventoryLock.released_at.is_(None))) or 0, 0)',
+                  'self.assertEqual(int((await self.db.scalar(select(func.count()).select_from(InventoryLock).where(InventoryLock.stocktake_session_id == cancel_sid, InventoryLock.released_at.is_(None))) or 0), 0)',
+                  1,
+              ),
+          ]
+          for old, new, expected in replacements:
               count = s.count(old)
-              if count != 1:
-                  raise SystemExit(f'expected exactly one occurrence, got {count}: {old[:80]}')
+              if count != expected:
+                  raise SystemExit(f'expected {expected} occurrence(s), got {count}: {old[:80]}')
               s = s.replace(old, new)
           p.write_text(s, encoding='utf-8')
           PY
