@@ -1,5 +1,5 @@
 name: Inventory CP9 Stocktake acceptance
-# This workflow is the final-head CP9 proof gate for the frozen Wave 2 base.
+# Final-head CP9 proof gate for the frozen Wave 2 base, including PostgreSQL metadata closure.
 
 on:
   push:
