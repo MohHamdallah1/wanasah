@@ -15,12 +15,13 @@ vi.mock("@/hooks/useInventoryAccess", () => ({
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 vi.mock("react-i18next", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react-i18next")>();
+  const translate = (key: string, options?: Record<string, unknown>) => {
+    let value = typeof options?.defaultValue === "string" ? options.defaultValue : key;
+    for (const [name, candidate] of Object.entries(options ?? {})) value = value.replaceAll(`{{${name}}}`, String(candidate));
+    return value;
+  };
   return { ...actual, useTranslation: () => ({
-    t: (key: string, options?: Record<string, unknown>) => {
-      let value = typeof options?.defaultValue === "string" ? options.defaultValue : key;
-      for (const [name, candidate] of Object.entries(options ?? {})) value = value.replaceAll(`{{${name}}}`, String(candidate));
-      return value;
-    },
+    t: translate,
     i18n: { language: mocks.language, resolvedLanguage: mocks.language, dir: () => mocks.language === "ar" ? "rtl" : "ltr" },
   }) };
 });

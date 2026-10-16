@@ -331,45 +331,45 @@ export function TabBatches({
         ) : null}
 
         <section aria-label={text("title")} className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
-        <BatchIndexFilters
-          t={t}
-          language={language}
-          filters={filters}
-          searchInput={searchInput}
-          onSearchInputChange={setSearchInput}
-          onFiltersChange={setFilters}
-          expiryWarningDays={expiryWarningDays}
-          onExpiryWarningDaysChange={updateExpiryWarningDays}
-          families={families}
-          products={products}
-        />
+          <BatchIndexFilters
+            t={t}
+            language={language}
+            filters={filters}
+            searchInput={searchInput}
+            onSearchInputChange={setSearchInput}
+            onFiltersChange={setFilters}
+            expiryWarningDays={expiryWarningDays}
+            onExpiryWarningDaysChange={updateExpiryWarningDays}
+            families={families}
+            products={products}
+          />
 
-        <BatchIndexSummary
-          t={t}
-          language={language}
-          locale={locale}
-          summary={batchIndex.summary}
-          loading={batchIndex.summaryLoading}
-          error={batchIndex.summaryError}
-          onRetry={() => void batchIndex.retrySummary()}
-        />
+          <BatchIndexSummary
+            t={t}
+            language={language}
+            locale={locale}
+            summary={batchIndex.summary}
+            loading={batchIndex.summaryLoading}
+            error={batchIndex.summaryError}
+            onRetry={() => void batchIndex.retrySummary()}
+          />
 
-        <BatchIndexTable
-          t={t}
-          language={language}
-          locale={locale}
-          items={batchIndex.items}
-          loading={batchIndex.loading}
-          error={batchIndex.listError}
-          hasMore={batchIndex.hasMore}
-          loadingMore={batchIndex.loadingMore}
-          continuationError={batchIndex.continuationError}
-          canManageDisposition={canManageDisposition}
-          expiryWarningDays={expiryWarningDays}
-          onRetry={() => void batchIndex.retryList()}
-          onLoadMore={() => void batchIndex.loadMore()}
-          onManage={openBatchAction}
-        />
+          <BatchIndexTable
+            t={t}
+            language={language}
+            locale={locale}
+            items={batchIndex.items}
+            loading={batchIndex.loading}
+            error={batchIndex.listError}
+            hasMore={batchIndex.hasMore}
+            loadingMore={batchIndex.loadingMore}
+            continuationError={batchIndex.continuationError}
+            canManageDisposition={canManageDisposition}
+            expiryWarningDays={expiryWarningDays}
+            onRetry={() => void batchIndex.retryList()}
+            onLoadMore={() => void batchIndex.loadMore()}
+            onManage={openBatchAction}
+          />
         </section>
       </div>
 
