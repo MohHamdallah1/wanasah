@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 
@@ -68,3 +69,42 @@ def status_change_availability(
             }
         )
     return actions
+
+
+def status_change_availability_for_batch(
+    source_status: str,
+    *,
+    eligible_quantity: Decimal,
+    can_change: bool,
+    as_of_date: date,
+    expiry_control_mode: str,
+    production_date: date | None,
+    expiry_date: date | None,
+    minimum_remaining_shelf_life_days: int,
+    is_active: bool,
+    disposition: str,
+) -> list[dict[str, object]]:
+    """Project status actions using the canonical batch sellability authority.
+
+    Keep business-truth evaluation out of the HTTP read route. The route supplies
+    authoritative metadata; this bounded domain helper delegates sellability to
+    the existing inventory rule used by the movement engine before AVAILABLE
+    release remains final-authority checked by the POST path.
+    """
+    from domains.inventory_rules import batch_metadata_is_sellable
+
+    batch_sellable = batch_metadata_is_sellable(
+        as_of_date=as_of_date,
+        expiry_control_mode=str(expiry_control_mode),
+        production_date=production_date,
+        expiry_date=expiry_date,
+        minimum_remaining_shelf_life_days=int(minimum_remaining_shelf_life_days),
+        is_active=bool(is_active),
+        disposition=str(disposition),
+    )
+    return status_change_availability(
+        source_status,
+        eligible_quantity=eligible_quantity,
+        can_change=can_change,
+        batch_sellable=batch_sellable,
+    )
