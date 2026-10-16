@@ -74,7 +74,6 @@ const asWarehousePage = (value: unknown): WarehouseLocationCursorPage => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     warehouseLocationContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
   }
-
   const page = value as Record<string, unknown>;
   const rawItems: unknown[] = Array.isArray(page.items)
     ? page.items
@@ -135,7 +134,6 @@ const asWarehousePage = (value: unknown): WarehouseLocationCursorPage => {
     : typeof page.total === "number" && Number.isSafeInteger(page.total) && page.total >= 0
       ? page.total
       : warehouseLocationContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
-
   return { items, next_cursor: nextCursor, has_more: hasMore as boolean, total };
 };
 
@@ -299,7 +297,6 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
     if (!name || name.length > 150) return failField("name", t("inventoryWarehouses.errors.nameInvalid"));
     if (!code || code.length > 50 || !WAREHOUSE_CODE_RE.test(code)) return failField("code", t("inventoryWarehouses.errors.codeInvalid"));
     if (code === "TRANSIT-SYS") return failField("code", t("inventoryWarehouses.errors.systemCodeReserved"));
-
     if (formMode === "edit" && editingLocation && editingLocation.name === name && editingLocation.code === code && editingLocation.branch_id === form.branch_id) {
       toast.info(t("inventoryWarehouses.noChanges"));
       return;
@@ -411,6 +408,7 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
     setCursorHistory((prev) => [...prev, cursor]);
     setCursor(nextCursor);
   };
+
   const handlePrevious = () => {
     if (cursorHistory.length === 0) return;
     const previous = cursorHistory[cursorHistory.length - 1] ?? null;
@@ -422,7 +420,7 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
   const activeText = formatInventoryInteger(activeCount, language);
   const pageText = formatInventoryInteger(cursorHistory.length + 1, language);
 
-  const rowActions = (location: WarehouseLocationItem, compact = false) => (
+  const rowActions = (location: WarehouseLocationItem) => (
     <div className="flex items-center justify-end gap-1.5">
       <button
         type="button"
@@ -433,7 +431,7 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
         aria-label={`${copy.editAction}: ${location.name}`}
       >
         <Pencil aria-hidden="true" className="h-4 w-4" />
-        {compact ? <span>{copy.editAction}</span> : null}
+        <span className="md:hidden">{copy.editAction}</span>
       </button>
       {location.is_active ? (
         <button
@@ -445,7 +443,7 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
           aria-label={`${copy.deactivateAction}: ${location.name}`}
         >
           <PowerOff aria-hidden="true" className="h-4 w-4" />
-          {compact ? <span>{copy.deactivateAction}</span> : null}
+          <span className="md:hidden">{copy.deactivateAction}</span>
         </button>
       ) : (
         <button
@@ -457,7 +455,7 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
           aria-label={`${copy.activateAction}: ${location.name}`}
         >
           <Power aria-hidden="true" className="h-4 w-4" />
-          {compact ? <span>{copy.activateAction}</span> : null}
+          <span className="md:hidden">{copy.activateAction}</span>
         </button>
       )}
     </div>
@@ -477,7 +475,8 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
           <div className="min-w-0">
             <p className="text-[10px] font-black uppercase tracking-[0.14em] text-blue-700">{presentation.setupEyebrow}</p>
             <h2 id="warehouse-setup-title" className="mt-0.5 flex items-center gap-2 break-words font-black text-slate-800">
-              <Building2 aria-hidden="true" className="h-5 w-5 shrink-0 text-blue-600" />{copy.title}
+              <Building2 aria-hidden="true" className="h-5 w-5 shrink-0 text-blue-600" />
+              {copy.title}
             </h2>
             <p className="mt-0.5 break-words text-xs text-slate-500">{copy.summary(totalText, activeText)}</p>
           </div>
@@ -515,40 +514,50 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
 
         {loading && items.length === 0 ? <p role="status" className="p-6 text-center text-xs font-semibold text-slate-500">{t("common.loading")}</p> : null}
 
-        <div className="hidden min-h-0 overflow-auto md:block">
-          <table className={`w-full min-w-[720px] text-sm ${isArabic ? "text-right" : "text-left"}`}>
-            <thead className="sticky top-0 z-10 bg-slate-50/95">
+        <div className="min-h-0 overflow-x-auto overflow-y-auto" data-cp13-phone-list="true">
+          <table className={`w-full min-w-0 text-sm md:min-w-[760px] ${isArabic ? "text-right" : "text-left"}`}>
+            <thead className="hidden bg-slate-50/95 md:table-header-group">
               <tr className="h-10 text-xs text-slate-600">
-                <th className="px-3 py-2">{copy.warehouse}</th><th className="px-3 py-2">{copy.code}</th><th className="px-3 py-2">{copy.branch}</th><th className="px-3 py-2">{copy.status}</th><th className="px-3 py-2">{copy.updated}</th><th className="px-3 py-2 text-center">{copy.actions}</th>
+                <th className="px-3 py-2">{copy.warehouse}</th>
+                <th className="px-3 py-2">{copy.code}</th>
+                <th className="px-3 py-2">{copy.branch}</th>
+                <th className="px-3 py-2">{copy.status}</th>
+                <th className="px-3 py-2">{copy.updated}</th>
+                <th className="px-3 py-2 text-center">{copy.actions}</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="grid gap-2 p-2 md:table-row-group md:divide-y md:divide-slate-100 md:p-0">
               {items.map((location) => (
-                <tr key={location.id} className={`h-14 hover:bg-slate-50/70 ${selectedLocationId === location.id ? "bg-blue-50/60" : ""}`}>
-                  <td className="px-3 py-2"><div className="font-bold text-slate-800">{location.name}</div><div className="mt-0.5 text-[10px] text-slate-400">#{formatInventoryInteger(location.id, language)}</div></td>
-                  <td className="px-3 py-2 font-mono text-xs text-slate-600">{location.code}</td>
-                  <td className="px-3 py-2 text-slate-600">{location.branch_name || copy.unassigned}</td>
-                  <td className="px-3 py-2">{stateBadge(location)}</td>
-                  <td className="px-3 py-2 text-xs text-slate-500">{formatInventoryDateTime(location.updated_at, language)}</td>
-                  <td className="px-3 py-2">{rowActions(location)}</td>
+                <tr
+                  key={location.id}
+                  className={`block rounded-xl border p-2 md:table-row md:h-14 md:rounded-none md:border-0 md:p-0 md:hover:bg-slate-50/70 ${selectedLocationId === location.id ? "border-blue-200 bg-blue-50/60" : "border-slate-100 bg-white md:bg-transparent"}`}
+                >
+                  <td className="block px-2 py-1 md:table-cell md:px-3 md:py-2">
+                    <div className="font-bold text-slate-800">{location.name}</div>
+                    <div className="mt-0.5 text-[10px] text-slate-400">#{formatInventoryInteger(location.id, language)}</div>
+                  </td>
+                  <td className="block px-2 py-1 font-mono text-xs text-slate-600 md:table-cell md:px-3 md:py-2">
+                    <span className="me-2 font-sans text-[10px] font-bold text-slate-400 md:hidden">{copy.code}</span>{location.code}
+                  </td>
+                  <td className="block px-2 py-1 text-xs text-slate-600 md:table-cell md:px-3 md:py-2 md:text-sm">
+                    <span className="me-2 text-[10px] font-bold text-slate-400 md:hidden">{copy.branch}</span>{location.branch_name || copy.unassigned}
+                  </td>
+                  <td className="block px-2 py-1 md:table-cell md:px-3 md:py-2">{stateBadge(location)}</td>
+                  <td className="block px-2 py-1 text-xs text-slate-500 md:table-cell md:px-3 md:py-2">
+                    <span className="me-2 text-[10px] font-bold text-slate-400 md:hidden">{copy.updated}</span>{formatInventoryDateTime(location.updated_at, language)}
+                  </td>
+                  <td className="mt-1 block border-t border-slate-100 px-2 pt-2 md:table-cell md:border-0 md:px-3 md:py-2">{rowActions(location)}</td>
                 </tr>
               ))}
-              {!loading && items.length === 0 && !loadIssue && <tr><td colSpan={6} className="p-10 text-center text-sm text-slate-400">{search ? copy.emptySearch : access.can("location.create") ? copy.emptyCreate : copy.emptyNoAccess}</td></tr>}
+              {!loading && items.length === 0 && !loadIssue && (
+                <tr className="block md:table-row">
+                  <td colSpan={6} className="block p-8 text-center text-sm text-slate-400 md:table-cell md:p-10">
+                    {search ? copy.emptySearch : access.can("location.create") ? copy.emptyCreate : copy.emptyNoAccess}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
-        </div>
-
-        <div className="grid gap-2 p-2 md:hidden" data-cp13-phone-list="true">
-          {items.map((location) => (
-            <article key={location.id} className={`rounded-xl border p-3 ${selectedLocationId === location.id ? "border-blue-200 bg-blue-50/60" : "border-slate-100 bg-white"}`}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0"><h3 className="break-words text-sm font-black text-slate-800">{location.name}</h3><p className="mt-0.5 break-all font-mono text-[11px] text-slate-500">{location.code}</p></div>{stateBadge(location)}
-              </div>
-              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs"><dt className="font-bold text-slate-500">{copy.branch}</dt><dd className="min-w-0 break-words text-slate-700">{location.branch_name || copy.unassigned}</dd><dt className="font-bold text-slate-500">{copy.updated}</dt><dd className="text-slate-600">{formatInventoryDateTime(location.updated_at, language)}</dd></dl>
-              <div className="mt-3 border-t border-slate-100 pt-2">{rowActions(location, true)}</div>
-            </article>
-          ))}
-          {!loading && items.length === 0 && !loadIssue ? <p className="p-6 text-center text-sm text-slate-400">{search ? copy.emptySearch : access.can("location.create") ? copy.emptyCreate : copy.emptyNoAccess}</p> : null}
         </div>
 
         <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-3 py-2.5">
@@ -565,32 +574,71 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
       <Modal isOpen={formOpen} onClose={() => { if (!formSubmitting) setFormOpen(false); }} title={formMode === "create" ? copy.add : copy.edit}>
         <form className="space-y-3" dir={dir} onSubmit={(event) => { event.preventDefault(); void handleSave(); }}>
           <section className="rounded-xl border border-slate-100 bg-slate-50/60 p-3" aria-labelledby="warehouse-identity-heading">
-            <h3 id="warehouse-identity-heading" className="text-xs font-black text-slate-800">{presentation.identityTitle}</h3><p className="mb-3 mt-0.5 text-[10px] font-semibold leading-4 text-slate-500">{presentation.identityHint}</p>
+            <h3 id="warehouse-identity-heading" className="text-xs font-black text-slate-800">{presentation.identityTitle}</h3>
+            <p className="mb-3 mt-0.5 text-[10px] font-semibold leading-4 text-slate-500">{presentation.identityHint}</p>
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block text-xs font-bold text-slate-600">{copy.name}<input ref={nameInputRef} autoFocus value={form.name} onChange={(event) => updateForm({ name: event.target.value })} maxLength={150} aria-invalid={fieldIssue?.field === "name"} className={`mt-1 w-full rounded-xl border px-3 py-2.5 ${fieldIssue?.field === "name" ? "border-red-300" : "border-slate-200"} ${focusRing}`} />{fieldIssue?.field === "name" ? <span role="alert" className="mt-1 block text-[10px] font-semibold text-red-600">{fieldIssue.message}</span> : null}</label>
-              <label className="block text-xs font-bold text-slate-600">{copy.warehouseCode}<input ref={codeInputRef} value={form.code} onChange={(event) => updateForm({ code: event.target.value.toUpperCase() })} maxLength={50} dir="ltr" aria-invalid={fieldIssue?.field === "code"} className={`mt-1 w-full rounded-xl border px-3 py-2.5 font-mono ${fieldIssue?.field === "code" ? "border-red-300" : "border-slate-200"} ${focusRing}`} placeholder={copy.codePlaceholder} />{fieldIssue?.field === "code" ? <span role="alert" className="mt-1 block text-[10px] font-semibold text-red-600">{fieldIssue.message}</span> : null}</label>
+              <label className="block text-xs font-bold text-slate-600">
+                {copy.name}
+                <input ref={nameInputRef} autoFocus value={form.name} onChange={(event) => updateForm({ name: event.target.value })} maxLength={150} aria-invalid={fieldIssue?.field === "name"} className={`mt-1 w-full rounded-xl border px-3 py-2.5 ${fieldIssue?.field === "name" ? "border-red-300" : "border-slate-200"} ${focusRing}`} />
+                {fieldIssue?.field === "name" ? <span role="alert" className="mt-1 block text-[10px] font-semibold text-red-600">{fieldIssue.message}</span> : null}
+              </label>
+              <label className="block text-xs font-bold text-slate-600">
+                {copy.warehouseCode}
+                <input ref={codeInputRef} value={form.code} onChange={(event) => updateForm({ code: event.target.value.toUpperCase() })} maxLength={50} dir="ltr" aria-invalid={fieldIssue?.field === "code"} className={`mt-1 w-full rounded-xl border px-3 py-2.5 font-mono ${fieldIssue?.field === "code" ? "border-red-300" : "border-slate-200"} ${focusRing}`} placeholder={copy.codePlaceholder} />
+                {fieldIssue?.field === "code" ? <span role="alert" className="mt-1 block text-[10px] font-semibold text-red-600">{fieldIssue.message}</span> : null}
+              </label>
             </div>
           </section>
 
           <section className="rounded-xl border border-slate-100 p-3" aria-labelledby="warehouse-branch-heading">
-            <h3 id="warehouse-branch-heading" className="text-xs font-black text-slate-800">{presentation.branchTitle}</h3><p className="mb-3 mt-0.5 text-[10px] font-semibold leading-4 text-slate-500">{presentation.branchHint}</p>
+            <h3 id="warehouse-branch-heading" className="text-xs font-black text-slate-800">{presentation.branchTitle}</h3>
+            <p className="mb-3 mt-0.5 text-[10px] font-semibold leading-4 text-slate-500">{presentation.branchHint}</p>
             <BranchSelector value={form.branch_id} currentLabel={editingLocation?.branch_name ?? null} disabled={formSubmitting} refreshKey={branchRefreshKey} canReadBranches={canReadBranches} onChange={(branchId) => updateForm({ branch_id: branchId })} />
           </section>
 
-          <section className="rounded-xl border border-slate-100 p-3" aria-labelledby="warehouse-lifecycle-heading"><h3 id="warehouse-lifecycle-heading" className="text-xs font-black text-slate-800">{presentation.lifecycleTitle}</h3><p className="mt-0.5 text-[10px] font-semibold leading-4 text-slate-500">{presentation.lifecycleHint}</p>{formMode === "edit" && editingLocation ? <div className="mt-2">{stateBadge(editingLocation)}</div> : null}</section>
+          <section className="rounded-xl border border-slate-100 p-3" aria-labelledby="warehouse-lifecycle-heading">
+            <h3 id="warehouse-lifecycle-heading" className="text-xs font-black text-slate-800">{presentation.lifecycleTitle}</h3>
+            <p className="mt-0.5 text-[10px] font-semibold leading-4 text-slate-500">{presentation.lifecycleHint}</p>
+            {formMode === "edit" && editingLocation ? <div className="mt-2">{stateBadge(editingLocation)}</div> : null}
+          </section>
 
           {formIssue ? <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">{formIssue}</p> : null}
           <button type="submit" disabled={formSubmitting} className={`w-full rounded-xl bg-blue-600 py-3 font-bold text-white disabled:opacity-50 ${focusRing}`}>{formSubmitting ? t("common.saving") : t("common.save")}</button>
         </form>
       </Modal>
 
-      {canReadBranches && <BranchManagementModal isOpen={branchManagerOpen} onClose={() => setBranchManagerOpen(false)} onBranchesChanged={async () => { setBranchRefreshKey((value) => value + 1); setRefreshKey((value) => value + 1); await onLocationsChanged(); }} />}
+      {canReadBranches && (
+        <BranchManagementModal
+          isOpen={branchManagerOpen}
+          onClose={() => setBranchManagerOpen(false)}
+          onBranchesChanged={async () => {
+            setBranchRefreshKey((value) => value + 1);
+            setRefreshKey((value) => value + 1);
+            await onLocationsChanged();
+          }}
+        />
+      )}
 
       <Modal isOpen={stateAction !== null && stateLocation !== null} onClose={() => { if (!stateSubmitting) { setStateAction(null); setStateLocation(null); setStateIssue(null); } }} title={stateAction === "deactivate" ? copy.deactivate : copy.activate}>
         <form className="space-y-4" dir={dir} onSubmit={(event) => { event.preventDefault(); void handleStateChange(); }}>
-          <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="break-words text-sm text-slate-600">{copy.warehouse}: <span className="font-bold text-slate-900">{stateLocation?.name}</span></p>{stateLocation ? stateBadge(stateLocation) : null}</div><p className="mt-2 text-[10px] font-semibold leading-4 text-slate-500">{stateAction === "deactivate" ? presentation.deactivationCheck : presentation.activationBranchNote}</p></div>
-          <label className="block text-xs font-bold text-slate-600">{stateAction === "deactivate" ? copy.deactivateReason : copy.activateNote}<textarea autoFocus value={stateReason} onChange={(event) => { setStateReason(event.target.value); setStateIssue(null); setStateRequestId(crypto.randomUUID()); }} maxLength={1000} className={`mt-1 min-h-24 w-full rounded-xl border border-slate-200 px-3 py-2.5 ${focusRing}`} /></label>
-          {stateIssue ? <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950"><p className="break-words font-black">{stateIssue.title}</p>{stateIssue.details.length ? <ul className="mt-2 list-disc space-y-1 ps-5 font-semibold">{stateIssue.details.map((detail) => <li key={detail}>{detail}</li>)}</ul> : null}{stateAction === "deactivate" ? <p className="mt-2 border-t border-amber-200 pt-2 font-semibold">{presentation.deactivationNextStep}</p> : null}</div> : null}
+          <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="break-words text-sm text-slate-600">{copy.warehouse}: <span className="font-bold text-slate-900">{stateLocation?.name}</span></p>
+              {stateLocation ? stateBadge(stateLocation) : null}
+            </div>
+            <p className="mt-2 text-[10px] font-semibold leading-4 text-slate-500">{stateAction === "deactivate" ? presentation.deactivationCheck : presentation.activationBranchNote}</p>
+          </div>
+          <label className="block text-xs font-bold text-slate-600">
+            {stateAction === "deactivate" ? copy.deactivateReason : copy.activateNote}
+            <textarea autoFocus value={stateReason} onChange={(event) => { setStateReason(event.target.value); setStateIssue(null); setStateRequestId(crypto.randomUUID()); }} maxLength={1000} className={`mt-1 min-h-24 w-full rounded-xl border border-slate-200 px-3 py-2.5 ${focusRing}`} />
+          </label>
+          {stateIssue ? (
+            <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+              <p className="break-words font-black">{stateIssue.title}</p>
+              {stateIssue.details.length ? <ul className="mt-2 list-disc space-y-1 ps-5 font-semibold">{stateIssue.details.map((detail) => <li key={detail}>{detail}</li>)}</ul> : null}
+              {stateAction === "deactivate" ? <p className="mt-2 border-t border-amber-200 pt-2 font-semibold">{presentation.deactivationNextStep}</p> : null}
+            </div>
+          ) : null}
           <button type="submit" disabled={stateSubmitting} className={`w-full rounded-xl py-3 font-bold text-white disabled:opacity-50 ${focusRing} ${stateAction === "deactivate" ? "bg-red-600" : "bg-emerald-600"}`}>{stateSubmitting ? t("inventoryWarehouses.processing") : stateAction === "deactivate" ? copy.confirmDeactivate : copy.confirmActivate}</button>
         </form>
       </Modal>
