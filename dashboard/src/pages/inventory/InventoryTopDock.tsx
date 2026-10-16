@@ -24,7 +24,6 @@ interface InventoryTopDockProps {
   activeId: string;
   ariaLabel: string;
   onChange: (id: string) => void;
-  className?: string;
 }
 
 const OPTIONS: InventoryTopDockOptions = {
@@ -73,7 +72,6 @@ export function InventoryTopDock({
   activeId,
   ariaLabel,
   onChange,
-  className = "",
 }: InventoryTopDockProps) {
   const rootRef = useInventoryDockController();
 
@@ -115,9 +113,6 @@ export function InventoryTopDock({
   return (
     <WorkspaceTopBar
       variant="dock"
-      className={`inventory-top-dock-component${
-        className ? ` ${className}` : ""
-      }`}
       data-dock-frame
     >
       <div

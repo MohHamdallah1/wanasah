@@ -2355,18 +2355,6 @@
 /* Stage 8.1.2 — light inventory command dock.
    Keep the ThreeUI proximity motion, but let the dark sidebar own the strong
    navy surface. The dock becomes a quiet glass navigation rail with gold active state. */
-.inventory-top-dock-component {
-  position: relative;
-  display: flex;
-  width: 100%;
-  min-width: 0;
-  min-height: 3.2rem;
-  align-items: flex-start;
-  justify-content: center;
-  overflow: visible;
-  padding-top: 0;
-  container-type: inline-size;
-}
 
 .inventory-top-dock__aurora {
   display: none;
@@ -2467,30 +2455,14 @@
 }
 
 @media (max-width: 760px) {
-  .inventory-top-dock-component {
-    justify-content: flex-start;
-    overflow-x: auto;
-    overflow-y: visible;
-    padding-top: 0;
-    scrollbar-width: none;
-  }
-
-  .inventory-top-dock-component::-webkit-scrollbar {
-    display: none;
-  }
-
-
   .inventory-top-dock__dock {
-    width: max-content;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
   }
 }
 
 @media (min-width: 1024px) {
-  .inventory-top-dock-component {
-    align-items: stretch;
-    justify-content: stretch;
-  }
-
   .inventory-top-dock__dock {
     align-items: center;
   }
@@ -2503,9 +2475,6 @@
 }
 
 /* Stage 7.9.1 — isolate the reusable top dock from per-tab page chrome. */
-.inventory-top-dock-component {
-  flex: 0 0 auto;
-}
 
 .inventory-shared-context-row {
   display: flex;
