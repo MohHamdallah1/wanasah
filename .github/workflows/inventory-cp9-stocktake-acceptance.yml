@@ -1,5 +1,5 @@
 name: Inventory CP9 Stocktake acceptance
-# Clean final-head CP9 proof gate after actor fixture stabilization.
+# Clean final-head CP9 proof gate after PostgreSQL recount fixture alignment.
 
 on:
   push:
