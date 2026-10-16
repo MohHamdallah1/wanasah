@@ -50,6 +50,7 @@ jobs:
           src/pages/inventory/warehouse-locations/BranchSelector.tsx
           src/pages/inventory/warehouse-locations/branchSelectorI18n.ts
           src/pages/inventory/warehouse-locations/presentationI18n.ts
+          src/pages/inventory/warehouse-locations/presentation/i18n.ts
           src/features/inventory/quality/QualityHandlingDestinationsCard.tsx
           src/test/inventory-cp13-warehouse-presentation.test.tsx
       - name: Production build
@@ -83,6 +84,7 @@ jobs:
               "dashboard/src/pages/inventory/warehouse-locations/BranchSelector.tsx",
               "dashboard/src/pages/inventory/warehouse-locations/branchSelectorI18n.ts",
               "dashboard/src/pages/inventory/warehouse-locations/presentationI18n.ts",
+              "dashboard/src/pages/inventory/warehouse-locations/presentation/i18n.ts",
               "dashboard/src/features/inventory/quality/QualityHandlingDestinationsCard.tsx",
               "dashboard/src/test/inventory-cp13-warehouse-presentation.test.tsx",
           }
