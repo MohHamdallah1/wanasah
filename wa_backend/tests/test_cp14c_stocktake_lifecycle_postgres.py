@@ -1,8 +1,8 @@
 """CP14-C operational acceptance: Stocktake + Warehouse lifecycle blockers.
 
 Runs only against the disposable CP14-C PostgreSQL 16 database provisioned by
-inventory-cp14c-stocktake-lifecycle.yml.  Runtime requests use a restricted
-NOSUPERUSER/NOBYPASSRLS role.  Business state is cleared only through canonical
+inventory-cp14c-stocktake-lifecycle.yml. Runtime requests use a restricted
+NOSUPERUSER/NOBYPASSRLS role. Business state is cleared only through canonical
 commands; InventoryBalance is never created or patched directly.
 """
 from __future__ import annotations
@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from api import dispatch
-from api.warehouse import ledger, live_stock, locations, stocktake, transfer_policy, transfers
+from api.warehouse import ledger, locations, stocktake, transfer_policy, transfers
 from context import tenant_context
 from domains.authorization.backoffice_access import BackofficeCapabilityAccessRejected
 from domains.authorization.capabilities import PERMISSIONS
@@ -55,7 +55,6 @@ from models import (
     ProductLocation,
     ProductVariant,
     Role,
-    StocktakeCountAttempt,
     StocktakeSession,
     TenantOperationalPolicy,
     UOM,
@@ -142,7 +141,9 @@ async def _runtime_session(engine, company_id: int):
 async def _ensure_permissions(db: AsyncSession, codes: set[str]) -> None:
     unknown = codes - set(PERMISSIONS)
     assert not unknown, f"Unknown canonical capability: {sorted(unknown)}"
-    present = set((await db.scalars(select(Permission.code).where(Permission.code.in_(codes)))).all())
+    present = set(
+        (await db.scalars(select(Permission.code).where(Permission.code.in_(codes)))).all()
+    )
     db.add_all(Permission(code=code) for code in sorted(codes - present))
     await db.flush()
 
@@ -169,19 +170,22 @@ async def _grant_location(
                 permission_id=permission.id,
             )
         )
-        assignment = UserLocationAccess(
-            company_id=company_id,
-            role_id=role.id,
-            driver_id=driver_id,
-            location_id=location_id,
+        db.add(
+            UserLocationAccess(
+                company_id=company_id,
+                role_id=role.id,
+                driver_id=driver_id,
+                location_id=location_id,
+            )
         )
-        db.add(assignment)
         await db.flush()
         assignments[code] = role.id
     return assignments
 
 
-async def _grant_company(db: AsyncSession, *, company_id: int, driver_id: int, code: str) -> int:
+async def _grant_company(
+    db: AsyncSession, *, company_id: int, driver_id: int, code: str
+) -> int:
     permission = await db.scalar(select(Permission).where(Permission.code == code))
     assert permission is not None, code
     role = Role(company_id=company_id, name=f"CP14C company {code} {uuid4().hex}")
@@ -211,7 +215,13 @@ def _blocker(exc: HTTPException, blocker_type: str) -> None:
     assert exc.detail["context"]["blocker_type"] == blocker_type
 
 
-async def _balance(db: AsyncSession, company_id: int, location_id: int, variant_id: int, batch_id: int):
+async def _balance(
+    db: AsyncSession,
+    company_id: int,
+    location_id: int,
+    variant_id: int,
+    batch_id: int,
+):
     row = await db.scalar(
         select(InventoryBalance).where(
             InventoryBalance.company_id == company_id,
@@ -228,27 +238,81 @@ async def _balance(db: AsyncSession, company_id: int, location_id: int, variant_
 
 async def _count(db, actor, session_id: int, actual: Decimal):
     sheet = await stocktake.get_stocktake_count_sheet(
-        session_id, db=db, access=actor.access(db), legacy_actor=actor.operational_driver
+        session_id,
+        db=db,
+        access=actor.access(db),
+        legacy_actor=actor.operational_driver,
     )
     lines = sheet if isinstance(sheet, list) else sheet["lines"]
     assert len(lines) == 1
     line = lines[0]
     command = StocktakeCountCommand(
         request_id=uuid4(),
-        items=[{
-            "product_variant_id": line["product_variant_id"],
-            "batch_id": line["batch_id"],
-            "stock_status": line["stock_status"],
-            "actual_quantity": actual,
-            "uom_id": line["base_uom_id"],
-        }],
+        items=[
+            {
+                "product_variant_id": line["product_variant_id"],
+                "batch_id": line["batch_id"],
+                "stock_status": line["stock_status"],
+                "actual_quantity": actual,
+                "uom_id": line["base_uom_id"],
+            }
+        ],
     )
     return await stocktake.submit_stocktake_count(
-        session_id, command, db=db, access=actor.access(db), legacy_actor=actor.operational_driver
+        session_id,
+        command,
+        db=db,
+        access=actor.access(db),
+        legacy_actor=actor.operational_driver,
     )
 
 
-async def _start(db, actor, location_id: int, *, stocktake_type="FULL_COUNT", work_session_id=None):
+async def _count_discovered(
+    db,
+    actor,
+    session_id: int,
+    *,
+    variant_id: int,
+    batch_id: int,
+    uom_id: int,
+    actual: Decimal,
+):
+    sheet = await stocktake.get_stocktake_count_sheet(
+        session_id,
+        db=db,
+        access=actor.access(db),
+        legacy_actor=actor.operational_driver,
+    )
+    lines = sheet if isinstance(sheet, list) else sheet["lines"]
+    assert lines == []
+    return await stocktake.submit_stocktake_count(
+        session_id,
+        StocktakeCountCommand(
+            request_id=uuid4(),
+            items=[
+                {
+                    "product_variant_id": variant_id,
+                    "batch_id": batch_id,
+                    "stock_status": "AVAILABLE",
+                    "actual_quantity": actual,
+                    "uom_id": uom_id,
+                }
+            ],
+        ),
+        db=db,
+        access=actor.access(db),
+        legacy_actor=actor.operational_driver,
+    )
+
+
+async def _start(
+    db,
+    actor,
+    location_id: int,
+    *,
+    stocktake_type="FULL_COUNT",
+    work_session_id=None,
+):
     command = StocktakeStartCommand(
         request_id=uuid4(),
         location_id=location_id,
@@ -257,7 +321,10 @@ async def _start(db, actor, location_id: int, *, stocktake_type="FULL_COUNT", wo
         notes="CP14-C canonical operational acceptance",
     )
     result = await stocktake.start_unified_stocktake(
-        command, db=db, access=actor.access(db), legacy_actor=actor.operational_driver
+        command,
+        db=db,
+        access=actor.access(db),
+        legacy_actor=actor.operational_driver,
     )
     return command, result
 
@@ -311,10 +378,14 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 assert tuple(flags) == (True, True), table
 
         config = AlembicConfig(str(Path(__file__).parents[1] / "alembic.ini"))
-        config.set_main_option("script_location", str(Path(__file__).parents[1] / "alembic"))
+        config.set_main_option(
+            "script_location", str(Path(__file__).parents[1] / "alembic")
+        )
         expected_heads = set(ScriptDirectory.from_config(config).get_heads())
         async with AsyncSession(admin_engine, expire_on_commit=False) as db:
-            actual_heads = set((await db.execute(text("SELECT version_num FROM alembic_version"))).scalars())
+            actual_heads = set(
+                (await db.execute(text("SELECT version_num FROM alembic_version"))).scalars()
+            )
             assert actual_heads == expected_heads
 
         needed = set(STOCKTAKE_CODES) | {
@@ -341,8 +412,16 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 await seed.flush()
 
             companies = [
-                Company(name="CP14-C Shared Company", company_code="CP14C-A-" + uuid4().hex, timezone="Asia/Amman"),
-                Company(name="CP14-C Shared Company", company_code="CP14C-B-" + uuid4().hex, timezone="Asia/Amman"),
+                Company(
+                    name="CP14-C Shared Company",
+                    company_code="CP14C-A-" + uuid4().hex,
+                    timezone="Asia/Amman",
+                ),
+                Company(
+                    name="CP14-C Shared Company",
+                    company_code="CP14C-B-" + uuid4().hex,
+                    timezone="Asia/Amman",
+                ),
             ]
             seed.add_all(companies)
             await seed.flush()
@@ -353,9 +432,15 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                     text("SELECT set_config('app.current_tenant', :tenant, true)"),
                     {"tenant": str(company.id)},
                 )
-                operator = await seed_ordinary_backoffice_fixture(seed, company.id, password=PASSWORD)
-                denied = await seed_ordinary_backoffice_fixture(seed, company.id, password="CP14CDeniedSynthetic123")
-                counter = await seed_ordinary_backoffice_fixture(seed, company.id, password=RECOUNT_PASSWORD)
+                operator = await seed_ordinary_backoffice_fixture(
+                    seed, company.id, password=PASSWORD
+                )
+                denied = await seed_ordinary_backoffice_fixture(
+                    seed, company.id, password="CP14CDeniedSynthetic123"
+                )
+                counter = await seed_ordinary_backoffice_fixture(
+                    seed, company.id, password=RECOUNT_PASSWORD
+                )
                 assert operator.context.is_company_owner is False
                 assert denied.context.is_company_owner is False
                 assert counter.context.is_company_owner is False
@@ -408,7 +493,11 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 )
                 seed.add(vehicle_location)
 
-                product = Product(company_id=company.id, code="CP14C-P", name="Shared Product")
+                product = Product(
+                    company_id=company.id,
+                    code="CP14C-P",
+                    name="Shared Product",
+                )
                 seed.add(product)
                 await seed.flush()
                 variant = ProductVariant(
@@ -433,19 +522,23 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 )
                 seed.add(batch)
                 await seed.flush()
-                seed.add(ProductLocation(
-                    company_id=company.id,
-                    location_id=a1.id,
-                    product_variant_id=variant.id,
-                    created_by=operator.driver_id,
-                ))
-                if index == 0:
-                    seed.add(ProductLocation(
+                seed.add(
+                    ProductLocation(
                         company_id=company.id,
-                        location_id=a2.id,
+                        location_id=a1.id,
                         product_variant_id=variant.id,
                         created_by=operator.driver_id,
-                    ))
+                    )
+                )
+                if index == 0:
+                    seed.add(
+                        ProductLocation(
+                            company_id=company.id,
+                            location_id=a2.id,
+                            product_variant_id=variant.id,
+                            created_by=operator.driver_id,
+                        )
+                    )
 
                 zone = Zone(company_id=company.id, name="Shared Zone", is_active=True)
                 seed.add(zone)
@@ -474,64 +567,98 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 seed.add(route)
                 await seed.flush()
 
-                tenants.append(NS(
-                    company_id=company.id,
-                    operator=operator,
-                    denied=denied,
-                    counter=counter,
-                    branch=branch.id,
-                    a1=a1.id,
-                    a2=(a2.id if index == 0 else None),
-                    vehicle=vehicle.id,
-                    vehicle_location=vehicle_location.id,
-                    variant=variant.id,
-                    batch=batch.id,
-                    uom=uom.id,
-                    work_session=work.id,
-                    zone=zone.id,
-                ))
+                tenants.append(
+                    NS(
+                        company_id=company.id,
+                        operator=operator,
+                        denied=denied,
+                        counter=counter,
+                        branch=branch.id,
+                        a1=a1.id,
+                        a2=(a2.id if index == 0 else None),
+                        vehicle=vehicle.id,
+                        vehicle_location=vehicle_location.id,
+                        variant=variant.id,
+                        batch=batch.id,
+                        uom=uom.id,
+                        work_session=work.id,
+                        zone=zone.id,
+                    )
+                )
 
             a, b = tenants
             common_a1 = STOCKTAKE_CODES + (
-                "inventory.read", "ledger.read", "location.read", "location.state",
-                "transfer.read", "transfer.send", "transfer.cancel", "inventory.fefo_override",
+                "inventory.read",
+                "ledger.read",
+                "location.read",
+                "location.state",
+                "transfer.read",
+                "transfer.send",
+                "transfer.cancel",
+                "inventory.fefo_override",
                 "dispatch.execute",
             )
             a.a1_roles = await _grant_location(
-                seed, company_id=a.company_id, driver_id=a.operator.driver_id,
-                location_id=a.a1, codes=common_a1,
+                seed,
+                company_id=a.company_id,
+                driver_id=a.operator.driver_id,
+                location_id=a.a1,
+                codes=common_a1,
             )
             await _grant_location(
-                seed, company_id=a.company_id, driver_id=a.operator.driver_id,
+                seed,
+                company_id=a.company_id,
+                driver_id=a.operator.driver_id,
                 location_id=a.a2,
-                codes=STOCKTAKE_CODES + (
-                    "inventory.read", "ledger.read", "location.read",
-                    "transfer.destination", "transfer.read", "transfer.receive", "dispatch.execute",
+                codes=STOCKTAKE_CODES
+                + (
+                    "inventory.read",
+                    "ledger.read",
+                    "location.read",
+                    "transfer.destination",
+                    "transfer.read",
+                    "transfer.receive",
+                    "dispatch.execute",
                 ),
             )
             await _grant_location(
-                seed, company_id=a.company_id, driver_id=a.operator.driver_id,
+                seed,
+                company_id=a.company_id,
+                driver_id=a.operator.driver_id,
                 location_id=a.vehicle_location,
-                codes=STOCKTAKE_CODES + (
-                    "inventory.read", "location.read", "dispatch.execute",
-                ),
+                codes=STOCKTAKE_CODES
+                + ("inventory.read", "location.read", "dispatch.execute"),
             )
             await _grant_company(
-                seed, company_id=a.company_id, driver_id=a.operator.driver_id,
+                seed,
+                company_id=a.company_id,
+                driver_id=a.operator.driver_id,
                 code="inventory.transfer_policy.manage",
             )
             await _grant_location(
-                seed, company_id=a.company_id, driver_id=a.counter.driver_id,
+                seed,
+                company_id=a.company_id,
+                driver_id=a.counter.driver_id,
                 location_id=a.a1,
-                codes=("inventory.read", "location.read", "stocktake.read", "stocktake.count", "stocktake.recount"),
+                codes=(
+                    "inventory.read",
+                    "location.read",
+                    "stocktake.read",
+                    "stocktake.count",
+                    "stocktake.recount",
+                ),
             )
             await _grant_location(
-                seed, company_id=b.company_id, driver_id=b.operator.driver_id,
+                seed,
+                company_id=b.company_id,
+                driver_id=b.operator.driver_id,
                 location_id=b.a1,
                 codes=STOCKTAKE_CODES + ("inventory.read", "location.read"),
             )
             await _grant_location(
-                seed, company_id=b.company_id, driver_id=b.operator.driver_id,
+                seed,
+                company_id=b.company_id,
+                driver_id=b.operator.driver_id,
                 location_id=b.vehicle_location,
                 codes=STOCKTAKE_CODES + ("inventory.read", "location.read"),
             )
@@ -589,7 +716,8 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             )
             await db.commit()
             assert await _balance(db, a.company_id, a.a1, a.variant, a.batch) == (
-                Decimal("10.125"), Decimal("1.125")
+                Decimal("10.125"),
+                Decimal("1.125"),
             )
 
         async with _runtime_session(runtime_engine, b.company_id) as db:
@@ -638,7 +766,9 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             _opaque(foreign_list.value, b.a1, b_session_id)
             with pytest.raises(HTTPException) as foreign_count:
                 await stocktake.get_stocktake_count_sheet(
-                    b_session_id, db=db, access=a.operator.access(db),
+                    b_session_id,
+                    db=db,
+                    access=a.operator.access(db),
                     legacy_actor=a.operator.operational_driver,
                 )
             assert foreign_count.value.status_code == 404
@@ -646,8 +776,12 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             with pytest.raises(HTTPException) as foreign_finalize:
                 await stocktake.approve_stocktake_session(
                     b_session_id,
-                    StocktakeApprovalCommand(request_id=uuid4(), count_attempt_id=1, password=PASSWORD),
-                    db=db, access=a.operator.access(db), legacy_actor=a.operator.operational_driver,
+                    StocktakeApprovalCommand(
+                        request_id=uuid4(), count_attempt_id=1, password=PASSWORD
+                    ),
+                    db=db,
+                    access=a.operator.access(db),
+                    legacy_actor=a.operator.operational_driver,
                 )
             assert foreign_finalize.value.status_code == 404
             _opaque(foreign_finalize.value, b_session_id)
@@ -655,29 +789,44 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
         async with _runtime_session(runtime_engine, a.company_id) as db:
             start_command, started = await _start(db, a.operator, a.a1)
             session_id = int(started["session_id"])
-            assert await stocktake.start_unified_stocktake(
-                start_command, db=db, access=a.operator.access(db),
-                legacy_actor=a.operator.operational_driver,
-            ) == started
-            changed = start_command.model_copy(update={"notes": "changed payload must not replay"})
+            assert (
+                await stocktake.start_unified_stocktake(
+                    start_command,
+                    db=db,
+                    access=a.operator.access(db),
+                    legacy_actor=a.operator.operational_driver,
+                )
+                == started
+            )
+            changed = start_command.model_copy(
+                update={"notes": "changed payload must not replay"}
+            )
             with pytest.raises(HTTPException) as wrong_replay:
                 await stocktake.start_unified_stocktake(
-                    changed, db=db, access=a.operator.access(db),
+                    changed,
+                    db=db,
+                    access=a.operator.access(db),
                     legacy_actor=a.operator.operational_driver,
                 )
             assert wrong_replay.value.status_code == 409
             attempt1 = await _count(db, a.operator, session_id, Decimal("9.875"))
             assert attempt1["requires_independent_recount"] is True
-            review1 = await stocktake.get_stocktake_review(session_id, db, a.operator.access(db))
+            review1 = await stocktake.get_stocktake_review(
+                session_id, db, a.operator.access(db)
+            )
             assert Decimal(review1["lines"][0]["variance_quantity"]) == Decimal("-0.250")
             assert review1["independent_recount_satisfied"] is False
             with pytest.raises(HTTPException) as premature:
                 await stocktake.approve_stocktake_session(
                     session_id,
                     StocktakeApprovalCommand(
-                        request_id=uuid4(), count_attempt_id=attempt1["attempt_id"], password=PASSWORD
+                        request_id=uuid4(),
+                        count_attempt_id=attempt1["attempt_id"],
+                        password=PASSWORD,
                     ),
-                    db=db, access=a.operator.access(db), legacy_actor=a.operator.operational_driver,
+                    db=db,
+                    access=a.operator.access(db),
+                    legacy_actor=a.operator.operational_driver,
                 )
             assert premature.value.status_code == 409
 
@@ -692,69 +841,148 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                     authorizer_username=counter_driver.username,
                     authorizer_password=RECOUNT_PASSWORD,
                 ),
-                db=db, access=a.operator.access(db), legacy_actor=a.operator.operational_driver,
+                db=db,
+                access=a.operator.access(db),
+                legacy_actor=a.operator.operational_driver,
             )
             assert recounted["status"] == "RECOUNT_REQUIRED"
 
         async with _runtime_session(runtime_engine, a.company_id) as db:
             attempt2 = await _count(db, a.counter, session_id, Decimal("9.875"))
-            review2 = await stocktake.get_stocktake_review(session_id, db, a.operator.access(db))
+            review2 = await stocktake.get_stocktake_review(
+                session_id, db, a.operator.access(db)
+            )
             assert attempt2["attempt_number"] == 2
             assert review2["independent_recount_satisfied"] is True
             approval_command = StocktakeApprovalCommand(
-                request_id=uuid4(), count_attempt_id=attempt2["attempt_id"], password=PASSWORD
+                request_id=uuid4(),
+                count_attempt_id=attempt2["attempt_id"],
+                password=PASSWORD,
             )
             approved = await stocktake.approve_stocktake_session(
-                session_id, approval_command, db=db, access=a.operator.access(db),
+                session_id,
+                approval_command,
+                db=db,
+                access=a.operator.access(db),
                 legacy_actor=a.operator.operational_driver,
             )
             assert approved["status"] == "POSTED"
-            movement_count = int(await db.scalar(select(func.count()).select_from(InventoryMovement).where(
-                InventoryMovement.company_id == a.company_id,
-                InventoryMovement.stocktake_session_id == session_id,
-            )))
+            stocktake_movement = await db.scalar(
+                select(InventoryMovement).where(
+                    InventoryMovement.company_id == a.company_id,
+                    InventoryMovement.stocktake_session_id == session_id,
+                )
+            )
+            assert stocktake_movement is not None
+            assert stocktake_movement.reference_type == "AUDIT_ADJUSTMENT"
+            assert Decimal(stocktake_movement.quantity) == Decimal("0.250")
+            movement_count = int(
+                await db.scalar(
+                    select(func.count())
+                    .select_from(InventoryMovement)
+                    .where(
+                        InventoryMovement.company_id == a.company_id,
+                        InventoryMovement.stocktake_session_id == session_id,
+                    )
+                )
+            )
             assert movement_count == 1
-            assert await stocktake.approve_stocktake_session(
-                session_id, approval_command, db=db, access=a.operator.access(db),
-                legacy_actor=a.operator.operational_driver,
-            ) == approved
-            assert int(await db.scalar(select(func.count()).select_from(InventoryMovement).where(
-                InventoryMovement.company_id == a.company_id,
-                InventoryMovement.stocktake_session_id == session_id,
-            ))) == movement_count
-            changed_approval = approval_command.model_copy(update={"notes": "changed approval replay"})
+            assert (
+                await stocktake.approve_stocktake_session(
+                    session_id,
+                    approval_command,
+                    db=db,
+                    access=a.operator.access(db),
+                    legacy_actor=a.operator.operational_driver,
+                )
+                == approved
+            )
+            assert int(
+                await db.scalar(
+                    select(func.count())
+                    .select_from(InventoryMovement)
+                    .where(
+                        InventoryMovement.company_id == a.company_id,
+                        InventoryMovement.stocktake_session_id == session_id,
+                    )
+                )
+            ) == movement_count
+            changed_approval = approval_command.model_copy(
+                update={"notes": "changed approval replay"}
+            )
             with pytest.raises(HTTPException) as changed_approval_error:
                 await stocktake.approve_stocktake_session(
-                    session_id, changed_approval, db=db, access=a.operator.access(db),
+                    session_id,
+                    changed_approval,
+                    db=db,
+                    access=a.operator.access(db),
                     legacy_actor=a.operator.operational_driver,
                 )
             assert changed_approval_error.value.status_code == 409
             assert await _balance(db, a.company_id, a.a1, a.variant, a.batch) == (
-                Decimal("9.875"), Decimal("1.125")
+                Decimal("9.875"),
+                Decimal("1.125"),
             )
-            assert int(await db.scalar(select(func.count()).select_from(InventoryLock).where(
-                InventoryLock.company_id == a.company_id,
-                InventoryLock.stocktake_session_id == session_id,
-                InventoryLock.released_at.is_(None),
-            ))) == 0
+            assert int(
+                await db.scalar(
+                    select(func.count())
+                    .select_from(InventoryLock)
+                    .where(
+                        InventoryLock.company_id == a.company_id,
+                        InventoryLock.stocktake_session_id == session_id,
+                        InventoryLock.released_at.is_(None),
+                    )
+                )
+            ) == 0
 
             ledger_page = await ledger.get_warehouse_ledger_cursor(
-                a.a1, None, 100, None, "AUDIT_ADJUSTMENT", None, db, a.operator.access(db)
+                location_id=a.a1,
+                cursor=None,
+                limit=100,
+                search=None,
+                reference_type="AUDIT_ADJUSTMENT",
+                reference_id=stocktake_movement.reference_id,
+                db=db,
+                access=a.operator.access(db),
             )
-            stocktake_evidence = [item for item in ledger_page["items"] if item["stocktake_session_id"] == session_id]
+            stocktake_evidence = [
+                item
+                for item in ledger_page["items"]
+                if item["id"] == stocktake_movement.id
+            ]
             assert len(stocktake_evidence) == 1
-            assert Decimal(stocktake_evidence[0]["quantity"]) == Decimal("0.250")
-            assert stocktake_evidence[0]["source_location_id"] == a.a1
+            evidence = stocktake_evidence[0]
+            assert evidence["reference"] == stocktake_movement.reference_id
+            assert Decimal(evidence["quantity"]) == Decimal("-0.250")
+            assert evidence["source_location_id"] == a.a1
+            assert evidence["destination_location_id"] is None
 
         async with _runtime_session(runtime_engine, a.company_id) as db:
             _, rollback_started = await _start(db, a.operator, a.a2)
             rollback_session = int(rollback_started["session_id"])
-            rollback_attempt = await _count(db, a.operator, rollback_session, Decimal("1.000"))
-            before_balance = await _balance(db, a.company_id, a.a2, a.variant, a.batch)
-            before_movement_count = int(await db.scalar(select(func.count()).select_from(InventoryMovement).where(
-                InventoryMovement.company_id == a.company_id,
-                InventoryMovement.stocktake_session_id == rollback_session,
-            )))
+            rollback_attempt = await _count_discovered(
+                db,
+                a.operator,
+                rollback_session,
+                variant_id=a.variant,
+                batch_id=a.batch,
+                uom_id=a.uom,
+                actual=Decimal("1.000"),
+            )
+            before_balance = await _balance(
+                db, a.company_id, a.a2, a.variant, a.batch
+            )
+            assert before_balance == (Decimal("0"), Decimal("0"))
+            before_movement_count = int(
+                await db.scalar(
+                    select(func.count())
+                    .select_from(InventoryMovement)
+                    .where(
+                        InventoryMovement.company_id == a.company_id,
+                        InventoryMovement.stocktake_session_id == rollback_session,
+                    )
+                )
+            )
             with patch.object(
                 stocktake,
                 "post_approved_stocktake_adjustments",
@@ -764,22 +992,62 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                     await stocktake.approve_stocktake_session(
                         rollback_session,
                         StocktakeApprovalCommand(
-                            request_id=uuid4(), count_attempt_id=rollback_attempt["attempt_id"], password=PASSWORD
+                            request_id=uuid4(),
+                            count_attempt_id=rollback_attempt["attempt_id"],
+                            password=PASSWORD,
                         ),
-                        db=db, access=a.operator.access(db), legacy_actor=a.operator.operational_driver,
+                        db=db,
+                        access=a.operator.access(db),
+                        legacy_actor=a.operator.operational_driver,
                     )
             assert failed.value.status_code == 409
             session = await db.get(StocktakeSession, rollback_session)
             assert session is not None and session.status == "PENDING_REVIEW"
             assert await _balance(db, a.company_id, a.a2, a.variant, a.batch) == before_balance
-            assert int(await db.scalar(select(func.count()).select_from(InventoryMovement).where(
-                InventoryMovement.company_id == a.company_id,
-                InventoryMovement.stocktake_session_id == rollback_session,
-            ))) == before_movement_count
+            assert int(
+                await db.scalar(
+                    select(func.count())
+                    .select_from(InventoryMovement)
+                    .where(
+                        InventoryMovement.company_id == a.company_id,
+                        InventoryMovement.stocktake_session_id == rollback_session,
+                    )
+                )
+            ) == before_movement_count
+            rollback_ledger = await ledger.get_warehouse_ledger_cursor(
+                location_id=a.a2,
+                cursor=None,
+                limit=100,
+                search=None,
+                reference_type="AUDIT_ADJUSTMENT",
+                reference_id=None,
+                db=db,
+                access=a.operator.access(db),
+            )
+            assert all(
+                item["id"] not in {
+                    movement.id
+                    for movement in (
+                        await db.scalars(
+                            select(InventoryMovement).where(
+                                InventoryMovement.company_id == a.company_id,
+                                InventoryMovement.stocktake_session_id == rollback_session,
+                            )
+                        )
+                    ).all()
+                }
+                for item in rollback_ledger["items"]
+            )
             cancelled = await stocktake.cancel_stocktake_session(
                 rollback_session,
-                StocktakeCancelCommand(request_id=uuid4(), password=PASSWORD, reason="resolve injected failure"),
-                db=db, access=a.operator.access(db), legacy_actor=a.operator.operational_driver,
+                StocktakeCancelCommand(
+                    request_id=uuid4(),
+                    password=PASSWORD,
+                    reason="resolve injected failure",
+                ),
+                db=db,
+                access=a.operator.access(db),
+                legacy_actor=a.operator.operational_driver,
             )
             assert cancelled["status"] == "CANCELLED"
 
@@ -799,23 +1067,33 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
         async with _runtime_session(runtime_engine, a.company_id) as db:
             with pytest.raises(HTTPException) as revoked:
                 await stocktake.start_unified_stocktake(
-                    start_command, db=db, access=a.operator.access(db),
+                    start_command,
+                    db=db,
+                    access=a.operator.access(db),
                     legacy_actor=a.operator.operational_driver,
                 )
             assert revoked.value.status_code == 403
         async with AsyncSession(admin_engine, expire_on_commit=False) as admin:
-            admin.add(UserLocationAccess(
-                company_id=a.company_id,
-                role_id=a.a1_roles["stocktake.start"],
-                driver_id=a.operator.driver_id,
-                location_id=a.a1,
-            ))
+            admin.add(
+                UserLocationAccess(
+                    company_id=a.company_id,
+                    role_id=a.a1_roles["stocktake.start"],
+                    driver_id=a.operator.driver_id,
+                    location_id=a.a1,
+                )
+            )
             await admin.commit()
         async with _runtime_session(runtime_engine, a.company_id) as db:
             cancelled = await stocktake.cancel_stocktake_session(
                 cancel_session,
-                StocktakeCancelCommand(request_id=uuid4(), password=PASSWORD, reason="CP14-C cancel journey"),
-                db=db, access=a.operator.access(db), legacy_actor=a.operator.operational_driver,
+                StocktakeCancelCommand(
+                    request_id=uuid4(),
+                    password=PASSWORD,
+                    reason="CP14-C cancel journey",
+                ),
+                db=db,
+                access=a.operator.access(db),
+                legacy_actor=a.operator.operational_driver,
             )
             assert cancelled["status"] == "CANCELLED"
 
@@ -839,20 +1117,28 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             await db.commit()
             _, race_started = await _start(db, a.operator, a.a2)
             race_session = int(race_started["session_id"])
-            race_attempt = await _count(db, a.operator, race_session, Decimal("2.000"))
+            race_attempt = await _count(
+                db, a.operator, race_session, Decimal("2.000")
+            )
 
         async def finalize(request_id):
             async with _runtime_session(runtime_engine, a.company_id) as db:
                 return await stocktake.approve_stocktake_session(
                     race_session,
                     StocktakeApprovalCommand(
-                        request_id=request_id, count_attempt_id=race_attempt["attempt_id"], password=PASSWORD
+                        request_id=request_id,
+                        count_attempt_id=race_attempt["attempt_id"],
+                        password=PASSWORD,
                     ),
-                    db=db, access=a.operator.access(db), legacy_actor=a.operator.operational_driver,
+                    db=db,
+                    access=a.operator.access(db),
+                    legacy_actor=a.operator.operational_driver,
                 )
 
         race = await asyncio.wait_for(
-            asyncio.gather(finalize(uuid4()), finalize(uuid4()), return_exceptions=True),
+            asyncio.gather(
+                finalize(uuid4()), finalize(uuid4()), return_exceptions=True
+            ),
             timeout=20,
         )
         assert sum(isinstance(result, dict) for result in race) == 1
@@ -867,53 +1153,86 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             assert b.vehicle not in {item["vehicle_id"] for item in candidates["items"]}
             with pytest.raises(HTTPException) as foreign_vehicle:
                 await _start(
-                    db, a.operator, b.vehicle_location,
-                    stocktake_type="VEHICLE_RECON", work_session_id=b.work_session,
+                    db,
+                    a.operator,
+                    b.vehicle_location,
+                    stocktake_type="VEHICLE_RECON",
+                    work_session_id=b.work_session,
                 )
             assert foreign_vehicle.value.status_code in {403, 404}
-            _opaque(foreign_vehicle.value, b.vehicle, b.vehicle_location, b.work_session)
+            _opaque(
+                foreign_vehicle.value, b.vehicle, b.vehicle_location, b.work_session
+            )
 
             _, vehicle_started = await _start(
-                db, a.operator, a.vehicle_location,
-                stocktake_type="VEHICLE_RECON", work_session_id=a.work_session,
+                db,
+                a.operator,
+                a.vehicle_location,
+                stocktake_type="VEHICLE_RECON",
+                work_session_id=a.work_session,
             )
             vehicle_session = int(vehicle_started["session_id"])
-            vehicle_attempt = await _count(db, a.operator, vehicle_session, Decimal("5.500"))
+            vehicle_attempt = await _count(
+                db, a.operator, vehicle_session, Decimal("5.500")
+            )
             vehicle_review = await stocktake.get_stocktake_review(
                 vehicle_session, db, a.operator.access(db)
             )
-            assert Decimal(vehicle_review["lines"][0]["variance_quantity"]) == Decimal("0.250")
+            assert Decimal(vehicle_review["lines"][0]["variance_quantity"]) == Decimal(
+                "0.250"
+            )
+            assert vehicle_attempt["requires_independent_recount"] is False
             vehicle_approved = await stocktake.approve_stocktake_session(
                 vehicle_session,
                 StocktakeApprovalCommand(
-                    request_id=uuid4(), count_attempt_id=vehicle_attempt["attempt_id"], password=PASSWORD
+                    request_id=uuid4(),
+                    count_attempt_id=vehicle_attempt["attempt_id"],
+                    password=PASSWORD,
                 ),
-                db=db, access=a.operator.access(db), legacy_actor=a.operator.operational_driver,
+                db=db,
+                access=a.operator.access(db),
+                legacy_actor=a.operator.operational_driver,
             )
             assert vehicle_approved["status"] == "POSTED"
-            assert await _balance(db, a.company_id, a.vehicle_location, a.variant, a.batch) == (
-                Decimal("5.500"), Decimal("0")
-            )
+            assert await _balance(
+                db, a.company_id, a.vehicle_location, a.variant, a.batch
+            ) == (Decimal("5.500"), Decimal("0"))
             work = await db.get(WorkSession, a.work_session)
             assert work is not None and work.inventory_reconciled_at is not None
-            vehicle_movement = await db.scalar(select(InventoryMovement).where(
-                InventoryMovement.company_id == a.company_id,
-                InventoryMovement.stocktake_session_id == vehicle_session,
-            ))
+            vehicle_movement = await db.scalar(
+                select(InventoryMovement).where(
+                    InventoryMovement.company_id == a.company_id,
+                    InventoryMovement.stocktake_session_id == vehicle_session,
+                )
+            )
             assert vehicle_movement is not None
             assert vehicle_movement.reference_type == "DRIVER_SURPLUS"
             assert Decimal(vehicle_movement.quantity) == Decimal("0.250")
 
-            a1_balance = (await _balance(db, a.company_id, a.a1, a.variant, a.batch))[0]
-            va_balance = (await _balance(db, a.company_id, a.vehicle_location, a.variant, a.batch))[0]
+            a1_balance = (
+                await _balance(db, a.company_id, a.a1, a.variant, a.batch)
+            )[0]
+            va_balance = (
+                await _balance(
+                    db, a.company_id, a.vehicle_location, a.variant, a.batch
+                )
+            )[0]
             opening_total = Decimal("10.125") + Decimal("5.250")
             expected_total = opening_total + Decimal("-0.250") + Decimal("0.250")
             assert a1_balance + va_balance == expected_total == Decimal("15.375")
-            original_rows = (await db.scalars(select(InventoryMovement).where(
-                InventoryMovement.company_id == a.company_id,
-                InventoryMovement.id.in_([opening_a1.id, opening_va.id]),
-            ).order_by(InventoryMovement.id))).all()
-            assert [(row.reference_type, Decimal(row.quantity)) for row in original_rows] == [
+            original_rows = (
+                await db.scalars(
+                    select(InventoryMovement)
+                    .where(
+                        InventoryMovement.company_id == a.company_id,
+                        InventoryMovement.id.in_([opening_a1.id, opening_va.id]),
+                    )
+                    .order_by(InventoryMovement.id)
+                )
+            ).all()
+            assert [
+                (row.reference_type, Decimal(row.quantity)) for row in original_rows
+            ] == [
                 ("CP14C_OPENING", Decimal("10.125")),
                 ("CP14C_OPENING", Decimal("5.250")),
             ]
@@ -946,11 +1265,13 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                     source_location_id=a.a1,
                     destination_location_id=a.a2,
                     transfer_purpose="WAREHOUSE_BALANCING",
-                    items=[{
-                        "product_variant_id": a.variant,
-                        "quantity": Decimal("9.875"),
-                        "uom_id": a.uom,
-                    }],
+                    items=[
+                        {
+                            "product_variant_id": a.variant,
+                            "quantity": Decimal("9.875"),
+                            "uom_id": a.uom,
+                        }
+                    ],
                 ),
                 db,
                 a.operator.access(db),
@@ -971,7 +1292,8 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             )
             assert received["status"] == "POSTED"
             assert await _balance(db, a.company_id, a.a1, a.variant, a.batch) == (
-                Decimal("0"), Decimal("0")
+                Decimal("0"),
+                Decimal("0"),
             )
 
         async with _runtime_session(runtime_engine, a.company_id) as db:
@@ -990,8 +1312,12 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             _blocker(stocktake_blocked.value, "OPEN_STOCKTAKE")
             cancelled = await stocktake.cancel_stocktake_session(
                 blocker_session.id,
-                StocktakeCancelCommand(request_id=uuid4(), password=PASSWORD, reason="resolve blocker"),
-                db=db, access=a.operator.access(db), legacy_actor=a.operator.operational_driver,
+                StocktakeCancelCommand(
+                    request_id=uuid4(), password=PASSWORD, reason="resolve blocker"
+                ),
+                db=db,
+                access=a.operator.access(db),
+                legacy_actor=a.operator.operational_driver,
             )
             assert cancelled["status"] == "CANCELLED"
 
@@ -1005,14 +1331,19 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                         "vendor_return_staging_location_id": a.a1,
                     },
                 ),
-                db, a.operator.access(db), a.operator.operational_driver,
+                db,
+                a.operator.access(db),
+                a.operator.operational_driver,
             )
             published = await transfer_policy.publish_transfer_destination_policy_endpoint(
                 draft["policy"]["id"],
                 TransferDestinationPolicyPublishRequest(
-                    request_id=uuid4(), expected_revision=draft["policy"]["revision"]
+                    request_id=uuid4(),
+                    expected_revision=draft["policy"]["revision"],
                 ),
-                db, a.operator.access(db), a.operator.operational_driver,
+                db,
+                a.operator.access(db),
+                a.operator.operational_driver,
             )
             assert published["policy"]["status"] == "PUBLISHED"
             with pytest.raises(HTTPException) as policy_blocked:
@@ -1028,16 +1359,23 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                         "vendor_return_staging_location_id": a.a2,
                     },
                 ),
-                db, a.operator.access(db), a.operator.operational_driver,
+                db,
+                a.operator.access(db),
+                a.operator.operational_driver,
             )
             await transfer_policy.publish_transfer_destination_policy_endpoint(
                 replacement["policy"]["id"],
                 TransferDestinationPolicyPublishRequest(
-                    request_id=uuid4(), expected_revision=replacement["policy"]["revision"]
+                    request_id=uuid4(),
+                    expected_revision=replacement["policy"]["revision"],
                 ),
-                db, a.operator.access(db), a.operator.operational_driver,
+                db,
+                a.operator.access(db),
+                a.operator.operational_driver,
             )
-            old_policy = await db.get(TenantOperationalPolicy, draft["policy"]["id"])
+            old_policy = await db.get(
+                TenantOperationalPolicy, draft["policy"]["id"]
+            )
             assert old_policy is not None and old_policy.status == "SUPERSEDED"
 
         async with _runtime_session(runtime_engine, a.company_id) as db:
@@ -1075,22 +1413,51 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             assert a1 is not None and a1.branch_id == a.branch
             assert branch is not None and branch.is_active is True
             assert await _balance(db, a.company_id, a.a1, a.variant, a.batch) == (
-                Decimal("0"), Decimal("0")
+                Decimal("0"),
+                Decimal("0"),
             )
-            assert int(await db.scalar(select(func.count()).select_from(InventoryLiveStockProjection).where(
-                InventoryLiveStockProjection.company_id == a.company_id,
-                InventoryLiveStockProjection.warehouse_location_id == a.a1,
-            ))) == 0
-            assert int(await db.scalar(select(func.count()).select_from(InventoryTransferHeader).where(
-                InventoryTransferHeader.company_id == a.company_id,
-                InventoryTransferHeader.source_location_id == a.a1,
-                InventoryTransferHeader.status.not_in(["POSTED", "REJECTED", "CANCELLED"]),
-            ))) == 0
-            assert int(await db.scalar(select(func.count()).select_from(StocktakeSession).where(
-                StocktakeSession.company_id == a.company_id,
-                StocktakeSession.location_id == a.a1,
-                StocktakeSession.status.in_(["DRAFT", "COUNTING", "PENDING_REVIEW", "RECOUNT_REQUIRED", "APPROVED"]),
-            ))) == 0
+            assert int(
+                await db.scalar(
+                    select(func.count())
+                    .select_from(InventoryLiveStockProjection)
+                    .where(
+                        InventoryLiveStockProjection.company_id == a.company_id,
+                        InventoryLiveStockProjection.warehouse_location_id == a.a1,
+                    )
+                )
+            ) == 0
+            assert int(
+                await db.scalar(
+                    select(func.count())
+                    .select_from(InventoryTransferHeader)
+                    .where(
+                        InventoryTransferHeader.company_id == a.company_id,
+                        InventoryTransferHeader.source_location_id == a.a1,
+                        InventoryTransferHeader.status.not_in(
+                            ["POSTED", "REJECTED", "CANCELLED"]
+                        ),
+                    )
+                )
+            ) == 0
+            assert int(
+                await db.scalar(
+                    select(func.count())
+                    .select_from(StocktakeSession)
+                    .where(
+                        StocktakeSession.company_id == a.company_id,
+                        StocktakeSession.location_id == a.a1,
+                        StocktakeSession.status.in_(
+                            [
+                                "DRAFT",
+                                "COUNTING",
+                                "PENDING_REVIEW",
+                                "RECOUNT_REQUIRED",
+                                "APPROVED",
+                            ]
+                        ),
+                    )
+                )
+            ) == 0
 
         async with AsyncSession(admin_engine, expire_on_commit=False) as verify:
             await verify.execute(
@@ -1101,7 +1468,9 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             foreign_vehicle = await verify.get(InventoryLocation, b.vehicle_location)
             assert foreign_location is not None and foreign_location.is_active is True
             assert foreign_vehicle is not None and foreign_vehicle.is_active is True
-            assert (await _balance(verify, b.company_id, b.a1, b.variant, b.batch))[0] == Decimal("9.875")
+            assert (
+                await _balance(verify, b.company_id, b.a1, b.variant, b.batch)
+            )[0] == Decimal("9.875")
 
         print("CP14C_STOCKTAKE_START_COUNT_REVIEW_APPROVE=PASS")
         print("CP14C_VARIANCE_RECOUNT=PASS")
