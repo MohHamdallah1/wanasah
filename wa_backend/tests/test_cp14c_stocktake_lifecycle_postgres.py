@@ -652,6 +652,18 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             )
             await _grant_location(
                 seed,
+                company_id=a.company_id,
+                driver_id=a.counter.driver_id,
+                location_id=a.a2,
+                codes=(
+                    "inventory.read",
+                    "location.read",
+                    "transfer.read",
+                    "transfer.receive",
+                ),
+            )
+            await _grant_location(
+                seed,
                 company_id=b.company_id,
                 driver_id=b.operator.driver_id,
                 location_id=b.a1,
@@ -1279,8 +1291,8 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                     destination_location_id=a.a2,
                 ),
                 db,
-                a.operator.access(db),
-                a.operator.operational_driver,
+                a.counter.access(db),
+                a.counter.operational_driver,
             )
             assert received["status"] == "POSTED"
             assert await _balance(db, a.company_id, a.a1, a.variant, a.batch) == (
