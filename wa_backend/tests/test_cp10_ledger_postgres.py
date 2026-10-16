@@ -496,7 +496,7 @@ async def test_query_count_is_row_independent_and_representative_explain_runs(pg
 
     @event.listens_for(pg.runtime_engine.sync_engine, "before_cursor_execute")
     def _count(_conn, _cursor, statement, _parameters, _context, _executemany):
-        if statement.lstrip().upper().startswith(("SELECT", "WITH")):
+        if counts and statement.lstrip().upper().startswith(("SELECT", "WITH")):
             counts[-1] += 1
 
     try:
