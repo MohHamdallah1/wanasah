@@ -133,7 +133,6 @@ jobs:
           )
           expected = {
               ".github/workflows/inventory-cp13-shell-polish.yml",
-              "dashboard/src/pages/inventory/InventoryTopDock.tsx",
               "dashboard/src/pages/inventory/inventoryShellPolish.css",
               "dashboard/src/test/inventory-cp13-shell-polish.test.tsx",
           }
