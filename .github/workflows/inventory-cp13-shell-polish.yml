@@ -114,8 +114,7 @@ jobs:
         env:
           CP13_REPAIR_BASE: c7fd6baee5a732773c6d30a311f0af1c84a1d338
         run: |
-          git merge-base --is-ancestor "$CP13_REPAIR_BASE" HEAD
-          git merge-base --is-ancestor "$CP13_REPAIR_BASE" origin/main
+          git cat-file -e "$CP13_REPAIR_BASE^{commit}"
           python - <<'PY'
           import os
           import subprocess
