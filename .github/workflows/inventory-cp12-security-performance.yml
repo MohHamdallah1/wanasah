@@ -1,0 +1,214 @@
+name: Inventory CP12 Security Performance
+
+on:
+  push:
+    branches:
+      - sol/cp12-security-performance-wave2
+  pull_request:
+    branches:
+      - integration/inventory-wave-2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cp12-security-performance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  ENVIRONMENT: test
+  SECRET_KEY: Cp12SecurityPerformanceOnlyKeyAbc1234567890123456789012
+
+jobs:
+  focused-security-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Canonical authorization and cursor regressions
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_inbound_no_lot_frozen_contract.py
+          tests/test_branch_canonical_authorization_cutover.py
+          tests/test_warehouse_locations_canonical_auth_cutover.py
+          tests/test_product_locations_canonical_auth_cutover.py
+          tests/test_minimum_stock_canonical_authorization_cutover.py
+          tests/test_stocktake_canonical_auth_cutover.py
+          tests/test_cp9_stocktake_closure_contract.py
+          tests/test_inbound_adjustments_canonical_auth_cutover.py
+          tests/test_inventory_batch_index_contract.py
+          tests/test_inventory_batch_index_authorization.py
+          tests/test_cp7_live_stock_contract.py
+          tests/test_cp10_ledger_backend.py
+          -k "not operator_surfaces_never_expose_internal_lot"
+      - name: CP1 Inbound focused regression
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_inbound_lot_expiry_checkpoint1.py
+          tests/test_batch_stock_sources_contract.py
+          tests/test_batch_reservation_owner_contract.py
+          -k "not test_operator_facing_serializers_use_central_public_batch_helper"
+      - name: py_compile CP12 evidence
+        run: >-
+          python -m py_compile
+          wa_backend/tests/test_cp12_inventory_security_postgres.py
+          wa_backend/tests/test_cp12_inventory_performance_postgres.py
+
+  postgres-16:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp12_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://cp12_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_CP12_SECURITY_PG_GATE: "1"
+      WANASAH_CP12_PERF_PG_GATE: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL acceptance dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name cp12-postgres \
+            --env POSTGRES_USER=cp12_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec cp12-postgres pg_isready -U cp12_admin -d wanasah_no_lot_contract_test -p 55439; then
+              docker exec cp12-postgres psql -U cp12_admin -d wanasah_no_lot_contract_test -p 55439 -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+              docker exec cp12-postgres psql -U cp12_admin -d wanasah_no_lot_contract_test -p 55439 -c "CREATE EXTENSION IF NOT EXISTS btree_gist;"
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs cp12-postgres
+          exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              if conn.execute("SELECT 1 FROM pg_roles WHERE rolname='wanasah_app'").fetchone() is None:
+                  conn.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Clean bootstrap migration
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: Grant restricted runtime DML and seed test capability catalog
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          codes = (
+              "inventory.read",
+              "location.read",
+              "product_location.read",
+              "ledger.read",
+              "stocktake.read",
+              "stocktake.start",
+              "stocktake.count",
+          )
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+              for code in codes:
+                  conn.execute("INSERT INTO permissions(code) VALUES (%s) ON CONFLICT(code) DO NOTHING", (code,))
+          PY
+      - name: CP12 PostgreSQL security matrix
+        working-directory: wa_backend
+        run: python -m pytest -q -s tests/test_cp12_inventory_security_postgres.py
+      - name: CP12 PostgreSQL performance evidence
+        working-directory: wa_backend
+        run: python -m pytest -q -s tests/test_cp12_inventory_performance_postgres.py
+
+  dynamic-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Resolve dynamic PR merge-base
+        shell: bash
+        run: |
+          target="${{ github.event.pull_request.base.ref }}"
+          if [ -z "$target" ]; then target="integration/inventory-wave-2"; fi
+          git fetch origin "$target" --no-tags
+          base="$(git merge-base HEAD "origin/$target")"
+          echo "CP12_BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "CP12_TARGET_REF=$target" >> "$GITHUB_ENV"
+          echo "CP12_DYNAMIC_BASE=$base"
+      - name: Exact CP12 scope audit
+        shell: bash
+        run: |
+          test "$CP12_TARGET_REF" = "integration/inventory-wave-2"
+          python - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["CP12_BASE_SHA"]
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only", base, "HEAD", "--"], text=True
+          ).splitlines())
+          allowed = {
+              ".github/workflows/inventory-cp12-security-performance.yml",
+              "wa_backend/tests/test_cp12_inventory_security_postgres.py",
+              "wa_backend/tests/test_cp12_inventory_performance_postgres.py",
+          }
+          if changed != allowed:
+              raise SystemExit(
+                  "CP12_SCOPE=FAIL\n"
+                  f"missing={sorted(allowed - changed)}\n"
+                  f"extra={sorted(changed - allowed)}"
+              )
+          forbidden_prefixes = (
+              "dashboard/src/pages/inventory/TabBatches.tsx",
+              "dashboard/src/pages/inventory/batches/",
+              "wa_backend/api/warehouse/transfers.py",
+              "wa_backend/api/warehouse/transfer_policy.py",
+              "wa_backend/domains/transfers/",
+              "dashboard/src/pages/inventory/TabTransfers.tsx",
+              "dashboard/src/pages/inventory/transfers/",
+              "wa_backend/api/inventory_permissions.py",
+              "wa_backend/domains/inventory_access/",
+              "dashboard/src/pages/inventory/TabInventoryAccess.tsx",
+              "dashboard/src/pages/inventory/access/",
+          )
+          for path in changed:
+              if any(path == prefix or path.startswith(prefix) for prefix in forbidden_prefixes):
+                  raise SystemExit(f"CP12_SCOPE=FAIL forbidden path: {path}")
+          print("CP12_SCOPE=PASS")
+          print("CP3_CP8_CP11_RUNTIME_UNTOUCHED=PASS")
+          print("CP12_RUNTIME_CHANGES=NONE")
+          PY
+      - name: Diff whitespace gate
+        run: git diff --check "$CP12_BASE_SHA" HEAD
