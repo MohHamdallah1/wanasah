@@ -12,7 +12,7 @@ describe("CP13 Warehouse setup final presentation", () => {
   it("keeps a compact warehouse-first management surface with explicit lifecycle state", () => {
     const source = warehouse();
     expect(source).toContain('data-cp13-density="compact"');
-    expect(source).toContain('className="h-14 hover:bg-slate-50/70');
+    expect(source).toContain("md:h-14");
     expect(source).toContain("location.is_active ? copy.active : copy.inactive");
     expect(source).toContain('openStateAction(location, "deactivate")');
     expect(source).toContain('openStateAction(location, "activate")');
@@ -63,7 +63,7 @@ describe("CP13 Warehouse setup final presentation", () => {
     expect(source).toContain('codeValue === "LOCATION_DEACTIVATION_BLOCKED"');
     expect(source).toContain("formatWarehouseDeactivationBlocker(context, language)");
     expect(source).toContain("presentation.deactivationNextStep");
-    const issue = formatWarehouseDeactivationBlocker({ blocker_type: "OPEN_TRANSFER", reference: "TR-104" }, "en");
+    const issue = formatWarehouseDeactivationBlocker({ blocker_type: "OPEN_TRANSFER", reference_number: "TR-104" }, "en");
     expect(issue.title.toLowerCase()).toContain("transfer");
     expect(issue.details.join(" ")).toContain("TR-104");
   });
@@ -88,7 +88,7 @@ describe("CP13 Warehouse setup final presentation", () => {
     expect(formatInventoryInteger(123456, "en")).toMatch(/^[0-9,]+$/);
   });
 
-  it("keeps keyboard/focus hooks and phone-width actions explicit", () => {
+  it("keeps keyboard/focus hooks and one phone-width action surface explicit", () => {
     const source = warehouse();
     const modal = read("src/components/ui/modal.tsx");
     const focusTrap = read("src/hooks/useDialogFocusTrap.ts");
@@ -96,7 +96,8 @@ describe("CP13 Warehouse setup final presentation", () => {
     expect(source).toContain("autoFocus");
     expect(source).toContain('data-cp13-phone-list="true"');
     expect(source).toContain("md:hidden");
-    expect(source).toContain("hidden min-h-0");
+    expect(source).toContain("overflow-x-auto");
+    expect(source).toContain("md:min-w-[760px]");
     expect(modal).toContain("useDialogFocusTrap");
     expect(focusTrap).toContain('event.key === "Escape"');
     expect(focusTrap).toContain("restore.focus()");
