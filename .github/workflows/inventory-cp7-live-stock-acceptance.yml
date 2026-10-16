@@ -11,9 +11,11 @@ on:
       - "wa_backend/scripts/warehouse_route_manifest_extensions.json"
       - "wa_backend/tests/test_cp7_live_stock_contract.py"
       - "wa_backend/tests/test_cp7_live_stock_postgres.py"
+      - "dashboard/src/pages/inventory/MainInventory.tsx"
       - "dashboard/src/pages/inventory/Tab1LiveStock.tsx"
       - "dashboard/src/pages/inventory/liveStock/**"
       - "dashboard/src/test/inventory-cp7-live-stock.test.tsx"
+      - "dashboard/src/test/inventory-cp7-live-stock-parity.test.tsx"
       - ".github/workflows/inventory-cp7-live-stock-acceptance.yml"
   workflow_dispatch:
 
@@ -63,6 +65,12 @@ jobs:
           python -m pytest -q
           tests/test_inventory_batch_index_contract.py
           tests/test_inventory_batch_index_authorization.py
+      - name: CP10 Ledger backend regression
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_cp10_ledger_backend.py
+          tests/test_inbound_adjustments_canonical_auth_cutover.py
       - name: Warehouse route manifest
         working-directory: wa_backend
         run: python scripts/gate_warehouse_route_manifest.py
@@ -164,7 +172,11 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: CP7 focused Dashboard acceptance
         working-directory: dashboard
-        run: npm test -- src/test/inventory-cp7-live-stock.test.tsx --reporter=verbose
+        run: >-
+          npm test --
+          src/test/inventory-cp7-live-stock.test.tsx
+          src/test/inventory-cp7-live-stock-parity.test.tsx
+          --reporter=verbose
       - name: CP1 public batch/date regression
         working-directory: dashboard
         run: >-
@@ -180,6 +192,13 @@ jobs:
           src/test/cp5-product-location-dashboard.test.tsx
           src/test/cp5-product-location-modal.test.tsx
           src/test/inventory-cp6-minimum-stock-dashboard.test.tsx
+      - name: CP10 Ledger Dashboard regression
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/test/inventory-cp10-ledger-dashboard.test.tsx
+          src/test/inventory-cp10-ledger-contract.test.ts
+          src/test/inventory-cp10-ledger-keyboard.test.tsx
       - name: TypeScript noEmit
         working-directory: dashboard
         run: npx tsc --noEmit
@@ -224,6 +243,7 @@ jobs:
               "wa_backend/scripts/warehouse_route_manifest_extensions.json",
               "wa_backend/tests/test_cp7_live_stock_contract.py",
               "wa_backend/tests/test_cp7_live_stock_postgres.py",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
               "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
               "dashboard/src/pages/inventory/liveStock/i18n.ts",
               "dashboard/src/pages/inventory/liveStock/sourceContract.ts",
@@ -234,6 +254,7 @@ jobs:
               "dashboard/src/pages/inventory/liveStock/LiveStockFilters.tsx",
               "dashboard/src/pages/inventory/liveStock/LiveStockWarehouseContext.tsx",
               "dashboard/src/test/inventory-cp7-live-stock.test.tsx",
+              "dashboard/src/test/inventory-cp7-live-stock-parity.test.tsx",
           }
           changed = set(subprocess.check_output(
               ["git", "diff", "--name-only", os.environ["CP7_BASE"], "HEAD", "--"],
@@ -246,7 +267,6 @@ jobs:
                   f"extra={sorted(changed - allowed)}"
               )
           forbidden = (
-              "dashboard/src/pages/inventory/MainInventory.tsx",
               "dashboard/src/pages/inventory/TabBatches.tsx",
               "dashboard/src/pages/products/",
               "dashboard/src/features/inventory/productLocations/",
