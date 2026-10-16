@@ -1,5 +1,5 @@
 name: Inventory CP9 Stocktake acceptance
-# Clean final-head CP9 proof gate after query-count fixture alignment.
+# Clean final-head CP9 proof gate with Vehicle metadata registration in-process.
 
 on:
   push:
@@ -105,7 +105,18 @@ jobs:
         run: python -m pytest -q -s tests/test_cp9_stocktake_postgres.py
       - name: Vehicle Recon PostgreSQL lock-order regression
         working-directory: wa_backend
-        run: python -m pytest -q -s tests/test_vehicle_reconciliation_lock_order_postgres.py
+        run: |
+          python - <<'PY'
+          import pytest
+          from domains.sales_evidence import models as _sales_evidence_models  # noqa: F401
+          from domains.suppliers import models as _supplier_models  # noqa: F401
+
+          raise SystemExit(pytest.main([
+              "-q",
+              "-s",
+              "tests/test_vehicle_reconciliation_lock_order_postgres.py",
+          ]))
+          PY
 
   dashboard-focused:
     runs-on: ubuntu-24.04
