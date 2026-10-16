@@ -120,7 +120,7 @@ export function FefoOverrideEditor({
                         value={batch.id}
                       >
                         {formatPublicBatchNumber(batch.batch_number, t("inventoryLive.noLotSupplied"))} — صلاحية{" "}
-                        {batch.expiry_date} — متاح{" "}
+                        {batch.expiry_date ?? "-"} — متاح{" "}
                         {batch.available_quantity}
                         {batch.is_fefo_head
                           ? " — FEFO الحالي"

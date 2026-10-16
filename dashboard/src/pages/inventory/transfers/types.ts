@@ -51,7 +51,7 @@ export interface WarehouseTransferLine {
   product_name: string;
   batch_id: number;
   batch_number: string | null;
-  expiry_date: string;
+  expiry_date: string | null;
   quantity: Quantity;
   uom_id: number;
   fefo_override_reason_id: number | null;
@@ -118,7 +118,7 @@ export interface TransferOverrideBatch {
   id: number;
   batch_number: string | null;
   production_date: string | null;
-  expiry_date: string;
+  expiry_date: string | null;
   available_quantity: Quantity;
   is_fefo_head: boolean;
 }

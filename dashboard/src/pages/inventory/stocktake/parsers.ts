@@ -17,6 +17,7 @@ import type {
 } from "./types";
 import type { StocktakeStockStatus } from "../inventoryUtils";
 import { parsePublicBatchNumber } from "../publicBatchNumber";
+import { parsePublicBatchDate } from "../publicBatchDate";
 import { parseQuantity } from "../quantity";
 
 const STOCKTAKE_TYPES: readonly StocktakeType[] = [
@@ -176,8 +177,12 @@ export const parseCycleBatchPage = (
       id: positiveInt(item.id, "batch.id"),
       product_variant_id: productVariantId,
       batch_number: publicBatchNumber(item.batch_number, "batch.batch_number"),
-      production_date: optionalString(item.production_date),
-      expiry_date: requiredString(item.expiry_date, "batch.expiry_date"),
+      production_date: parsePublicBatchDate(item.production_date, () => {
+        throw new Error("Invalid batch.production_date.");
+      }),
+      expiry_date: parsePublicBatchDate(item.expiry_date, () => {
+        throw new Error("Invalid batch.expiry_date.");
+      }),
       is_active: item.is_active === true,
     };
   });
@@ -372,7 +377,9 @@ export const parseCountSheet = (
       quantity_scale: nonNegativeInt(item.quantity_scale, "quantity_scale"),
       quantity_step: parseQuantity(item.quantity_step, "quantity_step"),
       batch_number: publicBatchNumber(item.batch_number, "batch_number"),
-      expiry_date: optionalString(item.expiry_date),
+      expiry_date: parsePublicBatchDate(item.expiry_date, () => {
+        throw new Error("Invalid expiry_date.");
+      }),
     };
   });
 };
@@ -463,7 +470,9 @@ const parseReviewLine = (raw: unknown): ReviewLine => {
     quantity_scale: nonNegativeInt(raw.quantity_scale, "quantity_scale"),
     quantity_step: parseQuantity(raw.quantity_step, "quantity_step"),
     batch_number: publicBatchNumber(raw.batch_number, "batch_number"),
-    expiry_date: optionalString(raw.expiry_date),
+    expiry_date: parsePublicBatchDate(raw.expiry_date, () => {
+      throw new Error("Invalid expiry_date.");
+    }),
     expected_quantity: parseQuantity(raw.expected_quantity, "expected_quantity", { allowZero: true }),
     actual_quantity: parseQuantity(raw.actual_quantity, "actual_quantity", { allowZero: true }),
     variance_quantity: variance,

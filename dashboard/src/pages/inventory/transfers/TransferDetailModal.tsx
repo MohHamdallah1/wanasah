@@ -97,7 +97,7 @@ export function TransferDetailModal({
                       {formatPublicBatchNumber(line.batch_number, t("inventoryLive.noLotSupplied"))}
                     </td>
                     <td className="p-3 text-xs text-slate-600">
-                      {line.expiry_date}
+                      {line.expiry_date ?? "-"}
                     </td>
                     <td className="p-3 font-bold">{line.quantity}</td>
                     <td className="p-3 text-xs">
