@@ -303,14 +303,15 @@ export default function MainInventory() {
   const locationAccess = useInventoryAccess(selectedLocationId);
   const canReadStock = locationAccess.can('inventory.read');
   const canReadStatus = locationAccess.can('location.read');
-  const { isCompanyOwner, canAny } = access;
+  const { isCompanyOwner, canAny, can } = access;
   const { can: canAtLocation } = locationAccess;
   const tabAllowed = useCallback((id: TabId) => {
     if (id === 'permissions') return isCompanyOwner;
-    if (id === 'warehouses' || selectedLocationId === null) return canAny(TAB_PERMISSION[id]);
+    if (id === 'warehouses') return canAny('location.read') || can('branch.read');
+    if (selectedLocationId === null) return canAny(TAB_PERMISSION[id]);
     if (id === 'inbound') return canAtLocation('inbound.create') && canAtLocation('catalog.read');
     return canAtLocation(TAB_PERMISSION[id]);
-  }, [isCompanyOwner, canAny, canAtLocation, selectedLocationId]);
+  }, [isCompanyOwner, canAny, can, canAtLocation, selectedLocationId]);
   useEffect(() => {
     if (
       !access.isSuccess ||
@@ -535,6 +536,7 @@ export default function MainInventory() {
   ]);
 
   const fetchLocations = useCallback(async () => {
+    if (!canAny('location.read')) return;
     const requestSeq = ++locationRequestSeq.current;
     setLoadingLocations(true);
     setLocationError(false);
@@ -613,7 +615,7 @@ export default function MainInventory() {
         setLoadingLocations(false);
       }
     }
-  }, [authFetch, prepareLocationChange, selectedLocationStorageKey, t]);
+  }, [authFetch, canAny, prepareLocationChange, selectedLocationStorageKey, t]);
 
   useEffect(() => {
     if (!access.isSuccess) return;
