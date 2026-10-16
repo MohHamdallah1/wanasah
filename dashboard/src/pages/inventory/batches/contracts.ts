@@ -1,3 +1,5 @@
+import { parsePublicBatchNumber } from "../publicBatchNumber";
+
 export type BatchDisposition =
   | "RELEASED"
   | "QUARANTINED"
@@ -6,7 +8,7 @@ export type BatchDisposition =
 
 export type BatchActionSnapshot = {
   batch_id: number;
-  batch_number: string;
+  batch_number: string | null;
   production_date: string | null;
   expiry_date: string | null;
   disposition: BatchDisposition;
@@ -19,7 +21,7 @@ export type BatchActionSnapshot = {
 export type BatchDispositionMutation = {
   batch_id: number;
   product_variant_id: number;
-  batch_number: string;
+  batch_number: string | null;
   disposition: BatchDisposition;
   disposition_reason: string | null;
   disposition_revision: number;
@@ -64,12 +66,10 @@ export function parseBatchDispositionMutation(
     return invalid();
   }
 
-  const batchNumber = row.batch_number;
+  const batchNumber = parsePublicBatchNumber(row.batch_number, invalid);
   const reason = row.disposition_reason;
   const updatedAt = row.updated_at;
   if (
-    typeof batchNumber !== "string" ||
-    !batchNumber.trim() ||
     (reason !== null &&
       typeof reason !== "string") ||
     typeof updatedAt !== "string" ||
@@ -85,7 +85,7 @@ export function parseBatchDispositionMutation(
     ),
     batch_number: batchNumber,
     disposition,
-    disposition_reason: reason,
+    disposition_reason: reason as string | null,
     disposition_revision: positiveInt(
       row.disposition_revision,
     ),

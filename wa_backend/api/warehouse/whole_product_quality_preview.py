@@ -16,6 +16,7 @@ from database import get_db
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from domains.inventory_costing.service import get_cost_policy, money6
 from domains.inventory_supplier_resolution import resolve_current_stock_suppliers
+from domains.product_tracking import public_batch_number
 from models import (
     Company,
     DomainAuditEvent,
@@ -44,13 +45,13 @@ class WholeProductQualityPreviewLocation(BaseModel):
 
 class WholeProductQualityPreviewBatch(BaseModel):
     batch_id: int
-    batch_number: str
+    batch_number: str | None
     quantity: str
 
 
 class WholeProductQualityValuationLine(BaseModel):
     batch_id: int
-    batch_number: str
+    batch_number: str | None
     quantity: str
     unit_cost: str
     book_value: str
@@ -225,7 +226,7 @@ async def get_whole_product_quality_preview(
     location_quantities: dict[int, Decimal] = defaultdict(Decimal)
     location_meta: dict[int, tuple[str, str, bool]] = {}
     batch_quantities: dict[int, Decimal] = defaultdict(Decimal)
-    batch_numbers: dict[int, str] = {}
+    batch_numbers: dict[int, str | None] = {}
     total_quantity = Decimal("0")
     total_reserved_quantity = Decimal("0")
     blocker_codes: set[str] = set()
@@ -242,7 +243,7 @@ async def get_whole_product_quality_preview(
         )
         location_quantities[location_id] += quantity
         batch_quantities[batch_id] += quantity
-        batch_numbers[batch_id] = str(row.batch_number)
+        batch_numbers[batch_id] = public_batch_number(row.batch_number)
         total_quantity += quantity
         total_reserved_quantity += Decimal(row.reserved_quantity or 0)
         if location_type != "WAREHOUSE" or not bool(row.location_active):
@@ -358,7 +359,7 @@ async def get_whole_product_quality_preview(
             ).all()
             fifo_quantity = Decimal("0")
             fifo_value = Decimal("0")
-            fifo_by_batch: dict[int, tuple[str, Decimal, Decimal]] = {}
+            fifo_by_batch: dict[int, tuple[str | None, Decimal, Decimal]] = {}
             for layer in layer_rows:
                 batch_id = int(layer.batch_id)
                 quantity = Decimal(layer.remaining_quantity or 0)
@@ -367,7 +368,7 @@ async def get_whole_product_quality_preview(
                 fifo_value += value
                 current = fifo_by_batch.get(batch_id)
                 if current is None:
-                    fifo_by_batch[batch_id] = (str(layer.batch_number), quantity, value)
+                    fifo_by_batch[batch_id] = (public_batch_number(layer.batch_number), quantity, value)
                 else:
                     fifo_by_batch[batch_id] = (
                         current[0],

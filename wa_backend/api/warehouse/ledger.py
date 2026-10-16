@@ -32,6 +32,7 @@ from models import (
     UOM,
 )
 from quantity import canonical_quantity
+from domains.product_tracking import public_batch_number
 from schemas import WarehouseLedgerCursorPage
 
 from ._shared import _escape_like, _warehouse_array_membership
@@ -541,10 +542,10 @@ async def get_warehouse_ledger_cursor(
             for row in rows
             if row[0].batch_id is not None
         })
-        batch_number_by_id: dict[int, str] = {}
+        batch_number_by_id: dict[int, str | None] = {}
         if batch_ids:
             batch_number_by_id = {
-                int(batch_id): str(batch_number)
+                int(batch_id): public_batch_number(batch_number)
                 for batch_id, batch_number in (
                     await db.execute(
                         select(ProductBatch.id, ProductBatch.batch_number).filter(

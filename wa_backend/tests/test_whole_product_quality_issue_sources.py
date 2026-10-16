@@ -20,6 +20,7 @@ from models import (
 )
 from quantity import canonical_quantity
 from domains.inventory_rules import batch_metadata_is_sellable
+from domains.product_tracking import public_batch_number
 from domains.inventory_quality_reads import (
     read_quality_batch_candidates,
     read_variant_inventory_issue_summary,
@@ -124,6 +125,7 @@ def endpoint(blocker_reader=no_completion_blockers):
         variant_reservation_owner_projection=variant_reservation_owner_projection,
         recall_completion_blockers=blocker_reader,
         batch_metadata_is_sellable=batch_metadata_is_sellable,
+        public_batch_number=public_batch_number,
         allowed_special_transfer_purposes=no_special_purposes,
         inventory_quality_action_availability=action_matrix,
         read_terminal_origin_availability_for_batches=no_terminal_page_availability,

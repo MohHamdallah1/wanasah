@@ -24,6 +24,10 @@ vi.mock("sonner", () => ({
   toast: { error: mock.toastError, success: mock.toastSuccess },
 }));
 
+vi.mock("@/features/suppliers/SupplierSelector", () => ({
+  SupplierSelector: () => <div data-testid="supplier-selector" />,
+}));
+
 vi.mock("react-i18next", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react-i18next")>();
   const t = (key: string) => key;

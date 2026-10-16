@@ -4,6 +4,8 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { absoluteQuantity, compareQuantity, formatQuantity } from "../quantity";
+import { useTranslation } from "react-i18next";
+import { formatPublicBatchNumber } from "../publicBatchNumber";
 import type { StocktakeReview } from "./types";
 
 interface StocktakeReviewPanelProps {
@@ -37,6 +39,7 @@ export function StocktakeReviewPanel({
   canApprove,
   onApprove,
 }: StocktakeReviewPanelProps) {
+  const { t } = useTranslation();
   return (
     <div className="glass-card inventory-data-panel flex flex-col border border-slate-200 shadow-sm flex-1 min-h-0 pt-0 overflow-hidden">
       <div className="px-5 py-3 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-3">
@@ -94,7 +97,7 @@ export function StocktakeReviewPanel({
                   {line.product_name}
                 </td>
                 <td className="px-4 py-3 text-xs text-slate-500 font-bold">
-                  {line.batch_number || "بدون دفعة"}
+                  {formatPublicBatchNumber(line.batch_number, t("inventoryLive.noLotSupplied"))}
                 </td>
                 <td className="px-4 py-3 text-center font-black text-slate-700">
                   {formatQuantity(line.expected_quantity, line.base_uom_name)}

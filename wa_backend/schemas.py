@@ -1467,12 +1467,15 @@ class WarehouseInventoryBatchProductCursorPage(BaseModel):
 
 class WarehouseInventoryBatchItem(BaseModel):
     batch_id: PositiveDbInt
-    batch_number: str = Field(..., min_length=1, max_length=100)
+    batch_number: Optional[str] = Field(None, max_length=100)
     production_date: Optional[date] = None
     expiry_date: Optional[date] = None
     disposition: Literal["RELEASED", "QUARANTINED", "BLOCKED", "RECALLED"]
     disposition_revision: PositiveDbInt
     disposition_reason: Optional[str] = Field(None, max_length=2000)
+    allowed_disposition_targets: List[Literal["RELEASED", "QUARANTINED", "BLOCKED", "RECALLED"]] = Field(
+        default_factory=list, max_length=3
+    )
     days_to_expiry: Optional[int] = None
     on_hand_quantity: NonNegativeQuantity
     reserved_quantity: NonNegativeQuantity
@@ -1574,7 +1577,7 @@ class WarehouseBatchStockSourceItem(BaseModel):
 class WarehouseBatchStockSourcesResponse(BaseModel):
     batch_id: PositiveDbInt
     product_variant_id: PositiveDbInt
-    batch_number: str = Field(..., min_length=1, max_length=100)
+    batch_number: Optional[str] = Field(None, max_length=100)
     production_date: Optional[date] = None
     expiry_date: Optional[date] = None
     disposition: Literal["RELEASED", "QUARANTINED", "BLOCKED", "RECALLED"]
@@ -1614,7 +1617,7 @@ class WarehouseQualityInventorySummary(BaseModel):
 
 class WarehouseQualityBatchCandidateItem(BaseModel):
     batch_id: PositiveDbInt
-    batch_number: str = Field(..., min_length=1, max_length=100)
+    batch_number: Optional[str] = Field(None, max_length=100)
     production_date: Optional[date] = None
     expiry_date: Optional[date] = None
     disposition: Literal["RELEASED", "QUARANTINED", "BLOCKED", "RECALLED"]
@@ -1911,26 +1914,16 @@ class InboundBatchItem(RequestModel):
     quantity: PositiveQuantity
     uom_id: PositiveDbInt
     unit_cost: InventoryCostMoneyInput
-    batch_number: str = Field(..., min_length=1, max_length=100)
+    batch_number: Optional[str] = Field(None, max_length=100)
     production_date: Optional[date] = None
     expiry_date: Optional[date] = None
 
     @field_validator("batch_number", mode="before")
     @classmethod
-    def normalize_batch_number(cls, v: Any) -> str:
-        return _required_text(v)
+    def normalize_batch_number(cls, v: Any) -> Optional[str]:
+        return _optional_text(v)
 
-    @model_validator(mode="after")
-    def validate_dates(self) -> "InboundBatchItem":
-        if (
-            self.production_date is not None
-            and self.expiry_date is not None
-            and self.production_date > self.expiry_date
-        ):
-            raise ValueError(
-                "تاريخ الإنتاج لا يجوز أن يكون بعد تاريخ الصلاحية."
-            )
-        return self
+
 
 
 class InboundOptionsRequest(RequestModel):
@@ -1964,33 +1957,6 @@ class UpgradedInboundRequest(RequestModel):
     def normalize_text(cls, v: Any) -> Optional[str]:
         return _optional_text(v)
 
-    @model_validator(mode="after")
-    def validate_duplicate_batch_metadata(self) -> "UpgradedInboundRequest":
-        seen_batches: Dict[
-            tuple[int, str],
-            tuple[Optional[date], Optional[date]],
-        ] = {}
-        seen_batch_uoms: set[tuple[int, str, int]] = set()
-        for item in self.items:
-            batch_key = (item.product_variant_id, item.batch_number)
-            metadata = (item.production_date, item.expiry_date)
-            if batch_key in seen_batches and seen_batches[batch_key] != metadata:
-                raise ValueError(
-                    "The same product batch cannot carry conflicting dates."
-                )
-            seen_batches[batch_key] = metadata
-
-            line_key = (
-                item.product_variant_id,
-                item.batch_number,
-                item.uom_id,
-            )
-            if line_key in seen_batch_uoms:
-                raise ValueError(
-                    "The same product, batch and purchasing unit may appear only once."
-                )
-            seen_batch_uoms.add(line_key)
-        return self
 
 
 
@@ -2037,7 +2003,7 @@ class BatchDispositionMutationResponse(BaseModel):
     message: str
     batch_id: PositiveDbInt
     product_variant_id: PositiveDbInt
-    batch_number: str
+    batch_number: Optional[str] = None
     disposition: Literal["RELEASED", "QUARANTINED", "BLOCKED", "RECALLED"]
     disposition_reason: Optional[str] = None
     disposition_revision: PositiveDbInt
@@ -2350,7 +2316,7 @@ class UnifiedTransferOverrideReasonItem(BaseModel):
 
 class UnifiedTransferSourceBatchItem(BaseModel):
     id: int
-    batch_number: str
+    batch_number: Optional[str] = None
     production_date: Optional[date] = None
     expiry_date: Optional[date] = None
     available_quantity: NonNegativeQuantity
@@ -2414,7 +2380,7 @@ class WarehouseTransferLineItem(BaseModel):
     product_variant_id: int
     product_name: str
     batch_id: int
-    batch_number: str
+    batch_number: Optional[str] = None
     expiry_date: Optional[date] = None
     quantity: PositiveQuantity
     uom_id: PositiveDbInt
@@ -2457,7 +2423,7 @@ class StocktakeActiveSessionCursorPage(BaseModel):
 class StocktakeCycleBatchItem(BaseModel):
     id: int
     product_variant_id: int
-    batch_number: str
+    batch_number: Optional[str] = None
     production_date: Optional[date] = None
     expiry_date: Optional[date] = None
     is_active: bool

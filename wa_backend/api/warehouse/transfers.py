@@ -63,6 +63,7 @@ from schemas import (
     UnifiedTransferDecisionRequest,
 )
 from quantity import canonical_quantity
+from domains.product_tracking import public_batch_number
 from product_lifecycle import (
     INBOUND_NEW,
     REPLENISHMENT_NEW,
@@ -338,7 +339,7 @@ async def change_batch_disposition(
             "message": "تم تحديث disposition للدفعة دون تغيير Bucket الرصيد تلقائياً.",
             "batch_id": int(batch.id),
             "product_variant_id": int(batch.product_variant_id),
-            "batch_number": str(batch.batch_number),
+            "batch_number": public_batch_number(batch.batch_number),
             "disposition": str(batch.disposition),
             "disposition_reason": batch.disposition_reason,
             "disposition_revision": int(batch.disposition_revision),
@@ -1057,7 +1058,7 @@ async def get_unified_transfer_override_options(
         "batches": [
             {
                 "id": int(row.id),
-                "batch_number": str(row.batch_number),
+                "batch_number": public_batch_number(row.batch_number),
                 "production_date": row.production_date,
                 "expiry_date": row.expiry_date,
                 "available_quantity": canonical_quantity(row.available_quantity or 0),
@@ -1474,7 +1475,7 @@ async def get_unified_transfer_detail(
             "product_variant_id": int(line.product_variant_id),
             "product_name": str(product_name),
             "batch_id": int(line.batch_id),
-            "batch_number": str(batch_number),
+            "batch_number": public_batch_number(batch_number),
             "expiry_date": expiry_date,
             "quantity": canonical_quantity(line.quantity),
             "uom_id": int(base_uom_id),

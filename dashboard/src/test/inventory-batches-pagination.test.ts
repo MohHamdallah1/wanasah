@@ -9,6 +9,7 @@ const batch = (id: number) => ({
   expiry_date: "2030-01-01",
   disposition: "RELEASED",
   disposition_revision: 1,
+  allowed_disposition_targets: ["QUARANTINED", "BLOCKED", "RECALLED"],
   disposition_reason: null,
   days_to_expiry: 100,
   on_hand_quantity: "1",
@@ -51,6 +52,18 @@ describe("inventory batch pagination contract", () => {
     expect(parsed.batches.map((item) => item.batch_id)).toEqual([1, 2]);
     expect(parsed.next_cursor).toBe("cursor-2");
     expect(parsed.has_more).toBe(true);
+  });
+
+  it("accepts an anonymous public batch number and preserves a real lot", () => {
+    const anonymous = parseBatchDetailResponse(page({ batches: [{ ...batch(1), batch_number: null }] }));
+    expect(anonymous.batches[0]).toMatchObject({ batch_id: 1, batch_number: null });
+
+    const real = parseBatchDetailResponse(page({ batches: [{ ...batch(1), batch_number: "REAL-LOT-1" }] }));
+    expect(real.batches[0].batch_number).toBe("REAL-LOT-1");
+
+    expect(() => parseBatchDetailResponse(page({ batches: [{ ...batch(1), batch_number: "" }] }))).toThrow(
+      "LIVE_STOCK_BATCH_RESPONSE_INVALID",
+    );
   });
 
   it("accepts expiry as a restriction breakdown without changing disposition", () => {

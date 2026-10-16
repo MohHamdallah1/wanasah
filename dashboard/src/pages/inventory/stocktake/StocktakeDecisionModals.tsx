@@ -1,4 +1,6 @@
 import { Modal } from "@/components/ui/modal";
+import { useTranslation } from "react-i18next";
+import { formatPublicBatchNumber } from "../publicBatchNumber";
 import { absoluteQuantity, compareQuantity, formatQuantity } from "../quantity";
 import type { StocktakeReview } from "./types";
 
@@ -290,6 +292,7 @@ export function StocktakeVarianceModal({
   review,
   onClose,
 }: StocktakeVarianceModalProps) {
+  const { t } = useTranslation();
   return (
     <Modal
       isOpen={open}
@@ -321,7 +324,7 @@ export function StocktakeVarianceModal({
                   {line.product_name}
                 </span>
                 <span className="text-[11px] text-slate-400">
-                  {line.batch_number || "بدون دفعة"}
+                  {formatPublicBatchNumber(line.batch_number, t("inventoryLive.noLotSupplied"))}
                 </span>
               </div>
               <span

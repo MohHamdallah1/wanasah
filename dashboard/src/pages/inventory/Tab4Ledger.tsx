@@ -15,6 +15,7 @@ import {
 } from "./ledger/contracts";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "sonner";
+import { formatPublicBatchNumber } from "./publicBatchNumber";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 
 interface Props {
@@ -378,7 +379,7 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
                   <tr key={entry.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-3"><span className={`inline-flex px-2 py-1 rounded-lg text-[11px] font-black ${badge.bg} ${badge.text}`}>{badge.label}</span></td>
                     <td className="px-4 py-3 font-bold text-slate-800">{entry.product_name}</td>
-                    <td className="px-4 py-3 text-xs font-black text-slate-600">{entry.batch_number || "—"}</td>
+                    <td className="px-4 py-3 text-xs font-black text-slate-600">{formatPublicBatchNumber(entry.batch_number, t("inventoryLive.noLotSupplied"))}</td>
                     <td className="px-4 py-3 text-slate-500 font-semibold text-xs">
                       {entry.balance_before === null
                         ? "—"

@@ -63,10 +63,43 @@ export interface InboundItemPayload {
   quantity: Quantity;
   uom_id: number;
   unit_cost: string;
-  batch_number: string;
+  batch_number: string | null;
   production_date: string | null;
   expiry_date: string | null;
 }
+
+export type InboundField =
+  | "quantity"
+  | "uom_id"
+  | "unit_cost"
+  | "batch_number"
+  | "production_date"
+  | "expiry_date";
+
+export class InboundRowValidationError extends Error {
+  readonly code: string;
+  readonly row_id: string;
+  readonly field: InboundField;
+
+  constructor(code: string, rowId: string, field: InboundField) {
+    super(code);
+    this.name = "InboundRowValidationError";
+    this.code = code;
+    this.row_id = rowId;
+    this.field = field;
+  }
+}
+
+export const isInboundRowValidationError = (
+  error: unknown
+): error is InboundRowValidationError =>
+  error instanceof InboundRowValidationError;
+
+const inboundRowError = (
+  code: string,
+  rowId: string,
+  field: InboundField): InboundRowValidationError =>
+  new InboundRowValidationError(code, rowId, field);
 
 type CodedError = Error & { code: string };
 const codedError = (code: string): CodedError => {
@@ -207,7 +240,8 @@ export const inboundProductIds = (drafts: InboundDraftMap): number[] =>
             "0"
           ) > 0;
         } catch {
-          return false;
+          const entered = row.quantity.trim();
+          return entered !== "" && entered !== "0";
         }
       })
     )
@@ -220,7 +254,10 @@ export const buildInboundItems = (
   defaults: InboundDocumentDefaults = { batch_number: "" }
 ): InboundItemPayload[] => {
   const items: InboundItemPayload[] = [];
-  const seenBatchMetadata = new Map<string, string>();
+  const seenBatchMetadata = new Map<
+    string,
+    { production_date: string; expiry_date: string }
+  >();
   const seenBatchUoms = new Set<string>();
 
   for (const productId of inboundProductIds(drafts)) {
@@ -232,62 +269,179 @@ export const buildInboundItems = (
     const allowedUoms = new Set(variantOptions.uoms.map((uom) => uom.id));
 
     for (const row of drafts[String(productId)] ?? []) {
-      const rawQuantity = parseQuantity(row.quantity, "quantity", { allowZero: true });
+      let rawQuantity: Quantity;
+      try {
+        rawQuantity = parseQuantity(row.quantity, "quantity", {
+          allowZero: true,
+        });
+      } catch {
+        throw inboundRowError(
+          "INBOUND_QUANTITY_CONVERSION_INVALID",
+          row.row_id,
+          "quantity"
+        );
+      }
       if (compareQuantity(rawQuantity, "0") === 0) continue;
 
       const uomId = Number(row.uom_id || variantOptions.base_uom_id);
       if (!positiveId(uomId) || !allowedUoms.has(uomId)) {
-        throw codedError("INBOUND_UOM_REQUIRED");
+        throw inboundRowError(
+          "INBOUND_UOM_REQUIRED",
+          row.row_id,
+          "uom_id"
+        );
       }
       if (uomId === variantOptions.base_uom_id) {
-        validateVariantQuantity(
-          rawQuantity,
-          variant.quantity_scale,
-          variant.quantity_step,
-          "quantity"
+        try {
+          validateVariantQuantity(
+            rawQuantity,
+            variant.quantity_scale,
+            variant.quantity_step,
+            "quantity"
+          );
+        } catch {
+          throw inboundRowError(
+            "INBOUND_QUANTITY_CONVERSION_INVALID",
+            row.row_id,
+            "quantity"
+          );
+        }
+      }
+
+      let unitCost: string;
+      try {
+        unitCost = validMoney(row.unit_cost);
+      } catch {
+        throw inboundRowError(
+          "INBOUND_UNIT_COST_INVALID",
+          row.row_id,
+          "unit_cost"
         );
       }
 
-      const unitCost = validMoney(row.unit_cost);
-      const batch = row.batch_number.trim() || defaults.batch_number.trim();
-      if (!batch || batch.length > 100) {
-        throw codedError("INBOUND_BATCH_INVALID");
+      const enteredLot = row.batch_number.trim();
+      let batch: string | null = null;
+      if (variant.lot_control_mode === "REQUIRED") {
+        const requiredLot =
+          enteredLot || defaults.batch_number.trim();
+        if (!requiredLot) {
+          throw inboundRowError(
+            "INBOUND_LOT_REQUIRED",
+            row.row_id,
+            "batch_number"
+          );
+        }
+        if (requiredLot.length > 100) {
+          throw inboundRowError(
+            "INBOUND_BATCH_INVALID",
+            row.row_id,
+            "batch_number"
+          );
+        }
+        batch = requiredLot;
+      } else if (variant.lot_control_mode === "OPTIONAL") {
+        if (enteredLot.length > 100) {
+          throw inboundRowError(
+            "INBOUND_BATCH_INVALID",
+            row.row_id,
+            "batch_number"
+          );
+        }
+        batch = enteredLot || null;
+      }
+
+      const trackingVisible =
+        variant.lot_control_mode !== "NONE" ||
+        variant.expiry_control_mode !== "NONE";
+      const productionDate = trackingVisible
+        ? row.production_date
+        : "";
+      const expiryDate =
+        variant.expiry_control_mode === "NONE"
+          ? ""
+          : row.expiry_date;
+
+      if (!isoDate(productionDate, true)) {
+        throw inboundRowError(
+          "INBOUND_BATCH_DATES_INVALID",
+          row.row_id,
+          "production_date"
+        );
+      }
+      if (!isoDate(expiryDate, true)) {
+        throw inboundRowError(
+          "INBOUND_BATCH_DATES_INVALID",
+          row.row_id,
+          "expiry_date"
+        );
       }
       if (
-        !isoDate(row.production_date, true) ||
-        !isoDate(row.expiry_date, true) ||
-        (row.production_date && row.expiry_date && row.production_date > row.expiry_date)
+        productionDate &&
+        expiryDate &&
+        productionDate > expiryDate
       ) {
-        throw codedError("INBOUND_BATCH_DATES_INVALID");
+        throw inboundRowError(
+          "INBOUND_BATCH_DATES_INVALID",
+          row.row_id,
+          "expiry_date"
+         );
       }
-      if (variant.expiry_control_mode === "REQUIRED" && !row.expiry_date) {
-        throw codedError("INBOUND_EXPIRY_REQUIRED");
-      }
-      if (variant.expiry_control_mode === "NONE" && row.expiry_date) {
-        throw codedError("INBOUND_EXPIRY_NOT_ALLOWED");
+      if (
+        variant.expiry_control_mode === "REQUIRED" &&
+        !expiryDate
+      ) {
+        throw inboundRowError(
+          "INBOUND_EXPIRY_REQUIRED",
+          row.row_id,
+          "expiry_date"
+        );
       }
 
-      const batchKey = `${variant.id}|${batch}`;
-      const metadataKey = `${row.production_date}|${row.expiry_date}`;
-      const existingMetadata = seenBatchMetadata.get(batchKey);
-      if (existingMetadata !== undefined && existingMetadata !== metadataKey) {
-        throw codedError("INBOUND_BATCH_METADATA_CONFLICT");
-      }
-      seenBatchMetadata.set(batchKey, metadataKey);
+      if (batch !== null) {
+        const batchKey = `${variant.id}|${batch}`;
+        const metadata = {
+          production_date: productionDate,
+          expiry_date: expiryDate,
+        };
+        const existingMetadata =
+          seenBatchMetadata.get(batchKey);
+        if (
+          existingMetadata !== undefined &&
+          (existingMetadata.production_date !==
+            metadata.production_date ||
+            existingMetadata.expiry_date !==
+              metadata.expiry_date)
+        ) {
+          throw inboundRowError(
+            "INBOUND_BATCH_METADATA_CONFLICT",
+            row.row_id,
+            existingMetadata.production_date !==
+              metadata.production_date
+              ? "production_date"
+              : "expiry_date"
+          );
+        }
+        seenBatchMetadata.set(batchKey, metadata);
 
-      const uomKey = `${batchKey}|${uomId}`;
-      if (seenBatchUoms.has(uomKey)) {
-        throw codedError("INBOUND_DUPLICATE_BATCH_UOM_LINE");
+        const uomKey = `${batchKey}|${uomId}`;
+        if (seenBatchUoms.has(uomKey)) {
+          throw inboundRowError(
+            "INBOUND_DUPLICATE_BATCH_UOM_LINE",
+            row.row_id,
+            "uom_id"
+          );
+        }
+        seenBatchUoms.add(uomKey);
       }
-      seenBatchUoms.add(uomKey);
+
       items.push({
         product_variant_id: variant.id,
         quantity: rawQuantity,
         uom_id: uomId,
         unit_cost: unitCost,
         batch_number: batch,
-        production_date: row.production_date || null,
-        expiry_date: row.expiry_date || null,
+        production_date: productionDate || null,
+        expiry_date: expiryDate || null,
       });
       if (items.length > MAX_INBOUND_ITEMS) {
         throw codedError("INBOUND_TOO_MANY_LINES");
@@ -295,12 +449,16 @@ export const buildInboundItems = (
     }
   }
 
-  return items.sort(
-    (a, b) =>
-      a.product_variant_id - b.product_variant_id ||
-      a.batch_number.localeCompare(b.batch_number) ||
-      a.uom_id - b.uom_id
-  );
+  return items.sort((a, b) => {
+    const variantOrder =
+      a.product_variant_id - b.product_variant_id;
+    if (variantOrder !== 0) return variantOrder;
+    const batchOrder = (a.batch_number ?? "").localeCompare(
+      b.batch_number ?? ""
+    );
+    if (batchOrder !== 0) return batchOrder;
+    return a.uom_id - b.uom_id;
+  });
 };
 
 export const parseInboundOptions = (raw: unknown): InboundOptionsResponse => {

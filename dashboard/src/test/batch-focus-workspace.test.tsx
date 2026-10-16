@@ -96,6 +96,14 @@ describe("batch-first Phase 1 acceptance", () => {
     expect(mocks.fetch.mock.calls.every(([, init]) => init?.method !== "PUT" && init?.method !== "DELETE")).toBe(true);
   });
 
+  it("renders the public no-lot label while keeping batch-id workspace identity", async () => {
+    mockReads({ ...batchFocusPayload([batchSource(11, "Readable A", "WAREHOUSE", false)]), batch_number: null }, false);
+    const { i18n } = await mount();
+    expect(await screen.findByText(i18n.t("inventoryLive.noLotSupplied"))).toBeVisible();
+    expect(screen.getByText(i18n.t("batchFocus.singleSource", { source: "Readable A" }))).toBeVisible();
+    expect(mocks.fetch.mock.calls.some(([url]) => url === "/warehouse/batches/41/stock-sources")).toBe(true);
+  });
+
   it("rejects a mismatched batch/variant and consumes the hint once", async () => {
     mockReads({ ...batchFocusPayload(), product_variant_id: 119 });
     const { i18n, onConsumed } = await mount({ workspace: true });

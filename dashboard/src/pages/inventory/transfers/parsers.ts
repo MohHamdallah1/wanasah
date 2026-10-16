@@ -1,5 +1,7 @@
 import { isTransferStatus } from "./constants";
 import { parseQuantity } from "../quantity";
+import { parsePublicBatchNumber } from "../publicBatchNumber";
+import { parsePublicBatchDate } from "../publicBatchDate";
 import type {
   TransferLocationOption,
   TransferOverrideBatch,
@@ -44,6 +46,11 @@ const requiredString = (value: unknown, field: string): string => {
 
 const optionalString = (value: unknown): string | null =>
   typeof value === "string" ? value : null;
+const publicBatchNumber = (value: unknown, field: string): string | null =>
+  parsePublicBatchNumber(value, () => {
+    throw new Error(`Invalid ${field}.`);
+  });
+
 
 const optionalPositiveInt = (value: unknown): number | null =>
   typeof value === "number" &&
@@ -146,8 +153,10 @@ const parseTransferLine = (raw: unknown): WarehouseTransferLine => {
     ),
     product_name: requiredString(row.product_name, "product_name"),
     batch_id: positiveInt(row.batch_id, "batch_id"),
-    batch_number: requiredString(row.batch_number, "batch_number"),
-    expiry_date: requiredString(row.expiry_date, "expiry_date"),
+    batch_number: publicBatchNumber(row.batch_number, "batch_number"),
+    expiry_date: parsePublicBatchDate(row.expiry_date, () => {
+      throw new Error("Invalid expiry_date.");
+    }),
     quantity: parseQuantity(row.quantity, "quantity"),
     uom_id: positiveInt(row.uom_id, "uom_id"),
     fefo_override_reason_id: optionalPositiveInt(
@@ -293,9 +302,13 @@ const parseOverrideBatch = (raw: unknown): TransferOverrideBatch => {
 
   return {
     id: positiveInt(row.id, "batch.id"),
-    batch_number: requiredString(row.batch_number, "batch.batch_number"),
-    production_date: optionalString(row.production_date),
-    expiry_date: requiredString(row.expiry_date, "batch.expiry_date"),
+    batch_number: publicBatchNumber(row.batch_number, "batch.batch_number"),
+    production_date: parsePublicBatchDate(row.production_date, () => {
+      throw new Error("Invalid batch.production_date.");
+    }),
+    expiry_date: parsePublicBatchDate(row.expiry_date, () => {
+      throw new Error("Invalid batch.expiry_date.");
+    }),
     available_quantity: parseQuantity(row.available_quantity, "batch.available_quantity", { allowZero: true }),
     is_fefo_head: row.is_fefo_head,
   };
