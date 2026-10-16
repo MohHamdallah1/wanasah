@@ -1,0 +1,110 @@
+name: Inventory CP13 Batches presentation
+on:
+  push:
+    branches: [codex/cp13-batches-final-presentation-wave2]
+  pull_request:
+    branches: [integration/inventory-wave-2]
+    paths:
+      - 'dashboard/src/pages/inventory/TabBatches.tsx'
+      - 'dashboard/src/pages/inventory/batches/**'
+      - 'dashboard/src/test/inventory-cp13-batches-*'
+      - '.github/workflows/inventory-cp13-batches-presentation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: cp13-batches-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  presentation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: CP13 focused presentation
+        run: npx vitest run src/test/inventory-cp13-batches-presentation.test.tsx
+      - name: CP2 CP3 Batches regressions
+        run: >-
+          npx vitest run
+          src/test/inventory-cp2-batches-dashboard.test.tsx
+          src/test/inventory-cp3-batch-actions.test.tsx
+          src/test/inventory-batches-expiry-semantics.test.tsx
+          src/test/inventory-batches-pagination.test.ts
+          src/test/inventory-batch-disposition.test.ts
+          src/test/inventory-batch-stock-sources.test.ts
+          src/test/batch-focus-workspace.test.tsx
+          src/test/batch-terminal-actions.test.tsx
+          src/test/cp34-quality-durable.test.tsx
+      - name: CP6 CP12 regressions
+        run: >-
+          npx vitest run
+          src/test/inventory-cp6-policy-closure.test.tsx
+          src/test/inventory-cp6-minimum-stock-dashboard.test.tsx
+          src/test/inventory-cp12-i18n.test.tsx
+          src/test/inventory-cp12-accessibility.test.tsx
+          src/test/inventory-cp12-responsive-contract.test.ts
+      - name: TypeScript noEmit
+        run: npx tsc --noEmit
+      - name: ESLint changed frontend
+        run: >-
+          npx eslint
+          src/pages/inventory/TabBatches.tsx
+          src/pages/inventory/batches/BatchIndexFilters.tsx
+          src/pages/inventory/batches/BatchIndexSummary.tsx
+          src/pages/inventory/batches/BatchIndexTable.tsx
+          src/pages/inventory/batches/BatchDispositionManager.tsx
+          src/pages/inventory/batches/BatchIndexSignals.tsx
+          src/pages/inventory/batches/batchPresentation.ts
+          src/pages/inventory/batches/batchIndexI18n.ts
+          src/test/inventory-cp13-batches-presentation.test.tsx
+      - name: Production build
+        run: npm run build
+      - name: Install isolated browser acceptance dependency
+        run: npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Real Chromium AR EN desktop tablet phone and keyboard
+        run: node src/test/inventory-cp13-batches-browser.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cp13-batches-browser
+          path: dashboard/cp13-*.png
+          if-no-files-found: ignore
+  dynamic-scope:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Scope and whitespace against current Wave
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin integration/inventory-wave-2 --no-tags
+          git merge-base --is-ancestor 6e9264a8317575a636536ea02478ed1e85023c3f HEAD
+          base="$(git merge-base HEAD origin/integration/inventory-wave-2)"
+          echo "CP13_DYNAMIC_BASE=$base"
+          git diff --check "$base"...HEAD
+          git diff --name-status "$base"...HEAD
+          while IFS= read -r file; do
+            case "$file" in
+              dashboard/src/pages/inventory/TabBatches.tsx|dashboard/src/pages/inventory/batches/*|dashboard/src/test/inventory-cp13-batches-*|.github/workflows/inventory-cp13-batches-presentation.yml) ;;
+              *) echo "Out of CP13 ownership: $file"; exit 1 ;;
+            esac
+          done < <(git diff --name-only "$base"...HEAD)
+          test -z "$(git diff --diff-filter=D --name-only "$base"...HEAD)"
+          echo "CP13_SCOPE=PASS; NO_DELETIONS=PASS; BACKEND_AND_CP14_UNTOUCHED=PASS"

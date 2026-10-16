@@ -299,7 +299,7 @@ export function TabBatches({
       dir={i18n.dir()}
       className="inventory-batches-view min-h-0 flex-1 overflow-auto bg-slate-50/60 p-2 sm:p-3"
     >
-      <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-2.5">
+      <div className="mx-auto flex w-full min-w-0 max-w-[1800px] flex-col gap-2.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
             <h2 className="text-sm font-black text-slate-900">{text("title")}</h2>
@@ -330,6 +330,7 @@ export function TabBatches({
           </div>
         ) : null}
 
+        <section aria-label={text("title")} className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
         <BatchIndexFilters
           t={t}
           language={language}
@@ -364,10 +365,12 @@ export function TabBatches({
           loadingMore={batchIndex.loadingMore}
           continuationError={batchIndex.continuationError}
           canManageDisposition={canManageDisposition}
+          expiryWarningDays={expiryWarningDays}
           onRetry={() => void batchIndex.retryList()}
           onLoadMore={() => void batchIndex.loadMore()}
           onManage={openBatchAction}
         />
+        </section>
       </div>
 
       <BatchDispositionManager

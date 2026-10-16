@@ -62,7 +62,7 @@ export function BatchIndexFilters({
   return (
     <section
       aria-label={text("filters")}
-      className="rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm"
+      className="border-b border-slate-200 bg-white p-2.5"
     >
       <div className="relative mb-2">
         <Search
@@ -76,7 +76,7 @@ export function BatchIndexFilters({
           placeholder={text("searchPlaceholder")}
           aria-label={text("searchPlaceholder")}
           maxLength={200}
-          className="h-10 w-full rounded-lg border border-slate-200 bg-white ps-9 pe-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:font-medium placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+          className="h-9 w-full rounded-lg border border-slate-200 bg-white ps-9 pe-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:font-medium placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
         />
       </div>
 
