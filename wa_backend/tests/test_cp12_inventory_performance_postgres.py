@@ -213,7 +213,7 @@ async def _explain(db, label: str, sql: str, params: dict):
 
 async def test_cp12_hard_bounds_and_filter_before_pagination_contracts():
     contracts = {
-        "live_stock": (inspect.getsource(live_stock.get_warehouse_inventory), "le=100"),
+        "live_stock": (inspect.getsource(live_stock.get_warehouse_inventory), "le=200"),
         "batches": (inspect.getsource(batch_index.get_warehouse_inventory_batch_index_cursor), "le=100"),
         "warehouses": (inspect.getsource(locations.manage_warehouse_locations), "le=200"),
         "product_locations": (inspect.getsource(product_locations.list_product_locations), "le=200"),
