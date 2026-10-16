@@ -84,12 +84,13 @@ jobs:
         working-directory: dashboard
         run: npx tsc --noEmit
 
-      - name: ESLint CP14-D files
+      - name: ESLint touched CP14-D TypeScript
         working-directory: dashboard
         run: >-
           npx eslint
           e2e/inventory-cp14-device-ux.spec.ts
           e2e/inventory-cp14-device-ux.config.ts
+          src/pages/inventory/InventoryPage.tsx
 
       - name: Production Dashboard build
         working-directory: dashboard
@@ -123,6 +124,8 @@ jobs:
               ".github/workflows/inventory-cp14-device-ux.yml",
               "dashboard/e2e/inventory-cp14-device-ux.config.ts",
               "dashboard/e2e/inventory-cp14-device-ux.spec.ts",
+              "dashboard/src/pages/inventory/InventoryPage.tsx",
+              "dashboard/src/pages/inventory/cp14DeviceUx.css",
           }
           assert changed == expected, f"Unexpected CP14-D scope: {sorted(changed)}"
           print("CP14D_DYNAMIC_SCOPE=PASS")
