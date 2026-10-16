@@ -4855,6 +4855,7 @@ async def _seal_vehicle_inventory_reconciliation(
                 product_variant_id=product_variant_id,
                 stock_status=stock_status,
                 starting_quantity=Decimal("0"),
+                created_at=settled_at,
             )
             db_session.add(row)
         row.ending_quantity = ending_quantity
