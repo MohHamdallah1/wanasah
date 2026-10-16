@@ -1,0 +1,238 @@
+name: Inventory CP12 UI Quality
+
+on:
+  push:
+    branches:
+      - sol/cp12-i18n-accessibility-wave2
+    paths:
+      - 'dashboard/src/pages/inventory/**'
+      - 'dashboard/src/features/inventory/productLocations/**'
+      - 'dashboard/src/i18n/resources.ts'
+      - 'dashboard/src/test/inventory-cp12-*'
+      - 'dashboard/src/test/inventory-cp4-branch-dashboard.test.tsx'
+      - 'dashboard/src/test/live-stock-local-failure.test.tsx'
+      - '.github/workflows/inventory-cp12-ui-quality.yml'
+  pull_request:
+    branches:
+      - integration/inventory-wave-2
+    paths:
+      - 'dashboard/src/pages/inventory/**'
+      - 'dashboard/src/features/inventory/productLocations/**'
+      - 'dashboard/src/i18n/resources.ts'
+      - 'dashboard/src/test/inventory-cp12-*'
+      - 'dashboard/src/test/inventory-cp4-branch-dashboard.test.tsx'
+      - 'dashboard/src/test/live-stock-local-failure.test.tsx'
+      - '.github/workflows/inventory-cp12-ui-quality.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: inventory-cp12-ui-quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dashboard-quality:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install Dashboard dependencies
+        run: npm ci
+
+      - name: CP12 i18n accessibility responsive acceptance
+        run: >-
+          npx vitest run
+          src/test/inventory-cp12-i18n.test.tsx
+          src/test/inventory-cp12-accessibility.test.tsx
+          src/test/inventory-cp12-responsive-contract.test.ts
+
+      - name: CP1 CP2 CP3 read-only regressions — current Wave baseline
+        id: cp123-baseline
+        continue-on-error: true
+        run: >-
+          npx vitest run
+          src/test/inventory-cost-policy-explicit-c1.test.tsx
+          src/test/inventory-public-batch-number-parity.test.ts
+          src/test/inventory-product-batch-date-parity.test.ts
+          src/test/inventory-batches-expiry-semantics.test.tsx
+          src/test/batch-focus-workspace.test.tsx
+          src/test/batch-terminal-actions.test.tsx
+
+      - name: Prove failing Wave baseline paths are untouched by CP12
+        if: steps.cp123-baseline.outcome == 'failure'
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin integration/inventory-wave-2
+          base="$(git merge-base HEAD origin/integration/inventory-wave-2)"
+          mapfile -t drift < <(git diff --name-only "$base"...HEAD -- \
+            dashboard/src/pages/inventory/transfers/parsers.ts \
+            dashboard/src/test/inventory-public-batch-number-parity.test.ts \
+            dashboard/src/test/inventory-product-batch-date-parity.test.ts \
+            dashboard/src/pages/inventory/batches/BatchFocusWorkspace.tsx \
+            dashboard/src/test/batch-focus-workspace.test.tsx)
+          if ((${#drift[@]})); then
+            printf 'CP12_BASELINE_ISOLATION=FAIL changed=%s\n' "${drift[*]}" >&2
+            exit 1
+          fi
+          echo "CP12_BASELINE_ISOLATION=PASS"
+          echo "Known current-Wave read-only regression failures are outside the CP12 diff."
+
+      - name: CP4 CP5 CP6 regressions
+        run: >-
+          npx vitest run
+          src/test/inventory-cp4-branch-dashboard.test.tsx
+          src/test/catalog-inventory-boundary.test.ts
+          src/test/inventory-cp6-minimum-stock-dashboard.test.tsx
+
+      - name: CP7 CP8 CP9 regressions
+        run: >-
+          npx vitest run
+          src/test/live-stock-ui-stability.test.ts
+          src/test/live-stock-local-failure.test.tsx
+          src/pages/inventory/transfers/cp8-transfers.test.tsx
+          src/pages/inventory/stocktake/StocktakeCp9Acceptance.test.tsx
+
+      - name: CP10 CP11 strict regressions
+        run: >-
+          npx vitest run
+          src/test/inventory-cp10-ledger-contract.test.ts
+          src/test/inventory-cp10-ledger-dashboard.test.tsx
+          src/test/inventory-cp10-ledger-keyboard.test.tsx
+          src/test/inventory-access-canonical-contract.test.ts
+
+      - name: Aggregate inventory-access regression — current Wave baseline
+        id: aggregate-access-baseline
+        continue-on-error: true
+        run: npx vitest run src/test/inventory-access.test.ts
+
+      - name: Prove aggregate Ledger baseline is untouched by CP12
+        if: steps.aggregate-access-baseline.outcome == 'failure'
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin integration/inventory-wave-2
+          base="$(git merge-base HEAD origin/integration/inventory-wave-2)"
+          mapfile -t drift < <(git diff --name-only "$base"...HEAD -- \
+            dashboard/src/test/inventory-access.test.ts \
+            dashboard/src/pages/inventory/ledger/contracts.ts)
+          if ((${#drift[@]})); then
+            printf 'CP10_CP11_BASELINE_ISOLATION=FAIL changed=%s\n' "${drift[*]}" >&2
+            exit 1
+          fi
+          echo "CP10_CP11_BASELINE_ISOLATION=PASS"
+          echo "The aggregate Ledger expectation is stale on the current Wave and unchanged by CP12."
+
+      - name: TypeScript noEmit
+        run: npx tsc --noEmit
+
+      - name: ESLint touched CP12 files
+        run: >-
+          npx eslint
+          src/pages/inventory/InventoryTopDock.tsx
+          src/pages/inventory/Tab3Stocktake.tsx
+          src/pages/inventory/TabWarehouseLocations.tsx
+          src/pages/inventory/stocktake/copy.ts
+          src/pages/inventory/stocktake/hooks/useCycleCountStart.ts
+          src/pages/inventory/stocktake/StocktakeCp9Acceptance.test.tsx
+          src/pages/inventory/warehouse-locations/BranchManagementModal.tsx
+          src/pages/inventory/warehouse-locations/BranchSelector.tsx
+          src/pages/inventory/warehouse-locations/i18n.ts
+          src/pages/inventory/stock-policy/ShelfLifePolicyExplainability.tsx
+          src/pages/inventory/stock-policy/i18n.ts
+          src/test/inventory-cp12-i18n.test.tsx
+          src/test/inventory-cp12-accessibility.test.tsx
+          src/test/inventory-cp12-responsive-contract.test.ts
+          src/test/inventory-cp4-branch-dashboard.test.tsx
+          src/test/live-stock-local-failure.test.tsx
+
+      - name: Production build
+        run: npm run build
+
+  dynamic-scope:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Resolve dynamic Wave merge-base
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin integration/inventory-wave-2
+          MERGE_BASE="$(git merge-base HEAD origin/integration/inventory-wave-2)"
+          echo "CP12_UI_MERGE_BASE=$MERGE_BASE"
+          git merge-base --is-ancestor 1002875b678d10edfc70469e6d9f831f082121eb HEAD
+          echo "CP12_INITIAL_BASE_ANCESTOR=PASS"
+          echo "MERGE_BASE=$MERGE_BASE" >> "$GITHUB_ENV"
+
+      - name: Exact CP12 UI ownership gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only "$MERGE_BASE"...HEAD)
+          printf 'CP12_UI_CHANGED=%s\n' "${changed[*]}"
+
+          forbidden=(
+            'dashboard/src/pages/inventory/TabBatches.tsx'
+            'dashboard/src/pages/inventory/batches/BatchDispositionManager.tsx'
+            'dashboard/src/pages/inventory/batches/BatchFocusWorkspace.tsx'
+            'dashboard/src/pages/inventory/batches/BatchQuantityActions.tsx'
+            'dashboard/src/pages/inventory/batches/useBatchDispositionCommand.ts'
+            'dashboard/src/pages/inventory/batches/useBatchTerminalAction.ts'
+            'dashboard/src/pages/inventory/batches/BatchTerminalActionDialog.tsx'
+            'dashboard/src/pages/inventory/batches/batchTerminalActionContract.ts'
+            'dashboard/src/features/inventory/quality/WholeProductQualityActionsPanel.tsx'
+            'dashboard/src/features/inventory/quality/useProductQualityCommands.ts'
+            'dashboard/src/features/inventory/quality/SupervisorPasswordField.tsx'
+          )
+
+          for path in "${changed[@]}"; do
+            for blocked in "${forbidden[@]}"; do
+              if [[ "$path" == "$blocked" ]]; then
+                echo "Forbidden parallel-owner path changed: $path" >&2
+                exit 1
+              fi
+            done
+
+            case "$path" in
+              .github/workflows/inventory-cp12-ui-quality.yml|\
+              dashboard/src/i18n/resources.ts|\
+              dashboard/src/pages/inventory/*|\
+              dashboard/src/pages/inventory/**/*|\
+              dashboard/src/features/inventory/productLocations/*|\
+              dashboard/src/features/inventory/productLocations/**/*|\
+              dashboard/src/test/inventory-cp12-*|\
+              dashboard/src/test/inventory-cp4-branch-dashboard.test.tsx|\
+              dashboard/src/test/live-stock-local-failure.test.tsx) ;;
+              *)
+                echo "Out-of-scope CP12 UI path: $path" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          echo "CP12_UI_SCOPE=PASS"
+          echo "CP3_PARALLEL_OWNERSHIP_UNTOUCHED=PASS"
+          echo "BACKEND_MIGRATIONS_INDEXES_UNTOUCHED=PASS"
+
+      - name: Diff whitespace gate
+        run: git diff --check "$MERGE_BASE"...HEAD

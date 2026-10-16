@@ -4,14 +4,19 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Modal } from "@/components/ui/modal";
 import { apiErrorCode, apiErrorContext, apiErrorMessage } from "@/lib/apiErrors";
-import { resolveI18nLocale } from "@/lib/locale";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
-
 import { useInventoryAccess, useLocationCapabilities } from "@/hooks/useInventoryAccess";
 import { BranchManagementModal } from "./warehouse-locations/BranchManagementModal";
 import { BranchSelector } from "./warehouse-locations/BranchSelector";
 import { StockMinimumManager } from "./StockMinimumManager";
 import { QualityHandlingDestinationsCard } from "./warehouse-locations/QualityHandlingDestinationsCard";
+import {
+  formatInventoryDateTime,
+  formatInventoryInteger,
+  formatWarehouseDeactivationBlocker,
+  warehouseLocationsCopy,
+  type WarehouseOperatorIssue,
+} from "./warehouse-locations/i18n";
 
 interface WarehouseLocationItem {
   id: number;
@@ -43,11 +48,6 @@ interface WarehouseFormState {
   branch_id: number | null;
 }
 
-interface OperatorIssue {
-  title: string;
-  details: string[];
-}
-
 interface Props {
   selectedLocationId: number | null;
   onLocationsChanged: () => void | Promise<void>;
@@ -58,6 +58,7 @@ type FormMode = "create" | "edit";
 type StateAction = "activate" | "deactivate";
 
 const WAREHOUSE_CODE_RE = /^[A-Z0-9][A-Z0-9_-]*$/;
+const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30";
 
 type WarehouseLocationContractError = Error & { code: string };
 
@@ -68,31 +69,20 @@ const warehouseLocationContractError = (code: string): never => {
 };
 
 const asWarehousePage = (value: unknown): WarehouseLocationCursorPage => {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
     warehouseLocationContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
   }
 
   const page = value as Record<string, unknown>;
-  const rawItems: unknown[] =
-    Array.isArray(page.items)
-      ? page.items
-      : warehouseLocationContractError(
-          "WAREHOUSE_LOCATION_RESPONSE_INVALID"
-        );
+  const rawItems: unknown[] = Array.isArray(page.items)
+    ? page.items
+    : warehouseLocationContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
   if (rawItems.length > 200) {
     warehouseLocationContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
   }
 
   const items: WarehouseLocationItem[] = rawItems.map((raw) => {
-    if (
-      typeof raw !== "object" ||
-      raw === null ||
-      Array.isArray(raw)
-    ) {
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
       warehouseLocationContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
     }
 
@@ -115,18 +105,12 @@ const asWarehousePage = (value: unknown): WarehouseLocationCursorPage => {
       !name.trim() ||
       typeof code !== "string" ||
       !code.trim() ||
-      (
-        branchId !== null &&
-        (
-          typeof branchId !== "number" ||
-          !Number.isSafeInteger(branchId) ||
-          branchId <= 0
-        )
-      ) ||
-      (
-        branchName !== null &&
-        typeof branchName !== "string"
-      ) ||
+      (branchId !== null && (
+        typeof branchId !== "number" ||
+        !Number.isSafeInteger(branchId) ||
+        branchId <= 0
+      )) ||
+      (branchName !== null && typeof branchName !== "string") ||
       typeof isActive !== "boolean" ||
       typeof version !== "number" ||
       !Number.isSafeInteger(version) ||
@@ -152,25 +136,19 @@ const asWarehousePage = (value: unknown): WarehouseLocationCursorPage => {
     };
   });
 
-  const nextCursor =
-    typeof page.next_cursor === "string"
-      ? page.next_cursor
-      : page.next_cursor === null
-        ? null
-        : warehouseLocationContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
+  const nextCursor = typeof page.next_cursor === "string"
+    ? page.next_cursor
+    : page.next_cursor === null
+      ? null
+      : warehouseLocationContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
   const hasMore = page.has_more;
-  if (
-    typeof hasMore !== "boolean" ||
-    hasMore !== (nextCursor !== null)
-  ) {
+  if (typeof hasMore !== "boolean" || hasMore !== (nextCursor !== null)) {
     warehouseLocationContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
   }
 
   const total = page.total === null
     ? null
-    : typeof page.total === "number" &&
-        Number.isSafeInteger(page.total) &&
-        page.total >= 0
+    : typeof page.total === "number" && Number.isSafeInteger(page.total) && page.total >= 0
       ? page.total
       : warehouseLocationContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
 
@@ -200,46 +178,6 @@ const contextNumber = (context: Record<string, unknown> | null, key: string) => 
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 };
 
-const contextText = (context: Record<string, unknown> | null, key: string) => {
-  const value = context?.[key];
-  return typeof value === "string" && value.trim() ? value : null;
-};
-
-const formatDeactivationBlocker = (
-  context: Record<string, unknown> | null,
-  isArabic: boolean,
-): OperatorIssue => {
-  const type = contextText(context, "blocker_type") ?? "UNKNOWN";
-  const labels: Record<string, [string, string]> = {
-    INVENTORY_BALANCE: ["رصيد مخزني", "Inventory balance"],
-    OPEN_TRANSFER: ["حوالة غير نهائية", "Open transfer"],
-    INVENTORY_LOCK: ["قفل مخزني نشط", "Active inventory lock"],
-    OPEN_STOCKTAKE: ["جلسة جرد غير نهائية", "Open stocktake"],
-    PUBLISHED_OPERATIONAL_POLICY: ["سياسة تشغيل منشورة", "Published operational policy"],
-    OPEN_DISPATCH_ROUTE: ["خط سير غير نهائي", "Open dispatch route"],
-  };
-  const label = labels[type]?.[isArabic ? 0 : 1] ?? type;
-  const details: string[] = [];
-  const onHand = contextNumber(context, "on_hand_quantity");
-  const reserved = contextNumber(context, "reserved_quantity");
-  const reference = contextText(context, "reference_number");
-  const referenceId = contextNumber(context, "reference_id");
-  const policyId = contextNumber(context, "policy_id");
-  const policyRevision = contextNumber(context, "policy_revision");
-
-  if (onHand !== null) details.push(`${isArabic ? "المتاح" : "On hand"}: ${onHand}`);
-  if (reserved !== null) details.push(`${isArabic ? "المحجوز" : "Reserved"}: ${reserved}`);
-  if (reference) details.push(`${isArabic ? "المرجع" : "Reference"}: ${reference}`);
-  if (referenceId !== null) details.push(`${isArabic ? "معرف المرجع" : "Reference ID"}: ${referenceId}`);
-  if (policyId !== null) details.push(`${isArabic ? "معرف السياسة" : "Policy ID"}: ${policyId}`);
-  if (policyRevision !== null) details.push(`${isArabic ? "إصدار السياسة" : "Policy revision"}: ${policyRevision}`);
-
-  return {
-    title: isArabic ? `تعذر التعطيل: ${label}` : `Deactivation blocked: ${label}`,
-    details,
-  };
-};
-
 export function TabWarehouseLocations({
   selectedLocationId,
   onLocationsChanged,
@@ -247,42 +185,10 @@ export function TabWarehouseLocations({
 }: Props) {
   const authenticatedFetch = useAuthFetch();
   const { t, i18n } = useTranslation();
-  const locale = resolveI18nLocale(i18n);
-  const isArabic = locale.toLowerCase().startsWith("ar");
-  const dir = isArabic ? "rtl" : "ltr";
-  const copy = isArabic
-    ? {
-        add: "إضافة مستودع",
-        edit: "تعديل المستودع",
-        name: "اسم المستودع",
-        code: "كود المستودع",
-        deactivate: "تعطيل المستودع",
-        activate: "تفعيل المستودع",
-        warehouse: "المستودع",
-        deactivateReason: "سبب التعطيل - إجباري",
-        activateNote: "ملاحظة التفعيل - اختيارية",
-        confirmDeactivate: "تأكيد التعطيل",
-        confirmActivate: "تأكيد التفعيل",
-        versionChanged: "تغيرت بيانات المستودع. تم تحديث النسخة الحالية مع الإبقاء على مدخلاتك. راجعها ثم نفّذ العملية مرة أخرى.",
-        branchMissing: "الفرع المحدد لم يعد متاحاً. تم تحديث قائمة الفروع؛ اختر فرعاً متاحاً ثم أعد المحاولة.",
-        branchInactive: "الفرع المحدد غير نشط ولا يمكن إنشاء ارتباط جديد به. تم تحديث قائمة الفروع.",
-      }
-    : {
-        add: "Add warehouse",
-        edit: "Edit warehouse",
-        name: "Warehouse name",
-        code: "Warehouse code",
-        deactivate: "Deactivate warehouse",
-        activate: "Activate warehouse",
-        warehouse: "Warehouse",
-        deactivateReason: "Deactivation reason - required",
-        activateNote: "Activation note - optional",
-        confirmDeactivate: "Confirm deactivation",
-        confirmActivate: "Confirm activation",
-        versionChanged: "Warehouse data changed. The current version was refreshed while keeping your input. Review it and submit a fresh mutation deliberately.",
-        branchMissing: "The selected branch is no longer available. Branch options were refreshed; choose an available branch and retry.",
-        branchInactive: "The selected branch is inactive and cannot be used for a new association. Branch options were refreshed.",
-      };
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  const isArabic = (language ?? "").toLowerCase().startsWith("ar");
+  const dir = i18n.dir();
+  const copy = warehouseLocationsCopy(language);
   const loadFailedMessage = t("inventoryWarehouses.errors.loadFailed");
 
   const [items, setItems] = useState<WarehouseLocationItem[]>([]);
@@ -290,7 +196,7 @@ export function TabWarehouseLocations({
   const minimumStockAccess = useInventoryAccess(selectedLocationId);
   const canReadLocations = access.canAny("location.read");
   const canReadBranches = access.can("branch.read");
-  const canAt = useLocationCapabilities(items.map(item => item.id));
+  const canAt = useLocationCapabilities(items.map((item) => item.id));
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [cursor, setCursor] = useState<string | null>(null);
@@ -316,7 +222,7 @@ export function TabWarehouseLocations({
   const [stateReason, setStateReason] = useState("");
   const [stateRequestId, setStateRequestId] = useState(() => crypto.randomUUID());
   const [stateSubmitting, setStateSubmitting] = useState(false);
-  const [stateIssue, setStateIssue] = useState<OperatorIssue | null>(null);
+  const [stateIssue, setStateIssue] = useState<WarehouseOperatorIssue | null>(null);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -368,7 +274,7 @@ export function TabWarehouseLocations({
 
   const activeCount = useMemo(
     () => items.filter((item) => item.is_active).length,
-    [items]
+    [items],
   );
 
   const canManageMinimumStock =
@@ -408,8 +314,8 @@ export function TabWarehouseLocations({
   };
 
   const handleSave = async () => {
-    if (formMode === 'create' ? !access.can('location.create') :
-        !editingLocation || !canAt(editingLocation.id, 'location.update')) return;
+    if (formMode === "create" ? !access.can("location.create") :
+        !editingLocation || !canAt(editingLocation.id, "location.update")) return;
     const name = form.name.trim();
     const code = form.code.trim().toUpperCase();
 
@@ -459,7 +365,7 @@ export function TabWarehouseLocations({
         {
           method: formMode === "create" ? "POST" : "PATCH",
           body: JSON.stringify(mutationBody),
-        }
+        },
       );
 
       const response = asMutationResponse(raw);
@@ -507,7 +413,7 @@ export function TabWarehouseLocations({
   };
 
   const handleStateChange = async () => {
-    if (!stateLocation || !stateAction || !canAt(stateLocation.id, 'location.state')) return;
+    if (!stateLocation || !stateAction || !canAt(stateLocation.id, "location.state")) return;
 
     const reason = stateReason.trim();
     if (stateAction === "deactivate" && !reason) {
@@ -531,7 +437,7 @@ export function TabWarehouseLocations({
             expected_version: stateLocation.version,
             reason: reason || null,
           }),
-        }
+        },
       );
 
       const response = asMutationResponse(raw);
@@ -545,7 +451,7 @@ export function TabWarehouseLocations({
       const codeValue = apiErrorCode(error);
       const context = apiErrorContext(error);
       if (codeValue === "LOCATION_DEACTIVATION_BLOCKED") {
-        const issue = formatDeactivationBlocker(context, isArabic);
+        const issue = formatWarehouseDeactivationBlocker(context, language);
         setStateIssue(issue);
         toast.error(issue.title);
       } else if (codeValue === "LOCATION_VERSION_CONFLICT") {
@@ -559,12 +465,7 @@ export function TabWarehouseLocations({
         setStateIssue(issue);
         toast.error(issue.title);
       } else {
-        toast.error(
-          apiErrorMessage(
-            error,
-            t("inventoryWarehouses.errors.stateFailed")
-          )
-        );
+        toast.error(apiErrorMessage(error, t("inventoryWarehouses.errors.stateFailed")));
       }
     } finally {
       setStateSubmitting(false);
@@ -584,16 +485,20 @@ export function TabWarehouseLocations({
     setCursor(previous);
   };
 
+  const totalText = total === null ? "—" : formatInventoryInteger(total, language);
+  const activeText = formatInventoryInteger(activeCount, language);
+  const pageText = formatInventoryInteger(cursorHistory.length + 1, language);
+
   return (
-    <div className="inventory-view inventory-locations flex flex-col gap-4 min-h-0 flex-1">
-      <div className="glass-card inventory-section-header rounded-2xl p-4 flex items-center justify-between gap-4">
-        <div>
-          <h2 className="font-black text-slate-800 flex items-center gap-2">
-            <Building2 className="w-5 h-5 text-blue-600" />
-            إدارة المستودعات
+    <div dir={dir} className="inventory-view inventory-locations flex min-h-0 flex-1 flex-col gap-4">
+      <div className="glass-card inventory-section-header flex flex-wrap items-center justify-between gap-4 rounded-2xl p-4">
+        <div className="min-w-0">
+          <h2 className="flex items-center gap-2 break-words font-black text-slate-800">
+            <Building2 aria-hidden="true" className="h-5 w-5 shrink-0 text-blue-600" />
+            {copy.title}
           </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            {total !== null ? `${total} مستودع` : "—"} · {activeCount} فعال في الصفحة الحالية
+          <p className="mt-1 break-words text-xs text-slate-500">
+            {copy.summary(totalText, activeText)}
           </p>
         </div>
 
@@ -608,27 +513,30 @@ export function TabWarehouseLocations({
             <button
               type="button"
               onClick={() => setBranchManagerOpen(true)}
-              className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 font-bold text-sm flex items-center gap-2"
+              className={`flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 ${focusRing}`}
             >
-              <GitBranch className="w-4 h-4" />
-              إدارة الفروع
+              <GitBranch aria-hidden="true" className="h-4 w-4" />
+              <span className="break-words">{copy.manageBranches}</span>
             </button>
           )}
           <button
+            type="button"
             onClick={() => setRefreshKey((value) => value + 1)}
             disabled={loading || !canReadLocations}
-            className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 font-bold text-xs disabled:opacity-50"
-            title="تحديث"
+            className={`rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 disabled:opacity-50 ${focusRing}`}
+            title={copy.refresh}
+            aria-label={copy.refresh}
           >
-            <RefreshCcw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+            <RefreshCcw aria-hidden="true" className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </button>
           <button
+            type="button"
             disabled={!access.can("location.create")}
             onClick={openCreate}
-            className="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-sm flex items-center gap-2 disabled:opacity-50"
+            className={`flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50 ${focusRing}`}
           >
-            <Plus className="w-4 h-4" />
-            مستودع جديد
+            <Plus aria-hidden="true" className="h-4 w-4" />
+            <span className="break-words">{copy.newWarehouse}</span>
           </button>
         </div>
       </div>
@@ -637,29 +545,30 @@ export function TabWarehouseLocations({
 
       <div className="glass-card inventory-toolbar rounded-2xl p-4">
         <div className="relative">
-          <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Search aria-hidden="true" className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
             disabled={!canReadLocations}
-            placeholder="بحث بالاسم أو الكود (حرفان على الأقل)"
+            aria-label={copy.search}
+            placeholder={copy.search}
             maxLength={100}
-            className="w-full pr-10 pl-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50"
+            className={`w-full rounded-xl border border-slate-200 bg-white py-2.5 ps-10 pe-3 text-sm outline-none disabled:opacity-50 ${focusRing}`}
           />
         </div>
       </div>
 
-      <div className="glass-card inventory-data-panel rounded-2xl overflow-hidden min-h-0 flex-1">
-        <div className="overflow-auto h-full">
-          <table className="w-full text-sm text-right">
-            <thead className="bg-slate-50 sticky top-0 z-10">
+      <div className="glass-card inventory-data-panel min-h-0 flex-1 overflow-hidden rounded-2xl">
+        <div className="h-full overflow-x-auto overflow-y-auto">
+          <table className={`w-full min-w-[760px] text-sm ${isArabic ? "text-right" : "text-left"}`}>
+            <thead className="sticky top-0 z-10 bg-slate-50">
               <tr>
-                <th className="p-3">المستودع</th>
-                <th className="p-3">الكود</th>
-                <th className="p-3">الفرع</th>
-                <th className="p-3">الحالة</th>
-                <th className="p-3">آخر تحديث</th>
-                <th className="p-3 text-center">إجراءات</th>
+                <th className="p-3">{copy.warehouse}</th>
+                <th className="p-3">{copy.code}</th>
+                <th className="p-3">{copy.branch}</th>
+                <th className="p-3">{copy.status}</th>
+                <th className="p-3">{copy.updated}</th>
+                <th className="p-3 text-center">{copy.actions}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -667,47 +576,53 @@ export function TabWarehouseLocations({
                 <tr key={location.id} className="hover:bg-slate-50/70">
                   <td className="p-3 font-bold text-slate-800">{location.name}</td>
                   <td className="p-3 font-mono text-xs text-slate-600">{location.code}</td>
-                  <td className="p-3 text-slate-600">{location.branch_name || "غير مرتبط"}</td>
+                  <td className="p-3 text-slate-600">{location.branch_name || copy.unassigned}</td>
                   <td className="p-3">
-                    <span className={`px-2 py-1 rounded-lg text-xs font-bold ${
+                    <span className={`rounded-lg px-2 py-1 text-xs font-bold ${
                       location.is_active
                         ? "bg-emerald-50 text-emerald-700"
                         : "bg-slate-100 text-slate-500"
                     }`}>
-                      {location.is_active ? "فعال" : "متوقف"}
+                      {location.is_active ? copy.active : copy.inactive}
                     </span>
                   </td>
                   <td className="p-3 text-xs text-slate-500">
-                    {new Date(location.updated_at).toLocaleString(locale)}
+                    {formatInventoryDateTime(location.updated_at, language)}
                   </td>
                   <td className="p-3">
                     <div className="flex justify-center gap-2">
                       <button
+                        type="button"
                         disabled={!canAt(location.id, "location.update")}
                         onClick={() => openEdit(location)}
-                        className="p-2 rounded-lg border border-slate-200 text-slate-600 hover:text-blue-600 disabled:opacity-50"
-                        title="تعديل"
+                        className={`rounded-lg border border-slate-200 p-2 text-slate-600 hover:text-blue-600 disabled:opacity-50 ${focusRing}`}
+                        title={copy.editAction}
+                        aria-label={`${copy.editAction}: ${location.name}`}
                       >
-                        <Pencil className="w-4 h-4" />
+                        <Pencil aria-hidden="true" className="h-4 w-4" />
                       </button>
 
                       {location.is_active ? (
                         <button
+                          type="button"
                           disabled={!canAt(location.id, "location.state")}
                           onClick={() => openStateAction(location, "deactivate")}
-                          className="p-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
-                          title="تعطيل"
+                          className={`rounded-lg border border-red-200 p-2 text-red-600 hover:bg-red-50 disabled:opacity-50 ${focusRing}`}
+                          title={copy.deactivateAction}
+                          aria-label={`${copy.deactivateAction}: ${location.name}`}
                         >
-                          <PowerOff className="w-4 h-4" />
+                          <PowerOff aria-hidden="true" className="h-4 w-4" />
                         </button>
                       ) : (
                         <button
+                          type="button"
                           disabled={!canAt(location.id, "location.state")}
                           onClick={() => openStateAction(location, "activate")}
-                          className="p-2 rounded-lg border border-emerald-200 text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
-                          title="تفعيل"
+                          className={`rounded-lg border border-emerald-200 p-2 text-emerald-600 hover:bg-emerald-50 disabled:opacity-50 ${focusRing}`}
+                          title={copy.activateAction}
+                          aria-label={`${copy.activateAction}: ${location.name}`}
                         >
-                          <Power className="w-4 h-4" />
+                          <Power aria-hidden="true" className="h-4 w-4" />
                         </button>
                       )}
                     </div>
@@ -719,10 +634,10 @@ export function TabWarehouseLocations({
                 <tr>
                   <td colSpan={6} className="p-12 text-center text-slate-400">
                     {search
-                      ? "لا توجد مستودعات مطابقة للبحث."
+                      ? copy.emptySearch
                       : access.can("location.create")
-                        ? "لم تُنشئ الشركة أي مستودع بعد. ابدأ بإنشاء مستودع من زر الإضافة."
-                        : "لا توجد مستودعات متاحة لحسابك."}
+                        ? copy.emptyCreate
+                        : copy.emptyNoAccess}
                   </td>
                 </tr>
               )}
@@ -731,22 +646,32 @@ export function TabWarehouseLocations({
         </div>
       </div>
 
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-slate-500">الصفحة {cursorHistory.length + 1}</span>
-        <div className="flex gap-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className="min-w-0 break-words text-xs text-slate-500">{copy.page(pageText)}</span>
+        <div className="flex shrink-0 gap-2">
           <button
+            type="button"
             onClick={handlePrevious}
             disabled={cursorHistory.length === 0 || loading || !canReadLocations}
-            className="px-3 py-2 rounded-xl border border-slate-200 bg-white disabled:opacity-40"
+            className={`rounded-xl border border-slate-200 bg-white px-3 py-2 disabled:opacity-40 ${focusRing}`}
+            title={copy.previous}
+            aria-label={copy.previous}
           >
-            <ChevronRight className="w-4 h-4" />
+            {isArabic
+              ? <ChevronRight aria-hidden="true" className="h-4 w-4" />
+              : <ChevronLeft aria-hidden="true" className="h-4 w-4" />}
           </button>
           <button
+            type="button"
             onClick={handleNext}
             disabled={!nextCursor || loading || !canReadLocations}
-            className="px-3 py-2 rounded-xl border border-slate-200 bg-white disabled:opacity-40"
+            className={`rounded-xl border border-slate-200 bg-white px-3 py-2 disabled:opacity-40 ${focusRing}`}
+            title={copy.next}
+            aria-label={copy.next}
           >
-            <ChevronLeft className="w-4 h-4" />
+            {isArabic
+              ? <ChevronLeft aria-hidden="true" className="h-4 w-4" />
+              : <ChevronRight aria-hidden="true" className="h-4 w-4" />}
           </button>
         </div>
       </div>
@@ -766,28 +691,28 @@ export function TabWarehouseLocations({
             void handleSave();
           }}
         >
-          <div>
-            <label className="text-xs font-bold text-slate-600">{copy.name}</label>
+          <label className="block text-xs font-bold text-slate-600">
+            {copy.name}
             <input
               autoFocus
               value={form.name}
               onChange={(event) => updateForm({ name: event.target.value })}
               maxLength={150}
-              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/20"
+              className={`mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none ${focusRing}`}
             />
-          </div>
+          </label>
 
-          <div>
-            <label className="text-xs font-bold text-slate-600">{copy.code}</label>
+          <label className="block text-xs font-bold text-slate-600">
+            {copy.warehouseCode}
             <input
               value={form.code}
               onChange={(event) => updateForm({ code: event.target.value.toUpperCase() })}
               maxLength={50}
               dir="ltr"
-              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-mono outline-none focus:ring-2 focus:ring-blue-500/20"
-              placeholder="AMMAN-01"
+              className={`mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-mono outline-none ${focusRing}`}
+              placeholder={copy.codePlaceholder}
             />
-          </div>
+          </label>
 
           <BranchSelector
             value={form.branch_id}
@@ -807,7 +732,7 @@ export function TabWarehouseLocations({
           <button
             type="submit"
             disabled={formSubmitting}
-            className="w-full py-3 rounded-xl bg-blue-600 text-white font-bold disabled:opacity-50"
+            className={`w-full rounded-xl bg-blue-600 py-3 font-bold text-white disabled:opacity-50 ${focusRing}`}
           >
             {formSubmitting ? t("common.saving") : t("common.save")}
           </button>
@@ -845,14 +770,12 @@ export function TabWarehouseLocations({
             void handleStateChange();
           }}
         >
-          <p className="text-sm text-slate-600">
+          <p className="break-words text-sm text-slate-600">
             {copy.warehouse}: <span className="font-bold">{stateLocation?.name}</span>
           </p>
 
-          <div>
-            <label className="text-xs font-bold text-slate-600">
-              {stateAction === "deactivate" ? copy.deactivateReason : copy.activateNote}
-            </label>
+          <label className="block text-xs font-bold text-slate-600">
+            {stateAction === "deactivate" ? copy.deactivateReason : copy.activateNote}
             <textarea
               autoFocus
               value={stateReason}
@@ -862,13 +785,13 @@ export function TabWarehouseLocations({
                 setStateRequestId(crypto.randomUUID());
               }}
               maxLength={1000}
-              className="mt-1 w-full min-h-28 rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/20"
+              className={`mt-1 min-h-28 w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none ${focusRing}`}
             />
-          </div>
+          </label>
 
           {stateIssue ? (
             <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-              <p className="font-black">{stateIssue.title}</p>
+              <p className="break-words font-black">{stateIssue.title}</p>
               {stateIssue.details.length ? (
                 <ul className="mt-2 list-disc space-y-1 ps-5 font-semibold">
                   {stateIssue.details.map((detail) => <li key={detail}>{detail}</li>)}
@@ -880,7 +803,7 @@ export function TabWarehouseLocations({
           <button
             type="submit"
             disabled={stateSubmitting}
-            className={`w-full py-3 rounded-xl text-white font-bold disabled:opacity-50 ${
+            className={`w-full rounded-xl py-3 font-bold text-white disabled:opacity-50 ${focusRing} ${
               stateAction === "deactivate" ? "bg-red-600" : "bg-emerald-600"
             }`}
           >
