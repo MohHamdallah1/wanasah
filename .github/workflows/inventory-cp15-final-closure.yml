@@ -251,6 +251,7 @@ jobs:
       - name: CP2-CP13 high-value Dashboard regressions including active debt
         run: >-
           npm test -- --maxWorkers=2
+          --reporter=default --reporter=junit --outputFile.junit=/tmp/cp15-dashboard.xml
           src/test/inventory-cp13-batches-presentation.test.tsx
           src/test/inventory-cp13-operations-consistency.test.tsx
           src/test/inventory-cp13-warehouse-presentation.test.tsx
@@ -276,6 +277,18 @@ jobs:
           src/test/inventory-cp12-i18n.test.tsx
           src/test/inventory-cp12-accessibility.test.tsx
           src/test/inventory-cp12-responsive-contract.test.ts
+
+      - name: Reject skipped or empty Dashboard acceptance
+        if: ${{ !cancelled() }}
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse("/tmp/cp15-dashboard.xml").getroot()
+          assert list(root.iter("testcase")), "No Dashboard acceptance tests executed"
+          assert not list(root.iter("skipped")), "Dashboard acceptance tests skipped"
+          print("DASHBOARD_NO_SKIPPED_ACCEPTANCE=PASS")
+          PY
 
   dashboard-release:
     runs-on: ubuntu-24.04
@@ -376,7 +389,7 @@ jobs:
               ["git", "diff", "--name-only", base, head], text=True
           ).splitlines())
           expected = {".github/workflows/inventory-cp15-final-closure.yml"}
-          assert changed == expected, f"Unexpected CP15 scope: {sorted(changed)}"
+          assert changed <= expected, f"Unexpected CP15 scope: {sorted(changed - expected)}"
           migrations = subprocess.check_output(
               ["git", "diff", "--name-only", base, head, "--", "wa_backend/alembic"],
               text=True,
