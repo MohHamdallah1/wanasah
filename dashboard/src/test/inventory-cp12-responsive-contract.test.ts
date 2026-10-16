@@ -44,6 +44,7 @@ describe("CP12 Inventory responsive and RTL/LTR contracts", () => {
   it("keeps Warehouse/Branch labels usable at phone width with logical RTL/LTR spacing", () => {
     const warehouses = read(inventoryFiles.warehouses);
     const branches = read("src/pages/inventory/warehouse-locations/BranchManagementModal.tsx");
+    const selector = read("src/pages/inventory/warehouse-locations/BranchSelector.tsx");
 
     expect(warehouses).toContain("flex-wrap");
     expect(warehouses).toContain("break-words");
@@ -51,15 +52,21 @@ describe("CP12 Inventory responsive and RTL/LTR contracts", () => {
     expect(branches).toContain("flex-col gap-3 sm:flex-row");
     expect(branches).toContain("start-3");
     expect(branches).toContain("ps-10");
+    expect(selector).toContain("start-3");
+    expect(selector).toContain("ps-10 pe-3");
   });
 
-  it("keeps explicit direction authority on the Inventory shell and direction-sensitive child surfaces", () => {
-    const shell = read(inventoryFiles.shell);
+  it("keeps global direction authoritative while direction-sensitive Inventory surfaces inherit or declare it deliberately", () => {
+    const i18nRuntime = read("src/i18n/index.ts");
+    const topDock = read("src/pages/inventory/InventoryTopDock.tsx");
     const stocktake = read(inventoryFiles.stocktake);
     const warehouses = read(inventoryFiles.warehouses);
     const access = read(inventoryFiles.access);
 
-    expect(shell).toContain("dir={i18n.dir()}");
+    expect(i18nRuntime.replace(/\s+/g, " ")).toContain("document.documentElement.dir = i18n.dir(language);");
+    expect(topDock).toContain('closest<HTMLElement>("[dir]")');
+    expect(topDock).toContain('event.key === "ArrowRight"');
+    expect(topDock).toContain('event.key === "ArrowLeft"');
     expect(stocktake).toContain("dir={dir}");
     expect(warehouses).toContain("dir={dir}");
     expect(access).toContain("dir={i18n.dir()}");
@@ -90,7 +97,8 @@ describe("CP12 Inventory responsive and RTL/LTR contracts", () => {
     expect(sources.inbound).toContain("useTranslation");
     expect(sources.transfers).toContain("useTransferTranslation");
     expect(sources.stocktake).toContain("useStocktakeCopy");
-    expect(sources.ledger).toContain("useLedgerTranslation");
+    expect(sources.ledger).toContain("ledgerText");
+    expect(sources.ledger).toContain("ledgerI18n");
     expect(sources.warehouses).toContain("warehouseLocationsCopy");
     expect(sources.access).toContain("useInventoryAccessCopy");
 
