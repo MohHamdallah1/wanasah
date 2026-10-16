@@ -1,5 +1,5 @@
 name: Inventory CP9 Stocktake acceptance
-# Clean final-head CP9 proof gate after canonical access fixture alignment.
+# Clean final-head CP9 proof gate after actor fixture stabilization.
 
 on:
   push:
