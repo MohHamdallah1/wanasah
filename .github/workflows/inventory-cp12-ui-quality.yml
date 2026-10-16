@@ -9,6 +9,7 @@ on:
       - 'dashboard/src/features/inventory/productLocations/**'
       - 'dashboard/src/i18n/resources.ts'
       - 'dashboard/src/test/inventory-cp12-*'
+      - 'dashboard/src/test/inventory-cp4-branch-dashboard.test.tsx'
       - '.github/workflows/inventory-cp12-ui-quality.yml'
   pull_request:
     branches:
@@ -18,6 +19,7 @@ on:
       - 'dashboard/src/features/inventory/productLocations/**'
       - 'dashboard/src/i18n/resources.ts'
       - 'dashboard/src/test/inventory-cp12-*'
+      - 'dashboard/src/test/inventory-cp4-branch-dashboard.test.tsx'
       - '.github/workflows/inventory-cp12-ui-quality.yml'
   workflow_dispatch:
 
@@ -131,6 +133,7 @@ jobs:
           src/test/inventory-cp12-i18n.test.tsx
           src/test/inventory-cp12-accessibility.test.tsx
           src/test/inventory-cp12-responsive-contract.test.ts
+          src/test/inventory-cp4-branch-dashboard.test.tsx
 
       - name: Production build
         run: npm run build
@@ -190,7 +193,8 @@ jobs:
               dashboard/src/pages/inventory/**/*|\
               dashboard/src/features/inventory/productLocations/*|\
               dashboard/src/features/inventory/productLocations/**/*|\
-              dashboard/src/test/inventory-cp12-*) ;;
+              dashboard/src/test/inventory-cp12-*|\
+              dashboard/src/test/inventory-cp4-branch-dashboard.test.tsx) ;;
               *)
                 echo "Out-of-scope CP12 UI path: $path" >&2
                 exit 1
