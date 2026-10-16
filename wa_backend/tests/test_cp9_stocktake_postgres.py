@@ -66,9 +66,13 @@ class ScopedAccess:
         self.grants = {code: set(ids) for code, ids in grants.items()}
         self.require_calls: list[tuple[str, int | None]] = []
 
-    async def require(self, code: str, *, location_id: int | None = None):
+    async def require(self, code: str, location_id: int | None = None, *, any_location: bool = False):
         self.require_calls.append((code, location_id))
         allowed = self.grants.get(code, set())
+        if any_location:
+            if not allowed:
+                raise HTTPException(status_code=403, detail="Forbidden")
+            return
         if location_id is None or location_id not in allowed:
             raise HTTPException(status_code=403, detail="Forbidden")
 
