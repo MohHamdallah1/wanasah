@@ -222,6 +222,11 @@ class CP9StocktakePostgresAcceptance(unittest.IsolatedAsyncioTestCase):
         )
         await self.db.commit()
 
+        # Durable replay rollback must not expire the legacy actor test fixtures.
+        self.actor_a = SimpleNamespace(id=int(actor_a.id), username=str(actor_a.username), full_name=str(actor_a.full_name), password_hash=password_hash)
+        self.actor_a2 = SimpleNamespace(id=int(actor_a2.id), username=str(actor_a2.username), full_name=str(actor_a2.full_name), password_hash=password_hash)
+        self.actor_b = SimpleNamespace(id=int(actor_b.id), username=str(actor_b.username), full_name=str(actor_b.full_name), password_hash=password_hash)
+
         all_a = {self.a1, self.a2, self.empty, self.va_location}
         self.access_a_all = ScopedAccess(self.db, self.company_a, {
             "location.read": all_a,
