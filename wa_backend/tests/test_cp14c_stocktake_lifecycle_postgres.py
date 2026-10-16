@@ -230,8 +230,9 @@ async def _count(db, actor, session_id: int, actual: Decimal):
     sheet = await stocktake.get_stocktake_count_sheet(
         session_id, db=db, access=actor.access(db), legacy_actor=actor.operational_driver
     )
-    assert len(sheet["lines"]) == 1
-    line = sheet["lines"][0]
+    lines = sheet if isinstance(sheet, list) else sheet["lines"]
+    assert len(lines) == 1
+    line = lines[0]
     command = StocktakeCountCommand(
         request_id=uuid4(),
         items=[{
@@ -281,7 +282,6 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
     admin_engine = create_async_engine(admin_url, poolclass=NullPool)
 
     try:
-        # Restricted runtime identity + clean Alembic bootstrap proof.
         async with runtime_engine.connect() as connection:
             identity = (
                 await connection.execute(
@@ -332,7 +332,6 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             "dispatch.execute",
         }
 
-        # Synthetic overlapping tenants. Setup is fixture-only; operational changes below use APIs/services.
         async with AsyncSession(admin_engine, expire_on_commit=False) as seed:
             await _ensure_permissions(seed, needed)
             uom = await seed.scalar(select(UOM).where(UOM.code == "EACH"))
@@ -493,7 +492,6 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 ))
 
             a, b = tenants
-            # Full A operator: exact location grants, not Owner/admin authority.
             common_a1 = STOCKTAKE_CODES + (
                 "inventory.read", "ledger.read", "location.read", "location.state",
                 "transfer.read", "transfer.send", "transfer.cancel", "inventory.fefo_override",
@@ -527,8 +525,6 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 location_id=a.a1,
                 codes=("inventory.read", "location.read", "stocktake.read", "stocktake.count", "stocktake.recount"),
             )
-
-            # B gets real ordinary authority too; A must remain unable to cross the tenant seam.
             await _grant_location(
                 seed, company_id=b.company_id, driver_id=b.operator.driver_id,
                 location_id=b.a1,
@@ -541,7 +537,6 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             )
             await seed.commit()
 
-        # Opening stock is authoritative movement history, never a direct balance patch.
         async with _runtime_session(runtime_engine, a.company_id) as db:
             opening_a1 = await apply_inventory_movement(
                 db,
@@ -618,7 +613,6 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             _, b_session = await _start(db, b.operator, b.a1)
             b_session_id = int(b_session["session_id"])
 
-        # Canonical authority: ordinary works; denied and exact A1-only scope fail closed.
         async with _runtime_session(runtime_engine, a.company_id) as db:
             assert a.operator.context.is_company_owner is False
             await a.operator.access(db).require("inventory.read", a.a1)
@@ -658,7 +652,6 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             assert foreign_finalize.value.status_code == 404
             _opaque(foreign_finalize.value, b_session_id)
 
-        # A1 canonical Start -> Count -> Variance -> Review -> Recount -> Approve.
         async with _runtime_session(runtime_engine, a.company_id) as db:
             start_command, started = await _start(db, a.operator, a.a1)
             session_id = int(started["session_id"])
@@ -753,7 +746,6 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             assert Decimal(stocktake_evidence[0]["quantity"]) == Decimal("0.250")
             assert stocktake_evidence[0]["source_location_id"] == a.a1
 
-        # Rollback on posting failure: no partial movement/balance/Ledger state, lock remains until canonical cancel.
         async with _runtime_session(runtime_engine, a.company_id) as db:
             _, rollback_started = await _start(db, a.operator, a.a2)
             rollback_session = int(rollback_started["session_id"])
@@ -791,7 +783,6 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             )
             assert cancelled["status"] == "CANCELLED"
 
-        # Separate cancel journey + current-authority recheck before idempotent replay.
         async with _runtime_session(runtime_engine, a.company_id) as db:
             _, cancel_started = await _start(db, a.operator, a.a2)
             cancel_session = int(cancel_started["session_id"])
@@ -828,7 +819,6 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             )
             assert cancelled["status"] == "CANCELLED"
 
-        # Competing finalization on A2: exactly one terminal winner.
         async with _runtime_session(runtime_engine, a.company_id) as db:
             await apply_inventory_movement(
                 db,
@@ -869,7 +859,6 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
         loser = next(result for result in race if not isinstance(result, dict))
         assert isinstance(loser, HTTPException) and loser.status_code == 409
 
-        # VEHICLE_RECON candidate isolation + real correction.
         async with _runtime_session(runtime_engine, a.company_id) as db:
             candidates = await stocktake.list_vehicle_recon_candidates(
                 a.a1, None, None, 50, db, a.operator.access(db)
@@ -915,7 +904,6 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             assert vehicle_movement.reference_type == "DRIVER_SURPLUS"
             assert Decimal(vehicle_movement.quantity) == Decimal("0.250")
 
-            # Exact Decimal reconciliation across A1 + VA.
             a1_balance = (await _balance(db, a.company_id, a.a1, a.variant, a.batch))[0]
             va_balance = (await _balance(db, a.company_id, a.vehicle_location, a.variant, a.batch))[0]
             opening_total = Decimal("10.125") + Decimal("5.250")
@@ -930,13 +918,11 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 ("CP14C_OPENING", Decimal("5.250")),
             ]
 
-        # CP14.7 independent blocker sequence on A1.
         async with _runtime_session(runtime_engine, a.company_id) as db:
             with pytest.raises(HTTPException) as stock_blocked:
                 await _deactivate(db, a, expected_version=1)
             _blocker(stock_blocked.value, "INVENTORY_BALANCE")
 
-            # Reservation safety was proven through Stocktake; release it canonically before transfer.
             await apply_inventory_movement(
                 db,
                 company_id=a.company_id,
@@ -988,7 +974,6 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 Decimal("0"), Decimal("0")
             )
 
-        # Isolate OPEN_STOCKTAKE from INVENTORY_LOCK using a fixture session; resolve via canonical cancel.
         async with _runtime_session(runtime_engine, a.company_id) as db:
             blocker_session = StocktakeSession(
                 company_id=a.company_id,
@@ -1010,7 +995,6 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             )
             assert cancelled["status"] == "CANCELLED"
 
-        # Published destination policy blocker; supersede it canonically with an A2-only policy.
         async with _runtime_session(runtime_engine, a.company_id) as db:
             draft = await transfer_policy.save_transfer_destination_policy(
                 TransferDestinationPolicySaveRequest(
@@ -1056,7 +1040,6 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             old_policy = await db.get(TenantOperationalPolicy, draft["policy"]["id"])
             assert old_policy is not None and old_policy.status == "SUPERSEDED"
 
-        # Dispatch source blocker and canonical close endpoint.
         async with _runtime_session(runtime_engine, a.company_id) as db:
             route = DispatchRoute(
                 company_id=a.company_id,
@@ -1081,7 +1064,6 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             )
             assert closed["status"] == "closed"
 
-        # Final lifecycle transition, projection cleanup, branch/relation invariants, foreign tenant unchanged.
         async with _runtime_session(runtime_engine, a.company_id) as db:
             before_branch = await db.get(Branch, a.branch)
             assert before_branch is not None and before_branch.is_active is True
