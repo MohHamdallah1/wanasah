@@ -1,0 +1,40 @@
+name: CP9 register supplier metadata
+
+on:
+  push:
+    branches:
+      - sol/cp9-stocktake-full-closure-wave2
+
+permissions:
+  contents: write
+
+jobs:
+  adjust:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: sol/cp9-stocktake-full-closure-wave2
+      - name: Register Supplier SQLAlchemy metadata
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          pg = Path('wa_backend/tests/test_cp9_stocktake_postgres.py')
+          s = pg.read_text(encoding='utf-8')
+          anchor = 'from domains.sales_evidence import models as _sales_evidence_models  # noqa: F401\n'
+          addition = 'from domains.suppliers import models as _supplier_models  # noqa: F401\n'
+          if addition not in s:
+              if s.count(anchor) != 1:
+                  raise SystemExit('sales evidence import anchor changed')
+              s = s.replace(anchor, anchor + addition)
+          pg.write_text(s, encoding='utf-8')
+          PY
+          python -m py_compile wa_backend/tests/test_cp9_stocktake_postgres.py
+          rm .github/workflows/cp9-register-supplier-metadata.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add wa_backend/tests/test_cp9_stocktake_postgres.py .github/workflows/cp9-register-supplier-metadata.yml
+          git commit -m 'CP9: register Supplier metadata for PostgreSQL acceptance'
+          git push origin HEAD:sol/cp9-stocktake-full-closure-wave2
