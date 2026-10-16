@@ -332,6 +332,7 @@ async def test_cp14b_batch_visibility_sellability_disposition_status_reservation
                 a.ordinary.operational_driver,
             )
         assert mismatch.value.status_code == 409
+    async with pg.session(a) as db:
         with pytest.raises(HTTPException) as a2_denied:
             await transfers.change_inventory_status(
                 status_payload.model_copy(
@@ -675,8 +676,8 @@ async def test_cp14b_normal_transfer_fefo_lifecycle_vehicle_scope_and_ledger_rec
                         InventoryMovement.company_id == a.company_id,
                         InventoryMovement.transfer_header_id == transfer["header_id"],
                     )
-                ).all()
-            )
+                )
+            ).all()
             assert len(rows) == 2
             returned = next(row for row in rows if row.destination_location_id == a.locations[0])
         await _ledger_contains(pg, location_id=a.locations[0], movement=returned)
