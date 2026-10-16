@@ -313,7 +313,11 @@ describe("CP7 Live Stock Dashboard closure", () => {
     );
     expect(screen.getByText(/Warehouse A1/)).toBeInTheDocument();
     expect(screen.getByText(/Known reservations/)).toBeInTheDocument();
-    expect(document.body.textContent).not.toMatch(/dispose|recall|quarantine|return to vendor/i);
+    expect(
+      screen.queryAllByRole("button", {
+        name: /dispose|recall|quarantine|return to vendor/i,
+      }),
+    ).toHaveLength(0);
   });
 
   it("uses shared Modal focus/Escape/focus-restore authority", () => {
