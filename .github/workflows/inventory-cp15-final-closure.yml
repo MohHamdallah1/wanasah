@@ -1,0 +1,472 @@
+name: Inventory CP15 Final Closure
+
+on:
+  pull_request:
+    branches:
+      - integration/inventory-wave-2
+    paths:
+      - ".github/workflows/inventory-cp15-final-closure.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cp15-final-closure-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# Technical evidence only; Owner acceptance remains separate.
+# Check the exact PR head, never GitHub's synthetic PR merge commit.
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp15FocusedSyntheticOnlyKeyAbc1234567890123456789012345
+      DATABASE_URL: postgresql+asyncpg://cp15_unit@127.0.0.1:1/cp15_unit
+    defaults:
+      run:
+        working-directory: wa_backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install focused dependencies
+        id: install
+        run: python -m pip install -r requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Frozen Inventory and Warehouse Backend regressions
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q
+          tests/test_cp9_stocktake_closure_contract.py
+          tests/test_stocktake_canonical_auth_cutover.py
+          tests/test_stocktake_nullable_expiry_serialization.py
+          tests/test_cp4_warehouse_branch_lifecycle_closure.py
+          tests/test_cp8_transfers_backend.py
+          tests/test_cp10_ledger_backend.py
+          tests/test_authorization_core_compatibility.py
+          tests/test_inventory_access_canonical_boundary.py
+      - name: Warehouse route manifest
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: python scripts/gate_warehouse_route_manifest.py
+      - name: Compile bounded critical Inventory surfaces
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: >-
+          python -m py_compile
+          services.py
+          api/warehouse/stocktake.py
+          api/warehouse/locations.py
+          api/warehouse/inbound.py
+          api/warehouse/transfers.py
+          api/warehouse/transfer_policy.py
+          api/warehouse/ledger.py
+          api/warehouse/batch_index.py
+          api/warehouse/live_stock.py
+          api/inventory_permissions.py
+          domains/inventory_access/administration.py
+          domains/stocktake/idempotency.py
+          domains/transfers/replay.py
+
+  postgres-16:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp15PostgresSyntheticOnlyKeyAbc123456789012345678901234
+      # The unchanged CP14-C fixture requires these exact disposable names/port.
+      DATABASE_URL: postgresql+asyncpg://cp14c_app@127.0.0.1:55452/wanasah_cp14c_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp14c_admin@127.0.0.1:55452/wanasah_cp14c_test
+      WANASAH_CP14C_PG_GATE: "1"
+      WANASAH_CP14C_PG_URL: postgresql+asyncpg://cp14c_app@127.0.0.1:55452/wanasah_cp14c_test
+      WANASAH_CP14C_PG_ADMIN_URL: postgresql+asyncpg://cp14c_admin@127.0.0.1:55452/wanasah_cp14c_test
+      WANASAH_CP9_PG_GATE: "1"
+      WANASAH_VEHICLE_RECON_LOCK_ORDER_DB_GATE: "1"
+    defaults:
+      run:
+        working-directory: wa_backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL acceptance dependencies
+        run: python -m pip install -r requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name cp15-postgres \
+            --env POSTGRES_USER=cp14c_admin \
+            --env POSTGRES_DB=wanasah_cp14c_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55452:55452 \
+            postgres:16 -p 55452
+          for attempt in $(seq 1 30); do
+            if docker exec cp15-postgres pg_isready -U cp14c_admin -d wanasah_cp14c_test -p 55452; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs cp15-postgres
+          exit 1
+      - name: Verify fresh database and create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              assert conn.execute("SHOW server_version_num").fetchone()[0].startswith("16")
+              tables = conn.execute(
+                  "SELECT tablename FROM pg_tables WHERE schemaname='public'"
+              ).fetchall()
+              assert not tables, f"Database is not fresh: {tables}"
+              conn.execute(
+                  "CREATE ROLE cp14c_app LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+              flags = conn.execute(
+                  "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname='cp14c_app'"
+              ).fetchone()
+              assert flags == (False, False), flags
+              print("FRESH_PG16_AND_RESTRICTED_ROLE=PASS")
+          PY
+      - name: Prove one unambiguous Alembic head before bootstrap
+        run: |
+          alembic heads
+          python - <<'PY'
+          from alembic.config import Config
+          from alembic.script import ScriptDirectory
+
+          script = ScriptDirectory.from_config(Config("alembic.ini"))
+          heads = script.get_heads()
+          assert len(heads) == 1, f"Expected exactly one head: {heads}"
+          revisions = list(script.walk_revisions())
+          assert len({r.revision for r in revisions}) == len(revisions)
+          for revision in revisions:
+              parents = revision.down_revision or ()
+              dependencies = revision.dependencies or ()
+              for reference in (
+                  ((parents,) if isinstance(parents, str) else tuple(parents))
+                  + ((dependencies,) if isinstance(dependencies, str) else tuple(dependencies))
+              ):
+                  assert script.get_revision(reference) is not None, reference
+          print(f"ALEMBIC_SINGLE_HEAD={heads[0]}; REVISIONS={len(revisions)}")
+          PY
+      - name: Clean Alembic upgrade to head
+        id: bootstrap
+        run: alembic upgrade head
+      - name: Verify applied head and runtime login restrictions
+        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from alembic.config import Config
+          from alembic.script import ScriptDirectory
+          from sqlalchemy.engine import make_url
+
+          expected = ScriptDirectory.from_config(Config("alembic.ini")).get_heads()
+          for variable in ("DATABASE_URL_MIGRATION", "DATABASE_URL"):
+              dsn = make_url(os.environ[variable]).set(
+                  drivername="postgresql"
+              ).render_as_string(hide_password=False)
+              with psycopg.connect(dsn) as conn:
+                  flags = conn.execute(
+                      "SELECT current_user, rolsuper, rolbypassrls "
+                      "FROM pg_roles WHERE rolname=current_user"
+                  ).fetchone()
+                  print(f"{variable}: role={flags}")
+                  if variable == "DATABASE_URL_MIGRATION":
+                      applied = conn.execute("SELECT version_num FROM alembic_version").fetchall()
+                      assert [row[0] for row in applied] == expected, (applied, expected)
+                  else:
+                      assert flags == ("cp14c_app", False, False), flags
+          print("CLEAN_UPGRADE_AND_RUNTIME_FLAGS=PASS")
+          PY
+      - name: CP14-C lifecycle PostgreSQL acceptance with forced RLS
+        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_cp14c_stocktake_lifecycle_postgres.py
+          --junitxml=/tmp/cp15-cp14c.xml
+      - name: CP9 Stocktake PostgreSQL regression
+        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_cp9_stocktake_postgres.py
+          --junitxml=/tmp/cp15-cp9.xml
+      - name: Vehicle reconciliation deterministic lock order
+        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_vehicle_reconciliation_lock_order_postgres.py
+          --junitxml=/tmp/cp15-lock-order.xml
+      - name: Reject skipped or empty PostgreSQL acceptance
+        if: ${{ !cancelled() && steps.bootstrap.outcome == 'success' }}
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          for name in ("cp14c", "cp9", "lock-order"):
+              root = ET.parse(f"/tmp/cp15-{name}.xml").getroot()
+              cases = list(root.iter("testcase"))
+              assert cases, f"No {name} acceptance tests executed"
+              assert not list(root.iter("skipped")), f"{name} tests skipped"
+              print(f"POSTGRES_EXECUTED_{name}={len(cases)}")
+          PY
+      - name: PostgreSQL diagnostics on failure
+        if: ${{ failure() }}
+        run: docker logs cp15-postgres
+      - name: Remove disposable PostgreSQL
+        if: ${{ always() }}
+        run: docker rm --force cp15-postgres
+
+  dashboard-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install locked Dashboard dependencies
+        run: npm ci --no-audit --no-fund
+      # True PASS only: no retries, baseline parity, expected failures or test edits.
+      - name: CP2-CP13 high-value Dashboard regressions including active debt
+        run: >-
+          npm test -- --maxWorkers=2
+          src/test/inventory-cp13-batches-presentation.test.tsx
+          src/test/inventory-cp13-operations-consistency.test.tsx
+          src/test/inventory-cp13-warehouse-presentation.test.tsx
+          src/test/inventory-cp13-shell-polish.test.tsx
+          src/test/inventory-cp2-batches-dashboard.test.tsx
+          src/test/inventory-cp3-batch-actions.test.tsx
+          src/test/batch-focus-workspace.test.tsx
+          src/test/inventory-cp4-branch-dashboard.test.tsx
+          src/test/inventory-cp6-policy-closure.test.tsx
+          src/test/inventory-cp6-minimum-stock-dashboard.test.tsx
+          src/test/inventory-cp7-live-stock.test.tsx
+          src/test/inventory-cp7-live-stock-parity.test.tsx
+          src/pages/inventory/transfers/cp8-transfers.test.tsx
+          src/test/cp8-quality-destinations.test.tsx
+          src/test/inventory-public-batch-number-parity.test.ts
+          src/test/inventory-product-batch-date-parity.test.ts
+          src/pages/inventory/stocktake/StocktakeCp9Acceptance.test.tsx
+          src/test/inventory-cp10-ledger-contract.test.ts
+          src/test/inventory-cp10-ledger-dashboard.test.tsx
+          src/test/inventory-cp10-ledger-keyboard.test.tsx
+          src/test/inventory-cp11-access-dashboard.test.tsx
+          src/test/inventory-access-canonical-contract.test.ts
+          src/test/inventory-cp12-i18n.test.tsx
+          src/test/inventory-cp12-accessibility.test.tsx
+          src/test/inventory-cp12-responsive-contract.test.ts
+
+  dashboard-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install locked Dashboard dependencies
+        id: install
+        run: npm ci --no-audit --no-fund
+      - name: TypeScript noEmit (once per run)
+        run: npx tsc --noEmit
+      - name: ESLint relevant CP13 production and acceptance surfaces
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: >-
+          npx eslint
+          src/pages/inventory/InventoryPage.tsx
+          src/pages/inventory/MainInventory.tsx
+          src/pages/inventory/InventoryTopDock.tsx
+          src/pages/inventory/TabBatches.tsx
+          src/pages/inventory/batches/BatchIndexFilters.tsx
+          src/pages/inventory/batches/BatchIndexSignals.tsx
+          src/pages/inventory/batches/BatchIndexSummary.tsx
+          src/pages/inventory/batches/BatchIndexTable.tsx
+          src/pages/inventory/batches/batchPresentation.ts
+          src/pages/inventory/batches/batchIndexI18n.ts
+          src/pages/inventory/TabWarehouseLocations.tsx
+          src/pages/inventory/warehouse-locations/BranchSelector.tsx
+          src/pages/inventory/warehouse-locations/branchSelectorI18n.ts
+          src/pages/inventory/warehouse-locations/presentationI18n.ts
+          src/pages/inventory/warehouse-locations/presentation/i18n.ts
+          src/features/inventory/quality/QualityHandlingDestinationsCard.tsx
+          src/pages/inventory/Tab1LiveStock.tsx
+          src/pages/inventory/liveStock/LiveStockTable.tsx
+          src/pages/inventory/liveStock/LiveStockMobileCards.tsx
+          src/pages/inventory/liveStock/LiveStockWarehouseContext.tsx
+          src/pages/inventory/TabTransfers.tsx
+          src/pages/inventory/transfers/TransferTable.tsx
+          src/pages/inventory/transfers/TransferRowActions.tsx
+          src/pages/inventory/transfers/FefoOverrideEditor.tsx
+          src/pages/inventory/transfers/TransferCreateModal.tsx
+          src/pages/inventory/transfers/TransferDetailModal.tsx
+          src/pages/inventory/transfers/TransferDecisionModal.tsx
+          src/pages/inventory/Tab4Ledger.tsx
+          src/pages/inventory/ledger/LedgerFilters.tsx
+          src/pages/inventory/ledger/LedgerTable.tsx
+          src/pages/inventory/ledger/LedgerMobileCards.tsx
+          src/pages/inventory/ledger/LedgerAdjustmentModal.tsx
+          src/test/inventory-cp13-batches-presentation.test.tsx
+          src/test/inventory-cp13-operations-consistency.test.tsx
+          src/test/inventory-cp13-warehouse-presentation.test.tsx
+          src/test/inventory-cp13-shell-polish.test.tsx
+      - name: Production Dashboard build (once per run)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          VITE_API_URL: https://api.example.invalid
+        run: npm run build
+
+  scope-and-markers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Resolve merge-base with current PR target
+        env:
+          PR_TARGET: ${{ github.base_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="${PR_TARGET:-integration/inventory-wave-2}"
+          test "$target" = "integration/inventory-wave-2"
+          git fetch --no-tags origin "$target:refs/remotes/origin/$target"
+          head="$(git rev-parse HEAD)"
+          base="$(git merge-base "$head" "origin/$target")"
+          echo "CP15_HEAD=$head" >> "$GITHUB_ENV"
+          echo "CP15_BASE=$base" >> "$GITHUB_ENV"
+          echo "CP15_TARGET=$target; HEAD=$head; DYNAMIC_MERGE_BASE=$base"
+      - name: Enforce harness-only scope and no migration additions
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+
+          base, head = os.environ["CP15_BASE"], os.environ["CP15_HEAD"]
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only", base, head], text=True
+          ).splitlines())
+          expected = {".github/workflows/inventory-cp15-final-closure.yml"}
+          assert changed == expected, f"Unexpected CP15 scope: {sorted(changed)}"
+          migrations = subprocess.check_output(
+              ["git", "diff", "--name-only", base, head, "--", "wa_backend/alembic"],
+              text=True,
+          ).strip()
+          assert not migrations, f"CP15 changed migrations: {migrations}"
+          print("HARNESS_ONLY_DYNAMIC_SCOPE=PASS; NO_MIGRATION_ADDED=PASS")
+          PY
+      - name: git diff --check (once per run)
+        if: ${{ !cancelled() }}
+        run: git diff --check "$CP15_BASE" "$CP15_HEAD"
+      - name: Ref-pinned production Inventory and Warehouse marker audit
+        if: ${{ !cancelled() }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import subprocess
+
+          head = os.environ["CP15_HEAD"]
+          paths = subprocess.check_output(
+              ["git", "ls-tree", "-r", "--name-only", head], text=True
+          ).splitlines()
+          marker = re.compile(
+              r"\b(?:TODO|FIXME|HACK|XXX)\b|temporary\s+workaround|not\s+implemented",
+              re.IGNORECASE,
+          )
+          relevant = re.compile(r"inventory|warehouse|stocktake|transfer|ledger|batch", re.I)
+          nonproduction = re.compile(
+              r"/(?:tests?|__tests__|scripts|alembic|migrations|generated|api-client|"
+              r"perf_reports|fixtures|development|dev)/|\.(?:test|spec)\."
+          )
+          core = {"wa_backend/services.py", "wa_backend/models.py", "wa_backend/schemas.py"}
+          production_roots = ("wa_backend/", "dashboard/src/", "wa_mobile/lib/", "lib/")
+          suffixes = (".py", ".ts", ".tsx", ".css", ".dart")
+          reviewed_exceptions = {
+              # Exact path + exact source line only, with a reviewed V1 rationale.
+          }
+          scanned = hits = 0
+          blockers = []
+          for path in paths:
+              if not path.startswith(production_roots) or not path.endswith(suffixes):
+                  continue
+              if not relevant.search(path) and path not in core:
+                  continue
+              source = subprocess.check_output(
+                  ["git", "show", f"{head}:{path}"], text=True
+              )
+              excluded = bool(nonproduction.search(path))
+              if not excluded:
+                  scanned += 1
+              for number, line in enumerate(source.splitlines(), 1):
+                  if not marker.search(line):
+                      continue
+                  hits += 1
+                  evidence = f"{head}:{path}:{number}: {line.strip()}"
+                  if excluded:
+                      classification = "EXCLUDED_TEST_GENERATED_OR_DEVELOPMENT"
+                  elif (path, line.strip()) in reviewed_exceptions:
+                      classification = reviewed_exceptions[(path, line.strip())]
+                  elif re.fullmatch(
+                      r"""\s*(?:['"]todo['"][:,]?|(?:case\s+)?['"]todo['"]\s*:)\s*""",
+                      line,
+                  ):
+                      classification = "QUEUE_STATE_LITERAL_NOT_DEFERRED_WORK"
+                  else:
+                      classification = "UNEXPLAINED_PRODUCTION_V1_BLOCKER"
+                      blockers.append(evidence)
+                  print(f"{classification}: {evidence}")
+          assert scanned, "No production Inventory/Warehouse sources audited"
+          print(f"CP15_MARKERS_HEAD={head}; PRODUCTION_FILES={scanned}; HITS={hits}")
+          assert not blockers, "Unexplained production markers:\n" + "\n".join(blockers)
+          print("REF_PINNED_PRODUCTION_MARKERS=PASS")
+          PY
+
+  final-gate:
+    if: ${{ always() }}
+    needs: [backend, postgres-16, dashboard-tests, dashboard-release, scope-and-markers]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every technical acceptance mission to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+
+          results = json.loads(os.environ["RESULTS"])
+          for name, result in results.items():
+              print(f"{name}={result['result']}")
+          assert all(result["result"] == "success" for result in results.values()), results
+          print("CP15_TECHNICAL_HARNESS=PASS; OWNER_ACCEPTANCE=SEPARATE")
+          PY
