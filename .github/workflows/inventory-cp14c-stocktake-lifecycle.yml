@@ -18,57 +18,13 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: cp14c-stocktake-lifecycle-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
-  apply-test-harness-fix:
-    if: github.event_name == 'push'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: sol/cp14c-stocktake-lifecycle-wave2
-      - name: Persist RLS tenant setting before rollback-capable requests
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py")
-          source = path.read_text(encoding="utf-8")
-          indent = " " * 16
-          needle = indent + 'await db.execute(text("SET statement_timeout=\'15000ms\'"))\n'
-          commit_line = indent + "await db.commit()\n"
-          if commit_line in source:
-              print("CP14C_TEST_TENANT_CONTEXT_FIX_ALREADY_PRESENT=PASS")
-          else:
-              assert source.count(needle) == 1, "CP14-C runtime-session seam changed unexpectedly"
-              insertion = (
-                  needle
-                  + indent + "# Persist session-scoped RLS tenant context across expected endpoint rollbacks.\n"
-                  + commit_line
-              )
-              path.write_text(source.replace(needle, insertion, 1), encoding="utf-8")
-              print("CP14C_TEST_TENANT_CONTEXT_FIX_APPLIED=PASS")
-          PY
-          git diff --check
-          if git diff --quiet -- wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py; then
-            exit 0
-          fi
-          test "$(git diff --name-only)" = "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py"
-          git diff -- wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py | grep -F '+                await db.commit()'
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py
-          git commit -m "CP14-C: persist test tenant context across rollback"
-          git push origin HEAD:sol/cp14c-stocktake-lifecycle-wave2
-
   postgres-16:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
