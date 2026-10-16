@@ -1,6 +1,7 @@
-import { useCallback, useState } from "react";
+import { useTransferTranslation as useTranslation } from "../i18n";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { useAuthFetch } from "@/hooks/useAuthFetch";
+import { useTransferCommand } from "./useTransferCommand";
 import type {
   TransferAction,
   WarehouseTransferListItem,
@@ -18,16 +19,17 @@ export function useTransferActions({
   onInventoryChanged,
   onCompleted,
 }: UseTransferActionsArgs) {
-  const authenticatedFetch = useAuthFetch();
+  const { t } = useTranslation();
+  const command = useTransferCommand("TRANSFER_DECISION", locationId);
+  const currentLocation = useRef(locationId);
+  currentLocation.current = locationId;
 
   const [action, setAction] = useState<TransferAction | null>(null);
   const [actionTransfer, setActionTransfer] =
     useState<WarehouseTransferListItem | null>(null);
   const [decisionReason, setDecisionReason] = useState("");
-  const [actionRequestId, setActionRequestId] = useState(() =>
-    crypto.randomUUID()
-  );
   const [actionSubmitting, setActionSubmitting] = useState(false);
+  useEffect(() => { setAction(null); setActionTransfer(null); setDecisionReason(""); setActionSubmitting(false); }, [locationId]);
 
   const openAction = useCallback(
     (
@@ -35,7 +37,7 @@ export function useTransferActions({
       nextAction: TransferAction
     ) => {
       if (transfer.status !== "IN_TRANSIT") {
-        toast.error("هذه العملية متاحة فقط للحوالات الموجودة في الطريق.");
+        toast.error(t("inventoryTransfers.onlyTransit"));
         return;
       }
 
@@ -44,23 +46,22 @@ export function useTransferActions({
         transfer.destination_location_id === locationId;
 
       if (nextAction === "cancel" && !isSource) {
-        toast.error("الإلغاء متاح من جهة مصدر الحوالة فقط.");
+        toast.error(t("inventoryTransfers.sourceOnly"));
         return;
       }
       if (
         (nextAction === "receive" || nextAction === "reject") &&
         !isDestination
       ) {
-        toast.error("الاستلام/الرفض متاحان من جهة وجهة الحوالة فقط.");
+        toast.error(t("inventoryTransfers.destinationOnly"));
         return;
       }
 
       setActionTransfer(transfer);
       setAction(nextAction);
       setDecisionReason("");
-      setActionRequestId(crypto.randomUUID());
     },
-    [locationId]
+    [locationId, t]
   );
 
   const closeAction = useCallback(() => {
@@ -72,7 +73,6 @@ export function useTransferActions({
 
   const updateDecisionReason = useCallback((value: string) => {
     setDecisionReason(value);
-    setActionRequestId(crypto.randomUUID());
   }, []);
 
   const handleAction = useCallback(async () => {
@@ -80,44 +80,25 @@ export function useTransferActions({
 
     const reason = decisionReason.trim();
     if ((action === "reject" || action === "cancel") && !reason) {
-      toast.error("سبب القرار مطلوب.");
+      toast.error(t("inventoryTransfers.reasonRequired"));
       return;
     }
     if (reason.length > 2000) {
-      toast.error("سبب القرار لا يجوز أن يتجاوز 2000 حرف.");
+      toast.error(t("inventoryTransfers.reasonLength"));
       return;
     }
 
     setActionSubmitting(true);
 
     try {
-      let raw: unknown;
-
-      if (action === "receive") {
-        raw = await authenticatedFetch(
-          "/warehouse/unified/transfer/receive",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              request_id: actionRequestId,
-              transfer_header_id: actionTransfer.id,
-              destination_location_id:
-                actionTransfer.destination_location_id,
-            }),
-          }
-        );
-      } else {
-        raw = await authenticatedFetch(
-          `/warehouse/unified/transfer/${actionTransfer.id}/${action}`,
-          {
-            method: "POST",
-            body: JSON.stringify({
-              request_id: actionRequestId,
-              decision_reason: reason,
-            }),
-          }
-        );
-      }
+      const raw = await command.execute(action === "receive" ? {
+        path: "/warehouse/unified/transfer/receive", method: "POST",
+        body: { transfer_header_id: actionTransfer.id, destination_location_id: actionTransfer.destination_location_id },
+      } : {
+        path: `/warehouse/unified/transfer/${actionTransfer.id}/${action}`, method: "POST",
+        body: { decision_reason: reason },
+      }, getMutationMessage);
+      if (raw === undefined || currentLocation.current !== locationId) return;
 
       toast.success(getMutationMessage(raw));
       setAction(null);
@@ -129,19 +110,33 @@ export function useTransferActions({
       // Keep the same request_id for an unchanged safe retry.
       toast.error(getErrorMessage(error));
     } finally {
-      setActionSubmitting(false);
+      if (currentLocation.current === locationId) setActionSubmitting(false);
     }
   }, [
     action,
-    actionRequestId,
     actionTransfer,
-    authenticatedFetch,
+    locationId,
+    command,
     decisionReason,
+    t,
     onCompleted,
     onInventoryChanged,
   ]);
 
+  const retryPendingAction = async () => {
+    try {
+      const raw = await command.execute(undefined, getMutationMessage);
+      if (raw === undefined || currentLocation.current !== locationId) return;
+      toast.success(getMutationMessage(raw));
+      setAction(null);
+      setActionTransfer(null);
+      setDecisionReason("");
+      onCompleted();
+      await onInventoryChanged();
+    } catch (error) { toast.error(getErrorMessage(error)); }
+  };
   return {
+    command, retryPendingAction,
     action,
     actionTransfer,
     decisionReason,

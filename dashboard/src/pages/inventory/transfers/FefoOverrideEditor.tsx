@@ -1,4 +1,5 @@
-import { useTranslation } from "react-i18next";
+import { useTransferTranslation as useTranslation, formatTransferNumber } from "./i18n";
+import { formatTransferDateOnly } from "./utils";
 import { formatPublicBatchNumber } from "../publicBatchNumber";
 
 import type {
@@ -46,10 +47,9 @@ export function FefoOverrideEditor({
   return (
     <>
       <div className="mt-3">
-        <label className="text-[10px] font-bold text-slate-500">
-          سياسة اختيار الدفعة
-        </label>
+        <label className="text-[10px] font-bold text-slate-500">{t("inventoryTransfers.batchPolicy")}</label>
         <select
+          aria-label={t("inventoryTransfers.batchPolicy")}
           value={item.fefo_mode}
           onChange={(event) => {
             const mode = event.target.value;
@@ -59,36 +59,27 @@ export function FefoOverrideEditor({
           }}
           className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs"
         >
-          <option value="auto">
-            FEFO تلقائي — الموصى به
-          </option>
-          <option value="override" disabled={!canOverride}>
-            تجاوز FEFO موثّق
-          </option>
+          <option value="auto">{t("inventoryTransfers.fefoRecommended")}</option>
+          <option value="override" disabled={!canOverride}>{t("inventoryTransfers.fefoOverride")}</option>
         </select>
       </div>
 
       {item.fefo_mode === "override" && (
         <div className="mt-3 rounded-xl border border-amber-200 bg-white p-3 space-y-3">
           <div className="text-[11px] font-bold text-amber-800">
-            تجاوز FEFO استثناء رقابي. يجب تحديد
-            دفعة وسبب معتمد، وسيتم تسجيل المشرف
-            والسبب في سجل التدقيق.
+            {t("inventoryTransfers.overrideHint")}
           </div>
 
           {loading && (
-            <div className="text-xs text-slate-400">
-              جاري جلب دفعات المصدر وأسباب التجاوز...
-            </div>
+            <div className="text-xs text-slate-400">{t("inventoryTransfers.overrideLoading")}</div>
           )}
 
           {!loading && options && (
             <>
               <div>
-                <label className="text-[10px] font-bold text-slate-500">
-                  الدفعة المختارة
-                </label>
+                <label className="text-[10px] font-bold text-slate-500">{t("inventoryTransfers.selectedBatch")}</label>
                 <select
+                  aria-label={t("inventoryTransfers.selectedBatch")}
                   value={item.override_batch_id ?? ""}
                   onChange={(event) => {
                     const value = event.target.value;
@@ -99,9 +90,7 @@ export function FefoOverrideEditor({
                   }}
                   className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs"
                 >
-                  <option value="">
-                    اختر دفعة
-                  </option>
+                  <option value="">{t("inventoryTransfers.chooseBatch")}</option>
                   {options.batches
                     .filter(
                       (batch) =>
@@ -119,11 +108,11 @@ export function FefoOverrideEditor({
                         key={batch.id}
                         value={batch.id}
                       >
-                        {formatPublicBatchNumber(batch.batch_number, t("inventoryLive.noLotSupplied"))} — صلاحية{" "}
-                        {batch.expiry_date ?? "-"} — متاح{" "}
-                        {batch.available_quantity}
+                        {formatPublicBatchNumber(batch.batch_number, t("inventoryLive.noLotSupplied"))} — {t("inventoryTransfers.expiry")}{" "}
+                        {formatTransferDateOnly(batch.expiry_date)} — {t("inventoryTransfers.available")}{" "}
+                        {formatTransferNumber(batch.available_quantity)}
                         {batch.is_fefo_head
-                          ? " — FEFO الحالي"
+                          ? t("inventoryTransfers.currentFefo")
                           : ""}
                       </option>
                     ))}
@@ -131,10 +120,9 @@ export function FefoOverrideEditor({
               </div>
 
               <div>
-                <label className="text-[10px] font-bold text-slate-500">
-                  سبب التجاوز
-                </label>
+                <label className="text-[10px] font-bold text-slate-500">{t("inventoryTransfers.overrideReason")}</label>
                 <select
+                  aria-label={t("inventoryTransfers.overrideReason")}
                   value={item.override_reason_id ?? ""}
                   onChange={(event) => {
                     const value = event.target.value;
@@ -145,9 +133,7 @@ export function FefoOverrideEditor({
                   }}
                   className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs"
                 >
-                  <option value="">
-                    اختر سبباً معتمداً
-                  </option>
+                  <option value="">{t("inventoryTransfers.chooseReason")}</option>
                   {options.reasons.map((reason) => (
                     <option
                       key={reason.id}
@@ -162,15 +148,14 @@ export function FefoOverrideEditor({
 
               {selectedBatch && (
                 <div className="text-[10px] text-slate-500">
-                  المتاح في الدفعة المختارة:{" "}
+                  {t("inventoryTransfers.batchAvailable")}{" "}
                   <span className="font-bold">
-                    {selectedBatch.available_quantity} {item.base_uom_name}
+                    {formatTransferNumber(selectedBatch.available_quantity)} {item.base_uom_name}
                   </span>
                   {selectedBatch.is_fefo_head && (
                     <span className="text-amber-700">
                       {" "}
-                      — هذه الدفعة هي FEFO الحالية؛
-                      التجاوز غير ضروري عادةً.
+                      {t("inventoryTransfers.headHint")}
                     </span>
                   )}
                 </div>
@@ -185,9 +170,7 @@ export function FefoOverrideEditor({
                     )
                   }
                   className="text-xs font-bold text-amber-700 hover:text-amber-900"
-                >
-                  + تقسيم نفس الصنف على دفعة أخرى
-                </button>
+                >{t("inventoryTransfers.splitBatch")}</button>
               )}
             </>
           )}

@@ -1,6 +1,8 @@
+import { Link } from "react-router-dom";
+import { createInventoryTabNavigationState } from "@/features/inventory/navigation";
 import { Search, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
-import { useTranslation } from "react-i18next";
+import { useTransferTranslation as useTranslation, formatTransferNumber } from "./i18n";
 import { formatPublicBatchNumber } from "../publicBatchNumber";
 import type { TransferCreateController } from "./hooks/useTransferCreate";
 import { compareQuantity } from "../quantity";
@@ -56,45 +58,51 @@ export function TransferCreateModal({
     <Modal
       isOpen={createOpen}
       onClose={closeCreate}
-      title="إنشاء حوالة موحّدة"
+      title={t("inventoryTransfers.createTitle")}
       maxWidth="max-w-6xl"
     >
-      <div className="space-y-5">
+      {controller.command.pending && <div role="alert" className="mb-3 rounded-xl border p-3"><p>{t("inventoryTransfers.pending")}</p><button type="button" disabled={controller.command.busy} onClick={() => void controller.retryPendingDispatch()}>{t("inventoryTransfers.retry")}</button></div>}
+      {controller.policyBlocked && <Link to="/inventory" state={createInventoryTabNavigationState("warehouses")} className="mb-3 block underline">{t("inventoryTransfers.policySetup")}</Link>}
+      <form className="space-y-5" onSubmit={event => { event.preventDefault(); void handleDispatchTransfer(); }}>
+        <fieldset disabled={createSubmitting || Boolean(controller.command.pending) || controller.command.busy} className="space-y-5 min-w-0">
+          <label className="block text-xs font-bold">{t("inventoryTransfers.purpose")}
+            <select aria-label={t("inventoryTransfers.purpose")} value={controller.transferPurpose} onChange={event => controller.setTransferPurpose(event.target.value as "REPLENISHMENT" | "WAREHOUSE_BALANCING")} className="mt-1 w-full rounded-xl border p-2">
+              <option value="WAREHOUSE_BALANCING">{t("inventoryTransfers.WAREHOUSE_BALANCING")}</option>
+              <option value="REPLENISHMENT">{t("inventoryTransfers.REPLENISHMENT")}</option>
+            </select>
+          </label>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>
-            <label className="text-xs font-bold text-slate-600">
-              اتجاه الحوالة
-            </label>
+            <label className="text-xs font-bold text-slate-600">{t("inventoryTransfers.direction")}</label>
             <select
+              aria-label={t("inventoryTransfers.direction")}
               value={createDirection}
               onChange={(event) =>
                 updateCreateDirection(event.target.value)
               }
               className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none"
             >
-              <option value="outgoing" disabled={!canOutgoing}>
-                صادرة من المستودع المحدد
-              </option>
-              <option value="incoming" disabled={!canIncoming}>
-                واردة إلى المستودع المحدد
-              </option>
+              <option value="outgoing" disabled={!canOutgoing}>{t("inventoryTransfers.outgoingSelected")}</option>
+              <option value="incoming" disabled={!canIncoming}>{t("inventoryTransfers.incomingSelected")}</option>
             </select>
           </div>
 
           <div>
             <label className="text-xs font-bold text-slate-600">
-              {createDirection === "outgoing" ? "الوجهة" : "المصدر"}
+              {createDirection === "outgoing" ? t("inventoryTransfers.destination") : t("inventoryTransfers.source")}
             </label>
             <input
+              aria-label={t("inventoryTransfers.locationSearch")}
               value={transferLocationSearchInput}
               onChange={(event) =>
                 setTransferLocationSearchInput(event.target.value)
               }
-              placeholder="ابحث باسم أو كود المستودع/السيارة"
+              placeholder={t("inventoryTransfers.locationSearch")}
               maxLength={100}
               className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none"
             />
             <select
+              aria-label={t(createDirection === "outgoing" ? "inventoryTransfers.destination" : "inventoryTransfers.source")}
               value={counterpartLocationId ?? ""}
               disabled={transferLocationsLoading}
               onChange={(event) =>
@@ -102,16 +110,14 @@ export function TransferCreateModal({
               }
               className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none disabled:opacity-50"
             >
-              <option value="" disabled>
-                اختر موقعاً
-              </option>
+              <option value="" disabled>{t("inventoryTransfers.chooseLocation")}</option>
               {transferLocations
                 .filter((item) => item.id !== locationId)
                 .map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.location_type === "WAREHOUSE"
-                      ? "مستودع"
-                      : "سيارة"}{" "}
+                      ? t("inventoryTransfers.warehouse")
+                      : t("inventoryTransfers.vehicle")}{" "}
                     — {item.name} ({item.code})
                   </option>
                 ))}
@@ -119,35 +125,32 @@ export function TransferCreateModal({
           </div>
 
           <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-xs text-slate-600">
-            <div className="font-bold text-slate-800 mb-1">
-              الموقع المحدد
-            </div>
-            ID #{locationId} —{" "}
-            {createDirection === "outgoing" ? "المصدر" : "الوجهة"}
+            <div className="font-bold text-slate-800 mb-1">{t("inventoryTransfers.selectedLocation")}</div>
+            #{formatTransferNumber(locationId)} —{" "}
+            {createDirection === "outgoing" ? t("inventoryTransfers.source") : t("inventoryTransfers.destination")}
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="rounded-2xl border border-slate-200 p-4 space-y-3">
             <div>
-              <h3 className="font-black text-slate-800">
-                مخزون المصدر
-              </h3>
+              <h3 className="font-black text-slate-800">{t("inventoryTransfers.sourceInventory")}</h3>
               <p className="text-xs text-slate-500 mt-1">
-                البحث مرتبط بـ source location_id الفعلي.
+                {t("inventoryTransfers.sourceHint")}
               </p>
             </div>
 
             <div className="relative">
-              <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search className="w-4 h-4 absolute start-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
+                aria-label={t("inventoryTransfers.productSearch")}
                 value={productSearchInput}
                 onChange={(event) =>
                   setProductSearchInput(event.target.value)
                 }
-                placeholder="بحث بالصنف أو SKU"
+                placeholder={t("inventoryTransfers.productSearch")}
                 maxLength={100}
-                className="w-full pr-10 pl-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm outline-none"
+                className="w-full ps-10 pe-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm outline-none"
               />
             </div>
 
@@ -162,14 +165,14 @@ export function TransferCreateModal({
                     type="button"
                     disabled={added}
                     onClick={() => addDraftProduct(product)}
-                    className="w-full p-3 text-right hover:bg-slate-50 disabled:opacity-40"
+                    className="w-full p-3 text-start hover:bg-slate-50 disabled:opacity-40"
                   >
                     <div className="font-bold text-slate-800">
                       {product.name}
                     </div>
                     <div className="text-[11px] text-slate-500 mt-1">
-                      SKU: {product.sku || "—"} · المتاح:{" "}
-                      {product.available_quantity} {product.base_uom_name}
+                      {product.sku || "—"} · {t("inventoryTransfers.available")}:{" "}
+                      {formatTransferNumber(product.available_quantity)} {product.base_uom_name}
                     </div>
                   </button>
                 );
@@ -187,8 +190,8 @@ export function TransferCreateModal({
                     className="w-full py-2.5 rounded-lg border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {sourceProductsLoadingMore
-                      ? "جاري تحميل المزيد..."
-                      : "تحميل المزيد"}
+                      ? t("inventoryTransfers.moreLoading")
+                      : t("inventoryTransfers.more")}
                   </button>
                 </div>
               )}
@@ -196,27 +199,19 @@ export function TransferCreateModal({
               {!sourceProductsLoading &&
                 sourceLocationId !== null &&
                 sourceProducts.length === 0 && (
-                  <div className="p-8 text-center text-slate-400 text-sm">
-                    لا يوجد مخزون متاح مطابق.
-                  </div>
+                  <div className="p-8 text-center text-slate-400 text-sm">{t("inventoryTransfers.sourceEmpty")}</div>
                 )}
 
               {sourceProductsLoading && (
-                <div className="p-8 text-center text-slate-400 text-sm">
-                  جاري جلب مخزون المصدر...
-                </div>
+                <div className="p-8 text-center text-slate-400 text-sm">{t("inventoryTransfers.sourceLoading")}</div>
               )}
             </div>
           </div>
 
           <div className="rounded-2xl border border-slate-200 p-4 space-y-3">
             <div>
-              <h3 className="font-black text-slate-800">
-                أصناف الحوالة
-              </h3>
-              <p className="text-xs text-slate-500 mt-1">
-                FEFO تلقائي افتراضياً، مع تجاوز موثّق عند الحاجة.
-              </p>
+              <h3 className="font-black text-slate-800">{t("inventoryTransfers.draftItems")}</h3>
+              <p className="text-xs text-slate-500 mt-1">{t("inventoryTransfers.fefoHint")}</p>
             </div>
 
             <div className="max-h-72 overflow-auto space-y-2">
@@ -262,8 +257,8 @@ export function TransferCreateModal({
                           {item.name}
                         </div>
                         <div className="text-[10px] text-slate-400">
-                          إجمالي المتاح في المصدر:{" "}
-                          {item.available_quantity} {item.base_uom_name}
+                          {t("inventoryTransfers.sourceAvailable")}:{" "}
+                          {formatTransferNumber(item.available_quantity)} {item.base_uom_name}
                         </div>
                       </div>
 
@@ -272,6 +267,7 @@ export function TransferCreateModal({
                         onClick={() =>
                           removeDraftLine(item.draft_key)
                         }
+                        aria-label={t("inventoryTransfers.remove")}
                         className="p-2 rounded-lg text-red-500 hover:bg-red-50"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -293,9 +289,10 @@ export function TransferCreateModal({
                     <div className="mt-3">
                       <div>
                         <label className="text-[10px] font-bold text-slate-500">
-                          الكمية بوحدة الأساس ({item.base_uom_name})
+                          {t("inventoryTransfers.quantityLabel", { unit: item.base_uom_name })}
                         </label>
                         <input
+                          aria-label={t("inventoryTransfers.quantityLabel", { unit: item.base_uom_name })}
                           inputMode="decimal"
                           value={item.quantity}
                           onChange={(event) =>
@@ -306,7 +303,7 @@ export function TransferCreateModal({
                           }
                           className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-center"
                         />
-                        <p className="mt-1 text-[10px] text-slate-400">الدقة {item.quantity_scale} · الخطوة {item.quantity_step}</p>
+                        <p className="mt-1 text-[10px] text-slate-400">{t("inventoryTransfers.precision", { scale: formatTransferNumber(item.quantity_scale), step: formatTransferNumber(item.quantity_step) })}</p>
                       </div>
                     </div>
 
@@ -315,31 +312,28 @@ export function TransferCreateModal({
                         invalid ? "text-red-600" : "text-slate-500"
                       }`}
                     >
-                      الإجمالي: {item.quantity || "0"} {item.base_uom_name}
+                      {t("inventoryTransfers.total")}: {formatTransferNumber(item.quantity || "0")} {item.base_uom_name}
                       {item.fefo_mode === "override" &&
                       selectedBatch
-                        ? ` من الدفعة ${formatPublicBatchNumber(selectedBatch.batch_number, t("inventoryLive.noLotSupplied"))}`
+                        ? t("inventoryTransfers.fromBatch", { batch: formatPublicBatchNumber(selectedBatch.batch_number, t("inventoryLive.noLotSupplied")) })
                         : ""}
-                      {invalid ? " — يتجاوز المتاح" : ""}
+                      {invalid ? t("inventoryTransfers.exceeds") : ""}
                     </div>
                   </div>
                 );
               })}
 
               {draftItems.length === 0 && (
-                <div className="p-8 text-center text-slate-400 text-sm border border-dashed border-slate-200 rounded-xl">
-                  أضف أصنافاً من مخزون المصدر.
-                </div>
+                <div className="p-8 text-center text-slate-400 text-sm border border-dashed border-slate-200 rounded-xl">{t("inventoryTransfers.addItems")}</div>
               )}
             </div>
           </div>
         </div>
 
         <div>
-          <label className="text-xs font-bold text-slate-600">
-            ملاحظات الحوالة
-          </label>
+          <label className="text-xs font-bold text-slate-600">{t("inventoryTransfers.notes")}</label>
           <textarea
+            aria-label={t("inventoryTransfers.notes")}
             value={createNotes}
             onChange={(event) =>
               updateCreateNotes(event.target.value)
@@ -350,7 +344,7 @@ export function TransferCreateModal({
         </div>
 
         <button
-          onClick={() => void handleDispatchTransfer()}
+          type="submit"
           disabled={
             !canSubmit || createSubmitting ||
             transferLocationsLoading ||
@@ -360,10 +354,11 @@ export function TransferCreateModal({
           className="w-full py-3 rounded-xl bg-blue-600 text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {createSubmitting
-            ? "جاري تحويل البضاعة إلى IN_TRANSIT..."
-            : "إرسال الحوالة"}
+            ? t("inventoryTransfers.sending")
+            : t("inventoryTransfers.send")}
         </button>
-      </div>
+        </fieldset>
+      </form>
     </Modal>
   );
 }
