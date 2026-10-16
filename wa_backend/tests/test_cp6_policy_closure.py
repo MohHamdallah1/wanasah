@@ -196,7 +196,9 @@ def test_cost_visibility_v1_is_frozen_to_existing_server_surfaces():
         assert field in ledger_read
 
     # Inbound owns submitted acquisition-cost evidence under its existing write path;
-    # it does not establish a read capability or a second valuation formula.
+    # it delegates financial posting to the authoritative costing service and does not
+    # establish a read capability or a second valuation formula.
     assert "unit_cost" in inbound_api
-    assert "InventoryCostEvent" in inbound_api or "record_purchase" in inbound_api
+    assert "build_purchase_cost_input" in inbound_api
+    assert "activate_costing_for_first_receipt" in inbound_api
     assert "cost.read" not in live_api + batch_api + ledger_api + inbound_api
