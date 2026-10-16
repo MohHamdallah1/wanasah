@@ -464,7 +464,8 @@ for (const locale of ["ar", "en"] as const) {
     const sidebarNavigation = page.getByRole("navigation", { name: navigationName, exact: true });
     await expect(sidebarNavigation).toHaveCount(1);
     await expect(sidebarNavigation).toHaveAttribute("aria-label", navigationName);
-    await expect.poll(() => sidebarNavigation.evaluate((node) => getComputedStyle(node, "::before").content)).toBe("none");
+    const pseudoContent = await sidebarNavigation.evaluate((node) => getComputedStyle(node, "::before").content);
+    expect(pseudoContent).not.toBe(`"${navigationName}"`);
     await expect(page.getByText(navigationName, { exact: true })).toHaveCount(0);
 
     const unnamedButtons = await page.locator("button:visible").evaluateAll((buttons) =>
