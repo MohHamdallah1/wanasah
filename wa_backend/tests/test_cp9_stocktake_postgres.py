@@ -61,7 +61,8 @@ PASSWORD = "SyntheticCP9Password123"
 class ScopedAccess:
     """Minimal non-owner canonical-style capability surface for route acceptance."""
 
-    def __init__(self, company_id: int, grants: dict[str, set[int]]):
+    def __init__(self, db: AsyncSession, company_id: int, grants: dict[str, set[int]]):
+        self.db = db
         self.company_id = company_id
         self.grants = {code: set(ids) for code, ids in grants.items()}
         self.require_calls: list[tuple[str, int | None]] = []
@@ -222,7 +223,7 @@ class CP9StocktakePostgresAcceptance(unittest.IsolatedAsyncioTestCase):
         await self.db.commit()
 
         all_a = {self.a1, self.a2, self.empty, self.va_location}
-        self.access_a_all = ScopedAccess(self.company_a, {
+        self.access_a_all = ScopedAccess(self.db, self.company_a, {
             "location.read": all_a,
             "stocktake.read": all_a,
             "stocktake.start": all_a,
@@ -232,7 +233,7 @@ class CP9StocktakePostgresAcceptance(unittest.IsolatedAsyncioTestCase):
             "stocktake.recount": all_a,
             "stocktake.cancel": all_a,
         })
-        self.access_a1 = ScopedAccess(self.company_a, {
+        self.access_a1 = ScopedAccess(self.db, self.company_a, {
             "location.read": {self.a1},
             "stocktake.read": {self.a1},
             "stocktake.start": {self.a1},
@@ -242,10 +243,10 @@ class CP9StocktakePostgresAcceptance(unittest.IsolatedAsyncioTestCase):
             "stocktake.recount": {self.a1},
             "stocktake.cancel": {self.a1},
         })
-        self.access_a2_read = ScopedAccess(self.company_a, {
+        self.access_a2_read = ScopedAccess(self.db, self.company_a, {
             "location.read": {self.a2}, "stocktake.read": {self.a2},
         })
-        self.access_b = ScopedAccess(self.company_b, {
+        self.access_b = ScopedAccess(self.db, self.company_b, {
             "location.read": {self.b1, self.vb_location},
             "stocktake.read": {self.b1, self.vb_location},
             "stocktake.start": {self.b1, self.vb_location},
@@ -420,7 +421,7 @@ class CP9StocktakePostgresAcceptance(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(denied_location.exception.status_code, 403)
 
         # Foreign-company product/location IDs remain opaque even if numeric IDs are supplied.
-        malicious = ScopedAccess(self.company_a, {
+        malicious = ScopedAccess(self.db, self.company_a, {
             "stocktake.start": {self.b1}, "stocktake.read": {self.b1}, "location.read": {self.b1},
         })
         with self.assertRaises(HTTPException) as foreign_location:
@@ -431,7 +432,7 @@ class CP9StocktakePostgresAcceptance(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(foreign_location.exception.status_code, 404)
 
         # Warehouse-only stocktake.start must not authorize its vehicle custody location.
-        warehouse_only = ScopedAccess(self.company_a, {
+        warehouse_only = ScopedAccess(self.db, self.company_a, {
             "location.read": {self.a1}, "stocktake.start": {self.a1},
         })
         no_vehicle = await stocktake_api.list_vehicle_recon_candidates(
@@ -440,7 +441,7 @@ class CP9StocktakePostgresAcceptance(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(no_vehicle["items"], [])
 
-        vehicle_access = ScopedAccess(self.company_a, {
+        vehicle_access = ScopedAccess(self.db, self.company_a, {
             "location.read": {self.a1}, "stocktake.start": {self.va_location},
         })
         vehicle_page = await stocktake_api.list_vehicle_recon_candidates(
