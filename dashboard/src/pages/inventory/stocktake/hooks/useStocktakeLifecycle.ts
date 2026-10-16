@@ -66,7 +66,7 @@ export function useStocktakeLifecycle({
   clearReview,
   notifyStocktakeChanged,
 }: UseStocktakeLifecycleArgs) {
-  const { copy, isArabic } = useStocktakeCopy();
+  const { copy } = useStocktakeCopy();
   const [locking, setLocking] = useState(false);
   const handledFocusRef = useRef<number | null>(null);
 
@@ -173,20 +173,7 @@ export function useStocktakeLifecycle({
 
     void recover();
     return () => { cancelled = true; };
-  }, [
-    focusSessionId,
-    onFocusUnavailable,
-    clearReview,
-    clearRows,
-    copy.generic.sessionRestoreFailed,
-    fetchSessionContext,
-    openResolvedSession,
-    phaseKey,
-    sessionKey,
-    setPhase,
-    setSessionId,
-    setSessionLocationId,
-  ]);
+  }, [focusSessionId, onFocusUnavailable, clearReview, clearRows, copy.generic.sessionRestoreFailed, fetchSessionContext, openResolvedSession, phaseKey, sessionKey, setPhase, setSessionId, setSessionLocationId]);
 
   const startStocktake = useCallback(async () => {
     if (sessionsLoading || sessionsLoadFailed) {
@@ -198,7 +185,7 @@ export function useStocktakeLifecycle({
       return false;
     }
     if (!durableIdentity) {
-      toast.error(isArabic ? "هوية مستخدم الجرد غير جاهزة بعد." : "The stocktake user identity is not ready yet.");
+      toast.error(copy.generic.identityNotReady);
       return false;
     }
 
@@ -234,24 +221,7 @@ export function useStocktakeLifecycle({
     } finally {
       setLocking(false);
     }
-  }, [
-    activeSessions.length,
-    activeSessionsTotal,
-    authenticatedFetch,
-    copy.generic.startFailed,
-    copy.lifecycle,
-    durableIdentity,
-    isArabic,
-    loadCountSheet,
-    locationId,
-    notifyStocktakeChanged,
-    phaseKey,
-    sessionKey,
-    sessionsLoadFailed,
-    sessionsLoading,
-    setSessionId,
-    setSessionLocationId,
-  ]);
+  }, [activeSessions.length, activeSessionsTotal, authenticatedFetch, copy.generic.identityNotReady, copy.generic.startFailed, copy.lifecycle, durableIdentity, loadCountSheet, locationId, notifyStocktakeChanged, phaseKey, sessionKey, sessionsLoadFailed, sessionsLoading, setSessionId, setSessionLocationId]);
 
   return {
     locking,

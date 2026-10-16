@@ -19,7 +19,7 @@ const OPENABLE_EXISTING_STATUSES = new Set(["COUNTING", "PENDING_REVIEW", "RECOU
 export function useVehicleReconStart({
   durableIdentity, sourceLocationId, enabled, authenticatedFetch, openSessionById, notifyStocktakeChanged,
 }: UseVehicleReconStartArgs) {
-  const { copy, isArabic } = useStocktakeCopy();
+  const { copy } = useStocktakeCopy();
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [items, setItems] = useState<VehicleReconCandidate[]>([]);
@@ -106,7 +106,7 @@ export function useVehicleReconStart({
       }
 
       if (!durableIdentity) {
-        toast.error(isArabic ? "هوية مستخدم الجرد غير جاهزة بعد." : "The stocktake user identity is not ready yet.");
+        toast.error(copy.generic.identityNotReady);
         return false;
       }
 
@@ -137,8 +137,9 @@ export function useVehicleReconStart({
       setBusyWorkSessionId(null);
     }
   }, [
-    authenticatedFetch, busyWorkSessionId, copy.generic.vehicleStartFailed, copy.vehicle,
-    durableIdentity, isArabic, notes, notifyStocktakeChanged, openSessionById,
+    authenticatedFetch, busyWorkSessionId, copy.generic.identityNotReady,
+    copy.generic.vehicleStartFailed, copy.vehicle, durableIdentity, notes,
+    notifyStocktakeChanged, openSessionById,
   ]);
 
   return {

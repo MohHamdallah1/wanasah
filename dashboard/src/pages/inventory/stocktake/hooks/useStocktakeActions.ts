@@ -31,10 +31,7 @@ interface UseStocktakeActionsArgs {
   setSessionId: Dispatch<SetStateAction<string | null>>;
   setSessionLocationId: Dispatch<SetStateAction<number | null>>;
   setPhase: Dispatch<SetStateAction<StocktakePhase>>;
-  loadCountSheet: (
-    sessionId: string,
-    sessionLocationId?: number
-  ) => Promise<void>;
+  loadCountSheet: (sessionId: string, sessionLocationId?: number) => Promise<void>;
   notifyStocktakeChanged: () => Promise<void>;
 }
 
@@ -55,7 +52,7 @@ export function useStocktakeActions({
   loadCountSheet,
   notifyStocktakeChanged,
 }: UseStocktakeActionsArgs) {
-  const { copy, isArabic } = useStocktakeCopy();
+  const { copy } = useStocktakeCopy();
   const [approvePassword, setApprovePassword] = useState("");
   const [approveNotes, setApproveNotes] = useState("");
   const [recountReason, setRecountReason] = useState("");
@@ -64,10 +61,6 @@ export function useStocktakeActions({
   const [cancelReason, setCancelReason] = useState("");
   const [cancelPassword, setCancelPassword] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
-
-  const scopeUnavailable = isArabic
-    ? "تعذر تثبيت هوية المستخدم ونطاق جلسة الجرد. أعد تحميل البيانات ثم حاول مجدداً."
-    : "The user identity or stocktake session scope is unavailable. Refresh the data and try again.";
 
   const clearSelectedSession = useCallback(() => {
     setReview(null);
@@ -79,15 +72,15 @@ export function useStocktakeActions({
   const handleApprove = useCallback(async () => {
     if (!sessionId) return false;
     if (!review) {
-      toast.error(isArabic ? "مراجعة الجرد الحالية غير موجودة." : "The current stocktake review is unavailable.");
+      toast.error(copy.action.reviewUnavailable);
       return false;
     }
     if (!sessionLocationId || !durableIdentity) {
-      toast.error(scopeUnavailable);
+      toast.error(copy.action.scopeUnavailable);
       return false;
     }
     if (!approvePassword) {
-      toast.error(isArabic ? "أدخل كلمة مرور المشرف للاعتماد النهائي." : "Enter the supervisor password to approve the stocktake.");
+      toast.error(copy.action.approvePasswordRequired);
       return false;
     }
 
@@ -123,41 +116,24 @@ export function useStocktakeActions({
     } finally {
       setActionBusy(false);
     }
-  }, [
-    approveNotes,
-    approvePassword,
-    authenticatedFetch,
-    clearSelectedSession,
-    copy.action.approved,
-    copy.generic.approveFailed,
-    draftKey,
-    durableIdentity,
-    isArabic,
-    notifyStocktakeChanged,
-    phaseKey,
-    review,
-    scopeUnavailable,
-    sessionId,
-    sessionKey,
-    sessionLocationId,
-  ]);
+  }, [approveNotes, approvePassword, authenticatedFetch, clearSelectedSession, copy.action, copy.generic.approveFailed, draftKey, durableIdentity, notifyStocktakeChanged, phaseKey, review, sessionId, sessionKey, sessionLocationId]);
 
   const handleRecount = useCallback(async () => {
     if (!sessionId) return null;
     if (!review) {
-      toast.error(isArabic ? "مراجعة الجرد الحالية غير موجودة." : "The current stocktake review is unavailable.");
+      toast.error(copy.action.reviewUnavailable);
       return null;
     }
     if (!sessionLocationId || !durableIdentity) {
-      toast.error(scopeUnavailable);
+      toast.error(copy.action.scopeUnavailable);
       return null;
     }
     if (recountReason.trim().length < 5) {
-      toast.error(isArabic ? "اكتب سبباً واضحاً لإعادة الجرد." : "Enter a clear recount reason.");
+      toast.error(copy.action.recountReasonRequired);
       return null;
     }
     if (!authorizerUsername.trim() || !authorizerPassword) {
-      toast.error(isArabic ? "أدخل بيانات المستخدم المخول لتفويض إعادة الجرد." : "Enter the authorized user's credentials for the recount.");
+      toast.error(copy.action.recountCredentialsRequired);
       return null;
     }
 
@@ -189,9 +165,7 @@ export function useStocktakeActions({
         setRows([]);
         setPhase("WAITING_INDEPENDENT");
         localStorage.setItem(phaseKey, "WAITING_INDEPENDENT");
-        toast.success(isArabic
-          ? "تم تفويض إعادة عد مستقلة. يجب أن ينفذ المحاولة التالية مستخدم مخول آخر."
-          : "An independent recount was authorized. A different authorized user must perform the next attempt.");
+        toast.success(copy.action.independentRecountAuthorized);
         return "WAITING_INDEPENDENT" as const;
       }
 
@@ -204,39 +178,20 @@ export function useStocktakeActions({
     } finally {
       setActionBusy(false);
     }
-  }, [
-    authenticatedFetch,
-    authorizerPassword,
-    authorizerUsername,
-    copy.action.recounted,
-    copy.generic.recountFailed,
-    draftKey,
-    durableIdentity,
-    isArabic,
-    loadCountSheet,
-    phaseKey,
-    recountReason,
-    review,
-    scopeUnavailable,
-    sessionId,
-    sessionLocationId,
-    setPhase,
-    setReview,
-    setRows,
-  ]);
+  }, [authenticatedFetch, authorizerPassword, authorizerUsername, copy.action, copy.generic.recountFailed, draftKey, durableIdentity, loadCountSheet, phaseKey, recountReason, review, sessionId, sessionLocationId, setPhase, setReview, setRows]);
 
   const handleCancel = useCallback(async () => {
     if (!sessionId) return false;
     if (!sessionLocationId || !durableIdentity) {
-      toast.error(scopeUnavailable);
+      toast.error(copy.action.scopeUnavailable);
       return false;
     }
     if (cancelReason.trim().length < 5) {
-      toast.error(isArabic ? "اكتب سبباً واضحاً لإلغاء الجرد." : "Enter a clear cancellation reason.");
+      toast.error(copy.action.cancelReasonRequired);
       return false;
     }
     if (!cancelPassword) {
-      toast.error(isArabic ? "أدخل كلمة مرور المشرف لتأكيد الإلغاء." : "Enter the supervisor password to confirm cancellation.");
+      toast.error(copy.action.cancelPasswordRequired);
       return false;
     }
 
@@ -268,23 +223,7 @@ export function useStocktakeActions({
     } finally {
       setActionBusy(false);
     }
-  }, [
-    authenticatedFetch,
-    cancelPassword,
-    cancelReason,
-    clearSelectedSession,
-    copy.action.cancelled,
-    copy.generic.cancelFailed,
-    draftKey,
-    durableIdentity,
-    isArabic,
-    notifyStocktakeChanged,
-    phaseKey,
-    scopeUnavailable,
-    sessionId,
-    sessionKey,
-    sessionLocationId,
-  ]);
+  }, [authenticatedFetch, cancelPassword, cancelReason, clearSelectedSession, copy.action, copy.generic.cancelFailed, draftKey, durableIdentity, notifyStocktakeChanged, phaseKey, sessionId, sessionKey, sessionLocationId]);
 
   return {
     approvePassword,

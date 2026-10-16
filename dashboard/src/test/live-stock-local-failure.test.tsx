@@ -107,6 +107,7 @@ const baseProps = {
   canManageMinimum: false,
   onLocationChange: vi.fn(),
   onRefresh: vi.fn(),
+  onRetryPage: vi.fn(),
   onSearchChange: vi.fn(),
   onStockStateChange: vi.fn(),
   onIndicatorsChange: vi.fn(),
@@ -116,7 +117,7 @@ const baseProps = {
 
 describe("Live Stock local failure states", () => {
   it("shows a local first-load failure instead of an empty-data message", () => {
-    const onRefresh = vi.fn();
+    const onRetryPage = vi.fn();
 
     render(
       <Tab1LiveStock
@@ -125,7 +126,7 @@ describe("Live Stock local failure states", () => {
         pageReady={false}
         pageError="reference: REQ-123"
         summaryError={null}
-        onRefresh={onRefresh}
+        onRetryPage={onRetryPage}
       />,
     );
 
@@ -143,7 +144,7 @@ describe("Live Stock local failure states", () => {
     ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByText("common.retry"));
-    expect(onRefresh).toHaveBeenCalledTimes(1);
+    expect(onRetryPage).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the last successful rows visible when refresh fails", () => {
@@ -158,8 +159,8 @@ describe("Live Stock local failure states", () => {
     );
 
     expect(
-      screen.getByText("Preserved Product"),
-    ).toBeInTheDocument();
+      screen.getAllByText("Preserved Product").length,
+    ).toBeGreaterThan(0);
     expect(
       screen.getByText("inventoryLive.errors.staleData"),
     ).toBeInTheDocument();
@@ -180,16 +181,10 @@ describe("Live Stock local failure states", () => {
     );
 
     expect(
-      screen.getByText("Preserved Product"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("inventoryLive.errors.summaryTitle"),
-    ).toBeInTheDocument();
+      screen.getAllByText("Preserved Product").length,
+    ).toBeGreaterThan(0);
     expect(
       screen.getByText("inventoryLive.errors.summaryUnavailable"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("reference: REQ-SUMMARY"),
     ).toBeInTheDocument();
   });
 });

@@ -293,16 +293,18 @@ describe("CP4 Warehouse/Branch Dashboard closure", () => {
     const read = (path: string) => readFileSync(resolve(process.cwd(), "src", path), "utf8");
     const warehouses = read("pages/inventory/TabWarehouseLocations.tsx");
     const branchModal = read("pages/inventory/warehouse-locations/BranchManagementModal.tsx");
+    const branchI18n = read("pages/inventory/warehouse-locations/i18n.ts");
     const selector = read("pages/inventory/warehouse-locations/BranchSelector.tsx");
     expect(warehouses).toContain('apiErrorCode(error)');
     expect(warehouses).toContain('"LOCATION_DEACTIVATION_BLOCKED"');
     expect(warehouses).toContain('"LOCATION_VERSION_CONFLICT"');
     expect(warehouses).toContain('access.can("inventory.minimum_stock.manage")');
     expect(warehouses).toContain('minimumStockAccess.can("inventory.read")');
-    expect(branchModal).toContain('Changing branch state does not change linked warehouse state');
+    expect(branchModal).toContain("copy.nonCascade");
+    expect(branchI18n).toContain('nonCascade: "Changing branch state does not change linked warehouse state or location permissions."');
     expect(branchModal).toContain("autoFocus");
     expect(branchModal).not.toContain("isCompanyOwner");
-    expect(selector).toContain('dir={isArabic ? "rtl" : "ltr"}');
+    expect(selector).toContain("dir={i18n.dir()}");
 
     mocks.language = "en";
     mocks.companyCaps.add("branch.read");

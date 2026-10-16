@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Search } from "lucide-react";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
+import { branchSelectorCopy } from "./branchSelectorI18n";
 import { parseBranchPage, type BranchItem } from "./branchContracts";
 
 interface BranchSelectorProps {
@@ -23,28 +24,7 @@ export function BranchSelector({
 }: BranchSelectorProps) {
   const authenticatedFetch = useAuthFetch();
   const { i18n } = useTranslation();
-  const isArabic = i18n.language.toLowerCase().startsWith("ar");
-  const copy = isArabic
-    ? {
-        branch: "الفرع",
-        none: "غير مرتبط بفرع",
-        current: "الارتباط الحالي",
-        currentNumber: "الفرع الحالي",
-        search: "ابحث عن فرع بحرفين على الأقل",
-        loadFailed: "تعذر جلب الفروع.",
-        loading: "جارٍ تحميل الفروع...",
-        more: "توجد نتائج إضافية؛ استخدم البحث للوصول إلى الفرع المطلوب.",
-      }
-    : {
-        branch: "Branch",
-        none: "No branch",
-        current: "current association",
-        currentNumber: "Current branch",
-        search: "Search branches using at least two characters",
-        loadFailed: "Could not load branches.",
-        loading: "Loading branches...",
-        more: "More results exist; use search to find the required branch.",
-      };
+  const copy = branchSelectorCopy(i18n.resolvedLanguage ?? i18n.language);
   const requestSeq = useRef(0);
   const currentBranchIdRef = useRef<number | null>(value);
   const currentLabelRef = useRef<string | null>(currentLabel);
@@ -126,7 +106,7 @@ export function BranchSelector({
 
   if (!canReadBranches) {
     return (
-      <div className="space-y-2" dir={isArabic ? "rtl" : "ltr"}>
+      <div className="space-y-2" dir={i18n.dir()}>
         <span className="text-xs font-bold text-slate-600">{copy.branch}</span>
         <div className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
           {currentLabel ?? (currentBranchId === null ? copy.none : `${copy.currentNumber} #${currentBranchId}`)}
@@ -136,10 +116,10 @@ export function BranchSelector({
   }
 
   return (
-    <div className="space-y-2" dir={isArabic ? "rtl" : "ltr"}>
+    <div className="space-y-2" dir={i18n.dir()}>
       <label className="text-xs font-bold text-slate-600" htmlFor="warehouse-branch-search">{copy.branch}</label>
       <div className="relative">
-        <Search className={`absolute top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 ${isArabic ? "right-3" : "left-3"}`} />
+        <Search className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
         <input
           id="warehouse-branch-search"
           value={searchInput}
@@ -147,7 +127,7 @@ export function BranchSelector({
           disabled={disabled}
           maxLength={100}
           placeholder={copy.search}
-          className={`w-full rounded-xl border border-slate-200 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50 ${isArabic ? "pl-3 pr-10" : "pl-10 pr-3"}`}
+          className="w-full rounded-xl border border-slate-200 py-2.5 ps-10 pe-3 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50"
         />
       </div>
       <select
