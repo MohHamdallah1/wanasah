@@ -189,3 +189,16 @@ jobs:
         run: npm run build
       - name: Combined diff whitespace gate
         run: git diff --check acb8470dd62d72bbdb0b217f23adcbbffb172a6e HEAD
+      - name: Prove unrelated Supplier frontend failures on common base
+        working-directory: dashboard
+        run: |
+          git checkout acb8470dd62d72bbdb0b217f23adcbbffb172a6e -- .
+          set +e
+          npm test -- src/test/suppliers-v1.test.tsx > /tmp/supplier-base.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/supplier-base.log
+          test "$status" -ne 0
+          grep -F "retries whole-product return independently of current stock preview after a lost response" /tmp/supplier-base.log
+          grep -F "replays a stored pre-Supplier quality command while new whole-product return resolves Supplier automatically" /tmp/supplier-base.log
+          echo "SUPPLIER_FRONTEND_FAILURES_PREEXIST_ON_BASE=PROVEN"
