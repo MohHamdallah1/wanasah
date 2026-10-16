@@ -2615,3 +2615,82 @@ class StocktakeCancelRequest(RequestModel):
     @classmethod
     def normalize_reason(cls, v: Any) -> str:
         return _required_text(v)
+
+
+# ==========================================
+# Warehouse-wide Batch Index — Checkpoint 2 read contract
+# ==========================================
+BatchIndexTrackingMode = Literal["NONE", "OPTIONAL", "REQUIRED"]
+BatchIndexDisposition = Literal["RELEASED", "QUARANTINED", "BLOCKED", "RECALLED"]
+BatchIndexSellabilityState = Literal["SELLABLE", "NOT_SELLABLE"]
+BatchIndexSellabilityReason = Literal[
+    "BATCH_INACTIVE",
+    "DISPOSITION_NOT_RELEASED",
+    "PRODUCTION_DATE_IN_FUTURE",
+    "EXPIRY_REQUIRED_MISSING",
+    "EXPIRY_NOT_ALLOWED",
+    "EXPIRED",
+    "MINIMUM_REMAINING_SHELF_LIFE_NOT_MET",
+]
+
+
+class WarehouseInventoryBatchIndexItem(BaseModel):
+    batch_id: PositiveDbInt
+    batch_number: Optional[str] = Field(None, max_length=100)
+    product_variant_id: PositiveDbInt
+    product_id: PositiveDbInt
+    product_name: str = Field(..., min_length=1, max_length=200)
+    sku: Optional[str] = Field(None, max_length=100)
+    family_name: str = Field(..., min_length=1, max_length=200)
+    lot_control_mode: BatchIndexTrackingMode
+    expiry_control_mode: BatchIndexTrackingMode
+    production_date: Optional[date] = None
+    expiry_date: Optional[date] = None
+    days_to_expiry: Optional[int] = None
+    minimum_remaining_shelf_life_days: int = Field(..., ge=0)
+    sellability_state: BatchIndexSellabilityState
+    sellability_reason_codes: List[BatchIndexSellabilityReason] = Field(default_factory=list, max_length=7)
+    disposition: BatchIndexDisposition
+    disposition_reason: Optional[str] = None
+    disposition_revision: PositiveDbInt
+    allowed_disposition_targets: List[BatchIndexDisposition] = Field(default_factory=list, max_length=3)
+    base_uom_id: PositiveDbInt
+    base_uom_code: str = Field(..., min_length=1, max_length=20)
+    base_uom_name: str = Field(..., min_length=1, max_length=50)
+    display_uom_id: PositiveDbInt
+    display_uom_code: str = Field(..., min_length=1, max_length=20)
+    display_uom_name: str = Field(..., min_length=1, max_length=50)
+    display_factor_to_base: str
+    quantity_scale: int = Field(..., ge=0, le=6)
+    quantity_step: str
+    on_hand_quantity: str
+    reserved_quantity: str
+    available_for_sale_quantity: str
+    unavailable_quantity: str
+    available_status_quantity: str
+    quarantined_quantity: str
+    blocked_quantity: str
+    recalled_quantity: str
+    damaged_quantity: str
+    disposal_pending_quantity: str
+
+
+class WarehouseInventoryBatchIndexCursorPage(BaseModel):
+    location_id: PositiveDbInt
+    as_of_date: date
+    items: List[WarehouseInventoryBatchIndexItem] = Field(default_factory=list)
+    next_cursor: Optional[str] = Field(None, max_length=2048)
+    has_more: bool
+
+
+class WarehouseInventoryBatchIndexSummaryResponse(BaseModel):
+    location_id: PositiveDbInt
+    as_of_date: date
+    total_relevant_batches: int = Field(..., ge=0)
+    expired_count: int = Field(..., ge=0)
+    expiring_soon_count: int = Field(..., ge=0)
+    non_sellable_count: int = Field(..., ge=0)
+    quarantined_count: int = Field(..., ge=0)
+    blocked_count: int = Field(..., ge=0)
+    recalled_count: int = Field(..., ge=0)
+    damaged_or_disposal_attention_count: int = Field(..., ge=0)
