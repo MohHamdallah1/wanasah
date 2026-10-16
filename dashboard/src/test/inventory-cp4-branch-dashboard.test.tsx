@@ -304,7 +304,7 @@ describe("CP4 Warehouse/Branch Dashboard closure", () => {
     expect(branchI18n).toContain('nonCascade: "Changing branch state does not change linked warehouse state or location permissions."');
     expect(branchModal).toContain("autoFocus");
     expect(branchModal).not.toContain("isCompanyOwner");
-    expect(selector).toContain('dir={isArabic ? "rtl" : "ltr"}');
+    expect(selector).toContain("dir={i18n.dir()}");
 
     mocks.language = "en";
     mocks.companyCaps.add("branch.read");
