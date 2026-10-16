@@ -876,6 +876,8 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             assert stocktake_movement is not None
             assert stocktake_movement.reference_type == "AUDIT_ADJUSTMENT"
             assert Decimal(stocktake_movement.quantity) == Decimal("0.250")
+            stocktake_movement_id = int(stocktake_movement.id)
+            stocktake_reference_id = str(stocktake_movement.reference_id)
             movement_count = int(
                 await db.scalar(
                     select(func.count())
@@ -941,18 +943,18 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 limit=100,
                 search=None,
                 reference_type="AUDIT_ADJUSTMENT",
-                reference_id=stocktake_movement.reference_id,
+                reference_id=stocktake_reference_id,
                 db=db,
                 access=a.operator.access(db),
             )
             stocktake_evidence = [
                 item
                 for item in ledger_page["items"]
-                if item["id"] == stocktake_movement.id
+                if item["id"] == stocktake_movement_id
             ]
             assert len(stocktake_evidence) == 1
             evidence = stocktake_evidence[0]
-            assert evidence["reference"] == stocktake_movement.reference_id
+            assert evidence["reference"] == stocktake_reference_id
             assert Decimal(evidence["quantity"]) == Decimal("-0.250")
             assert evidence["source_location_id"] == a.a1
             assert evidence["destination_location_id"] is None
