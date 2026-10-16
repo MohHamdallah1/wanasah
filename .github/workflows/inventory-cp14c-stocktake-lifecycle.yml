@@ -42,18 +42,19 @@ jobs:
 
           path = Path("wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py")
           source = path.read_text(encoding="utf-8")
-          old = '''                await db.execute(text("SET statement_timeout='15000ms'"))
-                yield db'''
-          new = '''                await db.execute(text("SET statement_timeout='15000ms'"))
-                # set_config(..., false) is session-scoped but transactional; commit
-                # the harness setup so an expected endpoint rollback cannot erase RLS tenant context.
-                await db.commit()
-                yield db'''
-          if new in source:
+          indent = " " * 16
+          needle = indent + 'await db.execute(text("SET statement_timeout=\'15000ms\'"))\n'
+          commit_line = indent + "await db.commit()\n"
+          if commit_line in source:
               print("CP14C_TEST_TENANT_CONTEXT_FIX_ALREADY_PRESENT=PASS")
           else:
-              assert source.count(old) == 1, "CP14-C runtime-session seam changed unexpectedly"
-              path.write_text(source.replace(old, new, 1), encoding="utf-8")
+              assert source.count(needle) == 1, "CP14-C runtime-session seam changed unexpectedly"
+              insertion = (
+                  needle
+                  + indent + "# Persist session-scoped RLS tenant context across expected endpoint rollbacks.\n"
+                  + commit_line
+              )
+              path.write_text(source.replace(needle, insertion, 1), encoding="utf-8")
               print("CP14C_TEST_TENANT_CONTEXT_FIX_APPLIED=PASS")
           PY
           git diff --check
