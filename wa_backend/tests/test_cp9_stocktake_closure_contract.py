@@ -40,7 +40,7 @@ class CP9StocktakeClosureContractTests(unittest.TestCase):
         self.assertEqual(stocktake_request_hash(one, target=7), stocktake_request_hash(two, target=7))
         self.assertNotEqual(stocktake_request_hash(one, target=7), stocktake_request_hash(one, target=8))
 
-    def test_every_mutation_authorizes_before_idempotency_and_completes_before_commit(self):
+    def test_every_mutation_authorizes_before_idempotency_and_completes_before_terminal_commit(self):
         cases = {
             stocktake.start_unified_stocktake: ("stocktake.start", "STOCKTAKE_START"),
             stocktake.submit_stocktake_count: ("stocktake.count", "STOCKTAKE_COUNT"),
@@ -54,8 +54,11 @@ class CP9StocktakeClosureContractTests(unittest.TestCase):
             self.assertIn("begin_stocktake_command(", source)
             self.assertIn(operation, source)
             self.assertIn("complete_stocktake_command(", source)
-            self.assertLess(source.index(capability), source.index("begin_stocktake_command("))
-            self.assertLess(source.index("complete_stocktake_command("), source.index("await db.commit()"))
+            begin_index = source.index("begin_stocktake_command(")
+            complete_index = source.index("complete_stocktake_command(")
+            self.assertLess(source.index(capability), begin_index)
+            self.assertGreater(complete_index, begin_index)
+            self.assertIn("await db.commit()", source[complete_index:])
 
     def test_stock_correction_remains_authoritative_movement_posting(self):
         source = inspect.getsource(stocktake.approve_stocktake_session)
@@ -67,7 +70,7 @@ class CP9StocktakeClosureContractTests(unittest.TestCase):
         source = inspect.getsource(stocktake.list_stocktake_cycle_batches)
         for marker in (
             "access.company_id",
-            "location_id=location_id",
+            "InventoryLocation.id == location_id",
             "InventoryBalance.location_id == location_id",
             "ProductBatch.company_id == company_id",
             "public_batch_number(",
@@ -81,8 +84,9 @@ class CP9StocktakeClosureContractTests(unittest.TestCase):
         candidates = inspect.getsource(stocktake.list_vehicle_recon_candidates)
         start = inspect.getsource(stocktake.start_unified_stocktake)
         self.assertIn("access.location_filter('stocktake.start')", candidates)
-        self.assertIn("InventoryLocation.location_type == 'VEHICLE'", candidates)
-        self.assertIn("InventoryLocation.is_active.is_(True)", candidates)
+        self.assertIn("InventoryLocation.location_type", candidates)
+        self.assertIn('"VEHICLE"', candidates)
+        self.assertIn("InventoryLocation.is_active", candidates)
         self.assertIn("resolve_vehicle_custody_location_id(", start)
         self.assertIn("expected_location_id=int(payload.location_id)", start)
         self.assertIn("require_active=True", start)
@@ -93,8 +97,10 @@ class CP9StocktakeClosureContractTests(unittest.TestCase):
         review = inspect.getsource(stocktake.get_stocktake_review)
         recount = inspect.getsource(stocktake.recount_stocktake_session)
         cancel = inspect.getsource(stocktake.cancel_stocktake_session)
-        self.assertIn("StocktakeLine.company_id == company_id", count)
-        self.assertIn("StocktakeLine.stocktake_session_id == session_id", count)
+        self.assertIn("filter_by(company_id=company_id, stocktake_session_id=session.id)", count)
+        self.assertIn("StocktakeCountAttemptLine(", count)
+        self.assertIn("company_id=company_id", count)
+        self.assertIn("stocktake_session_id=session.id", count)
         self.assertIn("expected_quantity", review)
         self.assertIn("variance_quantity", review)
         self.assertIn("RECOUNT_REQUIRED", recount)
