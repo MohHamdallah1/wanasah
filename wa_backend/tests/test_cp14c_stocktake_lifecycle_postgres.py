@@ -75,7 +75,7 @@ from schemas import (
     WarehouseLocationStateRequest,
 )
 from services import InventoryMutationError, apply_inventory_movement
-from tests.canonical_actor_fixtures import seed_ordinary_backoffice_fixture
+from tests.canonical_actor_fixtures import seed_field_fixture, seed_ordinary_backoffice_fixture
 
 
 pytestmark = [
@@ -443,6 +443,7 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 counter = await seed_ordinary_backoffice_fixture(
                     seed, company.id, password=RECOUNT_PASSWORD
                 )
+                field = await seed_field_fixture(seed, company.id)
                 assert operator.context.is_company_owner is False
                 assert denied.context.is_company_owner is False
                 assert counter.context.is_company_owner is False
@@ -575,6 +576,7 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                         operator=operator,
                         denied=denied,
                         counter=counter,
+                        field_driver=field.driver.id,
                         branch=branch.id,
                         a1=a1.id,
                         a2=(a2.id if index == 0 else None),
@@ -1388,7 +1390,7 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             route = DispatchRoute(
                 company_id=a.company_id,
                 zone_id=a.zone,
-                driver_id=a.operator.driver_id,
+                driver_id=a.field_driver,
                 vehicle_id=a.vehicle,
                 source_location_id=a.a1,
                 dispatch_date=date.today(),
