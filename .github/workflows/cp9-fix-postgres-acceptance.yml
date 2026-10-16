@@ -1,0 +1,55 @@
+name: CP9 fix PostgreSQL acceptance fixture
+
+on:
+  push:
+    branches:
+      - sol/cp9-stocktake-full-closure-wave2
+
+permissions:
+  contents: write
+
+jobs:
+  adjust:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: sol/cp9-stocktake-full-closure-wave2
+      - name: Align PostgreSQL acceptance with frozen runtime semantics
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('wa_backend/tests/test_cp9_stocktake_postgres.py')
+          s = p.read_text(encoding='utf-8')
+
+          old_negative = '''        # Negative variance, then a distinct recount flow on a new session.\n        negative = await self._start(self.a2, self.access_a_all, self.actor_a)\n        negative_sid = int(negative["session_id"])\n        negative_count, _ = await self._count(\n            negative_sid, self.access_a_all, self.actor_a,\n            {self.shared_batch: 9, self.a2_only: 5},\n        )\n        neg_approved, _ = await self._approve(negative_sid, int(negative_count["attempt_id"]), self.access_a_all, self.actor_a)\n        self.assertGreater(neg_approved["movement_count"], 0)\n        self.assertEqual(await self.db.scalar(select(InventoryBalance.on_hand_quantity).where(\n            InventoryBalance.company_id == self.company_a,\n            InventoryBalance.location_id == self.a2,\n            InventoryBalance.batch_id == self.shared_batch,\n        )), Decimal("9"))\n\n        recount_started = await self._start(self.a2, self.access_a_all, self.actor_a)\n'''
+          new_negative = '''        # Negative variance must not post before an independent recount.\n        negative = await self._start(self.a2, self.access_a_all, self.actor_a)\n        negative_sid = int(negative["session_id"])\n        negative_count, _ = await self._count(\n            negative_sid, self.access_a_all, self.actor_a,\n            {self.shared_batch: 9, self.a2_only: 5},\n        )\n        with self.assertRaises(HTTPException) as direct_negative_approval:\n            await self._approve(\n                negative_sid, int(negative_count["attempt_id"]),\n                self.access_a_all, self.actor_a,\n            )\n        self.assertEqual(direct_negative_approval.exception.status_code, 409)\n        self.assertIn("إعادة عد مستقلة", str(direct_negative_approval.exception.detail))\n\n        negative_recount_cmd = StocktakeRecountCommand(\n            request_id=uuid4(),\n            count_attempt_id=int(negative_count["attempt_id"]),\n            reason="independent recount required for negative variance",\n            authorizer_username=self.actor_a2.username,\n            authorizer_password=PASSWORD,\n        )\n        with patch.object(stocktake_api, "_verify_stocktake_admin_credentials", AsyncMock(return_value=self.actor_a2)):\n            negative_recount = await stocktake_api.recount_stocktake_session(\n                negative_sid, negative_recount_cmd, db=self.db,\n                access=self.access_a_all, legacy_actor=self.actor_a,\n            )\n        self.assertEqual(negative_recount["status"], "RECOUNT_REQUIRED")\n        negative_second, _ = await self._count(\n            negative_sid, self.access_a_all, self.actor_a2,\n            {self.shared_batch: 9, self.a2_only: 5},\n        )\n        neg_approved, _ = await self._approve(\n            negative_sid, int(negative_second["attempt_id"]),\n            self.access_a_all, self.actor_a,\n        )\n        self.assertGreater(neg_approved["movement_count"], 0)\n        self.assertEqual(await self.db.scalar(select(InventoryBalance.on_hand_quantity).where(\n            InventoryBalance.company_id == self.company_a,\n            InventoryBalance.location_id == self.a2,\n            InventoryBalance.batch_id == self.shared_batch,\n        )), Decimal("9"))\n\n        # Explicit recount remains available as a distinct workflow on a new session.\n        recount_started = await self._start(self.a2, self.access_a_all, self.actor_a)\n'''
+          if s.count(old_negative) != 1:
+              raise SystemExit(f'negative block match count={s.count(old_negative)}')
+          s = s.replace(old_negative, new_negative)
+
+          old_raw = '''        self.db.add(raw_session)\n        await self.db.commit()\n        location_access = SimpleNamespace(company_id=self.company_a)\n'''
+          new_raw = '''        self.db.add(raw_session)\n        await self.db.flush()\n        raw_session_id = int(raw_session.id)\n        await self.db.commit()\n        location_access = SimpleNamespace(company_id=self.company_a)\n'''
+          if s.count(old_raw) != 1:
+              raise SystemExit(f'raw session setup match count={s.count(old_raw)}')
+          s = s.replace(old_raw, new_raw)
+
+          old_reload = '''            await self.db.rollback()\n            raw_session = await self.db.get(StocktakeSession, int(raw_session.id))\n            raw_session.status = "CANCELLED"\n'''
+          new_reload = '''            await self.db.rollback()\n            raw_session = await self.db.get(StocktakeSession, raw_session_id)\n            raw_session.status = "CANCELLED"\n'''
+          if s.count(old_reload) != 1:
+              raise SystemExit(f'raw session reload match count={s.count(old_reload)}')
+          s = s.replace(old_reload, new_reload)
+
+          p.write_text(s, encoding='utf-8')
+          PY
+          python -m py_compile wa_backend/tests/test_cp9_stocktake_postgres.py
+          rm .github/workflows/cp9-fix-postgres-acceptance.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add wa_backend/tests/test_cp9_stocktake_postgres.py .github/workflows/cp9-fix-postgres-acceptance.yml
+          git commit -m 'CP9: align PostgreSQL acceptance with recount semantics'
+          git push origin HEAD:sol/cp9-stocktake-full-closure-wave2
