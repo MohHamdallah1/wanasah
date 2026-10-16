@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { KeyboardEvent } from "react";
 import { formatPublicBatchNumber } from "../publicBatchNumber";
 import type { StocktakeRow } from "../inventoryUtils";
-import { useStocktakeCopy } from "./copy";
+import { useStocktakeUiCopy } from "./uiCopy";
 
 interface StocktakeCountingPanelProps {
   rows: StocktakeRow[];
@@ -29,8 +29,8 @@ export function StocktakeCountingPanel({
   onSubmit,
 }: StocktakeCountingPanelProps) {
   const { t } = useTranslation();
-  const { isArabic, dir } = useStocktakeCopy();
-  const text = <T,>(arabic: T, english: T) => (isArabic ? arabic : english);
+  const { copy, dir } = useStocktakeUiCopy();
+  const text = copy.counting;
 
   const handleCountEnter = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter" || event.currentTarget.value.trim() === "") return;
@@ -51,7 +51,7 @@ export function StocktakeCountingPanel({
       data-stocktake-count-input="true"
       inputMode="decimal"
       autoFocus={autoFocus}
-      aria-label={text(`الكمية الفعلية لـ ${row.product_name}`, `Actual quantity for ${row.product_name}`)}
+      aria-label={text.actualFor(row.product_name)}
       value={row.actual_quantity}
       onChange={(event) => onUpdateRow(row.row_key, event.target.value)}
       onKeyDown={handleCountEnter}
@@ -63,17 +63,17 @@ export function StocktakeCountingPanel({
   const zeroButton = (row: StocktakeRow) => row.counted ? (
     <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg text-xs font-black">
       <Check className="w-3.5 h-3.5" aria-hidden="true" />
-      {text("تم العد", "Counted")}
+      {text.counted}
     </span>
   ) : (
     <button
       type="button"
       onClick={() => onConfirmZero(row.row_key)}
       className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-200 hover:border-amber-200 rounded-lg text-xs font-black transition-colors"
-      title={text("استخدم هذا الزر فقط إذا تم العد فعلياً وكانت الكمية صفر", "Use only after a physical count confirms zero quantity")}
-      aria-label={text(`تأكيد صفر لـ ${row.product_name}`, `Confirm zero for ${row.product_name}`)}
+      title={text.zeroHint}
+      aria-label={text.confirmZeroFor(row.product_name)}
     >
-      {text("تأكيد صفر", "Confirm zero")}
+      {text.confirmZero}
     </button>
   );
 
@@ -82,11 +82,9 @@ export function StocktakeCountingPanel({
       <div className="px-5 py-3 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Scan className="w-4 h-4 text-amber-400" aria-hidden="true" />
-          <span className="text-sm font-black">{text("عد أعمى نشط", "Blind count in progress")}</span>
+          <span className="text-sm font-black">{text.active}</span>
         </div>
-        <span className="text-xs text-slate-300 font-bold">
-          {text("المتوقع والفروقات مخفية حتى تثبيت المحاولة", "Expected quantities and variances stay hidden until submission")}
-        </span>
+        <span className="text-xs text-slate-300 font-bold">{text.hidden}</span>
       </div>
 
       <div className="md:hidden flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-slate-50 p-3 space-y-3">
@@ -105,7 +103,7 @@ export function StocktakeCountingPanel({
               </div>
               {zeroButton(row)}
             </div>
-            <div className="text-[11px] text-slate-400">{text("خطوة الكمية", "Quantity step")}: <span dir="ltr">{row.quantity_step}</span></div>
+            <div className="text-[11px] text-slate-400">{text.quantityStep}: <span dir="ltr">{row.quantity_step}</span></div>
           </article>
         ))}
       </div>
@@ -114,10 +112,10 @@ export function StocktakeCountingPanel({
         <table className="w-full text-sm">
           <thead className="bg-slate-50 border-b border-slate-100 sticky top-0 z-10 shadow-sm">
             <tr>
-              <th className="px-4 py-3.5 text-xs font-bold text-slate-500 text-start">{text("المنتج", "Product")}</th>
-              <th className="px-4 py-3.5 text-xs font-bold text-slate-500 text-start">{text("الدفعة / الصلاحية", "Batch / expiry")}</th>
-              <th className="px-4 py-3.5 text-xs font-bold text-[#1e87bb] text-center">{text("الجرد الفعلي بوحدة الأساس", "Actual count in base UOM")}</th>
-              <th className="px-4 py-3.5 text-xs font-bold text-slate-500 text-center">{text("حالة العد", "Count status")}</th>
+              <th className="px-4 py-3.5 text-xs font-bold text-slate-500 text-start">{text.product}</th>
+              <th className="px-4 py-3.5 text-xs font-bold text-slate-500 text-start">{text.batchExpiry}</th>
+              <th className="px-4 py-3.5 text-xs font-bold text-[#1e87bb] text-center">{text.actualBase}</th>
+              <th className="px-4 py-3.5 text-xs font-bold text-slate-500 text-center">{text.countStatus}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50 bg-white">
@@ -134,7 +132,7 @@ export function StocktakeCountingPanel({
                   <div className="flex items-center justify-center gap-2">
                     {countInput(row, index === 0)}
                     <span className="text-xs font-bold text-slate-500">{row.base_uom_name}</span>
-                    <span className="text-[10px] text-slate-400">{text("خطوة", "Step")} <span dir="ltr">{row.quantity_step}</span></span>
+                    <span className="text-[10px] text-slate-400">{text.step} <span dir="ltr">{row.quantity_step}</span></span>
                   </div>
                 </td>
                 <td className="px-4 py-3 text-center">{zeroButton(row)}</td>
@@ -147,17 +145,17 @@ export function StocktakeCountingPanel({
       <div className="bg-slate-900 text-white rounded-b-2xl overflow-hidden border-t border-slate-700">
         <div className="px-4 md:px-5 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-5">
-            <div className="flex flex-col"><span className="text-[10px] text-slate-400 font-bold uppercase">{text("الإجمالي", "Total")}</span><span className="text-sm font-extrabold"><span dir="ltr">{progress.total}</span> {text("سطر", "lines")}</span></div>
-            <div className="flex flex-col"><span className="text-[10px] text-slate-400 font-bold uppercase">{text("تم عده", "Counted")}</span><span className="text-sm font-extrabold text-emerald-400" dir="ltr">{progress.counted}</span></div>
-            <div className="flex flex-col"><span className="text-[10px] text-slate-400 font-bold uppercase">{text("متبقي", "Remaining")}</span><span className={`text-sm font-extrabold ${progress.remaining > 0 ? "text-amber-400" : "text-emerald-400"}`} dir="ltr">{progress.remaining}</span></div>
+            <div className="flex flex-col"><span className="text-[10px] text-slate-400 font-bold uppercase">{text.total}</span><span className="text-sm font-extrabold"><span dir="ltr">{progress.total}</span> {text.lines}</span></div>
+            <div className="flex flex-col"><span className="text-[10px] text-slate-400 font-bold uppercase">{text.countedTotal}</span><span className="text-sm font-extrabold text-emerald-400" dir="ltr">{progress.counted}</span></div>
+            <div className="flex flex-col"><span className="text-[10px] text-slate-400 font-bold uppercase">{text.remaining}</span><span className={`text-sm font-extrabold ${progress.remaining > 0 ? "text-amber-400" : "text-emerald-400"}`} dir="ltr">{progress.remaining}</span></div>
           </div>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto sm:min-w-[300px]">
             <button type="button" disabled={!canCancel} onClick={onCancel} className="flex-1 px-4 h-9 bg-slate-800 hover:bg-red-500/20 disabled:opacity-50 text-slate-300 hover:text-red-300 border border-transparent hover:border-red-500/30 text-xs font-bold rounded-xl transition-all">
-              {text("إلغاء الجرد", "Cancel stocktake")}
+              {text.cancel}
             </button>
             <button type="button" onClick={onSubmit} disabled={progress.remaining > 0} className="flex-[2.5] px-4 h-9 bg-amber-500 hover:bg-amber-600 disabled:bg-slate-600 disabled:text-slate-300 text-slate-900 text-sm font-black rounded-xl shadow-lg transition-all flex items-center justify-center gap-2">
               <Check className="w-5 h-5" aria-hidden="true" />
-              {text("إنهاء العد وتثبيت المحاولة", "Finish count and submit attempt")}
+              {text.finish}
             </button>
           </div>
         </div>
