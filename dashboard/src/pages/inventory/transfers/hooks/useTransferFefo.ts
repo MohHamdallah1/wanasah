@@ -19,9 +19,11 @@ export function useTransferFefo(sourceLocationId: number | null, canOverride: bo
     number[]
   >([]);
   const overrideRequestSeq = useRef<Record<number, number>>({});
+  const restoredProducts = useRef(new Set<number>());
   const resetFefo = useCallback(() => {
     ++generation.current;
     overrideRequestSeq.current = {};
+    restoredProducts.current = new Set();
     setOverrideOptionsByProduct({});
     setOverrideLoadingProductIds([]);
   }, []);
@@ -99,8 +101,6 @@ export function useTransferFefo(sourceLocationId: number | null, canOverride: bo
     ]
   );
 
-  const restoredProducts = useRef(new Set<number>());
-  useEffect(() => { restoredProducts.current = new Set(); }, [sourceLocationId]);
   useEffect(() => {
     if (!canOverride) return;
     for (const item of draftItems) {

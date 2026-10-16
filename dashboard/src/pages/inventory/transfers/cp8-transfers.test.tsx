@@ -160,3 +160,22 @@ it("keeps Tab and Shift+Tab within the decision dialog until it closes", async (
   fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
   expect(document.activeElement).toBe(controls[controls.length - 1]);
 });
+
+it("reloads backend FEFO options when a persisted override draft is reopened", async () => {
+  const product = { id: 100, product_variant_id: 100, draft_key: "saved-line", name: "Product", sku: null, base_uom_id: 1,
+    base_uom_code: "EACH", base_uom_name: "Each", quantity_scale: 0, quantity_step: "1", available_quantity: "10",
+    quantity: "2", fefo_mode: "override" as const, override_batch_id: 8, override_reason_id: 9, override_batch_available: "10" };
+  const location = { id: 12, name: "A2", code: "A2", location_type: "WAREHOUSE" as const, vehicle_id: null };
+  writeTransferDraft(transferCommandScope("TRANSFER_DRAFT", 11), { direction: "outgoing", counterpart: 12, notes: "saved", purpose: "WAREHOUSE_BALANCING", items: [product], locations: [location] });
+  mocks.fetch.mockImplementation(async (url: string) => url.includes("override-options") ? { location_id: 11, product_variant_id: 100, fefo_batch_id: 8,
+    batches: [{ id: 8, batch_number: "LOT", production_date: null, expiry_date: null, available_quantity: "10", is_fefo_head: true }],
+    reasons: [{ id: 9, code: "APPROVED", description: "Approved" }] } : url.includes("/locations?") ? [location] :
+    { items: [], has_more: false, next_cursor: null, total: 0 });
+  const { result } = renderHook(() => useTransferCreate({ locationId: 11, onCompleted: vi.fn(), onInventoryChanged: vi.fn() }));
+  act(() => result.current.openCreate());
+  await waitFor(() => expect(result.current.overrideOptionsByProduct[100]?.batches).toHaveLength(1));
+  act(() => result.current.closeCreate());
+  act(() => result.current.openCreate());
+  await waitFor(() => expect(result.current.overrideOptionsByProduct[100]?.batches).toHaveLength(1));
+  expect(result.current.draftItems[0].override_batch_id).toBe(8);
+});

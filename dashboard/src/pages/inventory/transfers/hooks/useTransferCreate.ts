@@ -121,10 +121,9 @@ export function useTransferCreate({
   };
 
   useEffect(() => {
-    resetFefo();
     if (restoringDraft.current) restoringDraft.current = false;
     else setDraftItems([]);
-  }, [createOpen, sourceLocationId, resetFefo]);
+  }, [createOpen, sourceLocationId]);
 
 
   useEffect(() => {

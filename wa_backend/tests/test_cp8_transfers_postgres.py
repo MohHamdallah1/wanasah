@@ -654,3 +654,33 @@ async def test_vehicle_special_transfer_and_generic_direction_contract(pg):
         result = await transfers.unified_transfer_cancel(sent["header_id"], UnifiedTransferDecisionRequest(
             request_id=uuid4(), decision_reason="return vehicle custody"), db, actor.access(db), actor.operational_driver)
         assert result["status"] == "CANCELLED"
+
+
+async def test_opposite_dispatches_preserve_sorted_lock_order(pg):
+    outbound = dispatch_payload(pg.a, items=[dict(product_variant_id=pg.a.variant_id, quantity="3", uom_id=pg.a.uom_id)])
+    inbound = dispatch_payload(pg.a, source_location_id=pg.a.locations[1], destination_location_id=pg.a.locations[0],
+        items=[dict(product_variant_id=pg.a.variant_id, quantity="3", uom_id=pg.a.uom_id)])
+    one, two = await asyncio.wait_for(asyncio.gather(send(pg, outbound, pg.a.owner), send(pg, inbound, pg.a.owner)), timeout=20)
+    assert one["header_id"] != two["header_id"]
+    async with pg.session(pg.a) as db:
+        total = await db.scalar(select(func.sum(InventoryBalance.on_hand_quantity)).where(InventoryBalance.company_id == pg.a.company_id))
+        assert total == 180
+
+
+async def test_competing_receive_and_cancel_have_one_terminal_effect(pg):
+    sent = await send(pg)
+    async def receive():
+        async with pg.session(pg.a) as db:
+            return await transfers.unified_transfer_receive(UnifiedReceiveRequest(request_id=uuid4(), transfer_header_id=sent["header_id"],
+                destination_location_id=pg.a.locations[1]), db, pg.a.receiver.access(db), pg.a.receiver.operational_driver)
+    async def cancel():
+        async with pg.session(pg.a) as db:
+            return await transfers.unified_transfer_cancel(sent["header_id"], UnifiedTransferDecisionRequest(request_id=uuid4(), decision_reason="race"),
+                db, pg.a.ordinary.access(db), pg.a.ordinary.operational_driver)
+    results = await asyncio.wait_for(asyncio.gather(receive(), cancel(), return_exceptions=True), timeout=20)
+    assert sum(isinstance(result, dict) for result in results) == 1
+    failure = next(result for result in results if not isinstance(result, dict))
+    assert isinstance(failure, HTTPException) and failure.status_code == 409
+    async with pg.session(pg.a) as db:
+        assert await db.scalar(select(func.count()).select_from(InventoryMovement).where(
+            InventoryMovement.company_id == pg.a.company_id, InventoryMovement.transfer_header_id == sent["header_id"])) == 2
