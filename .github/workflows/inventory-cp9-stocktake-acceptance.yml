@@ -35,6 +35,21 @@ jobs:
                   raise SystemExit(f'expected one match, got {count}: {old[:120]!r}')
               text = text.replace(old, new, 1)
 
+          def rep_in(start: str, end: str, old: str, new: str) -> None:
+              global text
+              left = text.find(start)
+              if left < 0:
+                  raise SystemExit(f'missing section start: {start!r}')
+              right = text.find(end, left + len(start)) if end else len(text)
+              if right < 0:
+                  raise SystemExit(f'missing section end: {end!r}')
+              body = text[left:right]
+              count = body.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected one section match, got {count}: {old[:120]!r}')
+              body = body.replace(old, new, 1)
+              text = text[:left] + body + text[right:]
+
           marker = "from domains.product_tracking import public_batch_number\n"
           rep(marker, marker + "from domains.stocktake.contracts import (\n    StocktakeApprovalCommand,\n    StocktakeCancelCommand,\n    StocktakeCountCommand,\n    StocktakeRecountCommand,\n    StocktakeStartCommand,\n)\nfrom domains.stocktake.idempotency import (\n    begin_stocktake_command,\n    complete_stocktake_command,\n)\n")
 
@@ -44,51 +59,59 @@ jobs:
           rep('payload: StocktakeRecountRequest,', 'payload: StocktakeRecountCommand,')
           rep('payload: StocktakeCancelRequest,', 'payload: StocktakeCancelCommand,')
 
-          start_company = "    company_id = access.company_id\n\n    try:\n        expected_location_type = 'VEHICLE' if payload.stocktake_type == 'VEHICLE_RECON' else 'WAREHOUSE'\n"
-          start_repl = "    company_id = access.company_id\n    actor_id = int(legacy_actor.id)\n\n    try:\n        idempotency_record, replay_response = await begin_stocktake_command(\n            db, company_id=company_id, actor_id=actor_id, operation='STOCKTAKE_START',\n            payload=payload, target=payload.location_id,\n        )\n        if replay_response is not None:\n            await db.rollback()\n            return replay_response\n\n        expected_location_type = 'VEHICLE' if payload.stocktake_type == 'VEHICLE_RECON' else 'WAREHOUSE'\n"
-          rep(start_company, start_repl)
+          START = 'async def start_unified_stocktake('
+          COUNT = 'async def submit_stocktake_count('
+          REVIEW = '@router.get("/warehouse/unified/stocktake/{session_id}/review"'
+          APPROVE = 'async def approve_stocktake_session('
+          RECOUNT = 'async def recount_stocktake_session('
+          CANCEL = 'async def cancel_stocktake_session('
 
-          start_end = "        await db.commit()\n\n        return {\n            \"message\": \"تم بدء جلسة الجرد وأخذ Snapshot مقفل بنجاح.\",\n            \"reference_number\": reference_number,\n            \"session_id\": session.id,\n            \"stocktake_type\": session.stocktake_type,\n            \"snapshot_lines\": len(balances),\n        }\n"
-          start_end_repl = "        response = {\n            \"message\": \"تم بدء جلسة الجرد وأخذ Snapshot مقفل بنجاح.\",\n            \"reference_number\": reference_number,\n            \"session_id\": session.id,\n            \"stocktake_type\": session.stocktake_type,\n            \"snapshot_lines\": len(balances),\n        }\n        complete_stocktake_command(idempotency_record, response)\n        await db.commit()\n        return response\n"
-          rep(start_end, start_end_repl)
+          rep_in(START, COUNT,
+              "    company_id = access.company_id\n\n    try:\n        expected_location_type = 'VEHICLE' if payload.stocktake_type == 'VEHICLE_RECON' else 'WAREHOUSE'\n",
+              "    company_id = access.company_id\n    actor_id = int(legacy_actor.id)\n\n    try:\n        idempotency_record, replay_response = await begin_stocktake_command(\n            db, company_id=company_id, actor_id=actor_id, operation='STOCKTAKE_START',\n            payload=payload, target=payload.location_id,\n        )\n        if replay_response is not None:\n            await db.rollback()\n            return replay_response\n\n        expected_location_type = 'VEHICLE' if payload.stocktake_type == 'VEHICLE_RECON' else 'WAREHOUSE'\n")
+          rep_in(START, COUNT,
+              "        await db.commit()\n\n        return {\n            \"message\": \"تم بدء جلسة الجرد وأخذ Snapshot مقفل بنجاح.\",\n            \"reference_number\": reference_number,\n            \"session_id\": session.id,\n            \"stocktake_type\": session.stocktake_type,\n            \"snapshot_lines\": len(balances),\n        }\n",
+              "        response = {\n            \"message\": \"تم بدء جلسة الجرد وأخذ Snapshot مقفل بنجاح.\",\n            \"reference_number\": reference_number,\n            \"session_id\": session.id,\n            \"stocktake_type\": session.stocktake_type,\n            \"snapshot_lines\": len(balances),\n        }\n        complete_stocktake_command(idempotency_record, response)\n        await db.commit()\n        return response\n")
+          rep_in(START, COUNT,
+              "    except IntegrityError as e:\n        await db.rollback()\n        logger.warning(f\"تعارض متزامن أثناء بدء الجرد: {e}\", exc_info=True)\n",
+              "    except InventoryMutationError as e:\n        await db.rollback()\n        raise HTTPException(status_code=409, detail=str(e)) from e\n    except IntegrityError as e:\n        await db.rollback()\n        logger.warning(f\"تعارض متزامن أثناء بدء الجرد: {e}\", exc_info=True)\n")
 
-          start_catch = "    except VehicleError as exc:\n        await db.rollback()\n        raise HTTPException(\n            status_code=exc.status_code,\n            detail={\"code\": exc.code, \"message\": exc.message, \"context\": exc.context},\n        ) from exc\n    except IntegrityError as e:\n"
-          rep(start_catch, start_catch.replace('    except IntegrityError as e:\n', "    except InventoryMutationError as e:\n        await db.rollback()\n        raise HTTPException(status_code=409, detail=str(e)) from e\n    except IntegrityError as e:\n"))
+          rep_in(COUNT, REVIEW,
+              "    company_id = access.company_id\n\n    try:\n        session = await _load_stocktake_session(db, company_id, session_id, for_update=True)\n",
+              "    company_id = access.company_id\n    actor_id = int(legacy_actor.id)\n\n    try:\n        idempotency_record, replay_response = await begin_stocktake_command(\n            db, company_id=company_id, actor_id=actor_id, operation='STOCKTAKE_COUNT',\n            payload=payload, target=session_id,\n        )\n        if replay_response is not None:\n            await db.rollback()\n            return replay_response\n\n        session = await _load_stocktake_session(db, company_id, session_id, for_update=True)\n")
+          rep_in(COUNT, REVIEW,
+              "        await db.commit()\n\n        return {\n            \"message\": \"تم تثبيت محاولة العد بنجاح.\",\n            \"attempt_id\": attempt.id,\n            \"attempt_number\": attempt_number,\n            \"requires_independent_recount\": requires_independent,\n            \"status\": \"PENDING_REVIEW\",\n        }\n",
+              "        response = {\n            \"message\": \"تم تثبيت محاولة العد بنجاح.\",\n            \"attempt_id\": attempt.id,\n            \"attempt_number\": attempt_number,\n            \"requires_independent_recount\": requires_independent,\n            \"status\": \"PENDING_REVIEW\",\n        }\n        complete_stocktake_command(idempotency_record, response)\n        await db.commit()\n        return response\n")
+          rep_in(COUNT, REVIEW,
+              "    except IntegrityError as e:\n        await db.rollback()\n        logger.warning(f\"تعارض متزامن أثناء تثبيت الجرد: {e}\", exc_info=True)\n",
+              "    except InventoryMutationError as e:\n        await db.rollback()\n        raise HTTPException(status_code=409, detail=str(e)) from e\n    except IntegrityError as e:\n        await db.rollback()\n        logger.warning(f\"تعارض متزامن أثناء تثبيت الجرد: {e}\", exc_info=True)\n")
 
-          count_company = "    company_id = access.company_id\n\n    try:\n        session = await _load_stocktake_session(db, company_id, session_id, for_update=True)\n"
-          count_repl = "    company_id = access.company_id\n    actor_id = int(legacy_actor.id)\n\n    try:\n        idempotency_record, replay_response = await begin_stocktake_command(\n            db, company_id=company_id, actor_id=actor_id, operation='STOCKTAKE_COUNT',\n            payload=payload, target=session_id,\n        )\n        if replay_response is not None:\n            await db.rollback()\n            return replay_response\n\n        session = await _load_stocktake_session(db, company_id, session_id, for_update=True)\n"
-          rep(count_company, count_repl)
+          rep_in(APPROVE, RECOUNT,
+              "    try:\n        probe = await _probe_stocktake_location_id(db, company_id, session_id)\n",
+              "    try:\n        idempotency_record, replay_response = await begin_stocktake_command(\n            db, company_id=company_id, actor_id=int(legacy_actor.id), operation='STOCKTAKE_APPROVE',\n            payload=payload, target=session_id,\n        )\n        if replay_response is not None:\n            await db.rollback()\n            return replay_response\n\n        probe = await _probe_stocktake_location_id(db, company_id, session_id)\n")
+          rep_in(APPROVE, RECOUNT,
+              "        await db.commit()\n\n        return {\n            \"message\": \"تم اعتماد الجرد وترحيل الفروقات وفك الأقفال بنجاح.\",\n            \"attempt_id\": latest_attempt.id,\n            \"attempt_number\": latest_attempt.attempt_number,\n            \"movement_count\": len(movements),\n            \"status\": \"POSTED\",\n        }\n",
+              "        response = {\n            \"message\": \"تم اعتماد الجرد وترحيل الفروقات وفك الأقفال بنجاح.\",\n            \"attempt_id\": latest_attempt.id,\n            \"attempt_number\": latest_attempt.attempt_number,\n            \"movement_count\": len(movements),\n            \"status\": \"POSTED\",\n        }\n        complete_stocktake_command(idempotency_record, response)\n        await db.commit()\n        return response\n")
 
-          count_end = "        await db.commit()\n\n        return {\n            \"message\": \"تم تثبيت محاولة العد بنجاح.\",\n            \"attempt_id\": attempt.id,\n            \"attempt_number\": attempt_number,\n            \"requires_independent_recount\": requires_independent,\n            \"status\": \"PENDING_REVIEW\",\n        }\n"
-          count_end_repl = "        response = {\n            \"message\": \"تم تثبيت محاولة العد بنجاح.\",\n            \"attempt_id\": attempt.id,\n            \"attempt_number\": attempt_number,\n            \"requires_independent_recount\": requires_independent,\n            \"status\": \"PENDING_REVIEW\",\n        }\n        complete_stocktake_command(idempotency_record, response)\n        await db.commit()\n        return response\n"
-          rep(count_end, count_end_repl)
-          count_catch = "    except IntegrityError as e:\n        await db.rollback()\n        logger.warning(f\"تعارض متزامن أثناء تثبيت الجرد: {e}\", exc_info=True)\n"
-          rep(count_catch, "    except InventoryMutationError as e:\n        await db.rollback()\n        raise HTTPException(status_code=409, detail=str(e)) from e\n" + count_catch)
+          rep_in(RECOUNT, CANCEL,
+              "    try:\n        session = await _load_stocktake_session(db, company_id, session_id, for_update=True)\n",
+              "    try:\n        idempotency_record, replay_response = await begin_stocktake_command(\n            db, company_id=company_id, actor_id=int(legacy_actor.id), operation='STOCKTAKE_RECOUNT',\n            payload=payload, target=session_id,\n        )\n        if replay_response is not None:\n            await db.rollback()\n            return replay_response\n\n        session = await _load_stocktake_session(db, company_id, session_id, for_update=True)\n")
+          rep_in(RECOUNT, CANCEL,
+              "        await db.commit()\n\n        return {\n            \"message\": \"تم تفويض إعادة العد مع حفظ المحاولة السابقة كاملة.\",\n            \"previous_attempt_id\": latest_attempt.id,\n            \"previous_attempt_number\": latest_attempt.attempt_number,\n            \"requires_independent_counter\": latest_attempt.requires_independent_recount,\n            \"status\": \"RECOUNT_REQUIRED\",\n        }\n",
+              "        response = {\n            \"message\": \"تم تفويض إعادة العد مع حفظ المحاولة السابقة كاملة.\",\n            \"previous_attempt_id\": latest_attempt.id,\n            \"previous_attempt_number\": latest_attempt.attempt_number,\n            \"requires_independent_counter\": latest_attempt.requires_independent_recount,\n            \"status\": \"RECOUNT_REQUIRED\",\n        }\n        complete_stocktake_command(idempotency_record, response)\n        await db.commit()\n        return response\n")
+          rep_in(RECOUNT, CANCEL,
+              "    except IntegrityError as e:\n        await db.rollback()\n        logger.warning(f\"تعارض متزامن أثناء تفويض Recount: {e}\", exc_info=True)\n",
+              "    except InventoryMutationError as e:\n        await db.rollback()\n        raise HTTPException(status_code=409, detail=str(e)) from e\n    except IntegrityError as e:\n        await db.rollback()\n        logger.warning(f\"تعارض متزامن أثناء تفويض Recount: {e}\", exc_info=True)\n")
 
-          approve_try = "    try:\n        probe = await _probe_stocktake_location_id(db, company_id, session_id)\n"
-          approve_repl = "    try:\n        idempotency_record, replay_response = await begin_stocktake_command(\n            db, company_id=company_id, actor_id=int(legacy_actor.id), operation='STOCKTAKE_APPROVE',\n            payload=payload, target=session_id,\n        )\n        if replay_response is not None:\n            await db.rollback()\n            return replay_response\n\n        probe = await _probe_stocktake_location_id(db, company_id, session_id)\n"
-          rep(approve_try, approve_repl)
-          approve_end = "        await db.commit()\n\n        return {\n            \"message\": \"تم اعتماد الجرد وترحيل الفروقات وفك الأقفال بنجاح.\",\n            \"attempt_id\": latest_attempt.id,\n            \"attempt_number\": latest_attempt.attempt_number,\n            \"movement_count\": len(movements),\n            \"status\": \"POSTED\",\n        }\n"
-          approve_end_repl = "        response = {\n            \"message\": \"تم اعتماد الجرد وترحيل الفروقات وفك الأقفال بنجاح.\",\n            \"attempt_id\": latest_attempt.id,\n            \"attempt_number\": latest_attempt.attempt_number,\n            \"movement_count\": len(movements),\n            \"status\": \"POSTED\",\n        }\n        complete_stocktake_command(idempotency_record, response)\n        await db.commit()\n        return response\n"
-          rep(approve_end, approve_end_repl)
-
-          recount_try = "    try:\n        session = await _load_stocktake_session(db, company_id, session_id, for_update=True)\n        if session.status != 'PENDING_REVIEW':\n            raise HTTPException(status_code=409, detail=\"لا يمكن طلب إعادة العد إلا لجلسة بانتظار المراجعة.\")\n"
-          recount_repl = "    try:\n        idempotency_record, replay_response = await begin_stocktake_command(\n            db, company_id=company_id, actor_id=int(legacy_actor.id), operation='STOCKTAKE_RECOUNT',\n            payload=payload, target=session_id,\n        )\n        if replay_response is not None:\n            await db.rollback()\n            return replay_response\n\n        session = await _load_stocktake_session(db, company_id, session_id, for_update=True)\n        if session.status != 'PENDING_REVIEW':\n            raise HTTPException(status_code=409, detail=\"لا يمكن طلب إعادة العد إلا لجلسة بانتظار المراجعة.\")\n"
-          rep(recount_try, recount_repl)
-          recount_end = "        await db.commit()\n\n        return {\n            \"message\": \"تم تفويض إعادة العد مع حفظ المحاولة السابقة كاملة.\",\n            \"previous_attempt_id\": latest_attempt.id,\n            \"previous_attempt_number\": latest_attempt.attempt_number,\n            \"requires_independent_counter\": latest_attempt.requires_independent_recount,\n            \"status\": \"RECOUNT_REQUIRED\",\n        }\n"
-          recount_end_repl = "        response = {\n            \"message\": \"تم تفويض إعادة العد مع حفظ المحاولة السابقة كاملة.\",\n            \"previous_attempt_id\": latest_attempt.id,\n            \"previous_attempt_number\": latest_attempt.attempt_number,\n            \"requires_independent_counter\": latest_attempt.requires_independent_recount,\n            \"status\": \"RECOUNT_REQUIRED\",\n        }\n        complete_stocktake_command(idempotency_record, response)\n        await db.commit()\n        return response\n"
-          rep(recount_end, recount_end_repl)
-          recount_catch = "    except IntegrityError as e:\n        await db.rollback()\n        logger.warning(f\"تعارض متزامن أثناء تفويض Recount: {e}\", exc_info=True)\n"
-          rep(recount_catch, "    except InventoryMutationError as e:\n        await db.rollback()\n        raise HTTPException(status_code=409, detail=str(e)) from e\n" + recount_catch)
-
-          cancel_try = "    try:\n        location_id, _, _ = await _probe_stocktake_location_id(db, company_id, session_id)\n"
-          cancel_repl = "    try:\n        idempotency_record, replay_response = await begin_stocktake_command(\n            db, company_id=company_id, actor_id=int(legacy_actor.id), operation='STOCKTAKE_CANCEL',\n            payload=payload, target=session_id,\n        )\n        if replay_response is not None:\n            await db.rollback()\n            return replay_response\n\n        location_id, _, _ = await _probe_stocktake_location_id(db, company_id, session_id)\n"
-          rep(cancel_try, cancel_repl)
-          cancel_end = "        await db.commit()\n\n        return {\n            \"message\": \"تم إلغاء جلسة الجرد وفك الأقفال مع حفظ سجل التدقيق.\",\n            \"released_lock_count\": released_lock_count,\n            \"status\": \"CANCELLED\",\n        }\n"
-          cancel_end_repl = "        response = {\n            \"message\": \"تم إلغاء جلسة الجرد وفك الأقفال مع حفظ سجل التدقيق.\",\n            \"released_lock_count\": released_lock_count,\n            \"status\": \"CANCELLED\",\n        }\n        complete_stocktake_command(idempotency_record, response)\n        await db.commit()\n        return response\n"
-          rep(cancel_end, cancel_end_repl)
-          cancel_catch = "    except IntegrityError as e:\n        await db.rollback()\n        logger.warning(f\"تعارض متزامن أثناء إلغاء الجرد: {e}\", exc_info=True)\n"
-          rep(cancel_catch, "    except InventoryMutationError as e:\n        await db.rollback()\n        raise HTTPException(status_code=409, detail=str(e)) from e\n" + cancel_catch)
+          rep_in(CANCEL, '',
+              "    try:\n        location_id, _, _ = await _probe_stocktake_location_id(db, company_id, session_id)\n",
+              "    try:\n        idempotency_record, replay_response = await begin_stocktake_command(\n            db, company_id=company_id, actor_id=int(legacy_actor.id), operation='STOCKTAKE_CANCEL',\n            payload=payload, target=session_id,\n        )\n        if replay_response is not None:\n            await db.rollback()\n            return replay_response\n\n        location_id, _, _ = await _probe_stocktake_location_id(db, company_id, session_id)\n")
+          rep_in(CANCEL, '',
+              "        await db.commit()\n\n        return {\n            \"message\": \"تم إلغاء جلسة الجرد وفك الأقفال مع حفظ سجل التدقيق.\",\n            \"released_lock_count\": released_lock_count,\n            \"status\": \"CANCELLED\",\n        }\n",
+              "        response = {\n            \"message\": \"تم إلغاء جلسة الجرد وفك الأقفال مع حفظ سجل التدقيق.\",\n            \"released_lock_count\": released_lock_count,\n            \"status\": \"CANCELLED\",\n        }\n        complete_stocktake_command(idempotency_record, response)\n        await db.commit()\n        return response\n")
+          rep_in(CANCEL, '',
+              "    except IntegrityError as e:\n        await db.rollback()\n        logger.warning(f\"تعارض متزامن أثناء إلغاء الجرد: {e}\", exc_info=True)\n",
+              "    except InventoryMutationError as e:\n        await db.rollback()\n        raise HTTPException(status_code=409, detail=str(e)) from e\n    except IntegrityError as e:\n        await db.rollback()\n        logger.warning(f\"تعارض متزامن أثناء إلغاء الجرد: {e}\", exc_info=True)\n")
 
           path.write_text(text, encoding='utf-8')
           PY
