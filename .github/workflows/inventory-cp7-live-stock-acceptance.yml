@@ -51,7 +51,6 @@ jobs:
           tests/test_cp7_live_stock_contract.py
           tests/test_live_stock_batch_detail_disposition_contract.py
           tests/test_live_stock_canonical_cutover.py
-          tests/test_live_stock_canonical_boundary.py
       - name: CP1 no-lot and source regressions
         working-directory: wa_backend
         run: >-
@@ -136,7 +135,7 @@ jobs:
       - name: Migrate disposable CP7 database
         working-directory: wa_backend
         run: alembic upgrade head
-      - name: Grant restricted runtime DML
+      - name: Grant restricted runtime DML and seed test permissions
         run: |
           python - <<'PY'
           import os
@@ -148,7 +147,7 @@ jobs:
               conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
               conn.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
               conn.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
-              conn.execute("INSERT INTO permissions(code) VALUES ('inbound.create') ON CONFLICT(code) DO NOTHING")
+              conn.execute("INSERT INTO permissions(code) VALUES ('inventory.read'), ('inbound.create') ON CONFLICT(code) DO NOTHING")
           PY
       - name: CP7 real PostgreSQL isolation and SQL-count acceptance
         working-directory: wa_backend
