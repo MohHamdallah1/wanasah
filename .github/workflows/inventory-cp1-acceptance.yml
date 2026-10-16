@@ -1,0 +1,161 @@
+name: Inventory CP1 acceptance
+
+on:
+  push:
+    branches:
+      - integration/inventory-cp1-acceptance
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "wa_backend/**"
+      - "dashboard/**"
+      - ".github/workflows/inventory-cp1-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-functional:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp1SyntheticOnlyKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://cp1_unit@127.0.0.1:1/cp1_unit
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Checkpoint 1 focused backend acceptance
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_inbound_lot_expiry_checkpoint1.py
+          tests/test_inbound_no_lot_frozen_contract.py
+          tests/test_stocktake_nullable_expiry_serialization.py
+          tests/test_live_stock_batch_detail_disposition_contract.py
+          tests/test_batch_reservation_owner_contract.py
+          tests/test_whole_product_quality_issue_sources.py
+          tests/test_product_tracking_canonical_auth.py
+          tests/test_batch_stock_sources_contract.py
+          tests/test_supplier_inbound_quality_canonical_auth_cutover.py
+
+  postgres-acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: cp1_admin
+          POSTGRES_DB: wanasah_no_lot_contract_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - "55439:5432"
+        options: >-
+          --health-cmd "pg_isready -U cp1_admin -d wanasah_no_lot_contract_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp1PostgresOnlyKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend PostgreSQL test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              exists = conn.execute(
+                  "SELECT 1 FROM pg_roles WHERE rolname='wanasah_app'"
+              ).fetchone()
+              if not exists:
+                  conn.execute(
+                      "CREATE ROLE wanasah_app LOGIN NOSUPERUSER "
+                      "NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS"
+                  )
+          PY
+      - name: Migrate disposable Checkpoint 1 database
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: Grant runtime DML on migrated schema
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+          PY
+      - name: Frozen committed PostgreSQL acceptance
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_inbound_no_lot_frozen_postgres.py
+
+  dashboard-acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Locked frontend dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Checkpoint 1 focused Dashboard acceptance
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/pages/inventory/inbound/Tab2Inbound.test.tsx
+          src/pages/inventory/inbound/contracts.test.ts
+          src/test/inventory-public-batch-number-parity.test.ts
+          src/test/inventory-product-batch-date-parity.test.ts
+          src/test/inventory-batch-disposition.test.ts
+          src/test/inventory-batch-stock-sources.test.ts
+          src/test/inventory-batches-expiry-semantics.test.tsx
+          src/test/inventory-batches-pagination.test.ts
+      - name: TypeScript noEmit
+        working-directory: dashboard
+        run: npx tsc --noEmit
+      - name: Production Dashboard build
+        working-directory: dashboard
+        run: npm run build
+      - name: Combined diff whitespace gate
+        run: git diff --check acb8470dd62d72bbdb0b217f23adcbbffb172a6e HEAD
