@@ -1,0 +1,137 @@
+name: Inventory CP14-D Device UX Acceptance
+
+on:
+  pull_request:
+    branches:
+      - integration/inventory-wave-2
+    paths:
+      - "dashboard/e2e/inventory-cp14-device-ux.spec.ts"
+      - "dashboard/e2e/inventory-cp14-device-ux.config.ts"
+      - ".github/workflows/inventory-cp14-device-ux.yml"
+      - "dashboard/src/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cp14d-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  device-ux-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: npm ci
+        working-directory: dashboard
+        run: npm ci
+
+      - name: Build Dashboard for deterministic browser acceptance
+        working-directory: dashboard
+        env:
+          VITE_API_URL: http://127.0.0.1:4174/api
+        run: npm run build
+
+      - name: Install disposable Playwright Chromium runtime
+        working-directory: dashboard
+        run: |
+          npm install --no-save --package-lock=false --legacy-peer-deps playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Start Dashboard preview
+        working-directory: dashboard
+        env:
+          VITE_API_URL: http://127.0.0.1:4174/api
+        run: |
+          nohup npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/cp14d-preview.log 2>&1 &
+          echo $! > /tmp/cp14d-preview.pid
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4173/inventory >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/cp14d-preview.log
+          exit 1
+
+      - name: CP14-D Playwright Chromium acceptance
+        working-directory: dashboard
+        env:
+          CP14D_BASE_URL: http://127.0.0.1:4173
+        run: npx playwright test --config e2e/inventory-cp14-device-ux.config.ts
+
+      - name: Restore clean Dashboard dependency tree
+        working-directory: dashboard
+        run: npm ci
+
+      - name: CP12 focused UI regressions
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/test/inventory-cp12-i18n.test.tsx
+          src/test/inventory-cp12-accessibility.test.tsx
+          src/test/inventory-cp12-responsive-contract.test.ts
+
+      - name: TypeScript noEmit
+        working-directory: dashboard
+        run: npx tsc --noEmit
+
+      - name: ESLint touched CP14-D TypeScript
+        working-directory: dashboard
+        run: >-
+          npx eslint
+          e2e/inventory-cp14-device-ux.spec.ts
+          e2e/inventory-cp14-device-ux.config.ts
+          src/pages/inventory/InventoryPage.tsx
+
+      - name: Production Dashboard build
+        working-directory: dashboard
+        env:
+          VITE_API_URL: https://api.example.invalid
+        run: npm run build
+
+      - name: Dynamic scope and git diff check
+        shell: bash
+        run: |
+          target="${{ github.event.pull_request.base.ref }}"
+          if [ -z "$target" ]; then target="integration/inventory-wave-2"; fi
+          git fetch origin "$target" --no-tags
+          base="$(git merge-base HEAD "origin/$target")"
+          echo "CP14D_DYNAMIC_BASE=$base"
+          echo "CP14D_TARGET=$target"
+          python - <<'PY'
+          import os
+          import subprocess
+
+          target = os.environ.get("GITHUB_BASE_REF") or "integration/inventory-wave-2"
+          base = subprocess.check_output(
+              ["git", "merge-base", "HEAD", f"origin/{target}"], text=True
+          ).strip()
+          changed = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", base, "HEAD"], text=True
+              ).splitlines()
+          )
+          expected = {
+              ".github/workflows/inventory-cp14-device-ux.yml",
+              "dashboard/e2e/inventory-cp14-device-ux.config.ts",
+              "dashboard/e2e/inventory-cp14-device-ux.spec.ts",
+              "dashboard/src/pages/inventory/InventoryPage.tsx",
+              "dashboard/src/pages/inventory/cp14DeviceUx.css",
+          }
+          assert changed == expected, f"Unexpected CP14-D scope: {sorted(changed)}"
+          print("CP14D_DYNAMIC_SCOPE=PASS")
+          PY
+          git diff --check "$base" HEAD
