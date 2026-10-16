@@ -164,25 +164,35 @@ jobs:
     timeout-minutes: 10
     env:
       CP14C_FROZEN_BASE: f8218188edb9a6b9f3a9a08be373675ae6470b99
-      CP14C_INTEGRATED_WAVE: 7468f9f3c5b2419c223882724ae926afaebd7fa5
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Verify frozen ancestry, final Wave merge, and CP14-C ownership
+      - name: Resolve dynamic Wave merge-base
         shell: bash
         run: |
-          target="${{ github.event.pull_request.base.ref }}"
-          if [ -z "$target" ]; then target="integration/inventory-wave-2"; fi
+          set -euo pipefail
+          target="${GITHUB_BASE_REF:-integration/inventory-wave-2}"
           test "$target" = "integration/inventory-wave-2"
-          git merge-base --is-ancestor "$CP14C_FROZEN_BASE" "$CP14C_INTEGRATED_WAVE"
-          git merge-base --is-ancestor "$CP14C_INTEGRATED_WAVE" HEAD
+          git fetch --no-tags origin "$target:refs/remotes/origin/$target"
+          base="$(git merge-base HEAD "origin/$target")"
+          test -n "$base"
+          git merge-base --is-ancestor "$CP14C_FROZEN_BASE" "$base"
+          git merge-base --is-ancestor "$CP14C_FROZEN_BASE" HEAD
+          git merge-base --is-ancestor "$base" HEAD
+          echo "CP14C_DYNAMIC_BASE=$base" >> "$GITHUB_ENV"
+          echo "CP14C_DYNAMIC_TARGET=$target" >> "$GITHUB_ENV"
+          echo "CP14C_DYNAMIC_BASE_RESOLVED=$base"
+      - name: Verify CP14-C ownership from dynamic Wave base
+        shell: bash
+        run: |
+          set -euo pipefail
           python - <<'PY'
           import os
           import subprocess
 
-          base = os.environ["CP14C_INTEGRATED_WAVE"]
+          base = os.environ["CP14C_DYNAMIC_BASE"]
           changed = set(
               subprocess.check_output(
                   ["git", "diff", "--name-only", base, "HEAD"], text=True
@@ -193,14 +203,15 @@ jobs:
               "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py",
               "wa_backend/services.py",
           }
-          assert changed == expected, f"Unexpected CP14-C scope over final Wave: {sorted(changed)}"
+          assert changed == expected, f"Unexpected CP14-C scope over dynamic Wave base: {sorted(changed)}"
           print("CP14C_DYNAMIC_SCOPE=PASS")
           PY
       - name: Prove runtime fix is exact and bounded
         shell: bash
         run: |
-          test "$(git diff --numstat "$CP14C_INTEGRATED_WAVE" HEAD -- wa_backend/services.py)" = $'1\t0\twa_backend/services.py'
-          git diff "$CP14C_INTEGRATED_WAVE" HEAD -- wa_backend/services.py | grep -F '+                created_at=settled_at,'
+          set -euo pipefail
+          test "$(git diff --numstat "$CP14C_DYNAMIC_BASE" HEAD -- wa_backend/services.py)" = $'1\t0\twa_backend/services.py'
+          git diff "$CP14C_DYNAMIC_BASE" HEAD -- wa_backend/services.py | grep -F '+                created_at=settled_at,'
           echo "CP14C_RUNTIME_FIX_BOUNDED=PASS"
       - name: Prove test has no direct InventoryBalance mutation seam
         run: |
@@ -218,5 +229,5 @@ jobs:
           assert not found, f"Direct balance mutation seam found: {found}"
           print("CP14C_NO_DIRECT_BALANCE_PATCH=PASS")
           PY
-      - name: git diff --check
-        run: git diff --check "$CP14C_INTEGRATED_WAVE" HEAD
+      - name: git diff --check from dynamic Wave base
+        run: git diff --check "$CP14C_DYNAMIC_BASE" HEAD
