@@ -357,7 +357,7 @@ class CanonicalCutoverSourceProofTests(unittest.TestCase):
         self.assertIn('"inventory.vendor_return.confirm"', quality_source)
         self.assertIn("require_supplier_permission(access)", quality_source)
 
-    def test_mutation_legacy_driver_is_only_provenance_and_existing_password_confirmation(self):
+    def test_mutation_legacy_driver_is_only_provenance_and_confirmation_is_canonical(self):
         supplier_source = self.sources[ROOT / "api" / "suppliers.py"]
         inbound_source = self.sources[ROOT / "api" / "warehouse" / "inbound.py"]
         quality_source = self.sources[ROOT / "api" / "warehouse" / "whole_product_quality.py"]
@@ -365,7 +365,8 @@ class CanonicalCutoverSourceProofTests(unittest.TestCase):
         self.assertEqual(supplier_source.count("legacy_actor.id"), 3)
         self.assertEqual(inbound_source.count("legacy_actor.id"), 2)
         self.assertEqual(quality_source.count("legacy_actor.id"), 1)
-        self.assertIn("verify_actor_password(legacy_actor", quality_source)
+        self.assertIn("verify_quality_confirmation(db, access,", quality_source)
+        self.assertNotIn("verify_actor_password(legacy_actor", quality_source)
         for source in (supplier_source, inbound_source, quality_source):
             self.assertNotIn("legacy_actor.company_id", source)
             self.assertNotIn("legacy_actor.is_admin", source)
@@ -414,7 +415,7 @@ class CanonicalCutoverSourceProofTests(unittest.TestCase):
     def test_quality_business_guards_replay_terminal_hold_and_transactions_remain(self):
         source = self.sources[ROOT / "api" / "warehouse" / "whole_product_quality.py"]
         for token in (
-            "verify_actor_password(legacy_actor",
+            "verify_quality_confirmation(db, access,",
             'operational_hold or "").upper() != "RECALL"',
             "resolve_current_stock_suppliers",
             "acquire_product_lifecycle_guards",

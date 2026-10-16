@@ -1,0 +1,369 @@
+name: Inventory CP3 Combined Final acceptance
+
+on:
+  pull_request:
+    branches:
+      - integration/inventory-wave-2
+    paths:
+      - ".github/workflows/inventory-cp3-combined-final-acceptance.yml"
+      - ".github/workflows/inventory-cp3-quality-terminal-acceptance.yml"
+      - "wa_backend/api/warehouse/live_stock_source_detail.py"
+      - "wa_backend/domains/batch_actions/**"
+      - "wa_backend/api/warehouse/whole_product_quality.py"
+      - "wa_backend/domains/inventory_quality_confirmation.py"
+      - "wa_backend/tests/test_cp3_batch_actions_contract.py"
+      - "wa_backend/tests/test_cp3_batch_actions_postgres.py"
+      - "wa_backend/tests/test_cp34_quality_terminal_backend.py"
+      - "wa_backend/tests/test_cp34_quality_terminal_postgres.py"
+      - "dashboard/src/pages/inventory/batches/useBatchTerminalAction.ts"
+      - "dashboard/src/test/batch-terminal-actions.test.tsx"
+      - "dashboard/src/test/cp34-quality-durable.test.tsx"
+      - "dashboard/src/test/suppliers-v1.test.tsx"
+      - "dashboard/src/test/inventory-cp2-batches-dashboard.test.tsx"
+      - "dashboard/src/test/inventory-cp7-live-stock.test.tsx"
+      - "dashboard/src/test/inventory-cp7-live-stock-parity.test.tsx"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cp3-combined-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-combined:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp3CombinedFunctionalKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://cp3_unit@127.0.0.1:1/cp3_unit
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Backend test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: CP3 Core read-contract acceptance
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_cp3_batch_actions_contract.py
+      - name: CP3 disposition and status-change regressions
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_inbound_no_lot_frozen_contract.py
+          tests/test_warehouse_transfers_canonical_auth_cutover.py
+          -k "not ledger"
+      - name: CP3 terminal, transfer, Ledger and policy Backend
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_batch_stock_sources_contract.py
+          tests/test_batch_reservation_owner_contract.py
+          tests/test_inventory_quality_action_availability.py
+          tests/test_terminal_disposal_service.py
+          tests/test_terminal_vendor_service.py
+          tests/test_terminal_provenance.py
+          tests/test_terminal_quality_workflow_chain.py
+          tests/test_whole_product_quality_preview_canonical_auth_cutover.py
+          tests/test_whole_product_quality_global_contract.py
+          tests/test_whole_product_quality_direct_stage.py
+          tests/test_supplier_inbound_quality_canonical_auth_cutover.py
+          tests/test_whole_product_quality_terminal_completion.py
+          tests/test_whole_product_quality_stage4_legacy_fifo.py
+          tests/test_whole_product_quality_issue_sources.py
+          tests/test_cp34_quality_terminal_backend.py
+          tests/test_cp8_transfers_backend.py
+          tests/test_special_transfer_action_options.py
+          tests/test_cp7_live_stock_contract.py
+          tests/test_live_stock_batch_detail_disposition_contract.py
+          tests/test_cp10_ledger_backend.py
+          tests/test_cp6_policy_closure.py
+      - name: Warehouse route manifest
+        working-directory: wa_backend
+        run: python scripts/gate_warehouse_route_manifest.py
+      - name: CP3 combined py_compile
+        run: >-
+          python -m py_compile
+          wa_backend/api/warehouse/live_stock_source_detail.py
+          wa_backend/domains/batch_actions/__init__.py
+          wa_backend/domains/batch_actions/status_change.py
+          wa_backend/api/warehouse/whole_product_quality.py
+          wa_backend/domains/inventory_quality_confirmation.py
+          wa_backend/tests/test_cp3_batch_actions_contract.py
+          wa_backend/tests/test_cp3_batch_actions_postgres.py
+          wa_backend/tests/test_cp34_quality_terminal_backend.py
+          wa_backend/tests/test_cp34_quality_terminal_postgres.py
+
+  postgres-core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp3CombinedCorePgKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_CP3_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0, ref: "${{ github.event.pull_request.head.sha || github.sha }}"}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Install PostgreSQL acceptance dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start PostgreSQL 16
+        run: |
+          docker run --detach --name cp3-core-pg --env POSTGRES_USER=cp1_admin --env POSTGRES_DB=wanasah_no_lot_contract_test --env POSTGRES_HOST_AUTH_METHOD=trust --publish 127.0.0.1:55439:55439 postgres:16 -p 55439
+          for attempt in $(seq 1 30); do docker exec cp3-core-pg pg_isready -U cp1_admin -d wanasah_no_lot_contract_test -p 55439 && exit 0; sleep 1; done
+          docker logs cp3-core-pg; exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              if conn.execute("SELECT 1 FROM pg_roles WHERE rolname='wanasah_app'").fetchone() is None:
+                  conn.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migrate and grant runtime
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+              conn.execute("INSERT INTO permissions(code) VALUES ('inventory.read'), ('inbound.create'), ('batch.disposition'), ('inventory.status_change') ON CONFLICT(code) DO NOTHING")
+          PY
+      - name: CP3 Core PostgreSQL 16
+        working-directory: wa_backend
+        run: python -m pytest -q -s tests/test_cp3_batch_actions_postgres.py
+
+  postgres-terminal-cp8:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp34CombinedPgKeyAbc12345678901234567890123456789012
+      DATABASE_URL: postgresql+asyncpg://cp8_app@127.0.0.1:55448/wanasah_cp8_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp8_admin@127.0.0.1:55448/wanasah_cp8_test
+      WANASAH_CP8_PG_GATE: "1"
+      WANASAH_CP8_PG_URL: postgresql+asyncpg://cp8_app@127.0.0.1:55448/wanasah_cp8_test
+      WANASAH_CP8_PG_ADMIN_URL: postgresql+asyncpg://cp8_admin@127.0.0.1:55448/wanasah_cp8_test
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0, ref: "${{ github.event.pull_request.head.sha || github.sha }}"}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Install PostgreSQL acceptance dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start PostgreSQL 16
+        run: |
+          docker run --detach --name cp34-pg --env POSTGRES_USER=cp8_admin --env POSTGRES_DB=wanasah_cp8_test --env POSTGRES_HOST_AUTH_METHOD=trust --publish 127.0.0.1:55448:55448 postgres:16 -p 55448
+          for attempt in $(seq 1 30); do docker exec cp34-pg pg_isready -U cp8_admin -d wanasah_cp8_test -p 55448 && exit 0; sleep 1; done
+          docker logs cp34-pg; exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname='cp8_app'").fetchone():
+                  conn.execute("CREATE ROLE cp8_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migrate
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: CP3.4 plus CP8 PostgreSQL 16
+        working-directory: wa_backend
+        run: python -m pytest -q -s tests/test_cp8_transfers_postgres.py tests/test_cp34_quality_terminal_postgres.py
+
+  postgres-cp7:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp7CombinedPgKeyAbc12345678901234567890123456789012
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_CP7_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0, ref: "${{ github.event.pull_request.head.sha || github.sha }}"}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Install PostgreSQL acceptance dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start PostgreSQL 16
+        run: |
+          docker run --detach --name cp7-pg --env POSTGRES_USER=cp1_admin --env POSTGRES_DB=wanasah_no_lot_contract_test --env POSTGRES_HOST_AUTH_METHOD=trust --publish 127.0.0.1:55439:55439 postgres:16 -p 55439
+          for attempt in $(seq 1 30); do docker exec cp7-pg pg_isready -U cp1_admin -d wanasah_no_lot_contract_test -p 55439 && exit 0; sleep 1; done
+          docker logs cp7-pg; exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              if conn.execute("SELECT 1 FROM pg_roles WHERE rolname='wanasah_app'").fetchone() is None:
+                  conn.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migrate and grant runtime
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+              conn.execute("INSERT INTO permissions(code) VALUES ('inventory.read'), ('inbound.create') ON CONFLICT(code) DO NOTHING")
+          PY
+      - name: CP7 live-stock PostgreSQL smoke
+        working-directory: wa_backend
+        run: python -m pytest -q -s tests/test_cp7_live_stock_postgres.py
+
+  postgres-cp10:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp10CombinedPgKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://cp10_app@127.0.0.1:55450/wanasah_cp10_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp10_admin@127.0.0.1:55450/wanasah_cp10_test
+      WANASAH_CP10_PG_GATE: "1"
+      WANASAH_CP10_PG_URL: postgresql+asyncpg://cp10_app@127.0.0.1:55450/wanasah_cp10_test
+      WANASAH_CP10_PG_ADMIN_URL: postgresql+asyncpg://cp10_admin@127.0.0.1:55450/wanasah_cp10_test
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0, ref: "${{ github.event.pull_request.head.sha || github.sha }}"}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Install PostgreSQL acceptance dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start PostgreSQL 16
+        run: |
+          docker run --detach --name cp10-pg --env POSTGRES_USER=cp10_admin --env POSTGRES_DB=wanasah_cp10_test --env POSTGRES_HOST_AUTH_METHOD=trust --publish 127.0.0.1:55450:55450 postgres:16 -p 55450
+          for attempt in $(seq 1 30); do docker exec cp10-pg pg_isready -U cp10_admin -d wanasah_cp10_test -p 55450 && exit 0; sleep 1; done
+          docker logs cp10-pg; exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname='cp10_app'").fetchone():
+                  conn.execute("CREATE ROLE cp10_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migrate
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: CP10 Ledger PostgreSQL movement smoke
+        working-directory: wa_backend
+        run: python -m pytest -q -s tests/test_cp10_ledger_postgres.py tests/test_cp10_ledger_postgres_multibatch.py
+
+  dashboard-combined:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Locked Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: CP3 Core and terminal UI coexistence
+        working-directory: dashboard
+        run: npm test -- src/test/inventory-cp3-batch-actions.test.tsx src/test/batch-terminal-actions.test.tsx src/test/cp34-quality-durable.test.tsx --reporter=verbose
+      - name: Supplier quality-return
+        working-directory: dashboard
+        run: npm test -- src/test/suppliers-v1.test.tsx -t "retries whole-product return|replays a stored pre-Supplier quality command" --reporter=verbose
+      - name: CP2 and CP7 parity
+        working-directory: dashboard
+        run: npm test -- src/test/inventory-cp2-batches-dashboard.test.tsx src/test/inventory-batches-expiry-semantics.test.tsx src/test/inventory-cp7-live-stock.test.tsx src/test/inventory-cp7-live-stock-parity.test.tsx --reporter=verbose
+      - name: CP8 Transfers
+        working-directory: dashboard
+        run: npm test -- src/pages/inventory/transfers/cp8-transfers.test.tsx src/test/cp8-quality-destinations.test.tsx --reporter=verbose
+      - name: CP6 shelf-life policy parity
+        working-directory: dashboard
+        run: npm test -- src/test/inventory-cp6-policy-closure.test.tsx --reporter=verbose
+      - name: CP10 Ledger Dashboard smoke
+        working-directory: dashboard
+        run: npm test -- src/test/inventory-cp10-ledger-dashboard.test.tsx src/test/inventory-cp10-ledger-contract.test.ts --reporter=verbose
+      - name: ESLint touched frontend
+        working-directory: dashboard
+        run: npx eslint src/pages/inventory/batches/useBatchTerminalAction.ts src/test/batch-terminal-actions.test.tsx src/test/cp34-quality-durable.test.tsx src/test/suppliers-v1.test.tsx src/test/inventory-cp2-batches-dashboard.test.tsx src/test/inventory-cp7-live-stock.test.tsx src/test/inventory-cp7-live-stock-parity.test.tsx
+      - name: TypeScript noEmit
+        working-directory: dashboard
+        run: npx tsc --noEmit
+      - name: Production Dashboard build
+        working-directory: dashboard
+        run: npm run build
+
+  diff-and-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Resolve target merge-base and diff check
+        shell: bash
+        run: |
+          git fetch origin integration/inventory-wave-2 --no-tags
+          base="$(git merge-base HEAD origin/integration/inventory-wave-2)"
+          test -n "$base"
+          git diff --check "$base" HEAD --
+          git merge-base --is-ancestor 7216a067c97371078e375f1c84ab365e86e816b0 HEAD
+          echo "CP3_COMBINED_BASE=$base"
+      - name: No foreign runtime modifications
+        shell: bash
+        run: |
+          git fetch origin integration/inventory-wave-2 --no-tags
+          base="$(git merge-base HEAD origin/integration/inventory-wave-2)"
+          python - "$base" <<'PY'
+          import subprocess, sys
+          base = sys.argv[1]
+          changed = set(subprocess.check_output(["git","diff","--name-only",base,"HEAD"], text=True).splitlines())
+          runtime_allowed = {
+              "dashboard/src/pages/inventory/batches/useBatchTerminalAction.ts",
+              "wa_backend/api/warehouse/whole_product_quality.py",
+              "wa_backend/domains/inventory_quality_confirmation.py",
+          }
+          workflow_test_prefixes = (".github/workflows/", "dashboard/src/test/", "wa_backend/tests/")
+          bad = sorted(p for p in changed if p not in runtime_allowed and not p.startswith(workflow_test_prefixes))
+          if bad:
+              raise SystemExit(f"CP3_COMBINED_SCOPE=FAIL foreign={bad}")
+          print("CP3_COMBINED_SCOPE=PASS", sorted(changed))
+          PY

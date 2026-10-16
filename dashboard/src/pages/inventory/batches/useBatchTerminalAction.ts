@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -35,12 +35,13 @@ export function useBatchTerminalAction({ batch, productVariantId, baseUomCode, o
   const authFetch = useAuthFetch();
   const access = useInventoryAccess();
   const isOnline = useNetworkStatus();
+  const running = useRef(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const companyId = access.data?.company_id ?? null;
   const backofficeUserId = access.data?.backoffice_user_id ?? null;
 
   const run = async (command: TerminalCommand) => {
-    if (!isOnline || companyId === null || backofficeUserId === null || busyKey !== null) return false;
+    if (!isOnline || companyId === null || backofficeUserId === null || running.current || busyKey !== null) return false;
     const key = [batch.batch_id, command.sourceLocationId, command.sourceStatus, command.action].join(":");
     const scope = durableScope(companyId, backofficeUserId, "batch-terminal-quality-v1", key);
     const common = {
@@ -55,6 +56,7 @@ export function useBatchTerminalAction({ batch, productVariantId, baseUomCode, o
     const endpoint = command.action === "CONFIRM_DISPOSAL"
       ? "/warehouse/quality/disposal/confirm"
       : "/warehouse/quality/vendor-return/confirm";
+    running.current = true;
     setBusyKey(key);
     try {
       const durable = await getOrCreateDurableCommand(scope, payload);
@@ -78,7 +80,7 @@ export function useBatchTerminalAction({ batch, productVariantId, baseUomCode, o
         ? t("terminalQualityActions.pending")
         : t("terminalQualityActions.errors.submit")));
       return false;
-    } finally { setBusyKey(null); }
+    } finally { running.current = false; setBusyKey(null); }
   };
 
   return { run, busyKey, isOnline };
