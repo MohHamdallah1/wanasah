@@ -46,12 +46,12 @@ jobs:
       - name: CP6.2 and CP6.3 focused Backend acceptance
         working-directory: wa_backend
         run: python -m pytest -q tests/test_cp6_policy_closure.py
-      - name: CP1 Inbound regression
+      - name: CP1 lot and expiry regression
         working-directory: wa_backend
-        run: >-
-          python -m pytest -q
-          tests/test_inbound_lot_expiry_checkpoint1.py
-          tests/test_supplier_inbound_quality_canonical_auth_cutover.py
+        run: python -m pytest -q tests/test_inbound_lot_expiry_checkpoint1.py
+      - name: CP1 canonical Inbound regression
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_supplier_inbound_quality_canonical_auth_cutover.py
       - name: CP2 Batches regression
         working-directory: wa_backend
         run: >-
@@ -222,6 +222,7 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Resolve active Wave merge-base
+        id: base
         shell: bash
         run: |
           target="${{ github.event.pull_request.base.ref }}"
