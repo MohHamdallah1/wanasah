@@ -154,7 +154,28 @@ jobs:
           -k "not all_original_business_bodies_and_query_builders_preserved"
       - name: CP10 Ledger evidence smoke
         working-directory: wa_backend
-        run: python -m pytest -q tests/test_warehouse_ledger_status_canonical_auth_cutover.py
+        run: |
+          python -m pytest -q tests/test_warehouse_ledger_status_canonical_auth_cutover.py -k "both_read_families_use_only_canonical_backoffice_request_authority"
+          python - <<'PY'
+          from pathlib import Path
+
+          wrapper = Path("api/warehouse/ledger.py").read_text(encoding="utf-8")
+          read = Path("domains/ledger/read.py").read_text(encoding="utf-8")
+          assert "read_warehouse_ledger_page" in wrapper
+          for expected in (
+              "InventorySupplierEvidence",
+              "InventoryCostEvent",
+              "ProductBatch.batch_number",
+              "public_batch_number",
+              '"cost_method"',
+              '"total_cost"',
+              '"supplier_id"',
+              '"supplier_name"',
+              '"supplier_code"',
+          ):
+              assert expected in read, expected
+          print("CP10_LEDGER_EVIDENCE_SMOKE=PASS")
+          PY
       - name: CP11 authorization smoke
         working-directory: wa_backend
         run: python -m pytest -q tests/test_authorization_core_compatibility.py
@@ -169,6 +190,7 @@ jobs:
           wa_backend/api/warehouse/live_stock.py
           wa_backend/api/warehouse/ledger.py
           wa_backend/api/product_locations.py
+          wa_backend/domains/ledger/read.py
           wa_backend/domains/inventory_costing/service.py
           wa_backend/domains/suppliers/public.py
           wa_backend/domains/authorization/backoffice_access.py
