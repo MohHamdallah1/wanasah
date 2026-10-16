@@ -1,0 +1,79 @@
+name: Inventory CP6 minimum-stock acceptance
+
+on:
+  push:
+    branches:
+      - codex/cp6-minimum-stock-auth-parity-main
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "wa_backend/api/inventory_stock_policy.py"
+      - "wa_backend/tests/test_inventory_minimum_stock_capability_parity.py"
+      - "wa_backend/tests/test_minimum_stock_canonical_authorization_cutover.py"
+      - ".github/workflows/inventory-cp6-minimum-stock-acceptance.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cp6-minimum-stock-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  minimum-stock-focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp6SyntheticOnlyKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://cp6_unused@127.0.0.1:1/cp6_unused
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pinned repository and focused test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Compile changed Python
+        run: >-
+          python -m py_compile
+          wa_backend/api/inventory_stock_policy.py
+          wa_backend/tests/test_inventory_minimum_stock_capability_parity.py
+      - name: CP6 parity and existing minimum-stock focused tests
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_inventory_minimum_stock_capability_parity.py
+          tests/test_minimum_stock_canonical_authorization_cutover.py
+          --junitxml=cp6-minimum-stock-results.xml
+      - name: Diff whitespace gate
+        run: git diff --check 947d4c9c33aa2c2bdf593d12d33736b9c57aa209 HEAD
+      - name: Verify bounded CP6 file scope
+        run: |
+          python - <<'PY'
+          import subprocess
+
+          allowed = {
+              "wa_backend/api/inventory_stock_policy.py",
+              "wa_backend/tests/test_inventory_minimum_stock_capability_parity.py",
+              ".github/workflows/inventory-cp6-minimum-stock-acceptance.yml",
+          }
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only",
+               "947d4c9c33aa2c2bdf593d12d33736b9c57aa209", "HEAD"],
+              text=True,
+          ).splitlines())
+          assert changed == allowed, f"Unexpected CP6 scope: {changed}"
+          print("CP6_SCOPE=PASS; runtime files changed=1")
+          PY
+      - name: Preserve focused test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cp6-minimum-stock-results-${{ github.run_id }}
+          path: wa_backend/cp6-minimum-stock-results.xml
+          if-no-files-found: ignore
