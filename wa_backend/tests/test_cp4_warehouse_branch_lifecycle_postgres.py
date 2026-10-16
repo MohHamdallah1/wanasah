@@ -53,6 +53,10 @@ def _code(exc: HTTPException) -> str | None:
     return exc.detail.get("code") if isinstance(exc.detail, dict) else None
 
 
+def _access(company_id: int):
+    return NS(company_id=company_id, require=AsyncMock(return_value=None))
+
+
 @pytest_asyncio.fixture(loop_scope="function")
 async def pg():
     engine = create_async_engine(_checked_url(), poolclass=NullPool)
@@ -124,12 +128,8 @@ async def pg():
         await engine.dispose()
 
 
-async def _session(pg):
-    return AsyncSession(pg.engine, expire_on_commit=False)
-
-
 async def test_branch_idempotency_reactivation_and_non_cascade(pg):
-    access = NS(company_id=pg.company_a)
+    access = _access(pg.company_a)
     async with AsyncSession(pg.engine, expire_on_commit=False) as db:
         actor = await db.get(Driver, pg.actor_id)
         create_id = uuid4()
@@ -174,7 +174,7 @@ async def test_branch_idempotency_reactivation_and_non_cascade(pg):
 
 
 async def test_warehouse_create_update_version_relations_and_inactive_branch_reactivation(pg):
-    access = NS(company_id=pg.company_a)
+    access = _access(pg.company_a)
     capability = AsyncMock(return_value=None)
     guard = AsyncMock(return_value=None)
     rebuild = AsyncMock(return_value=None)
