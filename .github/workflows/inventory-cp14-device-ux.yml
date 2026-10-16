@@ -72,6 +72,10 @@ jobs:
           CP14D_BASE_URL: http://127.0.0.1:4173
         run: npx playwright test --config e2e/inventory-cp14-device-ux.config.ts
 
+      - name: Restore clean Dashboard dependency tree
+        working-directory: dashboard
+        run: npm ci
+
       - name: CP12 focused UI regressions
         working-directory: dashboard
         run: >-
