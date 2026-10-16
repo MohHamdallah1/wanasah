@@ -1,3 +1,4 @@
+import { useTransferTranslation as useTranslation, formatTransferNumber } from "./transfers/i18n";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -26,6 +27,7 @@ export function TabTransfers({
   onFocusConsumed,
   onInventoryChanged,
 }: Props) {
+  const { t } = useTranslation();
   const access = useInventoryAccess(locationId);
   const focusIdRef = useRef<number | null>(null);
   const [focusedTransfer, setFocusedTransfer] = useState<WarehouseTransferListItem | null>(null);
@@ -105,13 +107,9 @@ export function TabTransfers({
       <div className="glass-card inventory-section-header rounded-2xl p-4 flex items-center justify-between gap-4">
         <div>
           <h2 className="font-black text-slate-800 flex items-center gap-2">
-            <Truck className="w-5 h-5 text-blue-600" />
-            الحوالات الموحّدة
-          </h2>
+            <Truck className="w-5 h-5 text-blue-600" />{t("inventoryTransfers.title")}</h2>
           <p className="text-xs text-slate-500 mt-1">
-            الموقع #{locationId} ·{" "}
-            {total !== null ? `${total} حوالة` : "—"} ·{" "}
-            {inTransitCount} في الطريق بهذه الصفحة
+            {t("inventoryTransfers.locationSummary", { id: formatTransferNumber(locationId), total: total === null ? "—" : formatTransferNumber(total), count: formatTransferNumber(inTransitCount) })}
           </p>
         </div>
 
@@ -121,15 +119,13 @@ export function TabTransfers({
             onClick={transferCreate.openCreate}
             className="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-sm flex items-center gap-2"
           >
-            <Plus className="w-4 h-4" />
-            حوالة جديدة
-          </button>
+            <Plus className="w-4 h-4" />{t("inventoryTransfers.newTransfer")}</button>
 
           <button
             onClick={refreshTransfers}
             disabled={loading}
             className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 font-bold text-xs disabled:opacity-50"
-            title="تحديث"
+            title={t("inventoryTransfers.refresh")}
           >
             <RefreshCcw
               className={`w-4 h-4 ${loading ? "animate-spin" : ""}`}
@@ -140,17 +136,19 @@ export function TabTransfers({
 
       <div className="glass-card inventory-toolbar rounded-2xl p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="relative">
-          <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Search className="w-4 h-4 absolute start-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
-            placeholder="بحث برقم الحوالة"
+            aria-label={t("inventoryTransfers.search")}
+            placeholder={t("inventoryTransfers.search")}
             maxLength={100}
-            className="w-full pr-10 pl-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-500/20"
+            className="w-full ps-10 pe-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-500/20"
           />
         </div>
 
         <select
+          aria-label={t("inventoryTransfers.status")}
           value={status}
           onChange={(event) => {
             const value = event.target.value;
@@ -158,15 +156,16 @@ export function TabTransfers({
           }}
           className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none"
         >
-          <option value="">كل الحالات</option>
+          <option value="">{t("inventoryTransfers.allStatuses")}</option>
           {TRANSFER_STATUSES.map((value) => (
             <option key={value} value={value}>
-              {STATUS_META[value].label}
+              {t(STATUS_META[value].label)}
             </option>
           ))}
         </select>
 
         <select
+          aria-label={t("inventoryTransfers.direction")}
           value={direction}
           onChange={(event) => {
             const value = event.target.value;
@@ -180,11 +179,13 @@ export function TabTransfers({
           }}
           className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none"
         >
-          <option value="all">كل الاتجاهات</option>
-          <option value="source">صادرة من المستودع</option>
-          <option value="destination">واردة إلى المستودع</option>
+          <option value="all">{t("inventoryTransfers.allDirections")}</option>
+          <option value="source">{t("inventoryTransfers.outgoing")}</option>
+          <option value="destination">{t("inventoryTransfers.incoming")}</option>
         </select>
       </div>
+
+      {transferList.failure && <div role="alert" className="rounded-xl border p-3 text-sm"><p>{t(`inventoryTransfers.${transferList.failure.phase === "first" ? "firstFailure" : transferList.failure.phase === "refresh" ? "refreshFailure" : "continuationFailure"}`)}</p><p>{transferList.failure.message}</p><button type="button" disabled={loading} onClick={transferList.retry}>{t("inventoryTransfers.retry")}</button></div>}
 
       <TransferTable
         items={focusedTransfer ? [items.find((item) => item.id === focusedTransfer.id) ?? focusedTransfer, ...items.filter((item) => item.id !== focusedTransfer.id)] : items}
@@ -197,6 +198,9 @@ export function TabTransfers({
         onPrevious={handlePrevious}
         onNext={handleNext}
       />
+
+      {transferCreate.command.pending && !transferCreate.createOpen && <div role="alert" className="rounded-xl border p-3"><p>{t("inventoryTransfers.pending")}</p><button type="button" disabled={transferCreate.command.busy} onClick={() => void transferCreate.retryPendingDispatch()}>{t("inventoryTransfers.pendingTransfer")}</button></div>}
+      {transferActions.command.pending && !action && <div role="alert" className="rounded-xl border p-3"><p>{t("inventoryTransfers.pending")}</p><button type="button" disabled={transferActions.command.busy} onClick={() => void transferActions.retryPendingAction()}>{t("inventoryTransfers.retry")}</button></div>}
 
       <TransferCreateModal
         locationId={locationId}
@@ -213,7 +217,10 @@ export function TabTransfers({
         action={action}
         transfer={actionTransfer}
         decisionReason={decisionReason}
-        submitting={actionSubmitting}
+        submitting={actionSubmitting || transferActions.command.busy || Boolean(transferActions.command.pending)}
+        pending={Boolean(transferActions.command.pending)}
+        retrying={transferActions.command.busy}
+        onRetry={transferActions.retryPendingAction}
         onClose={closeAction}
         onDecisionReasonChange={updateDecisionReason}
         onSubmit={handleAction}

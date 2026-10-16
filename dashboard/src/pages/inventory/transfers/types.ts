@@ -1,3 +1,4 @@
+export type TransferPurpose = "REPLENISHMENT" | "ROUTE_LOAD" | "ROUTE_RETURN" | "WAREHOUSE_BALANCING" | "RETURN_TO_VENDOR" | "QUARANTINE" | "RECALL_RETURN" | "DISPOSAL";
 import type { Quantity } from "../quantity";
 
 export type TransferStatus =
@@ -20,6 +21,7 @@ export interface WarehouseTransferListItem {
   destination_location_id: number;
   destination_location_name: string;
   status: TransferStatus;
+  transfer_purpose: TransferPurpose;
   dispatched_by: number;
   dispatched_by_name: string;
   received_by: number | null;
