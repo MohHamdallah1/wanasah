@@ -14,10 +14,13 @@ on:
       - "wa_backend/alembic/versions/f4c10a7e2d31_ledger_permissions.py"
       - "wa_backend/tests/test_cp10_ledger_backend.py"
       - "wa_backend/tests/test_cp10_ledger_postgres.py"
+      - "wa_backend/tests/test_cp10_ledger_postgres_multibatch.py"
       - "wa_backend/tests/test_inbound_adjustments_canonical_auth_cutover.py"
       - "dashboard/src/pages/inventory/Tab4Ledger.tsx"
       - "dashboard/src/pages/inventory/ledger/**"
       - "dashboard/src/test/inventory-cp10-ledger-dashboard.test.tsx"
+      - "dashboard/src/test/inventory-cp10-ledger-contract.test.ts"
+      - "dashboard/src/test/inventory-cp10-ledger-keyboard.test.tsx"
       - ".github/workflows/inventory-cp10-ledger-acceptance.yml"
   workflow_dispatch:
 
@@ -116,7 +119,10 @@ jobs:
         run: alembic upgrade head
       - name: CP10 PostgreSQL 16 acceptance
         working-directory: wa_backend
-        run: python -m pytest -q -s tests/test_cp10_ledger_postgres.py
+        run: >-
+          python -m pytest -q -s
+          tests/test_cp10_ledger_postgres.py
+          tests/test_cp10_ledger_postgres_multibatch.py
 
   dashboard-focused:
     runs-on: ubuntu-24.04
@@ -136,7 +142,11 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: CP10 focused Ledger Dashboard acceptance
         working-directory: dashboard
-        run: npm test -- src/test/inventory-cp10-ledger-dashboard.test.tsx
+        run: >-
+          npm test --
+          src/test/inventory-cp10-ledger-dashboard.test.tsx
+          src/test/inventory-cp10-ledger-contract.test.ts
+          src/test/inventory-cp10-ledger-keyboard.test.tsx
       - name: Relevant inventory regressions only
         working-directory: dashboard
         run: >-
@@ -188,9 +198,12 @@ jobs:
               "wa_backend/alembic/versions/f4c10a7e2d31_ledger_permissions.py",
               "wa_backend/tests/test_cp10_ledger_backend.py",
               "wa_backend/tests/test_cp10_ledger_postgres.py",
+              "wa_backend/tests/test_cp10_ledger_postgres_multibatch.py",
               "wa_backend/tests/test_inbound_adjustments_canonical_auth_cutover.py",
               "dashboard/src/pages/inventory/Tab4Ledger.tsx",
               "dashboard/src/test/inventory-cp10-ledger-dashboard.test.tsx",
+              "dashboard/src/test/inventory-cp10-ledger-contract.test.ts",
+              "dashboard/src/test/inventory-cp10-ledger-keyboard.test.tsx",
           }
           unexpected = {
               path for path in changed
