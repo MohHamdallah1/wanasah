@@ -47,13 +47,11 @@ jobs:
         working-directory: dashboard
         run: npm test -- src/test/inventory-cp4-branch-dashboard.test.tsx
 
-      - name: Relevant inventory authority and durable-operation regressions
+      - name: Relevant branch authority and durable-operation regressions
         working-directory: dashboard
         run: >-
           npm test --
-          src/test/inventory-access.test.ts
           src/test/inventory-access-canonical-contract.test.ts
-          src/test/inventory-live-stock-readonly-boundary.test.ts
           src/test/durable-operations-p4.test.ts
 
       - name: CP6 minimum-stock Dashboard regression
@@ -109,3 +107,20 @@ jobs:
           print("BACKEND_UNTOUCHED=PASS")
           print("CP6_MINIMUM_STOCK_RUNTIME_UNTOUCHED=PASS")
           PY
+
+      - name: Prove unrelated frontend failures preexist on exact base
+        working-directory: dashboard
+        run: |
+          git checkout 1629772a9215a4874d4d3c825d05f3cc564c38e4 -- .
+          set +e
+          npm test -- \
+            src/test/inventory-access.test.ts \
+            src/test/inventory-live-stock-readonly-boundary.test.ts \
+            > /tmp/cp4-unrelated-base.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/cp4-unrelated-base.log
+          test "$status" -ne 0
+          grep -F "parses a location-scoped cursor page without losing movement snapshots" /tmp/cp4-unrelated-base.log
+          grep -F "never falls back from a blocker action to Live Stock" /tmp/cp4-unrelated-base.log
+          echo "UNRELATED_FRONTEND_BASELINE_FAILURES=PROVEN"
