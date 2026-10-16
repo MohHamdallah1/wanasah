@@ -1,7 +1,7 @@
 import { PackageOpen } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { formatCommercialQuantity } from "@/lib/quantity";
+import { compareQuantity, formatCommercialQuantity } from "@/lib/quantity";
 import type { WarehouseProduct } from "./contracts";
 import { getLiveStockCp7Copy } from "./i18n";
 
@@ -18,10 +18,10 @@ export function LiveStockMobileCards({ products, onOpen }: Props) {
     <div className="space-y-2 p-2 md:hidden" data-testid="live-stock-mobile-cards">
       {products.map((product) => {
         const displayName = t(`uom.${product.display_uom_code}`, {
-          defaultValue: product.display_uom_code,
+          defaultValue: t("inventoryCommon.unit"),
         });
         const baseName = t(`uom.${product.base_uom_code}`, {
-          defaultValue: product.base_uom_code,
+          defaultValue: t("inventoryCommon.unit"),
         });
         const quantity = (value: typeof product.on_hand_quantity) =>
           formatCommercialQuantity(
@@ -30,6 +30,17 @@ export function LiveStockMobileCards({ products, onOpen }: Props) {
             baseName,
             product.display_factor_to_base,
           );
+        const minimum = compareQuantity(product.minimum_quantity, "0") > 0
+          ? quantity(product.minimum_quantity).primary
+          : t("inventoryLive.minimumStockUnset");
+        const metrics = [
+          ["onHand", product.on_hand_quantity],
+          ["availableForSale", product.available_for_sale_quantity],
+          ["reserved", product.reserved_quantity],
+          ["unavailable", product.unavailable_quantity],
+          ["withVehicles", product.vehicle_quantity],
+        ] as const;
+
         return (
           <article key={product.id} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
             <div className="flex items-start justify-between gap-3">
@@ -37,6 +48,9 @@ export function LiveStockMobileCards({ products, onOpen }: Props) {
                 <h3 className="truncate text-sm font-black text-slate-900">{product.name}</h3>
                 <p className="mt-0.5 truncate text-[11px] font-semibold text-slate-500">
                   {product.family_name}{product.sku ? ` · ${product.sku}` : ""}
+                </p>
+                <p className="mt-1 text-[11px] font-semibold text-slate-500">
+                  {t("inventoryLive.minimumStockLabel")}: <span dir="ltr">{minimum}</span>
                 </p>
               </div>
               <button
@@ -50,30 +64,21 @@ export function LiveStockMobileCards({ products, onOpen }: Props) {
               </button>
             </div>
             <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
-              <div className="rounded-xl bg-slate-50 px-3 py-2">
-                <dt className="text-[10px] font-bold text-slate-500">{t("inventoryLive.onHand")}</dt>
-                <dd className="mt-1 font-black tabular-nums text-slate-900" dir="ltr">
-                  {quantity(product.on_hand_quantity)}
-                </dd>
-              </div>
-              <div className="rounded-xl bg-slate-50 px-3 py-2">
-                <dt className="text-[10px] font-bold text-slate-500">{t("inventoryLive.availableForSale")}</dt>
-                <dd className="mt-1 font-black tabular-nums text-slate-900" dir="ltr">
-                  {quantity(product.available_for_sale_quantity)}
-                </dd>
-              </div>
-              <div className="rounded-xl bg-slate-50 px-3 py-2">
-                <dt className="text-[10px] font-bold text-slate-500">{t("inventoryLive.reserved")}</dt>
-                <dd className="mt-1 font-black tabular-nums text-slate-900" dir="ltr">
-                  {quantity(product.reserved_quantity)}
-                </dd>
-              </div>
-              <div className="rounded-xl bg-slate-50 px-3 py-2">
-                <dt className="text-[10px] font-bold text-slate-500">{t("inventoryLive.unavailable")}</dt>
-                <dd className="mt-1 font-black tabular-nums text-slate-900" dir="ltr">
-                  {quantity(product.unavailable_quantity)}
-                </dd>
-              </div>
+              {metrics.map(([label, value]) => {
+                const rendered = quantity(value);
+                return (
+                  <div key={label} className="rounded-xl bg-slate-50 px-3 py-2">
+                    <dt className="text-[10px] font-bold text-slate-500">{t(`inventoryLive.${label}`)}</dt>
+                    <dd
+                      className="mt-1 font-black tabular-nums text-slate-900"
+                      dir="ltr"
+                      title={rendered.secondary ?? undefined}
+                    >
+                      {rendered.primary}
+                    </dd>
+                  </div>
+                );
+              })}
             </dl>
           </article>
         );
