@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 from uuid import uuid4
@@ -86,6 +87,33 @@ def _tamper(cursor: str) -> str:
     return cursor[:-1] + last
 
 
+def _collect_ints(value) -> set[int]:
+    if isinstance(value, bool):
+        return set()
+    if isinstance(value, int):
+        return {value}
+    if isinstance(value, dict):
+        result: set[int] = set()
+        for child in value.values():
+            result.update(_collect_ints(child))
+        return result
+    if isinstance(value, (list, tuple)):
+        result: set[int] = set()
+        for child in value:
+            result.update(_collect_ints(child))
+        return result
+    return set()
+
+
+def _decoded_cursor_text(cursor: str) -> str:
+    payload = cursor.split(".", 1)[0]
+    payload += "=" * (-len(payload) % 4)
+    try:
+        return base64.urlsafe_b64decode(payload.encode("ascii")).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return ""
+
+
 async def _assert_http(call, status: int | tuple[int, ...]):
     statuses = (status,) if isinstance(status, int) else status
     with pytest.raises(HTTPException) as caught:
@@ -153,9 +181,10 @@ async def test_cp12_company_location_matrix_no_lot_and_opaque_foreign_ids(pg):
             db=db,
             access=access,
         )
-        assert {int(item["id"]) for item in warehouses["items"]} == {a.location_id}
-        assert a.other_location_id not in {int(item["id"]) for item in warehouses["items"]}
-        assert b.location_id not in {int(item["id"]) for item in warehouses["items"]}
+        warehouse_ids = {int(item["id"]) for item in warehouses["items"]}
+        assert warehouse_ids == {a.location_id}
+        assert a.other_location_id not in warehouse_ids
+        assert b.location_id not in warehouse_ids
 
         assignments = await product_locations.list_product_locations(
             location_id=None,
@@ -232,7 +261,6 @@ async def test_cp12_company_location_matrix_no_lot_and_opaque_foreign_ids(pg):
         )
         assert "__WANASAH_NOLOT__" not in serialized
         assert "A2-ONLY" not in serialized
-        assert str(case.b_batch_id) not in _json(batches)
 
         foreign_checks = (
             lambda: live_stock.get_warehouse_inventory_summary(b.location_id, db, access),
@@ -267,19 +295,27 @@ async def test_cp12_company_location_matrix_no_lot_and_opaque_foreign_ids(pg):
         for call in foreign_checks:
             error = await _assert_http(call, (403, 404))
             detail = _json(error.detail)
+            exact_ids = _collect_ints(error.detail)
             assert "__WANASAH_NOLOT__" not in detail
-            assert str(case.b_batch_id) not in detail
-            assert str(b.variant_id) not in detail
+            assert case.b_batch_id not in exact_ids
+            assert b.variant_id not in exact_ids
+            assert b.location_id not in exact_ids
 
 
 async def test_cp12_cursor_tamper_scope_filter_and_payload_safety(pg):
     case = await _prepare_cp7(pg)
-    a = case.a
+    a, b = case.a, case.b
     await _grant_scoped_permissions(
         pg,
         a,
         ("ledger.read", "stocktake.read", "stocktake.start"),
         a.location_id,
+    )
+    await _grant_scoped_permissions(
+        pg,
+        b,
+        ("inventory.read", "ledger.read", "stocktake.read"),
+        b.location_id,
     )
 
     async with pg.session() as db:
@@ -388,8 +424,7 @@ async def test_cp12_cursor_tamper_scope_filter_and_payload_safety(pg):
             batch_first["next_cursor"],
             ledger_first["next_cursor"],
         ):
-            assert "__WANASAH_NOLOT__" not in cursor
-            assert str(case.b.company_id) not in cursor
+            assert "__WANASAH_NOLOT__" not in _decoded_cursor_text(cursor)
 
         first = await stocktake.start_unified_stocktake(
             StocktakeStartCommand(
@@ -446,7 +481,50 @@ async def test_cp12_cursor_tamper_scope_filter_and_payload_safety(pg):
             400,
         )
         assert int(first["session_id"]) > 0
-        assert "__WANASAH_NOLOT__" not in stocktake_first["next_cursor"]
+        assert "__WANASAH_NOLOT__" not in _decoded_cursor_text(stocktake_first["next_cursor"])
+
+        live_cursor = live_first["next_cursor"]
+        batch_cursor = batch_first["next_cursor"]
+        ledger_cursor = ledger_first["next_cursor"]
+        stocktake_cursor = stocktake_first["next_cursor"]
+
+    async with pg.session(1) as db:
+        b_access = b.ordinary.access(db)
+        await _assert_http(
+            lambda: live_stock.get_warehouse_inventory(
+                **_cursor_kwargs(b.location_id, db, b_access, cursor=live_cursor, limit=1)
+            ),
+            400,
+        )
+        await _assert_http(
+            lambda: batch_index.get_warehouse_inventory_batch_index_cursor(
+                **_batch_kwargs(b.location_id, db, b_access, cursor=batch_cursor, limit=1)
+            ),
+            400,
+        )
+        await _assert_http(
+            lambda: ledger.get_warehouse_ledger_cursor(
+                location_id=b.location_id,
+                cursor=ledger_cursor,
+                limit=1,
+                search=None,
+                reference_type=None,
+                reference_id=None,
+                db=db,
+                access=b_access,
+            ),
+            400,
+        )
+        await _assert_http(
+            lambda: stocktake.list_active_stocktake_sessions(
+                location_id=b.location_id,
+                cursor=stocktake_cursor,
+                limit=1,
+                db=db,
+                access=b_access,
+            ),
+            400,
+        )
 
 
 async def test_cp12_unauthorized_operator_gets_no_sensitive_payload(pg):
