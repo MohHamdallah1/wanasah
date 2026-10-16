@@ -302,6 +302,9 @@ async def test_cp14b_batch_visibility_sellability_disposition_status_reservation
             a.ordinary.access(db),
             a.ordinary.operational_driver,
         )
+    # Replay intentionally rolls back its read transaction after returning the
+    # durable business result. That rollback resets the PostgreSQL tenant GUC,
+    # so all balance evidence is read from a fresh restricted-runtime session.
     async with pg.session(a) as db:
         replay = await transfers.change_inventory_status(
             status_payload,
@@ -310,6 +313,7 @@ async def test_cp14b_batch_visibility_sellability_disposition_status_reservation
             a.ordinary.operational_driver,
         )
         assert replay == changed
+    async with pg.session(a) as db:
         assert await _balance(db, a, location_id=a.locations[0], batch_id=a.batch_id, status="AVAILABLE") == (
             Decimal("18"), Decimal("3")
         )
@@ -499,10 +503,14 @@ async def test_cp14b_quality_staging_is_physical_internal_and_reservation_safe(p
                 )
             )
         ).all()
-        assert len(movements) == 2
-        assert all(row.movement_kind == "PHYSICAL" for row in movements)
-        assert all(row.destination_location_id is not None for row in movements)
-        received_movement = next(row for row in movements if row.destination_location_id == a.quarantine_id)
+        physical = [row for row in movements if row.movement_kind == "PHYSICAL"]
+        status_changes = [row for row in movements if row.movement_kind == "STATUS_CHANGE"]
+        assert len(physical) == 2
+        assert len(status_changes) == 1
+        assert {row.movement_kind for row in movements} == {"PHYSICAL", "STATUS_CHANGE"}
+        assert all(row.destination_location_id is not None for row in physical)
+        assert not any(row.destination_location_id is None for row in movements)
+        received_movement = next(row for row in physical if row.destination_location_id == a.quarantine_id)
     await _ledger_contains(pg, location_id=a.quarantine_id, movement=received_movement)
 
     await _revoke(pg, "transfer.special." + purpose.lower())
@@ -610,6 +618,8 @@ async def test_cp14b_normal_transfer_fefo_lifecycle_vehicle_scope_and_ledger_rec
             a.receiver.access(db),
             a.receiver.operational_driver,
         )
+    # The replay path rolls back its read transaction after authorization; reopen
+    # the restricted session before querying RLS-protected balances/movements.
     async with pg.session(a) as db:
         assert await transfers.unified_transfer_receive(
             receive_payload,
@@ -617,6 +627,7 @@ async def test_cp14b_normal_transfer_fefo_lifecycle_vehicle_scope_and_ledger_rec
             a.receiver.access(db),
             a.receiver.operational_driver,
         ) == received
+    async with pg.session(a) as db:
         assert await _balance(db, a, location_id=a.locations[1], batch_id=a.batch_id, status="AVAILABLE") == (
             Decimal("24"), Decimal("0")
         )
