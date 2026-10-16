@@ -12,6 +12,10 @@ export interface InventoryAccessCopy {
   systemRole: string;
   assignmentEyebrow: string;
   grantUser: string;
+  user: string;
+  chooseUser: string;
+  companyOwner: string;
+  inactive: string;
   locationScope: string;
   companyScope: string;
   scope: string;
@@ -48,6 +52,10 @@ const ar: InventoryAccessCopy = {
   systemRole: 'نظامي',
   assignmentEyebrow: 'الإسناد',
   grantUser: 'منح المستخدم',
+  user: 'المستخدم',
+  chooseUser: 'اختر المستخدم',
+  companyOwner: 'مالك الشركة',
+  inactive: 'غير فعال',
   locationScope: 'نطاق موقع',
   companyScope: 'نطاق شركة',
   scope: 'نطاق المنح',
@@ -65,7 +73,7 @@ const ar: InventoryAccessCopy = {
   first: 'البداية',
   next: 'التالي',
   confirmRevokeTitle: 'تأكيد سحب المنح',
-  confirmRevokeBody: 'سيتم سحب هذا المنح فورًا، وستنعكس الصلاحيات الحالية في الطلبات التالية.',
+  confirmRevokeBody: 'سيتم سحب هذه المنحة فورًا، وستنعكس الصلاحيات الحالية في الطلبات التالية.',
   cancel: 'إلغاء',
   confirmRevoke: 'سحب المنح',
 };
@@ -84,6 +92,10 @@ const en: InventoryAccessCopy = {
   systemRole: 'System',
   assignmentEyebrow: 'Assignment',
   grantUser: 'Grant user access',
+  user: 'User',
+  chooseUser: 'Choose user',
+  companyOwner: 'Company Owner',
+  inactive: 'Inactive',
   locationScope: 'Location scope',
   companyScope: 'Company scope',
   scope: 'Grant scope',
