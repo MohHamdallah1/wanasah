@@ -18,58 +18,13 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: cp14c-stocktake-lifecycle-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
-  apply-proven-runtime-fix:
-    if: github.event_name == 'push'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: sol/cp14c-stocktake-lifecycle-wave2
-      - name: Apply exact Vehicle Recon snapshot timestamp fix
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("wa_backend/services.py")
-          source = path.read_text(encoding="utf-8")
-          function_start = source.index("async def _seal_vehicle_inventory_reconciliation(")
-          function_end = source.index("\n\n# ترحيل فروقات جرد معتمد", function_start)
-          segment = source[function_start:function_end]
-          needle = '                starting_quantity=Decimal("0"),\n'
-          addition = '                created_at=settled_at,\n'
-          if addition in segment:
-              print("CP14C_RUNTIME_FIX_ALREADY_PRESENT=PASS")
-          else:
-              assert segment.count(needle) == 1, "Vehicle Recon snapshot seam changed unexpectedly"
-              segment = segment.replace(needle, needle + addition, 1)
-              path.write_text(
-                  source[:function_start] + segment + source[function_end:],
-                  encoding="utf-8",
-              )
-              print("CP14C_RUNTIME_FIX_APPLIED=PASS")
-          PY
-          git diff --check
-          if git diff --quiet -- wa_backend/services.py; then
-            exit 0
-          fi
-          test "$(git diff --name-only)" = "wa_backend/services.py"
-          git diff -- wa_backend/services.py | grep -F '+                created_at=settled_at,'
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add wa_backend/services.py
-          git commit -m "CP14-C: align Vehicle Recon snapshot timestamps"
-          git push origin HEAD:sol/cp14c-stocktake-lifecycle-wave2
-
   postgres-16:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -231,23 +186,17 @@ jobs:
                   ["git", "diff", "--name-only", base, "HEAD"], text=True
               ).splitlines()
           )
-          allowed = {
+          expected = {
               ".github/workflows/inventory-cp14c-stocktake-lifecycle.yml",
               "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py",
               "wa_backend/services.py",
           }
-          assert changed <= allowed, f"Unexpected CP14-C scope: {sorted(changed)}"
-          required = allowed - {"wa_backend/services.py"}
-          assert required <= changed, f"Missing CP14-C evidence files: {sorted(required - changed)}"
+          assert changed == expected, f"Unexpected CP14-C scope: {sorted(changed)}"
           print("CP14C_DYNAMIC_SCOPE=PASS")
           PY
-      - name: Prove runtime fix is exact and bounded when present
+      - name: Prove runtime fix is exact and bounded
         shell: bash
         run: |
-          if git diff --quiet "$CP14C_FROZEN_BASE" HEAD -- wa_backend/services.py; then
-            echo "CP14C_RUNTIME_FIX_PENDING=PASS"
-            exit 0
-          fi
           test "$(git diff --numstat "$CP14C_FROZEN_BASE" HEAD -- wa_backend/services.py)" = $'1\t0\twa_backend/services.py'
           git diff "$CP14C_FROZEN_BASE" HEAD -- wa_backend/services.py | grep -F '+                created_at=settled_at,'
           echo "CP14C_RUNTIME_FIX_BOUNDED=PASS"
