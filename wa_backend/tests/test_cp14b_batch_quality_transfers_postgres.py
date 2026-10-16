@@ -174,6 +174,13 @@ def _item(page, batch_id: int):
     return next(row for row in page["items"] if row["batch_id"] == batch_id)
 
 
+def _opaque_signature(exc: HTTPException):
+    detail = exc.detail
+    if isinstance(detail, dict):
+        return exc.status_code, detail.get("code")
+    return exc.status_code, str(detail)
+
+
 async def _reserve(pg, *, batch_id: int, quantity_value: str, action: str = "RESERVE"):
     async with pg.session(pg.a) as db:
         movement = await apply_inventory_movement(
@@ -216,9 +223,6 @@ async def test_cp14b_batch_visibility_sellability_disposition_status_reservation
     await _prepare_cp14(pg, policy_days=31)
     a, b = pg.a, pg.b
 
-    # Batches is warehouse-specific for quantities/policy but uses the canonical
-    # backend sellability helper. A1's exact CP6 policy makes the 30-day lot
-    # non-sellable; A2 has no policy and remains sellable.
     a1 = _item(await _batch_page(pg, a.locations[0]), a.batch_id)
     a2 = _item(await _batch_page(pg, a.locations[1]), a.batch_id)
     assert a1["batch_number"] == "LOT-OVERLAP"
@@ -237,7 +241,6 @@ async def test_cp14b_batch_visibility_sellability_disposition_status_reservation
         disposition=a1["disposition"],
     ) is False
 
-    # expiry-warning is a visual/list filter only; it cannot change sellability.
     warn31 = _item(await _batch_page(pg, a.locations[0], warning_days=31), a.batch_id)
     warn365 = _item(await _batch_page(pg, a.locations[0], warning_days=365), a.batch_id)
     assert (warn31["sellability_state"], warn31["sellability_reason_codes"]) == (
@@ -248,8 +251,6 @@ async def test_cp14b_batch_visibility_sellability_disposition_status_reservation
     assert expired["sellability_state"] == "NOT_SELLABLE"
     assert expired["sellability_reason_codes"] == ["EXPIRED"]
 
-    # Reservation is canonical movement evidence and free quantity is Decimal
-    # on_hand-reserved, never a client-derived mutation rule.
     await _reserve(pg, batch_id=a.batch_id, quantity_value="3")
     async with pg.session(a) as db:
         source = await live_stock_source_detail.get_live_stock_batch_source(
@@ -291,9 +292,8 @@ async def test_cp14b_batch_visibility_sellability_disposition_status_reservation
             )
         assert reserved.value.status_code == 409
 
-    status_request_id = uuid4()
     status_payload = blocked_payload.model_copy(
-        update={"request_id": status_request_id, "quantity": Decimal("2")}
+        update={"request_id": uuid4(), "quantity": Decimal("2")}
     )
     async with pg.session(a) as db:
         changed = await transfers.change_inventory_status(
@@ -302,9 +302,6 @@ async def test_cp14b_batch_visibility_sellability_disposition_status_reservation
             a.ordinary.access(db),
             a.ordinary.operational_driver,
         )
-    # Replay intentionally rolls back its read transaction after returning the
-    # durable business result. That rollback resets the PostgreSQL tenant GUC,
-    # so all balance evidence is read from a fresh restricted-runtime session.
     async with pg.session(a) as db:
         replay = await transfers.change_inventory_status(
             status_payload,
@@ -379,6 +376,7 @@ async def test_cp14b_batch_visibility_sellability_disposition_status_reservation
             a.ordinary.access(db),
             a.ordinary.operational_driver,
         ) == disposition
+    async with pg.session(a) as db:
         with pytest.raises(HTTPException) as changed_payload:
             await transfers.change_batch_disposition(
                 a.batch_id,
@@ -389,14 +387,12 @@ async def test_cp14b_batch_visibility_sellability_disposition_status_reservation
             )
         assert changed_payload.value.status_code == 409
 
-    # Company-wide disposition is identical from A1/A2 while status quantities remain location facts.
     a1_after = _item(await _batch_page(pg, a.locations[0]), a.batch_id)
     a2_after = _item(await _batch_page(pg, a.locations[1]), a.batch_id)
     assert a1_after["disposition"] == a2_after["disposition"] == "QUARANTINED"
     assert a1_after["quarantined_quantity"] == "2"
     assert a2_after["quarantined_quantity"] == "0"
 
-    # Foreign and nonexistent batch identities are opaque and Company B stays unchanged.
     errors = []
     for batch_id in (b.batch_id, 2147483647):
         async with pg.session(a) as db:
@@ -413,7 +409,7 @@ async def test_cp14b_batch_visibility_sellability_disposition_status_reservation
                     a.ordinary.access(db),
                     a.ordinary.operational_driver,
                 )
-            errors.append((opaque.value.status_code, opaque.value.detail["code"]))
+            errors.append(_opaque_signature(opaque.value))
     assert errors[0] == errors[1]
     async with pg.session(b) as db:
         foreign = await db.get(ProductBatch, b.batch_id)
@@ -602,7 +598,7 @@ async def test_cp14b_normal_transfer_fefo_lifecycle_vehicle_scope_and_ledger_rec
                 InventoryTransferLine.transfer_header_id == sent["header_id"],
             )
         )
-        assert line.batch_id == a.batch_id  # FEFO automatic selection.
+        assert line.batch_id == a.batch_id
         assert await _balance(db, a, location_id=a.locations[0], batch_id=a.batch_id, status="AVAILABLE") == (
             Decimal("16"), Decimal("3")
         )
@@ -619,8 +615,6 @@ async def test_cp14b_normal_transfer_fefo_lifecycle_vehicle_scope_and_ledger_rec
             a.receiver.access(db),
             a.receiver.operational_driver,
         )
-    # The replay path rolls back its read transaction after authorization; reopen
-    # the restricted session before querying RLS-protected balances/movements.
     async with pg.session(a) as db:
         assert await transfers.unified_transfer_receive(
             receive_payload,
@@ -647,7 +641,6 @@ async def test_cp14b_normal_transfer_fefo_lifecycle_vehicle_scope_and_ledger_rec
     await _ledger_contains(pg, location_id=a.locations[1], movement=receive_movement)
     assert await _company_quantity(pg, a) == Decimal("180")
 
-    # Reject and cancel each create exactly one return movement and no net company change.
     for action in ("reject", "cancel"):
         transfer = await send(pg, dispatch_payload(a, items=[dict(product_variant_id=a.variant_id, quantity="2", uom_id=a.uom_id)]))
         async with pg.session(a) as db:
@@ -683,7 +676,6 @@ async def test_cp14b_normal_transfer_fefo_lifecycle_vehicle_scope_and_ledger_rec
         await _ledger_contains(pg, location_id=a.locations[0], movement=returned)
         assert await _company_quantity(pg, a) == Decimal("180")
 
-    # FEFO override uses the later batch only with exact capability + reason.
     override = dispatch_payload(
         a,
         items=[dict(
@@ -704,8 +696,6 @@ async def test_cp14b_normal_transfer_fefo_lifecycle_vehicle_scope_and_ledger_rec
         assert line.batch_id == a.later_batch_id
         assert line.fefo_override_reason_id == a.reason_id
 
-    # Warehouse capability never implies Vehicle capability. Generic W->V is
-    # deliberately blocked; the accepted dedicated Vehicle->Warehouse quality path works.
     with pytest.raises(HTTPException) as vehicle_direction:
         await send(pg, dispatch_payload(a, destination_location_id=a.vehicle_location_id), a.owner)
     assert vehicle_direction.value.detail["code"] == "TRANSFER_DIRECTION_BLOCKED"
@@ -752,12 +742,11 @@ async def test_cp14b_normal_transfer_fefo_lifecycle_vehicle_scope_and_ledger_rec
         ) == (Decimal("2"), Decimal("0"))
     assert await _company_quantity(pg, a) == Decimal("180")
 
-    # Company-B warehouse/vehicle and nonexistent identities remain opaque.
     errors = []
     for destination in (b.locations[0], 2147483647):
         with pytest.raises(HTTPException) as opaque:
             await send(pg, dispatch_payload(a, destination_location_id=destination), a.owner)
-        errors.append((opaque.value.status_code, opaque.value.detail["code"]))
+        errors.append(_opaque_signature(opaque.value))
     assert errors[0] == errors[1]
     vehicle_errors = []
     for source in (b.vehicle_location_id, 2147483647):
@@ -770,7 +759,7 @@ async def test_cp14b_normal_transfer_fefo_lifecycle_vehicle_scope_and_ledger_rec
                     a.owner.access(db),
                     a.owner.operational_driver,
                 )
-            vehicle_errors.append((opaque.value.status_code, opaque.value.detail["code"]))
+            vehicle_errors.append(_opaque_signature(opaque.value))
     assert vehicle_errors[0] == vehicle_errors[1]
     assert await _company_quantity(pg, b) == Decimal("120")
 
@@ -920,7 +909,4 @@ async def test_cp14b_two_terminal_consumers_same_staging_origin_have_one_winner(
 @pytest.mark.parametrize("method", ["MOVING_AVERAGE", "FIFO"])
 @pytest.mark.parametrize("action", ["DISPOSAL", "RETURN_TO_VENDOR"])
 async def test_cp14b_cost_value_internal_move_vs_terminal_exit(pg, method, action):
-    # Accepted CP3.4 costing path creates an independent real company on this same
-    # migrated PostgreSQL gate. It proves internal staging is quantity/value neutral
-    # and a terminal source-only exit reduces both exactly once.
     await _accepted_cost_path(pg, method, action)
