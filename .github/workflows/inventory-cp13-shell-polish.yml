@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - integration/inventory-wave-2
+      - main
     paths:
       - "dashboard/src/pages/inventory/InventoryTopDock.tsx"
       - "dashboard/src/pages/inventory/inventoryShellPolish.css"
