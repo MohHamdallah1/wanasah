@@ -12,6 +12,9 @@ import { useTranslation } from "react-i18next";
 import { ReasonPresetField } from "@/components/forms/ReasonPresetField";
 import { Modal } from "@/components/ui/modal";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
+import { resolveI18nLocale } from "@/lib/locale";
+import { formatBatchDate } from "./batchPresentation";
+import { BatchSellabilitySignal } from "./BatchIndexSignals";
 
 import { BatchQuantityActions } from "./BatchQuantityActions";
 import type { BatchActionSnapshot, BatchDisposition } from "./contracts";
@@ -99,6 +102,8 @@ export function BatchDispositionManager({
 }: Props) {
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage || i18n.language || "en";
+  const locale = resolveI18nLocale(i18n);
+  const date = (value: string | null) => formatBatchDate(value, locale, actionText("noValue"));
   const access = useInventoryAccess();
   // Canonical Owner authority is already represented in the server permission
   // contract. Do not add a client-side Owner bypass around the capability.
@@ -167,9 +172,10 @@ export function BatchDispositionManager({
             <div className="mt-2 grid gap-x-4 gap-y-2 text-[10px] sm:grid-cols-2 lg:grid-cols-3">
               <p><span className="font-black">{actionText("product")}:</span> {batchDetail.product_name}</p>
               <p><span className="font-black">{actionText("sku")}:</span> {batchDetail.sku ?? actionText("noValue")}</p>
+              <p><span className="font-black">{batchIndexText(t, language, "familyColumn")}:</span> {batchDetail.family_name}</p>
               <p><span className="font-black">{actionText("lot")}:</span> {formatPublicBatchNumber(batchDetail.batch_number, actionText("noLot"))}</p>
-              <p><span className="font-black">{actionText("productionDate")}:</span> {batchDetail.production_date ?? actionText("noValue")}</p>
-              <p><span className="font-black">{actionText("expiryDate")}:</span> {batchDetail.expiry_date ?? actionText("noValue")}</p>
+              <p><span className="font-black">{actionText("productionDate")}:</span> {date(batchDetail.production_date)}</p>
+              <p><span className="font-black">{actionText("expiryDate")}:</span> {date(batchDetail.expiry_date)}</p>
               <p>
                 <span className="font-black">{actionText("sellability")}:</span>{" "}
                 {batchDetail.sellability_state === "SELLABLE" ? actionText("sellable") : actionText("notSellable")}
@@ -178,19 +184,9 @@ export function BatchDispositionManager({
               <p><span className="font-black">{actionText("displayUom")}:</span> {batchDetail.display_uom_name} ({batchDetail.display_uom_code})</p>
               <p><span className="font-black">{actionText("dispositionRevision", { revision: String(batch.disposition_revision) })}</span></p>
             </div>
-            {batchDetail.sellability_reason_codes.length > 0 ? (
-              <ul className="mt-2 list-disc space-y-1 ps-5 text-[9px] font-semibold text-amber-800">
-                {batchDetail.sellability_reason_codes.map((code) => (
-                  <li key={code}>
-                    {batchIndexText(
-                      t,
-                      language,
-                      `reason_${code}` as Parameters<typeof batchIndexText>[2],
-                    )}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
+            <div className="mt-2">
+              <BatchSellabilitySignal t={t} language={language} locale={locale} item={batchDetail} allReasons />
+            </div>
             <div className="mt-3 rounded-lg bg-slate-50 p-2.5">
               <p className="text-[10px] font-black text-slate-700">{actionText("quantities")}</p>
               <div className="mt-1 grid gap-1 text-[9px] font-semibold text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
@@ -231,7 +227,7 @@ export function BatchDispositionManager({
             </p>
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[9px] font-semibold text-slate-500">
               <span>
-                {t("inventoryLive.expiryDate")}: {batch.expiry_date ?? "—"}
+                {t("inventoryLive.expiryDate")}: {date(batch.expiry_date)}
               </span>
               {batch.days_to_expiry !== null ? (
                 <span>
