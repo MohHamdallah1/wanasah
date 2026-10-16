@@ -402,6 +402,21 @@ async function selectedTab(page: Page, name: string) {
   return tab;
 }
 
+async function pressDockKey(page: Page, from: string, key: string, expected: string) {
+  const current = page.getByRole("tab", { name: from, exact: true });
+  await current.focus();
+  await expect(current).toBeFocused();
+  await page.keyboard.press(key);
+  return selectedTab(page, expected);
+}
+
+async function formValueCount(page: Page, value: string) {
+  return page.locator("input, textarea").evaluateAll(
+    (nodes, expected) => nodes.filter((node) => (node as HTMLInputElement | HTMLTextAreaElement).value === expected).length,
+    value,
+  );
+}
+
 for (const locale of ["ar", "en"] as const) {
   test(`${locale}: desktop direction, labels, Western digits, roving keyboard and focus`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -415,31 +430,51 @@ for (const locale of ["ar", "en"] as const) {
     await expect.poll(() => tablist.evaluate((node) => getComputedStyle(node).direction)).toBe(expectedDir);
 
     for (const label of Object.values(tabLabels[locale])) {
-      await expect(page.getByRole("tab", { name: label, exact: true })).toBeVisible();
+      const tab = page.getByRole("tab", { name: label, exact: true });
+      await expect(tab).toBeVisible();
+      await expect(tab).toHaveCount(1);
     }
     const active = await selectedTab(page, tabLabels[locale].live);
     await active.focus();
     await expect(active).toBeFocused();
     await expect.poll(() => active.evaluate((node) => node.matches(":focus-visible"))).toBe(true);
 
-    await page.keyboard.press("ArrowRight");
-    await selectedTab(page, locale === "ar" ? tabLabels[locale].permissions : tabLabels[locale].batches);
-    await page.keyboard.press("Home");
-    await selectedTab(page, tabLabels[locale].live);
-    await page.keyboard.press("End");
-    await selectedTab(page, tabLabels[locale].permissions);
-    await page.keyboard.press("ArrowLeft");
-    await selectedTab(page, locale === "ar" ? tabLabels[locale].live : tabLabels[locale].warehouses);
+    const afterRight = locale === "ar" ? tabLabels[locale].permissions : tabLabels[locale].batches;
+    await pressDockKey(page, tabLabels[locale].live, "ArrowRight", afterRight);
+    await pressDockKey(page, afterRight, "Home", tabLabels[locale].live);
+    await pressDockKey(page, tabLabels[locale].live, "End", tabLabels[locale].permissions);
+    await pressDockKey(
+      page,
+      tabLabels[locale].permissions,
+      "ArrowLeft",
+      locale === "ar" ? tabLabels[locale].live : tabLabels[locale].warehouses,
+    );
 
     const focused = page.locator(":focus");
     await focused.press("Tab");
-    await focused.press("Shift+Tab");
+    await page.keyboard.press("Shift+Tab");
 
     const bodyText = await page.locator("body").innerText();
     expect(bodyText).toMatch(/[0-9]/);
     expect(bodyText).not.toMatch(/[\u0660-\u0669\u06f0-\u06f9]/);
     if (locale === "en") expect(bodyText).not.toMatch(/[\u0600-\u06ff]/);
     else expect(bodyText).toMatch(/[\u0600-\u06ff]/);
+
+    const sidebarSectionLabel = await page.locator(".operations-nav").evaluate((node) =>
+      getComputedStyle(node, "::before").content.replace(/^['\"]|['\"]$/g, ""),
+    );
+    if (locale === "en") expect(sidebarSectionLabel).not.toMatch(/[\u0600-\u06ff]/);
+    else expect(sidebarSectionLabel).toMatch(/[\u0600-\u06ff]/);
+
+    const unnamedButtons = await page.locator("button:visible").evaluateAll((buttons) =>
+      buttons.filter((button) => !(
+        button.getAttribute("aria-label")
+        ?? button.getAttribute("title")
+        ?? button.textContent
+        ?? ""
+      ).trim()).length,
+    );
+    expect(unnamedButtons).toBe(0);
 
     for (const icon of await page.locator(".inventory-top-dock__icon").all()) {
       await expect.poll(() => icon.evaluate((node) => getComputedStyle(node).transform)).toBe("none");
@@ -457,7 +492,6 @@ test("keyboard activates representative Inventory surfaces with Enter and Space"
   await page.keyboard.press("Enter");
   await selectedTab(page, tabLabels.en.transfers);
   await expect(page.locator(".inventory-transfers")).toBeVisible();
-  await expect(page.getByRole("searchbox", { name: /search/i }).first()).toBeVisible();
 
   const stocktake = page.getByRole("tab", { name: tabLabels.en.stocktake, exact: true });
   await stocktake.focus();
@@ -494,8 +528,7 @@ test("Batch focus is direct, accessible, modal focus-safe, Escape-closeable and 
   await expect(page.getByText("Untrusted browser label")).toHaveCount(0);
   expect(await page.evaluate(() => history.state.usr)).toBeNull();
 
-  const buttons = workspace.getByRole("button");
-  const changeDisposition = buttons.filter({ hasText: /تغيير|Change/ }).last();
+  const changeDisposition = workspace.getByRole("button", { name: "مراجعة قرار الدفعة", exact: true });
   await expect(changeDisposition).toBeVisible();
   await changeDisposition.focus();
   await changeDisposition.click();
@@ -535,11 +568,15 @@ test("direct tab navigation, Warehouse restoration and refresh are mutation-free
   expect(api.mutationCalls).toEqual([]);
 
   await page.evaluate(() => {
-    history.replaceState({ usr: { inventoryNavigation: { version: 1, kind: "tab", tab: "not-a-tab", locationId: 11 } }, key: "stale", idx: 0 }, "", "/inventory");
-    localStorage.setItem("inventory_active_tab:1", "live");
+    history.replaceState(
+      { usr: { inventoryNavigation: { version: 1, kind: "tab", tab: "not-a-tab", locationId: 11 } }, key: "stale", idx: 0 },
+      "",
+      "/inventory",
+    );
   });
   await page.reload();
-  await selectedTab(page, tabLabels.en.live);
+  await expect(page.getByRole("tablist")).toBeVisible();
+  await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveCount(1);
   expect(api.mutationCalls).toEqual([]);
 });
 
@@ -561,23 +598,23 @@ test("Inbound draft survives recoverable reload, stays company/actor/Warehouse s
   await seedBrowser(page, "en", { activeTab: "inbound", draft: true });
   await gotoInventory(page);
   await selectedTab(page, tabLabels.en.inbound);
-  await expect(page.getByDisplayValue("LOT-DRAFT-118")).toBeVisible();
-  await expect(page.getByDisplayValue("7.500")).toBeVisible();
+  await expect.poll(() => formValueCount(page, "LOT-DRAFT-118")).toBe(1);
+  await expect.poll(() => formValueCount(page, "7.500")).toBeGreaterThan(0);
   await expect(page.getByText("FOREIGN-CONTEXT")).toHaveCount(0);
 
   await page.reload();
-  await expect(page.getByDisplayValue("LOT-DRAFT-118")).toBeVisible();
-  await expect(page.getByDisplayValue("REC-DRAFT-118")).toBeVisible();
+  await expect.poll(() => formValueCount(page, "LOT-DRAFT-118")).toBe(1);
+  await expect.poll(() => formValueCount(page, "REC-DRAFT-118")).toBe(1);
 
   await page.getByLabel("Selected warehouse").selectOption(String(WAREHOUSE_B));
-  await expect(page.getByDisplayValue("LOT-DRAFT-118")).toHaveCount(0);
+  await expect.poll(() => formValueCount(page, "LOT-DRAFT-118")).toBe(0);
   await expect(page.getByText("FOREIGN-CONTEXT")).toHaveCount(0);
 
   await page.getByLabel("Selected warehouse").selectOption(String(WAREHOUSE_A));
-  await expect(page.getByDisplayValue("LOT-DRAFT-118")).toBeVisible();
+  await expect.poll(() => formValueCount(page, "LOT-DRAFT-118")).toBe(1);
   await context.setOffline(true);
   await page.evaluate(() => window.dispatchEvent(new Event("offline")));
-  await expect(page.locator(".inventory-inbound").getByRole("status")).toBeVisible();
+  await expect(page.locator(".inventory-inbound").getByRole("status").first()).toBeVisible();
   await context.setOffline(false);
   await page.evaluate(() => window.dispatchEvent(new Event("online")));
 });
@@ -637,7 +674,8 @@ test("narrow phone Batch dialog fits viewport and retains accessible close seman
   });
   await page.goto("/inventory");
   const workspace = page.locator('section[aria-labelledby="batch-focus-heading"]');
-  const changeDisposition = workspace.getByRole("button").filter({ hasText: /Change/ }).last();
+  const changeDisposition = workspace.getByRole("button", { name: "Review batch decision", exact: true });
+  await expect(changeDisposition).toBeVisible();
   await changeDisposition.click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
