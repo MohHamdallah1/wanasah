@@ -372,7 +372,9 @@ class CP9StocktakePostgresAcceptance(unittest.IsolatedAsyncioTestCase):
         )
 
     async def _count(self, session_id: int, access: ScopedAccess, actor: Driver, quantities: dict[int, int], *, request_id=None):
-        sheet = await stocktake_api.get_stocktake_count_sheet(session_id, db=self.db, access=access)
+        sheet = await stocktake_api.get_stocktake_count_sheet(
+            session_id, db=self.db, access=access, legacy_actor=actor,
+        )
         items = []
         for row in sheet:
             items.append({
@@ -657,6 +659,9 @@ class CP9StocktakePostgresAcceptance(unittest.IsolatedAsyncioTestCase):
             await self.db.rollback()
             raw_session = await self.db.get(StocktakeSession, raw_session_id)
             raw_session.status = "CANCELLED"
+            raw_session.cancelled_by = int(self.actor_a.id)
+            raw_session.cancelled_at = utc_now().replace(tzinfo=None)
+            raw_session.cancellation_reason = "CP9 terminal blocker regression"
             await self.db.commit()
             deactivated = await warehouse_locations.deactivate_warehouse_location(
                 self.empty,
