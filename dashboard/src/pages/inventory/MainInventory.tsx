@@ -1370,6 +1370,10 @@ export default function MainInventory() {
             onFocusConsumed={() => setBatchNavigationFocus(null)}
             onOpenTransfers={handleOpenTransfers}
             onOpenReservationOwner={handleOpenReservationOwner}
+            onInventoryChanged={async () => {
+              refreshStock();
+              setLedgerRefreshKey((value) => value + 1);
+            }}
           />
         )}
         {!locationAccess.isPending && activeTab === "inbound" && tabAllowed("inbound") && selectedLocationId !== null && locationAccess.data && (

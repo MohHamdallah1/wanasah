@@ -1,0 +1,306 @@
+name: Inventory CP6 policy closure
+
+on:
+  push:
+    branches:
+      - sol/cp6-shelf-life-cost-visibility-wave2
+  pull_request:
+    branches:
+      - integration/inventory-wave-2
+    paths:
+      - "wa_backend/api/inventory_stock_policy.py"
+      - "wa_backend/domains/inventory_stock_policy/**"
+      - "wa_backend/tests/test_cp6_policy_closure.py"
+      - "wa_backend/tests/test_cp6_policy_postgres.py"
+      - "dashboard/src/pages/inventory/StockMinimumManager.tsx"
+      - "dashboard/src/pages/inventory/stock-policy/**"
+      - "dashboard/src/test/inventory-cp6-policy-closure.test.tsx"
+      - ".github/workflows/inventory-cp6-policy-closure.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cp6-policy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp6PolicyFunctionalOnlyKeyAbc123456789012345678901234
+      DATABASE_URL: postgresql+asyncpg://cp6_unit@127.0.0.1:1/cp6_unit
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: CP6.2 and CP6.3 focused Backend acceptance
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_cp6_policy_closure.py
+      - name: Prepare exact CP6 base for CP1 parity
+        shell: bash
+        run: |
+          rm -rf /tmp/cp6-policy-base
+          mkdir -p /tmp/cp6-policy-base
+          git archive 3f2f860fc8f04306e673de38a39e57ca3edf6df6 | tar -x -C /tmp/cp6-policy-base
+      - name: CP1 Inbound lot-expiry parity vs exact base
+        shell: bash
+        run: |
+          test_file=tests/test_inbound_lot_expiry_checkpoint1.py
+          set +e
+          (cd wa_backend && python -m pytest -q "$test_file") > /tmp/cp1-head.log 2>&1
+          head_status=$?
+          set -e
+          cat /tmp/cp1-head.log
+          if [ "$head_status" -eq 0 ]; then
+            echo "CP1_INBOUND_HEAD=PASS"
+            exit 0
+          fi
+          set +e
+          (cd /tmp/cp6-policy-base/wa_backend && python -m pytest -q "$test_file") > /tmp/cp1-base.log 2>&1
+          base_status=$?
+          set -e
+          cat /tmp/cp1-base.log
+          if [ "$base_status" -eq 0 ]; then
+            echo "CP1 Inbound passes on exact base but fails on CP6 head"
+            exit 1
+          fi
+          grep -E '^(FAILED|ERROR) ' /tmp/cp1-head.log | sort > /tmp/cp1-head.sig
+          grep -E '^(FAILED|ERROR) ' /tmp/cp1-base.log | sort > /tmp/cp1-base.sig
+          test -s /tmp/cp1-head.sig && test -s /tmp/cp1-base.sig
+          diff -u /tmp/cp1-base.sig /tmp/cp1-head.sig
+          echo "CP1_INBOUND_BASELINE_FAILURES=PROVEN_IDENTICAL"
+      - name: CP2 Batches regression
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_inventory_batch_index_contract.py
+          tests/test_inventory_batch_index_authorization.py
+      - name: CP6 minimum-stock regression
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_inventory_minimum_stock_capability_parity.py
+          tests/test_minimum_stock_canonical_authorization_cutover.py
+      - name: CP7 Live Stock regression
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_cp7_live_stock_contract.py
+          tests/test_live_stock_canonical_cutover.py
+      - name: CP10 Ledger regression
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_cp10_ledger_backend.py
+      - name: CP11 permissions regression
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_cp11_inventory_access_backend.py
+          tests/test_inventory_access_canonical_boundary.py
+      - name: CP6 policy py_compile
+        run: >-
+          python -m py_compile
+          wa_backend/api/inventory_stock_policy.py
+          wa_backend/domains/inventory_stock_policy/__init__.py
+          wa_backend/domains/inventory_stock_policy/read.py
+          wa_backend/tests/test_cp6_policy_closure.py
+          wa_backend/tests/test_cp6_policy_postgres.py
+
+  postgres-16:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp6PolicyPostgresOnlyKeyAbc1234567890123456789012345
+      DATABASE_URL: postgresql+asyncpg://cp6_policy_app@127.0.0.1:55456/wanasah_cp6_policy_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp6_policy_admin@127.0.0.1:55456/wanasah_cp6_policy_test
+      WANASAH_CP6_POLICY_PG_GATE: "1"
+      WANASAH_CP6_POLICY_PG_URL: postgresql+asyncpg://cp6_policy_app@127.0.0.1:55456/wanasah_cp6_policy_test
+      WANASAH_CP6_POLICY_PG_ADMIN_URL: postgresql+asyncpg://cp6_policy_admin@127.0.0.1:55456/wanasah_cp6_policy_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL acceptance dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name cp6-policy-postgres \
+            --env POSTGRES_USER=cp6_policy_admin \
+            --env POSTGRES_DB=wanasah_cp6_policy_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55456:55456 \
+            postgres:16 -p 55456
+          for attempt in $(seq 1 30); do
+            if docker exec cp6-policy-postgres pg_isready -U cp6_policy_admin -d wanasah_cp6_policy_test -p 55456; then exit 0; fi
+            sleep 1
+          done
+          docker logs cp6-policy-postgres
+          exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname='cp6_policy_app'").fetchone():
+                  conn.execute("CREATE ROLE cp6_policy_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Clean bootstrap to Alembic head
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: Grant restricted runtime DML
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO cp6_policy_app")
+              conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO cp6_policy_app")
+              conn.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO cp6_policy_app")
+              conn.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO cp6_policy_app")
+          PY
+      - name: CP6 real PostgreSQL shelf-life acceptance
+        working-directory: wa_backend
+        run: python -m pytest -q -s tests/test_cp6_policy_postgres.py
+
+  dashboard-focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Locked Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: CP6 policy focused Dashboard acceptance
+        working-directory: dashboard
+        run: npm test -- src/test/inventory-cp6-policy-closure.test.tsx
+      - name: CP1 Inbound Dashboard regression
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/pages/inventory/inbound/Tab2Inbound.test.tsx
+          src/pages/inventory/inbound/contracts.test.ts
+      - name: CP2 Batches Dashboard regression
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/test/inventory-cp2-batches-dashboard.test.tsx
+          src/test/inventory-batches-expiry-semantics.test.tsx
+      - name: CP6 minimum-stock Dashboard regression
+        working-directory: dashboard
+        run: npm test -- src/test/inventory-cp6-minimum-stock-dashboard.test.tsx
+      - name: CP7 Live Stock Dashboard regression
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/test/inventory-cp7-live-stock.test.tsx
+          src/test/inventory-cp7-live-stock-parity.test.tsx
+      - name: CP10 Ledger Dashboard regression
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/test/inventory-cp10-ledger-dashboard.test.tsx
+          src/test/inventory-cp10-ledger-contract.test.ts
+      - name: CP11 permissions Dashboard regression
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/test/inventory-cp11-access-dashboard.test.tsx
+          src/test/inventory-access-canonical-contract.test.ts
+      - name: TypeScript noEmit
+        working-directory: dashboard
+        run: npx tsc --noEmit
+      - name: Production Dashboard build
+        working-directory: dashboard
+        run: npm run build
+
+  dynamic-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Resolve active Wave merge-base
+        shell: bash
+        run: |
+          target="${{ github.event.pull_request.base.ref }}"
+          if [ -z "$target" ]; then target="integration/inventory-wave-2"; fi
+          git fetch origin "$target" --no-tags
+          base="$(git merge-base HEAD "origin/$target")"
+          test -n "$base"
+          echo "CP6_POLICY_BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "CP6_POLICY_TARGET_REF=$target" >> "$GITHUB_ENV"
+          echo "CP6_POLICY_DYNAMIC_BASE=$base"
+      - name: Exact bounded CP6.2/6.3 scope audit
+        shell: bash
+        run: |
+          test "$CP6_POLICY_TARGET_REF" = "integration/inventory-wave-2"
+          test "$CP6_POLICY_BASE_SHA" = "3f2f860fc8f04306e673de38a39e57ca3edf6df6"
+          python - <<'PY'
+          import os
+          import subprocess
+          base = os.environ["CP6_POLICY_BASE_SHA"]
+          changed = set(subprocess.check_output(["git", "diff", "--name-only", base, "HEAD"], text=True).splitlines())
+          exact = {
+              ".github/workflows/inventory-cp6-policy-closure.yml",
+              "wa_backend/api/inventory_stock_policy.py",
+              "wa_backend/tests/test_cp6_policy_closure.py",
+              "wa_backend/tests/test_cp6_policy_postgres.py",
+              "dashboard/src/pages/inventory/StockMinimumManager.tsx",
+              "dashboard/src/test/inventory-cp6-policy-closure.test.tsx",
+          }
+          unexpected = {
+              path for path in changed
+              if path not in exact
+              and not path.startswith("wa_backend/domains/inventory_stock_policy/")
+              and not path.startswith("dashboard/src/pages/inventory/stock-policy/")
+          }
+          assert not unexpected, f"Unexpected CP6 policy scope: {sorted(unexpected)}"
+          forbidden = (
+              "dashboard/src/pages/inventory/batches/",
+              "dashboard/src/pages/inventory/transfers/",
+              "dashboard/src/pages/inventory/stocktake/",
+              "dashboard/src/pages/inventory/ledger/",
+              "dashboard/src/pages/inventory/access/",
+              "wa_backend/api/warehouse/batch_index.py",
+              "wa_backend/api/warehouse/transfers.py",
+              "wa_backend/api/warehouse/stocktake.py",
+              "wa_backend/api/warehouse/ledger.py",
+              "wa_backend/api/inventory_permissions.py",
+          )
+          assert not any(path.startswith(forbidden) for path in changed), sorted(changed)
+          assert "dashboard/src/pages/inventory/MainInventory.tsx" not in changed
+          assert "INVENTORY_WAREHOUSE_V1_END_TO_END_CLOSURE_PLAN.md" not in changed
+          print(f"CP6_POLICY_CHANGED_FILES={len(changed)}")
+          print("CP6_POLICY_SCOPE=PASS")
+          PY
+      - name: Dynamic diff whitespace gate
+        run: git diff --check "$CP6_POLICY_BASE_SHA" HEAD
