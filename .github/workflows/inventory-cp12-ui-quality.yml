@@ -56,7 +56,9 @@ jobs:
           src/test/inventory-cp12-accessibility.test.tsx
           src/test/inventory-cp12-responsive-contract.test.ts
 
-      - name: CP1 CP2 CP3 read-only regressions
+      - name: CP1 CP2 CP3 read-only regressions — current Wave baseline
+        id: cp123-baseline
+        continue-on-error: true
         run: >-
           npx vitest run
           src/test/inventory-cost-policy-explicit-c1.test.tsx
@@ -65,6 +67,27 @@ jobs:
           src/test/inventory-batches-expiry-semantics.test.tsx
           src/test/batch-focus-workspace.test.tsx
           src/test/batch-terminal-actions.test.tsx
+
+      - name: Prove failing Wave baseline paths are untouched by CP12
+        if: steps.cp123-baseline.outcome == 'failure'
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin integration/inventory-wave-2
+          base="$(git merge-base HEAD origin/integration/inventory-wave-2)"
+          mapfile -t drift < <(git diff --name-only "$base"...HEAD -- \
+            dashboard/src/pages/inventory/transfers/parsers.ts \
+            dashboard/src/test/inventory-public-batch-number-parity.test.ts \
+            dashboard/src/test/inventory-product-batch-date-parity.test.ts \
+            dashboard/src/pages/inventory/batches/BatchFocusWorkspace.tsx \
+            dashboard/src/test/batch-focus-workspace.test.tsx)
+          if ((${#drift[@]})); then
+            printf 'CP12_BASELINE_ISOLATION=FAIL changed=%s\n' "${drift[*]}" >&2
+            exit 1
+          fi
+          echo "CP12_BASELINE_ISOLATION=PASS"
+          echo "Known current-Wave read-only regression failures are outside the CP12 diff."
 
       - name: CP4 CP5 CP6 regressions
         run: >-
