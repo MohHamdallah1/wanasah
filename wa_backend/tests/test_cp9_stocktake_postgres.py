@@ -490,7 +490,7 @@ class CP9StocktakePostgresAcceptance(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(replay_approve, approved)
         self.assertEqual(approved["movement_count"], 0)
         self.assertEqual(int(await self.db.scalar(select(func.count()).select_from(InventoryMovement).where(InventoryMovement.stocktake_session_id == sid))) or 0, 0)
-        self.assertEqual(int(await self.db.scalar(select(func.count()).select_from(InventoryLock).where(InventoryLock.stocktake_session_id == sid, InventoryLock.released_at.is_(None))) or 0, 0)
+        self.assertEqual(int(await self.db.scalar(select(func.count()).select_from(InventoryLock).where(InventoryLock.stocktake_session_id == sid, InventoryLock.released_at.is_(None)))) or 0, 0)
 
         # Positive variance posts authoritative movement/evidence exactly once.
         positive = await self._start(self.a2, self.access_a_all, self.actor_a)
@@ -564,7 +564,7 @@ class CP9StocktakePostgresAcceptance(unittest.IsolatedAsyncioTestCase):
         replay_cancel = await stocktake_api.cancel_stocktake_session(cancel_sid, cancel_cmd, db=self.db, access=self.access_a_all, legacy_actor=self.actor_a)
         self.assertEqual(replay_cancel, cancelled)
         self.assertEqual(cancelled["status"], "CANCELLED")
-        self.assertEqual(int(await self.db.scalar(select(func.count()).select_from(InventoryLock).where(InventoryLock.stocktake_session_id == cancel_sid, InventoryLock.released_at.is_(None))) or 0, 0)
+        self.assertEqual(int(await self.db.scalar(select(func.count()).select_from(InventoryLock).where(InventoryLock.stocktake_session_id == cancel_sid, InventoryLock.released_at.is_(None)))) or 0, 0)
         self.assertEqual(int(await self.db.scalar(select(func.count()).select_from(InventoryMovement)) or 0), movement_before)
 
     async def test_rollback_cp4_blocker_terminal_release_and_query_growth(self):
