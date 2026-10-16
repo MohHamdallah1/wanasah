@@ -1,0 +1,48 @@
+name: CP9 query-count fixture fix
+
+on:
+  push:
+    branches:
+      - sol/cp9-stocktake-full-closure-wave2
+
+permissions:
+  contents: write
+
+jobs:
+  adjust:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: sol/cp9-stocktake-full-closure-wave2
+      - name: Keep query-count evidence on a countable session
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('wa_backend/tests/test_cp9_stocktake_postgres.py')
+          s = p.read_text(encoding='utf-8')
+          old_anchor = '''        # Query-count evidence: fixed-query read paths do not grow per returned row.\n        statements: list[str] = []\n'''
+          new_anchor = '''        # Query-count evidence: fixed-query read paths do not grow per returned row.\n        perf_session = await self._start(self.a2, self.access_a_all, self.actor_a)\n        perf_sid = int(perf_session["session_id"])\n        statements: list[str] = []\n'''
+          if s.count(old_anchor) != 1:
+              raise SystemExit(f'query-count anchor match count={s.count(old_anchor)}')
+          s = s.replace(old_anchor, new_anchor)
+
+          old_sheet = '            await stocktake_api.get_stocktake_count_sheet(sid, db=self.db, access=self.access_a_all)\n'
+          new_sheet = '            await stocktake_api.get_stocktake_count_sheet(\n                perf_sid, db=self.db, access=self.access_a_all, legacy_actor=self.actor_a,\n            )\n'
+          if s.count(old_sheet) != 1:
+              raise SystemExit(f'query-count sheet match count={s.count(old_sheet)}')
+          s = s.replace(old_sheet, new_sheet)
+
+          p.write_text(s, encoding='utf-8')
+          PY
+          python -m py_compile wa_backend/tests/test_cp9_stocktake_postgres.py
+          rm .github/workflows/cp9-query-fixture-fix.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add wa_backend/tests/test_cp9_stocktake_postgres.py .github/workflows/cp9-query-fixture-fix.yml
+          git commit -m 'CP9: keep query-count fixture on countable session'
+          git push origin HEAD:sol/cp9-stocktake-full-closure-wave2
