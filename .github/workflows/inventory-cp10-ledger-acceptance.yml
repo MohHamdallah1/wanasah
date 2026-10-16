@@ -11,8 +11,10 @@ on:
       - "wa_backend/api/warehouse/ledger.py"
       - "wa_backend/api/warehouse/inbound_adjustments.py"
       - "wa_backend/domains/ledger/**"
+      - "wa_backend/alembic/versions/f4c10a7e2d31_ledger_permissions.py"
       - "wa_backend/tests/test_cp10_ledger_backend.py"
       - "wa_backend/tests/test_cp10_ledger_postgres.py"
+      - "wa_backend/tests/test_inbound_adjustments_canonical_auth_cutover.py"
       - "dashboard/src/pages/inventory/Tab4Ledger.tsx"
       - "dashboard/src/pages/inventory/ledger/**"
       - "dashboard/src/test/inventory-cp10-ledger-dashboard.test.tsx"
@@ -61,6 +63,7 @@ jobs:
           wa_backend/domains/ledger/__init__.py
           wa_backend/domains/ledger/read.py
           wa_backend/domains/ledger/inbound_adjustment.py
+          wa_backend/alembic/versions/f4c10a7e2d31_ledger_permissions.py
 
   postgres-16:
     runs-on: ubuntu-24.04
@@ -182,8 +185,10 @@ jobs:
               ".github/workflows/inventory-cp10-ledger-acceptance.yml",
               "wa_backend/api/warehouse/ledger.py",
               "wa_backend/api/warehouse/inbound_adjustments.py",
+              "wa_backend/alembic/versions/f4c10a7e2d31_ledger_permissions.py",
               "wa_backend/tests/test_cp10_ledger_backend.py",
               "wa_backend/tests/test_cp10_ledger_postgres.py",
+              "wa_backend/tests/test_inbound_adjustments_canonical_auth_cutover.py",
               "dashboard/src/pages/inventory/Tab4Ledger.tsx",
               "dashboard/src/test/inventory-cp10-ledger-dashboard.test.tsx",
           }
