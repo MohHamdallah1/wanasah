@@ -87,6 +87,18 @@
     },
     {
       "insert_after": {
+        "method": "GET",
+        "path": "/warehouse/status"
+      },
+      "method": "GET",
+      "path": "/warehouse/ledger/{entry_id}/adjustment-state",
+      "function": "get_warehouse_entry_adjustment_state",
+      "status_code": "200",
+      "response_model": "LedgerAdjustmentStateResponse",
+      "expected_module": "inbound_adjustments"
+    },
+    {
+      "insert_after": {
         "method": "POST",
         "path": "/warehouse/unified/transfer/special/dispatch"
       },
