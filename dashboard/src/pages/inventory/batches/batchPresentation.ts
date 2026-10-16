@@ -4,10 +4,14 @@ import type { WarehouseBatchIndexItem } from "./batchIndexContracts";
 
 export function formatBatchDate(value: string | null, locale: string, empty: string): string {
   if (!value) return empty;
-  return new Intl.DateTimeFormat(locale, {
-    year: "numeric", month: "2-digit", day: "2-digit",
-    numberingSystem: "latn", timeZone: "UTC",
-  }).format(new Date(`${value}T00:00:00Z`));
+  try {
+    return new Intl.DateTimeFormat(locale, {
+      year: "numeric", month: "2-digit", day: "2-digit",
+      numberingSystem: "latn", timeZone: "UTC",
+    }).format(new Date(`${value}T00:00:00Z`));
+  } catch {
+    return value;
+  }
 }
 
 export function batchQuantityView(t: TFunction, item: WarehouseBatchIndexItem, value: string) {

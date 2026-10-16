@@ -39,6 +39,7 @@ import { TabBatches } from "@/pages/inventory/TabBatches";
 import { BatchIndexSummary } from "@/pages/inventory/batches/BatchIndexSummary";
 import { BatchExpirySignal, BatchSellabilitySignal } from "@/pages/inventory/batches/BatchIndexSignals";
 import { batchIndexText } from "@/pages/inventory/batches/batchIndexI18n";
+import { formatBatchDate } from "@/pages/inventory/batches/batchPresentation";
 import type { TFunction } from "i18next";
 
 const item = (
@@ -130,6 +131,12 @@ const serve = (rows = [item(1)]) => mocks.authFetch.mockImplementation(async (pa
 beforeEach(() => { mocks.authFetch.mockReset(); mocks.language = "en"; mocks.canManage = true; localStorage.clear(); });
 
 describe("CP13 final Batches presentation", () => {
+  it("keeps legacy date evidence renderable without locale or invalid-date crashes", () => {
+    expect(formatBatchDate(null, "ar", "—")).toBe("—");
+    expect(formatBatchDate("2026-99-99", "en", "—")).toBe("2026-99-99");
+    expect(formatBatchDate("2026-10-16", "ar", "—")).not.toMatch(/[\u0660-\u0669\u06f0-\u06f9]/);
+  });
+
   it("loads batch-first without selecting a product and attaches search to the list surface", async () => {
     serve();
     const { container } = renderPage();
