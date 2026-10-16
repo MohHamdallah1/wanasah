@@ -39,6 +39,7 @@ type Props = {
   canEditTracking: boolean;
   canManageBarcodes: boolean;
   canManageLifecycle: boolean;
+  canViewProductLocations?: boolean;
   columns: Record<
     ProductDisplayColumn,
     boolean
@@ -70,6 +71,9 @@ type Props = {
   onManageLifecycle: (
     item: SimpleProduct,
   ) => void;
+  onManageProductLocations?: (
+    item: SimpleProduct,
+  ) => void;
 };
 
 export function ProductsListResults({
@@ -88,6 +92,7 @@ export function ProductsListResults({
   canEditTracking,
   canManageBarcodes,
   canManageLifecycle,
+  canViewProductLocations = false,
   columns,
   density,
   tableHeaderSpacing,
@@ -102,6 +107,7 @@ export function ProductsListResults({
   onEditTracking,
   onManageBarcodes,
   onManageLifecycle,
+  onManageProductLocations,
 }: Props) {
   const { t } =
     useTranslation();
@@ -260,6 +266,11 @@ export function ProductsListResults({
       </div>
     ) : null;
 
+  const actionProps = {
+    canViewProductLocations,
+    onManageProductLocations,
+  };
+
   return (
     <>
       {showLocalNotice ? (
@@ -329,6 +340,7 @@ export function ProductsListResults({
                   onManageLifecycle={
                     onManageLifecycle
                   }
+                  {...actionProps}
                 />
               ),
             )}
@@ -480,6 +492,7 @@ export function ProductsListResults({
                     onManageLifecycle={
                       onManageLifecycle
                     }
+                    {...actionProps}
                   />
                 ),
               )}
