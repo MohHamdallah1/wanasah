@@ -70,7 +70,7 @@ export function LiveStockTable({ products, loading, onOpen }: Props) {
 
   return (
     <table
-      className="live-stock-table hidden min-w-[1180px] md:table"
+      className="live-stock-table hidden md:table min-w-[1180px]"
       aria-label={t("inventoryShell.tabs.live")}
       aria-busy={loading}
       data-cp13-stock-table="compact"
