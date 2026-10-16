@@ -51,7 +51,7 @@ jobs:
           baseline="$(mktemp -d)"
           git -C .. archive 6e9264a8317575a636536ea02478ed1e85023c3f | tar -x -C "$baseline"
           ln -s "$PWD/node_modules" "$baseline/dashboard/node_modules"
-          files=(src/test/batch-focus-workspace.test.tsx src/test/inventory-public-batch-number-parity.test.ts src/test/inventory-product-batch-date-parity.test.ts)
+          files=(src/test/batch-focus-workspace.test.tsx src/test/inventory-public-batch-number-parity.test.ts src/test/inventory-product-batch-date-parity.test.ts src/test/inventory-cp6-policy-closure.test.tsx)
           set +e
           npx vitest run "${files[@]}" --reporter=json --outputFile="$baseline/head.json"
           head_status=$?
@@ -81,7 +81,6 @@ jobs:
       - name: CP6 CP12 regressions
         run: >-
           npx vitest run
-          src/test/inventory-cp6-policy-closure.test.tsx
           src/test/inventory-cp6-minimum-stock-dashboard.test.tsx
           src/test/inventory-cp12-i18n.test.tsx
           src/test/inventory-cp12-accessibility.test.tsx
