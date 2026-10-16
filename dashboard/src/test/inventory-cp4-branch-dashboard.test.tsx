@@ -337,7 +337,7 @@ describe("CP4 Branch Dashboard capability parity", () => {
 
     expect(await screen.findByText("Main warehouse")).toBeTruthy();
     fireEvent.click(screen.getByTitle("تعديل"));
-    expect(screen.getByText(branch.name)).toBeTruthy();
+    expect(screen.getAllByText(branch.name)).toHaveLength(2);
     expect(branchCalls("/warehouse/branches/options?")).toHaveLength(0);
 
     const dialog = screen.getByRole("dialog", { name: "تعديل المستودع" });
