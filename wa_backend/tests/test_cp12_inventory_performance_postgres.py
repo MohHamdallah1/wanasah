@@ -211,7 +211,7 @@ async def _explain(db, label: str, sql: str, params: dict):
     return evidence
 
 
-def test_cp12_hard_bounds_and_filter_before_pagination_contracts():
+async def test_cp12_hard_bounds_and_filter_before_pagination_contracts():
     contracts = {
         "live_stock": (inspect.getsource(live_stock.get_warehouse_inventory), "le=100"),
         "batches": (inspect.getsource(batch_index.get_warehouse_inventory_batch_index_cursor), "le=100"),
@@ -221,7 +221,8 @@ def test_cp12_hard_bounds_and_filter_before_pagination_contracts():
         "ledger": (inspect.getsource(ledger.get_warehouse_ledger_cursor), "le=200"),
     }
     for name, (source, bound) in contracts.items():
-        assert bound in source, f"{name} lacks an explicit hard page maximum"
+        compact = "".join(source.split())
+        assert bound in compact, f"{name} lacks an explicit hard page maximum"
 
     batch_source = inspect.getsource(batch_index.get_warehouse_inventory_batch_index_cursor)
     assert batch_source.index("*_search_predicates(tokens)") < batch_source.index(".limit(limit + 1)")
