@@ -85,7 +85,10 @@ export function InventoryTopDock({
     const root = rootRef.current;
     if (!root) return;
 
-    const isRtl = window.getComputedStyle(root).direction === "rtl";
+    const inheritedDir = root.closest<HTMLElement>("[dir]")?.getAttribute("dir");
+    const isRtl = inheritedDir === "rtl" || (
+      inheritedDir !== "ltr" && window.getComputedStyle(root).direction === "rtl"
+    );
     let nextIndex: number | null = null;
 
     if (event.key === "Home") nextIndex = 0;
