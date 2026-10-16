@@ -1,0 +1,10 @@
+/* CP14-D: Inventory-only guardrails for the shared operations shell. */
+.dashboard-shell .operations-nav::before {
+  content: attr(aria-label);
+}
+
+@media (max-width: 1023px) {
+  html[dir="rtl"] .dashboard-shell .operations-sidebar.translate-x-full {
+    transform: translateX(-100%);
+  }
+}
