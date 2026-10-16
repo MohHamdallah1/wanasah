@@ -759,8 +759,9 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             assert a.operator.context.is_company_owner is False
             await a.operator.access(db).require("inventory.read", a.a1)
             await a.counter.access(db).require("inventory.read", a.a1)
+            await a.counter.access(db).require("inventory.read", a.a2)
             with pytest.raises(BackofficeCapabilityAccessRejected):
-                await a.counter.access(db).require("inventory.read", a.a2)
+                await a.counter.access(db).require("stocktake.start", a.a2)
             with pytest.raises(HTTPException) as denied_start:
                 await _start(db, a.denied, a.a1)
             assert denied_start.value.status_code == 403
