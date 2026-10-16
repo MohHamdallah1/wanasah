@@ -28,6 +28,7 @@ from models import (
     SystemAuditLog,
     UserLocationAccess,
     UserRole,
+    Vehicle,
     role_permissions,
 )
 from tests.canonical_actor_fixtures import seed_company_owner_fixture, seed_ordinary_backoffice_fixture
@@ -127,6 +128,12 @@ async def pg():
                 )
                 owner = await seed_company_owner_fixture(seed, company.id, password="CP11FixturePassword123")
                 ordinary = await seed_ordinary_backoffice_fixture(seed, company.id)
+                vehicle = Vehicle(
+                    company_id=company.id,
+                    plate_number=f"CP11-{index}-{uuid4().hex[:10]}",
+                )
+                seed.add(vehicle)
+                await seed.flush()
                 locations = [
                     InventoryLocation(
                         company_id=company.id,
@@ -142,6 +149,7 @@ async def pg():
                     code=f"CP11-VEH-{index}-{uuid4().hex[:6]}",
                     name="Shared Vehicle",
                     location_type="VEHICLE",
+                    vehicle_id=vehicle.id,
                     is_active=True,
                 ))
                 seed.add_all(locations)
