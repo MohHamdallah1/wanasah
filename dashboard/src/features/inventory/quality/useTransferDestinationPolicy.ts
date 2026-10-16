@@ -141,7 +141,7 @@ export function useTransferDestinationPolicy(onSaved?: () => void | Promise<void
   const [pending, setPending] = useState<DurableCommand<Wire> | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const ready = useRef(false);
-  const busy = useRef(false);
+  const activeScopes = useRef(new Set<string>());
   const policySeq = useRef(0);
 
   const loadPolicy = useCallback(async () => {
@@ -176,7 +176,7 @@ export function useTransferDestinationPolicy(onSaved?: () => void | Promise<void
     const params = new URLSearchParams({ include_inactive: "false", limit: "200" });
     if (search) params.set("search", search);
     void authFetch(`/warehouse/locations/manage?${params}`, { signal: controller.signal }).then(raw => {
-      if (!current) return;
+      if (!current || scopeRef.current !== scope) return;
       const page = parseLocationPage(raw);
       setKnownLocations(Object.fromEntries(page.items.map(item => [item.id, item])));
       setHasMoreLocations(page.has_more);
@@ -193,8 +193,8 @@ export function useTransferDestinationPolicy(onSaved?: () => void | Promise<void
     } catch (error) { setLoadError(apiErrorMessage(error, t("inventoryWarehouses.qualityDestinations.errors.save"))); }
   }, [scope, form, t]);
   const execute = async (wire?: Wire) => {
-    if (busy.current || !canManage || !scope || !ready.current) return;
-    busy.current = true;
+    if (!canManage || !scope || !ready.current || activeScopes.current.has(scope)) return;
+    activeScopes.current.add(scope);
     setSaving(true);
     let command: DurableCommand<Wire> | null = null;
     try {
@@ -217,7 +217,7 @@ export function useTransferDestinationPolicy(onSaved?: () => void | Promise<void
         if (scopeRef.current === scope) setPending(null);
       }
       if (scopeRef.current === scope) toast.error(apiErrorMessage(error, t("inventoryWarehouses.qualityDestinations.errors.save")));
-    } finally { busy.current = false; if (scopeRef.current === scope) setSaving(false); }
+    } finally { activeScopes.current.delete(scope); if (scopeRef.current === scope) setSaving(false); }
   };
   const saveDraft = async () => {
     if (form.quarantine === null || form.disposal === null || form.vendorReturn === null) {

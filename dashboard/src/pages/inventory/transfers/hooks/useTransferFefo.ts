@@ -10,6 +10,8 @@ export function useTransferFefo(sourceLocationId: number | null, canOverride: bo
   const authenticatedFetch = useAuthFetch();
   const { t } = useTransferTranslation();
   const generation = useRef(0);
+  const currentSource = useRef(sourceLocationId);
+  currentSource.current = sourceLocationId;
   const [overrideOptionsByProduct, setOverrideOptionsByProduct] = useState<
     Record<number, TransferOverrideOptions>
   >({});
@@ -59,7 +61,7 @@ export function useTransferFefo(sourceLocationId: number | null, canOverride: bo
           `/warehouse/unified/transfer/override-options?${params.toString()}`
         );
 
-        if ((generation.current !== epoch || overrideRequestSeq.current[productId] !== nextSeq)) {
+        if ((currentSource.current !== sourceLocationId || generation.current !== epoch || overrideRequestSeq.current[productId] !== nextSeq)) {
           return null;
         }
 
@@ -75,14 +77,14 @@ export function useTransferFefo(sourceLocationId: number | null, canOverride: bo
         }));
         return parsed;
       } catch (error: unknown) {
-        if (generation.current === epoch && overrideRequestSeq.current[productId] === nextSeq) {
+        if (currentSource.current === sourceLocationId && generation.current === epoch && overrideRequestSeq.current[productId] === nextSeq) {
           toast.error(
             getErrorMessage(error, t("inventoryTransfers.overrideFailure"))
           );
         }
         return null;
       } finally {
-        if (generation.current === epoch && overrideRequestSeq.current[productId] === nextSeq) {
+        if (currentSource.current === sourceLocationId && generation.current === epoch && overrideRequestSeq.current[productId] === nextSeq) {
           setOverrideLoadingProductIds((prev) =>
             prev.filter((id) => id !== productId)
           );

@@ -332,8 +332,18 @@ const copy = {
 for (const language of ["ar", "en"] as const) {
   i18n.addResourceBundle(language, "translation", { inventoryTransfers: copy[language] }, true, true);
 }
+for (const [language, codes] of Object.entries({
+  ar: { TRANSFER_RESPONSE_INVALID: "تعذر التحقق من استجابة الحوالة. أعد المحاولة.", TRANSFER_QUANTITY_INVALID: "أدخل كمية موجبة تطابق دقة الصنف وخطوته.", TRANSFER_NOT_FOUND: "الحوالة غير موجودة أو غير متاحة.", TRANSFER_CAPABILITY_REQUIRED: "لا تملك صلاحية العملية على الموقع المطلوب." },
+  en: { TRANSFER_RESPONSE_INVALID: "The transfer response could not be verified. Retry.", TRANSFER_QUANTITY_INVALID: "Enter a positive quantity matching the item precision and step.", TRANSFER_NOT_FOUND: "The transfer is unavailable.", TRANSFER_CAPABILITY_REQUIRED: "This action requires permission at the affected location." },
+})) i18n.addResourceBundle(language, "translation", { errors: { codes } }, true, true);
 export const useTransferTranslation = () => useTranslation();
 export const transferText = (key: string, values?: Record<string, unknown>) => i18n.t(`inventoryTransfers.${key}`, values);
-export const formatTransferNumber = (value: string | number) => new Intl.NumberFormat(
-  currentLocale(), { maximumFractionDigits: 6, numberingSystem: "latn" },
-).format(Number(value));
+export const formatTransferNumber = (value: string | number) => {
+  const formatter = new Intl.NumberFormat(currentLocale(), { maximumFractionDigits: 6, numberingSystem: "latn" });
+  if (typeof value === "number") return formatter.format(value);
+  if (!/^\d+(?:\.\d{1,6})?$/.test(value)) return "—";
+  const [whole, fraction = ""] = value.split(".");
+  const tail = fraction.replace(/0+$/, "");
+  const decimal = formatter.formatToParts(1.1).find(part => part.type === "decimal")?.value ?? ".";
+  return formatter.format(BigInt(whole)) + (tail ? decimal + tail : "");
+};

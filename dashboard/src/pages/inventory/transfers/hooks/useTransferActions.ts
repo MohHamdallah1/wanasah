@@ -1,5 +1,5 @@
 import { useTransferTranslation as useTranslation } from "../i18n";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTransferCommand } from "./useTransferCommand";
 import type {
@@ -29,6 +29,7 @@ export function useTransferActions({
     useState<WarehouseTransferListItem | null>(null);
   const [decisionReason, setDecisionReason] = useState("");
   const [actionSubmitting, setActionSubmitting] = useState(false);
+  useEffect(() => { setAction(null); setActionTransfer(null); setDecisionReason(""); setActionSubmitting(false); }, [locationId]);
 
   const openAction = useCallback(
     (
@@ -114,6 +115,7 @@ export function useTransferActions({
   }, [
     action,
     actionTransfer,
+    locationId,
     command,
     decisionReason,
     t,

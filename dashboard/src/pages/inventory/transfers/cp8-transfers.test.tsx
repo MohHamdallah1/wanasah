@@ -12,6 +12,7 @@ import { useTransferCreate } from "./hooks/useTransferCreate";
 import { formatDate, formatTransferDateOnly } from "./utils";
 import { formatTransferNumber } from "./i18n";
 import { TransferDecisionModal } from "./TransferDecisionModal";
+import { TransferTable } from "./TransferTable";
 import { FefoOverrideEditor } from "./FefoOverrideEditor";
 import { parseTransferPage } from "./parsers";
 import { readTransferDraft, writeTransferDraft } from "./draftStorage";
@@ -122,4 +123,40 @@ it.each(["ar", "en"])("formats western digits without duplicating locale extensi
   expect(formatDate("2026-10-16T10:00:00Z")).not.toMatch(/[٠-٩]/);
   expect(formatTransferDateOnly("2026-10-16")).not.toMatch(/[٠-٩]/);
   expect(formatTransferNumber("2.5")).toMatch(/2/);
+});
+
+it("preserves full decimal display precision", () => {
+  expect(formatTransferNumber("999999999999.999999")).toBe("999,999,999,999.999999");
+});
+it("clears busy state and pending state when the visible command scope changes during a request", async () => {
+  let resolveOld!: (value: unknown) => void;
+  mocks.fetch.mockReturnValueOnce(new Promise(resolve => { resolveOld = resolve; }));
+  const { result, rerender } = renderHook(({ location }) => useTransferCommand("SCOPE", location), { initialProps: { location: 11 } });
+  let request!: Promise<unknown>;
+  act(() => { request = result.current.execute({ path: "/warehouse/unified/transfer/dispatch", method: "POST", body: { source_location_id: 11 } }); });
+  await waitFor(() => expect(result.current.busy).toBe(true));
+  rerender({ location: 22 });
+  await waitFor(() => expect(result.current.busy).toBe(false));
+  await act(async () => { resolveOld({ message: "ok" }); await request; });
+  expect(result.current.pending).toBeNull(); expect(result.current.busy).toBe(false);
+});
+
+it("keeps table and phone presentation on the same exact-side capability actions", () => {
+  render(<TransferTable items={[transfer()]} locationId={12} loading={false} cursorHistoryLength={0} nextCursor={null}
+    onOpenDetail={vi.fn()} onOpenAction={vi.fn()} onPrevious={vi.fn()} onNext={vi.fn()} />);
+  expect(screen.getByRole("table").className).toContain("md:table");
+  expect(screen.getAllByRole("button", { name: "Receive" }).every(button => button.hasAttribute("disabled"))).toBe(true);
+  expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+});
+it("keeps Tab and Shift+Tab within the decision dialog until it closes", async () => {
+  render(<TransferDecisionModal action="cancel" transfer={transfer()} decisionReason="Reason" submitting={false} onClose={vi.fn()} onDecisionReasonChange={vi.fn()} onSubmit={vi.fn()} />);
+  const dialog = screen.getByRole("dialog");
+  const controls = dialog.querySelectorAll<HTMLElement>("button, textarea");
+  await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+  controls[controls.length - 1].focus();
+  fireEvent.keyDown(document, { key: "Tab" });
+  expect(document.activeElement).toBe(controls[0]);
+  controls[0].focus();
+  fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+  expect(document.activeElement).toBe(controls[controls.length - 1]);
 });

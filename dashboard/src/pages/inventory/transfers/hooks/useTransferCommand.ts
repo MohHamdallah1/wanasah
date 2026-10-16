@@ -21,10 +21,11 @@ export function useTransferCommand(operation: string, target: string | number) {
   const scope = (() => { try { return transferCommandScope(operation, target); } catch { return null; } })();
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
-  const active = useRef(false);
+  const active = useRef(new Set<string>());
   useEffect(() => {
     let current = true;
     setPending(null);
+    setBusy(false);
     setRecoveryError(null);
     if (scope) void readDurableCommand<TransferWireCommand>(scope).then(
       command => { if (current) setPending(command); },
@@ -34,9 +35,9 @@ export function useTransferCommand(operation: string, target: string | number) {
   }, [scope]);
 
   const execute = useCallback(async (wire?: TransferWireCommand, validate?: (raw: unknown) => unknown) => {
-    if (active.current) return undefined;
+    if (scope && active.current.has(scope)) return undefined;
     if (!scope || recoveryError) throw recoveryError ?? Object.assign(new Error(), { code: "INVENTORY_ACCESS_SCOPE_MISMATCH" });
-    active.current = true;
+    active.current.add(scope);
     setBusy(true);
     let command: DurableCommand<TransferWireCommand> | null = null;
     try {
@@ -61,7 +62,7 @@ export function useTransferCommand(operation: string, target: string | number) {
       }
       throw error;
     } finally {
-      active.current = false;
+      active.current.delete(scope);
       if (scopeRef.current === scope) setBusy(false);
     }
   }, [authFetch, scope, recoveryError]);

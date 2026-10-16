@@ -4,8 +4,10 @@ import { apiErrorMessage } from "@/lib/apiErrors";
 import { transferText } from "./i18n";
 import { validateVariantQuantity, type Quantity } from "../quantity";
 
-export const totalDraftQuantity = (item: TransferDraftItem): Quantity =>
-  validateVariantQuantity(item.quantity, item.quantity_scale, item.quantity_step, "quantity");
+export const totalDraftQuantity = (item: TransferDraftItem): Quantity => {
+  try { return validateVariantQuantity(item.quantity, item.quantity_scale, item.quantity_step, "quantity"); }
+  catch { throw Object.assign(new Error(), { code: "TRANSFER_QUANTITY_INVALID", context: { scale: item.quantity_scale, step: item.quantity_step } }); }
+};
 export const getErrorMessage = (error: unknown, fallback = transferText("unexpected")): string =>
   apiErrorMessage(error, fallback);
 export const getMutationMessage = (raw: unknown): string => {

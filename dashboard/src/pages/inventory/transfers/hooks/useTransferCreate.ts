@@ -6,22 +6,16 @@ import { useTransferCommand, transferCommandScope } from "./useTransferCommand";
 import { readTransferDraft, writeTransferDraft, clearTransferDraft } from "../draftStorage";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { toast } from "sonner";
-import { useAuthFetch } from "@/hooks/useAuthFetch";
-import {
-  parseSourceInventoryPage,
-  parseTransferLocations,
-} from "../parsers";
+import { useTransferQueries } from "./useTransferQueries";
 import type {
   TransferCreateDirection,
   TransferDraftItem,
-  TransferLocationOption,
   TransferSourceInventoryItem,
 } from "../types";
 import {
   getErrorMessage,
   getMutationMessage,
 } from "../utils";
-import { compareQuantity } from "../../quantity";
 import { apiErrorCode } from "@/lib/apiErrors";
 
 interface UseTransferCreateArgs {
@@ -36,7 +30,6 @@ export function useTransferCreate({
   onCompleted,
 }: UseTransferCreateArgs) {
   const { t } = useTranslation();
-  const authenticatedFetch = useAuthFetch();
   const command = useTransferCommand("TRANSFER_DISPATCH", locationId);
   const currentLocation = useRef(locationId);
   currentLocation.current = locationId;
@@ -48,51 +41,13 @@ export function useTransferCreate({
   const [createOpen, setCreateOpen] = useState(false);
   const [createDirection, setCreateDirection] =
     useState<TransferCreateDirection>("outgoing");
-  const [transferLocations, setTransferLocations] = useState<
-    TransferLocationOption[]
-  >([]);
-  const [transferLocationsLoading, setTransferLocationsLoading] =
-    useState(false);
-  const [transferLocationSearchInput, setTransferLocationSearchInput] =
-    useState("");
-  const [transferLocationSearch, setTransferLocationSearch] = useState("");
-  const transferLocationsRequestSeq = useRef(0);
   const [counterpartLocationId, setCounterpartLocationId] =
     useState<number | null>(null);
   const [createNotes, setCreateNotes] = useState("");
   const [createSubmitting, setCreateSubmitting] = useState(false);
 
-  const [productSearchInput, setProductSearchInput] = useState("");
-  const [productSearch, setProductSearch] = useState("");
-  const [sourceProducts, setSourceProducts] = useState<
-    TransferSourceInventoryItem[]
-  >([]);
-  const [sourceProductsLoading, setSourceProductsLoading] = useState(false);
-  const [sourceProductsLoadingMore, setSourceProductsLoadingMore] =
-    useState(false);
-  const [sourceProductsNextCursor, setSourceProductsNextCursor] =
-    useState<string | null>(null);
-  const sourceProductsRequestSeq = useRef(0);
   const [draftItems, setDraftItems] = useState<TransferDraftItem[]>([]);
 
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const clean = productSearchInput.trim();
-      setProductSearch(clean.length >= 2 ? clean : "");
-    }, 300);
-
-    return () => window.clearTimeout(timer);
-  }, [productSearchInput]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const clean = transferLocationSearchInput.trim();
-      setTransferLocationSearch(clean.length >= 2 ? clean : "");
-    }, 300);
-
-    return () => window.clearTimeout(timer);
-  }, [transferLocationSearchInput]);
 
   const sourceLocationId =
     createDirection === "outgoing"
@@ -102,6 +57,10 @@ export function useTransferCreate({
     createDirection === "outgoing"
       ? counterpartLocationId
       : locationId;
+
+  const { transferLocations, setTransferLocations, transferLocationsLoading, transferLocationSearchInput, setTransferLocationSearchInput,
+    sourceProducts, sourceProductsLoading, sourceProductsLoadingMore, sourceProductsNextCursor, productSearchInput, setProductSearchInput,
+    resetQueries, invalidateQueries, loadMoreSourceProducts } = useTransferQueries(createOpen, createDirection, locationId, counterpartLocationId, sourceLocationId);
 
   const selectedAccess = useInventoryAccess(locationId);
   const sourceAccess = useInventoryAccess(sourceLocationId);
@@ -118,24 +77,15 @@ export function useTransferCreate({
     useTransferFefo(sourceLocationId, canOverride, draftItems, setDraftItems);
 
   const resetCreateForm = useCallback(() => {
-    sourceProductsRequestSeq.current += 1;
-    transferLocationsRequestSeq.current += 1;
+    resetQueries();
     resetFefo();
     setTransferPurpose("WAREHOUSE_BALANCING");
     setCreateDirection("outgoing");
     setCounterpartLocationId(null);
     setCreateNotes("");
     setPolicyBlocked(false);
-    setTransferLocations([]);
-    setTransferLocationSearchInput("");
-    setTransferLocationSearch("");
-    setProductSearchInput("");
-    setProductSearch("");
-    setSourceProducts([]);
-    setSourceProductsNextCursor(null);
-    setSourceProductsLoadingMore(false);
     setDraftItems([]);
-  }, [resetFefo]);
+  }, [resetFefo, resetQueries]);
 
   const openCreate = () => {
     if (!canOutgoing && !canIncoming) return;
@@ -157,63 +107,12 @@ export function useTransferCreate({
     } catch (error) { toast.error(getErrorMessage(error)); }
   };
 
-  const fetchTransferLocations = useCallback(async () => {
-    if (!createOpen) return;
-
-    const seq = ++transferLocationsRequestSeq.current;
-    setTransferLocationsLoading(true);
-
-    try {
-      const params = new URLSearchParams({ limit: "50", purpose: createDirection === "outgoing" ? "destination" : "source" });
-      if (transferLocationSearch) {
-        params.set("search", transferLocationSearch);
-      }
-
-      const raw = await authenticatedFetch(
-        `/warehouse/unified/transfer/locations?${params.toString()}`
-      );
-
-      if (seq !== transferLocationsRequestSeq.current) return;
-
-      const locations = parseTransferLocations(raw).filter(
-        (item) => item.id !== locationId
-      );
-
-      setTransferLocations((prev) => {
-        const merged = new Map<number, TransferLocationOption>();
-        for (const item of prev) if (item.id === counterpartLocationId) merged.set(item.id, item);
-        for (const item of locations) merged.set(item.id, item);
-        return [...merged.values()];
-      });
-    } catch (error: unknown) {
-      if (seq !== transferLocationsRequestSeq.current) return;
-      toast.error(
-        getErrorMessage(error, t("inventoryTransfers.locationsFailure"))
-      );
-    } finally {
-      if (seq === transferLocationsRequestSeq.current) {
-        setTransferLocationsLoading(false);
-      }
-    }
-  }, [
-    authenticatedFetch,
-    createOpen,
-    createDirection,
-    locationId,
-    counterpartLocationId,
-    t,
-    transferLocationSearch,
-  ]);
-
-  useEffect(() => {
-    void fetchTransferLocations();
-  }, [fetchTransferLocations]);
-
   useEffect(() => {
     setCreateOpen(false);
+    setCreateSubmitting(false);
     resetCreateForm();
-    return () => { ++sourceProductsRequestSeq.current; ++transferLocationsRequestSeq.current; resetFefo(); };
-  }, [locationId, resetCreateForm, resetFefo]);
+    return () => { invalidateQueries(); resetFefo(); };
+  }, [locationId, resetCreateForm, resetFefo, invalidateQueries]);
 
   const closeCreate = () => {
     if (createSubmitting) return;
@@ -221,98 +120,12 @@ export function useTransferCreate({
     resetCreateForm();
   };
 
-  const fetchSourceProducts = useCallback(
-    async (
-      pageCursor: string | null = null,
-      append = false
-    ) => {
-      if (!createOpen || sourceLocationId === null) {
-        setSourceProducts([]);
-        setSourceProductsNextCursor(null);
-        return;
-      }
-
-      const seq = ++sourceProductsRequestSeq.current;
-
-      if (append) {
-        setSourceProductsLoadingMore(true);
-      } else {
-        setSourceProductsLoading(true);
-        setSourceProductsNextCursor(null);
-      }
-
-      try {
-        const params = new URLSearchParams({
-          location_id: String(sourceLocationId),
-          limit: "50",
-        });
-        if (productSearch) params.set("search", productSearch);
-        if (pageCursor) params.set("cursor", pageCursor);
-
-        const raw = await authenticatedFetch(
-          `/warehouse/unified/transfer/source-inventory?${params.toString()}`
-        );
-
-        if (seq !== sourceProductsRequestSeq.current) return;
-
-        const page = parseSourceInventoryPage(raw);
-        const nextItems = page.items.filter(
-          (item) => compareQuantity(item.available_quantity, "0") > 0
-        );
-
-        setSourceProducts((prev) => {
-          if (!append) return nextItems;
-
-          const merged = new Map<number, TransferSourceInventoryItem>();
-          for (const item of prev) merged.set(item.id, item);
-          for (const item of nextItems) merged.set(item.id, item);
-          return [...merged.values()];
-        });
-
-        setSourceProductsNextCursor(page.next_cursor);
-      } catch (error: unknown) {
-        if (seq !== sourceProductsRequestSeq.current) return;
-
-        if (!append) {
-          setSourceProducts([]);
-          setSourceProductsNextCursor(null);
-        }
-
-        toast.error(
-          getErrorMessage(error, t("inventoryTransfers.sourceFailure"))
-        );
-      } finally {
-        if (seq === sourceProductsRequestSeq.current) {
-          if (append) {
-            setSourceProductsLoadingMore(false);
-          } else {
-            setSourceProductsLoading(false);
-          }
-        }
-      }
-    },
-    [
-      authenticatedFetch,
-      createOpen,
-      productSearch,
-      sourceLocationId,
-      t,
-    ]
-  );
-
   useEffect(() => {
-    sourceProductsRequestSeq.current += 1;
     resetFefo();
-    setSourceProducts([]);
-    setSourceProductsNextCursor(null);
-    setSourceProductsLoadingMore(false);
     if (restoringDraft.current) restoringDraft.current = false;
     else setDraftItems([]);
   }, [createOpen, sourceLocationId, resetFefo]);
 
-  useEffect(() => {
-    void fetchSourceProducts(null, false);
-  }, [fetchSourceProducts]);
 
   useEffect(() => {
     if (!createOpen || !draftScope.current) return;
@@ -369,7 +182,7 @@ export function useTransferCreate({
   const updateCreateDirection = (value: string) => {
     if ((value === "outgoing" && canOutgoing) || (value === "incoming" && canIncoming)) {
       setTransferLocations([]);
-      transferLocationsRequestSeq.current += 1;
+      invalidateQueries();
       setCreateDirection(value);
       setCounterpartLocationId(null);
       }
@@ -391,11 +204,6 @@ export function useTransferCreate({
 
   const updateCreateNotes = (value: string) => {
     setCreateNotes(value);
-  };
-
-  const loadMoreSourceProducts = () => {
-    if (!sourceProductsNextCursor) return;
-    void fetchSourceProducts(sourceProductsNextCursor, true);
   };
 
   const handleDispatchTransfer = async () => {
