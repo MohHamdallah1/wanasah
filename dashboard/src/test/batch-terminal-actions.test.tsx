@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({ fetch: vi.fn(), success: vi.fn(), error: vi.fn
 vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => mocks.fetch }));
 vi.mock("@/hooks/useNetworkStatus", () => ({ useNetworkStatus: () => true }));
 vi.mock("@/hooks/useInventoryAccess", () => ({ useInventoryAccess: () => ({
-  data: { company_id: 1, driver_id: 7 }, isCompanyOwner: true, can: () => true,
+  data: { company_id: 1, principal_id: 101, backoffice_user_id: 202, driver_id: 7 }, isCompanyOwner: true, can: () => true,
 }) }));
 vi.mock("sonner", () => ({ toast: { success: mocks.success, error: mocks.error } }));
 

@@ -22,7 +22,7 @@ const fake = vi.hoisted(() => ({ fetch: vi.fn(), read: true, manage: true, onlin
 vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => fake.fetch }));
 vi.mock("@/hooks/useNetworkStatus", () => ({ useNetworkStatus: () => fake.online }));
 vi.mock("@/hooks/useInventoryAccess", () => ({ useInventoryAccess: () => ({
-  data: { company_id: 1, driver_id: 2 }, can: (code: string) => code === "supplier.read" ? fake.read : fake.manage,
+  data: { company_id: 1, principal_id: 101, backoffice_user_id: 202, driver_id: 2 }, can: (code: string) => code === "supplier.read" ? fake.read : fake.manage,
   isPending: false,
 }) }));
 
@@ -195,7 +195,7 @@ describe("durable Supplier and Inbound commands", () => {
     expect(JSON.stringify(localStorage)).not.toContain("fresh-credential");
   });
   it("replays a stored pre-Supplier quality command while new whole-product return resolves Supplier automatically", async () => {
-    const old = await getOrCreateDurableCommand(durableScope(1, 2, "whole-product-quality-resolve-v2", "7:RETURN_TO_VENDOR"),
+    const old = await getOrCreateDurableCommand(durableScope(1, 202, "whole-product-quality-resolve-v2", "7:RETURN_TO_VENDOR"),
       { action: "RETURN_TO_VENDOR", reason: "Issue", recipient_name: "Legacy recipient" });
     fake.fetch.mockResolvedValue({ message: "Completed", action: "RETURN_TO_VENDOR", product_variant_id: 7, total_quantity: "4", location_count: 1, post_resolution_hold: "NONE",
       locations: [{ location_id: 5, location_name: "Warehouse", quantity: "4" }] });
