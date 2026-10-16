@@ -1,6 +1,7 @@
 import type { TFunction } from "i18next";
-import { FileText, Eye } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Eye, FileText, TriangleAlert } from "lucide-react";
 
+import { compareQuantity } from "@/lib/quantity";
 import { formatLedgerDate, type LedgerEntry } from "./contracts";
 import { ledgerBadgeClass, ledgerMovementLabel, ledgerText } from "./ledgerI18n";
 import {
@@ -37,7 +38,7 @@ export function LedgerTable({
   const unit = (code: string) => t(`uom.${code}`, { defaultValue: code });
 
   return (
-    <div className="hidden min-h-0 flex-1 overflow-auto md:block">
+    <div className="hidden min-h-0 flex-1 overflow-auto md:block" data-cp13-ledger-list="chronological">
       <table className="w-full min-w-[1260px] text-sm">
         <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 text-start backdrop-blur">
           <tr>
@@ -49,26 +50,37 @@ export function LedgerTable({
         <tbody className="divide-y divide-slate-100">
           {entries.map((entry) => {
             const locations = ledgerLocationEvidence(t, language, entry);
+            const outgoing = compareQuantity(entry.quantity, "0") < 0;
+            const DirectionIcon = outgoing ? ArrowDownRight : ArrowUpRight;
             return (
-              <tr key={entry.id} className="align-top hover:bg-slate-50/70">
-                <td className="px-3 py-3">
-                  <span className={`inline-flex rounded-md border px-2 py-1 text-[10px] font-black ${ledgerBadgeClass(entry.type)}`}>
+              <tr key={entry.id} className="align-middle hover:bg-slate-50/70" data-cp13-ledger-row="compact">
+                <td className="px-3 py-2">
+                  <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-black ${ledgerBadgeClass(entry.type)}`}>
+                    <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
                     {ledgerMovementLabel(t, language, entry.type)}
                   </span>
-                  <div className="mt-1 text-[10px] font-semibold text-slate-400">#{entry.id}</div>
+                  <div className="mt-0.5 text-[10px] font-semibold tabular-nums text-slate-400">#{entry.id}</div>
                 </td>
-                <td className="px-3 py-3 font-bold text-slate-800">{entry.product_name}</td>
-                <td className="px-3 py-3 text-xs font-black text-slate-600">
+                <td className="px-3 py-2 text-xs font-bold text-slate-800">{entry.product_name}</td>
+                <td className="px-3 py-2 text-xs font-black text-slate-600">
                   {formatPublicBatchNumber(entry.batch_number, text("noLot"))}
                 </td>
-                <td className="px-3 py-3 text-xs font-semibold text-slate-500">{ledgerBalance(entry, entry.balance_before, unit)}</td>
-                <td className="px-3 py-3 text-xs font-black text-slate-800">{ledgerSignedQuantity(entry, unit)}</td>
-                <td className="px-3 py-3 text-xs font-black text-slate-700">{ledgerBalance(entry, entry.balance_after, unit)}</td>
-                <td className="px-3 py-3 text-[10px] font-semibold leading-5 text-slate-600">
+                <td className="px-3 py-2 text-xs font-semibold text-slate-500">{ledgerBalance(entry, entry.balance_before, unit)}</td>
+                <td className="px-3 py-2">
+                  <span
+                    className={`inline-flex items-center gap-1 text-xs font-black tabular-nums ${outgoing ? "text-rose-700" : "text-emerald-700"}`}
+                    data-cp13-movement-direction={outgoing ? "out" : "in"}
+                  >
+                    <DirectionIcon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                    <span dir="ltr">{ledgerSignedQuantity(entry, unit)}</span>
+                  </span>
+                </td>
+                <td className="px-3 py-2 text-xs font-black text-slate-700">{ledgerBalance(entry, entry.balance_after, unit)}</td>
+                <td className="px-3 py-2 text-[10px] font-semibold leading-5 text-slate-600">
                   <div><span className="font-black">{text("source")}:</span> {locations.source}</div>
                   <div><span className="font-black">{text("destination")}:</span> {locations.destination}</div>
                 </td>
-                <td className="px-3 py-3">
+                <td className="px-3 py-2">
                   {entry.reference ? (
                     <button
                       type="button"
@@ -81,12 +93,12 @@ export function LedgerTable({
                     </button>
                   ) : "—"}
                   {entry.supplier_name ? (
-                    <div className="mt-1 text-[10px] font-semibold text-slate-500">
+                    <div className="mt-0.5 text-[10px] font-semibold text-slate-500">
                       {text("supplier")}: {entry.supplier_name}{entry.supplier_code ? ` · ${entry.supplier_code}` : ""}
                     </div>
                   ) : null}
                 </td>
-                <td className="px-3 py-3 text-[10px] font-semibold leading-5 text-slate-600">
+                <td className="px-3 py-2 text-[10px] font-semibold leading-5 text-slate-600">
                   {entry.input_unit_cost ? (
                     <>
                       <div>{ledgerMoney(entry.input_unit_cost, entry.currency_code)} / {entry.input_uom_code ?? entry.base_uom_code}</div>
@@ -95,15 +107,16 @@ export function LedgerTable({
                     </>
                   ) : "—"}
                 </td>
-                <td className="px-3 py-3 text-xs font-bold text-slate-600">{entry.admin_name || text("unknown")}</td>
-                <td className="px-3 py-3">
+                <td className="px-3 py-2 text-xs font-bold text-slate-600">{entry.admin_name || text("unknown")}</td>
+                <td className="px-3 py-2">
                   <div className="flex flex-wrap gap-1.5">
                     {entry.notes ? (
                       <button
                         type="button"
                         onClick={(event) => onOpenNotes(entry, event.currentTarget)}
                         aria-label={text("openNotes", { id: entry.id })}
-                        className="rounded-lg border border-slate-200 bg-white p-1.5 text-slate-500 outline-none hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-blue-300"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 outline-none hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-blue-300"
+                        data-cp13-action-priority="secondary"
                       >
                         <Eye aria-hidden="true" className="h-3.5 w-3.5" />
                       </button>
@@ -112,14 +125,18 @@ export function LedgerTable({
                       <button
                         type="button"
                         onClick={() => onOpenAdjustment(entry)}
-                        className="rounded-lg border border-purple-100 bg-purple-50 px-2 py-1 text-[10px] font-black text-purple-700 outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+                        title={text("adjustmentMeaning")}
+                        className="inline-flex items-center gap-1 rounded-lg border border-purple-200 bg-purple-50 px-2 py-1.5 text-[10px] font-black text-purple-800 outline-none hover:bg-purple-100 focus-visible:ring-2 focus-visible:ring-purple-300"
+                        data-cp13-ledger-correction="exceptional"
+                        data-cp13-action-priority="exceptional"
                       >
+                        <TriangleAlert aria-hidden="true" className="h-3.5 w-3.5" />
                         {text("adjust")}
                       </button>
                     ) : null}
                   </div>
                 </td>
-                <td className="px-3 py-3 whitespace-nowrap text-[10px] font-semibold text-slate-500" dir="ltr">
+                <td className="whitespace-nowrap px-3 py-2 text-[10px] font-semibold text-slate-500" dir="ltr">
                   {formatLedgerDate(entry.date, locale)}
                 </td>
               </tr>
