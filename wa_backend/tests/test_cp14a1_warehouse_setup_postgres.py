@@ -1,8 +1,8 @@
 """CP14-A1 real PostgreSQL warehouse/branch setup journey.
 
-This gate is intentionally bounded to Warehouse setup.  It requires an already
+This gate is intentionally bounded to Warehouse setup. It requires an already
 Alembic-migrated disposable PostgreSQL 16 database and a distinct restricted
-runtime role.  No production/runtime code is patched by this acceptance.
+runtime role. No production/runtime code is patched by this acceptance.
 """
 from __future__ import annotations
 
@@ -132,13 +132,23 @@ async def _require_branch(access, dependency):
     return await dependency(access=access)
 
 
+async def _company_idempotency_count(engine, company_id: int) -> int:
+    async with _runtime_session(engine, company_id) as db:
+        return int(
+            await db.scalar(
+                select(func.count())
+                .select_from(OperationIdempotency)
+                .where(OperationIdempotency.company_id == company_id)
+            )
+        )
+
+
 async def test_cp14a1_authorized_non_owner_warehouse_setup_journey():
     runtime_url, admin_url = _checked_urls()
     runtime_engine = create_async_engine(runtime_url, poolclass=NullPool)
     admin_engine = create_async_engine(admin_url, poolclass=NullPool)
 
     try:
-        # Restricted runtime identity and clean-Alembic proof are part of the gate.
         async with runtime_engine.connect() as connection:
             identity = (
                 await connection.execute(
@@ -176,8 +186,6 @@ async def test_cp14a1_authorized_non_owner_warehouse_setup_journey():
             )
             assert actual_heads == expected_heads
 
-        # Seed only identities/grants and the foreign tenant. Company-A Branch/Warehouses
-        # themselves must be created through the canonical mutation APIs below.
         async with AsyncSession(admin_engine, expire_on_commit=False) as seed:
             company_a = Company(
                 name="CP14-A1 Company A",
@@ -240,8 +248,6 @@ async def test_cp14a1_authorized_non_owner_warehouse_setup_journey():
             )
             await seed.commit()
 
-        # The Owner exists canonically, but all successful A mutations below use the
-        # authorized ordinary Backoffice subject. Operational Driver is attribution only.
         assert owner_a.context.is_company_owner is True
         assert operator.context.is_company_owner is False
         assert denied.context.is_company_owner is False
@@ -258,13 +264,17 @@ async def test_cp14a1_authorized_non_owner_warehouse_setup_journey():
         assert not hasattr(actor, "is_admin")
         for code in CAPABILITIES:
             assert code in PERMISSIONS
-        for code in ("branch.read", "branch.create", "branch.update", "branch.state", "location.create"):
+        for code in (
+            "branch.read",
+            "branch.create",
+            "branch.update",
+            "branch.state",
+            "location.create",
+        ):
             assert code in COMPANY_ONLY
 
-        # 1) Authorized non-owner creates Branch A, with committed replay semantics.
-        branch_create_request = uuid4()
         branch_create = BranchCreateRequest(
-            request_id=branch_create_request,
+            request_id=uuid4(),
             name="Shared Operations",
             code="CP14A1-BR",
         )
@@ -282,7 +292,9 @@ async def test_cp14a1_authorized_non_owner_warehouse_setup_journey():
             assert await branches.create_branch(branch_create, db, access, actor) == created_branch
             assert int(
                 await db.scalar(
-                    select(func.count()).select_from(Branch).where(Branch.branch_code == "CP14A1-BR")
+                    select(func.count())
+                    .select_from(Branch)
+                    .where(Branch.branch_code == "CP14A1-BR")
                 )
             ) == 1
 
@@ -291,13 +303,13 @@ async def test_cp14a1_authorized_non_owner_warehouse_setup_journey():
             with pytest.raises(HTTPException) as conflict:
                 await branches.create_branch(changed, db, access, actor)
             assert conflict.value.status_code == 409
+
+        async with _runtime_session(runtime_engine, ids.company_a) as db:
             row = await db.get(Branch, branch_a)
             assert row is not None and row.name == "Shared Operations"
 
-        # 2-3) Non-owner creates Warehouse A1 assigned to active Branch A and A2 unassigned.
-        warehouse_create_request = uuid4()
         warehouse_a1_payload = WarehouseLocationCreateRequest(
-            request_id=warehouse_create_request,
+            request_id=uuid4(),
             name="Shared Central Warehouse",
             code="CP14A1-WH1",
             branch_id=branch_a,
@@ -332,6 +344,8 @@ async def test_cp14a1_authorized_non_owner_warehouse_setup_journey():
                 await locations.create_warehouse_location(changed, db, access, actor)
             assert conflict.value.status_code == 409
 
+        async with _runtime_session(runtime_engine, ids.company_a) as db:
+            access = operator.access(db)
             created_a2 = await locations.create_warehouse_location(
                 WarehouseLocationCreateRequest(
                     request_id=uuid4(),
@@ -346,7 +360,6 @@ async def test_cp14a1_authorized_non_owner_warehouse_setup_journey():
             warehouse_a2 = int(created_a2["location"]["id"])
             assert created_a2["location"]["branch_id"] is None
 
-        # 4) Branch edit through exact branch.update capability.
         async with _runtime_session(runtime_engine, ids.company_a) as db:
             access = operator.access(db)
             await _require_branch(access, branches._branch_update)
@@ -364,10 +377,8 @@ async def test_cp14a1_authorized_non_owner_warehouse_setup_journey():
             assert branch_update["branch"]["name"] == "Shared Operations Edited"
             assert branch_update["branch"]["code"] == "CP14A1-BR-EDIT"
 
-        # 5) Warehouse edit + update replay, with one committed version increment only.
-        warehouse_update_request = uuid4()
         warehouse_update = WarehouseLocationUpdateRequest(
-            request_id=warehouse_update_request,
+            request_id=uuid4(),
             expected_version=1,
             name="Shared Central Warehouse Edited",
         )
@@ -392,12 +403,13 @@ async def test_cp14a1_authorized_non_owner_warehouse_setup_journey():
                     warehouse_a1, changed, db, access, actor
                 )
             assert conflict.value.status_code == 409
+
+        async with _runtime_session(runtime_engine, ids.company_a) as db:
             row = await db.get(InventoryLocation, warehouse_a1)
             assert row is not None
             assert row.name == "Shared Central Warehouse Edited"
             assert row.version == 2
 
-        # 6) Denied ordinary Backoffice subject cannot create/edit Branch or Warehouse.
         async with _runtime_session(runtime_engine, ids.company_a) as db:
             denied_access = denied.access(db)
             branch_count = int(await db.scalar(select(func.count()).select_from(Branch)))
@@ -449,7 +461,6 @@ async def test_cp14a1_authorized_non_owner_warehouse_setup_journey():
                 )
             ) == warehouse_count
 
-        # 7) Company-B overlap is invisible in reads/counts and opaque in mutations.
         async with _runtime_session(runtime_engine, ids.company_a) as db:
             access = operator.access(db)
             await _require_branch(access, branches._branch_read)
@@ -478,7 +489,6 @@ async def test_cp14a1_authorized_non_owner_warehouse_setup_journey():
                 warehouse_a2,
             }
 
-            # Deliberately omit tenant predicates: FORCE RLS must still hide B.
             assert await db.get(Branch, ids.branch_b) is None
             assert await db.get(InventoryLocation, ids.warehouse_b1) is None
             assert int(await db.scalar(select(func.count()).select_from(Branch))) == 1
@@ -490,14 +500,10 @@ async def test_cp14a1_authorized_non_owner_warehouse_setup_journey():
                 )
             ) == 2
 
+        idempotency_before = await _company_idempotency_count(runtime_engine, ids.company_a)
+        async with _runtime_session(runtime_engine, ids.company_a) as db:
+            access = operator.access(db)
             await _require_branch(access, branches._branch_update)
-            idempotency_before = int(
-                await db.scalar(
-                    select(func.count())
-                    .select_from(OperationIdempotency)
-                    .where(OperationIdempotency.company_id == ids.company_a)
-                )
-            )
             with pytest.raises(HTTPException) as foreign_branch:
                 await branches.update_branch(
                     ids.branch_b,
@@ -511,14 +517,13 @@ async def test_cp14a1_authorized_non_owner_warehouse_setup_journey():
                 )
             assert foreign_branch.value.status_code == 404
             _assert_opaque(foreign_branch.value, ids.branch_b, "Shared Operations")
-            assert int(
-                await db.scalar(
-                    select(func.count())
-                    .select_from(OperationIdempotency)
-                    .where(OperationIdempotency.company_id == ids.company_a)
-                )
-            ) == idempotency_before
+        assert (
+            await _company_idempotency_count(runtime_engine, ids.company_a)
+            == idempotency_before
+        )
 
+        async with _runtime_session(runtime_engine, ids.company_a) as db:
+            access = operator.access(db)
             with pytest.raises(HTTPException) as foreign_warehouse:
                 await locations.update_warehouse_location(
                     ids.warehouse_b1,
@@ -537,23 +542,31 @@ async def test_cp14a1_authorized_non_owner_warehouse_setup_journey():
                 ids.warehouse_b1,
                 "Shared Central Warehouse",
             )
+        assert (
+            await _company_idempotency_count(runtime_engine, ids.company_a)
+            == idempotency_before
+        )
 
-        # Frozen Branch relation semantics: inactive blocks new association, while the
-        # existing A1 relation survives ordinary edits and warehouse reactivation.
         async with _runtime_session(runtime_engine, ids.company_a) as db:
             access = operator.access(db)
             await _require_branch(access, branches._branch_state)
             state = await branches.deactivate_branch(
                 branch_a,
-                BranchStateRequest(request_id=uuid4(), reason="CP14-A1 lifecycle proof"),
+                BranchStateRequest(
+                    request_id=uuid4(),
+                    reason="CP14-A1 lifecycle proof",
+                ),
                 db,
                 access,
                 actor,
             )
             assert state["branch"]["is_active"] is False
 
+        async with _runtime_session(runtime_engine, ids.company_a) as db:
+            access = operator.access(db)
             a2_before = await db.get(InventoryLocation, warehouse_a2)
-            assert a2_before is not None and a2_before.branch_id is None and a2_before.version == 1
+            assert a2_before is not None
+            assert a2_before.branch_id is None and a2_before.version == 1
             with pytest.raises(HTTPException) as inactive_assignment:
                 await locations.update_warehouse_location(
                     warehouse_a2,
@@ -568,9 +581,14 @@ async def test_cp14a1_authorized_non_owner_warehouse_setup_journey():
                 )
             assert inactive_assignment.value.status_code == 409
             assert inactive_assignment.value.detail["code"] == "WAREHOUSE_BRANCH_INACTIVE"
-            a2_after = await db.get(InventoryLocation, warehouse_a2)
-            assert a2_after is not None and a2_after.branch_id is None and a2_after.version == 1
 
+        async with _runtime_session(runtime_engine, ids.company_a) as db:
+            a2_after = await db.get(InventoryLocation, warehouse_a2)
+            assert a2_after is not None
+            assert a2_after.branch_id is None and a2_after.version == 1
+
+        async with _runtime_session(runtime_engine, ids.company_a) as db:
+            access = operator.access(db)
             with pytest.raises(HTTPException) as foreign_assignment:
                 await locations.update_warehouse_location(
                     warehouse_a2,
@@ -586,10 +604,15 @@ async def test_cp14a1_authorized_non_owner_warehouse_setup_journey():
             assert foreign_assignment.value.status_code == 404
             assert foreign_assignment.value.detail["code"] == "WAREHOUSE_BRANCH_NOT_FOUND"
             _assert_opaque(foreign_assignment.value, ids.branch_b)
+
+        async with _runtime_session(runtime_engine, ids.company_a) as db:
             a2_after_foreign = await db.get(InventoryLocation, warehouse_a2)
             assert a2_after_foreign is not None
-            assert a2_after_foreign.branch_id is None and a2_after_foreign.version == 1
+            assert a2_after_foreign.branch_id is None
+            assert a2_after_foreign.version == 1
 
+        async with _runtime_session(runtime_engine, ids.company_a) as db:
+            access = operator.access(db)
             preserved = await locations.update_warehouse_location(
                 warehouse_a1,
                 WarehouseLocationUpdateRequest(
@@ -604,6 +627,8 @@ async def test_cp14a1_authorized_non_owner_warehouse_setup_journey():
             assert preserved["location"]["branch_id"] == branch_a
             assert preserved["location"]["version"] == 3
 
+        async with _runtime_session(runtime_engine, ids.company_a) as db:
+            access = operator.access(db)
             deactivated = await locations.deactivate_warehouse_location(
                 warehouse_a1,
                 WarehouseLocationStateRequest(
@@ -617,6 +642,9 @@ async def test_cp14a1_authorized_non_owner_warehouse_setup_journey():
             )
             assert deactivated["location"]["is_active"] is False
             assert deactivated["location"]["version"] == 4
+
+        async with _runtime_session(runtime_engine, ids.company_a) as db:
+            access = operator.access(db)
             activated = await locations.activate_warehouse_location(
                 warehouse_a1,
                 WarehouseLocationStateRequest(
@@ -631,12 +659,17 @@ async def test_cp14a1_authorized_non_owner_warehouse_setup_journey():
             assert activated["location"]["is_active"] is True
             assert activated["location"]["branch_id"] == branch_a
             assert activated["location"]["version"] == 5
+
+        async with _runtime_session(runtime_engine, ids.company_a) as db:
             branch_after_activation = await db.get(Branch, branch_a)
             assert branch_after_activation is not None
             assert branch_after_activation.is_active is False
 
-        # Final foreign-tenant truth: overlapping B rows were never mutated.
         async with AsyncSession(admin_engine, expire_on_commit=False) as verify:
+            await verify.execute(
+                text("SELECT set_config('app.current_tenant', :tenant, true)"),
+                {"tenant": str(ids.company_b)},
+            )
             foreign_branch = await verify.get(Branch, ids.branch_b)
             foreign_warehouse = await verify.get(InventoryLocation, ids.warehouse_b1)
             assert foreign_branch is not None
