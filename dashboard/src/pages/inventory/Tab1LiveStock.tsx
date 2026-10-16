@@ -33,6 +33,7 @@ interface Props {
   familyId: number | null;
   onLocationChange: (value: string) => void;
   onRefresh: () => void;
+  onRetryPage: () => void;
   onSearchChange: (search: string) => void;
   onStockStateChange: (value: LiveStockStockState) => void;
   onIndicatorsChange: (value: LiveStockIndicator[]) => void;
@@ -58,6 +59,7 @@ export function Tab1LiveStock({
   familyId,
   onLocationChange,
   onRefresh,
+  onRetryPage,
   onSearchChange,
   onStockStateChange,
   onIndicatorsChange,
@@ -140,7 +142,7 @@ export function Tab1LiveStock({
             </div>
             <button
               type="button"
-              onClick={onRefresh}
+              onClick={onRetryPage}
               disabled={loading}
               className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-black text-amber-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-60"
             >
@@ -179,7 +181,7 @@ export function Tab1LiveStock({
                   <p className="mt-2 break-words text-xs text-red-700">{pageError}</p>
                   <button
                     type="button"
-                    onClick={onRefresh}
+                    onClick={onRetryPage}
                     disabled={loading}
                     className="mt-3 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
                   >
