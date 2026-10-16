@@ -30,6 +30,8 @@ jobs:
   dashboard-acceptance:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      CP5_BASE_SHA: ${{ github.event.pull_request.base.sha || '69ceb7305351ae091411582ebc2911ed49be8c50' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -58,13 +60,14 @@ jobs:
         working-directory: dashboard
         run: npm run build
       - name: Diff whitespace gate
-        run: git diff --check 1629772a9215a4874d4d3c825d05f3cc564c38e4 HEAD
+        run: git diff --check "$CP5_BASE_SHA" HEAD
       - name: Verify exact CP5 file scope
         run: |
           python - <<'PY'
+          import os
           import subprocess
 
-          base = "1629772a9215a4874d4d3c825d05f3cc564c38e4"
+          base = os.environ["CP5_BASE_SHA"]
           allowed = {
               ".github/workflows/inventory-cp5-product-location-dashboard-acceptance.yml",
               "dashboard/src/features/inventory/productLocations/ProductLocationManager.tsx",
