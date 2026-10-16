@@ -77,6 +77,7 @@ export function Tab3Stocktake({
 
   const warehouseAccess = useInventoryAccess(locationId);
   const sessionAccess = useInventoryAccess(stocktakeState.sessionLocationId ?? locationId);
+  const canReadStocktake = warehouseAccess.can("stocktake.read");
   const durableIdentity = warehouseAccess.data
     ? {
         companyId: warehouseAccess.data.company_id,
@@ -101,6 +102,7 @@ export function Tab3Stocktake({
     refreshSessions,
     loadMore: loadMoreSessions,
   } = useStocktakeSessions({
+    enabled: canReadStocktake,
     locationId,
     authenticatedFetch,
   });
