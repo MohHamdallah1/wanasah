@@ -10,6 +10,7 @@ on:
       - 'dashboard/src/i18n/resources.ts'
       - 'dashboard/src/test/inventory-cp12-*'
       - 'dashboard/src/test/inventory-cp4-branch-dashboard.test.tsx'
+      - 'dashboard/src/test/live-stock-local-failure.test.tsx'
       - '.github/workflows/inventory-cp12-ui-quality.yml'
   pull_request:
     branches:
@@ -20,6 +21,7 @@ on:
       - 'dashboard/src/i18n/resources.ts'
       - 'dashboard/src/test/inventory-cp12-*'
       - 'dashboard/src/test/inventory-cp4-branch-dashboard.test.tsx'
+      - 'dashboard/src/test/live-stock-local-failure.test.tsx'
       - '.github/workflows/inventory-cp12-ui-quality.yml'
   workflow_dispatch:
 
@@ -126,7 +128,9 @@ jobs:
           src/pages/inventory/TabWarehouseLocations.tsx
           src/pages/inventory/stocktake/copy.ts
           src/pages/inventory/stocktake/hooks/useCycleCountStart.ts
+          src/pages/inventory/stocktake/StocktakeCp9Acceptance.test.tsx
           src/pages/inventory/warehouse-locations/BranchManagementModal.tsx
+          src/pages/inventory/warehouse-locations/BranchSelector.tsx
           src/pages/inventory/warehouse-locations/i18n.ts
           src/pages/inventory/stock-policy/ShelfLifePolicyExplainability.tsx
           src/pages/inventory/stock-policy/i18n.ts
@@ -134,6 +138,7 @@ jobs:
           src/test/inventory-cp12-accessibility.test.tsx
           src/test/inventory-cp12-responsive-contract.test.ts
           src/test/inventory-cp4-branch-dashboard.test.tsx
+          src/test/live-stock-local-failure.test.tsx
 
       - name: Production build
         run: npm run build
@@ -194,7 +199,8 @@ jobs:
               dashboard/src/features/inventory/productLocations/*|\
               dashboard/src/features/inventory/productLocations/**/*|\
               dashboard/src/test/inventory-cp12-*|\
-              dashboard/src/test/inventory-cp4-branch-dashboard.test.tsx) ;;
+              dashboard/src/test/inventory-cp4-branch-dashboard.test.tsx|\
+              dashboard/src/test/live-stock-local-failure.test.tsx) ;;
               *)
                 echo "Out-of-scope CP12 UI path: $path" >&2
                 exit 1
