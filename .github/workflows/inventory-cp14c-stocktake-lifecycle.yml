@@ -164,23 +164,25 @@ jobs:
     timeout-minutes: 10
     env:
       CP14C_FROZEN_BASE: f8218188edb9a6b9f3a9a08be373675ae6470b99
+      CP14C_INTEGRATED_WAVE: 7468f9f3c5b2419c223882724ae926afaebd7fa5
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Verify exact frozen base and CP14-C ownership
+      - name: Verify frozen ancestry, final Wave merge, and CP14-C ownership
         shell: bash
         run: |
           target="${{ github.event.pull_request.base.ref }}"
           if [ -z "$target" ]; then target="integration/inventory-wave-2"; fi
           test "$target" = "integration/inventory-wave-2"
-          git merge-base --is-ancestor "$CP14C_FROZEN_BASE" HEAD
+          git merge-base --is-ancestor "$CP14C_FROZEN_BASE" "$CP14C_INTEGRATED_WAVE"
+          git merge-base --is-ancestor "$CP14C_INTEGRATED_WAVE" HEAD
           python - <<'PY'
           import os
           import subprocess
 
-          base = os.environ["CP14C_FROZEN_BASE"]
+          base = os.environ["CP14C_INTEGRATED_WAVE"]
           changed = set(
               subprocess.check_output(
                   ["git", "diff", "--name-only", base, "HEAD"], text=True
@@ -191,14 +193,14 @@ jobs:
               "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py",
               "wa_backend/services.py",
           }
-          assert changed == expected, f"Unexpected CP14-C scope: {sorted(changed)}"
+          assert changed == expected, f"Unexpected CP14-C scope over final Wave: {sorted(changed)}"
           print("CP14C_DYNAMIC_SCOPE=PASS")
           PY
       - name: Prove runtime fix is exact and bounded
         shell: bash
         run: |
-          test "$(git diff --numstat "$CP14C_FROZEN_BASE" HEAD -- wa_backend/services.py)" = $'1\t0\twa_backend/services.py'
-          git diff "$CP14C_FROZEN_BASE" HEAD -- wa_backend/services.py | grep -F '+                created_at=settled_at,'
+          test "$(git diff --numstat "$CP14C_INTEGRATED_WAVE" HEAD -- wa_backend/services.py)" = $'1\t0\twa_backend/services.py'
+          git diff "$CP14C_INTEGRATED_WAVE" HEAD -- wa_backend/services.py | grep -F '+                created_at=settled_at,'
           echo "CP14C_RUNTIME_FIX_BOUNDED=PASS"
       - name: Prove test has no direct InventoryBalance mutation seam
         run: |
@@ -217,4 +219,4 @@ jobs:
           print("CP14C_NO_DIRECT_BALANCE_PATCH=PASS")
           PY
       - name: git diff --check
-        run: git diff --check "$CP14C_FROZEN_BASE" HEAD
+        run: git diff --check "$CP14C_INTEGRATED_WAVE" HEAD
