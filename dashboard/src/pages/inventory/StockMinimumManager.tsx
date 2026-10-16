@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Search, Settings2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -30,6 +30,11 @@ interface Props {
   onApplied: () => void;
 }
 
+interface PendingApplyCommand {
+  payloadKey: string;
+  requestId: string;
+}
+
 const codedError = (code: string): Error & { code: string } => {
   const error = new Error(code) as Error & { code: string };
   error.code = code;
@@ -58,6 +63,7 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
   const [plan, setPlan] = useState<BulkMinimumStockPlan | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [applying, setApplying] = useState(false);
+  const pendingApplyCommand = useRef<PendingApplyCommand | null>(null);
 
   const [familySearch, setFamilySearch] = useState("");
   const [families, setFamilies] = useState<LiveStockFamilyOption[]>([]);
@@ -246,6 +252,17 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
 
   const apply = useCallback(async () => {
     if (!scopeReady || !quantityReady || applying || hasConflict) return;
+    const payloadKey = JSON.stringify(payload);
+    const existingCommand = pendingApplyCommand.current;
+    const command =
+      existingCommand?.payloadKey === payloadKey
+        ? existingCommand
+        : {
+            payloadKey,
+            requestId: crypto.randomUUID(),
+          };
+    pendingApplyCommand.current = command;
+
     setApplying(true);
     try {
       const raw = await authFetch(
@@ -254,11 +271,12 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
           method: "PUT",
           body: JSON.stringify({
             ...payload,
-            request_id: crypto.randomUUID(),
+            request_id: command.requestId,
           }),
         },
       );
       const applied = parseBulkMinimumStockPlan(raw);
+      pendingApplyCommand.current = null;
 
       if (applied.affected_count === 0) {
         setPlan(applied);
@@ -378,120 +396,120 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
             )}
 
             {scope === "FAMILY" && (
-            <div className="inventory-minimum-picker">
-              <div className="inventory-minimum-picker-head">
-                <div className="inventory-minimum-search">
-                  <Search className="h-3.5 w-3.5" />
-                  <input
-                    type="search"
-                    value={familySearch}
-                    onChange={(event) => setFamilySearch(event.target.value)}
-                    placeholder={t("inventoryMinimum.searchFamily")}
-                  />
+              <div className="inventory-minimum-picker">
+                <div className="inventory-minimum-picker-head">
+                  <div className="inventory-minimum-search">
+                    <Search className="h-3.5 w-3.5" />
+                    <input
+                      type="search"
+                      value={familySearch}
+                      onChange={(event) => setFamilySearch(event.target.value)}
+                      placeholder={t("inventoryMinimum.searchFamily")}
+                    />
+                  </div>
+                  <span className="inventory-minimum-selected-count">
+                    {t("inventoryMinimum.selectedCount", {
+                      count: familyIds.length,
+                    })}
+                  </span>
+                  {familyIds.length > 0 && (
+                    <button
+                      type="button"
+                      className="inventory-minimum-clear-selection"
+                      onClick={() => setFamilyIds([])}
+                    >
+                      {t("inventoryMinimum.clearSelection")}
+                    </button>
+                  )}
                 </div>
-                <span className="inventory-minimum-selected-count">
-                  {t("inventoryMinimum.selectedCount", {
-                    count: familyIds.length,
-                  })}
-                </span>
-                {familyIds.length > 0 && (
-                  <button
-                    type="button"
-                    className="inventory-minimum-clear-selection"
-                    onClick={() => setFamilyIds([])}
-                  >
-                    {t("inventoryMinimum.clearSelection")}
-                  </button>
-                )}
+                <div className="inventory-minimum-options custom-scrollbar">
+                  {familyLoading ? (
+                    <span>{t("common.loading")}</span>
+                  ) : (
+                    families.map((family) => {
+                      const selected = familyIds.includes(family.id);
+                      return (
+                        <button
+                          key={family.id}
+                          type="button"
+                          data-active={selected}
+                          onClick={() =>
+                            setFamilyIds((current) =>
+                              toggleId(current, family.id),
+                            )
+                          }
+                        >
+                          <span>
+                            <strong>{family.name}</strong>
+                            <small>{family.code}</small>
+                          </span>
+                          {selected && <Check className="h-3.5 w-3.5" />}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
               </div>
-              <div className="inventory-minimum-options custom-scrollbar">
-                {familyLoading ? (
-                  <span>{t("common.loading")}</span>
-                ) : (
-                  families.map((family) => {
-                    const selected = familyIds.includes(family.id);
-                    return (
-                      <button
-                        key={family.id}
-                        type="button"
-                        data-active={selected}
-                        onClick={() =>
-                          setFamilyIds((current) =>
-                            toggleId(current, family.id),
-                          )
-                        }
-                      >
-                        <span>
-                          <strong>{family.name}</strong>
-                          <small>{family.code}</small>
-                        </span>
-                        {selected && <Check className="h-3.5 w-3.5" />}
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          )}
+            )}
 
-          {scope === "PRODUCT" && (
-            <div className="inventory-minimum-picker">
-              <div className="inventory-minimum-picker-head">
-                <div className="inventory-minimum-search">
-                  <Search className="h-3.5 w-3.5" />
-                  <input
-                    type="search"
-                    value={productSearch}
-                    onChange={(event) => setProductSearch(event.target.value)}
-                    placeholder={t("inventoryMinimum.searchProduct")}
-                  />
+            {scope === "PRODUCT" && (
+              <div className="inventory-minimum-picker">
+                <div className="inventory-minimum-picker-head">
+                  <div className="inventory-minimum-search">
+                    <Search className="h-3.5 w-3.5" />
+                    <input
+                      type="search"
+                      value={productSearch}
+                      onChange={(event) => setProductSearch(event.target.value)}
+                      placeholder={t("inventoryMinimum.searchProduct")}
+                    />
+                  </div>
+                  <span className="inventory-minimum-selected-count">
+                    {t("inventoryMinimum.selectedCount", {
+                      count: productIds.length,
+                    })}
+                  </span>
+                  {productIds.length > 0 && (
+                    <button
+                      type="button"
+                      className="inventory-minimum-clear-selection"
+                      onClick={() => setProductIds([])}
+                    >
+                      {t("inventoryMinimum.clearSelection")}
+                    </button>
+                  )}
                 </div>
-                <span className="inventory-minimum-selected-count">
-                  {t("inventoryMinimum.selectedCount", {
-                    count: productIds.length,
-                  })}
-                </span>
-                {productIds.length > 0 && (
-                  <button
-                    type="button"
-                    className="inventory-minimum-clear-selection"
-                    onClick={() => setProductIds([])}
-                  >
-                    {t("inventoryMinimum.clearSelection")}
-                  </button>
-                )}
+                <div className="inventory-minimum-options custom-scrollbar">
+                  {productLoading ? (
+                    <span>{t("common.loading")}</span>
+                  ) : (
+                    products.map((product) => {
+                      const selected = productIds.includes(product.id);
+                      return (
+                        <button
+                          key={product.id}
+                          type="button"
+                          data-active={selected}
+                          onClick={() =>
+                            setProductIds((current) =>
+                              toggleId(current, product.id),
+                            )
+                          }
+                        >
+                          <span>
+                            <strong>{product.name}</strong>
+                            <small>
+                              {product.sku} · {product.family_name}
+                            </small>
+                          </span>
+                          {selected && <Check className="h-3.5 w-3.5" />}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
               </div>
-              <div className="inventory-minimum-options custom-scrollbar">
-                {productLoading ? (
-                  <span>{t("common.loading")}</span>
-                ) : (
-                  products.map((product) => {
-                    const selected = productIds.includes(product.id);
-                    return (
-                      <button
-                        key={product.id}
-                        type="button"
-                        data-active={selected}
-                        onClick={() =>
-                          setProductIds((current) =>
-                            toggleId(current, product.id),
-                          )
-                        }
-                      >
-                        <span>
-                          <strong>{product.name}</strong>
-                          <small>
-                            {product.sku} · {product.family_name}
-                          </small>
-                        </span>
-                        {selected && <Check className="h-3.5 w-3.5" />}
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          )}
+            )}
           </div>
 
           <div className="inventory-minimum-value-row">
