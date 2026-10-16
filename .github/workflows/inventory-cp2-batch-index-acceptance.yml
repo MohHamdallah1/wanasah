@@ -20,21 +20,22 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: wanasah
-          POSTGRES_PASSWORD: wanasah
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
           POSTGRES_DB: wanasah_cp2
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U wanasah -d wanasah_cp2"
+          --health-cmd "pg_isready -U postgres -d wanasah_cp2"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
     env:
       ENVIRONMENT: test
       SECRET_KEY: CP2-Batch-Index-Acceptance-Only-Secret-Key-2026-Aa7-Qm9
-      DATABASE_URL: postgresql+asyncpg://wanasah:wanasah@127.0.0.1:5432/wanasah_cp2
-      DATABASE_URL_MIGRATION: postgresql+psycopg://wanasah:wanasah@127.0.0.1:5432/wanasah_cp2
+      DATABASE_URL: postgresql+asyncpg://wanasah_runtime:runtime@127.0.0.1:5432/wanasah_cp2
+      DATABASE_URL_MIGRATION: postgresql+psycopg://wanasah_migration:migration@127.0.0.1:5432/wanasah_cp2
+      CI_ADMIN_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/wanasah_cp2
       CP2_POSTGRES_ACCEPTANCE: "1"
       COST_ZERO: "0.0000"
       CP2_BASE_SHA: 1629772a9215a4874d4d3c825d05f3cc564c38e4
@@ -47,27 +48,55 @@ jobs:
           python-version: "3.12"
       - name: Install backend dependencies
         run: python -m pip install -r wa_backend/requirements.txt pytest pytest-asyncio httpx
-      - name: Wait for PostgreSQL 16
+      - name: Wait for PostgreSQL 16 and provision separate roles
         run: |
           python - <<'PY'
           import os
           import time
           import psycopg
-          dsn = os.environ["DATABASE_URL_MIGRATION"].replace("postgresql+psycopg://", "postgresql://", 1)
+          from psycopg import sql
+
+          admin_dsn = os.environ["CI_ADMIN_DATABASE_URL"]
           for attempt in range(30):
               try:
-                  with psycopg.connect(dsn) as conn:
+                  with psycopg.connect(admin_dsn, autocommit=True) as conn:
                       conn.execute("SELECT 1")
-                  print("POSTGRESQL_16=READY")
                   break
               except Exception:
                   if attempt == 29:
                       raise
                   time.sleep(1)
+
+          with psycopg.connect(admin_dsn, autocommit=True) as conn:
+              for role, password in (
+                  ("wanasah_migration", "migration"),
+                  ("wanasah_runtime", "runtime"),
+              ):
+                  if conn.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", [role]).fetchone() is None:
+                      conn.execute(
+                          sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(
+                              sql.Identifier(role), sql.Literal(password)
+                          )
+                      )
+              conn.execute("ALTER DATABASE wanasah_cp2 OWNER TO wanasah_migration")
+              conn.execute("GRANT CONNECT ON DATABASE wanasah_cp2 TO wanasah_runtime")
+          print("POSTGRESQL_16=READY separate_roles=True")
           PY
       - name: Upgrade real PostgreSQL schema
         working-directory: wa_backend
         run: alembic upgrade head
+      - name: Grant restricted runtime DML for acceptance fixture
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          dsn = os.environ["DATABASE_URL_MIGRATION"].replace("postgresql+psycopg://", "postgresql://", 1)
+          with psycopg.connect(dsn) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_runtime")
+              conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_runtime")
+              conn.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_runtime")
+          print("CP2_RUNTIME_DML=READY ddl_privilege=False")
+          PY
       - name: CP2 focused tests
         working-directory: wa_backend
         run: |
@@ -133,10 +162,7 @@ jobs:
                   f"missing={sorted(expected - changed)}\n"
                   f"extra={sorted(changed - expected)}"
               )
-          forbidden_prefixes = (
-              "wa_backend/alembic/versions/",
-              "dashboard/",
-          )
+          forbidden_prefixes = ("wa_backend/alembic/versions/", "dashboard/")
           if any(path.startswith(forbidden_prefixes) for path in changed):
               raise SystemExit("CP2_SCOPE=FAIL forbidden runtime expansion")
           print("CP2_SCOPE=PASS exact_files=9 runtime_files=5 test_files=3 workflow_files=1")
