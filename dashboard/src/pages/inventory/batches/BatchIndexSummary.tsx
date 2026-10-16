@@ -33,7 +33,7 @@ export function BatchIndexSummary({
 
   if (error && !summary) {
     return (
-      <div className="flex min-h-16 items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+      <div role="alert" className="flex min-h-10 items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
         <span>{text("summaryError")}</span>
         <button
           type="button"
@@ -60,26 +60,22 @@ export function BatchIndexSummary({
     : [];
 
   return (
-    <section aria-live="polite" className="relative">
+    <section aria-label={text("summaryLabel")} aria-live="polite" aria-busy={loading} className="border-b border-slate-200 px-2.5 py-2">
       {loading && (
-        <span className="absolute end-1 top-1 z-10 inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-1 text-[9px] font-semibold text-slate-500 shadow-sm">
+        <span className="inline-flex items-center gap-1 py-1 text-[10px] font-semibold text-slate-500">
           <RefreshCcw className="h-3 w-3 animate-spin" />
           {text("summaryLoading")}
         </span>
       )}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
+      <dl className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
         {cards.map(([key, value, Icon]) => (
-          <div key={key} className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
-            <div className="flex items-center justify-between gap-2">
-              <span className="truncate text-[10px] font-bold text-slate-500">{text(key)}</span>
-              <Icon aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-            </div>
-            <strong className="mt-1 block text-lg font-black tabular-nums text-slate-900">
-              {number(value)}
-            </strong>
+          <div key={key} className="inline-flex min-w-0 items-center gap-1.5 text-[11px]">
+            <Icon aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+            <dt className="font-medium text-slate-600">{text(key)}</dt>
+            <dd className="font-black tabular-nums text-slate-950">{number(value)}</dd>
           </div>
         ))}
-      </div>
+      </dl>
     </section>
   );
 }
