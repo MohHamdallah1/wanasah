@@ -54,17 +54,25 @@ describe("CP13.2 Inventory shell polish", () => {
     expect(active).toHaveAttribute("tabindex", "0");
   });
 
-  it("uses the full-width dock inset and the shared dark-bar tab visual language", () => {
-    const css = read("src/pages/inventory/inventoryShellPolish.css");
+  it("inherits outer bar geometry only from the shared WorkspaceTopBar", () => {
+    const dock = read("src/pages/inventory/InventoryTopDock.tsx");
+    const shared = read("src/components/dashboard/WorkspaceTopBar.css");
+    const inventoryCss = read("src/pages/inventory/inventory.css");
+    const polish = read("src/pages/inventory/inventoryShellPolish.css");
 
-    expect(css).toContain("--inventory-shell-inline-pad:");
-    expect(css).toContain("margin-inline: calc(0rem - var(--inventory-shell-inline-pad));");
-    expect(css).toContain("margin-inline: calc(-1rem - var(--inventory-shell-inline-pad));");
-    expect(css).toContain("background: rgb(255 255 255 / 0.06);");
-    expect(css).toContain("border-color: rgb(255 255 255 / 0.1);");
-    expect(css).toContain("background: #fbbf24;");
-    expect(css).toContain("border-color: #fbbf24;");
-    expect(css).not.toContain("linear-gradient(180deg, #fff7c7 0%, #f7d75f 100%)");
+    expect(dock).toContain("<WorkspaceTopBar");
+    expect(dock).toContain('variant="dock"');
+    expect(dock).not.toContain("inventory-top-dock-component");
+    expect(inventoryCss).not.toContain(".inventory-top-dock-component");
+    expect(polish).not.toContain(".inventory-top-dock-component");
+    expect(shared).toContain("min-height: 3.25rem;");
+    expect(shared).toContain("margin-block-start: -1.5rem;");
+    expect(shared).toContain("margin-inline-start: -1rem;");
+    expect(shared).toContain("margin-inline-end: -1rem;");
+
+    expect(polish).toContain("overflow-x: auto;");
+    expect(polish).toContain("background: rgb(255 255 255 / 0.06);");
+    expect(polish).toContain("background: #fbbf24;");
   });
 
   it("keeps deep-link consumption and persisted tab/Warehouse state contracts unchanged", () => {
