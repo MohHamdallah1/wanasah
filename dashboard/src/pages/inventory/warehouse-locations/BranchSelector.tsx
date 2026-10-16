@@ -106,7 +106,7 @@ export function BranchSelector({
 
   if (!canReadBranches) {
     return (
-      <div className="space-y-2">
+      <div className="space-y-2" dir={i18n.dir()}>
         <span className="text-xs font-bold text-slate-600">{copy.branch}</span>
         <div className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
           {currentLabel ?? (currentBranchId === null ? copy.none : `${copy.currentNumber} #${currentBranchId}`)}
@@ -116,7 +116,7 @@ export function BranchSelector({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" dir={i18n.dir()}>
       <label className="text-xs font-bold text-slate-600" htmlFor="warehouse-branch-search">{copy.branch}</label>
       <div className="relative">
         <Search className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
