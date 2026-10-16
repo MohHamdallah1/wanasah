@@ -146,15 +146,23 @@ describe("CP9 Stocktake Dashboard V1 closure", () => {
     const count = source("stocktake/StocktakeCountingPanel.tsx");
     const review = source("stocktake/StocktakeReviewPanel.tsx");
     const decisions = source("stocktake/StocktakeDecisionModals.tsx");
+    const uiCopy = source("stocktake/uiCopy.ts");
 
     expect(count).toContain("data-stocktake-count-input");
     expect(count).toContain('event.key !== "Enter"');
     expect(count).toContain("md:hidden");
     expect(count).toContain("hidden md:block");
     expect(count).toContain("autoFocus");
-    expect(review).toContain('tx("المتوقع", "Expected")');
-    expect(review).toContain('tx("الفعلي", "Counted")');
-    expect(review).toContain('tx("الفرق", "Variance")');
+    expect(review).toContain("useStocktakeUiCopy");
+    expect(review).toContain("text.expected");
+    expect(review).toContain("text.counted");
+    expect(review).toContain("text.variance");
+    expect(uiCopy).toContain('expected: "المتوقع"');
+    expect(uiCopy).toContain('expected: "Expected"');
+    expect(uiCopy).toContain('counted: "الفعلي"');
+    expect(uiCopy).toContain('counted: "Counted"');
+    expect(uiCopy).toContain('variance: "الفرق"');
+    expect(uiCopy).toContain('variance: "Variance"');
     expect(review).toContain("md:hidden");
     expect(decisions).toContain("autoFocus");
     expect(decisions).toContain('event.key !== "Enter"');
@@ -172,7 +180,7 @@ describe("CP9 Stocktake Dashboard V1 closure", () => {
     ]) {
       const text = source(path);
       expect(text).toContain("dir");
-      expect(text).toMatch(/isArabic|useStocktakeCopy/);
+      expect(text).toMatch(/isArabic|useStocktakeCopy|useStocktakeUiCopy/);
     }
   });
 });
