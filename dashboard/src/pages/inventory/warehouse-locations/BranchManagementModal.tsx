@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Pencil, Plus, Power, PowerOff, RefreshCcw, S
 import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
+import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { resolveI18nLocale } from "@/lib/locale";
 import { parseBranchMutation, parseBranchPage, type BranchItem } from "./branchContracts";
 
@@ -20,6 +21,11 @@ const BRANCH_CODE_RE = /^[A-Z0-9][A-Z0-9_-]*$/;
 
 export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: BranchManagementModalProps) {
   const authenticatedFetch = useAuthFetch();
+  const access = useInventoryAccess();
+  const canRead = access.can("branch.read");
+  const canCreate = access.can("branch.create");
+  const canUpdate = access.can("branch.update");
+  const canState = access.can("branch.state");
   const { i18n } = useTranslation();
   const locale = resolveI18nLocale(i18n);
   const requestSeq = useRef(0);
@@ -53,7 +59,7 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
   }, [searchInput]);
 
   const fetchPage = useCallback(async () => {
-    if (!isOpen || view !== "list") return;
+    if (!isOpen || view !== "list" || !canRead) return;
     const seq = ++requestSeq.current;
     setLoading(true);
     try {
@@ -75,7 +81,7 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
     } finally {
       if (seq === requestSeq.current) setLoading(false);
     }
-  }, [authenticatedFetch, cursor, isOpen, search, view]);
+  }, [authenticatedFetch, canRead, cursor, isOpen, search, view]);
 
   useEffect(() => { void fetchPage(); }, [fetchPage, refreshKey]);
 
@@ -87,6 +93,16 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
     setNextCursor(null);
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen || canRead) return;
+    requestSeq.current += 1;
+    setItems([]);
+    setNextCursor(null);
+    setTotal(null);
+    setLoading(false);
+    setView("list");
+  }, [canRead, isOpen]);
+
   const resetList = () => {
     setView("list");
     setCursor(null);
@@ -96,6 +112,7 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
   };
 
   const openCreate = () => {
+    if (!canCreate) return;
     setFormMode("create");
     setSelected(null);
     setName("");
@@ -105,6 +122,7 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
   };
 
   const openEdit = (branch: BranchItem) => {
+    if (!canUpdate) return;
     setFormMode("edit");
     setSelected(branch);
     setName(branch.name);
@@ -114,6 +132,7 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
   };
 
   const openState = (branch: BranchItem) => {
+    if (!canState) return;
     setSelected(branch);
     setReason("");
     setRequestId(crypto.randomUUID());
@@ -121,6 +140,7 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
   };
 
   const saveForm = async () => {
+    if ((formMode === "create" && !canCreate) || (formMode === "edit" && !canUpdate)) return;
     const cleanName = name.trim();
     const cleanCode = code.trim().toUpperCase();
     if (!cleanName || cleanName.length > 150) {
@@ -156,7 +176,7 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
   };
 
   const changeState = async () => {
-    if (!selected) return;
+    if (!selected || !canState) return;
     const activating = !selected.is_active;
     const cleanReason = reason.trim();
     if (!activating && !cleanReason) {
@@ -185,6 +205,7 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
   const title = view === "list" ? "إدارة الفروع" : view === "form"
     ? (formMode === "create" ? "إضافة فرع" : "تعديل الفرع")
     : (selected?.is_active ? "تعطيل الفرع" : "تفعيل الفرع");
+  const canSaveForm = formMode === "create" ? canCreate : canUpdate;
 
   return (
     <Modal isOpen={isOpen} onClose={() => !submitting && onClose()} title={title} maxWidth="max-w-4xl">
@@ -197,16 +218,17 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
                 maxLength={100}
+                disabled={!canRead}
                 placeholder="بحث بالاسم أو الكود"
-                className="w-full rounded-xl border border-slate-200 py-2.5 pl-3 pr-10 text-sm outline-none"
+                className="w-full rounded-xl border border-slate-200 py-2.5 pl-3 pr-10 text-sm outline-none disabled:opacity-50"
               />
             </div>
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={() => setRefreshKey((value) => value + 1)}
-                disabled={loading}
-                className="rounded-xl border border-slate-200 p-2.5 text-slate-600 disabled:opacity-50"
+                disabled={loading || !canRead}
+                className="rounded-xl border border-slate-200 p-2.5 text-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
                 title="تحديث"
               >
                 <RefreshCcw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
@@ -214,7 +236,8 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
               <button
                 type="button"
                 onClick={openCreate}
-                className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white"
+                disabled={!canCreate}
+                className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Plus className="h-4 w-4" />
                 فرع جديد
@@ -250,7 +273,8 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
                         <button
                           type="button"
                           onClick={() => openEdit(branch)}
-                          className="rounded-lg border border-slate-200 p-2 text-slate-600"
+                          disabled={!canUpdate}
+                          className="rounded-lg border border-slate-200 p-2 text-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
                           title="تعديل"
                         >
                           <Pencil className="h-4 w-4" />
@@ -258,7 +282,8 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
                         <button
                           type="button"
                           onClick={() => openState(branch)}
-                          className={`rounded-lg border p-2 ${branch.is_active ? "border-red-200 text-red-600" : "border-emerald-200 text-emerald-600"}`}
+                          disabled={!canState}
+                          className={`rounded-lg border p-2 disabled:cursor-not-allowed disabled:opacity-40 ${branch.is_active ? "border-red-200 text-red-600" : "border-emerald-200 text-emerald-600"}`}
                           title={branch.is_active ? "تعطيل" : "تفعيل"}
                         >
                           {branch.is_active
@@ -286,7 +311,7 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
             <div className="flex gap-2">
               <button
                 type="button"
-                disabled={!cursorHistory.length || loading}
+                disabled={!cursorHistory.length || loading || !canRead}
                 onClick={() => {
                   const previous = cursorHistory[cursorHistory.length - 1] ?? null;
                   setCursorHistory((history) => history.slice(0, -1));
@@ -299,7 +324,7 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
               </button>
               <button
                 type="button"
-                disabled={!nextCursor || loading}
+                disabled={!nextCursor || loading || !canRead}
                 onClick={() => {
                   setCursorHistory((history) => [...history, cursor]);
                   setCursor(nextCursor);
@@ -325,8 +350,8 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
                 setRequestId(crypto.randomUUID());
               }}
               maxLength={150}
-              disabled={submitting}
-              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none"
+              disabled={submitting || !canSaveForm}
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none disabled:opacity-50"
             />
           </div>
           <div>
@@ -338,9 +363,9 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
                 setRequestId(crypto.randomUUID());
               }}
               maxLength={50}
-              disabled={submitting}
+              disabled={submitting || !canSaveForm}
               dir="ltr"
-              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-mono outline-none"
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-mono outline-none disabled:opacity-50"
               placeholder="HQ"
             />
           </div>
@@ -348,8 +373,8 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
             <button
               type="button"
               onClick={saveForm}
-              disabled={submitting}
-              className="rounded-xl bg-blue-600 px-5 py-2.5 font-bold text-white disabled:opacity-50"
+              disabled={submitting || !canSaveForm}
+              className="rounded-xl bg-blue-600 px-5 py-2.5 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               {submitting ? "جارٍ الحفظ..." : "حفظ"}
             </button>
@@ -384,16 +409,16 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
                 setRequestId(crypto.randomUUID());
               }}
               maxLength={1000}
-              disabled={submitting}
-              className="mt-1 min-h-28 w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none"
+              disabled={submitting || !canState}
+              className="mt-1 min-h-28 w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none disabled:opacity-50"
             />
           </div>
           <div className="flex gap-2">
             <button
               type="button"
               onClick={changeState}
-              disabled={submitting}
-              className={`rounded-xl px-5 py-2.5 font-bold text-white disabled:opacity-50 ${selected.is_active ? "bg-red-600" : "bg-emerald-600"}`}
+              disabled={submitting || !canState}
+              className={`rounded-xl px-5 py-2.5 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50 ${selected.is_active ? "bg-red-600" : "bg-emerald-600"}`}
             >
               {submitting
                 ? "جارٍ التنفيذ..."
