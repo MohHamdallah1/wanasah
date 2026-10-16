@@ -71,6 +71,8 @@ export interface LedgerAdjustmentState {
   base_uom_code: string;
 }
 
+const INTERNAL_NO_LOT_PREFIX = "__WANASAH_NOLOT__";
+
 const record = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("LEDGER_CONTRACT_INVALID");
@@ -97,6 +99,14 @@ const str = (value: unknown, field: string, max = 4000): string => {
 
 const optional = (value: unknown, field: string): string | null =>
   value === null || value === undefined ? null : str(value, field);
+
+const publicBatch = (value: unknown): string | null => {
+  const parsed = optional(value, "batch_number");
+  if (parsed?.startsWith(INTERNAL_NO_LOT_PREFIX)) {
+    throw new Error("LEDGER_INTERNAL_NO_LOT_LEAK");
+  }
+  return parsed;
+};
 
 const moneyOrNull = (value: unknown, field: string): string | null => {
   if (value === null || value === undefined) return null;
@@ -160,7 +170,7 @@ export function parseLedgerPage(raw: unknown): LedgerCursorPage {
           ? "PRODUCT_LOCATION"
           : (() => { throw new Error("LEDGER_BALANCE_SCOPE_INVALID"); })(),
       batch_id: optionalInt(row.batch_id, "batch_id"),
-      batch_number: optional(row.batch_number, "batch_number"),
+      batch_number: publicBatch(row.batch_number),
       source_location_id: optionalInt(row.source_location_id, "source_location_id"),
       source_location_name: optional(row.source_location_name, "source_location_name"),
       destination_location_id: optionalInt(row.destination_location_id, "destination_location_id"),
