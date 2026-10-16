@@ -66,3 +66,16 @@ it.each(["ar", "en"])("uses locale direction and translated policy setup labels 
   expect(heading.textContent).toBe(language === "ar" ? "إعداد وجهات الجودة" : "Quality destination setup");
   await act(async () => {});
 });
+
+it("hides previous-company policy and location options while a new scope is loading", async () => {
+  mocks.fetch.mockImplementation(async (url: string) => url.includes("/locations/manage")
+    ? { items: [{ id: 7, name: "Previous Company Warehouse", code: "OLD" }], has_more: false } : { draft, published: null });
+  const view = render(<QualityHandlingDestinationsCard />);
+  await waitFor(() => expect(screen.getAllByRole("option", { name: /Previous Company Warehouse/ })).toHaveLength(3));
+  localStorage.setItem("company_id", "2");
+  mocks.fetch.mockImplementation(() => new Promise(() => {}));
+  view.rerender(<QualityHandlingDestinationsCard />);
+  expect(screen.queryByRole("option", { name: /Previous Company Warehouse/ })).toBeNull();
+  expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled();
+  view.unmount();
+});

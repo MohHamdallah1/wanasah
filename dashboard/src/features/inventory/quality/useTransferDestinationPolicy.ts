@@ -141,6 +141,8 @@ export function useTransferDestinationPolicy(onSaved?: () => void | Promise<void
   const [pending, setPending] = useState<DurableCommand<Wire> | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const ready = useRef(false);
+  const loadedScope = useRef<string | null>(null);
+  const locationsScope = useRef<string | null>(null);
   const activeScopes = useRef(new Set<string>());
   const policySeq = useRef(0);
 
@@ -148,6 +150,7 @@ export function useTransferDestinationPolicy(onSaved?: () => void | Promise<void
     const seq = ++policySeq.current;
     if (!canManage || !scope) return;
     setLoading(true);
+    if (loadedScope.current !== scope) { setSaving(false); setPending(null); }
     setLoadError(null);
     ready.current = false;
     try {
@@ -156,6 +159,7 @@ export function useTransferDestinationPolicy(onSaved?: () => void | Promise<void
       if (seq !== policySeq.current || scopeRef.current !== scope) return;
       const saved = localStorage.getItem(scope + ":draft");
       setForm(saved ? parseFormDraft(saved) : formFromPolicy(state.draft ?? state.published));
+      loadedScope.current = scope;
       setPolicy(state);
       setPending(command);
       ready.current = true;
@@ -178,6 +182,7 @@ export function useTransferDestinationPolicy(onSaved?: () => void | Promise<void
     void authFetch(`/warehouse/locations/manage?${params}`, { signal: controller.signal }).then(raw => {
       if (!current || scopeRef.current !== scope) return;
       const page = parseLocationPage(raw);
+      locationsScope.current = scope;
       setKnownLocations(Object.fromEntries(page.items.map(item => [item.id, item])));
       setHasMoreLocations(page.has_more);
     }).catch(error => { if (current) toast.error(apiErrorMessage(error, t("inventoryWarehouses.qualityDestinations.errors.loadLocations"))); });
@@ -193,7 +198,7 @@ export function useTransferDestinationPolicy(onSaved?: () => void | Promise<void
     } catch (error) { setLoadError(apiErrorMessage(error, t("inventoryWarehouses.qualityDestinations.errors.save"))); }
   }, [scope, form, t]);
   const execute = async (wire?: Wire) => {
-    if (!canManage || !scope || !ready.current || activeScopes.current.has(scope)) return;
+    if (!canManage || !scope || loadedScope.current !== scope || !ready.current || activeScopes.current.has(scope)) return;
     activeScopes.current.add(scope);
     setSaving(true);
     let command: DurableCommand<Wire> | null = null;
@@ -239,6 +244,9 @@ export function useTransferDestinationPolicy(onSaved?: () => void | Promise<void
   const ids = [form.quarantine, form.disposal, form.vendorReturn].filter((id): id is number => id !== null);
   const options = Object.values(knownLocations);
   for (const id of ids) if (!knownLocations[id]) options.push({ id, name: "#" + new Intl.NumberFormat(i18n.language + "-u-nu-latn").format(id), code: "" });
-  return { canManage, policy, form, setForm, options, searchInput, setSearchInput, hasMoreLocations,
-    loading, saving, pending, loadError, loadPolicy, saveDraft, publish, canPublish, retry: () => execute() };
+  const inScope = loadedScope.current === scope;
+  return { canManage, policy: inScope ? policy : { draft: null, published: null }, form: inScope ? form : emptyForm(),
+    setForm, options: inScope && locationsScope.current === scope ? options : [], searchInput, setSearchInput, hasMoreLocations,
+    loading: loading || !inScope, saving, pending: inScope ? pending : null, loadError, loadPolicy, saveDraft, publish,
+    canPublish: inScope && canPublish, retry: () => execute() };
 }
