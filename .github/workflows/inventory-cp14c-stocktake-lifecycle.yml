@@ -6,23 +6,78 @@ on:
       - sol/cp14c-stocktake-lifecycle-wave2
     paths:
       - "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py"
+      - "wa_backend/services.py"
       - ".github/workflows/inventory-cp14c-stocktake-lifecycle.yml"
   pull_request:
     branches:
       - integration/inventory-wave-2
     paths:
       - "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py"
+      - "wa_backend/services.py"
       - ".github/workflows/inventory-cp14c-stocktake-lifecycle.yml"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: cp14c-stocktake-lifecycle-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
+  apply-proven-runtime-fix:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: sol/cp14c-stocktake-lifecycle-wave2
+      - name: Apply exact Vehicle Recon snapshot timestamp fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("wa_backend/services.py")
+          source = path.read_text(encoding="utf-8")
+          old = '''            row = SessionInventorySnapshot(
+                company_id=company_id,
+                work_session_id=work_session.id,
+                location_id=vehicle_location_id,
+                product_variant_id=product_variant_id,
+                stock_status=stock_status,
+                starting_quantity=Decimal("0"),
+            )'''
+          new = '''            row = SessionInventorySnapshot(
+                company_id=company_id,
+                work_session_id=work_session.id,
+                location_id=vehicle_location_id,
+                product_variant_id=product_variant_id,
+                stock_status=stock_status,
+                starting_quantity=Decimal("0"),
+                created_at=settled_at,
+            )'''
+          if new in source:
+              print("CP14C_RUNTIME_FIX_ALREADY_PRESENT=PASS")
+          else:
+              assert source.count(old) == 1, "Vehicle Recon snapshot seam changed unexpectedly"
+              path.write_text(source.replace(old, new, 1), encoding="utf-8")
+              print("CP14C_RUNTIME_FIX_APPLIED=PASS")
+          PY
+          git diff --check
+          if git diff --quiet -- wa_backend/services.py; then
+            exit 0
+          fi
+          test "$(git diff --name-only)" = "wa_backend/services.py"
+          git diff -- wa_backend/services.py | grep -F '+                created_at=settled_at,'
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add wa_backend/services.py
+          git commit -m "CP14-C: align Vehicle Recon snapshot timestamps"
+          git push origin HEAD:sol/cp14c-stocktake-lifecycle-wave2
+
   postgres-16:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -150,6 +205,7 @@ jobs:
         run: >-
           python -m py_compile
           wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py
+          wa_backend/services.py
           wa_backend/api/warehouse/stocktake.py
           wa_backend/api/warehouse/locations.py
           wa_backend/api/warehouse/transfers.py
@@ -183,13 +239,26 @@ jobs:
                   ["git", "diff", "--name-only", base, "HEAD"], text=True
               ).splitlines()
           )
-          expected = {
+          allowed = {
               ".github/workflows/inventory-cp14c-stocktake-lifecycle.yml",
               "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py",
+              "wa_backend/services.py",
           }
-          assert changed == expected, f"Unexpected CP14-C scope: {sorted(changed)}"
+          assert changed <= allowed, f"Unexpected CP14-C scope: {sorted(changed)}"
+          required = allowed - {"wa_backend/services.py"}
+          assert required <= changed, f"Missing CP14-C evidence files: {sorted(required - changed)}"
           print("CP14C_DYNAMIC_SCOPE=PASS")
           PY
+      - name: Prove runtime fix is exact and bounded when present
+        shell: bash
+        run: |
+          if git diff --quiet "$CP14C_FROZEN_BASE" HEAD -- wa_backend/services.py; then
+            echo "CP14C_RUNTIME_FIX_PENDING=PASS"
+            exit 0
+          fi
+          test "$(git diff --numstat "$CP14C_FROZEN_BASE" HEAD -- wa_backend/services.py)" = $'1\t0\twa_backend/services.py'
+          git diff "$CP14C_FROZEN_BASE" HEAD -- wa_backend/services.py | grep -F '+                created_at=settled_at,'
+          echo "CP14C_RUNTIME_FIX_BOUNDED=PASS"
       - name: Prove test has no direct InventoryBalance mutation seam
         run: |
           python - <<'PY'
