@@ -451,11 +451,13 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 zone = Zone(company_id=company.id, name="Shared Zone", is_active=True)
                 seed.add(zone)
                 await seed.flush()
+                work_started_at = utc_now()
                 work = WorkSession(
                     company_id=company.id,
                     driver_id=operator.driver_id,
+                    start_time=work_started_at,
                     session_date=date.today(),
-                    end_time=utc_now(),
+                    end_time=work_started_at,
                     is_settled=False,
                 )
                 seed.add(work)
