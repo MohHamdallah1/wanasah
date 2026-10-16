@@ -460,11 +460,12 @@ for (const locale of ["ar", "en"] as const) {
     if (locale === "en") expect(bodyText).not.toMatch(/[\u0600-\u06ff]/);
     else expect(bodyText).toMatch(/[\u0600-\u06ff]/);
 
-    const sidebarSectionLabel = await page.locator(".operations-nav").evaluate((node) =>
-      getComputedStyle(node, "::before").content.replace(/^['"]|['"]$/g, ""),
-    );
-    if (locale === "en") expect(sidebarSectionLabel).not.toMatch(/[\u0600-\u06ff]/);
-    else expect(sidebarSectionLabel).toMatch(/[\u0600-\u06ff]/);
+    const navigationName = locale === "ar" ? "التنقل الرئيسي" : "Main navigation";
+    const sidebarNavigation = page.getByRole("navigation", { name: navigationName, exact: true });
+    await expect(sidebarNavigation).toHaveCount(1);
+    await expect(sidebarNavigation).toHaveAttribute("aria-label", navigationName);
+    await expect.poll(() => sidebarNavigation.evaluate((node) => getComputedStyle(node, "::before").content)).toBe("none");
+    await expect(page.getByText(navigationName, { exact: true })).toHaveCount(0);
 
     const unnamedButtons = await page.locator("button:visible").evaluateAll((buttons) =>
       buttons.filter((button) => !(
