@@ -11,6 +11,7 @@ import {
   createInventoryTopDockController,
   type InventoryTopDockOptions,
 } from "./inventoryTopDockController";
+import "./inventoryShellPolish.css";
 
 type InventoryDockItem = {
   id: string;
@@ -105,7 +106,9 @@ export function InventoryTopDock({
     const normalized = (nextIndex + items.length) % items.length;
     const nextItem = items[normalized];
     const tabs = root.querySelectorAll<HTMLButtonElement>("[role='tab']");
-    tabs[normalized]?.focus();
+    const nextTab = tabs[normalized];
+    nextTab?.focus();
+    nextTab?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
     onChange(nextItem.id);
   };
 
@@ -125,26 +128,33 @@ export function InventoryTopDock({
         ref={rootRef}
         className="inventory-top-dock__dock"
         aria-label={ariaLabel}
+        aria-orientation="horizontal"
         role="tablist"
         data-dock-state="idle"
         data-dock-max="0.00"
       >
-        {items.map(({ id, label, icon }, index) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={activeId === id}
-            tabIndex={activeId === id ? 0 : -1}
-            data-inventory-dock-item
-            className="inventory-top-dock__item focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-            onClick={() => onChange(id)}
-            onKeyDown={(event) => moveFocus(event, index)}
-          >
-            <DockIcon icon={icon} />
-            <span>{label}</span>
-          </button>
-        ))}
+        {items.map(({ id, label, icon }, index) => {
+          const active = activeId === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              aria-current={active ? "page" : undefined}
+              tabIndex={active ? 0 : -1}
+              data-inventory-dock-item
+              data-active={active ? "true" : "false"}
+              className="inventory-top-dock__item focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+              title={label}
+              onClick={() => onChange(id)}
+              onKeyDown={(event) => moveFocus(event, index)}
+            >
+              <DockIcon icon={icon} />
+              <span className="inventory-top-dock__label">{label}</span>
+            </button>
+          );
+        })}
       </nav>
     </WorkspaceTopBar>
   );

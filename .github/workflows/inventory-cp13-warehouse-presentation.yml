@@ -1,0 +1,127 @@
+name: Inventory CP13 Warehouse Presentation
+
+on:
+  pull_request:
+    branches:
+      - integration/inventory-wave-2
+    paths:
+      - "dashboard/src/pages/inventory/TabWarehouseLocations.tsx"
+      - "dashboard/src/pages/inventory/warehouse-locations/**"
+      - "dashboard/src/features/inventory/quality/QualityHandlingDestinationsCard.tsx"
+      - "dashboard/src/test/inventory-cp13-warehouse-presentation.test.tsx"
+      - ".github/workflows/inventory-cp13-warehouse-presentation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: CP13 focused presentation
+        run: npm test -- src/test/inventory-cp13-warehouse-presentation.test.tsx
+      - name: CP4 Warehouse and Branch regressions
+        run: npm test -- src/test/inventory-cp4-branch-dashboard.test.tsx src/test/inventory-access-canonical-contract.test.ts src/test/durable-operations-p4.test.ts
+      - name: CP8 quality destination regressions
+        run: npm test -- src/test/cp8-quality-destinations.test.tsx src/test/cp34-quality-durable.test.tsx src/test/quality-safety-v1-closure.test.ts
+      - name: CP11 access smoke
+        run: npm test -- src/test/inventory-cp11-access-dashboard.test.tsx
+      - name: CP12 UI quality regressions
+        run: npm test -- src/test/inventory-cp12-i18n.test.tsx src/test/inventory-cp12-accessibility.test.tsx src/test/inventory-cp12-responsive-contract.test.ts
+      - name: TypeScript noEmit
+        run: npx tsc --noEmit
+      - name: ESLint CP13 scope
+        run: >-
+          npx eslint
+          src/pages/inventory/TabWarehouseLocations.tsx
+          src/pages/inventory/warehouse-locations/BranchSelector.tsx
+          src/pages/inventory/warehouse-locations/branchSelectorI18n.ts
+          src/pages/inventory/warehouse-locations/presentationI18n.ts
+          src/pages/inventory/warehouse-locations/presentation/i18n.ts
+          src/features/inventory/quality/QualityHandlingDestinationsCard.tsx
+          src/test/inventory-cp13-warehouse-presentation.test.tsx
+      - name: Production build
+        run: npm run build
+
+  scope:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Dynamic CP13 scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["BASE_SHA"]
+          head = os.environ["HEAD_SHA"]
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only", f"{base}...{head}"],
+              text=True,
+          ).splitlines())
+          allowed = {
+              ".github/workflows/inventory-cp13-warehouse-presentation.yml",
+              "dashboard/src/pages/inventory/TabWarehouseLocations.tsx",
+              "dashboard/src/pages/inventory/warehouse-locations/BranchSelector.tsx",
+              "dashboard/src/pages/inventory/warehouse-locations/branchSelectorI18n.ts",
+              "dashboard/src/pages/inventory/warehouse-locations/presentationI18n.ts",
+              "dashboard/src/pages/inventory/warehouse-locations/presentation/i18n.ts",
+              "dashboard/src/features/inventory/quality/QualityHandlingDestinationsCard.tsx",
+              "dashboard/src/test/inventory-cp13-warehouse-presentation.test.tsx",
+          }
+          unexpected = sorted(changed - allowed)
+          if unexpected:
+              raise SystemExit("Unexpected CP13 files: " + ", ".join(unexpected))
+          required = {
+              "dashboard/src/pages/inventory/TabWarehouseLocations.tsx",
+              "dashboard/src/pages/inventory/warehouse-locations/BranchSelector.tsx",
+              "dashboard/src/features/inventory/quality/QualityHandlingDestinationsCard.tsx",
+              "dashboard/src/test/inventory-cp13-warehouse-presentation.test.tsx",
+          }
+          missing = sorted(required - changed)
+          if missing:
+              raise SystemExit("Missing CP13 files: " + ", ".join(missing))
+          forbidden = (
+              "wa_backend/",
+              "dashboard/src/pages/inventory/batches/",
+          )
+          if any(path.startswith(forbidden) for path in changed):
+              raise SystemExit("Forbidden CP13 scope touched")
+          exact_forbidden = {
+              "dashboard/src/pages/inventory/TabBatches.tsx",
+              "dashboard/src/pages/inventory/Tab2Inbound.tsx",
+              "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+              "dashboard/src/pages/inventory/InventoryPage.tsx",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/InventoryTopDock.tsx",
+          }
+          if changed & exact_forbidden:
+              raise SystemExit("Parallel-owned Inventory surface touched")
+          print("CP13 dynamic scope PASS")
+          for path in sorted(changed):
+              print(path)
+          PY
+      - name: Diff whitespace check
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git diff --check "$BASE_SHA...$HEAD_SHA"

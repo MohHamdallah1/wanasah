@@ -22,6 +22,7 @@ const transferHeader = {
   destination_location_id: 6,
   destination_location_name: "Second",
   status: "POSTED",
+  transfer_purpose: "REPLENISHMENT",
   dispatched_by: 1,
   dispatched_by_name: "Operator",
   received_by: null,

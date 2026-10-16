@@ -1,0 +1,168 @@
+name: Inventory CP13 Shell Polish Acceptance
+
+on:
+  push:
+    branches:
+      - sol/cp13-inventory-shell-polish-wave2
+  pull_request:
+    branches:
+      - integration/inventory-wave-2
+    paths:
+      - "dashboard/src/pages/inventory/InventoryTopDock.tsx"
+      - "dashboard/src/pages/inventory/inventoryShellPolish.css"
+      - "dashboard/src/test/inventory-cp13-shell-polish.test.tsx"
+      - ".github/workflows/inventory-cp13-shell-polish.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cp13-shell-polish-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shell-polish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: npm ci
+        working-directory: dashboard
+        run: npm ci
+
+      - name: CP13 shell + CP12 regressions
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/test/inventory-cp13-shell-polish.test.tsx
+          src/test/inventory-cp12-i18n.test.tsx
+          src/test/inventory-cp12-accessibility.test.tsx
+          src/test/inventory-cp12-responsive-contract.test.ts
+
+      - name: Build Dashboard for focused CP14-D browser regression
+        working-directory: dashboard
+        env:
+          VITE_API_URL: http://127.0.0.1:4174/api
+        run: npm run build
+
+      - name: Install disposable Playwright Chromium runtime
+        working-directory: dashboard
+        run: |
+          npm install --no-save --package-lock=false --legacy-peer-deps playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Start Dashboard preview
+        working-directory: dashboard
+        env:
+          VITE_API_URL: http://127.0.0.1:4174/api
+        run: |
+          nohup npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/cp13-preview.log 2>&1 &
+          echo $! > /tmp/cp13-preview.pid
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4173/inventory >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/cp13-preview.log
+          exit 1
+
+      - name: CP14-D reusable deep-link and narrow-device regression
+        working-directory: dashboard
+        env:
+          CP14D_BASE_URL: http://127.0.0.1:4173
+        run: >-
+          npx playwright test
+          --config e2e/inventory-cp14-device-ux.config.ts
+          --grep "direct tab navigation|narrow phone keeps critical actions"
+
+      - name: Restore clean Dashboard dependency tree
+        working-directory: dashboard
+        run: npm ci
+
+      - name: TypeScript noEmit
+        working-directory: dashboard
+        run: npx tsc --noEmit
+
+      - name: ESLint CP13 touched TypeScript
+        working-directory: dashboard
+        run: >-
+          npx eslint
+          src/pages/inventory/InventoryTopDock.tsx
+          src/test/inventory-cp13-shell-polish.test.tsx
+
+      - name: Production Dashboard build
+        working-directory: dashboard
+        env:
+          VITE_API_URL: https://api.example.invalid
+        run: npm run build
+
+      - name: Dynamic CP13 scope
+        shell: bash
+        run: |
+          target="${{ github.event.pull_request.base.ref }}"
+          if [ -z "$target" ]; then target="integration/inventory-wave-2"; fi
+          git fetch origin "$target" --no-tags
+          base="$(git merge-base HEAD "origin/$target")"
+          echo "CP13_DYNAMIC_BASE=$base"
+          echo "CP13_TARGET=$target"
+          git merge-base --is-ancestor 7468f9f3c5b2419c223882724ae926afaebd7fa5 HEAD
+          python - <<'PY'
+          import os
+          import subprocess
+
+          target = os.environ.get("GITHUB_BASE_REF") or "integration/inventory-wave-2"
+          base = subprocess.check_output(
+              ["git", "merge-base", "HEAD", f"origin/{target}"], text=True
+          ).strip()
+          changed = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", base, "HEAD"], text=True
+              ).splitlines()
+          )
+          expected = {
+              ".github/workflows/inventory-cp13-shell-polish.yml",
+              "dashboard/src/pages/inventory/InventoryTopDock.tsx",
+              "dashboard/src/pages/inventory/inventoryShellPolish.css",
+              "dashboard/src/test/inventory-cp13-shell-polish.test.tsx",
+          }
+          assert changed == expected, f"Unexpected CP13 scope: {sorted(changed)}"
+          forbidden = (
+              "dashboard/src/pages/inventory/TabBatches.tsx",
+              "dashboard/src/pages/inventory/batches/",
+              "dashboard/src/pages/inventory/TabWarehouseLocations.tsx",
+              "dashboard/src/pages/inventory/warehouse-locations/",
+              "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+              "dashboard/src/pages/inventory/stocktake/",
+          )
+          assert not any(
+              path == forbidden[0]
+              or path.startswith(forbidden[1])
+              or path == forbidden[2]
+              or path.startswith(forbidden[3])
+              or path == forbidden[4]
+              or path.startswith(forbidden[5])
+              for path in changed
+          ), sorted(changed)
+          print("CP13_DYNAMIC_SCOPE=PASS")
+          PY
+
+      - name: git diff --check
+        shell: bash
+        run: |
+          target="${{ github.event.pull_request.base.ref }}"
+          if [ -z "$target" ]; then target="integration/inventory-wave-2"; fi
+          git fetch origin "$target" --no-tags
+          base="$(git merge-base HEAD "origin/$target")"
+          git diff --check "$base" HEAD

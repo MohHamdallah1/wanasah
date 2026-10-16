@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Search } from "lucide-react";
+import { RefreshCcw, Search } from "lucide-react";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { branchSelectorCopy } from "./branchSelectorI18n";
 import { parseBranchPage, type BranchItem } from "./branchContracts";
@@ -13,6 +13,8 @@ interface BranchSelectorProps {
   canReadBranches: boolean;
   onChange: (branchId: number | null) => void;
 }
+
+const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30";
 
 export function BranchSelector({
   value,
@@ -34,6 +36,7 @@ export function BranchSelector({
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     if (currentLabel !== currentLabelRef.current) {
@@ -77,13 +80,13 @@ export function BranchSelector({
         if (seq !== requestSeq.current) return;
         setItems([]);
         setHasMore(false);
-        setError(requestError instanceof Error ? requestError.message : copy.loadFailed);
+        setError(requestError instanceof Error && requestError.message ? requestError.message : copy.loadFailed);
       } finally {
         if (seq === requestSeq.current) setLoading(false);
       }
     };
     void load();
-  }, [authenticatedFetch, canReadBranches, copy.loadFailed, refreshKey, search]);
+  }, [authenticatedFetch, canReadBranches, copy.loadFailed, refreshKey, retryKey, search]);
 
   const currentBranchId = currentBranchIdRef.current;
   const options = useMemo(() => {
@@ -127,14 +130,14 @@ export function BranchSelector({
           disabled={disabled}
           maxLength={100}
           placeholder={copy.search}
-          className="w-full rounded-xl border border-slate-200 py-2.5 ps-10 pe-3 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50"
+          className={`w-full rounded-xl border border-slate-200 py-2.5 ps-10 pe-3 text-sm disabled:opacity-50 ${focusRing}`}
         />
       </div>
       <select
         value={value === null ? "" : String(value)}
         onChange={(event) => onChange(event.target.value ? Number(event.target.value) : null)}
         disabled={disabled || loading || Boolean(error)}
-        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50"
+        className={`w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm disabled:opacity-50 ${focusRing}`}
       >
         <option value="">{copy.none}</option>
         {options.map((branch) => {
@@ -145,13 +148,27 @@ export function BranchSelector({
               value={branch.id}
               disabled={preservedCurrent && value !== currentBranchId}
             >
-              {branch.name}{branch.code ? ` (${branch.code})` : ` (${copy.current})`}
+              {branch.name}{branch.code ? ` (${branch.code})` : ""} — {preservedCurrent ? copy.inactiveCurrent : copy.active}
             </option>
           );
         })}
       </select>
-      {loading && <p className="text-xs font-semibold text-slate-400">{copy.loading}</p>}
-      {error && <p role="alert" className="text-xs font-semibold text-red-600">{error}</p>}
+      <p className="text-[10px] font-semibold leading-4 text-slate-500">{copy.assignmentRule}</p>
+      {loading && <p role="status" className="text-xs font-semibold text-slate-400">{copy.loading}</p>}
+      {error && (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+          <span className="break-words">{error}</span>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => setRetryKey((current) => current + 1)}
+            className={`inline-flex items-center gap-1 rounded-lg border border-red-200 bg-white px-2 py-1 font-bold ${focusRing}`}
+          >
+            <RefreshCcw aria-hidden="true" className="h-3.5 w-3.5" />
+            {copy.retry}
+          </button>
+        </div>
+      )}
       {hasMore && <p className="text-xs font-semibold text-amber-700">{copy.more}</p>}
     </div>
   );
