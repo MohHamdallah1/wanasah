@@ -1,6 +1,7 @@
 import { parseInventoryCapabilities, hasInventoryPermission } from "@/hooks/useInventoryAccess";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { executeStocktakeDurableCommand, type StocktakeDurableIdentity } from "../durableCommand";
 import type { Dispatch, SetStateAction } from "react";
 import type { StocktakeRow } from "../../inventoryUtils";
 import type {
@@ -15,6 +16,7 @@ import {
 } from "../parsers";
 
 interface UseStocktakeCountingArgs {
+  durableIdentity: StocktakeDurableIdentity | null;
   companyScope: string;
   phaseKey: string;
   phase: StocktakePhase;
@@ -35,6 +37,7 @@ interface UseStocktakeCountingArgs {
 }
 
 export function useStocktakeCounting({
+  durableIdentity,
   companyScope,
   phaseKey,
   phase,
@@ -256,19 +259,24 @@ export function useStocktakeCounting({
         uom_id: row.base_uom_id,
       }));
 
+      if (!durableIdentity) {
+        toast.error("Stocktake identity is not ready yet. / هوية مستخدم الجرد غير جاهزة بعد.");
+        return false;
+      }
+
       setSubmitting(true);
 
       try {
-        await authenticatedFetch(
-          `/warehouse/unified/stocktake/${sessionId}/count`,
-          {
-            method: "POST",
-            body: JSON.stringify({
-              items,
-              notes,
-            }),
-          }
-        );
+        await executeStocktakeDurableCommand({
+          identity: durableIdentity,
+          operation: "count",
+          target: `${sessionLocationId}:${sessionId}`,
+          payload: { items, notes },
+          send: (body) => authenticatedFetch(
+            `/warehouse/unified/stocktake/${sessionId}/count`,
+            { method: "POST", body: JSON.stringify(body) },
+          ),
+        });
 
         if (draftKey) {
           localStorage.removeItem(draftKey);
@@ -295,6 +303,7 @@ export function useStocktakeCounting({
       }
     }, [
       authenticatedFetch,
+      durableIdentity,
       draftKey,
       notes,
       onSubmitted,

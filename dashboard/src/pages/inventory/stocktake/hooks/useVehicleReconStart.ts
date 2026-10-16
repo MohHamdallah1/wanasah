@@ -5,6 +5,7 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { executeStocktakeDurableCommand, type StocktakeDurableIdentity } from "../durableCommand";
 import type {
   StocktakeAuthFetch,
   VehicleReconCandidate,
@@ -16,6 +17,7 @@ import {
 } from "../parsers";
 
 interface UseVehicleReconStartArgs {
+  durableIdentity: StocktakeDurableIdentity | null;
   sourceLocationId: number;
   enabled: boolean;
   authenticatedFetch: StocktakeAuthFetch;
@@ -30,6 +32,7 @@ const OPENABLE_EXISTING_STATUSES = new Set([
 ]);
 
 export function useVehicleReconStart({
+  durableIdentity,
   sourceLocationId,
   enabled,
   authenticatedFetch,
@@ -230,22 +233,26 @@ export function useVehicleReconStart({
           return true;
         }
 
-        const raw = await authenticatedFetch(
-          "/warehouse/unified/stocktake/start",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              location_id:
-                candidate.vehicle_location_id,
-              stocktake_type:
-                "VEHICLE_RECON",
-              related_work_session_id:
-                candidate.work_session_id,
-              notes:
-                notes.trim() || null,
-            }),
-          }
-        );
+        if (!durableIdentity) {
+          toast.error("Stocktake identity is not ready yet. / هوية مستخدم الجرد غير جاهزة بعد.");
+          return false;
+        }
+
+        const raw = await executeStocktakeDurableCommand({
+          identity: durableIdentity,
+          operation: "start-vehicle-recon",
+          target: `${candidate.vehicle_location_id}:${candidate.work_session_id}`,
+          payload: {
+            location_id: candidate.vehicle_location_id,
+            stocktake_type: "VEHICLE_RECON",
+            related_work_session_id: candidate.work_session_id,
+            notes: notes.trim() || null,
+          },
+          send: (body) => authenticatedFetch(
+            "/warehouse/unified/stocktake/start",
+            { method: "POST", body: JSON.stringify(body) },
+          ),
+        });
 
         const sid = String(
           parseStartSessionId(raw)
@@ -272,6 +279,7 @@ export function useVehicleReconStart({
     },
     [
       authenticatedFetch,
+      durableIdentity,
       busyWorkSessionId,
       notes,
       notifyStocktakeChanged,

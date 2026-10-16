@@ -77,6 +77,12 @@ export function Tab3Stocktake({
 
   const warehouseAccess = useInventoryAccess(locationId);
   const sessionAccess = useInventoryAccess(stocktakeState.sessionLocationId ?? locationId);
+  const durableIdentity = warehouseAccess.data
+    ? {
+        companyId: warehouseAccess.data.company_id,
+        backofficeUserId: warehouseAccess.data.backoffice_user_id,
+      }
+    : null;
 
   const {
     setRows,
@@ -138,6 +144,7 @@ export function Tab3Stocktake({
 
   const countingWorkflow =
     useStocktakeCounting({
+      durableIdentity,
       companyScope:
         stocktakeState.companyScope,
       phaseKey:
@@ -167,6 +174,7 @@ export function Tab3Stocktake({
 
   const cycleWorkflow =
     useCycleCountStart({
+      durableIdentity,
       locationId,
       enabled: showCycleModal,
       authenticatedFetch,
@@ -182,6 +190,7 @@ export function Tab3Stocktake({
   const actionWorkflow =
     useStocktakeActions({
       authenticatedFetch,
+      durableIdentity,
       sessionId:
         stocktakeState.sessionId,
       sessionLocationId:
@@ -210,6 +219,7 @@ export function Tab3Stocktake({
 
   const lifecycle =
     useStocktakeLifecycle({
+      durableIdentity,
       focusSessionId,
       onFocusUnavailable,
       locationId,
@@ -243,6 +253,7 @@ export function Tab3Stocktake({
 
   const vehicleReconWorkflow =
     useVehicleReconStart({
+      durableIdentity,
       sourceLocationId: locationId,
       enabled: showVehicleReconModal,
       authenticatedFetch,

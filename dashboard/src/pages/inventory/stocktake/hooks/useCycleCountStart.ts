@@ -6,6 +6,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { executeStocktakeDurableCommand, type StocktakeDurableIdentity } from "../durableCommand";
 import { formatPublicBatchNumber } from "../../publicBatchNumber";
 import type {
   CycleBatchOption,
@@ -20,6 +21,7 @@ import {
 } from "../parsers";
 
 interface UseCycleCountStartArgs {
+  durableIdentity: StocktakeDurableIdentity | null;
   locationId: number;
   enabled: boolean;
   authenticatedFetch: StocktakeAuthFetch;
@@ -35,6 +37,7 @@ interface UseCycleCountStartArgs {
 }
 
 export function useCycleCountStart({
+  durableIdentity,
   locationId,
   enabled,
   authenticatedFetch,
@@ -249,16 +252,26 @@ export function useCycleCountStart({
       return false;
     }
 
+    if (!durableIdentity) {
+      toast.error("Stocktake identity is not ready yet. / هوية مستخدم الجرد غير جاهزة بعد.");
+      return false;
+    }
+
     setStarting(true);
     try {
-      const raw = await authenticatedFetch("/warehouse/unified/stocktake/start", {
-        method: "POST",
-        body: JSON.stringify({
+      const raw = await executeStocktakeDurableCommand({
+        identity: durableIdentity,
+        operation: "start-cycle",
+        target: `${locationId}:${selectedProduct.id}:${selectedBatch?.id ?? "all"}`,
+        payload: {
           location_id: locationId,
           stocktake_type: "CYCLE_COUNT",
           product_variant_id: selectedProduct.id,
           batch_id: selectedBatch?.id ?? null,
           notes: notes.trim() || null,
+        },
+        send: (body) => authenticatedFetch("/warehouse/unified/stocktake/start", {
+          method: "POST", body: JSON.stringify(body),
         }),
       });
 
@@ -285,6 +298,7 @@ export function useCycleCountStart({
     }
   }, [
     authenticatedFetch,
+    durableIdentity,
     loadCountSheet,
     locationId,
     notes,

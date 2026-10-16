@@ -5,6 +5,7 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { executeStocktakeDurableCommand, type StocktakeDurableIdentity } from "../durableCommand";
 import type {
   StocktakeAuthFetch,
   StocktakePhase,
@@ -18,6 +19,7 @@ import {
 } from "../parsers";
 
 interface UseStocktakeLifecycleArgs {
+  durableIdentity: StocktakeDurableIdentity | null;
   focusSessionId?: number;
   onFocusUnavailable?: (error: unknown) => void;
   locationId: number;
@@ -49,6 +51,7 @@ interface UseStocktakeLifecycleArgs {
 }
 
 export function useStocktakeLifecycle({
+  durableIdentity,
   focusSessionId,
   onFocusUnavailable,
   locationId,
@@ -316,24 +319,28 @@ export function useStocktakeLifecycle({
         return false;
       }
 
+      if (!durableIdentity) {
+        toast.error("Stocktake identity is not ready yet. / هوية مستخدم الجرد غير جاهزة بعد.");
+        return false;
+      }
+
       setLocking(true);
 
       try {
-        const raw =
-          await authenticatedFetch(
+        const raw = await executeStocktakeDurableCommand({
+          identity: durableIdentity,
+          operation: "start-full",
+          target: locationId,
+          payload: {
+            location_id: locationId,
+            stocktake_type: "FULL_COUNT",
+            notes: "Central full stocktake",
+          },
+          send: (body) => authenticatedFetch(
             "/warehouse/unified/stocktake/start",
-            {
-              method: "POST",
-              body: JSON.stringify({
-                location_id:
-                  locationId,
-                stocktake_type:
-                  "FULL_COUNT",
-                notes:
-                  "بدء جرد مركزي",
-              }),
-            }
-          );
+            { method: "POST", body: JSON.stringify(body) },
+          ),
+        });
 
         const sid = String(
           parseStartSessionId(raw)
@@ -375,6 +382,7 @@ export function useStocktakeLifecycle({
       activeSessions.length,
       activeSessionsTotal,
       authenticatedFetch,
+      durableIdentity,
       loadCountSheet,
       locationId,
       notifyStocktakeChanged,
