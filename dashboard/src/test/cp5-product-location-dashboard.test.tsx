@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -306,7 +307,7 @@ describe("CP5 ProductLocation capability closure", () => {
 
   it("exposes ProductLocation as a normal Products row action while preserving the existing keyboard menu contract", () => {
     const actions = readFileSync(
-      new URL("../pages/products/list/ProductRowActions.tsx", import.meta.url),
+      resolve(process.cwd(), "src/pages/products/list/ProductRowActions.tsx"),
       "utf8",
     );
 
