@@ -461,7 +461,7 @@ for (const locale of ["ar", "en"] as const) {
     else expect(bodyText).toMatch(/[\u0600-\u06ff]/);
 
     const sidebarSectionLabel = await page.locator(".operations-nav").evaluate((node) =>
-      getComputedStyle(node, "::before").content.replace(/^['\"]|['\"]$/g, ""),
+      getComputedStyle(node, "::before").content.replace(/^['"]|['"]$/g, ""),
     );
     if (locale === "en") expect(sidebarSectionLabel).not.toMatch(/[\u0600-\u06ff]/);
     else expect(sidebarSectionLabel).toMatch(/[\u0600-\u06ff]/);
