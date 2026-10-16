@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -220,12 +220,13 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
 
     const english = renderPage();
     expect(await screen.findAllByText("No lot supplied")).not.toHaveLength(0);
+    expect(english.container.querySelector(".inventory-batches-view")).toHaveAttribute("dir", "ltr");
     english.unmount();
 
     mocks.language = "ar";
-    renderPage();
+    const arabic = renderPage();
     expect(await screen.findAllByText("بدون رقم دفعة")).not.toHaveLength(0);
-    expect(document.querySelector('[dir="rtl"]')).not.toBeNull();
+    expect(arabic.container.querySelector(".inventory-batches-view")).toHaveAttribute("dir", "rtl");
 
     expect(() =>
       parseBatchIndexCursorPage(
@@ -349,5 +350,121 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
     expect(screen.getByTestId("batch-action-workspace")).toHaveTextContent("LOT-1");
     expect(screen.getByRole("searchbox")).toBeInTheDocument();
     expect(screen.getAllByRole("combobox").length).toBeGreaterThanOrEqual(7);
+  });
+
+  it("resets continuation for search and filter changes", async () => {
+    mocks.authFetch.mockImplementation(async (path: string) => {
+      if (path.startsWith("/warehouse/inventory/batches/summary?")) return summary();
+      if (path.startsWith("/warehouse/inventory/batches/cursor?")) {
+        const params = new URLSearchParams(path.split("?")[1]);
+        if (params.has("cursor")) return page([item(2)]);
+        return page([item(1)], "next-1");
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    renderPage();
+    expect(await screen.findAllByText("Product 1")).not.toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Load more batches" }));
+    expect(await screen.findAllByText("Product 2")).not.toHaveLength(0);
+
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "needle" } });
+    await waitFor(() => {
+      const request = mocks.authFetch.mock.calls
+        .map(([path]) => String(path))
+        .filter((path) => path.startsWith("/warehouse/inventory/batches/cursor?"))
+        .find((path) => new URLSearchParams(path.split("?")[1]).get("search") === "needle");
+      expect(request).toBeDefined();
+      expect(new URLSearchParams(String(request).split("?")[1]).has("cursor")).toBe(false);
+    });
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Expiry" }), {
+      target: { value: "EXPIRED" },
+    });
+    await waitFor(() => {
+      const request = mocks.authFetch.mock.calls
+        .map(([path]) => String(path))
+        .filter((path) => path.startsWith("/warehouse/inventory/batches/cursor?"))
+        .find((path) => {
+          const params = new URLSearchParams(path.split("?")[1]);
+          return params.get("search") === "needle" && params.get("expiry_state") === "EXPIRED";
+        });
+      expect(request).toBeDefined();
+      expect(new URLSearchParams(String(request).split("?")[1]).has("cursor")).toBe(false);
+    });
+  });
+
+  it("keeps product optional and sends the authoritative family product id expected by Backend", async () => {
+    const familyRow = item(1, {
+      product_id: 41,
+      product_variant_id: 211,
+      product_name: "Variant 211",
+      family_name: "Family 41",
+    });
+    mocks.authFetch.mockImplementation(async (path: string) => {
+      if (path.startsWith("/warehouse/inventory/batches/summary?")) return summary();
+      if (path.startsWith("/warehouse/inventory/batches/cursor?")) return page([familyRow]);
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    renderPage();
+    expect(await screen.findAllByText("Variant 211")).not.toHaveLength(0);
+
+    const firstCursorPath = mocks.authFetch.mock.calls
+      .map(([path]) => String(path))
+      .find((path) => path.startsWith("/warehouse/inventory/batches/cursor?"));
+    const firstParams = new URLSearchParams(String(firstCursorPath).split("?")[1]);
+    expect(firstParams.has("product_variant_id")).toBe(false);
+    expect(firstParams.has("family_id")).toBe(false);
+
+    expect(screen.getByRole("option", { name: "Family 41" })).toHaveValue("41");
+    fireEvent.change(screen.getByRole("combobox", { name: "Family" }), {
+      target: { value: "41" },
+    });
+
+    await waitFor(() => {
+      const request = mocks.authFetch.mock.calls
+        .map(([path]) => String(path))
+        .filter((path) => path.startsWith("/warehouse/inventory/batches/cursor?"))
+        .find((path) => new URLSearchParams(path.split("?")[1]).get("family_id") === "41");
+      expect(request).toBeDefined();
+      const params = new URLSearchParams(String(request).split("?")[1]);
+      expect(params.has("cursor")).toBe(false);
+      expect(params.has("product_variant_id")).toBe(false);
+    });
+  });
+
+  it("keeps search, filters, and batch actions on the native keyboard focus path without trapping focus", async () => {
+    mocks.authFetch.mockImplementation(async (path: string) => {
+      if (path.startsWith("/warehouse/inventory/batches/cursor?")) return page([item(1)]);
+      if (path.startsWith("/warehouse/inventory/batches/summary?")) return summary();
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    renderPage();
+    expect(await screen.findAllByText("Product 1")).not.toHaveLength(0);
+
+    const search = screen.getByRole("searchbox");
+    const expiry = screen.getByRole("combobox", { name: "Expiry" });
+    const manage = screen.getAllByRole("button", { name: "Manage batch status" })[0] as HTMLButtonElement;
+
+    expect(search.tabIndex).toBe(0);
+    expect(expiry.tabIndex).toBe(0);
+    expect(manage.tagName).toBe("BUTTON");
+    expect(manage.type).toBe("button");
+    expect(manage.tabIndex).toBe(0);
+
+    search.focus();
+    expect(document.activeElement).toBe(search);
+    expiry.focus();
+    expect(document.activeElement).toBe(expiry);
+    manage.focus();
+    expect(document.activeElement).toBe(manage);
+
+    fireEvent.click(manage);
+    expect(screen.getByTestId("batch-action-workspace")).toHaveTextContent("LOT-1");
+
+    search.focus();
+    expect(document.activeElement).toBe(search);
   });
 });
