@@ -1005,6 +1005,7 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             assert failed.value.status_code == 409
             session = await db.get(StocktakeSession, rollback_session)
             assert session is not None and session.status == "PENDING_REVIEW"
+            rollback_reference_id = str(session.reference_number)
             assert await _balance(db, a.company_id, a.a2, a.variant, a.batch) == before_balance
             assert int(
                 await db.scalar(
@@ -1022,24 +1023,11 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 limit=100,
                 search=None,
                 reference_type="AUDIT_ADJUSTMENT",
-                reference_id=None,
+                reference_id=rollback_reference_id,
                 db=db,
                 access=a.operator.access(db),
             )
-            assert all(
-                item["id"] not in {
-                    movement.id
-                    for movement in (
-                        await db.scalars(
-                            select(InventoryMovement).where(
-                                InventoryMovement.company_id == a.company_id,
-                                InventoryMovement.stocktake_session_id == rollback_session,
-                            )
-                        )
-                    ).all()
-                }
-                for item in rollback_ledger["items"]
-            )
+            assert rollback_ledger["items"] == []
             cancelled = await stocktake.cancel_stocktake_session(
                 rollback_session,
                 StocktakeCancelCommand(
