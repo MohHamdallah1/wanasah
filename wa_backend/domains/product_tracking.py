@@ -364,17 +364,25 @@ def is_reserved_internal_batch_number(value: object) -> bool:
 
 def build_internal_no_lot_batch_number(
     *,
+    request_id: UUID,
     production_date: date | None,
     expiry_date: date | None,
 ) -> str:
-    """Build deterministic hidden identity for a non-lot-tracked batch.
+    """Build a deterministic storage-only identity for an anonymous batch.
 
-    ProductBatch remains the inventory identity required by InventoryBalance.
-    For lot_control_mode=NONE the user must not invent a lot number, so the
-    system groups stock by the metadata that still affects batch semantics.
-    The ProductBatch uniqueness constraint is already variant-scoped.
+    The durable inbound request id prevents separate receipts from collapsing
+    into one ProductBatch. ProductBatch uniqueness already supplies product
+    variant scope, while production/expiry metadata separates distinct
+    anonymous groups inside one receipt. Purchasing UOM, quantity and cost are
+    intentionally excluded from physical batch identity.
     """
 
+    if not isinstance(request_id, UUID):
+        raise ProductTrackingError(
+            "PRODUCT_TRACKING_INTERNAL_BATCH_INVALID",
+            "Internal non-lot batch identity requires a durable request id.",
+            status_code=500,
+        )
     production_date = _optional_plain_date(
         production_date,
         field_name="production_date",
@@ -396,6 +404,7 @@ def build_internal_no_lot_batch_number(
     )
     value = (
         f"{INTERNAL_NO_LOT_PREFIX}"
+        f"R{request_id.hex.upper()}:"
         f"P{production_token}:E{expiry_token}"
     )
     if len(value) > 100:
@@ -405,6 +414,14 @@ def build_internal_no_lot_batch_number(
             status_code=500,
         )
     return value
+
+
+def public_batch_number(value: object) -> str | None:
+    """Return the operator-visible lot number without leaking internal identity."""
+
+    if value is None or is_reserved_internal_batch_number(value):
+        return None
+    return str(value)
 
 
 async def assert_tracking_mode_change_allowed(

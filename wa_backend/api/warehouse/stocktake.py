@@ -5,7 +5,7 @@ import hashlib
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -45,6 +45,7 @@ from services import (
     validate_vehicle_recon_work_session,
 )
 from quantity import QuantityError, canonical_quantity, validate_variant_quantity
+from domains.product_tracking import public_batch_number
 from schemas import StocktakeActiveSessionCursorPage, StocktakeApprovalRequest, StocktakeCancelRequest, StocktakeCycleBatchCursorPage, StocktakeRecountRequest, StocktakeSessionContextResponse, UnifiedStocktakeCountRequest, UnifiedStocktakeStartRequest, VehicleReconCandidateCursorPage
 
 from models import (
@@ -415,6 +416,9 @@ def _iso_utc(value):
         value = value.astimezone(timezone.utc)
     return value.isoformat()
 
+def _iso_date_or_none(value: date | None) -> str | None:
+    return value.isoformat() if value is not None else None
+
 
 # ====================================================
 # 11.8 بناء شرط تداخل جلسات الجرد
@@ -712,7 +716,7 @@ async def list_stocktake_cycle_batches(
             {
                 "id": int(row.id),
                 "product_variant_id": int(row.product_variant_id),
-                "batch_number": str(row.batch_number),
+                "batch_number": public_batch_number(row.batch_number),
                 "production_date": row.production_date,
                 "expiry_date": row.expiry_date,
                 "is_active": bool(row.is_active),
@@ -1311,7 +1315,7 @@ async def list_active_stocktake_sessions(
                     if row.scope_batch_id is not None
                     else None
                 ),
-                "scope_batch_number": row.scope_batch_number,
+                "scope_batch_number": public_batch_number(row.scope_batch_number),
                 "related_work_session_id": (
                     int(row.related_work_session_id)
                     if row.related_work_session_id is not None
@@ -1871,8 +1875,8 @@ async def get_stocktake_count_sheet(
         "base_uom_name": base_uom_name,
         "quantity_scale": quantity_scale,
         "quantity_step": canonical_quantity(quantity_step),
-        "batch_number": batch_number,
-        "expiry_date": expiry_date.isoformat(),
+        "batch_number": public_batch_number(batch_number),
+        "expiry_date": _iso_date_or_none(expiry_date),
     } for (
         line, product_name, base_uom_id, quantity_scale, quantity_step,
         base_uom_code, base_uom_name, batch_number, expiry_date,
@@ -2359,8 +2363,8 @@ async def get_stocktake_review(
             "base_uom_name": base_uom_name,
             "quantity_scale": quantity_scale,
             "quantity_step": canonical_quantity(quantity_step),
-            "batch_number": batch_number,
-            "expiry_date": expiry_date.isoformat(),
+            "batch_number": public_batch_number(batch_number),
+            "expiry_date": _iso_date_or_none(expiry_date),
             "expected_quantity": canonical_quantity(attempt_line.expected_quantity),
             "actual_quantity": canonical_quantity(attempt_line.actual_quantity),
             "variance_quantity": canonical_quantity(attempt_line.variance_quantity),

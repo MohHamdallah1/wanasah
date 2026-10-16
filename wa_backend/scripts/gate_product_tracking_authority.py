@@ -4,6 +4,7 @@ import asyncio
 import sys
 from datetime import date, datetime
 from pathlib import Path
+from uuid import UUID
 
 from sqlalchemy import text
 
@@ -55,11 +56,14 @@ def static_checks() -> None:
         "Invalid tracking modes fail closed",
     )
 
+    gate_request_id = UUID("00000000-0000-4000-8000-000000000001")
     no_lot = build_internal_no_lot_batch_number(
+        request_id=gate_request_id,
         production_date=None,
         expiry_date=None,
     )
     expiring = build_internal_no_lot_batch_number(
+        request_id=gate_request_id,
         production_date=None,
         expiry_date=date(2030, 1, 2),
     )
@@ -73,6 +77,7 @@ def static_checks() -> None:
 
     try:
         build_internal_no_lot_batch_number(
+            request_id=gate_request_id,
             production_date=datetime.now(),
             expiry_date=None,
         )

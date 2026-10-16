@@ -26,6 +26,7 @@ from models import (
 )
 from quantity import canonical_quantity
 from domains.inventory_rules import batch_metadata_is_sellable
+from domains.product_tracking import INTERNAL_NO_LOT_PREFIX, public_batch_number
 from schemas import WarehouseBatchStockSourcesResponse
 
 SPECIAL_TRANSFER_PERMISSION = {
@@ -111,6 +112,7 @@ def endpoint():
         OWNER_PREVIEW_LIMIT=OWNER_PREVIEW_LIMIT,
         reservation_owner_projection=reservation_owner_projection,
         batch_metadata_is_sellable=batch_metadata_is_sellable,
+        public_batch_number=public_batch_number,
         allowed_special_transfer_purposes=no_special_purposes,
         SPECIAL_TRANSFER_PERMISSION=SPECIAL_TRANSFER_PERMISSION,
         read_special_transfer_destinations=no_special_transfer_destinations,
@@ -255,6 +257,19 @@ async def read(store, user=None):
     access = BackofficeCapabilityAccess(store.db, user or subject())
     response = await endpoint()(11, store.db, access)
     return WarehouseBatchStockSourcesResponse.model_validate(response).model_dump(mode="json")
+
+
+@pytest.mark.asyncio
+async def test_internal_anonymous_batch_number_is_hidden_from_stock_source_response(store):
+    batch_table = store.tables[ProductBatch.__table__.name]
+    store.connection.execute(
+        batch_table.update()
+        .where(batch_table.c.id == 11)
+        .values(batch_number=INTERNAL_NO_LOT_PREFIX + "RUNTIME-TEST")
+    )
+    balance(store, reserved="0")
+    response = await read(store)
+    assert response["batch_number"] is None
 
 
 @pytest.mark.asyncio

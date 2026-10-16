@@ -29,7 +29,7 @@ BODY_DIGESTS = {
     "get_warehouse_inventory_families": "503e7a46234da259ea6cfe499b66a91b8536ae9665af495937be241e517ea39a",
     "get_warehouse_inventory_batch_products": "f6bfee27786853d1cd459d1b364439a81eba046fbfdedae7ec965ab1f3d852f8",
     "get_warehouse_inventory": "c8b7a0071db8be55fa7c877938433f59e4d1f9bafffcb22e4cd450995d42a6ee",
-    "get_warehouse_inventory_batches": "d54107ad68fb0b2ed3ec7d40b394cfddc069e0b740665f6255a5fcf70f47c3fd",
+    "get_warehouse_inventory_batches": "02247f61076a2abc7dce4170bdb4acfc3b4374c6530e518f1c236d40e99d1ad3",
     "get_quality_batch_candidates": "dbb77198a3646598e08488b36eabb33bd50118746a191b108db3f23e0cb7f95a",
     "get_whole_product_quality_issue_sources": "ed1dfcdedef07f94acfb29c084cf76c7a7062599da39df6d3dca77f3308ac474",
     "get_batch_stock_sources": "3c5afe3ba07b71ce1535af807148c3756f07f6cd6a053597424d204a6ab2c45e"

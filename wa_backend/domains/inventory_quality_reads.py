@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import InventoryBalance, InventoryLocation, ProductBatch, ProductVariant, UOM
 from quantity import canonical_quantity
+from domains.product_tracking import public_batch_number
 
 
 QUALITY_BATCH_SOURCE_PREVIEW_LIMIT = 6
@@ -277,7 +278,7 @@ async def read_quality_batch_candidates(
         batch_id = int(row.batch_id)
         items.append({
             "batch_id": batch_id,
-            "batch_number": str(row.batch_number),
+            "batch_number": public_batch_number(row.batch_number),
             "production_date": row.production_date,
             "expiry_date": row.expiry_date,
             "disposition": str(row.disposition),
