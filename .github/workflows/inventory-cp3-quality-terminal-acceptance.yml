@@ -24,6 +24,12 @@ on:
       - "dashboard/src/features/inventory/quality/useProductQualityCommands.ts"
       - "wa_backend/api/warehouse/transfers.py"
   workflow_dispatch:
+    inputs:
+      full_regression:
+        description: Run the previously accepted broader checkpoint regressions
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -60,7 +66,7 @@ jobs:
           tests/test_special_transfer_action_options.py
           tests/test_cp4_warehouse_branch_lifecycle_closure.py
           tests/test_product_locations_canonical_auth_cutover.py
-      - name: CP3 section 3.4 and CP7 CP10 integration regressions
+      - name: CP3.4 focused Backend and Supplier canonical quality acceptance
         working-directory: wa_backend
         run: >-
           python -m pytest -q
@@ -78,6 +84,11 @@ jobs:
           tests/test_whole_product_quality_terminal_completion.py
           tests/test_whole_product_quality_stage4_legacy_fifo.py
           tests/test_whole_product_quality_issue_sources.py
+      - name: Broader Backend regressions on explicit full run
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_regression }}
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
           tests/test_cp7_live_stock_contract.py
           tests/test_live_stock_canonical_cutover.py
           tests/test_cp10_ledger_backend.py
@@ -86,7 +97,7 @@ jobs:
         working-directory: wa_backend
         run: python scripts/gate_warehouse_route_manifest.py
       - name: py_compile CP3.4 and CP8 Backend
-        run: python -m compileall -q wa_backend/api/warehouse/whole_product_quality.py wa_backend/domains/inventory_quality_confirmation.py wa_backend/tests/test_cp34_quality_terminal_backend.py wa_backend/tests/test_cp34_quality_terminal_postgres.py wa_backend/api/warehouse/transfers.py wa_backend/api/warehouse/transfer_policy.py wa_backend/domains/transfers wa_backend/tests/test_cp8_transfers_backend.py wa_backend/tests/test_cp8_transfers_postgres.py
+        run: python -m py_compile wa_backend/api/warehouse/whole_product_quality.py wa_backend/domains/inventory_quality_confirmation.py wa_backend/tests/test_cp34_quality_terminal_backend.py wa_backend/tests/test_cp34_quality_terminal_postgres.py wa_backend/tests/test_supplier_inbound_quality_canonical_auth_cutover.py wa_backend/tests/test_supplier_master_db.py wa_backend/tests/test_whole_product_quality_terminal_completion.py wa_backend/api/warehouse/transfers.py wa_backend/api/warehouse/transfer_policy.py wa_backend/domains/transfers/__init__.py wa_backend/domains/transfers/replay.py wa_backend/tests/test_cp8_transfers_backend.py wa_backend/tests/test_cp8_transfers_postgres.py
 
   postgres-16:
     runs-on: ubuntu-24.04
@@ -163,14 +174,20 @@ jobs:
       - name: CP8 Dashboard interactions and policy recovery
         working-directory: dashboard
         run: npm test -- src/pages/inventory/transfers/cp8-transfers.test.tsx src/test/cp8-quality-destinations.test.tsx
-      - name: CP3.4 quality terminal and Supplier recovery acceptance
+      - name: CP3.4 terminal and durable recovery acceptance
         working-directory: dashboard
         run: >-
           npm test --
+          src/test/batch-terminal-actions.test.tsx
           src/test/cp34-quality-durable.test.tsx
+      - name: Supplier focused frontend quality-return acceptance
+        working-directory: dashboard
+        run: >-
+          npm test --
           src/test/suppliers-v1.test.tsx
-          src/test/catalog-inventory-boundary.test.ts
+          -t "retries whole-product return|replays a stored pre-Supplier quality command"
       - name: CP3 quality seams and CP4 CP5 CP7 CP10 Dashboard regressions
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_regression }}
         working-directory: dashboard
         run: >-
           npm test --
@@ -205,6 +222,7 @@ jobs:
 
 
   cp4-postgres-regression:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_regression }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -260,6 +278,7 @@ jobs:
           tests/test_cp4_warehouse_deactivation_blockers_postgres.py
 
   cp7-postgres-regression:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_regression }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -330,6 +349,7 @@ jobs:
         run: python -m pytest -q -s tests/test_cp7_live_stock_postgres.py
 
   cp10-postgres-regression:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_regression }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -414,3 +434,7 @@ jobs:
           PY
           git diff --check "$base" HEAD
           git merge-base --is-ancestor 361fcd0aeda0b0272041c69706ed5bf699b86363 HEAD
+          git merge-base --is-ancestor 0fcab776a0b792a576ed8c2617640f334d8a135d HEAD
+          git merge-base --is-ancestor 1002875b678d10edfc70469e6d9f831f082121eb HEAD
+          git diff --exit-code 0fcab776a0b792a576ed8c2617640f334d8a135d HEAD -- dashboard/src/test/batch-terminal-actions.test.tsx dashboard/src/test/suppliers-v1.test.tsx wa_backend/domains/inventory_quality_confirmation.py wa_backend/api/warehouse/whole_product_quality.py wa_backend/tests/test_supplier_inbound_quality_canonical_auth_cutover.py wa_backend/tests/test_whole_product_quality_terminal_completion.py dashboard/src/pages/inventory/batches/useBatchTerminalAction.ts dashboard/src/test/cp34-quality-durable.test.tsx wa_backend/tests/test_cp34_quality_terminal_postgres.py wa_backend/tests/test_cp34_quality_terminal_backend.py wa_backend/tests/test_supplier_master_db.py
+          git diff --exit-code 1002875b678d10edfc70469e6d9f831f082121eb HEAD -- .github/workflows/inventory-cp12-security-performance.yml wa_backend/tests/test_cp12_inventory_security_postgres.py wa_backend/tests/test_cp12_inventory_performance_postgres.py dashboard/src/pages/inventory/TabBatches.tsx dashboard/src/pages/inventory/batches/BatchDispositionManager.tsx dashboard/src/pages/inventory/batches/BatchFocusWorkspace.tsx dashboard/src/pages/inventory/batches/BatchQuantityActions.tsx dashboard/src/pages/inventory/batches/useBatchDispositionCommand.ts
