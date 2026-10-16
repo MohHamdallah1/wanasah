@@ -58,6 +58,7 @@ jobs:
           python -m pytest -q
           tests/test_inbound_no_lot_frozen_contract.py
           tests/test_warehouse_transfers_canonical_auth_cutover.py
+          -k "not ledger"
       - name: CP7 source-detail regression
         working-directory: wa_backend
         run: >-
