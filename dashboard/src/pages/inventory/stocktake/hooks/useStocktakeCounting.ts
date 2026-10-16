@@ -43,7 +43,7 @@ export function useStocktakeCounting({
   setPhase,
   onSubmitted,
 }: UseStocktakeCountingArgs) {
-  const { copy, isArabic } = useStocktakeCopy();
+  const { copy } = useStocktakeCopy();
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -110,19 +110,7 @@ export function useStocktakeCounting({
     setReview(null);
     setPhase("COUNTING");
     localStorage.setItem(phaseKey, "COUNTING");
-  }, [
-    authenticatedFetch,
-    companyScope,
-    copy.count.scopeMismatch,
-    copy.lifecycle.unknownLocation,
-    phaseKey,
-    sessionLocationId,
-    setPhase,
-    setReview,
-    setRows,
-    setSessionId,
-    setSessionLocationId,
-  ]);
+  }, [authenticatedFetch, companyScope, copy.count.scopeMismatch, copy.lifecycle.unknownLocation, phaseKey, sessionLocationId, setPhase, setReview, setRows, setSessionId, setSessionLocationId]);
 
   useEffect(() => {
     if (phase === "COUNTING" && draftKey && rows.length > 0) {
@@ -165,7 +153,7 @@ export function useStocktakeCounting({
       return false;
     }
     if (!durableIdentity) {
-      toast.error(isArabic ? "هوية مستخدم الجرد غير جاهزة بعد." : "The stocktake user identity is not ready yet.");
+      toast.error(copy.generic.identityNotReady);
       return false;
     }
 
@@ -201,19 +189,7 @@ export function useStocktakeCounting({
     } finally {
       setSubmitting(false);
     }
-  }, [
-    authenticatedFetch,
-    copy.count,
-    copy.generic.countFailed,
-    durableIdentity,
-    draftKey,
-    isArabic,
-    notes,
-    onSubmitted,
-    rows,
-    sessionId,
-    sessionLocationId,
-  ]);
+  }, [authenticatedFetch, copy.count, copy.generic.countFailed, copy.generic.identityNotReady, durableIdentity, draftKey, notes, onSubmitted, rows, sessionId, sessionLocationId]);
 
   return {
     notes,
