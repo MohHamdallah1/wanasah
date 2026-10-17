@@ -83,6 +83,8 @@ describe("CP13 Warehouse setup final presentation", () => {
     expect(source).toContain('data-warehouse-setup-view="quality"');
     expect(source.match(/<QualityHandlingDestinationsCard/g)?.length).toBe(1);
     expect(quality).toContain('data-warehouse-setup="quality-policy"');
+    expect(quality).not.toContain("inventoryWarehouses.qualityDestinations.search");
+    expect(quality).not.toContain("<Search");
     expect(quality).toContain("presentation.qualityPolicy");
     expect(quality).toContain("presentation.qualityPolicyHint");
     expect(quality).toContain("useTransferDestinationPolicy");

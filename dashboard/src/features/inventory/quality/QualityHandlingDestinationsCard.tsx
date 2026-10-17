@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, CircleDashed, RefreshCcw, Save, Search, ShieldCheck } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleDashed, RefreshCcw, Save, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { warehousePresentationCopy } from "@/pages/inventory/warehouse-locations/presentationI18n";
 import { useTransferDestinationPolicy } from "./useTransferDestinationPolicy";
@@ -10,8 +10,8 @@ export function QualityHandlingDestinationsCard({ compact = false, onSaved }: { 
   const language = i18n.resolvedLanguage ?? i18n.language;
   const presentation = warehousePresentationCopy(language);
   const controller = useTransferDestinationPolicy(onSaved);
-  const { canManage, policy, form, setForm, options, searchInput, setSearchInput,
-    hasMoreLocations, loading, saving, pending, loadError, saveDraft, publish, canPublish } = controller;
+  const { canManage, policy, form, setForm, options,
+    loading, saving, pending, loadError, saveDraft, publish, canPublish } = controller;
   if (!canManage) return null;
 
   const select = (key: "quarantine" | "disposal" | "vendorReturn", labelKey: string, hintKey: string) => (
@@ -71,17 +71,6 @@ export function QualityHandlingDestinationsCard({ compact = false, onSaved }: { 
 
       <form onSubmit={(event) => { event.preventDefault(); void saveDraft(); }}>
         <fieldset disabled={loading || saving || Boolean(pending) || Boolean(loadError)} className="min-w-0">
-          <div className="relative mt-3">
-            <Search aria-hidden="true" className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              value={searchInput}
-              onChange={(event) => setSearchInput(event.target.value)}
-              aria-label={t("inventoryWarehouses.qualityDestinations.search")}
-              placeholder={t("inventoryWarehouses.qualityDestinations.search")}
-              className={`w-full rounded-xl border border-slate-200 bg-white py-2.5 ps-10 pe-3 text-sm ${focusRing}`}
-            />
-          </div>
-          {hasMoreLocations ? <p className="mt-1 text-[9px] font-semibold text-slate-500">{t("inventoryWarehouses.qualityDestinations.searchMore")}</p> : null}
           <div className="mt-3 grid gap-3 lg:grid-cols-3">
             {select("quarantine", "inventoryWarehouses.qualityDestinations.quarantine.label", "inventoryWarehouses.qualityDestinations.quarantine.hint")}
             {select("vendorReturn", "inventoryWarehouses.qualityDestinations.vendorReturn.label", "inventoryWarehouses.qualityDestinations.vendorReturn.hint")}
