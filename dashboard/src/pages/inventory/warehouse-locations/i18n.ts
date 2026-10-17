@@ -3,9 +3,13 @@ import { resolveAppLocale } from "@/lib/locale";
 export interface WarehouseLocationsCopy {
   title: string;
   summary: (total: string, active: string) => string;
-  manageBranches: string;
   refresh: string;
   newWarehouse: string;
+  firstWarehouseEyebrow: string;
+  firstWarehouseTitle: string;
+  firstWarehouseDescription: string;
+  createFirstWarehouse: string;
+  firstWarehouseHint: string;
   search: string;
   warehouse: string;
   code: string;
@@ -52,9 +56,13 @@ export interface WarehouseLocationsCopy {
 const warehouseAr: WarehouseLocationsCopy = {
   title: "إدارة المستودعات",
   summary: (total, active) => `${total} مستودع · ${active} فعال في الصفحة الحالية`,
-  manageBranches: "إدارة الفروع",
   refresh: "تحديث",
   newWarehouse: "مستودع جديد",
+  firstWarehouseEyebrow: "نقطة البداية",
+  firstWarehouseTitle: "ابدأ من مكان حقيقي: أنشئ أول مستودع",
+  firstWarehouseDescription: "المستودع هو نقطة انطلاق المخزون في وناسة. بعد إنشائه تصبح عمليات الاستلام، الرصيد الحي، الدفعات، التحويلات، الجرد وسجل الحركات جاهزة للعمل.",
+  createFirstWarehouse: "إنشاء أول مستودع",
+  firstWarehouseHint: "ابدأ بمستودع واحد فقط. يمكنك إضافة بقية المستودعات لاحقاً عندما تحتاجها.",
   search: "بحث بالاسم أو الكود (حرفان على الأقل)",
   warehouse: "المستودع",
   code: "الكود",
@@ -108,9 +116,13 @@ const warehouseAr: WarehouseLocationsCopy = {
 const warehouseEn: WarehouseLocationsCopy = {
   title: "Manage warehouses",
   summary: (total, active) => `${total} warehouses · ${active} active on this page`,
-  manageBranches: "Manage branches",
   refresh: "Refresh",
   newWarehouse: "New warehouse",
+  firstWarehouseEyebrow: "Starting point",
+  firstWarehouseTitle: "Start somewhere real: create your first warehouse",
+  firstWarehouseDescription: "A warehouse is where inventory starts in Wanasah. Once it exists, receiving, live stock, batches, transfers, stocktakes, and movement history have a real place to operate.",
+  createFirstWarehouse: "Create first warehouse",
+  firstWarehouseHint: "Start with one warehouse. Add the rest later, only when the operation needs them.",
   search: "Search by name or code (2+ characters)",
   warehouse: "Warehouse",
   code: "Code",

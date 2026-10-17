@@ -115,17 +115,19 @@ describe("CP4 Warehouse/Branch Dashboard closure", () => {
     installFetch();
   });
 
-  it("keeps canonical non-owner branch reachability and independent action gates", async () => {
+  it("keeps branch administration out of the warehouse page while preserving canonical branch gates", async () => {
     mocks.companyCaps.add("branch.read");
     const view = renderWarehouses();
-    expect(screen.getByRole("button", { name: "إدارة الفروع" })).toBeTruthy();
-    expect(calls("/warehouse/locations/manage?")).toHaveLength(0);
-    fireEvent.click(screen.getByRole("button", { name: "إدارة الفروع" }));
+    expect(screen.queryByRole("button", { name: "إدارة الفروع" })).toBeNull();
+    expect(calls("/warehouse/branches/manage?")).toHaveLength(0);
+    view.unmount();
+
+    const readOnlyModal = renderBranchModal();
     await screen.findByText(branch.name);
     expect(screen.getByRole("button", { name: "فرع جديد" })).toBeDisabled();
     expect(screen.getByTitle("تعديل")).toBeDisabled();
     expect(screen.getByTitle("تعطيل")).toBeDisabled();
-    view.unmount();
+    readOnlyModal.unmount();
 
     mocks.companyCaps.add("branch.create");
     const modal = renderBranchModal();
@@ -133,6 +135,29 @@ describe("CP4 Warehouse/Branch Dashboard closure", () => {
     expect(screen.getByRole("button", { name: "فرع جديد" })).toBeEnabled();
     expect(screen.getByTitle("تعديل")).toBeDisabled();
     modal.unmount();
+  });
+
+  it("shows only the first-warehouse start experience when the company has no warehouses", async () => {
+    mocks.companyCaps.add("location.read");
+    mocks.companyCaps.add("location.create");
+    mocks.authFetch.mockImplementation(async (url: string) => {
+      if (url.startsWith("/warehouse/locations/manage?")) {
+        return { items: [], next_cursor: null, has_more: false, total: 0 };
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    renderWarehouses();
+    const start = await screen.findByTestId("warehouse-first-empty");
+    expect(start).toHaveTextContent("ابدأ من مكان حقيقي: أنشئ أول مستودع");
+    expect(start).toHaveTextContent("الرصيد الحي");
+    expect(screen.queryByLabelText("بحث بالاسم أو الكود (حرفان على الأقل)")).toBeNull();
+    expect(screen.queryByRole("button", { name: "إدارة الفروع" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "تحديث" })).toBeNull();
+    expect(screen.queryByText("minimum-stock-manager")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "إنشاء أول مستودع" }));
+    expect(screen.getByRole("dialog", { name: "إضافة مستودع" })).toBeTruthy();
   });
 
   it("never treats CompanyOwner as branch authority", () => {

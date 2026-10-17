@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Building2, ChevronLeft, ChevronRight, GitBranch, Pencil, Plus, Power, PowerOff, RefreshCcw, Search } from "lucide-react";
+import { Building2, ChevronLeft, ChevronRight, Pencil, Plus, Power, PowerOff, RefreshCcw, Search } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Modal } from "@/components/ui/modal";
 import { apiErrorCode, apiErrorContext, apiErrorMessage } from "@/lib/apiErrors";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { useInventoryAccess, useLocationCapabilities } from "@/hooks/useInventoryAccess";
-import { BranchManagementModal } from "./warehouse-locations/BranchManagementModal";
 import { BranchSelector } from "./warehouse-locations/BranchSelector";
 import { StockMinimumManager } from "./StockMinimumManager";
 import { QualityHandlingDestinationsCard } from "./warehouse-locations/QualityHandlingDestinationsCard";
@@ -189,7 +188,6 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
   const [fieldIssue, setFieldIssue] = useState<FormFieldIssue>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const codeInputRef = useRef<HTMLInputElement>(null);
-  const [branchManagerOpen, setBranchManagerOpen] = useState(false);
   const [branchRefreshKey, setBranchRefreshKey] = useState(0);
 
   const [stateAction, setStateAction] = useState<StateAction | null>(null);
@@ -249,6 +247,7 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
 
   const activeCount = useMemo(() => items.filter((item) => item.is_active).length, [items]);
   const canManageMinimumStock = selectedLocationId !== null && access.can("inventory.minimum_stock.manage") && minimumStockAccess.can("inventory.read");
+  const showFirstWarehouseStart = canReadLocations && total === 0 && !loading && !loadIssue && !search && cursor === null && items.length === 0;
 
   const resetToFirstPageAndRefresh = useCallback(() => {
     setCursor(null);
@@ -470,6 +469,65 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
 
   return (
     <div dir={dir} className="inventory-view inventory-locations flex min-h-0 flex-1 flex-col gap-3">
+      {showFirstWarehouseStart ? (
+        <section
+          data-testid="warehouse-first-empty"
+          aria-labelledby="warehouse-first-empty-title"
+          className="relative isolate flex min-h-[58vh] items-center justify-center overflow-hidden rounded-[28px] border border-slate-200/90 bg-[#fbfcfe] px-5 py-12 sm:px-8"
+        >
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 opacity-[0.42]"
+            style={{
+              backgroundImage: "linear-gradient(to right, rgba(15,23,42,.055) 1px, transparent 1px), linear-gradient(to bottom, rgba(15,23,42,.055) 1px, transparent 1px)",
+              backgroundSize: "28px 28px",
+            }}
+          />
+          <div aria-hidden="true" className="pointer-events-none absolute inset-x-6 top-6 flex items-center justify-between text-[9px] font-black tracking-[0.22em] text-slate-300 sm:inset-x-9">
+            <span>WH / 001</span>
+            <span>00°00′</span>
+          </div>
+          <div className="relative mx-auto flex w-full max-w-[680px] flex-col items-center text-center">
+            <div aria-hidden="true" className="relative mb-7 h-32 w-52 text-slate-700">
+              <div className="absolute inset-x-4 bottom-2 h-[78px] border-x border-b-2 border-t border-slate-300 bg-white/90 shadow-[8px_8px_0_0_rgba(226,232,240,0.75)]">
+                <div className="absolute inset-x-0 top-5 border-t border-dashed border-slate-200" />
+                <div className="absolute bottom-0 start-1/2 h-11 w-12 -translate-x-1/2 border-x border-t-2 border-slate-500 bg-slate-50">
+                  <div className="mx-auto mt-3 h-px w-5 bg-blue-500" />
+                </div>
+              </div>
+              <div className="absolute start-1/2 top-2 h-8 w-px -translate-x-1/2 bg-blue-500" />
+              <div className="absolute start-1/2 top-9 -translate-x-1/2 bg-[#fbfcfe] px-2">
+                <Building2 className="h-11 w-11 stroke-[1.35] text-slate-800" />
+              </div>
+              <span className="absolute start-0 top-7 border-s border-t border-slate-300 px-2 py-1 text-[9px] font-black tracking-[0.16em] text-slate-400">01</span>
+              <span className="absolute end-0 bottom-4 border-b border-e border-slate-300 px-2 py-1 text-[9px] font-black tracking-[0.16em] text-slate-400">START</span>
+            </div>
+
+            <p className="mb-2 text-[10px] font-black uppercase tracking-[0.24em] text-blue-700">{copy.firstWarehouseEyebrow}</p>
+            <h2 id="warehouse-first-empty-title" className="max-w-[620px] text-balance text-2xl font-black leading-tight text-slate-950 sm:text-[32px]">
+              {copy.firstWarehouseTitle}
+            </h2>
+            <p className="mt-3 max-w-[590px] text-pretty text-sm font-medium leading-7 text-slate-600 sm:text-[15px]">
+              {copy.firstWarehouseDescription}
+            </p>
+
+            <button
+              type="button"
+              disabled={!access.can("location.create")}
+              onClick={openCreate}
+              className={`group mt-7 inline-flex min-h-12 items-center gap-3 rounded-full bg-slate-950 px-5 py-2.5 text-sm font-black text-white shadow-[0_8px_0_0_rgba(15,23,42,0.10)] transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0 ${focusRing}`}
+            >
+              <span className="grid h-7 w-7 place-items-center rounded-full border border-white/20 bg-white/10">
+                <Plus aria-hidden="true" className="h-4 w-4" />
+              </span>
+              <span>{copy.createFirstWarehouse}</span>
+              <span aria-hidden="true" className="h-px w-5 bg-white/45 transition-[width] duration-200 group-hover:w-8" />
+            </button>
+            <p className="mt-4 max-w-[520px] text-xs font-semibold leading-5 text-slate-400">{copy.firstWarehouseHint}</p>
+          </div>
+        </section>
+      ) : (
+        <>
       <section className="glass-card overflow-hidden rounded-2xl" aria-labelledby="warehouse-setup-title" data-cp13-density="compact">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-3 sm:p-4">
           <div className="min-w-0">
@@ -482,11 +540,6 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             {canManageMinimumStock && <StockMinimumManager locationId={selectedLocationId} onApplied={onMinimumApplied} />}
-            {canReadBranches && (
-              <button type="button" onClick={() => setBranchManagerOpen(true)} className={`inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 ${focusRing}`}>
-                <GitBranch aria-hidden="true" className="h-4 w-4" /><span>{copy.manageBranches}</span>
-              </button>
-            )}
             <button type="button" disabled={!access.can("location.create")} onClick={openCreate} className={`inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-40 sm:text-sm ${focusRing}`}>
               <Plus aria-hidden="true" className="h-4 w-4" /><span>{copy.newWarehouse}</span>
             </button>
@@ -570,6 +623,8 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
       </section>
 
       <QualityHandlingDestinationsCard />
+        </>
+      )}
 
       <Modal isOpen={formOpen} onClose={() => { if (!formSubmitting) setFormOpen(false); }} title={formMode === "create" ? copy.add : copy.edit}>
         <form className="space-y-3" dir={dir} onSubmit={(event) => { event.preventDefault(); void handleSave(); }}>
@@ -607,17 +662,6 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
         </form>
       </Modal>
 
-      {canReadBranches && (
-        <BranchManagementModal
-          isOpen={branchManagerOpen}
-          onClose={() => setBranchManagerOpen(false)}
-          onBranchesChanged={async () => {
-            setBranchRefreshKey((value) => value + 1);
-            setRefreshKey((value) => value + 1);
-            await onLocationsChanged();
-          }}
-        />
-      )}
 
       <Modal isOpen={stateAction !== null && stateLocation !== null} onClose={() => { if (!stateSubmitting) { setStateAction(null); setStateLocation(null); setStateIssue(null); } }} title={stateAction === "deactivate" ? copy.deactivate : copy.activate}>
         <form className="space-y-4" dir={dir} onSubmit={(event) => { event.preventDefault(); void handleStateChange(); }}>

@@ -665,7 +665,41 @@ contracts. Add file onboarding only when real customer volume justifies it.
 
 ---
 
-## 11. Preservation rule
+## 11. Optional company branches and inventory operating-policy workspace
+
+### 11.1 Optional company branch model
+
+**Owner decision (2026-10-17):** Branch administration does not belong inside the Warehouse Management page. Warehouses remain usable without introducing a company-branch hierarchy.
+
+If a company enables branches later — including after months or years of production use — adoption must be **gradual, optional, and non-destructive**:
+
+- existing company-wide identities and history remain valid;
+- do not require a one-time migration that assigns every representative, vehicle, warehouse, customer, route, price, or other asset to a branch before the company can continue working;
+- add branch ownership/scope to each domain deliberately when that domain has a real business need;
+- allow an explicit unassigned/company-wide state during migration where business rules permit it;
+- new branch-scoped requirements may become stricter only after the company has deliberately completed that domain's migration;
+- preserve tenant/company as the master isolation boundary; a branch is an optional organizational scope, never a replacement tenant;
+- permissions, reports, transfers, warehouse visibility, Representatives/Vehicles, pricing, routes, and future branch switchers need their own contracts and acceptance gates before branch scope becomes authoritative for them.
+
+The V2 branch UX should live under a company/organization structure surface, not as a Warehouse-page utility button.
+
+### 11.2 Inventory operating policies workspace
+
+Quality-handling destinations and similar inventory policies are **not warehouse identity/setup fields**. They need a dedicated future owner surface rather than being mixed into Warehouse Management.
+
+Preferred V2 information architecture:
+
+- **Inventory → Operating policies** / **المخزون → سياسات التشغيل**;
+- begin with quality-handling destinations and other published inventory operational policies that are genuinely company-level;
+- keep warehouse-specific assignments/settings in Warehouse Management;
+- keep Product tracking defaults in Product/Catalog authority;
+- do not create a catch-all frontend settings page that duplicates backend business authority.
+
+Until that workspace exists, treat the current policy UI as a bounded legacy placement to be revisited; moving it is a separate feature with its own contract, permissions, migration, i18n/accessibility, and acceptance work.
+
+---
+
+## 12. Preservation rule
 
 This file is intentional product/architecture scope, not a temporary handoff note.
 
