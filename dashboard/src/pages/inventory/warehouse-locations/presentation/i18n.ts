@@ -3,7 +3,6 @@ export interface WarehousePresentationCopy {
   identityTitle: string;
   identityHint: string;
   locationTitle: string;
-  locationHint: string;
   listLoadFailed: string;
   retry: string;
   deactivationCheck: string;
@@ -18,7 +17,6 @@ const ar: WarehousePresentationCopy = {
   identityTitle: "هوية المستودع",
   identityHint: "أدخل اسم المستودع والكود.",
   locationTitle: "الموقع الفعلي",
-  locationHint: "العنوان مطلوب، ورابط الخرائط والإحداثيات اختيارية.",
   listLoadFailed: "تعذر تحميل المستودعات. يمكنك إعادة المحاولة دون فقدان إعداداتك.",
   retry: "إعادة المحاولة",
   deactivationCheck: "قبل التعطيل، يتحقق النظام من الأرصدة والعمليات والسياسات المفتوحة المرتبطة بالمستودع.",
@@ -33,7 +31,6 @@ const en: WarehousePresentationCopy = {
   identityTitle: "Warehouse identity",
   identityHint: "Enter the warehouse name and code.",
   locationTitle: "Physical location",
-  locationHint: "Address is required. Map link and coordinates are optional.",
   listLoadFailed: "Warehouses could not be loaded. You can retry without losing setup changes.",
   retry: "Retry",
   deactivationCheck: "Before deactivation, the system checks balances, open operations, locks, and published policies tied to this warehouse.",

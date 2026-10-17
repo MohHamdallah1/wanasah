@@ -21,8 +21,6 @@ describe("CP13 Warehouse setup final presentation", () => {
 
   it("keeps create/edit focused on warehouse identity and the bounded V1 physical location profile", () => {
     const source = warehouse();
-    const ar = warehousePresentationCopy("ar");
-    const en = warehousePresentationCopy("en");
     expect(source).toContain("presentation.identityTitle");
     expect(source).toContain("presentation.locationTitle");
     expect(source).not.toContain("presentation.lifecycleTitle");
@@ -32,9 +30,10 @@ describe("CP13 Warehouse setup final presentation", () => {
     expect(source).toContain("copy.locationLink");
     expect(source).toContain("copy.latitude");
     expect(source).toContain("copy.longitude");
-    expect(ar.locationHint).not.toContain("V1");
-    expect(en.locationHint).toContain("optional");
-    expect(source).toContain("copy.requiredFieldsHint");
+    expect(source).not.toContain("presentation.locationHint");
+    expect(source).toContain("copy.requiredFieldsPrefix");
+    expect(source).toContain("copy.requiredFieldsSuffix");
+    expect(source).toContain("subtitle={formMode === \"create\"");
     expect(source).toContain("copy.coordinatesHint");
     expect(source).toContain('type="submit"');
     expect(source).toContain("onSubmit={(event) => { event.preventDefault(); void handleSave(); }}");

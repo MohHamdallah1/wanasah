@@ -33,7 +33,8 @@ export interface WarehouseLocationsCopy {
   warehouseCode: string;
   codePlaceholder: string;
   codeHint: string;
-  requiredFieldsHint: string;
+  requiredFieldsPrefix: string;
+  requiredFieldsSuffix: string;
   address: string;
   addressPlaceholder: string;
   addressRequired: string;
@@ -94,14 +95,15 @@ const warehouseAr: WarehouseLocationsCopy = {
   warehouseCode: "كود المستودع",
   codePlaceholder: "WH-001",
   codeHint: "يُقترح تلقائياً مثل WH-001، ويمكنك تعديله قبل الحفظ.",
-  requiredFieldsHint: "الحقول المعلّمة بهذه العلامة إلزامية.",
+  requiredFieldsPrefix: "الحقول المعلّمة بهذه العلامة",
+  requiredFieldsSuffix: "إلزامية.",
   address: "العنوان",
   addressPlaceholder: "مثال: عمّان، ماركا الشمالية، اسم الشارع...",
   addressRequired: "العنوان مطلوب وبحد أقصى 2000 حرف.",
   locationLink: "رابط الموقع أو Google Maps (اختياري)",
   latitude: "خط العرض (اختياري)",
   longitude: "خط الطول (اختياري)",
-  coordinatesHint: "عند إدخال الإحداثيات، أدخل خط العرض وخط الطول معاً.",
+  coordinatesHint: "يمكنك إدخال رابط الخرائط أو الإحداثيات؛ يكفي أحدهما.",
   coordinatesInvalid: "أدخل خط العرض وخط الطول معاً بقيم جغرافية صحيحة.",
   deactivate: "تعطيل المستودع",
   activate: "تفعيل المستودع",
@@ -162,14 +164,15 @@ const warehouseEn: WarehouseLocationsCopy = {
   warehouseCode: "Warehouse code",
   codePlaceholder: "WH-001",
   codeHint: "Suggested automatically, for example WH-001. You can edit it before saving.",
-  requiredFieldsHint: "Fields marked with this symbol are required.",
+  requiredFieldsPrefix: "Fields marked with this symbol",
+  requiredFieldsSuffix: "are required.",
   address: "Address",
   addressPlaceholder: "Example: Amman, Marka Al-Shamaliyah, street ...",
   addressRequired: "Address is required when creating a new warehouse and must be at most 2000 characters.",
   locationLink: "Location or Google Maps link - optional",
   latitude: "Latitude - optional",
   longitude: "Longitude - optional",
-  coordinatesHint: "If you enter coordinates, enter both latitude and longitude.",
+  coordinatesHint: "Enter a map link or coordinates; either one is enough.",
   coordinatesInvalid: "Enter latitude and longitude together using valid geographic values.",
   deactivate: "Deactivate warehouse",
   activate: "Activate warehouse",
