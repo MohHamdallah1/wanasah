@@ -336,7 +336,6 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
 
   const failField = (field: "name" | "code" | "address" | "coordinates", message: string) => {
     setFieldIssue({ field, message });
-    toast.error(message);
     window.requestAnimationFrame(() => {
       if (field === "name") nameInputRef.current?.focus();
       else if (field === "code") codeInputRef.current?.focus();
