@@ -2,10 +2,17 @@
 .inventory-workspace {
   --inventory-shell-inline-pad: clamp(0.15rem, 0.65vw, 0.65rem);
   gap: clamp(0.45rem, 0.9vw, 0.7rem) !important;
-  padding-inline: var(--inventory-shell-inline-pad);
+  padding-inline: 0 !important;
   font-variant-numeric: lining-nums tabular-nums;
 }
 
+/*
+ * Keep Inventory content inset without constraining the shared WorkspaceTopBar.
+ * The top bar is the only direct child that is intentionally full-bleed.
+ */
+.inventory-workspace:not([data-live-view="true"]) > :not(.workspace-top-bar-frame) {
+  margin-inline: var(--inventory-shell-inline-pad);
+}
 
 .inventory-workspace .inventory-top-dock__dock {
   width: 100%;
@@ -107,15 +114,11 @@
   display: none;
 }
 
-
 @media (max-width: 640px) {
   .inventory-workspace {
     --inventory-shell-inline-pad: 0.1rem;
     gap: 0.4rem !important;
-    padding-inline: var(--inventory-shell-inline-pad);
   }
-
-
 
   .inventory-workspace .inventory-top-dock__dock {
     gap: 0.25rem;
