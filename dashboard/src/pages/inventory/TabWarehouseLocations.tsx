@@ -6,7 +6,6 @@ import { Modal } from "@/components/ui/modal";
 import { apiErrorCode, apiErrorContext, apiErrorMessage } from "@/lib/apiErrors";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { useInventoryAccess, useLocationCapabilities } from "@/hooks/useInventoryAccess";
-import { BranchSelector } from "./warehouse-locations/BranchSelector";
 import { StockMinimumManager } from "./StockMinimumManager";
 import { QualityHandlingDestinationsCard } from "./warehouse-locations/QualityHandlingDestinationsCard";
 import {
@@ -22,6 +21,10 @@ interface WarehouseLocationItem {
   id: number;
   name: string;
   code: string;
+  address: string | null;
+  location_link: string | null;
+  latitude: number | null;
+  longitude: number | null;
   branch_id: number | null;
   branch_name: string | null;
   is_active: boolean;
@@ -42,10 +45,17 @@ interface WarehouseLocationMutationResponse {
   location: WarehouseLocationItem;
 }
 
+interface WarehouseLocationCodeSuggestionResponse {
+  code: string;
+}
+
 interface WarehouseFormState {
   name: string;
   code: string;
-  branch_id: number | null;
+  address: string;
+  location_link: string;
+  latitude: string;
+  longitude: string;
 }
 
 interface Props {
@@ -56,7 +66,7 @@ interface Props {
 
 type FormMode = "create" | "edit";
 type StateAction = "activate" | "deactivate";
-type FormFieldIssue = { field: "name" | "code"; message: string } | null;
+type FormFieldIssue = { field: "name" | "code" | "address" | "coordinates"; message: string } | null;
 
 const WAREHOUSE_CODE_RE = /^[A-Z0-9][A-Z0-9_-]*$/;
 const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30";
@@ -87,6 +97,10 @@ const asWarehousePage = (value: unknown): WarehouseLocationCursorPage => {
     const id = row.id;
     const name = row.name;
     const code = row.code;
+    const address = row.address === undefined ? null : row.address;
+    const locationLink = row.location_link === undefined ? null : row.location_link;
+    const latitude = row.latitude === undefined ? null : row.latitude;
+    const longitude = row.longitude === undefined ? null : row.longitude;
     const branchId = row.branch_id;
     const branchName = row.branch_name;
     const isActive = row.is_active;
@@ -98,6 +112,11 @@ const asWarehousePage = (value: unknown): WarehouseLocationCursorPage => {
       typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0 ||
       typeof name !== "string" || !name.trim() ||
       typeof code !== "string" || !code.trim() ||
+      (address !== null && typeof address !== "string") ||
+      (locationLink !== null && typeof locationLink !== "string") ||
+      (latitude !== null && (typeof latitude !== "number" || !Number.isFinite(latitude) || latitude < -90 || latitude > 90)) ||
+      (longitude !== null && (typeof longitude !== "number" || !Number.isFinite(longitude) || longitude < -180 || longitude > 180)) ||
+      ((latitude === null) !== (longitude === null)) ||
       (branchId !== null && (typeof branchId !== "number" || !Number.isSafeInteger(branchId) || branchId <= 0)) ||
       (branchName !== null && typeof branchName !== "string") ||
       typeof isActive !== "boolean" ||
@@ -110,6 +129,10 @@ const asWarehousePage = (value: unknown): WarehouseLocationCursorPage => {
       id: id as number,
       name: name as string,
       code: code as string,
+      address: address as string | null,
+      location_link: locationLink as string | null,
+      latitude: latitude as number | null,
+      longitude: longitude as number | null,
       branch_id: branchId as number | null,
       branch_name: branchName as string | null,
       is_active: isActive as boolean,
@@ -146,6 +169,17 @@ const asMutationResponse = (value: unknown): WarehouseLocationMutationResponse =
   return value as WarehouseLocationMutationResponse;
 };
 
+const asCodeSuggestion = (value: unknown): WarehouseLocationCodeSuggestionResponse => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    warehouseLocationContractError("WAREHOUSE_LOCATION_CODE_SUGGESTION_INVALID");
+  }
+  const code = (value as { code?: unknown }).code;
+  if (typeof code !== "string" || !code.trim() || code.length > 50 || !WAREHOUSE_CODE_RE.test(code)) {
+    warehouseLocationContractError("WAREHOUSE_LOCATION_CODE_SUGGESTION_INVALID");
+  }
+  return { code };
+};
+
 const contextNumber = (context: Record<string, unknown> | null, key: string) => {
   const value = context?.[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -165,7 +199,6 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
   const access = useInventoryAccess();
   const minimumStockAccess = useInventoryAccess(selectedLocationId);
   const canReadLocations = access.canAny("location.read");
-  const canReadBranches = access.can("branch.read");
   const canAt = useLocationCapabilities(items.map((item) => item.id));
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -181,14 +214,15 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<FormMode>("create");
   const [editingLocation, setEditingLocation] = useState<WarehouseLocationItem | null>(null);
-  const [form, setForm] = useState<WarehouseFormState>({ name: "", code: "", branch_id: null });
+  const [form, setForm] = useState<WarehouseFormState>({ name: "", code: "", address: "", location_link: "", latitude: "", longitude: "" });
   const [formRequestId, setFormRequestId] = useState(() => crypto.randomUUID());
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formIssue, setFormIssue] = useState<string | null>(null);
   const [fieldIssue, setFieldIssue] = useState<FormFieldIssue>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const codeInputRef = useRef<HTMLInputElement>(null);
-  const [branchRefreshKey, setBranchRefreshKey] = useState(0);
+  const addressInputRef = useRef<HTMLTextAreaElement>(null);
+  const latitudeInputRef = useRef<HTMLInputElement>(null);
 
   const [stateAction, setStateAction] = useState<StateAction | null>(null);
   const [stateLocation, setStateLocation] = useState<WarehouseLocationItem | null>(null);
@@ -259,17 +293,34 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
   const openCreate = () => {
     setFormMode("create");
     setEditingLocation(null);
-    setForm({ name: "", code: "", branch_id: null });
+    setForm({ name: "", code: "", address: "", location_link: "", latitude: "", longitude: "" });
     setFormIssue(null);
     setFieldIssue(null);
     setFormRequestId(crypto.randomUUID());
     setFormOpen(true);
+
+    void (async () => {
+      try {
+        const raw = await authenticatedFetch("/warehouse/locations/code-suggestion");
+        const suggestion = asCodeSuggestion(raw);
+        setForm((current) => current.code.trim() ? current : { ...current, code: suggestion.code });
+      } catch {
+        // Code suggestion is a convenience only; manual code entry remains available.
+      }
+    })();
   };
 
   const openEdit = (location: WarehouseLocationItem) => {
     setFormMode("edit");
     setEditingLocation(location);
-    setForm({ name: location.name, code: location.code, branch_id: location.branch_id });
+    setForm({
+      name: location.name,
+      code: location.code,
+      address: location.address ?? "",
+      location_link: location.location_link ?? "",
+      latitude: location.latitude === null ? "" : String(location.latitude),
+      longitude: location.longitude === null ? "" : String(location.longitude),
+    });
     setFormIssue(null);
     setFieldIssue(null);
     setFormRequestId(crypto.randomUUID());
@@ -283,20 +334,48 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
     setFormRequestId(crypto.randomUUID());
   };
 
-  const failField = (field: "name" | "code", message: string) => {
+  const failField = (field: "name" | "code" | "address" | "coordinates", message: string) => {
     setFieldIssue({ field, message });
     toast.error(message);
-    window.requestAnimationFrame(() => (field === "name" ? nameInputRef.current : codeInputRef.current)?.focus());
+    window.requestAnimationFrame(() => {
+      if (field === "name") nameInputRef.current?.focus();
+      else if (field === "code") codeInputRef.current?.focus();
+      else if (field === "address") addressInputRef.current?.focus();
+      else latitudeInputRef.current?.focus();
+    });
   };
 
   const handleSave = async () => {
     if (formMode === "create" ? !access.can("location.create") : !editingLocation || !canAt(editingLocation.id, "location.update")) return;
     const name = form.name.trim();
     const code = form.code.trim().toUpperCase();
+    const address = form.address.trim();
+    const locationLink = form.location_link.trim();
+    const latitudeText = form.latitude.trim();
+    const longitudeText = form.longitude.trim();
+    const hasLatitude = latitudeText.length > 0;
+    const hasLongitude = longitudeText.length > 0;
+    const latitude = hasLatitude ? Number(latitudeText) : null;
+    const longitude = hasLongitude ? Number(longitudeText) : null;
+
     if (!name || name.length > 150) return failField("name", t("inventoryWarehouses.errors.nameInvalid"));
     if (!code || code.length > 50 || !WAREHOUSE_CODE_RE.test(code)) return failField("code", t("inventoryWarehouses.errors.codeInvalid"));
     if (code === "TRANSIT-SYS") return failField("code", t("inventoryWarehouses.errors.systemCodeReserved"));
-    if (formMode === "edit" && editingLocation && editingLocation.name === name && editingLocation.code === code && editingLocation.branch_id === form.branch_id) {
+    if (formMode === "create" && (!address || address.length > 2000)) return failField("address", copy.addressRequired);
+    if (address.length > 2000) return failField("address", copy.addressRequired);
+    if (hasLatitude !== hasLongitude || (hasLatitude && (latitude === null || longitude === null || !Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180))) {
+      return failField("coordinates", copy.coordinatesInvalid);
+    }
+
+    if (
+      formMode === "edit" && editingLocation &&
+      editingLocation.name === name &&
+      editingLocation.code === code &&
+      (editingLocation.address ?? "") === address &&
+      (editingLocation.location_link ?? "") === locationLink &&
+      editingLocation.latitude === latitude &&
+      editingLocation.longitude === longitude
+    ) {
       toast.info(t("inventoryWarehouses.noChanges"));
       return;
     }
@@ -305,9 +384,16 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
     setFormIssue(null);
     setFieldIssue(null);
     try {
-      const mutationBody: Record<string, unknown> = { request_id: formRequestId, name, code };
+      const mutationBody: Record<string, unknown> = {
+        request_id: formRequestId,
+        name,
+        code,
+        address: address || null,
+        location_link: locationLink || null,
+        latitude,
+        longitude,
+      };
       if (formMode === "edit" && editingLocation) mutationBody.expected_version = editingLocation.version;
-      if (formMode === "create" || editingLocation?.branch_id !== form.branch_id) mutationBody.branch_id = form.branch_id;
       const raw = await authenticatedFetch(
         formMode === "create" ? "/warehouse/locations" : `/warehouse/locations/${editingLocation?.id}`,
         { method: formMode === "create" ? "POST" : "PATCH", body: JSON.stringify(mutationBody) },
@@ -328,16 +414,6 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
         setFormRequestId(crypto.randomUUID());
         setFormIssue(copy.versionChanged);
         toast.error(copy.versionChanged);
-      } else if (codeValue === "WAREHOUSE_BRANCH_NOT_FOUND") {
-        setBranchRefreshKey((value) => value + 1);
-        setFormRequestId(crypto.randomUUID());
-        setFormIssue(copy.branchMissing);
-        toast.error(copy.branchMissing);
-      } else if (codeValue === "WAREHOUSE_BRANCH_INACTIVE") {
-        setBranchRefreshKey((value) => value + 1);
-        setFormRequestId(crypto.randomUUID());
-        setFormIssue(copy.branchInactive);
-        toast.error(copy.branchInactive);
       } else {
         toast.error(apiErrorMessage(error, t("inventoryWarehouses.errors.saveFailed")));
       }
@@ -573,7 +649,7 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
               <tr className="h-10 text-xs text-slate-600">
                 <th className="px-3 py-2">{copy.warehouse}</th>
                 <th className="px-3 py-2">{copy.code}</th>
-                <th className="px-3 py-2">{copy.branch}</th>
+                <th className="px-3 py-2">{copy.address}</th>
                 <th className="px-3 py-2">{copy.status}</th>
                 <th className="px-3 py-2">{copy.updated}</th>
                 <th className="px-3 py-2 text-center">{copy.actions}</th>
@@ -592,8 +668,9 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
                   <td className="block px-2 py-1 font-mono text-xs text-slate-600 md:table-cell md:px-3 md:py-2">
                     <span className="me-2 font-sans text-[10px] font-bold text-slate-400 md:hidden">{copy.code}</span>{location.code}
                   </td>
-                  <td className="block px-2 py-1 text-xs text-slate-600 md:table-cell md:px-3 md:py-2 md:text-sm">
-                    <span className="me-2 text-[10px] font-bold text-slate-400 md:hidden">{copy.branch}</span>{location.branch_name || copy.unassigned}
+                  <td className="block max-w-[320px] px-2 py-1 text-xs text-slate-600 md:table-cell md:px-3 md:py-2 md:text-sm">
+                    <span className="me-2 text-[10px] font-bold text-slate-400 md:hidden">{copy.address}</span>
+                    <span className="line-clamp-2">{location.address || "—"}</span>
                   </td>
                   <td className="block px-2 py-1 md:table-cell md:px-3 md:py-2">{stateBadge(location)}</td>
                   <td className="block px-2 py-1 text-xs text-slate-500 md:table-cell md:px-3 md:py-2">
@@ -640,15 +717,34 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
               <label className="block text-xs font-bold text-slate-600">
                 {copy.warehouseCode}
                 <input ref={codeInputRef} value={form.code} onChange={(event) => updateForm({ code: event.target.value.toUpperCase() })} maxLength={50} dir="ltr" aria-invalid={fieldIssue?.field === "code"} className={`mt-1 w-full rounded-xl border px-3 py-2.5 font-mono ${fieldIssue?.field === "code" ? "border-red-300" : "border-slate-200"} ${focusRing}`} placeholder={copy.codePlaceholder} />
-                {fieldIssue?.field === "code" ? <span role="alert" className="mt-1 block text-[10px] font-semibold text-red-600">{fieldIssue.message}</span> : null}
+                {fieldIssue?.field === "code" ? <span role="alert" className="mt-1 block text-[10px] font-semibold text-red-600">{fieldIssue.message}</span> : <span className="mt-1 block text-[10px] font-semibold leading-4 text-slate-400">{copy.codeHint}</span>}
               </label>
             </div>
           </section>
 
-          <section className="rounded-xl border border-slate-100 p-3" aria-labelledby="warehouse-branch-heading">
-            <h3 id="warehouse-branch-heading" className="text-xs font-black text-slate-800">{presentation.branchTitle}</h3>
-            <p className="mb-3 mt-0.5 text-[10px] font-semibold leading-4 text-slate-500">{presentation.branchHint}</p>
-            <BranchSelector value={form.branch_id} currentLabel={editingLocation?.branch_name ?? null} disabled={formSubmitting} refreshKey={branchRefreshKey} canReadBranches={canReadBranches} onChange={(branchId) => updateForm({ branch_id: branchId })} />
+          <section className="rounded-xl border border-slate-100 p-3" aria-labelledby="warehouse-location-heading">
+            <h3 id="warehouse-location-heading" className="text-xs font-black text-slate-800">{presentation.locationTitle}</h3>
+            <p className="mb-3 mt-0.5 text-[10px] font-semibold leading-4 text-slate-500">{presentation.locationHint}</p>
+            <label className="block text-xs font-bold text-slate-600">
+              {copy.address}
+              <textarea ref={addressInputRef} value={form.address} onChange={(event) => updateForm({ address: event.target.value })} maxLength={2000} aria-invalid={fieldIssue?.field === "address"} placeholder={copy.addressPlaceholder} className={`mt-1 min-h-20 w-full rounded-xl border px-3 py-2.5 ${fieldIssue?.field === "address" ? "border-red-300" : "border-slate-200"} ${focusRing}`} />
+              {fieldIssue?.field === "address" ? <span role="alert" className="mt-1 block text-[10px] font-semibold text-red-600">{fieldIssue.message}</span> : null}
+            </label>
+            <label className="mt-3 block text-xs font-bold text-slate-600">
+              {copy.locationLink}
+              <input value={form.location_link} onChange={(event) => updateForm({ location_link: event.target.value })} maxLength={500} dir="ltr" className={`mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 ${focusRing}`} placeholder="https://maps.google.com/..." />
+            </label>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="block text-xs font-bold text-slate-600">
+                {copy.latitude}
+                <input ref={latitudeInputRef} value={form.latitude} onChange={(event) => updateForm({ latitude: event.target.value })} inputMode="decimal" dir="ltr" aria-invalid={fieldIssue?.field === "coordinates"} className={`mt-1 w-full rounded-xl border px-3 py-2.5 ${fieldIssue?.field === "coordinates" ? "border-red-300" : "border-slate-200"} ${focusRing}`} placeholder="31.9539" />
+              </label>
+              <label className="block text-xs font-bold text-slate-600">
+                {copy.longitude}
+                <input value={form.longitude} onChange={(event) => updateForm({ longitude: event.target.value })} inputMode="decimal" dir="ltr" aria-invalid={fieldIssue?.field === "coordinates"} className={`mt-1 w-full rounded-xl border px-3 py-2.5 ${fieldIssue?.field === "coordinates" ? "border-red-300" : "border-slate-200"} ${focusRing}`} placeholder="35.9106" />
+              </label>
+            </div>
+            {fieldIssue?.field === "coordinates" ? <span role="alert" className="mt-1 block text-[10px] font-semibold text-red-600">{fieldIssue.message}</span> : null}
           </section>
 
           {formIssue ? <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">{formIssue}</p> : null}
@@ -664,7 +760,7 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
               <p className="break-words text-sm text-slate-600">{copy.warehouse}: <span className="font-bold text-slate-900">{stateLocation?.name}</span></p>
               {stateLocation ? stateBadge(stateLocation) : null}
             </div>
-            <p className="mt-2 text-[10px] font-semibold leading-4 text-slate-500">{stateAction === "deactivate" ? presentation.deactivationCheck : presentation.activationBranchNote}</p>
+            <p className="mt-2 text-[10px] font-semibold leading-4 text-slate-500">{stateAction === "deactivate" ? presentation.deactivationCheck : presentation.activationCheck}</p>
           </div>
           <label className="block text-xs font-bold text-slate-600">
             {stateAction === "deactivate" ? copy.deactivateReason : copy.activateNote}

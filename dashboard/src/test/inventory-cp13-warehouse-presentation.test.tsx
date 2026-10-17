@@ -19,31 +19,39 @@ describe("CP13 Warehouse setup final presentation", () => {
     expect(source).toContain("disabled={!canAt(location.id, \"location.state\")}");
   });
 
-  it("keeps create/edit focused on warehouse identity and optional Branch assignment", () => {
+  it("keeps create/edit focused on warehouse identity and the bounded V1 physical location profile", () => {
     const source = warehouse();
     const ar = warehousePresentationCopy("ar");
     const en = warehousePresentationCopy("en");
     expect(source).toContain("presentation.identityTitle");
-    expect(source).toContain("presentation.branchTitle");
+    expect(source).toContain("presentation.locationTitle");
     expect(source).not.toContain("presentation.lifecycleTitle");
-    expect(ar.branchHint).toContain("اختياري");
-    expect(en.branchHint).toContain("optional");
+    expect(source).toContain("/warehouse/locations/code-suggestion");
+    expect(source).toContain("copy.codeHint");
+    expect(source).toContain("copy.address");
+    expect(source).toContain("copy.locationLink");
+    expect(source).toContain("copy.latitude");
+    expect(source).toContain("copy.longitude");
+    expect(ar.locationHint.length).toBeGreaterThan(20);
+    expect(en.locationHint).toContain("optional informational metadata");
     expect(source).toContain("aria-invalid={fieldIssue?.field === \"name\"}");
     expect(source).toContain("aria-invalid={fieldIssue?.field === \"code\"}");
     expect(source).toContain("requestAnimationFrame");
   });
 
-  it("keeps optional Branch selection capability-gated while administration stays outside Warehouse Management", () => {
+  it("keeps Branch association dormant in the V1 Warehouse UX without deleting the backend relation", () => {
     const source = warehouse();
-    expect(source).toContain('const canReadBranches = access.can("branch.read")');
-    expect(source).toContain("<BranchSelector");
-    expect(source).toContain("canReadBranches={canReadBranches}");
+    expect(source).not.toContain('const canReadBranches = access.can("branch.read")');
+    expect(source).not.toContain("<BranchSelector");
+    expect(source).not.toContain("presentation.branchTitle");
+    expect(source).not.toContain("mutationBody.branch_id");
+    expect(source).toContain("branch_id: number | null");
     expect(source).not.toContain("BranchManagementModal");
     expect(source).not.toContain("copy.manageBranches");
     expect(source).not.toMatch(/isOwner|ownerOnly|role\s*===\s*["']owner/i);
   });
 
-  it("makes active-only Branch assignment semantics explicit while preserving the current inactive association", () => {
+  it("preserves the dormant Branch selector contract for the later organization workflow", () => {
     const selector = read("src/pages/inventory/warehouse-locations/BranchSelector.tsx");
     const ar = branchSelectorCopy("ar");
     const en = branchSelectorCopy("en");

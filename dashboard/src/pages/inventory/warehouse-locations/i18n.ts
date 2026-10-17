@@ -34,6 +34,14 @@ export interface WarehouseLocationsCopy {
   name: string;
   warehouseCode: string;
   codePlaceholder: string;
+  codeHint: string;
+  address: string;
+  addressPlaceholder: string;
+  addressRequired: string;
+  locationLink: string;
+  latitude: string;
+  longitude: string;
+  coordinatesInvalid: string;
   deactivate: string;
   activate: string;
   deactivateReason: string;
@@ -146,7 +154,15 @@ const warehouseEn: WarehouseLocationsCopy = {
   edit: "Edit warehouse",
   name: "Warehouse name",
   warehouseCode: "Warehouse code",
-  codePlaceholder: "AMMAN-01",
+  codePlaceholder: "WH-001",
+  codeHint: "The system suggests a company-scoped sequential code such as WH-001. You can edit it before saving.",
+  address: "Address",
+  addressPlaceholder: "Example: Amman, Marka Al-Shamaliyah, street ...",
+  addressRequired: "Address is required when creating a new warehouse and must be at most 2000 characters.",
+  locationLink: "Location or Google Maps link - optional",
+  latitude: "Latitude - optional",
+  longitude: "Longitude - optional",
+  coordinatesInvalid: "Enter latitude and longitude together using valid geographic values.",
   deactivate: "Deactivate warehouse",
   activate: "Activate warehouse",
   deactivateReason: "Deactivation reason - required",

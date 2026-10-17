@@ -699,11 +699,11 @@ Until that workspace exists, treat the current policy UI as a bounded legacy pla
 
 ### 11.3 Warehouse master data and advanced facility profile
 
-The V1 warehouse master intentionally remains small: **name, company-unique code, optional branch association, and lifecycle state**. Do not overload this record with unrelated WMS concepts merely because they are all physically connected to a warehouse.
+The V1 warehouse master intentionally remains bounded: **name, company-unique code, free-text physical address, optional location link/latitude/longitude, and lifecycle state**. The optional `branch_id` relation remains supported in backend data, but the V1 Warehouse form does not expose branch selection until Branch administration becomes a deliberate user-facing workflow. Do not overload this record with unrelated WMS concepts merely because they are all physically connected to a warehouse.
 
 Deferred V2 design items:
 
-- [ ] **Physical address and map position:** country/region/city, structured address, optional latitude/longitude, map picker, and routing/geocoding only when a real logistics workflow consumes them.
+- [ ] **Structured geography and map automation beyond the V1 address profile:** V1 stores a free-text physical address plus optional location link and latitude/longitude. V2 may add country/region/city catalogs, address normalization, map picker, geocoding/routing, geofence enforcement, and other location automation only when a real logistics workflow consumes them.
 - [ ] **Facility roles and ownership:** default/main operational role and owned vs third-party/3PL must be modeled separately from branch assignment. A branch is an organizational scope, not a warehouse type.
 - [ ] **Storage capabilities:** model compatible multi-select capabilities such as ambient, chilled, frozen/cold-chain, hazardous-material approved, bonded, or other regulated storage. Do not force these into one mutually exclusive `warehouse_type` enum.
 - [ ] **Returns / quarantine / damaged / scrap semantics:** decide whether each need is a warehouse, a zone/bin inside a warehouse, or a dedicated system inventory location. Existing `SCRAP`, `IN_TRANSIT`, and `VEHICLE` location semantics must not be relabeled as ordinary warehouse types.
@@ -712,7 +712,7 @@ Deferred V2 design items:
 - [ ] **Operating calendar:** working hours, holidays/closed days, receiving/dispatch cutoff windows, and timezone behavior when companies span regions.
 - [ ] **Operational capabilities:** whether receiving, picking, dispatch, returns, cross-dock, or other workflows are permitted at the facility, with backend-authoritative validation.
 - [ ] **Warehouse responsibility:** use users/roles/location permissions for operational management authority. Do not make a free-text "warehouse manager" field the permission authority. Optional contact metadata may be added separately if useful.
-- [ ] **Code UX:** the platform may suggest a short human-readable warehouse code, but the database remains the company-scoped uniqueness authority. A suggestion must never silently change after save. Any future code-change policy needs audit/history or an alias strategy before treating codes as externally stable references.
+- [ ] **Stable external-code lifecycle beyond the V1 suggestion:** V1 already suggests an editable company-scoped human-readable warehouse code and the database remains the uniqueness authority. V2 may add an explicit code-change policy, audit/history, aliases, and compatibility rules before treating warehouse codes as externally stable references.
 - [ ] **Gradual migration:** all new metadata must be optional for existing companies until that specific capability is deliberately enabled; no destructive backfill or forced branch/facility reclassification.
 
 ---

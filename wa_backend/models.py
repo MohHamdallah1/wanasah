@@ -2570,6 +2570,12 @@ class InventoryLocation(Base):
         CheckConstraint("location_type <> 'VEHICLE' OR vehicle_id IS NOT NULL", name='chk_inv_loc_vehicle_required'),
         CheckConstraint("version > 0", name='chk_inv_loc_version_positive'),
         CheckConstraint(
+            '(latitude IS NULL AND longitude IS NULL) OR (latitude IS NOT NULL AND longitude IS NOT NULL)',
+            name='chk_inv_loc_coordinates_pair'
+        ),
+        CheckConstraint('latitude IS NULL OR latitude BETWEEN -90 AND 90', name='chk_inv_loc_latitude_range'),
+        CheckConstraint('longitude IS NULL OR longitude BETWEEN -180 AND 180', name='chk_inv_loc_longitude_range'),
+        CheckConstraint(
             "(system_role IS NULL AND is_system_managed IS FALSE) OR "
             "(system_role = 'TRANSIT' AND is_system_managed IS TRUE "
             "AND location_type = 'IN_TRANSIT' AND branch_id IS NULL "
@@ -2590,6 +2596,10 @@ class InventoryLocation(Base):
     branch_id     = Column(Integer, nullable=True, index=True)
     name          = Column(String(150), nullable=False)
     code          = Column(String(50), nullable=False)
+    address       = Column(Text, nullable=True)
+    location_link = Column(String(500), nullable=True)
+    latitude      = Column(Numeric(10, 7), nullable=True)
+    longitude     = Column(Numeric(10, 7), nullable=True)
     location_type = Column(String(50), nullable=False, index=True)
     vehicle_id    = Column(Integer, nullable=True, index=True)
     system_role   = Column(String(30), nullable=True, index=True)

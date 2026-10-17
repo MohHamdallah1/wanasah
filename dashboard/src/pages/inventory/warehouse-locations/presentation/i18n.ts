@@ -2,16 +2,13 @@ export interface WarehousePresentationCopy {
   setupEyebrow: string;
   identityTitle: string;
   identityHint: string;
-  branchTitle: string;
-  branchHint: string;
-  activeBranch: string;
-  currentAssociation: string;
-  assignmentRule: string;
+  locationTitle: string;
+  locationHint: string;
   listLoadFailed: string;
   retry: string;
   deactivationCheck: string;
   deactivationNextStep: string;
-  activationBranchNote: string;
+  activationCheck: string;
   qualityPolicy: string;
   qualityPolicyHint: string;
 }
@@ -20,16 +17,13 @@ const ar: WarehousePresentationCopy = {
   setupEyebrow: "إعداد المستودعات",
   identityTitle: "هوية المستودع",
   identityHint: "الاسم والرمز يعرّفان المستودع للمشغّلين والتقارير.",
-  branchTitle: "ارتباط الفرع",
-  branchHint: "الارتباط بفرع اختياري. اترك المستودع غير مرتبط إذا كانت الشركة لا تستخدم الفروع، أو اختر فرعًا نشطًا عند الحاجة.",
-  activeBranch: "فرع نشط",
-  currentAssociation: "الارتباط الحالي",
-  assignmentRule: "التعيينات الجديدة متاحة للفروع النشطة فقط؛ الارتباط الحالي لا يتغير تلقائيًا.",
+  locationTitle: "الموقع الفعلي",
+  locationHint: "العنوان جزء من بيانات المستودع في V1. رابط الموقع والإحداثيات اختيارية حالياً وتُحفظ كمعلومة فقط لاستخدامها مستقبلاً؛ لا يوجد تتبع أو منع جغرافي الآن.",
   listLoadFailed: "تعذر تحميل المستودعات. يمكنك إعادة المحاولة دون فقدان إعداداتك.",
   retry: "إعادة المحاولة",
   deactivationCheck: "قبل التعطيل، يتحقق النظام من الأرصدة والعمليات والسياسات المفتوحة المرتبطة بالمستودع.",
   deactivationNextStep: "راجع المرجع أو العملية الظاهرة أدناه ثم أعد المحاولة بعد إزالة المانع.",
-  activationBranchNote: "تفعيل المستودع لا يفعّل الفرع المرتبط ولا يغيّر حالته.",
+  activationCheck: "عند التفعيل، يصبح المستودع متاحاً للعمليات التي تسمح بها الصلاحيات والسياسات الحالية.",
   qualityPolicy: "إعداد وسياسة",
   qualityPolicyHint: "هذه إعدادات وجهات المعالجة فقط وليست إجراءً يوميًا على المخزون.",
 };
@@ -38,16 +32,13 @@ const en: WarehousePresentationCopy = {
   setupEyebrow: "Warehouse setup",
   identityTitle: "Warehouse identity",
   identityHint: "Name and code identify the warehouse to operators and reports.",
-  branchTitle: "Branch assignment",
-  branchHint: "Branch assignment is optional. Leave the warehouse unassigned when the company does not use branches, or choose an active branch when needed.",
-  activeBranch: "Active branch",
-  currentAssociation: "Current association",
-  assignmentRule: "New assignments are limited to active branches; the existing association is never changed automatically.",
+  locationTitle: "Physical location",
+  locationHint: "The address is part of the V1 warehouse profile. The location link and coordinates are optional informational metadata for future use; no tracking or geofence enforcement is enabled now.",
   listLoadFailed: "Warehouses could not be loaded. You can retry without losing setup changes.",
   retry: "Retry",
   deactivationCheck: "Before deactivation, the system checks balances, open operations, locks, and published policies tied to this warehouse.",
   deactivationNextStep: "Inspect the reference or process shown below, clear the blocker, then retry.",
-  activationBranchNote: "Activating the warehouse does not activate or change the linked branch.",
+  activationCheck: "Once activated, the warehouse becomes available to workflows allowed by the current permissions and policies.",
   qualityPolicy: "Setup / policy",
   qualityPolicyHint: "These are destination settings only, not a daily stock action.",
 };

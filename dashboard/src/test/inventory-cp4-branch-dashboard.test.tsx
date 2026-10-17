@@ -285,11 +285,12 @@ describe("CP4 Warehouse/Branch Dashboard closure", () => {
     expect(patchBodies[1].request_id).not.toBe(patchBodies[0].request_id);
   });
 
-  it("refreshes branch choices on machine-readable relation failures", async () => {
+  it("keeps Branch discovery dormant in Warehouse V1 even when branch.read exists", async () => {
     mocks.anyCaps.add("location.read");
     mocks.companyCaps.add("branch.read");
     mocks.locationCaps.set(LOCATION, new Set(["location.update"]));
     let optionCalls = 0;
+    const patchBodies: Array<Record<string, unknown>> = [];
     mocks.authFetch.mockImplementation(async (url: string, opts?: RequestInit) => {
       if (url.startsWith("/warehouse/locations/manage?")) return warehousePage;
       if (url.startsWith("/warehouse/branches/options?")) {
@@ -298,20 +299,27 @@ describe("CP4 Warehouse/Branch Dashboard closure", () => {
       }
       if (url === `/warehouse/locations/${LOCATION}` && opts?.method === "PATCH") {
         const body = JSON.parse(String(opts.body));
-        expect(body.branch_id).toBe(OTHER_BRANCH);
-        throw structuredError("WAREHOUSE_BRANCH_INACTIVE", { branch_id: OTHER_BRANCH });
+        patchBodies.push(body);
+        return { message: "updated", location: { ...warehouse, name: body.name, version: 2 } };
       }
       throw new Error(`Unexpected request: ${url}`);
     });
     renderWarehouses(LOCATION);
-    await screen.findByText("Main warehouse");
-    fireEvent.click(screen.getByTitle("تعديل"));
-    await waitFor(() => expect(optionCalls).toBe(1));
-    const select = screen.getByRole("combobox");
-    fireEvent.change(select, { target: { value: String(OTHER_BRANCH) } });
-    fireEvent.submit(select.closest("form")!);
-    expect(await screen.findByText(/الفرع المحدد غير نشط/)).toBeTruthy();
-    await waitFor(() => expect(optionCalls).toBeGreaterThan(1));
+    const warehouseName = await screen.findByText("Main warehouse");
+    const warehouseRow = warehouseName.closest("tr");
+    expect(warehouseRow).toBeTruthy();
+    const editButton = warehouseRow!.querySelector("button");
+    expect(editButton).toBeTruthy();
+    fireEvent.click(editButton!);
+    expect(optionCalls).toBe(0);
+    expect(screen.queryByRole("combobox")).toBeNull();
+    const dialog = screen.getByRole("dialog");
+    const name = dialog.querySelectorAll("input")[0];
+    fireEvent.change(name, { target: { value: "Updated warehouse" } });
+    fireEvent.submit(name.closest("form")!);
+    await waitFor(() => expect(patchBodies).toHaveLength(1));
+    expect(patchBodies[0]).not.toHaveProperty("branch_id");
+    expect(optionCalls).toBe(0);
   });
 
   it("keeps AR/EN direction, non-cascade wording, and CP6 gating exact", async () => {

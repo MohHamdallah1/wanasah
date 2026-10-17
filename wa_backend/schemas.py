@@ -1807,6 +1807,10 @@ class WarehouseLocationCreateRequest(RequestModel):
     name: str = Field(..., min_length=1, max_length=150)
     code: str = Field(..., min_length=1, max_length=50)
     branch_id: OptionalPositiveDbInt = None
+    address: Optional[str] = Field(None, max_length=2000)
+    location_link: Optional[str] = Field(None, max_length=500)
+    latitude: Latitude = None
+    longitude: Longitude = None
 
     @field_validator("name", mode="before")
     @classmethod
@@ -1818,6 +1822,17 @@ class WarehouseLocationCreateRequest(RequestModel):
     def normalize_code(cls, v: Any) -> str:
         return _warehouse_code_input(v)
 
+    @field_validator("address", "location_link", mode="before")
+    @classmethod
+    def normalize_optional_location_text(cls, v: Any) -> Optional[str]:
+        return _optional_text(v)
+
+    @model_validator(mode="after")
+    def require_coordinate_pair(self) -> "WarehouseLocationCreateRequest":
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("يجب إدخال خط العرض وخط الطول معاً أو تركهما فارغين.")
+        return self
+
 
 class WarehouseLocationUpdateRequest(RequestModel):
     request_id: UUID
@@ -1825,6 +1840,10 @@ class WarehouseLocationUpdateRequest(RequestModel):
     name: Optional[str] = Field(None, min_length=1, max_length=150)
     code: Optional[str] = Field(None, min_length=1, max_length=50)
     branch_id: OptionalPositiveDbInt = None
+    address: Optional[str] = Field(None, max_length=2000)
+    location_link: Optional[str] = Field(None, max_length=500)
+    latitude: Latitude = None
+    longitude: Longitude = None
 
     @field_validator("name", mode="before")
     @classmethod
@@ -1840,10 +1859,22 @@ class WarehouseLocationUpdateRequest(RequestModel):
             return None
         return _warehouse_code_input(v)
 
+    @field_validator("address", "location_link", mode="before")
+    @classmethod
+    def normalize_optional_location_text(cls, v: Any) -> Optional[str]:
+        return _optional_text(v)
+
     @model_validator(mode="after")
     def require_mutation(self) -> "WarehouseLocationUpdateRequest":
-        if not ({"name", "code", "branch_id"} & self.model_fields_set):
+        mutable_fields = {"name", "code", "branch_id", "address", "location_link", "latitude", "longitude"}
+        if not (mutable_fields & self.model_fields_set):
             raise ValueError("يجب إرسال حقل واحد على الأقل لتعديل المستودع.")
+        coordinates_touched = bool({"latitude", "longitude"} & self.model_fields_set)
+        if coordinates_touched:
+            if not {"latitude", "longitude"}.issubset(self.model_fields_set):
+                raise ValueError("يجب إرسال خط العرض وخط الطول معاً عند تعديل الموقع.")
+            if (self.latitude is None) != (self.longitude is None):
+                raise ValueError("يجب إدخال خط العرض وخط الطول معاً أو مسحهما معاً.")
         return self
 
 
@@ -1862,6 +1893,10 @@ class WarehouseLocationItem(BaseModel):
     id: int
     name: str
     code: str
+    address: Optional[str] = None
+    location_link: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     branch_id: Optional[int] = None
     branch_name: Optional[str] = None
     is_active: bool
@@ -1880,6 +1915,10 @@ class WarehouseLocationCursorPage(BaseModel):
 class WarehouseLocationMutationResponse(BaseModel):
     message: str
     location: WarehouseLocationItem
+
+
+class WarehouseLocationCodeSuggestionResponse(BaseModel):
+    code: str = Field(..., min_length=1, max_length=50)
 
 
 class WarehouseSetupStatusResponse(BaseModel):

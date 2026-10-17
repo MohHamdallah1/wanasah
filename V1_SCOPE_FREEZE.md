@@ -97,6 +97,22 @@ V1 includes the stock workflows needed for real distribution operations:
 
 `InventoryBalance` and the Unified Inventory Movement authority remain the truth. UI convenience never weakens inventory or location safety.
 
+#### Owner-approved Warehouse V1 master-data amendment - 2026-10-17
+
+The Warehouse master required by V1 now includes a bounded physical identity profile:
+
+- warehouse name;
+- company-unique human-readable warehouse code;
+- free-text physical address;
+- optional Google Maps/location link;
+- optional latitude/longitude pair stored as informational location metadata for future field-safety workflows.
+
+For the V1 Dashboard create flow, the platform may suggest the next company-scoped sequential code such as `WH-001`, `WH-002`, and so on. The suggestion is editable and is never a reservation; the database company-scoped uniqueness constraint remains authoritative at save time. A saved code must never be silently regenerated because the warehouse name or address changes.
+
+Branch assignment remains a supported optional backend relation, but V1 Warehouse UX does not expose branch selection while Branch administration is not itself a surfaced company-setup workflow. New V1 Dashboard warehouses are created unassigned (`branch_id = null`). Existing branch associations remain preserved in data and may be re-exposed when the Branch workflow is deliberately enabled; no destructive migration is permitted.
+
+Structured geographic catalogs, map pickers, geocoding/routing, geofence enforcement, warehouse facility roles/types, storage capabilities, internal topology, capacity, operating calendars and other advanced WMS metadata remain deferred unless separately promoted.
+
 ### 5.4 Dispatch, routes and shops — V1 REQUIRED
 
 V1 must replace the old "Word region file + temporary WhatsApp group + copy/paste shop" operating pattern for the first company.
