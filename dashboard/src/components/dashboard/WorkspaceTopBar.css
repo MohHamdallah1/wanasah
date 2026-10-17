@@ -67,20 +67,33 @@
 }
 
 @media (min-width: 1024px) {
+  /*
+   * Canonical desktop geometry. Page-level wrappers/classes must not be able
+   * to change the shared bar's outer width, height, or offsets.
+   */
   .workspace-top-bar-frame {
-    position: sticky;
-    top: 0;
+    position: sticky !important;
+    top: 0 !important;
     z-index: 40;
-    width: auto;
-    min-height: 3.25rem;
-    margin-block-start: -1.5rem;
-    margin-inline-start: -1rem;
-    margin-inline-end: -1rem;
+    align-self: stretch !important;
+    box-sizing: border-box;
+    width: calc(100% + 2rem) !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    height: 3.75rem !important;
+    min-height: 3.75rem !important;
+    max-height: 3.75rem !important;
+    margin-block-start: -1.5rem !important;
+    margin-inline: -1rem !important;
+    flex: 0 0 3.75rem !important;
   }
 
   .workspace-top-bar {
-    min-height: 3.25rem;
+    box-sizing: border-box;
+    height: 100% !important;
+    min-height: 100% !important;
+    max-height: 100% !important;
     border-radius: 0;
-    padding: 0.35rem 0.65rem;
+    padding: 0.35rem 0.65rem !important;
   }
 }

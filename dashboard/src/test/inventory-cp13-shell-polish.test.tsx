@@ -54,7 +54,7 @@ describe("CP13.2 Inventory shell polish", () => {
     expect(active).toHaveAttribute("tabindex", "0");
   });
 
-  it("inherits outer bar geometry only from the shared WorkspaceTopBar", () => {
+  it("locks outer top-bar geometry to the shared WorkspaceTopBar only", () => {
     const dock = read("src/pages/inventory/InventoryTopDock.tsx");
     const shared = read("src/components/dashboard/WorkspaceTopBar.css");
     const inventoryCss = read("src/pages/inventory/inventory.css");
@@ -65,11 +65,17 @@ describe("CP13.2 Inventory shell polish", () => {
     expect(dock).not.toContain("inventory-top-dock-component");
     expect(inventoryCss).not.toContain(".inventory-top-dock-component");
     expect(polish).not.toContain(".inventory-top-dock-component");
-    expect(shared).toContain("min-height: 3.25rem;");
-    expect(shared).toContain("margin-block-start: -1.5rem;");
-    expect(shared).toContain("margin-inline-start: -1rem;");
-    expect(shared).toContain("margin-inline-end: -1rem;");
 
+    expect(shared).toContain("width: calc(100% + 2rem) !important;");
+    expect(shared).toContain("height: 3.75rem !important;");
+    expect(shared).toContain("min-height: 3.75rem !important;");
+    expect(shared).toContain("max-height: 3.75rem !important;");
+    expect(shared).toContain("margin-block-start: -1.5rem !important;");
+    expect(shared).toContain("margin-inline: -1rem !important;");
+    expect(shared).toContain("flex: 0 0 3.75rem !important;");
+
+    expect(polish).toContain("padding-inline: 0 !important;");
+    expect(polish).toContain('.inventory-workspace:not([data-live-view="true"]) > :not(.workspace-top-bar-frame)');
     expect(polish).toContain("overflow-x: auto;");
     expect(polish).toContain("background: rgb(255 255 255 / 0.06);");
     expect(polish).toContain("background: #fbbf24;");
