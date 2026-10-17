@@ -19,21 +19,27 @@ describe("CP13 Warehouse setup final presentation", () => {
     expect(source).toContain("disabled={!canAt(location.id, \"location.state\")}");
   });
 
-  it("separates identity, Branch assignment and lifecycle in create/edit", () => {
+  it("keeps create/edit focused on warehouse identity and optional Branch assignment", () => {
     const source = warehouse();
+    const ar = warehousePresentationCopy("ar");
+    const en = warehousePresentationCopy("en");
     expect(source).toContain("presentation.identityTitle");
     expect(source).toContain("presentation.branchTitle");
-    expect(source).toContain("presentation.lifecycleTitle");
+    expect(source).not.toContain("presentation.lifecycleTitle");
+    expect(ar.branchHint).toContain("اختياري");
+    expect(en.branchHint).toContain("optional");
     expect(source).toContain("aria-invalid={fieldIssue?.field === \"name\"}");
     expect(source).toContain("aria-invalid={fieldIssue?.field === \"code\"}");
     expect(source).toContain("requestAnimationFrame");
   });
 
-  it("keeps Branch management discoverable, secondary, capability-gated and non-owner specific", () => {
+  it("keeps optional Branch selection capability-gated while administration stays outside Warehouse Management", () => {
     const source = warehouse();
     expect(source).toContain('const canReadBranches = access.can("branch.read")');
-    expect(source).toContain("{canReadBranches && (");
-    expect(source).toContain("copy.manageBranches");
+    expect(source).toContain("<BranchSelector");
+    expect(source).toContain("canReadBranches={canReadBranches}");
+    expect(source).not.toContain("BranchManagementModal");
+    expect(source).not.toContain("copy.manageBranches");
     expect(source).not.toMatch(/isOwner|ownerOnly|role\s*===\s*["']owner/i);
   });
 

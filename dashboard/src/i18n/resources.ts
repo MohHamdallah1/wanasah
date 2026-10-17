@@ -1397,6 +1397,8 @@ export const resources = {
         refreshAccess: "تحديث المواقع والصلاحيات",
         noWarehouseCreated:
           "لم تُنشئ الشركة مستودعاً فعالاً بعد. أنشئ المستودع من شاشة إدارة المستودعات أولاً.",
+        createWarehouseFirstNotice:
+          "أنشئ المستودع الأول قبل فتح بقية عمليات المخزون.",
         noAccessibleWarehouse:
           "توجد مستودعات فعالة للشركة، لكن حسابك لا يملك وصولاً إلى أي منها.",
         noWarehouseSelected:
@@ -3647,6 +3649,8 @@ export const resources = {
         refreshAccess: "Refresh locations and permissions",
         noWarehouseCreated:
           "The company has no active warehouse yet. Create one in Warehouse Management first.",
+        createWarehouseFirstNotice:
+          "Create the first warehouse before opening the other inventory workflows.",
         noAccessibleWarehouse:
           "The company has active warehouses, but your account cannot access any of them.",
         noWarehouseSelected:

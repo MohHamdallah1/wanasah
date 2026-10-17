@@ -651,12 +651,6 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
             <BranchSelector value={form.branch_id} currentLabel={editingLocation?.branch_name ?? null} disabled={formSubmitting} refreshKey={branchRefreshKey} canReadBranches={canReadBranches} onChange={(branchId) => updateForm({ branch_id: branchId })} />
           </section>
 
-          <section className="rounded-xl border border-slate-100 p-3" aria-labelledby="warehouse-lifecycle-heading">
-            <h3 id="warehouse-lifecycle-heading" className="text-xs font-black text-slate-800">{presentation.lifecycleTitle}</h3>
-            <p className="mt-0.5 text-[10px] font-semibold leading-4 text-slate-500">{presentation.lifecycleHint}</p>
-            {formMode === "edit" && editingLocation ? <div className="mt-2">{stateBadge(editingLocation)}</div> : null}
-          </section>
-
           {formIssue ? <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">{formIssue}</p> : null}
           <button type="submit" disabled={formSubmitting} className={`w-full rounded-xl bg-blue-600 py-3 font-bold text-white disabled:opacity-50 ${focusRing}`}>{formSubmitting ? t("common.saving") : t("common.save")}</button>
         </form>

@@ -697,6 +697,24 @@ Preferred V2 information architecture:
 
 Until that workspace exists, treat the current policy UI as a bounded legacy placement to be revisited; moving it is a separate feature with its own contract, permissions, migration, i18n/accessibility, and acceptance work.
 
+### 11.3 Warehouse master data and advanced facility profile
+
+The V1 warehouse master intentionally remains small: **name, company-unique code, optional branch association, and lifecycle state**. Do not overload this record with unrelated WMS concepts merely because they are all physically connected to a warehouse.
+
+Deferred V2 design items:
+
+- [ ] **Physical address and map position:** country/region/city, structured address, optional latitude/longitude, map picker, and routing/geocoding only when a real logistics workflow consumes them.
+- [ ] **Facility roles and ownership:** default/main operational role and owned vs third-party/3PL must be modeled separately from branch assignment. A branch is an organizational scope, not a warehouse type.
+- [ ] **Storage capabilities:** model compatible multi-select capabilities such as ambient, chilled, frozen/cold-chain, hazardous-material approved, bonded, or other regulated storage. Do not force these into one mutually exclusive `warehouse_type` enum.
+- [ ] **Returns / quarantine / damaged / scrap semantics:** decide whether each need is a warehouse, a zone/bin inside a warehouse, or a dedicated system inventory location. Existing `SCRAP`, `IN_TRANSIT`, and `VEHICLE` location semantics must not be relabeled as ordinary warehouse types.
+- [ ] **Internal topology:** zones, aisles, racks, shelves/bins, picking/receiving/staging areas, and controlled movement between them. This is a separate WMS layer, not free-text fields on the warehouse row.
+- [ ] **Capacity:** capacity dimensions and units, per-zone/bin limits where relevant, occupancy calculation, warnings, and over-capacity policy. Do not add one ambiguous numeric `capacity` field.
+- [ ] **Operating calendar:** working hours, holidays/closed days, receiving/dispatch cutoff windows, and timezone behavior when companies span regions.
+- [ ] **Operational capabilities:** whether receiving, picking, dispatch, returns, cross-dock, or other workflows are permitted at the facility, with backend-authoritative validation.
+- [ ] **Warehouse responsibility:** use users/roles/location permissions for operational management authority. Do not make a free-text "warehouse manager" field the permission authority. Optional contact metadata may be added separately if useful.
+- [ ] **Code UX:** the platform may suggest a short human-readable warehouse code, but the database remains the company-scoped uniqueness authority. A suggestion must never silently change after save. Any future code-change policy needs audit/history or an alias strategy before treating codes as externally stable references.
+- [ ] **Gradual migration:** all new metadata must be optional for existing companies until that specific capability is deliberately enabled; no destructive backfill or forced branch/facility reclassification.
+
 ---
 
 ## 12. Preservation rule

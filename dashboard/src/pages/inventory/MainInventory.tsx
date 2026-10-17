@@ -1108,18 +1108,18 @@ export default function MainInventory() {
     }
   }, [selectedLocationId, fetchStockSummary, stockRefreshKey]);
 
+  const requiresFirstWarehouse =
+    !loadingLocations &&
+    !locationError &&
+    locations.length === 0 &&
+    warehouseSetup?.warehouse_ready === false &&
+    warehouseSetup.can_create;
+
   useEffect(() => {
-    if (
-      !loadingLocations &&
-      !locationError &&
-      locations.length === 0 &&
-      warehouseSetup?.warehouse_ready === false &&
-      warehouseSetup.can_create &&
-      activeTab !== "warehouses"
-    ) {
+    if (requiresFirstWarehouse && activeTab !== "warehouses") {
       setActiveTab("warehouses");
     }
-  }, [activeTab, loadingLocations, locationError, locations.length, warehouseSetup]);
+  }, [activeTab, requiresFirstWarehouse]);
 
   const canShowWarmLiveDuringAccessRefresh =
     activeTab === "live" &&
@@ -1182,9 +1182,12 @@ export default function MainInventory() {
         activeId={activeTab}
         ariaLabel={t("inventoryShell.tabsLabel")}
         onChange={(id) => {
-          if (isTabId(id)) {
-            setActiveTab(id);
+          if (!isTabId(id)) return;
+          if (requiresFirstWarehouse && id !== "warehouses") {
+            toast.info(t("inventoryShell.createWarehouseFirstNotice"));
+            return;
           }
+          setActiveTab(id);
         }}
       />
 
