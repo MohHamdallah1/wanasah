@@ -1,7 +1,6 @@
 export interface WarehousePresentationCopy {
   setupEyebrow: string;
   identityTitle: string;
-  identityHint: string;
   locationTitle: string;
   listLoadFailed: string;
   retry: string;
@@ -15,7 +14,6 @@ export interface WarehousePresentationCopy {
 const ar: WarehousePresentationCopy = {
   setupEyebrow: "إعداد المستودعات",
   identityTitle: "هوية المستودع",
-  identityHint: "أدخل اسم المستودع والكود.",
   locationTitle: "الموقع الفعلي",
   listLoadFailed: "تعذر تحميل المستودعات. يمكنك إعادة المحاولة دون فقدان إعداداتك.",
   retry: "إعادة المحاولة",
@@ -29,7 +27,6 @@ const ar: WarehousePresentationCopy = {
 const en: WarehousePresentationCopy = {
   setupEyebrow: "Warehouse setup",
   identityTitle: "Warehouse identity",
-  identityHint: "Enter the warehouse name and code.",
   locationTitle: "Physical location",
   listLoadFailed: "Warehouses could not be loaded. You can retry without losing setup changes.",
   retry: "Retry",

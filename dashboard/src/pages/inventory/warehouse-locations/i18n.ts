@@ -33,8 +33,6 @@ export interface WarehouseLocationsCopy {
   warehouseCode: string;
   codePlaceholder: string;
   codeHint: string;
-  requiredFieldsPrefix: string;
-  requiredFieldsSuffix: string;
   address: string;
   addressPlaceholder: string;
   addressRequired: string;
@@ -95,8 +93,6 @@ const warehouseAr: WarehouseLocationsCopy = {
   warehouseCode: "كود المستودع",
   codePlaceholder: "WH-001",
   codeHint: "يُقترح تلقائياً مثل WH-001، ويمكنك تعديله قبل الحفظ.",
-  requiredFieldsPrefix: "الحقول المعلّمة بهذه العلامة",
-  requiredFieldsSuffix: "إلزامية.",
   address: "العنوان",
   addressPlaceholder: "مثال: عمّان، ماركا الشمالية، اسم الشارع...",
   addressRequired: "العنوان مطلوب وبحد أقصى 2000 حرف.",
@@ -164,8 +160,6 @@ const warehouseEn: WarehouseLocationsCopy = {
   warehouseCode: "Warehouse code",
   codePlaceholder: "WH-001",
   codeHint: "Suggested automatically, for example WH-001. You can edit it before saving.",
-  requiredFieldsPrefix: "Fields marked with this symbol",
-  requiredFieldsSuffix: "are required.",
   address: "Address",
   addressPlaceholder: "Example: Amman, Marka Al-Shamaliyah, street ...",
   addressRequired: "Address is required when creating a new warehouse and must be at most 2000 characters.",

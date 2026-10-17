@@ -704,23 +704,19 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
         isOpen={formOpen}
         onClose={() => { if (!formSubmitting) setFormOpen(false); }}
         title={formMode === "create" ? copy.add : copy.edit}
-        subtitle={formMode === "create" ? (
-          <span>{copy.requiredFieldsPrefix} <span aria-hidden="true" className="mx-1 inline-block text-base font-black leading-none text-red-600">*</span> {copy.requiredFieldsSuffix}</span>
-        ) : undefined}
       >
-        <form className="space-y-3" dir={dir} onSubmit={(event) => { event.preventDefault(); void handleSave(); }}>
+        <form noValidate className="space-y-3" dir={dir} onSubmit={(event) => { event.preventDefault(); void handleSave(); }}>
           <section className="rounded-xl border border-slate-100 bg-slate-50/60 p-3" aria-labelledby="warehouse-identity-heading">
-            <h3 id="warehouse-identity-heading" className="text-xs font-black text-slate-800">{presentation.identityTitle}</h3>
-            <p className="mb-3 mt-0.5 text-[10px] font-semibold leading-4 text-slate-500">{presentation.identityHint}</p>
+            <h3 id="warehouse-identity-heading" className="mb-3 text-xs font-black text-slate-800">{presentation.identityTitle}</h3>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-xs font-bold text-slate-600">
                 {copy.name}<span aria-hidden="true" className="ms-1 text-red-600">*</span>
-                <input ref={nameInputRef} required autoFocus value={form.name} onChange={(event) => updateForm({ name: event.target.value })} maxLength={150} aria-invalid={fieldIssue?.field === "name"} className={`mt-1 w-full rounded-xl border px-3 py-2.5 ${fieldIssue?.field === "name" ? "border-red-300" : "border-slate-200"} ${focusRing}`} />
+                <input ref={nameInputRef} autoFocus value={form.name} onChange={(event) => updateForm({ name: event.target.value })} maxLength={150} aria-invalid={fieldIssue?.field === "name"} className={`mt-1 w-full rounded-xl border px-3 py-2.5 ${fieldIssue?.field === "name" ? "border-red-300" : "border-slate-200"} ${focusRing}`} />
                 {fieldIssue?.field === "name" ? <span role="alert" className="mt-1 block text-[10px] font-semibold text-red-600">{fieldIssue.message}</span> : null}
               </label>
               <label className="block text-xs font-bold text-slate-600">
                 {copy.warehouseCode}<span aria-hidden="true" className="ms-1 text-red-600">*</span>
-                <input ref={codeInputRef} required value={form.code} onChange={(event) => updateForm({ code: event.target.value.toUpperCase() })} maxLength={50} dir="ltr" aria-invalid={fieldIssue?.field === "code"} className={`mt-1 w-full rounded-xl border px-3 py-2.5 font-mono ${fieldIssue?.field === "code" ? "border-red-300" : "border-slate-200"} ${focusRing}`} placeholder={copy.codePlaceholder} />
+                <input ref={codeInputRef} value={form.code} onChange={(event) => updateForm({ code: event.target.value.toUpperCase() })} maxLength={50} dir="ltr" aria-invalid={fieldIssue?.field === "code"} className={`mt-1 w-full rounded-xl border px-3 py-2.5 font-mono ${fieldIssue?.field === "code" ? "border-red-300" : "border-slate-200"} ${focusRing}`} placeholder={copy.codePlaceholder} />
                 {fieldIssue?.field === "code" ? <span role="alert" className="mt-1 block text-[10px] font-semibold text-red-600">{fieldIssue.message}</span> : <span className="mt-1 block text-[10px] font-semibold leading-4 text-slate-400">{copy.codeHint}</span>}
               </label>
             </div>
@@ -730,7 +726,7 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
             <h3 id="warehouse-location-heading" className="mb-3 text-xs font-black text-slate-800">{presentation.locationTitle}</h3>
             <label className="block text-xs font-bold text-slate-600">
               {copy.address}{formMode === "create" ? <span aria-hidden="true" className="ms-1 text-red-600">*</span> : null}
-              <textarea ref={addressInputRef} required={formMode === "create"} value={form.address} onChange={(event) => updateForm({ address: event.target.value })} maxLength={2000} aria-invalid={fieldIssue?.field === "address"} placeholder={copy.addressPlaceholder} className={`mt-1 min-h-20 w-full rounded-xl border px-3 py-2.5 ${fieldIssue?.field === "address" ? "border-red-300" : "border-slate-200"} ${focusRing}`} />
+              <textarea ref={addressInputRef} value={form.address} onChange={(event) => updateForm({ address: event.target.value })} maxLength={2000} aria-invalid={fieldIssue?.field === "address"} placeholder={copy.addressPlaceholder} className={`mt-1 min-h-20 w-full rounded-xl border px-3 py-2.5 ${fieldIssue?.field === "address" ? "border-red-300" : "border-slate-200"} ${focusRing}`} />
               {fieldIssue?.field === "address" ? <span role="alert" className="mt-1 block text-[10px] font-semibold text-red-600">{fieldIssue.message}</span> : null}
             </label>
             <label className="mt-3 block text-xs font-bold text-slate-600">
