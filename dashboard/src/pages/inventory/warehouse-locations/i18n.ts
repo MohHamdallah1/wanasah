@@ -5,11 +5,9 @@ export interface WarehouseLocationsCopy {
   summary: (total: string, active: string) => string;
   refresh: string;
   newWarehouse: string;
-  firstWarehouseEyebrow: string;
   firstWarehouseTitle: string;
   firstWarehouseDescription: string;
   createFirstWarehouse: string;
-  firstWarehouseHint: string;
   search: string;
   warehouse: string;
   code: string;
@@ -35,12 +33,14 @@ export interface WarehouseLocationsCopy {
   warehouseCode: string;
   codePlaceholder: string;
   codeHint: string;
+  requiredFieldsHint: string;
   address: string;
   addressPlaceholder: string;
   addressRequired: string;
   locationLink: string;
   latitude: string;
   longitude: string;
+  coordinatesHint: string;
   coordinatesInvalid: string;
   deactivate: string;
   activate: string;
@@ -66,11 +66,9 @@ const warehouseAr: WarehouseLocationsCopy = {
   summary: (total, active) => `${total} مستودع · ${active} فعال في الصفحة الحالية`,
   refresh: "تحديث",
   newWarehouse: "مستودع جديد",
-  firstWarehouseEyebrow: "نقطة البداية",
-  firstWarehouseTitle: "ابدأ من مكان حقيقي: أنشئ أول مستودع",
-  firstWarehouseDescription: "المستودع هو نقطة انطلاق المخزون في النظام. بعد إنشائه تصبح عمليات الاستلام، الرصيد الحي، الدفعات، التحويلات، الجرد وسجل الحركات جاهزة للعمل.",
+  firstWarehouseTitle: "أنشئ أول مستودع",
+  firstWarehouseDescription: "بعد إنشاء المستودع تصبح عمليات المستودع جاهزة للعمل.",
   createFirstWarehouse: "إنشاء أول مستودع",
-  firstWarehouseHint: "ابدأ بمستودع واحد فقط. يمكنك إضافة بقية المستودعات لاحقاً عندما تحتاجها.",
   search: "بحث بالاسم أو الكود (حرفان على الأقل)",
   warehouse: "المستودع",
   code: "الكود",
@@ -94,7 +92,17 @@ const warehouseAr: WarehouseLocationsCopy = {
   edit: "تعديل المستودع",
   name: "اسم المستودع",
   warehouseCode: "كود المستودع",
-  codePlaceholder: "AMMAN-01",
+  codePlaceholder: "WH-001",
+  codeHint: "يُقترح تلقائياً مثل WH-001، ويمكنك تعديله قبل الحفظ.",
+  requiredFieldsHint: "الحقول المعلّمة بهذه العلامة إلزامية.",
+  address: "العنوان",
+  addressPlaceholder: "مثال: عمّان، ماركا الشمالية، اسم الشارع...",
+  addressRequired: "العنوان مطلوب وبحد أقصى 2000 حرف.",
+  locationLink: "رابط الموقع أو Google Maps (اختياري)",
+  latitude: "خط العرض (اختياري)",
+  longitude: "خط الطول (اختياري)",
+  coordinatesHint: "عند إدخال الإحداثيات، أدخل خط العرض وخط الطول معاً.",
+  coordinatesInvalid: "أدخل خط العرض وخط الطول معاً بقيم جغرافية صحيحة.",
   deactivate: "تعطيل المستودع",
   activate: "تفعيل المستودع",
   deactivateReason: "سبب التعطيل - إجباري",
@@ -126,11 +134,9 @@ const warehouseEn: WarehouseLocationsCopy = {
   summary: (total, active) => `${total} warehouses · ${active} active on this page`,
   refresh: "Refresh",
   newWarehouse: "New warehouse",
-  firstWarehouseEyebrow: "Starting point",
-  firstWarehouseTitle: "Start somewhere real: create your first warehouse",
-  firstWarehouseDescription: "A warehouse is where inventory starts in the system. Once it exists, receiving, live stock, batches, transfers, stocktakes, and movement history have a real place to operate.",
+  firstWarehouseTitle: "Create your first warehouse",
+  firstWarehouseDescription: "After creating the warehouse, warehouse operations are ready to use.",
   createFirstWarehouse: "Create first warehouse",
-  firstWarehouseHint: "Start with one warehouse. Add the rest later, only when the operation needs them.",
   search: "Search by name or code (2+ characters)",
   warehouse: "Warehouse",
   code: "Code",
@@ -155,13 +161,15 @@ const warehouseEn: WarehouseLocationsCopy = {
   name: "Warehouse name",
   warehouseCode: "Warehouse code",
   codePlaceholder: "WH-001",
-  codeHint: "The system suggests a company-scoped sequential code such as WH-001. You can edit it before saving.",
+  codeHint: "Suggested automatically, for example WH-001. You can edit it before saving.",
+  requiredFieldsHint: "Fields marked with this symbol are required.",
   address: "Address",
   addressPlaceholder: "Example: Amman, Marka Al-Shamaliyah, street ...",
   addressRequired: "Address is required when creating a new warehouse and must be at most 2000 characters.",
   locationLink: "Location or Google Maps link - optional",
   latitude: "Latitude - optional",
   longitude: "Longitude - optional",
+  coordinatesHint: "If you enter coordinates, enter both latitude and longitude.",
   coordinatesInvalid: "Enter latitude and longitude together using valid geographic values.",
   deactivate: "Deactivate warehouse",
   activate: "Activate warehouse",

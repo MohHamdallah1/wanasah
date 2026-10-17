@@ -149,8 +149,8 @@ describe("CP4 Warehouse/Branch Dashboard closure", () => {
 
     renderWarehouses();
     const start = await screen.findByTestId("warehouse-first-empty");
-    expect(start).toHaveTextContent("ابدأ من مكان حقيقي: أنشئ أول مستودع");
-    expect(start).toHaveTextContent("الرصيد الحي");
+    expect(start).toHaveTextContent("أنشئ أول مستودع");
+    expect(start).toHaveTextContent("بعد إنشاء المستودع تصبح عمليات المستودع جاهزة للعمل.");
     expect(screen.queryByLabelText("بحث بالاسم أو الكود (حرفان على الأقل)")).toBeNull();
     expect(screen.queryByRole("button", { name: "إدارة الفروع" })).toBeNull();
     expect(screen.queryByRole("button", { name: "تحديث" })).toBeNull();

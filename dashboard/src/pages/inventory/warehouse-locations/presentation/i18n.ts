@@ -16,9 +16,9 @@ export interface WarehousePresentationCopy {
 const ar: WarehousePresentationCopy = {
   setupEyebrow: "إعداد المستودعات",
   identityTitle: "هوية المستودع",
-  identityHint: "الاسم والرمز يعرّفان المستودع للمشغّلين والتقارير.",
+  identityHint: "أدخل اسم المستودع والكود.",
   locationTitle: "الموقع الفعلي",
-  locationHint: "العنوان جزء من بيانات المستودع في V1. رابط الموقع والإحداثيات اختيارية حالياً وتُحفظ كمعلومة فقط لاستخدامها مستقبلاً؛ لا يوجد تتبع أو منع جغرافي الآن.",
+  locationHint: "العنوان مطلوب، ورابط الخرائط والإحداثيات اختيارية.",
   listLoadFailed: "تعذر تحميل المستودعات. يمكنك إعادة المحاولة دون فقدان إعداداتك.",
   retry: "إعادة المحاولة",
   deactivationCheck: "قبل التعطيل، يتحقق النظام من الأرصدة والعمليات والسياسات المفتوحة المرتبطة بالمستودع.",
@@ -31,9 +31,9 @@ const ar: WarehousePresentationCopy = {
 const en: WarehousePresentationCopy = {
   setupEyebrow: "Warehouse setup",
   identityTitle: "Warehouse identity",
-  identityHint: "Name and code identify the warehouse to operators and reports.",
+  identityHint: "Enter the warehouse name and code.",
   locationTitle: "Physical location",
-  locationHint: "The address is part of the V1 warehouse profile. The location link and coordinates are optional informational metadata for future use; no tracking or geofence enforcement is enabled now.",
+  locationHint: "Address is required. Map link and coordinates are optional.",
   listLoadFailed: "Warehouses could not be loaded. You can retry without losing setup changes.",
   retry: "Retry",
   deactivationCheck: "Before deactivation, the system checks balances, open operations, locks, and published policies tied to this warehouse.",

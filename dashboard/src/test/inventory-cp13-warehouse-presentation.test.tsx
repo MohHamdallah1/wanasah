@@ -32,8 +32,12 @@ describe("CP13 Warehouse setup final presentation", () => {
     expect(source).toContain("copy.locationLink");
     expect(source).toContain("copy.latitude");
     expect(source).toContain("copy.longitude");
-    expect(ar.locationHint.length).toBeGreaterThan(20);
-    expect(en.locationHint).toContain("optional informational metadata");
+    expect(ar.locationHint).not.toContain("V1");
+    expect(en.locationHint).toContain("optional");
+    expect(source).toContain("copy.requiredFieldsHint");
+    expect(source).toContain("copy.coordinatesHint");
+    expect(source).toContain('type="submit"');
+    expect(source).toContain("onSubmit={(event) => { event.preventDefault(); void handleSave(); }}");
     expect(source).toContain("aria-invalid={fieldIssue?.field === \"name\"}");
     expect(source).toContain("aria-invalid={fieldIssue?.field === \"code\"}");
     expect(source).toContain("requestAnimationFrame");
