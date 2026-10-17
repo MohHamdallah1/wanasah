@@ -73,8 +73,15 @@ describe("CP13 Warehouse setup final presentation", () => {
     expect(en.assignmentRule).toContain("active branches");
   });
 
-  it("presents quality destinations as setup/policy rather than a daily stock action", () => {
+  it("presents quality destinations as a dedicated warehouse setup view rather than a fixed daily stock action", () => {
+    const source = warehouse();
     const quality = read("src/features/inventory/quality/QualityHandlingDestinationsCard.tsx");
+    expect(source).toContain('type WarehouseSetupView = "warehouses" | "quality"');
+    expect(source).toContain('access.can("inventory.transfer_policy.manage")');
+    expect(source).toContain('setSetupView("quality")');
+    expect(source).toContain('setSetupView("warehouses")');
+    expect(source).toContain('data-warehouse-setup-view="quality"');
+    expect(source.match(/<QualityHandlingDestinationsCard/g)?.length).toBe(1);
     expect(quality).toContain('data-warehouse-setup="quality-policy"');
     expect(quality).toContain("presentation.qualityPolicy");
     expect(quality).toContain("presentation.qualityPolicyHint");

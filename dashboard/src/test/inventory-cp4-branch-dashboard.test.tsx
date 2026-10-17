@@ -54,7 +54,7 @@ vi.mock("@/components/ui/modal", () => ({
     isOpen ? <div role="dialog" aria-label={title}>{children}</div> : null,
 }));
 vi.mock("@/pages/inventory/warehouse-locations/QualityHandlingDestinationsCard", () => ({
-  QualityHandlingDestinationsCard: () => null,
+  QualityHandlingDestinationsCard: () => <div data-testid="quality-destinations-view">quality-destinations-view</div>,
 }));
 vi.mock("@/pages/inventory/StockMinimumManager", () => ({
   StockMinimumManager: () => <button type="button">minimum-stock-manager</button>,
@@ -158,6 +158,23 @@ describe("CP4 Warehouse/Branch Dashboard closure", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "إنشاء أول مستودع" }));
     expect(screen.getByRole("dialog", { name: "إضافة مستودع" })).toBeTruthy();
+  });
+
+  it("opens quality destinations as a dedicated warehouse setup view and returns to warehouses", async () => {
+    mocks.companyCaps.add("location.read");
+    mocks.companyCaps.add("inventory.transfer_policy.manage");
+    renderWarehouses();
+    await screen.findByText("Main warehouse");
+
+    expect(screen.queryByTestId("quality-destinations-view")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "وجهات الجودة" }));
+    expect(screen.getByTestId("quality-destinations-view")).toBeTruthy();
+    expect(screen.queryByLabelText("بحث بالاسم أو الكود (حرفان على الأقل)")).toBeNull();
+    expect(screen.queryByRole("button", { name: "مستودع جديد" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "المستودعات" }));
+    expect(screen.queryByTestId("quality-destinations-view")).toBeNull();
+    expect(screen.getByLabelText("بحث بالاسم أو الكود (حرفان على الأقل)")).toBeTruthy();
   });
 
   it("never treats CompanyOwner as branch authority", () => {

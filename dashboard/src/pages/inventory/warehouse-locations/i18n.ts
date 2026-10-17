@@ -5,6 +5,9 @@ export interface WarehouseLocationsCopy {
   summary: (total: string, active: string) => string;
   refresh: string;
   newWarehouse: string;
+  warehousesView: string;
+  qualityDestinationsView: string;
+  qualityDestinationsSummary: string;
   firstWarehouseTitle: string;
   firstWarehouseDescription: string;
   createFirstWarehouse: string;
@@ -65,6 +68,9 @@ const warehouseAr: WarehouseLocationsCopy = {
   summary: (total, active) => `${total} مستودع · ${active} فعال في الصفحة الحالية`,
   refresh: "تحديث",
   newWarehouse: "مستودع جديد",
+  warehousesView: "المستودعات",
+  qualityDestinationsView: "وجهات الجودة",
+  qualityDestinationsSummary: "إعداد وجهات الجودة لعمليات المخزون.",
   firstWarehouseTitle: "أنشئ أول مستودع",
   firstWarehouseDescription: "بعد إنشاء المستودع تصبح عمليات المستودع جاهزة للعمل.",
   createFirstWarehouse: "إنشاء أول مستودع",
@@ -132,6 +138,9 @@ const warehouseEn: WarehouseLocationsCopy = {
   summary: (total, active) => `${total} warehouses · ${active} active on this page`,
   refresh: "Refresh",
   newWarehouse: "New warehouse",
+  warehousesView: "Warehouses",
+  qualityDestinationsView: "Quality destinations",
+  qualityDestinationsSummary: "Configure quality destinations for inventory operations.",
   firstWarehouseTitle: "Create your first warehouse",
   firstWarehouseDescription: "After creating the warehouse, warehouse operations are ready to use.",
   createFirstWarehouse: "Create first warehouse",
