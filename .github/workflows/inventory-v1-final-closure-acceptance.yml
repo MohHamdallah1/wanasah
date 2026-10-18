@@ -23,7 +23,26 @@ jobs:
   postgres-16:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    name: postgres-16 (${{ matrix.candidate }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - candidate: assigned-base
+            source_ref: ""
+            selection: ""
+            expected_cases: 13
+          - candidate: receiver-worker
+            source_ref: f4bb3834cad5312c40b118882bb2dca5bbd664f8
+            selection: "not published_same_location"
+            expected_cases: 9
+          - candidate: quality-worker
+            source_ref: 02b5ea4cd59b653ff66c3f4b7662c342b3b7c8ed
+            selection: "one_warehouse_quantity_status or published_same_location"
+            expected_cases: 5
     env:
+      CLOSURE_PYTEST_FILTER: ${{ matrix.selection }}
+      CLOSURE_EXPECTED_CASES: ${{ matrix.expected_cases }}
       ENVIRONMENT: test
       SECRET_KEY: ClosureAcceptanceSyntheticOnlyAbc12345678901234567890
       DATABASE_URL: postgresql+asyncpg://cp8_app@127.0.0.1:55448/wanasah_cp8_test
@@ -34,7 +53,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ matrix.source_ref || github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/checkout@v4
+        if: matrix.source_ref != ''
+        with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: .closure-acceptance
+      - name: Overlay acceptance tests only onto pinned worker source
+        if: matrix.source_ref != ''
+        run: |
+          cp .closure-acceptance/wa_backend/tests/test_inventory_v1_final_closure_acceptance_postgres.py wa_backend/tests/
+          git diff --exit-code -- wa_backend ':!wa_backend/tests'
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -78,31 +107,52 @@ jobs:
           python -B -m pytest -p no:cacheprovider -q -s
           tests/test_inventory_v1_final_closure_acceptance_postgres.py
           --junitxml=inventory-final-closure.xml
+          -k "$CLOSURE_PYTEST_FILTER"
       - name: Reject missing or skipped coverage
         if: always()
         working-directory: wa_backend
         run: |
           python - <<'PY'
+          import os
           import xml.etree.ElementTree as ET
           root = ET.parse("inventory-final-closure.xml").getroot()
           cases = root.findall(".//testcase")
-          assert len(cases) >= 9, f"Missing closure cases: {len(cases)}"
+          assert len(cases) == int(os.environ["CLOSURE_EXPECTED_CASES"]), len(cases)
           assert not root.findall(".//skipped"), "Closure coverage must execute"
           PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: inventory-final-closure-postgres
+          name: inventory-final-closure-postgres-${{ matrix.candidate }}
           path: wa_backend/inventory-final-closure.xml
           if-no-files-found: error
 
   dashboard:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    name: dashboard (${{ matrix.candidate }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - candidate: assigned-base
+            source_ref: ""
+          - candidate: dashboard-worker
+            source_ref: 4f3885f8abb42c10db21e8c3549861640667c0b5
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ matrix.source_ref || github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/checkout@v4
+        if: matrix.source_ref != ''
+        with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: .closure-acceptance
+      - name: Overlay DOM acceptance only onto pinned Dashboard source
+        if: matrix.source_ref != ''
+        run: |
+          cp .closure-acceptance/dashboard/src/test/inventory-v1-final-closure-acceptance.test.tsx dashboard/src/test/
+          git diff --exit-code -- dashboard ':!dashboard/src/test'
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -122,7 +172,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: inventory-final-closure-dashboard
+          name: inventory-final-closure-dashboard-${{ matrix.candidate }}
           path: dashboard/inventory-final-closure.xml
           if-no-files-found: error
 

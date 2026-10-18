@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from datetime import date
 from decimal import Decimal
+from importlib import import_module
 import os
 from types import SimpleNamespace as NS
 from unittest.mock import patch
@@ -29,7 +30,7 @@ from database import get_db
 from models import (
     Company, DispatchRoute, InventoryBalance, InventoryLocation, InventoryMovement,
     InventoryTransferHeader, Permission, Product, ProductBatch, ProductLocation, ProductVariant,
-    SessionInventorySnapshot, StocktakeSession, SystemAuditLog,
+    SessionInventorySnapshot, StocktakeCountAttemptLine, StocktakeLine, StocktakeSession, SystemAuditLog,
     UOM, UserLocationAccess, Vehicle, WorkSession, Zone, role_permissions, utc_now,
 )
 from schemas import (
@@ -66,7 +67,8 @@ async def closure(pg):
     async with AsyncSession(pg.admin_engine, expire_on_commit=False) as db:
         codes = {"inventory.read", "inventory.status_change", "ledger.read",
                  "location.read", "transfer.send", "transfer.destination",
-                 "inventory.transfer_policy.manage", "settlement.execute",
+                 "inventory.transfer_policy.manage", "settlement.read", "settlement.execute",
+                 "stocktake.start", "stocktake.count",
                  *SPECIAL_TRANSFER_PERMISSION.values()}
         await _ensure_permissions(db, codes)
         uom = await db.scalar(select(UOM).where(UOM.code == "EACH"))
@@ -124,7 +126,10 @@ async def closure(pg):
             await _grant_location(db, company_id=company.id, driver_id=actor.driver_id,
                 location_id=warehouse.id, codes=("inventory.read", "inventory.status_change",
                     "ledger.read", "location.read", "transfer.send", "transfer.destination"))
-            for code in ("inventory.transfer_policy.manage", "settlement.execute",
+            await _grant_location(db, company_id=company.id, driver_id=actor.driver_id,
+                location_id=vehicle_location.id, codes=("inventory.read", "ledger.read",
+                    "transfer.send", "stocktake.start", "stocktake.count"))
+            for code in ("inventory.transfer_policy.manage", "settlement.read", "settlement.execute",
                          *SPECIAL_TRANSFER_PERMISSION.values()):
                 await _grant_company(db, company_id=company.id,
                                      driver_id=actor.driver_id, code=code)
@@ -183,11 +188,26 @@ async def evidence(gate, tenant):
                   settled=work.is_settled, audits=audits)
 
 
-async def financial(gate, tenant, *, actor=None, session_id=None):
-    """Real FastAPI capability dependency, subject resolver and restricted DB."""
+def receiver_module():
+    try:
+        return import_module("api.representative_settlement")
+    except ModuleNotFoundError as exc:
+        if exc.name != "api.representative_settlement":
+            raise
+        pytest.fail(
+            "RECEIVER_CONTRACT_NOT_IN_CANDIDATE: integrate the reviewed Backend "
+            "receiver implementation before running positive closure acceptance"
+        )
+
+
+async def runtime_request(gate, tenant, *, path, method="GET", body=None,
+                          actor=None, receiver=False):
+    """Actual routes/dependencies; override authenticated identity and DB only."""
     actor = actor or tenant.actor
     app = FastAPI()
     app.include_router(dispatch.router)
+    if receiver:
+        app.include_router(receiver_module().router)
 
     async def runtime_db():
         async with gate.session(tenant) as db:
@@ -200,8 +220,33 @@ async def financial(gate, tenant, *, actor=None, session_id=None):
     )
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
                                 base_url="http://closure.test") as client:
-        return await client.put(f"/admin/sessions/{session_id or tenant.work}/settle",
-                                json={"actual_cash": "0.000", "notes": "Acceptance"})
+        return await client.request(method, path, json=body)
+
+
+async def financial(gate, tenant, *, actor=None, session_id=None):
+    return await runtime_request(gate, tenant, actor=actor, method="PUT",
+        path=f"/admin/sessions/{session_id or tenant.work}/settle",
+        body={"actual_cash": "0.000", "notes": "Acceptance"})
+
+
+async def custody(gate, tenant, *, body=None, actor=None, session_id=None):
+    path = f"/admin/sessions/{session_id or tenant.work}/inventory-custody"
+    return await runtime_request(gate, tenant, path=path + ("/receive" if body else ""),
+        method="POST" if body else "GET", body=body, actor=actor, receiver=True)
+
+
+async def receiving_command(gate, tenant):
+    preview = await custody(gate, tenant)
+    assert preview.status_code == 200, preview.text
+    lines = preview.json()["lines"]
+    assert {row["stock_status"] for row in lines} == {"AVAILABLE", "DAMAGED"}
+    assert {row["batch_number"] for row in lines} == {"CLOSE-LOT"}
+    return {
+        "request_id": str(uuid4()), "destination_location_id": tenant.warehouse,
+        "receiver_confirms_handoff": True, "notes": "Independent receiving evidence",
+        "items": [{"line_key": row["line_key"], "actual_quantity": row["expected_quantity"]}
+                  for row in lines],
+    }, {row["stock_status"]: row["line_key"] for row in lines}
 
 
 async def reconcile(gate, tenant, quantity):
@@ -401,3 +446,146 @@ async def test_financial_close_requires_receiver_handoff_not_only_legacy_seal(cl
         f"custody handoff: {response.status_code} {response.text}"
     )
     assert vars(await evidence(closure, a)) == vars(before)
+
+
+async def test_receiver_exact_status_handoff_then_financial_close_has_no_recount(closure):
+    a = closure.a
+    before = await evidence(closure, a)
+    command, _ = await receiving_command(closure, a)
+    assert vars(await evidence(closure, a)) == vars(before)  # opening never receives
+    unconfirmed = await custody(closure, a, body={**command, "receiver_confirms_handoff": False})
+    assert unconfirmed.status_code == 422
+    assert (await custody(closure, a, actor=a.denied)).status_code == 403
+    foreign = await custody(closure, a, session_id=closure.b.work)
+    absent = await custody(closure, a, session_id=2_147_483_647)
+    assert foreign.status_code == absent.status_code == 404
+    assert foreign.json() == absent.json()
+    assert vars(await evidence(closure, a)) == vars(before)
+    first, duplicate = await asyncio.gather(
+        custody(closure, a, body=command), custody(closure, a, body=command))
+    assert first.status_code == duplicate.status_code == 200
+    assert first.json() == duplicate.json()
+    assert first.json()["status"] == "CUSTODY_RECEIVED"
+    assert first.json()["movement_count"] == 2
+    assert (await custody(closure, a, body=command)).json() == first.json()
+    received = await evidence(closure, a)
+    quantities = {(r[0], r[3]): Decimal(r[4]) for r in received.balances}
+    assert quantities[a.warehouse, "AVAILABLE"] == 26
+    assert quantities[a.warehouse, "DAMAGED"] == 7
+    assert quantities[a.vehicle_location, "AVAILABLE"] == 0
+    assert quantities[a.vehicle_location, "DAMAGED"] == 0
+    assert sum(Decimal(r[4]) for r in received.balances) == 33
+    assert received.seal[0] is not None and received.settled is False
+    async with closure.session(a) as db:
+        moves = (await db.scalars(select(InventoryMovement).where(
+            InventoryMovement.company_id == a.company_id,
+            InventoryMovement.work_session_id == a.work,
+            InventoryMovement.reference_type == "REPRESENTATIVE_CUSTODY_RECEIPT"))).all()
+        assert {(m.source_stock_status, m.destination_stock_status, Decimal(m.quantity))
+                for m in moves} == {
+                    ("AVAILABLE", "AVAILABLE", Decimal("6")),
+                    ("DAMAGED", "DAMAGED", Decimal("4")),
+                }
+        assert all(m.batch_id == a.batch and m.source_location_id == a.vehicle_location
+                   and m.destination_location_id == a.warehouse
+                   and m.performed_by == a.actor.driver_id for m in moves)
+        for location in (a.vehicle_location, a.warehouse):
+            page = await ledger.get_warehouse_ledger_cursor(
+                location, None, 100, None, "REPRESENTATIVE_CUSTODY_RECEIPT",
+                str(a.work), db, a.actor.access(db))
+            assert {m.id for m in moves} <= {row["id"] for row in page["items"]}
+        assert await db.scalar(select(func.count()).select_from(SystemAuditLog).where(
+            SystemAuditLog.company_id == a.company_id,
+            SystemAuditLog.target_id == f"WorkSession_{a.work}",
+            SystemAuditLog.action_type == "REPRESENTATIVE_CUSTODY_RECEIVED")) == 1
+    closed = await financial(closure, a)
+    assert closed.status_code == 200 and closed.json()["is_settled"] is True
+    after_finance = await evidence(closure, a)
+    for field in ("balances", "movements", "snapshots", "seal"):
+        assert getattr(after_finance, field) == getattr(received, field)
+    assert after_finance.settled is True
+
+
+@pytest.mark.parametrize("available,damaged", [("6", "3"), ("5", "5")])
+async def test_receiver_variance_preserves_exact_status_evidence_not_just_total(
+    closure, available, damaged,
+):
+    a = closure.a
+    before = await evidence(closure, a)
+    command, keys = await receiving_command(closure, a)
+    incomplete = await custody(closure, a, body={**command, "items": command["items"][:1]})
+    assert incomplete.status_code == 422
+    assert vars(await evidence(closure, a)) == vars(before)
+    quantities = {keys["AVAILABLE"]: available, keys["DAMAGED"]: damaged}
+    command["items"] = [{"line_key": item["line_key"],
+                         "actual_quantity": quantities[item["line_key"]]}
+                        for item in command["items"]]
+    first = await custody(closure, a, body=command)
+    assert first.status_code == 200, first.text
+    assert first.json()["status"] == "REVIEW_REQUIRED"
+    assert first.json()["movement_count"] == 0
+    retry = await custody(closure, a, body=command)
+    assert retry.status_code == 200 and retry.json() == first.json()
+    changed = await custody(closure, a, body={**command, "notes": "Different command"})
+    assert changed.status_code == 409
+    after = await evidence(closure, a)
+    assert after.balances == before.balances and after.movements == before.movements
+    assert after.seal == (None, None) and after.settled is False
+    async with closure.session(a) as db:
+        rows = (await db.execute(select(
+            StocktakeLine.batch_id, StocktakeLine.stock_status,
+            StocktakeCountAttemptLine.expected_quantity,
+            StocktakeCountAttemptLine.actual_quantity,
+            StocktakeCountAttemptLine.variance_quantity,
+        ).join(StocktakeCountAttemptLine,
+               StocktakeCountAttemptLine.stocktake_line_id == StocktakeLine.id).join(
+            StocktakeSession, StocktakeSession.id == StocktakeLine.stocktake_session_id,
+        ).where(StocktakeSession.company_id == a.company_id,
+                StocktakeSession.related_work_session_id == a.work))).all()
+        assert set(map(tuple, rows)) == {
+            (a.batch, "AVAILABLE", Decimal("6"), Decimal(available), Decimal(available) - 6),
+            (a.batch, "DAMAGED", Decimal("4"), Decimal(damaged), Decimal(damaged) - 4),
+        }
+        assert await db.scalar(select(func.count()).select_from(StocktakeSession).where(
+            StocktakeSession.company_id == a.company_id,
+            StocktakeSession.related_work_session_id == a.work)) == 1
+    assert (await financial(closure, a)).status_code == 409
+
+
+async def test_receiver_partial_failure_retry_scope_and_revoked_replay(closure):
+    a = closure.a
+    module = receiver_module()
+    command, _ = await receiving_command(closure, a)
+    before = await evidence(closure, a)
+    denied = await custody(closure, a, body=command, actor=a.denied)
+    foreign = await custody(closure, a, body={
+        **command, "destination_location_id": closure.b.warehouse,
+    })
+    assert denied.status_code == 403 and foreign.status_code in {403, 404}
+    real_apply = module.apply_inventory_movements_batch
+
+    async def fail_after_first_movement(db, **kwargs):
+        await real_apply(db, **{**kwargs, "movements": kwargs["movements"][:1]})
+        raise RuntimeError("Synthetic interruption between custody rows")
+
+    with patch.object(module, "apply_inventory_movements_batch", fail_after_first_movement):
+        failed = await custody(closure, a, body=command)
+    assert failed.status_code == 500
+    assert vars(await evidence(closure, a)) == vars(before)
+    retried = await custody(closure, a, body=command)
+    assert retried.status_code == 200 and retried.json()["status"] == "CUSTODY_RECEIVED"
+    received = await evidence(closure, a)
+    fresh_id = await custody(closure, a, body={**command, "request_id": str(uuid4())})
+    assert fresh_id.status_code == 409
+    async with AsyncSession(closure.admin_engine, expire_on_commit=False) as db:
+        roles = select(role_permissions.c.role_id).join(
+            Permission, Permission.id == role_permissions.c.permission_id,
+        ).where(role_permissions.c.company_id == a.company_id, Permission.code == "transfer.send")
+        await db.execute(UserLocationAccess.__table__.delete().where(
+            UserLocationAccess.company_id == a.company_id,
+            UserLocationAccess.driver_id == a.actor.driver_id,
+            UserLocationAccess.location_id == a.vehicle_location,
+            UserLocationAccess.role_id.in_(roles)))
+        await db.commit()
+    assert (await custody(closure, a, body=command)).status_code == 403
+    assert vars(await evidence(closure, a)) == vars(received)
