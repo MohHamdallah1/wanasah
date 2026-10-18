@@ -289,7 +289,6 @@ async def _persist_variance(
         "status": "REVIEW_REQUIRED",
         "review_required": True,
         "reconciliation_reference": reference,
-        "reconciliation_session_id": int(session.id),  # transport-only, never operator input
         "requires_independent_recount": bool(attempt.requires_independent_recount),
         "movement_count": 0,
     }
@@ -442,3 +441,216 @@ async def receive_representative_custody(
         await db.rollback()
         logger.exception("Representative custody receiving failed")
         raise HTTPException(status_code=500, detail={"code": "CUSTODY_RECEIPT_FAILED"}) from None
+
+# Business-facing variance review and recount actions. Stocktake IDs/attempt IDs
+# never become UI inputs: each command resolves the exact WorkSession-linked
+# canonical session on the server and invokes existing stocktake authority.
+async def _session_variance(
+    db: AsyncSession, access: BackofficeCapabilityAccess, session_id: int,
+):
+    work, vehicle_location_id = await _session_and_vehicle(
+        db, access.company_id, session_id, lock=False,
+    )
+    await _capability(access, "inventory.read", vehicle_location_id)
+    recon = await _recon(db, access.company_id, work.id)
+    if recon is None or int(recon.location_id) != vehicle_location_id:
+        raise HTTPException(status_code=409, detail={"code": "NO_SETTLEMENT_VARIANCE_TO_REVIEW"})
+    return recon
+
+
+async def _latest_variance_attempt(db: AsyncSession, company_id: int, recon_id: int):
+    attempt = (await db.execute(select(StocktakeCountAttempt).where(
+        StocktakeCountAttempt.company_id == company_id,
+        StocktakeCountAttempt.stocktake_session_id == recon_id,
+    ).order_by(
+        StocktakeCountAttempt.attempt_number.desc(), StocktakeCountAttempt.id.desc(),
+    ).limit(1))).scalar_one_or_none()
+    if attempt is None:
+        raise HTTPException(status_code=409, detail={"code": "COUNT_ATTEMPT_NOT_FOUND"})
+    return attempt
+
+
+class CustodyVarianceApprove(BaseModel):
+    request_id: UUID
+    password: str = Field(min_length=1, max_length=200)
+    notes: str | None = Field(default=None, max_length=1000)
+
+
+class CustodyVarianceRecount(BaseModel):
+    request_id: UUID
+    reason: str = Field(min_length=1, max_length=1000)
+    authorizer_username: str = Field(min_length=1, max_length=200)
+    authorizer_password: str = Field(min_length=1, max_length=200)
+
+
+class CustodyRecountSubmit(BaseModel):
+    request_id: UUID
+    items: list[CustodyCount] = Field(max_length=_MAX_LINES)
+    notes: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def reject_duplicates(self):
+        if len({item.line_key for item in self.items}) != len(self.items):
+            raise ValueError("Duplicate physically counted custody line")
+        return self
+
+
+@router.get("/admin/sessions/{session_id}/inventory-custody/variance")
+async def review_representative_variance(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(_READ),
+):
+    recon = await _session_variance(db, access, session_id)
+    from api.warehouse.stocktake import get_stocktake_review
+    review = await get_stocktake_review(recon.id, db=db, access=access)
+    return {
+        "status": "REVIEW_REQUIRED",
+        "reconciliation_reference": recon.reference_number,
+        "independent_recount_satisfied": review["independent_recount_satisfied"],
+        "requires_independent_recount": review["latest_attempt"]["requires_independent_recount"],
+        "attempt_number": review["latest_attempt"]["attempt_number"],
+        "lines": [{
+            "product_name": line["product_name"],
+            "batch_number": line["batch_number"],
+            "stock_status": line["stock_status"],
+            "uom": line["base_uom_code"],
+            "expected_quantity": line["expected_quantity"],
+            "actual_quantity": line["actual_quantity"],
+            "variance_quantity": line["variance_quantity"],
+            "expiry_date": line["expiry_date"],
+        } for line in review["lines"]],
+    }
+
+
+@router.post("/admin/sessions/{session_id}/inventory-custody/variance/approve")
+async def approve_representative_variance(
+    session_id: int,
+    payload: CustodyVarianceApprove,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(_EXECUTE),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    recon = await _session_variance(db, access, session_id)
+    attempt = await _latest_variance_attempt(db, access.company_id, recon.id)
+    from api.warehouse.stocktake import approve_stocktake_session
+    from domains.stocktake.contracts import StocktakeApprovalCommand
+    result = await approve_stocktake_session(
+        recon.id,
+        StocktakeApprovalCommand(
+            request_id=payload.request_id,
+            count_attempt_id=attempt.id,
+            password=payload.password,
+            notes=payload.notes,
+        ),
+        db=db, access=access, legacy_actor=legacy_actor,
+    )
+    return {
+        "status": "RECONCILED_AWAITING_RECEIPT",
+        "reconciliation_reference": recon.reference_number,
+        "movement_count": result["movement_count"],
+        "receiver_must_confirm_handoff": True,
+        "financial_ready": False,
+    }
+
+
+@router.post("/admin/sessions/{session_id}/inventory-custody/variance/recount")
+async def request_representative_recount(
+    session_id: int,
+    payload: CustodyVarianceRecount,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(_EXECUTE),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    recon = await _session_variance(db, access, session_id)
+    attempt = await _latest_variance_attempt(db, access.company_id, recon.id)
+    from api.warehouse.stocktake import recount_stocktake_session
+    from domains.stocktake.contracts import StocktakeRecountCommand
+    result = await recount_stocktake_session(
+        recon.id,
+        StocktakeRecountCommand(
+            request_id=payload.request_id,
+            count_attempt_id=attempt.id,
+            reason=payload.reason,
+            authorizer_username=payload.authorizer_username,
+            authorizer_password=payload.authorizer_password,
+        ),
+        db=db, access=access, legacy_actor=legacy_actor,
+    )
+    return {
+        "status": "RECOUNT_REQUIRED",
+        "reconciliation_reference": recon.reference_number,
+        "recount_authorized": result["status"] == "RECOUNT_REQUIRED",
+    }
+
+
+async def _recount_sheet(db: AsyncSession, access: BackofficeCapabilityAccess,
+                         actor: Driver, session_id: int):
+    recon = await _session_variance(db, access, session_id)
+    from api.warehouse.stocktake import get_stocktake_count_sheet
+    rows = await get_stocktake_count_sheet(
+        recon.id, db=db, access=access, legacy_actor=actor,
+    )
+    return recon, {
+        _line_key(session_id, row["product_variant_id"], row["batch_id"], row["stock_status"]): row
+        for row in rows
+    }
+
+
+@router.get("/admin/sessions/{session_id}/inventory-custody/variance/count-sheet")
+async def representative_recount_sheet(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(_READ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    recon, sheet = await _recount_sheet(db, access, legacy_actor, session_id)
+    return {
+        "status": "RECOUNT_REQUIRED",
+        "reconciliation_reference": recon.reference_number,
+        "lines": [{
+            "line_key": key,
+            "product_name": row["product_name"],
+            "stock_status": row["stock_status"],
+            "batch_number": row["batch_number"],
+            "expiry_date": row["expiry_date"],
+            "uom": row["base_uom_code"],
+        } for key, row in sheet.items()],
+    }
+
+
+@router.post("/admin/sessions/{session_id}/inventory-custody/variance/count")
+async def submit_representative_recount(
+    session_id: int,
+    payload: CustodyRecountSubmit,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(_EXECUTE),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    recon, sheet = await _recount_sheet(db, access, legacy_actor, session_id)
+    supplied = {item.line_key: item for item in payload.items}
+    if len(sheet) != len(payload.items) or set(sheet) != set(supplied):
+        raise HTTPException(status_code=422, detail={"code": "RECOUNT_LINES_INCOMPLETE"})
+    from api.warehouse.stocktake import submit_stocktake_count
+    from domains.stocktake.contracts import StocktakeCountCommand
+    result = await submit_stocktake_count(
+        recon.id,
+        StocktakeCountCommand(
+            request_id=payload.request_id,
+            notes=payload.notes,
+            items=[{
+                "product_variant_id": row["product_variant_id"],
+                "batch_id": row["batch_id"],
+                "stock_status": row["stock_status"],
+                "uom_id": row["base_uom_id"],
+                "actual_quantity": supplied[key].actual_quantity,
+            } for key, row in sheet.items()],
+        ),
+        db=db, access=access, legacy_actor=legacy_actor,
+    )
+    return {
+        "status": "REVIEW_REQUIRED",
+        "reconciliation_reference": recon.reference_number,
+        "attempt_number": result["attempt_number"],
+        "requires_independent_recount": result["requires_independent_recount"],
+    }
