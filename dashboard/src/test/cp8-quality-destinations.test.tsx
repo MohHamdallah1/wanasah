@@ -92,6 +92,12 @@ it("renders an explicit published policy as read-only custom configuration", asy
   expect(screen.getByText("Location #22")).toBeInTheDocument();
   expect(screen.getByText("Location #23")).toBeInTheDocument();
   expect(screen.queryByText("Same current location")).toBeNull();
+  expect(
+    screen.getByText("The currently published custom destinations remain in effect."),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByText(/The quantity stays in its current location/),
+  ).toBeNull();
   expect(screen.getByText(/read-only/)).toBeInTheDocument();
   expect(screen.queryByRole("combobox")).toBeNull();
   expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
