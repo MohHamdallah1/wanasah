@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.warehouse import transfer_policy, transfers
 from domains.sales_calculation.policy import publish_commercial_rounding_policy
 from domains.taxation.models import TaxRuleSet, TaxRuleSetVersion, TaxRuleComponent
+from domains.taxation.publishing import publish_version
 from models import (
     DispatchRoute, Driver, InventoryBalance, InventoryLocation, InventoryMovement,
     PriceBook, PriceBookAssignment, PriceBookEntry, PricePublication, ProductLocation,
@@ -84,30 +85,32 @@ async def seed_commercial_context(db, *, company, actor, variant, route, uom):
             scope_type="COMPANY_DEFAULT", scope_id=None, revision=1, priority=0,
             allow_offers=False, effectivity=effectivity, created_by=actor.driver_id),
     ])
-    context = RouteCommercialContext(company_id=company.id, dispatch_route_id=route.id,
-        pricing_locked_at=utc_now(), price_publication_revision=1, assignment_revision=1,
-        offer_ruleset_version=0, tax_ruleset_version=1,
-        transaction_currency_code="JOD", functional_currency_code="JOD",
-        rounding_policy_version=1, tenant_policy_revision=1)
-    db.add(context)
-    await db.flush()
     tax = TaxRuleSet(company_id=company.id, code="CLOSURE-ZERO",
         name="Explicit zero tax", created_by=actor.driver_id)
     db.add(tax)
     await db.flush()
     aware = earlier.replace(tzinfo=timezone.utc)
     version = TaxRuleSetVersion(company_id=company.id, tax_rule_set_id=tax.id,
-        revision=1, definition_version=1, status="PUBLISHED", priority=0,
+        revision=1, definition_version=1, status="DRAFT", priority=0,
         price_mode="EXCLUSIVE", effective_from=aware, request_id=uuid4(),
-        created_by=actor.driver_id, approved_by=actor.driver_id,
-        approved_at=aware, published_at=aware)
+        created_by=actor.driver_id)
     db.add(version)
     await db.flush()
     db.add(TaxRuleComponent(company_id=company.id, tax_rule_set_version_id=version.id,
         component_code="ZERO", name="Zero", sequence=1, rate=Decimal("0"),
         basis_mode="TAXABLE_BASE"))
+    await db.flush()
+    await publish_version(db, company_id=company.id, actor_id=actor.driver_id,
+                          version_id=version.id, expected_version=version.version)
     await publish_commercial_rounding_policy(db, company_id=company.id,
         actor_id=actor.driver_id, expected_revision=0, precision=3, mode="HALF_UP")
+    await db.flush()
+    context = RouteCommercialContext(company_id=company.id, dispatch_route_id=route.id,
+        pricing_locked_at=utc_now(), price_publication_revision=1, assignment_revision=1,
+        offer_ruleset_version=0, tax_ruleset_version=1,
+        transaction_currency_code="JOD", functional_currency_code="JOD",
+        rounding_policy_version=1, tenant_policy_revision=1)
+    db.add(context)
     await db.flush()
     return context.id
 
