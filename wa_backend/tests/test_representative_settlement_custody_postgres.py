@@ -718,7 +718,7 @@ async def test_backoffice_representative_custody_postgres():
             await db.rollback()
             cash_close = await dispatch.settle_session(
                 variance_session,
-                SettleSessionRequest(request_id=uuid4(), 
+                SettleSessionRequest(request_id=uuid4(),
                     actual_cash=Decimal("0"),
                     notes="One damaged unit missing; DRIVER_SHORTAGE valued at locked JOD 5.000",
                 ),
