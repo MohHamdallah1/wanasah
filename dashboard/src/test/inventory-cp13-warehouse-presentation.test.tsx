@@ -91,6 +91,11 @@ describe("CP13 Warehouse setup final presentation", () => {
     expect(policyHook).toContain("quarantine_location_id: null");
     expect(policyHook).toContain("vendor_return_staging_location_id: null");
     expect(policyHook).toContain("disposal_location_id: null");
+    expect(policyHook).toContain("customConfigured");
+    expect(quality).toContain('data-quality-destination-mode={customConfigured ? "custom" : "in-place"}');
+    expect(quality).toContain("effectivePayload.quarantine_location_id");
+    expect(quality).not.toContain("saveDraft");
+    expect(quality).not.toContain("publish()");
     expect(quality).toContain("presentation.qualityPolicy");
     expect(quality).toContain("useTransferDestinationPolicy");
   });
