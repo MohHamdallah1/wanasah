@@ -550,6 +550,106 @@ async def test_policy_draft_publish_replay_revocation_and_deactivation_blocker(p
             assert revoked.value.status_code == 403
 
 
+async def test_in_place_quality_policy_stages_status_without_physical_transfer(pg):
+    actor = pg.a.owner
+    source_location_id = pg.a.locations[0]
+    command = SpecialTransferDispatchRequest(
+        request_id=uuid4(),
+        source_location_id=source_location_id,
+        transfer_purpose="DISPOSAL",
+        notes="CP8 in-place quality default",
+        items=[dict(
+            product_variant_id=pg.a.variant_id,
+            batch_id=pg.a.expired_batch_id,
+            source_status="AVAILABLE",
+            quantity="2",
+            uom_id=pg.a.uom_id,
+        )],
+    )
+
+    async with pg.session(pg.a) as db:
+        before_total = await db.scalar(
+            select(func.sum(InventoryBalance.on_hand_quantity)).where(
+                InventoryBalance.company_id == pg.a.company_id,
+                InventoryBalance.location_id == source_location_id,
+            )
+        )
+        draft = await transfer_policy.save_transfer_destination_policy(
+            TransferDestinationPolicySaveRequest(
+                request_id=uuid4(),
+                payload=dict(
+                    quarantine_location_id=None,
+                    disposal_location_id=None,
+                    vendor_return_staging_location_id=None,
+                ),
+            ),
+            db,
+            actor.access(db),
+            actor.operational_driver,
+        )
+        assert draft["policy"]["validated_payload"]["quarantine_location_id"] is None
+        publish_request = TransferDestinationPolicyPublishRequest(
+            request_id=uuid4(),
+            expected_revision=draft["policy"]["revision"],
+        )
+        published = await transfer_policy.publish_transfer_destination_policy_endpoint(
+            draft["policy"]["id"],
+            publish_request,
+            db,
+            actor.access(db),
+            actor.operational_driver,
+        )
+        assert published["policy"]["validated_payload"] == {
+            "quarantine_location_id": None,
+            "disposal_location_id": None,
+            "vendor_return_staging_location_id": None,
+            "allow_retiring_warehouse_balancing": False,
+        }
+
+    async with pg.session(pg.a) as db:
+        result = await transfers.special_transfer_dispatch(
+            command,
+            db,
+            actor.access(db),
+            actor.operational_driver,
+        )
+        assert result["source_location_id"] == source_location_id
+        assert result["destination_location_id"] == source_location_id
+        assert await transfers.special_transfer_dispatch(
+            command,
+            db,
+            actor.access(db),
+            actor.operational_driver,
+        ) == result
+
+        header = await db.get(InventoryTransferHeader, result["header_id"])
+        assert header.workflow_type == "DIRECT"
+        assert header.status == "POSTED"
+        assert header.source_location_id == source_location_id
+        assert header.destination_location_id == source_location_id
+        assert header.commercial_context["quality_stage_v1"] is True
+
+        movement = await db.scalar(
+            select(InventoryMovement).where(
+                InventoryMovement.company_id == pg.a.company_id,
+                InventoryMovement.transfer_header_id == result["header_id"],
+            )
+        )
+        assert movement.movement_kind == "STATUS_CHANGE"
+        assert movement.source_location_id == source_location_id
+        assert movement.destination_location_id == source_location_id
+        assert movement.source_stock_status == "AVAILABLE"
+        assert movement.destination_stock_status == "DISPOSAL_PENDING"
+
+        after_total = await db.scalar(
+            select(func.sum(InventoryBalance.on_hand_quantity)).where(
+                InventoryBalance.company_id == pg.a.company_id,
+                InventoryBalance.location_id == source_location_id,
+            )
+        )
+        assert after_total == before_total
+
+
 async def test_query_counts_are_bounded_by_page_not_rows(pg):
     for _ in range(6): await send(pg)
     async with pg.session(pg.a) as db:
