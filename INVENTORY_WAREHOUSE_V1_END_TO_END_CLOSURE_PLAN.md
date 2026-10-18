@@ -646,7 +646,7 @@ Current Inventory access APIs already manage canonical Backoffice role/grant dat
 - [x] Validate Warehouse and Vehicle location scope.
 - [x] Validate canonical Backoffice target identity → legacy grant-storage bridge without ID-equality assumptions.
 - [x] Do not add user creation/password/deactivation to this Inventory tab; that belongs to future/next Backoffice Users Administration work.
-- [ ] At final Inventory UI redesign, decide whether `Permissions` remains a tab, becomes a link, or moves into Backoffice Administration; do not duplicate the permission system.
+**Post-plan Owner UI decision:** after technical Inventory closure, decide visually whether `Permissions` remains a tab, becomes a link, or moves into Backoffice Administration. This placement decision does not block technical closure and must not duplicate the permission system.
 
 **Checkpoint 11 gate:** Inventory consumes canonical permissions correctly and leaves generalized staff lifecycle to the proper module. Runtime/capability implementation is accepted; final product placement remains an Owner decision.
 
@@ -729,8 +729,8 @@ Organize concepts mentally into:
 - Minimum-stock/policy controls where appropriate
 - Permissions link/surface according to Checkpoint 11 decision
 
-- [ ] Validate final IA/navigation with owner before any owner-approved large structural refactor.
-- [ ] Final Owner UI/UX acceptance.
+**Owner-led UI/UX polish is intentionally outside this technical closure tracker.** After all technical items in this plan are closed and the plan is retired, the owner will review the live Dashboard page-by-page and direct the final IA/navigation/visual refinements interactively. Those visual decisions do not block technical plan closure.
+
 - [x] Preserve deep links/navigation state during IA change.
 - [x] Preserve capability-driven visibility.
 
@@ -868,7 +868,7 @@ Run from a realistic company setup, not isolated component demos.
 - [x] Merge final stable PRs.
 - [x] Local `main` fast-forwards to `origin/main`; owner-directed pre-existing local modifications are preserved intentionally rather than discarded for a clean working tree.
 - [x] Remove temporary worktrees/branches only after verification; no destructive cleanup shortcuts.
-- [ ] Declare **Inventory / Warehouses V1 COMPLETE** only after Owner Acceptance.
+**Technical-plan retirement rule:** once every remaining technical item and its acceptance evidence in this plan is closed, retire/delete this master technical plan as owner-directed. Final visual/UI/UX polish continues afterward directly against the live Dashboard and is not tracked as an open checkbox here.
 
 **Final CP15 technical evidence:** GitHub Actions run `38974770361` — backend, PostgreSQL 16 + clean Alembic head, Dashboard regression acceptance, `npx tsc --noEmit`, production build, scope/marker audit, `git diff --check`, and the aggregate final technical gate all PASS.
 
@@ -884,7 +884,7 @@ These are not speculative and should drive the first implementation waves:
 4. [x] **Minimum Stock capability/UI mismatch** — backend uses `inventory.minimum_stock.manage`; current Warehouse page exposes the manager only to CompanyOwner.
 5. [x] **Batches primary-read architecture** — current Batches experience still depends on product-first Live Stock-style discovery; final V1 target is a batch-centric warehouse index with explicit sellability reasons.
 6. [x] **Inventory UI i18n debt** — active Warehouse/Branch and other Inventory paths still contain user-facing hardcoded strings.
-7. [ ] **Permissions information-architecture debt** — current Inventory permissions surface is really a Backoffice role/grant seam; keep functionality now, decide final placement only after operational Inventory closure.
+7. **Permissions information-architecture note (post-plan Owner UI polish)** — current Inventory permissions surface is really a Backoffice role/grant seam; functionality is already preserved, while final visual placement will be decided by the owner after technical Inventory closure.
 
 ---
 
