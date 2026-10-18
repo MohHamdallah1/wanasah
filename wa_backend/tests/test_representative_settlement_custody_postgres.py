@@ -12,7 +12,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
-from psycopg.types.range import Range
+from asyncpg import Range
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
