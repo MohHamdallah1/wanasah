@@ -55,11 +55,11 @@ exactly one Warehouse each, a distinct Vehicle custody location and real field i
 All balances come from the movement engine; no balance or completed handoff is fabricated.
 Runtime uses NOSUPERUSER/NOBYPASSRLS, with forced-RLS checks and cross-tenant reads.
 
-Eight collected cases cover:
-- same-location QUARANTINED and DAMAGED quantity splits; exact Batch/status and Ledger;
+Nine collected cases cover:
+- same-location QUARANTINED quantity split and preserved DAMAGED opening stock; exact Batch/status and Ledger;
 - failure after a real movement before commit, then successful retry of the same request;
 - concurrent duplicates, lost-response replay, different payload rejection and revoked replay;
-- default disposal/vendor staging in the only Warehouse, with no transit/external exit;
+- default disposal/vendor staging of AVAILABLE and DAMAGED in the only Warehouse, with no transit/external exit;
 - denied capability and opaque foreign/missing work-session financial requests through
   the real FastAPI capability dependency and canonical subject resolver;
 - unsealed financial rejection with unchanged balances, movements, snapshots, seal and audit;
@@ -67,7 +67,7 @@ Eight collected cases cover:
 - one persistent variance review on retry, and financial refusal while unresolved;
 - financial refusal when only the legacy aggregate seal exists and no receiver confirmed handoff.
 
-The two staging cases use the null-destination DTO published on the quality worker
+The four staging cases use the null-destination DTO published on the quality worker
 branch below; they fail on the assigned base rather than silently skipping.
 They do not assert that an entirely unpublished policy must automatically work.
 The policy provisioning is fixture setup, not a requirement to expose draft/publish
@@ -121,7 +121,7 @@ Required positive PostgreSQL journeys after those contracts exist:
   gating, effective same-location defaults, safe retry and no permanent settings card.
 
 These are **pending coverage / acceptance blockers**, not green tests and not waivers.
-Do not declare the four master items closed on the eight-case baseline alone.
+Do not declare the four master items closed on the nine-case baseline alone.
 
 ## Implementation-branch readiness observed remotely
 
@@ -141,7 +141,30 @@ Do not declare the four master items closed on the eight-case baseline alone.
 
 ## Execution evidence
 
-Initial GitHub Actions results will be recorded here after the acceptance-only commit.
+First run on `3e050e1db785acee2d17e66abc28fa080c95d9d0`
+([run 39135564836](https://github.com/MohHamdallah1/wanasah/actions/runs/39135564836))
+exposed a fixture error: CP8 seeds explicit Vehicle IDs without advancing the sequence,
+so this worker's automatic Vehicle IDs collided. Fixed in this test fixture only,
+using a disjoint company-unique synthetic ID; accepted fixtures/runtime are untouched.
+
+It also exposed an invalid acceptance assumption: the existing generic status command
+deliberately forbids AVAILABLE-to-DAMAGED. The plan preserves that command matrix;
+it does not authorize a new manual damage classification route. The test now checks
+QUARANTINED via the supported command and DAMAGED via real movement opening evidence
+and both same-Warehouse staging purposes. Positive DAMAGED custody receipt remains
+blocked on the receiver contract; no status guard is relaxed.
+
+The initial financial bypass case independently reached HTTP 200 without handoff,
+rather than required 409. All four real DOM checks reached the expected business
+assertions and failed (duplicate start, three editable numeric fields instead of cash
+alone). Lint and exact four-file scope passed. These are distinct from fixture errors.
+The initial push run was superseded by the PR-triggered run; no cancelled overall
+run is reported as a completed acceptance pass.
+
+PR #399 was opened against main, then closed unmerged because the assigned base itself
+already contains 13 commits / 22 inherited files ahead of main. Review only the four-file
+delta from the assigned base; this worker proposes no inherited runtime change.
+Final corrected-fixture execution evidence is pending.
 Expected baseline failures are real closure failures: null-policy staging, duplicate
 Stocktake entry, editable financial stock recount and financial close without handoff.
 Fixture/import/infrastructure failures must be repaired in tests/workflow and reported

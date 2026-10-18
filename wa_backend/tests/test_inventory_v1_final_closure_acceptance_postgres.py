@@ -84,7 +84,10 @@ async def closure(pg):
             field = await seed_field_fixture(db, company.id)
             warehouse = InventoryLocation(company_id=company.id, code="ONLY-WH",
                 name="Closure overlap", location_type="WAREHOUSE", is_active=True)
-            vehicle = Vehicle(company_id=company.id, plate_number="CLOSE-" + label,
+            # CP8 deliberately seeds explicit Vehicle IDs without advancing its sequence.
+            # Give this independent fixture a disjoint, company-unique synthetic ID.
+            vehicle = Vehicle(id=1_500_000_000 + company.id,
+                              company_id=company.id, plate_number="CLOSE-" + label,
                               is_active=True, maintenance_status="Active")
             product = Product(company_id=company.id, code="CLOSE-P", name="Closure product")
             zone = Zone(company_id=company.id, name="Closure zone", is_active=True)
@@ -137,6 +140,7 @@ async def closure(pg):
                 other.warehouse for other in tenants if other is not tenant)) is None
             for location, status, quantity in (
                 (tenant.warehouse, "AVAILABLE", "20"),
+                (tenant.warehouse, "DAMAGED", "3"),
                 (tenant.vehicle_location, "AVAILABLE", "6"),
                 (tenant.vehicle_location, "DAMAGED", "4"),
             ):
@@ -208,8 +212,8 @@ async def reconcile(gate, tenant, quantity):
             ]), db, tenant.field.context, tenant.field.driver)
 
 
-@pytest.mark.parametrize("status", ["QUARANTINED", "DAMAGED"])
-async def test_one_warehouse_quantity_status_is_exact_replay_safe_and_ledgered(closure, status):
+async def test_one_warehouse_quantity_status_is_exact_replay_safe_and_ledgered(closure):
+    status = "QUARANTINED"
     a = closure.a
     command = InventoryStatusChangeRequest(request_id=uuid4(), location_id=a.warehouse,
         product_variant_id=a.variant, batch_id=a.batch, uom_id=a.uom,
@@ -238,6 +242,7 @@ async def test_one_warehouse_quantity_status_is_exact_replay_safe_and_ledgered(c
     quantities = {(r[0], r[3]): Decimal(r[4]) for r in after.balances}
     assert quantities[a.warehouse, "AVAILABLE"] == 18
     assert quantities[a.warehouse, status] == 2
+    assert quantities[a.warehouse, "DAMAGED"] == 3
     assert quantities[a.vehicle_location, "AVAILABLE"] == 6
     assert quantities[a.vehicle_location, "DAMAGED"] == 4
     async with closure.session(a) as db:
@@ -278,10 +283,15 @@ async def test_one_warehouse_quantity_status_is_exact_replay_safe_and_ledgered(c
     assert vars(await evidence(closure, a)) == vars(after)
 
 
-@pytest.mark.parametrize("purpose,target", [
-    ("DISPOSAL", "DISPOSAL_PENDING"), ("RETURN_TO_VENDOR", "QUARANTINED"),
+@pytest.mark.parametrize("purpose,source,target", [
+    ("DISPOSAL", "AVAILABLE", "DISPOSAL_PENDING"),
+    ("RETURN_TO_VENDOR", "AVAILABLE", "QUARANTINED"),
+    ("DISPOSAL", "DAMAGED", "DISPOSAL_PENDING"),
+    ("RETURN_TO_VENDOR", "DAMAGED", "DAMAGED"),
 ])
-async def test_published_same_location_defaults_stage_without_another_warehouse(closure, purpose, target):
+async def test_published_same_location_defaults_stage_without_another_warehouse(
+    closure, purpose, source, target,
+):
     """Null default contract is present in the quality worker's draft API, not base."""
     a = closure.a
     async with closure.session(a) as db:
@@ -302,7 +312,7 @@ async def test_published_same_location_defaults_stage_without_another_warehouse(
     command = SpecialTransferDispatchRequest(request_id=uuid4(),
         source_location_id=a.warehouse, transfer_purpose=purpose,
         items=[dict(product_variant_id=a.variant, batch_id=a.batch,
-                    source_status="AVAILABLE", quantity="2", uom_id=a.uom)])
+                    source_status=source, quantity="2", uom_id=a.uom)])
     async def stage():
         async with closure.session(a) as db:
             return await transfers.stage_inventory_quality_handling(
@@ -317,19 +327,25 @@ async def test_published_same_location_defaults_stage_without_another_warehouse(
             InventoryBalance.stock_status, InventoryBalance.on_hand_quantity,
         ).where(InventoryBalance.company_id == a.company_id,
                 InventoryBalance.location_id == a.warehouse))).all()
-        assert dict(portions) == {"AVAILABLE": Decimal("18"), target: Decimal("2")}
+        expected = {"AVAILABLE": Decimal("20"), "DAMAGED": Decimal("3")}
+        expected[source] -= 2
+        expected[target] = expected.get(target, Decimal("0")) + 2
+        assert dict(portions) == expected
         assert await db.scalar(select(func.count()).select_from(InventoryLocation).where(
             InventoryLocation.company_id == a.company_id,
             InventoryLocation.location_type == "WAREHOUSE")) == 1
         moves = (await db.scalars(select(InventoryMovement).where(
             InventoryMovement.company_id == a.company_id,
             InventoryMovement.transfer_header_id == header.id))).all()
-        assert len(moves) == 1 and moves[0].movement_kind == "STATUS_CHANGE"
-        assert moves[0].batch_id == a.batch and Decimal(moves[0].quantity) == 2
-        page = await ledger.get_warehouse_ledger_cursor(
-            a.warehouse, None, 100, None, moves[0].reference_type,
-            moves[0].reference_id, db, a.actor.access(db))
-        assert moves[0].id in {row["id"] for row in page["items"]}
+        if source == target:
+            assert not moves  # staging DAMAGED for vendor preserves status and quantity
+        else:
+            assert len(moves) == 1 and moves[0].movement_kind == "STATUS_CHANGE"
+            assert moves[0].batch_id == a.batch and Decimal(moves[0].quantity) == 2
+            page = await ledger.get_warehouse_ledger_cursor(
+                a.warehouse, None, 100, None, moves[0].reference_type,
+                moves[0].reference_id, db, a.actor.access(db))
+            assert moves[0].id in {row["id"] for row in page["items"]}
 
 
 async def test_unsealed_financial_close_is_noop_and_capability_and_tenant_bound(closure):

@@ -86,7 +86,7 @@ jobs:
           import xml.etree.ElementTree as ET
           root = ET.parse("inventory-final-closure.xml").getroot()
           cases = root.findall(".//testcase")
-          assert len(cases) >= 8, f"Missing closure cases: {len(cases)}"
+          assert len(cases) >= 9, f"Missing closure cases: {len(cases)}"
           assert not root.findall(".//skipped"), "Closure coverage must execute"
           PY
       - uses: actions/upload-artifact@v4
