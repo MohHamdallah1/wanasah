@@ -63,11 +63,19 @@ export function CustodyCountStep({
               </div>
               <div className="mt-3">
                 {readOnly ? (
-                  <div className="rounded-xl bg-emerald-50 px-3 py-2 text-sm font-black text-emerald-800">{copy.actual}: <span dir="ltr">{line.expected_quantity} {line.uom}</span></div>
+                  <label className="block text-xs font-bold text-slate-600">
+                    {copy.actual}
+                    <input
+                      aria-label={copy.actual + ": " + line.product_name + " — " + meta.status}
+                      readOnly
+                      value={line.expected_quantity}
+                      className="mt-1 w-full rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-base font-black text-emerald-800"
+                    />
+                  </label>
                 ) : (
                   <label className="block text-xs font-bold text-slate-600">
                     {copy.actual}
-                    <input aria-label={copy.actual + ": " + line.product_name} inputMode="decimal" value={actual[line.line_key] ?? ""} onChange={(e) => onActualChange(line.line_key, e.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-base font-bold" />
+                    <input aria-label={copy.actual + ": " + line.product_name + " — " + meta.status} inputMode="decimal" value={actual[line.line_key] ?? ""} onChange={(e) => onActualChange(line.line_key, e.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-base font-bold" />
                   </label>
                 )}
               </div>
@@ -131,10 +139,10 @@ export function VarianceReviewStep({
           );
         })}
       </div>
-      <div className="grid gap-2 sm:grid-cols-2">
+      {panel === "none" && <div className="grid gap-2 sm:grid-cols-2">
         <button type="button" onClick={() => { setPanel("recount"); setValidation(null); }} className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 font-black text-blue-800">{copy.requestRecount}</button>
         <button type="button" disabled={approveBlocked} onClick={() => { setPanel("approve"); setValidation(null); }} className="rounded-xl bg-slate-900 px-4 py-3 font-black text-white disabled:bg-slate-300">{copy.approve}</button>
-      </div>
+      </div>}
       {panel === "recount" && <div className="space-y-3 rounded-2xl border border-blue-200 bg-blue-50/50 p-4">
         <label className="block text-xs font-bold">{copy.recountReason}<textarea aria-label={copy.recountReason} value={reason} onChange={(e) => setReason(e.target.value)} className="mt-1 w-full rounded-lg border border-blue-200 bg-white p-2" /></label>
         <label className="block text-xs font-bold">{copy.authorizerUsername}<input aria-label={copy.authorizerUsername} value={username} onChange={(e) => setUsername(e.target.value)} className="mt-1 w-full rounded-lg border border-blue-200 bg-white p-2" /></label>
@@ -147,7 +155,7 @@ export function VarianceReviewStep({
       {panel === "approve" && !approveBlocked && <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
         <label className="block text-xs font-bold">{copy.approvalPassword}<input aria-label={copy.approvalPassword} type="password" value={approvalPassword} onChange={(e) => setApprovalPassword(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2" /></label>
         <label className="block text-xs font-bold">{copy.approvalNotes}<textarea aria-label={copy.approvalNotes} value={approvalNotes} onChange={(e) => setApprovalNotes(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2" /></label>
-        <button type="button" disabled={busy} onClick={() => {
+        <button type="button" aria-label={copy.approve} disabled={busy} onClick={() => {
           if (!approvalPassword) { setValidation(copy.approvalPasswordRequired); return; }
           onApprove({ password: approvalPassword, notes: approvalNotes.trim() || null });
         }} className="w-full rounded-xl bg-slate-900 px-4 py-2.5 font-black text-white disabled:bg-slate-300">{busy ? copy.busy : copy.approveFinal}</button>
@@ -182,7 +190,7 @@ export function RecountStep({
           return <div key={line.line_key} className="rounded-2xl border border-slate-200 bg-white p-4">
             <p className="font-black text-slate-800">{line.product_name}</p>
             <p className="mt-1 text-xs text-slate-500">{copy.batch}: {meta.batch} · {copy.expiry}: {meta.expiry} · {copy.status}: {meta.status} · {copy.uom}: {line.uom}</p>
-            <label className="mt-3 block text-xs font-bold text-slate-600">{copy.counted}<input aria-label={copy.actual + ": " + line.product_name} inputMode="decimal" value={actual[line.line_key] ?? ""} onChange={(e) => onActualChange(line.line_key, e.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-base font-bold" /></label>
+            <label className="mt-3 block text-xs font-bold text-slate-600">{copy.counted}<input aria-label={copy.actual + ": " + line.product_name + " — " + meta.status} inputMode="decimal" value={actual[line.line_key] ?? ""} onChange={(e) => onActualChange(line.line_key, e.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-base font-bold" /></label>
           </div>;
         })}
       </div>

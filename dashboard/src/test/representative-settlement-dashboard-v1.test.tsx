@@ -22,6 +22,7 @@ describe("Representative settlement Dashboard V1 cleanup", () => {
     const modal = read("src/components/operations/SettlementModal.tsx");
     const operations = read("src/pages/OperationsDashboard.tsx");
     const financial = read("src/features/operations/representativeSettlement/financialSettlementAdapter.ts");
+    const durable = read("src/features/operations/representativeSettlement/durableCommand.ts");
 
     expect(modal).toContain('data-representative-settlement-inventory="read-only"');
     expect(modal).toContain("report.inventory.map");
@@ -33,7 +34,9 @@ describe("Representative settlement Dashboard V1 cleanup", () => {
     expect(operations).not.toContain("SettlementCountInput");
     expect(financial).not.toContain("inventory_jard");
     expect(financial).toContain("actual_cash: command.actualCash");
-    expect(financial).not.toMatch(/request_id\s*:/);
+    expect(financial).toContain("executeRepresentativeSettlementCommand");
+    expect(financial).toContain('operation: "financial-close"');
+    expect(durable).toContain("request_id: command.requestId");
   });
 
   it("uses the Operations-owned custody contract without exposing Stocktake mechanics", () => {
@@ -44,6 +47,9 @@ describe("Representative settlement Dashboard V1 cleanup", () => {
 
     expect(operations).not.toContain("/warehouse/unified/stocktake/start");
     expect(commandCenter).toContain('data-representative-settlement-entry="yellow-card"');
+    expect(api).toContain("/warehouse/unified/transfer/locations?");
+    expect(api).not.toContain("/warehouse/locations?");
+    expect(api).not.toContain("/inventory/access/locations/capabilities");
     for (const suffix of [
       "/inventory-custody",
       "/inventory-custody/receive",

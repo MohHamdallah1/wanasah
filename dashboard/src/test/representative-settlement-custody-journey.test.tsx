@@ -29,8 +29,7 @@ function apiMock() {
   let recountAuthorized = false;
   return vi.fn(async (path: string, options: RequestInit = {}) => {
     const method = options.method || "GET";
-    if (path.startsWith("/warehouse/locations?")) return { items: [{ id: 91, name: "Main Warehouse", code: "WH-1" }], next_cursor: null, has_more: false, total: 1 };
-    if (path === "/inventory/access/locations/capabilities" && method === "POST") return { locations: { "91": ["transfer.destination"] } };
+    if (path.startsWith("/warehouse/unified/transfer/locations?")) return [{ id: 91, name: "Main Warehouse", code: "WH-1", location_type: "WAREHOUSE", vehicle_id: null }];
     if (path === "/admin/sessions/80/inventory-custody" && method === "GET") { custodyReads += 1; return custodyReads === 1 ? custody : reconciledCustody; }
     if (path === "/admin/sessions/80/inventory-custody/receive" && method === "POST") {
       receivePosts += 1;
@@ -90,7 +89,7 @@ describe("representative settlement custody journey", () => {
       expect(document.body.textContent).not.toContain("VREC-HIDDEN");
 
       fireEvent.change(screen.getByLabelText(copy.warehouse), { target: { value: "91" } });
-      fireEvent.change(screen.getByLabelText(copy.actual + ": Sample Product"), { target: { value: "8" } });
+      fireEvent.change(screen.getByLabelText(copy.actual + ": Sample Product — " + copy.statusLabels.DAMAGED), { target: { value: "8" } });
       fireEvent.click(screen.getByRole("checkbox"));
       fireEvent.click(screen.getByRole("button", { name: copy.receive }));
 
@@ -106,7 +105,7 @@ describe("representative settlement custody journey", () => {
 
       expect(await screen.findByText(copy.recountTitle)).toBeInTheDocument();
       expect(screen.queryByText(copy.expected)).not.toBeInTheDocument();
-      fireEvent.change(screen.getByLabelText(copy.actual + ": Sample Product"), { target: { value: "8" } });
+      fireEvent.change(screen.getByLabelText(copy.actual + ": Sample Product — " + copy.statusLabels.DAMAGED), { target: { value: "8" } });
       fireEvent.click(screen.getByRole("button", { name: copy.submitRecount }));
 
       expect(await screen.findByText(copy.independentSatisfied)).toBeInTheDocument();

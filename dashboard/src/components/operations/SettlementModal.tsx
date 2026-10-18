@@ -137,6 +137,7 @@ export function SettlementModal({
       footer={
         <button
           onClick={handleConfirm}
+          aria-label="اعتماد التسوية وإغلاق العهدة"
           disabled={isSubmitting || report.status !== FINANCIAL_SETTLEMENT_READY_STATUS}
           className="flex items-center gap-2 px-8 py-3 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-lg transition-all active:scale-[0.98]"
         >
@@ -204,6 +205,7 @@ export function SettlementModal({
             <label className="block text-xs font-bold text-slate-600 mb-2">الكاش الفعلي المستلم (د.أ)</label>
             <input
               type="number"
+              aria-label="الكاش الفعلي المستلم (د.أ)"
               step="0.01"
               min="0"
               value={actualCash}

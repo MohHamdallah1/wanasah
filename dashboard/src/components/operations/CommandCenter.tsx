@@ -197,6 +197,7 @@ export function CommandCenter({ driver, onOpenSettlement, onUndoEndWork }: Comma
                 onClick={onOpenSettlement}
                 disabled={!canOpenSettlement}
                 data-representative-settlement-entry="yellow-card"
+                aria-label={`${awaitingCustody ? settlementCopy.startSettlement : settlementCopy.financialSettlement} — ${settlementCopy.title}`}
                 className={`w-full flex items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-sm font-black transition-all shadow-sm ${
                   canOpenSettlement
                     ? "bg-amber-400 text-slate-900 hover:bg-amber-300 active:scale-[0.99] border border-amber-300"
