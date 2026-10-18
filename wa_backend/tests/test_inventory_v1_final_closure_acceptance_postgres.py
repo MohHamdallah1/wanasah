@@ -28,7 +28,7 @@ from api.authentication.dependencies import get_current_backoffice_context
 from api.warehouse import ledger, transfer_policy, transfers
 from database import get_db
 from models import (
-    Company, DispatchRoute, InventoryBalance, InventoryLocation, InventoryMovement,
+    Company, DispatchRoute, InventoryBalance, InventoryLocation, InventoryMovement, InventoryMovementImpact,
     InventoryTransferHeader, Permission, Product, ProductBatch, ProductLocation, ProductVariant,
     SessionInventorySnapshot, StocktakeCountAttemptLine, StocktakeLine, StocktakeSession, SystemAuditLog,
     UOM, UserLocationAccess, Vehicle, WorkSession, Zone, role_permissions, utc_now,
@@ -356,6 +356,7 @@ async def test_published_same_location_defaults_stage_without_another_warehouse(
             db, a.actor.access(db), a.actor.operational_driver)
     command = SpecialTransferDispatchRequest(request_id=uuid4(),
         source_location_id=a.warehouse, transfer_purpose=purpose,
+        notes="Independent same-Warehouse quality staging",
         items=[dict(product_variant_id=a.variant, batch_id=a.batch,
                     source_status=source, quantity="2", uom_id=a.uom)])
     async def stage():
@@ -489,11 +490,29 @@ async def test_receiver_exact_status_handoff_then_financial_close_has_no_recount
         assert all(m.batch_id == a.batch and m.source_location_id == a.vehicle_location
                    and m.destination_location_id == a.warehouse
                    and m.performed_by == a.actor.driver_id for m in moves)
-        for location in (a.vehicle_location, a.warehouse):
-            page = await ledger.get_warehouse_ledger_cursor(
-                location, None, 100, None, "REPRESENTATIVE_CUSTODY_RECEIPT",
-                str(a.work), db, a.actor.access(db))
-            assert {m.id for m in moves} <= {row["id"] for row in page["items"]}
+        # The accepted Ledger entry point is Warehouse-only. Check its complete
+        # source/destination evidence, plus immutable impacts for BOTH custody legs.
+        page = await ledger.get_warehouse_ledger_cursor(
+            a.warehouse, None, 100, None, "REPRESENTATIVE_CUSTODY_RECEIPT",
+            str(a.work), db, a.actor.access(db))
+        assert {m.id for m in moves} <= {row["id"] for row in page["items"]}
+        for row in page["items"]:
+            assert row["source_location_id"] == a.vehicle_location
+            assert row["destination_location_id"] == a.warehouse
+            assert row["source_stock_status"] == row["destination_stock_status"]
+        impacts = (await db.execute(select(
+            InventoryBalance.location_id, InventoryBalance.stock_status,
+            InventoryMovementImpact.on_hand_before, InventoryMovementImpact.on_hand_after,
+        ).join(InventoryMovementImpact,
+               InventoryMovementImpact.inventory_balance_id == InventoryBalance.id,
+        ).where(InventoryMovementImpact.company_id == a.company_id,
+                InventoryMovementImpact.movement_id.in_([m.id for m in moves])))).all()
+        assert set(map(tuple, impacts)) == {
+            (a.vehicle_location, "AVAILABLE", Decimal("6"), Decimal("0")),
+            (a.warehouse, "AVAILABLE", Decimal("20"), Decimal("26")),
+            (a.vehicle_location, "DAMAGED", Decimal("4"), Decimal("0")),
+            (a.warehouse, "DAMAGED", Decimal("3"), Decimal("7")),
+        }
         assert await db.scalar(select(func.count()).select_from(SystemAuditLog).where(
             SystemAuditLog.company_id == a.company_id,
             SystemAuditLog.target_id == f"WorkSession_{a.work}",
@@ -504,6 +523,8 @@ async def test_receiver_exact_status_handoff_then_financial_close_has_no_recount
     for field in ("balances", "movements", "snapshots", "seal"):
         assert getattr(after_finance, field) == getattr(received, field)
     assert after_finance.settled is True
+    assert (await financial(closure, a)).status_code == 409
+    assert vars(await evidence(closure, a)) == vars(after_finance)
 
 
 @pytest.mark.parametrize("available,damaged", [("6", "3"), ("5", "5")])

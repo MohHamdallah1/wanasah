@@ -3,6 +3,10 @@ name: Inventory V1 independent final closure acceptance
 on:
   push:
     branches: [codex/inventory-v1-closure-acceptance]
+    paths:
+      - "wa_backend/tests/test_inventory_v1_final_closure_acceptance_postgres.py"
+      - "dashboard/src/test/inventory-v1-final-closure-acceptance.test.tsx"
+      - ".github/workflows/inventory-v1-final-closure-acceptance.yml"
   pull_request:
     branches: [main]
     paths:

@@ -64,7 +64,7 @@ Coverage includes:
 - no implicit handoff on field aggregate match/opening a receiver preview;
 - persisted aggregate variance and no premature financial close;
 - exact 6 AVAILABLE + 4 DAMAGED receiver handoff, concurrent replay, immutable actor/
-  work-session/Batch/status evidence and visibility from both custody Ledger locations;
+  work-session/Batch/status evidence and Warehouse Ledger evidence plus immutable before/after impacts for both custody locations;
 - financial close after real receiving seal without changing balances, movements,
   snapshots or seal, and without sending inventory_jard;
 - DAMAGED expected 4 / actual 3 / variance -1 retained; equal product totals with
@@ -147,8 +147,17 @@ The Backend worker's own tests are supporting evidence, not substituted for inde
   PostgreSQL **4 passed / 5 failed / 0 skipped / 0 setup errors**; failures are four
   null-default DTO cases and the reproduced financial handoff bypass. Dashboard
   **4 failed** at intended assertions; lint and exact four-file scope passed.
-- Receiver implementation appeared during this audit; the four new receiver cases
-  and pinned worker execution were then added. Their results are pending.
+- Receiver implementation appeared during this audit; four new cases and pinned worker
+  execution were added. In [run 39136258806](https://github.com/MohHamdallah1/wanasah/actions/runs/39136258806),
+  receiver source reached 8 passes / 1 failure; quality source 1 pass / 4 failures;
+  Dashboard worker 4 passes, baseline DOM 4 expected failures, and scope passed.
+  The receiver failure was a harness assumption: the accepted Ledger API is
+  Warehouse-only, so a Vehicle location is intentionally rejected. The corrected
+  test uses Warehouse Ledger source/destination evidence and immutable movement
+  impacts for BOTH locations, without expanding Ledger access.
+  Quality failures identified a missing required notes field in this test's DTO.
+  That fixture input is corrected; no product behavior or expectation is relaxed.
+  Corrected pinned-worker results are pending.
 - PR #399 was opened against main and closed unmerged because the assigned base
   already includes 13 commits / 22 inherited files ahead of main. The worker delta
   is four files; inherited production changes are not proposed by this worker.
