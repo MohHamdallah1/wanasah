@@ -993,6 +993,24 @@ async def settle_session(
         if incomplete_snapshot_id is not None:
             raise HTTPException(status_code=409, detail="Ending Snapshot للجلسة غير مكتمل.")
 
+        # Physical custody is a separate receiver-confirmed phase of Operations
+        # settlement, even if legacy field reconciliation sealed the snapshot.
+        # An inventory count alone is not a Vehicle → Warehouse handoff.
+        custody_received = (
+            await db.execute(
+                select(SystemAuditLog.id).filter(
+                    SystemAuditLog.company_id == company_id,
+                    SystemAuditLog.target_id == f"WorkSession_{session.id}",
+                    SystemAuditLog.action_type == "REPRESENTATIVE_CUSTODY_RECEIVED",
+                ).limit(1)
+            )
+        ).scalar_one_or_none()
+        if custody_received is None:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "RECEIVER_CUSTODY_HANDOFF_REQUIRED"},
+            )
+
         # الحقل يبقى للتوافق مع React القديم فقط. إذا أرسله العميل نتحقق منه ولا نستخدمه لتعديل المخزون.
         if payload.inventory_jard:
             submitted_ids = sorted({int(item.product_id) for item in payload.inventory_jard})
