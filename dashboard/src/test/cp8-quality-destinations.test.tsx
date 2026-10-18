@@ -54,19 +54,21 @@ it("never presents same-location truth while an explicit published policy is loa
     "loading",
   );
 
-  resolvePolicy({
-    draft: null,
-    published: {
-      id: 41,
-      revision: 7,
-      status: "PUBLISHED",
-      validated_payload: {
-        quarantine_location_id: 51,
-        disposal_location_id: 52,
-        vendor_return_staging_location_id: 53,
-        allow_retiring_warehouse_balancing: false,
+  await act(async () => {
+    resolvePolicy({
+      draft: null,
+      published: {
+        id: 41,
+        revision: 7,
+        status: "PUBLISHED",
+        validated_payload: {
+          quarantine_location_id: 51,
+          disposal_location_id: 52,
+          vendor_return_staging_location_id: 53,
+          allow_retiring_warehouse_balancing: false,
+        },
       },
-    },
+    });
   });
 
   await screen.findByText("Custom configuration active");
@@ -114,7 +116,9 @@ it("clears prior-company policy immediately and confirms default only after the 
   await waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(2));
   expect(screen.queryByText("Same current location")).toBeNull();
 
-  resolveSecond({ draft: null, published: null });
+  await act(async () => {
+    resolveSecond({ draft: null, published: null });
+  });
 
   await screen.findByText("Effective default");
   expect(screen.getAllByText("Same current location")).toHaveLength(3);
