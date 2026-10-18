@@ -26,8 +26,11 @@ for (const [language, copy] of Object.entries({
     quarantine: "الحجر",
     vendorReturn: "الإرجاع للمورد",
     disposal: "التالف / بانتظار الإتلاف",
-    active: "مطبق",
-    needsApply: "غير مطبق",
+    active: "الافتراضي الفعّال",
+    customActive: "إعداد مخصص فعّال",
+    customConfigured: "وجهة مخصصة",
+    customReadonly: "يوجد إعداد مخصص منشور مسبقًا. يعرضه النظام للقراءة فقط هنا ولا يغيّره عند فتح النافذة.",
+    reference: "الموقع رقم {{id}}",
   },
   en: {
     save: "Save",
@@ -41,8 +44,11 @@ for (const [language, copy] of Object.entries({
     quarantine: "Quarantine",
     vendorReturn: "Vendor return",
     disposal: "Damaged / disposal pending",
-    active: "Applied",
-    needsApply: "Not applied",
+    active: "Effective default",
+    customActive: "Custom configuration active",
+    customConfigured: "Custom destination",
+    customReadonly: "An existing published custom configuration is active. This panel is read-only and opening it does not change that configuration.",
+    reference: "Location #{{id}}",
   },
 })) i18n.addResourceBundle(language, "translation", { transferDestinationSetup: copy }, true, true);
 
@@ -310,14 +316,25 @@ export function useTransferDestinationPolicy(onSaved?: () => void | Promise<void
 
   const inScope = loadedScope.current === scope;
   const visiblePolicy = inScope ? policy : { draft: null, published: null };
+  const publishedPayload = visiblePolicy.published?.validated_payload ?? null;
   const inPlaceActive =
-    visiblePolicy.published !== null &&
-    isInPlacePayload(visiblePolicy.published.validated_payload);
+    publishedPayload === null || isInPlacePayload(publishedPayload);
+  const customConfigured =
+    publishedPayload !== null && !isInPlacePayload(publishedPayload);
+  const effectivePayload: PolicyPayload =
+    publishedPayload ?? {
+      quarantine_location_id: null,
+      disposal_location_id: null,
+      vendor_return_staging_location_id: null,
+      allow_retiring_warehouse_balancing: false,
+    };
 
   return {
     canManage,
     policy: visiblePolicy,
     inPlaceActive,
+    customConfigured,
+    effectivePayload,
     loading: loading || !inScope,
     saving,
     pending: inScope ? pending : null,
