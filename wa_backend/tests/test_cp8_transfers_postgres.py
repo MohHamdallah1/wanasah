@@ -232,14 +232,19 @@ async def pg():
                 seed.add(vehicle)
                 await seed.flush()
                 vehicle_location = InventoryLocation(company_id=company.id, code="VA", name="Overlap Warehouse", location_type="VEHICLE", vehicle_id=vehicle.id)
-                quarantine = InventoryLocation(
-                    company_id=company.id,
-                    code="Q",
-                    name="Policy Warehouse",
-                    location_type="WAREHOUSE",
-                    is_active=(index == 0),
+                quarantine = (
+                    InventoryLocation(
+                        company_id=company.id,
+                        code="Q",
+                        name="Policy Warehouse",
+                        location_type="WAREHOUSE",
+                    )
+                    if index == 0
+                    else locations[0]
                 )
-                seed.add_all([vehicle_location, quarantine])
+                seed.add(vehicle_location)
+                if index == 0:
+                    seed.add(quarantine)
                 await seed.flush()
                 reason = OverrideReason(company_id=company.id, code="APPROVED", description="Synthetic override")
                 seed.add(reason)
@@ -254,7 +259,11 @@ async def pg():
                 later = ProductBatch(company_id=company.id, product_variant_id=variant.id, batch_number="LOT-LATER", expiry_date=date.today() + timedelta(days=60))
                 expired = ProductBatch(company_id=company.id, product_variant_id=variant.id, batch_number="LOT-EXPIRED", expiry_date=date.today() - timedelta(days=1))
                 seed.add_all([later, expired])
-                for location in [*locations, quarantine]:
+                product_locations = {
+                    int(location.id): location
+                    for location in [*locations, quarantine]
+                }
+                for location in product_locations.values():
                     seed.add(ProductLocation(company_id=company.id, location_id=location.id, product_variant_id=variant.id, created_by=owner.driver_id))
                 await seed.flush()
                 tenants.append(
