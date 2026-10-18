@@ -1412,7 +1412,7 @@ async def ensure_effective_transfer_destination_policy(
             db_session,
             company_id=company_id,
             payload=dict(published.validated_payload or {}),
-            lock_locations=True,
+            lock_locations=False,
         )
         return published, normalized, False
 
