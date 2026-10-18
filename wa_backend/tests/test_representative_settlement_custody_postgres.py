@@ -173,22 +173,17 @@ async def _seed(admin_engine):
             )
             db.add(custody)
             await db.flush()
-            now = utc_now()
-            work = WorkSession(
-                company_id=company.id, driver_id=actor.driver_id,
-                start_time=now, session_date=date.today(), end_time=now,
-                is_settled=False,
-            )
-            db.add(work)
-            await db.flush()
+            # Route and immutable commercial lock precede the WorkSession insert.
+            # A session's commercial_context_id cannot be amended later.
             route = DispatchRoute(
                 company_id=company.id, zone_id=zone.id,
                 driver_id=actor.driver_id, vehicle_id=vehicle.id,
-                work_session_id=work.id, source_location_id=warehouse.id,
+                source_location_id=warehouse.id,
                 dispatch_date=date.today(), status="closed",
             )
             db.add(route)
             await db.flush()
+            locked_context_id = None
             if index == 1:
                 locked = RouteCommercialContext(
                     company_id=company.id, dispatch_route_id=route.id,
@@ -200,7 +195,17 @@ async def _seed(admin_engine):
                 )
                 db.add(locked)
                 await db.flush()
-                work.commercial_context_id = locked.id
+                locked_context_id = locked.id
+            now = utc_now()
+            work = WorkSession(
+                company_id=company.id, driver_id=actor.driver_id,
+                start_time=now, session_date=date.today(), end_time=now,
+                commercial_context_id=locked_context_id, is_settled=False,
+            )
+            db.add(work)
+            await db.flush()
+            route.work_session_id = work.id
+            await db.flush()
             records.append((int(work.id), int(custody.id)))
         for session_id, location_id in records:
             await _grant_location(
