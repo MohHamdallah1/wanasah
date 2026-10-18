@@ -12,6 +12,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 from asyncpg import Range
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -20,6 +21,7 @@ from sqlalchemy.pool import NullPool
 from api import dispatch, representative_settlement as settlement
 from models import (
     Company, DispatchRoute, Driver, InventoryBalance, InventoryLocation, InventoryMovement,
+    OperationIdempotency, SessionInventorySnapshot,
     PriceBook, PriceBookAssignment, PriceBookEntry, PricePublication,
     Product, ProductBatch, ProductLocation, ProductVariant, RouteCommercialContext,
     StocktakeCountAttemptLine, StocktakeSession, SystemAuditLog, UOM, Vehicle,
@@ -58,6 +60,33 @@ async def _qty(db, company_id, location_id, batch_id, stock_status):
             InventoryBalance.stock_status == stock_status,
         )
     )) or 0)
+
+
+async def _financial_inventory_fingerprint(db, company_id, work_session_id, vehicle_location, warehouse):
+    """Exact persisted stock, movement and sealed snapshot state around financial close."""
+    balances = (await db.execute(
+        select(InventoryBalance.id, InventoryBalance.on_hand_quantity,
+               InventoryBalance.reserved_quantity).where(
+            InventoryBalance.company_id == company_id,
+            InventoryBalance.location_id.in_((vehicle_location, warehouse)),
+        ).order_by(InventoryBalance.id)
+    )).all()
+    movements = (await db.execute(
+        select(InventoryMovement.id, InventoryMovement.quantity,
+               InventoryMovement.reference_type).where(
+            InventoryMovement.company_id == company_id,
+            InventoryMovement.work_session_id == work_session_id,
+        ).order_by(InventoryMovement.id)
+    )).all()
+    snapshots = (await db.execute(
+        select(SessionInventorySnapshot.id, SessionInventorySnapshot.ending_quantity,
+               SessionInventorySnapshot.settled_at, SessionInventorySnapshot.settled_by)
+        .where(
+            SessionInventorySnapshot.company_id == company_id,
+            SessionInventorySnapshot.work_session_id == work_session_id,
+        ).order_by(SessionInventorySnapshot.id)
+    )).all()
+    return balances, movements, snapshots
 
 
 async def _seed(admin_engine):
@@ -272,6 +301,12 @@ async def _seed(admin_engine):
 
 
 async def test_backoffice_representative_custody_postgres():
+    with pytest.raises(ValidationError):
+        SettleSessionRequest.model_validate({"actual_cash": "0.000"})
+    with pytest.raises(ValidationError):
+        SettleSessionRequest.model_validate({
+            "request_id": "not-a-uuid", "actual_cash": "0.000",
+        })
     runtime_url, admin_url = _checked_urls()
     runtime_engine = create_async_engine(
         runtime_url, poolclass=NullPool, connect_args={"timeout": 15},
@@ -417,15 +452,24 @@ async def test_backoffice_representative_custody_postgres():
             access = actor.access(db)
             with pytest.raises(HTTPException) as missing_explanation:
                 await dispatch.settle_session(
-                    matched_session, SettleSessionRequest(actual_cash=Decimal("1"), notes=None),
+                    matched_session, SettleSessionRequest(request_id=uuid4(), actual_cash=Decimal("1"), notes=None),
                     db=db, access=access, legacy_actor=actor.operational_driver,
                 )
             assert missing_explanation.value.status_code == 400
+            before_financial = await _financial_inventory_fingerprint(
+                db, company, matched_session, matched_vehicle, warehouse,
+            )
+            financial_command = SettleSessionRequest(
+                request_id=uuid4(), actual_cash=Decimal("1"),
+                notes="Receiver cash difference",
+            )
             close = await dispatch.settle_session(
-                matched_session,
-                SettleSessionRequest(actual_cash=Decimal("1"), notes="Receiver cash difference"),
+                matched_session, financial_command,
                 db=db, access=access, legacy_actor=actor.operational_driver,
             )
+            assert await _financial_inventory_fingerprint(
+                db, company, matched_session, matched_vehicle, warehouse,
+            ) == before_financial
             assert close["is_settled"] is True
             assert await _qty(db, company, warehouse, batch, "DAMAGED") == Decimal("2.125")
             # Ambiguous network retry stays state-idempotent across financial close.
@@ -443,6 +487,52 @@ async def test_backoffice_representative_custody_postgres():
             assert too_late.value.status_code == 409
             await db.rollback()
             assert await _qty(db, company, warehouse, batch, "DAMAGED") == Decimal("2.125")
+
+        # Simulate a lost HTTP response by replaying after the committed close
+        # in a fresh DB transaction. Same ID + changed cash/notes is a conflict.
+        async with _runtime_session(runtime_engine, company) as db:
+            access = actor.access(db)
+            replay_financial = await dispatch.settle_session(
+                matched_session, financial_command,
+                db=db, access=access, legacy_actor=actor.operational_driver,
+            )
+            assert replay_financial == close
+            for changed_payload in (
+                financial_command.model_copy(update={"actual_cash": Decimal("2.000")}),
+                financial_command.model_copy(update={"notes": "Changed explanation"}),
+            ):
+                with pytest.raises(HTTPException) as idempotency_conflict:
+                    await dispatch.settle_session(
+                        matched_session, changed_payload,
+                        db=db, access=access, legacy_actor=actor.operational_driver,
+                    )
+                assert idempotency_conflict.value.status_code == 409
+                await db.rollback()
+            with pytest.raises(HTTPException) as new_id_after_closed:
+                await dispatch.settle_session(
+                    matched_session,
+                    financial_command.model_copy(update={"request_id": uuid4()}),
+                    db=db, access=access, legacy_actor=actor.operational_driver,
+                )
+            assert new_id_after_closed.value.status_code == 409
+            await db.rollback()
+            audit_rows = (await db.scalars(select(SystemAuditLog.id).where(
+                SystemAuditLog.company_id == company,
+                SystemAuditLog.target_id == f"Session_{matched_session}_Driver_{actor.driver_id}",
+                SystemAuditLog.action_type == "FINANCIAL_SETTLEMENT",
+            ))).all()
+            assert len(audit_rows) == 1
+            idempotency = await db.scalar(select(OperationIdempotency).where(
+                OperationIdempotency.company_id == company,
+                OperationIdempotency.operation == "DISPATCH_FINANCIAL_SETTLEMENT",
+                OperationIdempotency.request_id == str(financial_command.request_id),
+            ))
+            assert idempotency is not None
+            assert idempotency.completed_at is not None
+            assert idempotency.response_json == close
+            assert await _financial_inventory_fingerprint(
+                db, company, matched_session, matched_vehicle, warehouse,
+            ) == before_financial
 
         async with _runtime_session(runtime_engine, company) as db:
             access = actor.access(db)
@@ -494,7 +584,7 @@ async def test_backoffice_representative_custody_postgres():
             with pytest.raises(HTTPException) as blocked_financial:
                 await dispatch.settle_session(
                     variance_session,
-                    SettleSessionRequest(actual_cash=Decimal("0"), notes=None),
+                    SettleSessionRequest(request_id=uuid4(), actual_cash=Decimal("0"), notes=None),
                     db=db, access=access, legacy_actor=actor.operational_driver,
                 )
             assert blocked_financial.value.status_code == 409
@@ -562,7 +652,7 @@ async def test_backoffice_representative_custody_postgres():
             with pytest.raises(HTTPException) as still_blocked:
                 await dispatch.settle_session(
                     variance_session,
-                    SettleSessionRequest(actual_cash=Decimal("0"), notes=None),
+                    SettleSessionRequest(request_id=uuid4(), actual_cash=Decimal("0"), notes=None),
                     db=db, access=actor.access(db),
                     legacy_actor=actor.operational_driver,
                 )
@@ -621,14 +711,14 @@ async def test_backoffice_representative_custody_postgres():
             with pytest.raises(HTTPException) as missing_shortage_reason:
                 await dispatch.settle_session(
                     variance_session,
-                    SettleSessionRequest(actual_cash=Decimal("0"), notes=None),
+                    SettleSessionRequest(request_id=uuid4(), actual_cash=Decimal("0"), notes=None),
                     db=db, access=access, legacy_actor=actor.operational_driver,
                 )
             assert missing_shortage_reason.value.status_code == 400
             await db.rollback()
             cash_close = await dispatch.settle_session(
                 variance_session,
-                SettleSessionRequest(
+                SettleSessionRequest(request_id=uuid4(), 
                     actual_cash=Decimal("0"),
                     notes="One damaged unit missing; DRIVER_SHORTAGE valued at locked JOD 5.000",
                 ),
@@ -712,7 +802,7 @@ async def test_backoffice_representative_custody_postgres():
             assert await _qty(db, company, warehouse, batch, "DAMAGED") == Decimal("8.125")
             settled = await dispatch.settle_session(
                 surplus_session,
-                SettleSessionRequest(actual_cash=Decimal("0"), notes=None),
+                SettleSessionRequest(request_id=uuid4(), actual_cash=Decimal("0"), notes=None),
                 db=db, access=access, legacy_actor=actor.operational_driver,
             )
             assert settled["is_settled"] is True
