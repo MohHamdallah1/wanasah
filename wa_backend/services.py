@@ -1506,6 +1506,7 @@ def inventory_quality_action_availability(
     movable_quantity: Decimal,
     source_location_id: int,
     can_send: bool,
+    can_destination_here: bool = True,
     can_confirm_disposal: bool,
     can_confirm_vendor_return: bool,
     special_destinations: Dict[str, Optional[int]],
@@ -1563,6 +1564,9 @@ def inventory_quality_action_availability(
             allowed = False
             reason = "SOURCE_CANNOT_SEND"
         elif not bool(purpose_access.get(purpose, False)):
+            allowed = False
+            reason = "PERMISSION_REQUIRED"
+        elif destination_id is None and not bool(can_destination_here):
             allowed = False
             reason = "PERMISSION_REQUIRED"
         elif action_movable <= 0:
