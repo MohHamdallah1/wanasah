@@ -2,7 +2,6 @@ import { apiErrorMessage, apiErrorStatus } from "@/lib/apiErrors";
 import { useLocation, useNavigate } from "react-router-dom";
 import { parseOperationsNavigationState } from "@/features/operations/navigation";
 import { useSettlementOwnerNavigation } from "@/features/operations/useSettlementOwnerNavigation";
-import type { SettlementCountInput } from "@/components/operations/SettlementModal";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import {
@@ -346,7 +345,7 @@ const Index = () => {
   };
 
   // دالة تأكيد التسوية (مُحصنة)
-  const handleConfirmSettlement = async (actualCash: number, inventoryJard: SettlementCountInput[], notes: string) => {
+  const handleConfirmSettlement = async (actualCash: number, notes: string) => {
     if (!settlementDriver || !settlementReport || isSettling) return;
     if (settlementReport.status !== FINANCIAL_SETTLEMENT_READY_STATUS) {
       toast.error("لا يمكن اعتماد التسوية المالية قبل اكتمال التسوية المخزنية.");
@@ -357,7 +356,7 @@ const Index = () => {
     try {
       const response = await authFetch(`/admin/sessions/${settlementDriver.session.session_id}/settle`, {
         method: 'PUT',
-        body: JSON.stringify({ actual_cash: actualCash, inventory_jard: inventoryJard, notes: notes })
+        body: JSON.stringify({ actual_cash: actualCash, notes: notes })
       });
       if (!response) throw new Error('فشل الاعتماد من الخادم');
 
