@@ -18,6 +18,8 @@
 >
 > **Final polish rule:** بعد اكتمال الوظائف والـcontracts والصلاحيات نعمل Wave مستقلة لإعادة هندسة وصقل واجهة Inventory بالكامل. الـpolish النهائي لا يسبق صحة المنطق.
 
+**Owner closed-loop companion (2026-10-18):** the detailed quality/damaged-goods/Vehicle-handoff/financial-closure decisions discovered during final Owner polish are governed by `INVENTORY_QUALITY_RETURNS_CLOSED_LOOP_PLAN.md`. Historical `[x]` evidence in this plan remains valid for the technical contract it tested, but it must not be interpreted as closing a newer owner-approved end-to-end gap explicitly reopened in that companion plan.
+
 ---
 
 # 0. Scope and frozen boundaries
@@ -575,6 +577,7 @@ Live Stock is primarily an operational read surface; avoid turning it into a sec
 - [x] Validate quarantine/disposal/vendor-return destination semantics.
 - [x] Warehouse deactivation must remain blocked while referenced by published policy.
 - [x] Quality action UI provides configuration path only when destination setup is actually the blocker.
+- [ ] **Owner V1 refinement (2026-10-18):** redesign the user-facing `وجهات الجودة` utility to the same-location default and compact Warehouse Management modal/panel defined in `INVENTORY_QUALITY_RETURNS_CLOSED_LOOP_PLAN.md`; do not force a one-warehouse company to publish three artificial destination warehouses.
 
 ## 8.3 UX acceptance
 
@@ -607,8 +610,9 @@ Live Stock is primarily an operational read surface; avoid turning it into a sec
 - [x] Preserve tenant/location isolation before candidate selection.
 - [x] Warehouse deactivation remains blocked by non-final stocktake.
 - [x] Runtime acceptance covers normal count, variance, recount and cancellation.
+- [ ] **Owner closed-loop extension (2026-10-18):** add explicit receiver-confirmed Vehicle → Warehouse custody handoff for reconciled physical stock, including `DAMAGED`, without silently erasing shortages/overages. Detailed contract and acceptance live in `INVENTORY_QUALITY_RETURNS_CLOSED_LOOP_PLAN.md`.
 
-**Checkpoint 9 gate:** stock correction is never an ad-hoc balance edit.
+**Checkpoint 9 gate:** stock correction is never an ad-hoc balance edit. Historical Vehicle Recon acceptance remains valid, while the newly approved custody-handoff extension above is still open.
 
 ---
 
@@ -782,6 +786,7 @@ Run from a realistic company setup, not isolated component demos.
 - [x] Edit warehouse/branch.
 - [x] Confirm denied user cannot perform same mutation.
 - [x] Configure required quality destinations.
+- [ ] **Owner V1 refinement acceptance (2026-10-18):** prove a one-warehouse company can run quarantine/damaged/disposal/vendor-return staging with the accepted same-location defaults and without creating artificial dedicated warehouses.
 
 ## 14.2 Product readiness journey
 
@@ -820,6 +825,7 @@ Run from a realistic company setup, not isolated component demos.
 - [x] Cancel.
 - [x] Vehicle recon.
 - [x] Verify resulting movements and Ledger evidence.
+- [ ] **Owner closed-loop acceptance (2026-10-18):** confirm receiver-accepted Vehicle → Warehouse handoff moves exact AVAILABLE/DAMAGED custody, keeps any mismatch explicit, and leaves the later Operations settlement financial-only.
 
 ## 14.7 Lifecycle blocker journey
 

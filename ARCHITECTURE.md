@@ -14,6 +14,18 @@ Any proposed implementation that would expand V1 must pass the change-control ru
 
 **Source-first root-cause requirement:** Before commissioning load tests, repeatedly running suites, or changing code, inspect the complete relevant implementation path and identify the likely concrete mechanism at the exact call site. Check obvious defaults, codecs, query shapes, transaction boundaries, resource costs, lock order, and existing contracts directly in source. Form a falsifiable, narrowly scoped hypothesis; use the smallest **single consolidated acceptance** to confirm the intended correction and preserve business invariants. Do not substitute repeated tests, trial-and-error rewrites, or superficial configuration changes for source analysis. If the source does not prove a cause, state the uncertainty and instrument precisely one needed gap.
 
+## Backend-owned complexity / minimum operator input — Owner directive (2026-10-18)
+
+**Permanent product and architecture rule:** if Wanasah can derive, resolve, validate, or reconcile information safely from authoritative server-side evidence, the system must do that work itself. Do not ask a driver, warehouse operator, accountant, administrator, or customer-facing user to supply technical data merely because the backend needs it internally.
+
+- Ask the user only for business facts that the system cannot determine safely by itself. Keep the number of required steps and fields as small as the business truth allows.
+- Internal identifiers, FEFO allocation, authoritative Batch resolution, inventory status transitions, costing, supplier provenance, idempotency keys, retry/replay semantics, lock ordering, reconciliation math, and cross-domain evidence resolution are backend responsibilities by default.
+- Never expose a technical ID such as a database `batch_id` as an operator task. Present human business evidence such as product, lot/production identity, expiry date, barcode/scan evidence, location, quantity, or reason only when that evidence is genuinely required.
+- Resolve deterministic cases automatically. If multiple valid candidates remain and choosing silently could corrupt stock, costing, expiry, supplier, tax, or audit truth, **fail closed and request only the smallest human-readable discriminator needed to remove the ambiguity**. Never guess.
+- Ordinary product barcodes must not be assumed to encode lot or expiry data. When a supported barcode standard actually carries lot/expiry evidence, the backend may consume it; otherwise use other authoritative evidence or a minimal user prompt.
+- Frontends must not duplicate server business authority to make a workflow appear simpler. The UI should be simple because the backend carries the complexity, not because validation, evidence, or accounting truth was discarded.
+- This rule applies equally to Dashboard, Flutter/mobile, imports, automation, and future integrations. Mobile/offline workflows must preserve the same authority through durable idempotent commands and safe replay rather than moving business logic into the client.
+
 ## Codex / AI-assisted development safety workflow — Owner directive (2026-10-08)
 
 The following rules are binding whenever Codex Desktop, Codex CLI, another local coding agent, or any AI tool is allowed to inspect or modify the Wanasah repository. They exist to preserve the project, the host machine, and the GitHub source of truth after the 2026-10-08 local data-loss incident. The incident's exact destructive mechanism is not asserted here; the policy is intentionally fail-safe.
@@ -66,7 +78,7 @@ Before high-risk refactors or any renewed Codex Desktop usage after a tooling/ru
 
 **Status:** CANONICAL ARCHITECTURE DIRECTION  
 **Scope:** Entire repository and all future modules  
-**Last updated:** 2026-10-15
+**Last updated:** 2026-10-18
 
 This document is the architectural constitution of the Wanasah platform. It records the intended long-term direction so future work does not accidentally optimize one feature at the expense of the platform.
 

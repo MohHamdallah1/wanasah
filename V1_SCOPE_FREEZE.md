@@ -113,6 +113,23 @@ Branch assignment remains a supported optional backend relation, but V1 Warehous
 
 Structured geographic catalogs, map pickers, geocoding/routing, geofence enforcement, warehouse facility roles/types, storage capabilities, internal topology, capacity, operating calendars and other advanced WMS metadata remain deferred unless separately promoted.
 
+#### Owner-approved Inventory quality / custody / settlement V1 amendment — 2026-10-18
+
+The first-company Inventory workflow must close damaged/quality stock and representative custody without forcing enterprise WMS complexity onto ordinary operators:
+
+- quality handling defaults to the **same current inventory location**. One warehouse may simultaneously hold saleable, quarantined, damaged, and disposal-pending stock; V1 does not require separate quarantine/returns/scrap warehouses or mutually exclusive warehouse types;
+- Warehouse Management keeps a compact **Quality destinations / وجهات الجودة** utility for the effective handling policy, but a one-warehouse company must operate safely with the same-location defaults and no artificial destination setup;
+- Vehicle reconciliation is the authoritative physical-custody phase. When an ended representative session is reconciled, the responsible receiver must explicitly confirm the physical handoff of remaining stock, including non-AVAILABLE stock such as damaged goods, from Vehicle custody into Warehouse custody. A mismatch remains explicit reconciliation evidence and may never be silently discarded;
+- the Operations/Home settlement remains the later **financial** close and may run only after inventory reconciliation is sealed. Physical stock is counted authoritatively once in reconciliation; any legacy editable inventory recount in the financial settlement surface is compatibility-only and must not mutate inventory;
+- the normal V1 shop damaged-goods path is a **1:1 replacement**: the damaged/expired/factory-defect quantity enters representative Vehicle custody as non-sellable stock and the exact replacement quantity leaves saleable Vehicle stock. This exchange is not a new sale and must not silently alter customer cash/debt;
+- Batch/lot identity required for a field return is backend-owned whenever it can be resolved safely. Technical database IDs are never an operator task; genuine ambiguity asks only for the smallest human-readable evidence needed and otherwise fails closed;
+- after damaged/quality stock reaches Warehouse custody, the V1 lifecycle must have an accountable terminal path: authorized release back to saleable stock, confirmed final disposal, or confirmed vendor handover. Partial quantities remain supported where the inventory authority permits them;
+- physical terminal closure and financial evidence must agree. Disposal must not create unexplained value loss, and a supplier-responsible defect must retain its supplier-recovery/credit evidence until the approved financial resolution is known rather than disappearing when stock leaves the building.
+
+The detailed implementation and acceptance authority for this amendment is `INVENTORY_QUALITY_RETURNS_CLOSED_LOOP_PLAN.md`.
+
+**Still not V1:** custom dedicated quality-destination warehouses/zones as an optional advanced routing feature, warehouse internal zones/bins/topology, pickup of damaged customer goods without immediate replacement, customer Sales Return/Credit Note workflows, and Cash Refund. These remain in `VERSION_2_FUTURE_FEATURES.md`.
+
 ### 5.4 Dispatch, routes and shops — V1 REQUIRED
 
 V1 must replace the old "Word region file + temporary WhatsApp group + copy/paste shop" operating pattern for the first company.

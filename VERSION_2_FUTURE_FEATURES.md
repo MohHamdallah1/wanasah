@@ -683,19 +683,22 @@ If a company enables branches later — including after months or years of produ
 
 The V2 branch UX should live under a company/organization structure surface, not as a Warehouse-page utility button.
 
-### 11.2 Inventory operating policies workspace
+### 11.2 Quality destinations and future inventory operating policies
 
-Quality-handling destinations and similar inventory policies are **not warehouse identity/setup fields**. They need a dedicated future owner surface rather than being mixed into Warehouse Management.
+**Owner decision (2026-10-18):** Version 1 keeps a bounded **Quality destinations / وجهات الجودة** utility inside Warehouse Management because the operator is configuring where warehouse-owned quality stock is handled. It is not a warehouse identity field, and it must not occupy a permanent full-page block.
 
-Preferred V2 information architecture:
+The accepted V1 baseline is deliberately simple: quarantine, damaged/disposal handling, and vendor-return staging default to **the same current inventory location**. A company with one warehouse must never be forced to create a fake quarantine, returns, or scrap warehouse merely to complete a normal workflow.
 
-- **Inventory → Operating policies** / **المخزون → سياسات التشغيل**;
-- begin with quality-handling destinations and other published inventory operational policies that are genuinely company-level;
-- keep warehouse-specific assignments/settings in Warehouse Management;
-- keep Product tracking defaults in Product/Catalog authority;
-- do not create a catch-all frontend settings page that duplicates backend business authority.
+Deferred V2 expansion:
 
-Until that workspace exists, treat the current policy UI as a bounded legacy placement to be revisited; moving it is a separate feature with its own contract, permissions, migration, i18n/accessibility, and acceptance work.
+- [ ] **Custom quality destinations:** optionally route quarantine, damaged/disposal staging, or vendor-return staging to a dedicated authorized warehouse/location. The same-location behavior remains the safe default when no custom destination is enabled.
+- [ ] **Zone-aware destinations:** after internal warehouse topology exists, a custom quality destination may target a dedicated zone/bin such as Quarantine, Returns, or Disposal staging without requiring a separate warehouse.
+- [ ] **Preserve state vs place separation:** a custom destination changes the physical location when required; it does not replace the canonical stock-status lifecycle or provenance. A warehouse may contain AVAILABLE, QUARANTINED, DAMAGED, and DISPOSAL_PENDING stock at the same time.
+- [ ] **No exclusive warehouse-type shortcut:** do not model a warehouse as mutually exclusive `SALE` / `QUARANTINE` / `RETURNS` / `SCRAP`. Facilities may serve multiple roles, while a specialized facility remains possible through capabilities, permissions, and routing policy.
+- [ ] **Vendor provenance remains backend-owned:** a vendor-return destination is a physical staging choice, not a vendor selector. The supplier/vendor must continue to resolve from authoritative batch/inbound provenance whenever deterministic.
+- [ ] If the number of company-wide inventory policies later grows enough to justify a dedicated workspace, introduce **Inventory → Operating policies / المخزون → سياسات التشغيل** and migrate only genuinely company-level policies there. Do not move the bounded V1 Quality destinations utility merely for information-architecture purity, and do not create a catch-all settings page that duplicates backend authority.
+
+Any V2 custom-destination feature requires exact permissions, location isolation, movement semantics, migration compatibility, i18n/accessibility, and end-to-end acceptance before it is enabled.
 
 ### 11.3 Warehouse master data and advanced facility profile
 
@@ -706,7 +709,7 @@ Deferred V2 design items:
 - [ ] **Structured geography and map automation beyond the V1 address profile:** V1 stores a free-text physical address plus optional location link and latitude/longitude. V2 may add country/region/city catalogs, address normalization, map picker, geocoding/routing, geofence enforcement, and other location automation only when a real logistics workflow consumes them.
 - [ ] **Facility roles and ownership:** default/main operational role and owned vs third-party/3PL must be modeled separately from branch assignment. A branch is an organizational scope, not a warehouse type.
 - [ ] **Storage capabilities:** model compatible multi-select capabilities such as ambient, chilled, frozen/cold-chain, hazardous-material approved, bonded, or other regulated storage. Do not force these into one mutually exclusive `warehouse_type` enum.
-- [ ] **Returns / quarantine / damaged / scrap semantics:** decide whether each need is a warehouse, a zone/bin inside a warehouse, or a dedicated system inventory location. Existing `SCRAP`, `IN_TRANSIT`, and `VEHICLE` location semantics must not be relabeled as ordinary warehouse types.
+- [ ] **Specialized quality-handling topology:** preserve the V1 same-location default, then support a dedicated warehouse, zone/bin, or controlled system inventory location only when a company genuinely needs physical segregation. Physical location and stock status remain separate dimensions; existing `SCRAP`, `IN_TRANSIT`, and `VEHICLE` location semantics must not be relabeled as ordinary warehouse types.
 - [ ] **Internal topology:** zones, aisles, racks, shelves/bins, picking/receiving/staging areas, and controlled movement between them. This is a separate WMS layer, not free-text fields on the warehouse row.
 - [ ] **Capacity:** capacity dimensions and units, per-zone/bin limits where relevant, occupancy calculation, warnings, and over-capacity policy. Do not add one ambiguous numeric `capacity` field.
 - [ ] **Operating calendar:** working hours, holidays/closed days, receiving/dispatch cutoff windows, and timezone behavior when companies span regions.
@@ -714,6 +717,15 @@ Deferred V2 design items:
 - [ ] **Warehouse responsibility:** use users/roles/location permissions for operational management authority. Do not make a free-text "warehouse manager" field the permission authority. Optional contact metadata may be added separately if useful.
 - [ ] **Stable external-code lifecycle beyond the V1 suggestion:** V1 already suggests an editable company-scoped human-readable warehouse code and the database remains the uniqueness authority. V2 may add an explicit code-change policy, audit/history, aliases, and compatibility rules before treating warehouse codes as externally stable references.
 - [ ] **Gradual migration:** all new metadata must be optional for existing companies until that specific capability is deliberately enabled; no destructive backfill or forced branch/facility reclassification.
+
+### 11.4 Deferred returns / damaged-goods commercial extensions
+
+The Version 1 field workflow remains focused on the normal distributor case: a representative receives damaged/expired/factory-defect goods from a shop and issues a **1:1 replacement** when allowed. The following extensions are intentionally deferred until their complete commercial and financial lifecycle is designed.
+
+- [ ] **Pickup without immediate replacement:** support collecting damaged/returned goods while no replacement is handed to the customer at that moment. The feature is not complete unless it records the customer's entitlement and later closes it through an explicit replacement, approved credit, or another authorized resolution. Do not leave a customer claim as an unowned note.
+- [ ] **Customer sales return / credit-note workflow:** model returns that reverse or reduce the commercial sale separately from the damaged-goods custody workflow. Resolve the original sales document, historical price, discounts/offers, tax evidence, currency, payment/debt effect, and fiscal-document requirements from authoritative evidence.
+- [ ] **Cash refund:** do not add a simple "refund cash" button to the damaged-goods flow. Any future cash refund must be an explicit Sales/Finance workflow with permissions, original-payment evidence, tax/credit-note rules, idempotency, audit, and cash-custody reconciliation.
+- [ ] Keep these commercial resolutions separate from the physical inventory lifecycle. Physical receipt, inspection, quarantine/damage state, disposal/vendor handover, customer entitlement, and financial settlement are related evidence but not one overloaded status.
 
 ---
 
