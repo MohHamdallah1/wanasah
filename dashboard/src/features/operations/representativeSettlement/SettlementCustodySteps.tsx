@@ -63,11 +63,19 @@ export function CustodyCountStep({
               </div>
               <div className="mt-3">
                 {readOnly ? (
-                  <div className="rounded-xl bg-emerald-50 px-3 py-2 text-sm font-black text-emerald-800">{copy.actual}: <span dir="ltr">{line.expected_quantity} {line.uom}</span></div>
+                  <label className="block text-xs font-bold text-slate-600">
+                    {copy.actual}
+                    <input
+                      aria-label={copy.actual + ": " + line.product_name + " — " + meta.status}
+                      readOnly
+                      value={line.expected_quantity}
+                      className="mt-1 w-full rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-base font-black text-emerald-800"
+                    />
+                  </label>
                 ) : (
                   <label className="block text-xs font-bold text-slate-600">
                     {copy.actual}
-                    <input aria-label={copy.actual + ": " + line.product_name} inputMode="decimal" value={actual[line.line_key] ?? ""} onChange={(e) => onActualChange(line.line_key, e.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-base font-bold" />
+                    <input aria-label={copy.actual + ": " + line.product_name + " — " + meta.status} inputMode="decimal" value={actual[line.line_key] ?? ""} onChange={(e) => onActualChange(line.line_key, e.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-base font-bold" />
                   </label>
                 )}
               </div>
@@ -182,7 +190,7 @@ export function RecountStep({
           return <div key={line.line_key} className="rounded-2xl border border-slate-200 bg-white p-4">
             <p className="font-black text-slate-800">{line.product_name}</p>
             <p className="mt-1 text-xs text-slate-500">{copy.batch}: {meta.batch} · {copy.expiry}: {meta.expiry} · {copy.status}: {meta.status} · {copy.uom}: {line.uom}</p>
-            <label className="mt-3 block text-xs font-bold text-slate-600">{copy.counted}<input aria-label={copy.actual + ": " + line.product_name} inputMode="decimal" value={actual[line.line_key] ?? ""} onChange={(e) => onActualChange(line.line_key, e.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-base font-bold" /></label>
+            <label className="mt-3 block text-xs font-bold text-slate-600">{copy.counted}<input aria-label={copy.actual + ": " + line.product_name + " — " + meta.status} inputMode="decimal" value={actual[line.line_key] ?? ""} onChange={(e) => onActualChange(line.line_key, e.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-base font-bold" /></label>
           </div>;
         })}
       </div>
