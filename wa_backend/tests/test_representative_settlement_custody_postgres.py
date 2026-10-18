@@ -361,6 +361,21 @@ async def test_backoffice_representative_custody_postgres():
             )
             assert close["is_settled"] is True
             assert await _qty(db, company, warehouse, batch, "DAMAGED") == Decimal("2.125")
+            # Ambiguous network retry stays state-idempotent across financial close.
+            recovered = await settlement.receive_representative_custody(
+                matched_session, confirmation,
+                db=db, access=access, legacy_actor=actor.operational_driver,
+            )
+            assert recovered == closed
+            with pytest.raises(HTTPException) as too_late:
+                await settlement.receive_representative_custody(
+                    matched_session,
+                    confirmation.model_copy(update={"request_id": uuid4()}),
+                    db=db, access=access, legacy_actor=actor.operational_driver,
+                )
+            assert too_late.value.status_code == 409
+            await db.rollback()
+            assert await _qty(db, company, warehouse, batch, "DAMAGED") == Decimal("2.125")
 
         async with _runtime_session(runtime_engine, company) as db:
             access = actor.access(db)
