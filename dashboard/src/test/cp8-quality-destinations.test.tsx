@@ -50,6 +50,87 @@ it("does not infer policy permission from an Owner UI flag", () => {
   expect(mocks.fetch).not.toHaveBeenCalled();
 });
 
+it("never presents same-location truth while an explicit published policy is loading", async () => {
+  let resolvePolicy!: (value: unknown) => void;
+  mocks.fetch.mockReturnValue(
+    new Promise((resolve) => {
+      resolvePolicy = resolve;
+    }),
+  );
+
+  render(<QualityHandlingDestinationsCard />);
+
+  expect(screen.queryByText("Same current location")).toBeNull();
+  expect(screen.queryByText("Effective default")).toBeNull();
+  expect(screen.getAllByText("Loading...").length).toBeGreaterThan(0);
+
+  resolvePolicy({
+    draft: null,
+    published: {
+      id: 41,
+      revision: 7,
+      status: "PUBLISHED",
+      validated_payload: {
+        quarantine_location_id: 51,
+        disposal_location_id: 52,
+        vendor_return_staging_location_id: 53,
+        allow_retiring_warehouse_balancing: false,
+      },
+    },
+  });
+
+  await screen.findByText("Custom configuration active");
+  expect(screen.getByText("Location #51")).toBeInTheDocument();
+  expect(screen.getByText("Location #52")).toBeInTheDocument();
+  expect(screen.getByText("Location #53")).toBeInTheDocument();
+  expect(screen.queryByText("Same current location")).toBeNull();
+});
+
+it("clears prior-company policy immediately and confirms default only after the new company read succeeds", async () => {
+  let resolveSecond!: (value: unknown) => void;
+  mocks.fetch
+    .mockResolvedValueOnce({
+      draft: null,
+      published: {
+        id: 61,
+        revision: 8,
+        status: "PUBLISHED",
+        validated_payload: {
+          quarantine_location_id: 71,
+          disposal_location_id: 72,
+          vendor_return_staging_location_id: 73,
+          allow_retiring_warehouse_balancing: false,
+        },
+      },
+    })
+    .mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSecond = resolve;
+      }),
+    );
+
+  const view = render(<QualityHandlingDestinationsCard />);
+  await screen.findByText("Location #71");
+
+  localStorage.setItem("company_id", "2");
+  view.rerender(<QualityHandlingDestinationsCard />);
+
+  expect(screen.queryByText("Location #71")).toBeNull();
+  expect(screen.queryByText("Location #72")).toBeNull();
+  expect(screen.queryByText("Location #73")).toBeNull();
+  expect(screen.queryByText("Same current location")).toBeNull();
+  expect(screen.queryByText("Effective default")).toBeNull();
+
+  await waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(2));
+  expect(screen.queryByText("Same current location")).toBeNull();
+
+  resolveSecond({ draft: null, published: null });
+
+  await screen.findByText("Effective default");
+  expect(screen.getAllByText("Same current location")).toHaveLength(3);
+  expect(screen.queryByText("Location #71")).toBeNull();
+});
+
 it("shows the effective same-location default without setup writes", async () => {
   mocks.fetch.mockResolvedValue({ draft: null, published: null });
 
