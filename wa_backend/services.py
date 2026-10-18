@@ -1410,12 +1410,23 @@ async def ensure_effective_transfer_destination_policy(
                     "supported_schema_version": TRANSFER_DESTINATION_POLICY_SCHEMA_VERSION,
                 },
             )
-        normalized = await validate_transfer_destination_policy_payload(
-            db_session,
-            company_id=company_id,
-            payload=dict(published.validated_payload or {}),
-            lock_locations=False,
-        )
+        try:
+            normalized = await validate_transfer_destination_policy_payload(
+                db_session,
+                company_id=company_id,
+                payload=dict(published.validated_payload or {}),
+                lock_locations=False,
+            )
+        except InventoryRuleError as exc:
+            raise InventoryRuleError(
+                "TRANSFER_POLICY_STALE",
+                "سياسة وجهات التحويل المنشورة لم تعد صالحة للاستخدام التشغيلي.",
+                context={
+                    "policy_id": int(published.id),
+                    "policy_revision": int(published.revision),
+                    "reason_code": exc.code,
+                },
+            ) from exc
         return published, normalized, False
 
     max_revision = int(
