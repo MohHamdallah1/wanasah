@@ -73,22 +73,26 @@ describe("CP13 Warehouse setup final presentation", () => {
     expect(en.assignmentRule).toContain("active branches");
   });
 
-  it("presents quality destinations as a dedicated warehouse setup view rather than a fixed daily stock action", () => {
+  it("presents quality destinations as one compact modal with the V1 in-place default", () => {
     const source = warehouse();
     const quality = read("src/features/inventory/quality/QualityHandlingDestinationsCard.tsx");
-    expect(source).toContain('type WarehouseSetupView = "warehouses" | "quality"');
+    const policyHook = read("src/features/inventory/quality/useTransferDestinationPolicy.ts");
     expect(source).toContain('access.can("inventory.transfer_policy.manage")');
-    expect(source).toContain('setSetupView("quality")');
-    expect(source).toContain('setSetupView("warehouses")');
-    expect(source).toContain('data-warehouse-setup-view="quality"');
+    expect(source).toContain("setQualityDestinationsOpen(true)");
+    expect(source).toContain("isOpen={qualityDestinationsOpen && canManageQualityDestinations}");
+    expect(source).not.toContain("WarehouseSetupView");
+    expect(source).not.toContain('data-warehouse-setup-view="quality"');
     expect(source.match(/<QualityHandlingDestinationsCard/g)?.length).toBe(1);
     expect(quality).toContain('data-warehouse-setup="quality-policy"');
-    expect(quality).not.toContain("inventoryWarehouses.qualityDestinations.search");
+    expect(quality).toContain('data-quality-destination-mode="in-place"');
+    expect(quality).not.toContain("<select");
     expect(quality).not.toContain("<Search");
+    expect(policyHook).not.toContain("/warehouse/locations/manage");
+    expect(policyHook).toContain("quarantine_location_id: null");
+    expect(policyHook).toContain("vendor_return_staging_location_id: null");
+    expect(policyHook).toContain("disposal_location_id: null");
     expect(quality).toContain("presentation.qualityPolicy");
-    expect(quality).toContain("presentation.qualityPolicyHint");
     expect(quality).toContain("useTransferDestinationPolicy");
-    expect(quality).not.toMatch(/quality.?staging/i);
   });
 
   it("keeps backend blocker authority and turns accepted blocker evidence into operator references", () => {
