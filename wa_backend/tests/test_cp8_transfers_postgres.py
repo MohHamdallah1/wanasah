@@ -641,6 +641,47 @@ async def test_in_place_quality_policy_stages_status_without_physical_transfer(p
         assert movement.source_stock_status == "AVAILABLE"
         assert movement.destination_stock_status == "DISPOSAL_PENDING"
 
+        # The other V1 quality destinations use the same direct status-only
+        # evidence path; this also proves the expanded PostgreSQL constraint.
+        for purpose, target_status in (
+            ("QUARANTINE", "QUARANTINED"),
+            ("RETURN_TO_VENDOR", "QUARANTINED"),
+        ):
+            same_location = SpecialTransferDispatchRequest(
+                request_id=uuid4(),
+                source_location_id=source_location_id,
+                transfer_purpose=purpose,
+                notes=f"CP8 in-place {purpose.lower()}",
+                items=[dict(
+                    product_variant_id=pg.a.variant_id,
+                    batch_id=pg.a.expired_batch_id,
+                    source_status="AVAILABLE",
+                    quantity="1",
+                    uom_id=pg.a.uom_id,
+                )],
+            )
+            staged = await transfers.special_transfer_dispatch(
+                same_location,
+                db,
+                actor.access(db),
+                actor.operational_driver,
+            )
+            assert staged["destination_location_id"] == source_location_id
+            staged_header = await db.get(InventoryTransferHeader, staged["header_id"])
+            assert staged_header.workflow_type == "DIRECT"
+            assert staged_header.status == "POSTED"
+            staged_movement = await db.scalar(
+                select(InventoryMovement).where(
+                    InventoryMovement.company_id == pg.a.company_id,
+                    InventoryMovement.transfer_header_id == staged["header_id"],
+                )
+            )
+            assert staged_movement.movement_kind == "STATUS_CHANGE"
+            assert staged_movement.source_location_id == source_location_id
+            assert staged_movement.destination_location_id == source_location_id
+            assert staged_movement.source_stock_status == "AVAILABLE"
+            assert staged_movement.destination_stock_status == target_status
+
         after_total = await db.scalar(
             select(func.sum(InventoryBalance.on_hand_quantity)).where(
                 InventoryBalance.company_id == pg.a.company_id,
