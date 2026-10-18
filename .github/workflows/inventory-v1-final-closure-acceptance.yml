@@ -29,7 +29,7 @@ concurrency:
 
 env:
   HARNESS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-  CANDIDATE_SHA: ${{ inputs.candidate_sha || '' }}
+  CANDIDATE_SHA: ${{ inputs.candidate_sha || 'f78e656b0f4706f5f440f3a530da3f2b77195c4d' }}
 
 jobs:
   acceptance-only-scope:
