@@ -920,12 +920,11 @@ async def validate_transfer_destination_policy_payload(
     payload: Dict[str, Any],
     lock_locations: bool = True,
 ) -> Dict[str, Any]:
-    """Hard Domain Validator for JSONB location references.
+    """Validate the transfer-destination policy without inventing locations.
 
-    JSONB cannot carry relational foreign keys.  Therefore every save/publish
-    validates the complete known schema and locks every referenced location row
-    in deterministic ID order.  Cross-tenant/missing/inactive references fail
-    closed without revealing whether an ID exists in another tenant.
+    A null destination is the V1 IN_PLACE sentinel: quality handling stays at
+    the current warehouse and only stock status changes. Explicit destination
+    IDs remain fully validated, tenant-scoped and protected by location guards.
     """
     try:
         company_id = _strict_int(company_id, "company_id", minimum=1)
@@ -938,21 +937,21 @@ async def validate_transfer_destination_policy_payload(
             "validated_payload لا يطابق Schema سياسة وجهات التحويل المعتمدة.",
         )
 
+    def optional_location_id(value: Any, field: str) -> Optional[int]:
+        if value is None:
+            return None
+        return _strict_int(value, field, minimum=1)
+
     try:
-        quarantine_id = _strict_int(
-            payload["quarantine_location_id"],
-            "quarantine_location_id",
-            minimum=1,
+        quarantine_id = optional_location_id(
+            payload["quarantine_location_id"], "quarantine_location_id"
         )
-        disposal_id = _strict_int(
-            payload["disposal_location_id"],
-            "disposal_location_id",
-            minimum=1,
+        disposal_id = optional_location_id(
+            payload["disposal_location_id"], "disposal_location_id"
         )
-        vendor_id = _strict_int(
+        vendor_id = optional_location_id(
             payload["vendor_return_staging_location_id"],
             "vendor_return_staging_location_id",
-            minimum=1,
         )
     except ValueError as exc:
         raise InventoryRuleError(
@@ -967,68 +966,78 @@ async def validate_transfer_destination_policy_payload(
             "allow_retiring_warehouse_balancing يجب أن يكون boolean.",
         )
 
-    ids = sorted({quarantine_id, disposal_id, vendor_id})
+    ids = sorted({
+        location_id
+        for location_id in (quarantine_id, disposal_id, vendor_id)
+        if location_id is not None
+    })
 
-    # Use the project-wide shared Location Guard so policy validation serializes
-    # against deactivation while concurrent readers/transfers remain concurrent.
-    if lock_locations:
+    if ids and lock_locations:
         await acquire_inventory_location_guards(
             db_session,
             company_id,
             ids,
         )
 
-    stmt = (
-        select(InventoryLocation)
-        .filter(
-            InventoryLocation.company_id == company_id,
-            InventoryLocation.id.in_(ids),
+    locations: Dict[int, Any] = {}
+    if ids:
+        stmt = (
+            select(InventoryLocation)
+            .filter(
+                InventoryLocation.company_id == company_id,
+                InventoryLocation.id.in_(ids),
+            )
+            .order_by(InventoryLocation.id.asc())
         )
-        .order_by(InventoryLocation.id.asc())
-    )
-    if lock_locations:
-        stmt = stmt.with_for_update(read=True)
+        if lock_locations:
+            stmt = stmt.with_for_update(read=True)
+        rows = (await db_session.execute(stmt)).scalars().all()
+        locations = {int(row.id): row for row in rows}
 
-    rows = (await db_session.execute(stmt)).scalars().all()
-    locations = {int(row.id): row for row in rows}
+        # One generic error protects against ID probing across tenants.
+        if set(locations) != set(ids) or any(
+            not bool(locations[location_id].is_active)
+            for location_id in ids
+        ):
+            raise InventoryRuleError(
+                "TRANSFER_POLICY_LOCATION_INVALID",
+                "أحد مواقع سياسة التحويل غير موجود أو غير فعال أو لا يتبع الشركة.",
+            )
 
-    # One generic error protects against ID probing across tenants.
-    if set(locations) != set(ids) or any(
-        not bool(locations[location_id].is_active)
-        for location_id in ids
+        if any(bool(locations[location_id].is_system_managed) for location_id in ids):
+            raise InventoryRuleError(
+                "TRANSFER_POLICY_LOCATION_INVALID",
+                "مواقع النظام الداخلية لا يجوز استخدامها كوجهة تشغيلية في هذه السياسة.",
+            )
+
+    if (
+        quarantine_id is not None
+        and str(locations[quarantine_id].location_type).upper() != "WAREHOUSE"
     ):
-        raise InventoryRuleError(
-            "TRANSFER_POLICY_LOCATION_INVALID",
-            "أحد مواقع سياسة التحويل غير موجود أو غير فعال أو لا يتبع الشركة.",
-        )
-
-    if any(bool(locations[location_id].is_system_managed) for location_id in ids):
-        raise InventoryRuleError(
-            "TRANSFER_POLICY_LOCATION_INVALID",
-            "مواقع النظام الداخلية لا يجوز استخدامها كوجهة تشغيلية في هذه السياسة.",
-        )
-
-    if str(locations[quarantine_id].location_type).upper() != "WAREHOUSE":
         raise InventoryRuleError(
             "TRANSFER_POLICY_LOCATION_TYPE_INVALID",
             "quarantine_location_id يجب أن يشير إلى WAREHOUSE فعال.",
             context={"field": "quarantine_location_id"},
         )
 
-    if str(locations[vendor_id].location_type).upper() != "WAREHOUSE":
+    if (
+        vendor_id is not None
+        and str(locations[vendor_id].location_type).upper() != "WAREHOUSE"
+    ):
         raise InventoryRuleError(
             "TRANSFER_POLICY_LOCATION_TYPE_INVALID",
             "vendor_return_staging_location_id يجب أن يشير إلى WAREHOUSE فعال.",
             context={"field": "vendor_return_staging_location_id"},
         )
 
-    disposal_type = str(locations[disposal_id].location_type).upper()
-    if disposal_type not in {"WAREHOUSE", "SCRAP"}:
-        raise InventoryRuleError(
-            "TRANSFER_POLICY_LOCATION_TYPE_INVALID",
-            "disposal_location_id يجب أن يشير إلى WAREHOUSE أو SCRAP فعال.",
-            context={"field": "disposal_location_id"},
-        )
+    if disposal_id is not None:
+        disposal_type = str(locations[disposal_id].location_type).upper()
+        if disposal_type not in {"WAREHOUSE", "SCRAP"}:
+            raise InventoryRuleError(
+                "TRANSFER_POLICY_LOCATION_TYPE_INVALID",
+                "disposal_location_id يجب أن يشير إلى WAREHOUSE أو SCRAP فعال.",
+                context={"field": "disposal_location_id"},
+            )
 
     return {
         "quarantine_location_id": quarantine_id,
@@ -1036,7 +1045,6 @@ async def validate_transfer_destination_policy_payload(
         "vendor_return_staging_location_id": vendor_id,
         "allow_retiring_warehouse_balancing": allow_retiring,
     }
-
 
 async def _acquire_transfer_policy_guard(
     db_session: AsyncSession,
@@ -1136,15 +1144,14 @@ async def save_transfer_destination_policy_draft(
                 "تغير Draft السياسة منذ فتحه. حدّث البيانات ثم أعد المحاولة.",
                 context={"current_revision": current_revision},
             )
-        if current_revision != max_revision:
-            raise InventoryMutationError(
-                "Policy invariant violated: active DRAFT is not latest revision."
-            )
         before = {
             "revision": current_revision,
             "validated_payload": dict(draft.validated_payload or {}),
         }
-        draft.revision = current_revision + 1
+        # A backend-owned default may have been lazily published after this
+        # draft was created. Preserve the draft and advance it beyond all
+        # materialized revisions on its next explicit save.
+        draft.revision = max_revision + 1
         draft.schema_version = TRANSFER_DESTINATION_POLICY_SCHEMA_VERSION
         draft.validated_payload = normalized
         draft.updated_at = now
@@ -1229,6 +1236,7 @@ async def publish_transfer_destination_policy(
             context={"current_revision": int(draft.revision)},
         )
 
+    submitted_revision = int(draft.revision)
     normalized = await validate_transfer_destination_policy_payload(
         db_session,
         company_id=company_id,
@@ -1236,6 +1244,27 @@ async def publish_transfer_destination_policy(
         lock_locations=True,
     )
     draft.validated_payload = normalized
+
+    max_revision = int(
+        (
+            await db_session.execute(
+                select(
+                    func.coalesce(
+                        func.max(TenantOperationalPolicy.revision),
+                        0,
+                    )
+                ).filter(
+                    TenantOperationalPolicy.company_id == company_id,
+                    TenantOperationalPolicy.policy_code
+                    == TRANSFER_DESTINATION_POLICY_CODE,
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    if int(draft.revision) < max_revision:
+        draft.revision = max_revision + 1
+        await db_session.flush()
 
     current = (
         await db_session.execute(
@@ -1267,7 +1296,8 @@ async def publish_transfer_destination_policy(
         await db_session.flush()
 
     before = {
-        "revision": int(draft.revision),
+        "revision": submitted_revision,
+        "materialized_revision": int(draft.revision),
         "status": "DRAFT",
         "previous_published": previous_published,
     }
@@ -1332,6 +1362,140 @@ async def get_transfer_destination_policy_state(
         None,
     )
     return draft, published
+
+
+async def ensure_effective_transfer_destination_policy(
+    db_session: AsyncSession,
+    *,
+    company_id: int,
+    actor_id: int,
+    request_id: UUID,
+) -> Tuple[TenantOperationalPolicy, Dict[str, Any], bool]:
+    """Return the published policy, lazily materializing the safe V1 default.
+
+    Reads never mutate. The first real special-transfer mutation calls this
+    inside its existing idempotent transaction, so the default policy evidence
+    is created exactly once per company and rolls back if the action fails.
+    Existing explicit published policies are never changed.
+    """
+    company_id = _strict_int(company_id, "company_id", minimum=1)
+    actor_id = _strict_int(actor_id, "actor_id", minimum=1)
+    request_id = UUID(str(request_id))
+
+    await _acquire_transfer_policy_guard(db_session, company_id)
+
+    published = (
+        await db_session.execute(
+            select(TenantOperationalPolicy)
+            .filter(
+                TenantOperationalPolicy.company_id == company_id,
+                TenantOperationalPolicy.policy_code
+                == TRANSFER_DESTINATION_POLICY_CODE,
+                TenantOperationalPolicy.status == "PUBLISHED",
+                TenantOperationalPolicy.effective_to.is_(None),
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+
+    if published is not None:
+        if int(published.schema_version) != TRANSFER_DESTINATION_POLICY_SCHEMA_VERSION:
+            raise InventoryRuleError(
+                "TRANSFER_POLICY_SCHEMA_UNSUPPORTED",
+                "نسخة Schema لسياسة وجهات التحويل المنشورة غير مدعومة.",
+                context={
+                    "policy_id": int(published.id),
+                    "policy_revision": int(published.revision),
+                    "schema_version": int(published.schema_version),
+                    "supported_schema_version": TRANSFER_DESTINATION_POLICY_SCHEMA_VERSION,
+                },
+            )
+        try:
+            normalized = await validate_transfer_destination_policy_payload(
+                db_session,
+                company_id=company_id,
+                payload=dict(published.validated_payload or {}),
+                lock_locations=False,
+            )
+        except InventoryRuleError as exc:
+            raise InventoryRuleError(
+                "TRANSFER_POLICY_STALE",
+                "سياسة وجهات التحويل المنشورة لم تعد صالحة للاستخدام التشغيلي.",
+                context={
+                    "policy_id": int(published.id),
+                    "policy_revision": int(published.revision),
+                    "reason_code": exc.code,
+                },
+            ) from exc
+        return published, normalized, False
+
+    max_revision = int(
+        (
+            await db_session.execute(
+                select(
+                    func.coalesce(
+                        func.max(TenantOperationalPolicy.revision),
+                        0,
+                    )
+                ).filter(
+                    TenantOperationalPolicy.company_id == company_id,
+                    TenantOperationalPolicy.policy_code
+                    == TRANSFER_DESTINATION_POLICY_CODE,
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+
+    normalized = await validate_transfer_destination_policy_payload(
+        db_session,
+        company_id=company_id,
+        payload={
+            "quarantine_location_id": None,
+            "disposal_location_id": None,
+            "vendor_return_staging_location_id": None,
+            "allow_retiring_warehouse_balancing": False,
+        },
+        lock_locations=True,
+    )
+    now = utc_now()
+    published = TenantOperationalPolicy(
+        company_id=company_id,
+        policy_code=TRANSFER_DESTINATION_POLICY_CODE,
+        schema_version=TRANSFER_DESTINATION_POLICY_SCHEMA_VERSION,
+        revision=max_revision + 1,
+        validated_payload=normalized,
+        status="PUBLISHED",
+        effective_from=now,
+        effective_to=None,
+        approved_by=actor_id,
+        approved_at=now,
+        created_by=actor_id,
+        created_at=now,
+        updated_at=now,
+    )
+    db_session.add(published)
+    await db_session.flush()
+
+    record_domain_event(
+        db_session,
+        company_id=company_id,
+        actor_id=actor_id,
+        request_id=request_id,
+        event_type="TenantOperationalPolicyDefaultMaterialized",
+        entity_type="TenantOperationalPolicy",
+        entity_id=int(published.id),
+        reason="INVENTORY_TRANSFER_DESTINATIONS_EFFECTIVE_DEFAULT",
+        before=None,
+        after={
+            "revision": int(published.revision),
+            "status": "PUBLISHED",
+            "validated_payload": dict(normalized),
+            "materialization": "LAZY_SPECIAL_TRANSFER",
+        },
+        emit_outbox=True,
+    )
+    return published, normalized, True
 
 
 async def load_published_transfer_destination_policy(
@@ -1500,9 +1664,11 @@ def inventory_quality_action_availability(
     can_send: bool,
     can_confirm_disposal: bool,
     can_confirm_vendor_return: bool,
-    special_destinations: Dict[str, int],
+    special_destinations: Dict[str, Optional[int]],
     purpose_access: Dict[str, bool],
+    can_destination_here: bool = True,
     terminal_evidence: Optional[Dict[str, Decimal]] = None,
+    source_location_type: str = "WAREHOUSE",
 ) -> Dict[str, Any]:
     """Return one server-derived action matrix for a physical stock portion.
 
@@ -1516,6 +1682,7 @@ def inventory_quality_action_availability(
     if movable < 0:
         raise InventoryMutationError("movable_quantity cannot be negative.")
     location_id = _strict_int(source_location_id, "source_location_id", minimum=1)
+    location_type = str(source_location_type or "").strip().upper()
     state_allowed = set(allowed_special_transfer_purposes(
         lifecycle_status=lifecycle_status,
         operational_hold=operational_hold,
@@ -1527,6 +1694,7 @@ def inventory_quality_action_availability(
     vendor_evidence = Decimal(evidence.get("RETURN_TO_VENDOR", Decimal("0")) or 0)
     special_actions: List[Dict[str, Any]] = []
     for purpose in ("QUARANTINE", "RECALL_RETURN", "RETURN_TO_VENDOR", "DISPOSAL"):
+        has_destination_policy = purpose in special_destinations
         destination_id = special_destinations.get(purpose)
         action_movable = movable
         if purpose == "RETURN_TO_VENDOR" and vendor_evidence > 0:
@@ -1537,16 +1705,24 @@ def inventory_quality_action_availability(
         elif purpose not in state_allowed:
             allowed = False
             reason = "STATE_RESTRICTION"
-        elif destination_id is None:
+        elif not has_destination_policy:
             allowed = False
             reason = "NO_CONFIGURED_DESTINATION"
-        elif int(destination_id) == location_id:
+        elif destination_id is None and location_type != "WAREHOUSE":
+            # The V1 in-place default is a warehouse quality rule. Vehicle
+            # custody continues to require an explicit warehouse destination.
+            allowed = False
+            reason = "NO_CONFIGURED_DESTINATION"
+        elif destination_id is not None and int(destination_id) == location_id:
             allowed = False
             reason = "ALREADY_AT_DESTINATION"
         elif not bool(can_send):
             allowed = False
             reason = "SOURCE_CANNOT_SEND"
         elif not bool(purpose_access.get(purpose, False)):
+            allowed = False
+            reason = "PERMISSION_REQUIRED"
+        elif destination_id is None and not bool(can_destination_here):
             allowed = False
             reason = "PERMISSION_REQUIRED"
         elif action_movable <= 0:
@@ -1610,17 +1786,22 @@ async def read_special_transfer_destinations(
     db_session: AsyncSession,
     *,
     company_id: int,
-) -> dict[str, int]:
-    """Read the current published special-transfer destinations without locks.
+) -> dict[str, Optional[int]]:
+    """Read effective special-transfer destinations without mutation.
 
-    Invalid/missing policy means no action is offered. The mutation path remains
-    fail-closed and revalidates the same policy under its normal guards.
+    With no Published policy, the safe V1 default is all-null (same current
+    warehouse). Invalid existing Published policy still fails closed by
+    returning no offered action. Mutation paths materialize/revalidate durable
+    evidence under their normal guards.
     """
     _draft, published = await get_transfer_destination_policy_state(
         db_session, company_id=company_id
     )
     if published is None:
-        return {}
+        return {
+            purpose: None
+            for purpose in SPECIAL_TRANSFER_DESTINATION_POLICY_KEY
+        }
     if int(published.schema_version) != TRANSFER_DESTINATION_POLICY_SCHEMA_VERSION:
         return {}
     try:
@@ -1633,7 +1814,11 @@ async def read_special_transfer_destinations(
     except InventoryRuleError:
         return {}
     return {
-        purpose: int(normalized[key])
+        purpose: (
+            None
+            if normalized[key] is None
+            else int(normalized[key])
+        )
         for purpose, key in SPECIAL_TRANSFER_DESTINATION_POLICY_KEY.items()
     }
 
@@ -1646,8 +1831,8 @@ async def resolve_special_transfer_direction_context(
     transfer_purpose: str,
     additional_location_ids: Optional[List[int]] = None,
 ) -> Dict[str, Any]:
-    # Destination is server-derived from exactly one published tenant policy
-    # revision. The client cannot choose a destination for special transfers.
+    # Destination is server-derived from exactly one published tenant policy.
+    # A null policy destination is the V1 warehouse IN_PLACE default.
     try:
         company_id = _strict_int(company_id, "company_id", minimum=1)
         source_location_id = _strict_int(
@@ -1671,7 +1856,6 @@ async def resolve_special_transfer_direction_context(
         company_id=company_id,
         revalidate_locations=False,
     )
-
     if (
         not isinstance(raw_payload, dict)
         or set(raw_payload) != _TRANSFER_DESTINATION_POLICY_KEYS
@@ -1685,25 +1869,23 @@ async def resolve_special_transfer_direction_context(
             },
         )
 
+    policy_location_ids: set[int] = set()
     try:
-        policy_location_ids = {
-            _strict_int(
-                raw_payload["quarantine_location_id"],
-                "quarantine_location_id",
-                minimum=1,
-            ),
-            _strict_int(
-                raw_payload["disposal_location_id"],
-                "disposal_location_id",
-                minimum=1,
-            ),
-            _strict_int(
-                raw_payload["vendor_return_staging_location_id"],
-                "vendor_return_staging_location_id",
-                minimum=1,
-            ),
+        for field in (
+            "quarantine_location_id",
+            "disposal_location_id",
+            "vendor_return_staging_location_id",
+        ):
+            value = raw_payload[field]
+            if value is not None:
+                policy_location_ids.add(
+                    _strict_int(value, field, minimum=1)
+                )
+        extra_location_ids = {
+            _strict_int(location_id, "additional_location_id", minimum=1)
+            for location_id in (additional_location_ids or [])
         }
-    except ValueError as exc:
+    except (TypeError, ValueError) as exc:
         raise InventoryRuleError(
             "TRANSFER_POLICY_STALE",
             "سياسة وجهات التحويل المنشورة تحمل معرف موقع غير صالح.",
@@ -1713,24 +1895,10 @@ async def resolve_special_transfer_direction_context(
             },
         ) from exc
 
-    try:
-        extra_location_ids = {
-            _strict_int(location_id, "additional_location_id", minimum=1)
-            for location_id in (additional_location_ids or [])
-        }
-    except (TypeError, ValueError) as exc:
-        raise InventoryMutationError(str(exc)) from exc
-
-    # One sorted acquisition closes deactivation races and preserves the same
-    # location-lock ordering later used by the Unified Inventory Movement Engine.
     await acquire_inventory_location_guards(
         db_session,
         company_id,
-        sorted(
-            policy_location_ids
-            | {source_location_id}
-            | extra_location_ids
-        ),
+        sorted(policy_location_ids | {source_location_id} | extra_location_ids),
     )
 
     try:
@@ -1752,8 +1920,14 @@ async def resolve_special_transfer_direction_context(
         ) from exc
 
     destination_key = SPECIAL_TRANSFER_DESTINATION_POLICY_KEY[purpose]
-    destination_location_id = int(normalized[destination_key])
-    if destination_location_id == source_location_id:
+    configured_destination = normalized[destination_key]
+    in_place = configured_destination is None
+    destination_location_id = (
+        source_location_id
+        if in_place
+        else int(configured_destination)
+    )
+    if not in_place and destination_location_id == source_location_id:
         raise InventoryRuleError(
             "SPECIAL_TRANSFER_SAME_LOCATION",
             "المصدر يطابق الوجهة المعتمدة في السياسة.",
@@ -1763,6 +1937,7 @@ async def resolve_special_transfer_direction_context(
             },
         )
 
+    requested_ids = {source_location_id, destination_location_id}
     rows = (
         await db_session.execute(
             select(
@@ -1773,9 +1948,7 @@ async def resolve_special_transfer_direction_context(
             )
             .filter(
                 InventoryLocation.company_id == company_id,
-                InventoryLocation.id.in_(
-                    [source_location_id, destination_location_id]
-                ),
+                InventoryLocation.id.in_(sorted(requested_ids)),
             )
             .order_by(InventoryLocation.id.asc())
             .with_for_update(read=True)
@@ -1783,7 +1956,7 @@ async def resolve_special_transfer_direction_context(
     ).all()
     locations = {int(row.id): row for row in rows}
 
-    if set(locations) != {source_location_id, destination_location_id}:
+    if set(locations) != requested_ids:
         raise InventoryRuleError(
             "SPECIAL_TRANSFER_LOCATION_INVALID",
             "المصدر أو الوجهة غير موجود أو لا يتبع الشركة.",
@@ -1791,7 +1964,6 @@ async def resolve_special_transfer_direction_context(
 
     source = locations[source_location_id]
     destination = locations[destination_location_id]
-
     if not bool(source.is_active) or not bool(destination.is_active):
         raise InventoryRuleError(
             "SPECIAL_TRANSFER_LOCATION_INVALID",
@@ -1805,12 +1977,21 @@ async def resolve_special_transfer_direction_context(
 
     source_type = str(source.location_type).upper()
     destination_type = str(destination.location_type).upper()
-
     if source_type not in {"WAREHOUSE", "VEHICLE"}:
         raise InventoryRuleError(
             "SPECIAL_TRANSFER_DIRECTION_BLOCKED",
             "التحويل الخاص يبدأ فقط من WAREHOUSE أو VEHICLE.",
             context={"source_location_type": source_type},
+        )
+    if in_place and source_type != "WAREHOUSE":
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_DIRECTION_BLOCKED",
+            "المعالجة داخل الموقع في V1 متاحة للمستودع فقط؛ عهدة المركبة تحتاج وجهة مستودع صريحة.",
+            context={
+                "transfer_purpose": purpose,
+                "source_location_type": source_type,
+                "in_place": True,
+            },
         )
 
     expected_destination_types = (
@@ -1834,6 +2015,7 @@ async def resolve_special_transfer_direction_context(
         "source_location_type": source_type,
         "destination_location_id": destination_location_id,
         "destination_location_type": destination_type,
+        "in_place": in_place,
         "tenant_policy_id": int(policy.id),
         "tenant_policy_revision": int(policy.revision),
         "permission_code": SPECIAL_TRANSFER_PERMISSION[purpose],

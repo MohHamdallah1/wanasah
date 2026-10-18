@@ -4,18 +4,60 @@ import i18n from "@/i18n";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { apiErrorMessage, apiErrorStatus, isAmbiguousRequestError } from "@/lib/apiErrors";
-import { completeDurableOperation, durableScope, getOrCreateDurableCommand, readDurableCommand, type DurableCommand } from "@/lib/durableOperations";
+import {
+  completeDurableOperation,
+  durableScope,
+  getOrCreateDurableCommand,
+  readDurableCommand,
+  type DurableCommand,
+} from "@/lib/durableOperations";
 import { toast } from "sonner";
 
 for (const [language, copy] of Object.entries({
-  ar: { saveDraft: "حفظ المسودة", publish: "نشر السياسة", retry: "إعادة المحاولة", pending: "نتيجة الأمر غير مؤكدة. أعد المحاولة لاستعادة النتيجة بنفس معرّف العملية.", setup: "إعداد وجهات الجودة", hint: "هذه إعدادات الوجهات فقط. إجراءات الجودة تنفذ من مسار المخزون المختص." },
-  en: { saveDraft: "Save draft", publish: "Publish policy", retry: "Retry", pending: "The command result is unconfirmed. Retry with the same operation identity to recover it.", setup: "Quality destination setup", hint: "Configure destinations here. Quality actions remain in their inventory workflow." },
+  ar: {
+    save: "حفظ",
+    apply: "تطبيق",
+    retry: "إعادة المحاولة",
+    pending: "نتيجة الأمر غير مؤكدة. أعد المحاولة لاستعادة النتيجة بنفس معرّف العملية.",
+    setup: "وجهات الجودة",
+    hint: "تبقى الكمية في نفس موقعها الحالي، وتتغير حالة المخزون فقط. لا تحتاج إلى إنشاء مستودع إضافي.",
+    sameLocation: "نفس الموقع الحالي",
+    sameLocationHint: "الموقع الفعلي لا يتغير؛ الذي يتغير هو حالة المخزون.",
+    quarantine: "الحجر",
+    vendorReturn: "الإرجاع للمورد",
+    disposal: "التالف / بانتظار الإتلاف",
+    active: "الافتراضي الفعّال",
+    customActive: "إعداد مخصص فعّال",
+    customConfigured: "وجهة مخصصة",
+    customHint: "الوجهات المخصصة المنشورة حاليًا تبقى فعّالة كما هي.",
+    customReadonly: "يوجد إعداد مخصص منشور مسبقًا. يعرضه النظام للقراءة فقط هنا ولا يغيّره عند فتح النافذة.",
+    reference: "الموقع رقم {{id}}",
+  },
+  en: {
+    save: "Save",
+    apply: "Apply",
+    retry: "Retry",
+    pending: "The command result is unconfirmed. Retry with the same operation identity to recover it.",
+    setup: "Quality destinations",
+    hint: "The quantity stays in its current location and only the stock status changes. No extra warehouse is required.",
+    sameLocation: "Same current location",
+    sameLocationHint: "Physical location stays unchanged; only stock status changes.",
+    quarantine: "Quarantine",
+    vendorReturn: "Vendor return",
+    disposal: "Damaged / disposal pending",
+    active: "Effective default",
+    customActive: "Custom configuration active",
+    customConfigured: "Custom destination",
+    customHint: "The currently published custom destinations remain in effect.",
+    customReadonly: "An existing published custom configuration is active. This panel is read-only and opening it does not change that configuration.",
+    reference: "Location #{{id}}",
+  },
 })) i18n.addResourceBundle(language, "translation", { transferDestinationSetup: copy }, true, true);
 
 type PolicyPayload = {
-  quarantine_location_id: number;
-  disposal_location_id: number;
-  vendor_return_staging_location_id: number;
+  quarantine_location_id: number | null;
+  disposal_location_id: number | null;
+  vendor_return_staging_location_id: number | null;
   allow_retiring_warehouse_balancing: boolean;
 };
 
@@ -31,94 +73,82 @@ type PolicyState = {
   published: PolicyItem | null;
 };
 
-type LocationOption = { id: number; name: string; code: string };
-type LocationPage = { items: LocationOption[]; has_more: boolean };
-type FormState = {
-  quarantine: number | null;
-  disposal: number | null;
-  vendorReturn: number | null;
-  allowRetiringBalancing: boolean;
-};
-
-const emptyForm = (): FormState => ({
-  quarantine: null,
-  disposal: null,
-  vendorReturn: null,
-  allowRetiringBalancing: false,
-});
 const positiveInt = (value: unknown): number | null =>
   typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
 
+const optionalPositiveInt = (value: unknown): number | null => {
+  if (value === null) return null;
+  const parsed = positiveInt(value);
+  if (parsed === null) throw new Error("TRANSFER_POLICY_RESPONSE_INVALID");
+  return parsed;
+};
+
 const parsePayload = (value: unknown): PolicyPayload => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("TRANSFER_POLICY_RESPONSE_INVALID");
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("TRANSFER_POLICY_RESPONSE_INVALID");
+  }
   const row = value as Record<string, unknown>;
-  const quarantine = positiveInt(row.quarantine_location_id);
-  const disposal = positiveInt(row.disposal_location_id);
-  const vendor = positiveInt(row.vendor_return_staging_location_id);
-  if (quarantine === null || disposal === null || vendor === null || typeof row.allow_retiring_warehouse_balancing !== "boolean") {
+  if (typeof row.allow_retiring_warehouse_balancing !== "boolean") {
     throw new Error("TRANSFER_POLICY_RESPONSE_INVALID");
   }
   return {
-    quarantine_location_id: quarantine,
-    disposal_location_id: disposal,
-    vendor_return_staging_location_id: vendor,
+    quarantine_location_id: optionalPositiveInt(row.quarantine_location_id),
+    disposal_location_id: optionalPositiveInt(row.disposal_location_id),
+    vendor_return_staging_location_id: optionalPositiveInt(row.vendor_return_staging_location_id),
     allow_retiring_warehouse_balancing: row.allow_retiring_warehouse_balancing,
   };
 };
+
 const parsePolicyItem = (value: unknown): PolicyItem | null => {
   if (value === null) return null;
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("TRANSFER_POLICY_RESPONSE_INVALID");
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("TRANSFER_POLICY_RESPONSE_INVALID");
+  }
   const row = value as Record<string, unknown>;
   const id = positiveInt(row.id);
   const revision = positiveInt(row.revision);
   const status = row.status;
-  if (id === null || revision === null || (status !== "DRAFT" && status !== "PUBLISHED" && status !== "SUPERSEDED")) {
+  if (
+    id === null ||
+    revision === null ||
+    (status !== "DRAFT" && status !== "PUBLISHED" && status !== "SUPERSEDED")
+  ) {
     throw new Error("TRANSFER_POLICY_RESPONSE_INVALID");
   }
   return { id, revision, status, validated_payload: parsePayload(row.validated_payload) };
 };
+
 const parsePolicyState = (value: unknown): PolicyState => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("TRANSFER_POLICY_RESPONSE_INVALID");
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("TRANSFER_POLICY_RESPONSE_INVALID");
+  }
   const row = value as Record<string, unknown>;
-  return { draft: parsePolicyItem(row.draft ?? null), published: parsePolicyItem(row.published ?? null) };
+  return {
+    draft: parsePolicyItem(row.draft ?? null),
+    published: parsePolicyItem(row.published ?? null),
+  };
 };
+
 const parsePolicyMutation = (value: unknown): PolicyItem => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("TRANSFER_POLICY_RESPONSE_INVALID");
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("TRANSFER_POLICY_RESPONSE_INVALID");
+  }
   const item = parsePolicyItem((value as Record<string, unknown>).policy);
   if (!item) throw new Error("TRANSFER_POLICY_RESPONSE_INVALID");
   return item;
 };
-const parseLocationPage = (value: unknown): LocationPage => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("WAREHOUSE_LOCATION_RESPONSE_INVALID");
-  const row = value as Record<string, unknown>;
-  if (!Array.isArray(row.items) || typeof row.has_more !== "boolean" || row.items.length > 200) throw new Error("WAREHOUSE_LOCATION_RESPONSE_INVALID");
-  return {
-    has_more: row.has_more,
-    items: row.items.map((raw) => {
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("WAREHOUSE_LOCATION_RESPONSE_INVALID");
-      const item = raw as Record<string, unknown>;
-      const id = positiveInt(item.id);
-      if (id === null || typeof item.name !== "string" || typeof item.code !== "string") throw new Error("WAREHOUSE_LOCATION_RESPONSE_INVALID");
-      return { id, name: item.name, code: item.code };
-    }),
-  };
-};
-const parseFormDraft = (raw: string): FormState => {
-  const value = JSON.parse(raw) as Record<string, unknown>;
-  const id = (field: string) => value[field] === null ? null : positiveInt(value[field]);
-  if (!value || typeof value !== "object" || typeof value.allow_retiring_warehouse_balancing !== "boolean") throw new Error("TRANSFER_POLICY_RESPONSE_INVALID");
-  return { quarantine: id("quarantine_location_id"), disposal: id("disposal_location_id"),
-    vendorReturn: id("vendor_return_staging_location_id"), allowRetiringBalancing: value.allow_retiring_warehouse_balancing };
-};
-const formFromPolicy = (policy: PolicyItem | null): FormState => policy ? {
-  quarantine: policy.validated_payload.quarantine_location_id,
-  disposal: policy.validated_payload.disposal_location_id,
-  vendorReturn: policy.validated_payload.vendor_return_staging_location_id,
-  allowRetiringBalancing: policy.validated_payload.allow_retiring_warehouse_balancing,
-} : emptyForm();
 
+const isInPlacePayload = (payload: PolicyPayload) =>
+  payload.quarantine_location_id === null &&
+  payload.disposal_location_id === null &&
+  payload.vendor_return_staging_location_id === null;
 
-type Wire = { path: string; method: "PUT" | "POST"; body: Record<string, unknown> };
+type Wire = {
+  path: string;
+  method: "PUT" | "POST";
+  body: Record<string, unknown>;
+};
+
 export function useTransferDestinationPolicy(onSaved?: () => void | Promise<void>) {
   const { t } = useTranslation();
   const authFetch = useAuthFetch();
@@ -126,127 +156,195 @@ export function useTransferDestinationPolicy(onSaved?: () => void | Promise<void
   const canManage = access.can("inventory.transfer_policy.manage");
   const company = Number(localStorage.getItem("company_id"));
   const principal = Number(localStorage.getItem("principal_id"));
-  const scope = Number.isSafeInteger(company) && company > 0 && Number.isSafeInteger(principal) && principal > 0
-    ? durableScope(company, principal, "TRANSFER_POLICY") : null;
+  const scope =
+    Number.isSafeInteger(company) &&
+    company > 0 &&
+    Number.isSafeInteger(principal) &&
+    principal > 0
+      ? durableScope(company, principal, "TRANSFER_POLICY")
+      : null;
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
+
   const [policy, setPolicy] = useState<PolicyState>({ draft: null, published: null });
-  const [form, setForm] = useState<FormState>(emptyForm);
-  const [knownLocations, setKnownLocations] = useState<Record<number, LocationOption>>({});
-  const [searchInput, setSearchInput] = useState("");
-  const [search, setSearch] = useState("");
-  const [hasMoreLocations, setHasMoreLocations] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [pending, setPending] = useState<DurableCommand<Wire> | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const ready = useRef(false);
   const loadedScope = useRef<string | null>(null);
-  const locationsScope = useRef<string | null>(null);
   const activeScopes = useRef(new Set<string>());
   const policySeq = useRef(0);
 
   const loadPolicy = useCallback(async () => {
     const seq = ++policySeq.current;
-    if (!canManage || !scope) return;
+    if (!canManage || !scope) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
-    if (loadedScope.current !== scope) { setSaving(false); setPending(null); }
+    if (loadedScope.current !== scope) {
+      setSaving(false);
+      setPending(null);
+    }
     setLoadError(null);
     ready.current = false;
     try {
-      const state = parsePolicyState(await authFetch("/warehouse/operational-policy/transfer-destinations"));
+      const state = parsePolicyState(
+        await authFetch("/warehouse/operational-policy/transfer-destinations"),
+      );
       const command = await readDurableCommand<Wire>(scope);
       if (seq !== policySeq.current || scopeRef.current !== scope) return;
-      const saved = localStorage.getItem(scope + ":draft");
-      setForm(saved ? parseFormDraft(saved) : formFromPolicy(state.draft ?? state.published));
       loadedScope.current = scope;
       setPolicy(state);
       setPending(command);
       ready.current = true;
     } catch (error) {
-      if (seq === policySeq.current) setLoadError(apiErrorMessage(error, t("inventoryWarehouses.qualityDestinations.errors.loadPolicy")));
-    } finally { if (seq === policySeq.current) setLoading(false); }
+      if (seq === policySeq.current) {
+        setLoadError(
+          apiErrorMessage(
+            error,
+            t("inventoryWarehouses.qualityDestinations.errors.loadPolicy"),
+          ),
+        );
+      }
+    } finally {
+      if (seq === policySeq.current) setLoading(false);
+    }
   }, [authFetch, canManage, scope, t]);
-  const invalidatePolicy = useCallback(() => { ++policySeq.current; }, []);
-  useEffect(() => { void loadPolicy(); return invalidatePolicy; }, [loadPolicy, invalidatePolicy]);
+
+  const invalidatePolicy = useCallback(() => {
+    ++policySeq.current;
+  }, []);
+
   useEffect(() => {
-    const timer = window.setTimeout(() => { const clean = searchInput.trim(); setSearch(clean.length >= 2 ? clean : ""); }, 250);
-    return () => window.clearTimeout(timer);
-  }, [searchInput]);
-  useEffect(() => {
-    let current = true;
-    if (!canManage) return;
-    const controller = new AbortController();
-    const params = new URLSearchParams({ include_inactive: "false", limit: "200" });
-    if (search) params.set("search", search);
-    void authFetch(`/warehouse/locations/manage?${params}`, { signal: controller.signal }).then(raw => {
-      if (!current || scopeRef.current !== scope) return;
-      const page = parseLocationPage(raw);
-      locationsScope.current = scope;
-      setKnownLocations(Object.fromEntries(page.items.map(item => [item.id, item])));
-      setHasMoreLocations(page.has_more);
-    }).catch(error => { if (current) toast.error(apiErrorMessage(error, t("inventoryWarehouses.qualityDestinations.errors.loadLocations"))); });
-    return () => { current = false; controller.abort(); };
-  }, [authFetch, canManage, scope, search, t]);
-  useEffect(() => {
-    if (!scope || !ready.current) return;
-    try {
-      localStorage.setItem(scope + ":draft", JSON.stringify({
-        quarantine_location_id: form.quarantine, disposal_location_id: form.disposal,
-        vendor_return_staging_location_id: form.vendorReturn, allow_retiring_warehouse_balancing: form.allowRetiringBalancing,
-      }));
-    } catch (error) { setLoadError(apiErrorMessage(error, t("inventoryWarehouses.qualityDestinations.errors.save"))); }
-  }, [scope, form, t]);
+    void loadPolicy();
+    return invalidatePolicy;
+  }, [loadPolicy, invalidatePolicy]);
+
   const execute = async (wire?: Wire) => {
-    if (!canManage || !scope || loadedScope.current !== scope || !ready.current || activeScopes.current.has(scope)) return;
+    if (
+      !canManage ||
+      !scope ||
+      loadedScope.current !== scope ||
+      !ready.current ||
+      activeScopes.current.has(scope)
+    ) {
+      return;
+    }
     activeScopes.current.add(scope);
     setSaving(true);
     let command: DurableCommand<Wire> | null = null;
     try {
-      command = wire ? await getOrCreateDurableCommand(scope, wire) : await readDurableCommand<Wire>(scope);
+      command = wire
+        ? await getOrCreateDurableCommand(scope, wire)
+        : await readDurableCommand<Wire>(scope);
       if (!command) return;
       setPending(command);
-      const item = parsePolicyMutation(await authFetch(command.payload.path, { method: command.payload.method,
-        body: JSON.stringify({ ...command.payload.body, request_id: command.requestId }) }));
+      const item = parsePolicyMutation(
+        await authFetch(command.payload.path, {
+          method: command.payload.method,
+          body: JSON.stringify({
+            ...command.payload.body,
+            request_id: command.requestId,
+          }),
+        }),
+      );
       completeDurableOperation(scope, command.requestId);
       if (scopeRef.current !== scope) return;
       setPending(null);
-      setPolicy(current => item.status === "DRAFT" ? { ...current, draft: item } : { draft: null, published: item });
-      setForm(formFromPolicy(item));
+      setPolicy((current) =>
+        item.status === "DRAFT"
+          ? { ...current, draft: item }
+          : { draft: null, published: item },
+      );
       toast.success(t("inventoryWarehouses.qualityDestinations.saved"));
       if (item.status === "PUBLISHED") await onSaved?.();
     } catch (error) {
       const status = apiErrorStatus(error);
-      if (command && status && status >= 400 && status < 500 && !isAmbiguousRequestError(error)) {
+      if (
+        command &&
+        status &&
+        status >= 400 &&
+        status < 500 &&
+        !isAmbiguousRequestError(error)
+      ) {
         completeDurableOperation(scope, command.requestId);
         if (scopeRef.current === scope) setPending(null);
       }
-      if (scopeRef.current === scope) toast.error(apiErrorMessage(error, t("inventoryWarehouses.qualityDestinations.errors.save")));
-    } finally { activeScopes.current.delete(scope); if (scopeRef.current === scope) setSaving(false); }
-  };
-  const saveDraft = async () => {
-    if (form.quarantine === null || form.disposal === null || form.vendorReturn === null) {
-      toast.error(t("inventoryWarehouses.qualityDestinations.errors.required")); return;
+      if (scopeRef.current === scope) {
+        toast.error(
+          apiErrorMessage(
+            error,
+            t("inventoryWarehouses.qualityDestinations.errors.save"),
+          ),
+        );
+      }
+    } finally {
+      activeScopes.current.delete(scope);
+      if (scopeRef.current === scope) setSaving(false);
     }
-    await execute({ path: "/warehouse/operational-policy/transfer-destinations/draft", method: "PUT", body: {
-      expected_revision: policy.draft?.revision ?? null, payload: {
-        quarantine_location_id: form.quarantine, disposal_location_id: form.disposal,
-        vendor_return_staging_location_id: form.vendorReturn, allow_retiring_warehouse_balancing: form.allowRetiringBalancing,
-      },
-    } });
   };
-  const canPublish = policy.draft !== null && JSON.stringify(form) === JSON.stringify(formFromPolicy(policy.draft));
+
+  const saveDraft = async () => {
+    const current = policy.draft ?? policy.published;
+    await execute({
+      path: "/warehouse/operational-policy/transfer-destinations/draft",
+      method: "PUT",
+      body: {
+        expected_revision: policy.draft?.revision ?? null,
+        payload: {
+          quarantine_location_id: null,
+          disposal_location_id: null,
+          vendor_return_staging_location_id: null,
+          allow_retiring_warehouse_balancing:
+            current?.validated_payload.allow_retiring_warehouse_balancing ?? false,
+        },
+      },
+    });
+  };
+
+  const canPublish =
+    policy.draft !== null && isInPlacePayload(policy.draft.validated_payload);
+
   const publish = async () => {
     if (!policy.draft || !canPublish) return;
-    await execute({ path: `/warehouse/operational-policy/transfer-destinations/${policy.draft.id}/publish`, method: "POST",
-      body: { expected_revision: policy.draft.revision } });
+    await execute({
+      path: `/warehouse/operational-policy/transfer-destinations/${policy.draft.id}/publish`,
+      method: "POST",
+      body: { expected_revision: policy.draft.revision },
+    });
   };
-  const ids = [form.quarantine, form.disposal, form.vendorReturn].filter((id): id is number => id !== null);
-  const options = Object.values(knownLocations);
-  for (const id of ids) if (!knownLocations[id]) options.push({ id, name: "#" + new Intl.NumberFormat(i18n.language + "-u-nu-latn").format(id), code: "" });
+
   const inScope = loadedScope.current === scope;
-  return { canManage, policy: inScope ? policy : { draft: null, published: null }, form: inScope ? form : emptyForm(),
-    setForm, options: inScope && locationsScope.current === scope ? options : [], searchInput, setSearchInput, hasMoreLocations,
-    loading: loading || !inScope, saving, pending: inScope ? pending : null, loadError, loadPolicy, saveDraft, publish,
-    canPublish: inScope && canPublish, retry: () => execute() };
+  const visiblePolicy = inScope ? policy : { draft: null, published: null };
+  const publishedPayload = visiblePolicy.published?.validated_payload ?? null;
+  const inPlaceActive =
+    publishedPayload === null || isInPlacePayload(publishedPayload);
+  const customConfigured =
+    publishedPayload !== null && !isInPlacePayload(publishedPayload);
+  const effectivePayload: PolicyPayload =
+    publishedPayload ?? {
+      quarantine_location_id: null,
+      disposal_location_id: null,
+      vendor_return_staging_location_id: null,
+      allow_retiring_warehouse_balancing: false,
+    };
+
+  return {
+    canManage,
+    policy: visiblePolicy,
+    inPlaceActive,
+    customConfigured,
+    effectivePayload,
+    loading: loading || !inScope,
+    saving,
+    pending: inScope ? pending : null,
+    loadError,
+    loadPolicy,
+    saveDraft,
+    publish,
+    canPublish: inScope && canPublish,
+    retry: () => execute(),
+  };
 }

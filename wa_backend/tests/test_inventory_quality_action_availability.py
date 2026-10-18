@@ -17,6 +17,7 @@ def matrix(**overrides):
         movable_quantity=Decimal("8"),
         source_location_id=10,
         can_send=True,
+        can_destination_here=True,
         can_confirm_disposal=False,
         can_confirm_vendor_return=False,
         special_destinations={
@@ -57,6 +58,46 @@ def test_special_action_reason_is_server_derived_for_missing_policy_and_source_p
     by_purpose = {item["purpose"]: item for item in no_send["special_actions"]}
     assert by_purpose["DISPOSAL"]["reason_code"] == "SOURCE_CANNOT_SEND"
     assert no_send["allowed_purposes"] == []
+
+
+def test_null_policy_destinations_mean_in_place_for_warehouse_only():
+    in_place = matrix(
+        special_destinations={
+            "QUARANTINE": None,
+            "RECALL_RETURN": None,
+            "RETURN_TO_VENDOR": None,
+            "DISPOSAL": None,
+        },
+        source_location_type="WAREHOUSE",
+    )
+    by_purpose = {item["purpose"]: item for item in in_place["special_actions"]}
+    assert by_purpose["DISPOSAL"]["reason_code"] == "ALLOWED"
+    assert by_purpose["RETURN_TO_VENDOR"]["reason_code"] == "ALLOWED"
+
+    vehicle = matrix(
+        special_destinations={
+            "QUARANTINE": None,
+            "RECALL_RETURN": None,
+            "RETURN_TO_VENDOR": None,
+            "DISPOSAL": None,
+        },
+        source_location_type="VEHICLE",
+    )
+    by_purpose = {item["purpose"]: item for item in vehicle["special_actions"]}
+    assert by_purpose["DISPOSAL"]["reason_code"] == "NO_CONFIGURED_DESTINATION"
+
+    denied = matrix(
+        special_destinations={
+            "QUARANTINE": None,
+            "RECALL_RETURN": None,
+            "RETURN_TO_VENDOR": None,
+            "DISPOSAL": None,
+        },
+        source_location_type="WAREHOUSE",
+        can_destination_here=False,
+    )
+    by_purpose = {item["purpose"]: item for item in denied["special_actions"]}
+    assert by_purpose["DISPOSAL"]["reason_code"] == "PERMISSION_REQUIRED"
 
 
 def test_disposal_terminal_eligibility_is_capped_by_free_stock_and_origin_evidence():

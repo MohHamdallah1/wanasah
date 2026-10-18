@@ -3172,7 +3172,7 @@ class InventoryTransferHeader(Base):
             OR (
                 workflow_type = 'DIRECT'
                 AND status = 'POSTED'
-                AND transfer_purpose IN ('DISPOSAL','RETURN_TO_VENDOR')
+                AND transfer_purpose IN ('QUARANTINE','RECALL_RETURN','DISPOSAL','RETURN_TO_VENDOR')
                 AND transit_location_id IS NULL
                 AND reference_number LIKE 'QSTG-%'
                 AND tenant_policy_id IS NOT NULL

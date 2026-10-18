@@ -88,6 +88,7 @@ from services import (
     change_product_batch_disposition,
     complete_idempotent_operation,
     batch_sellability_predicate,
+    ensure_effective_transfer_destination_policy,
     ensure_system_transit_location,
     get_company_local_date,
     inventory_business_error,
@@ -1556,7 +1557,21 @@ async def special_transfer_dispatch(
             await db.rollback()
             return replay_response
 
-        await require_special_destination(access, purpose)
+        # No setup UI is required for the safe same-location default. The first
+        # real mutation materializes durable policy evidence exactly once under
+        # the tenant policy guard; an existing explicit Published policy wins.
+        await ensure_effective_transfer_destination_policy(
+            db,
+            company_id=company_id,
+            actor_id=legacy_actor.id,
+            request_id=payload.request_id,
+        )
+
+        await require_special_destination(
+            access,
+            purpose,
+            source_location_id=payload.source_location_id,
+        )
         requested_variant_ids = sorted({
             int(item.product_variant_id)
             for item in payload.items
@@ -1599,6 +1614,45 @@ async def special_transfer_dispatch(
             items=list(payload.items),
             as_of_date=as_of_date,
         )
+
+        if bool(direction.get("in_place")):
+            response_payload = await stage_quality_handling_direct(
+                db,
+                company_id=company_id,
+                actor_id=legacy_actor.id,
+                source_location_id=payload.source_location_id,
+                destination_location_id=destination_location_id,
+                transfer_purpose=purpose,
+                tenant_policy_id=int(direction["tenant_policy_id"]),
+                tenant_policy_revision=int(direction["tenant_policy_revision"]),
+                source_location_type=str(direction["source_location_type"]),
+                destination_location_type=str(direction["destination_location_type"]),
+                source_lines=source_lines,
+                notes=payload.notes,
+            )
+            db.add(SystemAuditLog(
+                company_id=company_id,
+                admin_id=legacy_actor.id,
+                target_id=f"Transfer_{response_payload['header_id']}",
+                action_type="SPECIAL_TRANSFER_IN_PLACE_STAGED",
+                old_value=None,
+                new_value=(
+                    f"purpose={purpose}; "
+                    f"policy={direction['tenant_policy_id']}:"
+                    f"{direction['tenant_policy_revision']}; "
+                    f"location={payload.source_location_id}; mode=IN_PLACE"
+                ),
+            ))
+            response_payload = {
+                "message": "تم تطبيق معالجة الجودة في الموقع الحالي دون نقل فعلي للمخزون.",
+                **response_payload,
+            }
+            complete_idempotent_operation(
+                idempotency_record,
+                response_payload,
+            )
+            await db.commit()
+            return response_payload
 
         transfer_ref = f"SPTR-{uuid.uuid4().hex.upper()}"
         header = InventoryTransferHeader(
@@ -1822,6 +1876,13 @@ async def stage_inventory_quality_handling(
         if replay_response is not None:
             await db.rollback()
             return replay_response
+
+        await ensure_effective_transfer_destination_policy(
+            db,
+            company_id=company_id,
+            actor_id=legacy_actor.id,
+            request_id=payload.request_id,
+        )
 
         requested_variant_ids = sorted({int(item.product_variant_id) for item in payload.items})
         await acquire_product_lifecycle_guards(

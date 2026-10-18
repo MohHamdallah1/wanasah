@@ -20,8 +20,8 @@ const ar: WarehousePresentationCopy = {
   deactivationCheck: "قبل التعطيل، يتحقق النظام من الأرصدة والعمليات والسياسات المفتوحة المرتبطة بالمستودع.",
   deactivationNextStep: "راجع المرجع أو العملية الظاهرة أدناه ثم أعد المحاولة بعد إزالة المانع.",
   activationCheck: "عند التفعيل، يصبح المستودع متاحاً للعمليات التي تسمح بها الصلاحيات والسياسات الحالية.",
-  qualityPolicy: "إعداد وسياسة",
-  qualityPolicyHint: "هذه إعدادات وجهات المعالجة فقط وليست إجراءً يوميًا على المخزون.",
+  qualityPolicy: "معالجة الجودة",
+  qualityPolicyHint: "يبقى المخزون في موقعه الحالي وتتغير حالة المخزون فقط.",
 };
 
 const en: WarehousePresentationCopy = {
@@ -33,8 +33,8 @@ const en: WarehousePresentationCopy = {
   deactivationCheck: "Before deactivation, the system checks balances, open operations, locks, and published policies tied to this warehouse.",
   deactivationNextStep: "Inspect the reference or process shown below, clear the blocker, then retry.",
   activationCheck: "Once activated, the warehouse becomes available to workflows allowed by the current permissions and policies.",
-  qualityPolicy: "Setup / policy",
-  qualityPolicyHint: "These are destination settings only, not a daily stock action.",
+  qualityPolicy: "Quality handling",
+  qualityPolicyHint: "Stock stays in its current location and only its stock status changes.",
 };
 
 export const warehousePresentationCopy = (language: string | undefined): WarehousePresentationCopy =>

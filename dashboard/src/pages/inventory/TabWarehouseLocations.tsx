@@ -66,7 +66,6 @@ interface Props {
 
 type FormMode = "create" | "edit";
 type StateAction = "activate" | "deactivate";
-type WarehouseSetupView = "warehouses" | "quality";
 type FormFieldIssue = { field: "name" | "code" | "address" | "coordinates"; message: string } | null;
 
 const WAREHOUSE_CODE_RE = /^[A-Z0-9][A-Z0-9_-]*$/;
@@ -211,7 +210,7 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
   const [loading, setLoading] = useState(false);
   const [loadIssue, setLoadIssue] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [setupView, setSetupView] = useState<WarehouseSetupView>("warehouses");
+  const [qualityDestinationsOpen, setQualityDestinationsOpen] = useState(false);
   const requestSeq = useRef(0);
 
   const [formOpen, setFormOpen] = useState(false);
@@ -282,8 +281,8 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
 
   useEffect(() => { void fetchPage(); }, [fetchPage, refreshKey]);
   useEffect(() => {
-    if (setupView === "quality" && !canManageQualityDestinations) setSetupView("warehouses");
-  }, [canManageQualityDestinations, setupView]);
+    if (!canManageQualityDestinations) setQualityDestinationsOpen(false);
+  }, [canManageQualityDestinations]);
 
   const activeCount = useMemo(() => items.filter((item) => item.is_active).length, [items]);
   const canManageMinimumStock = selectedLocationId !== null && access.can("inventory.minimum_stock.manage") && minimumStockAccess.can("inventory.read");
@@ -615,32 +614,22 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
               {copy.title}
             </h2>
             <p className="mt-0.5 break-words text-xs text-slate-500">
-              {setupView === "warehouses" ? copy.summary(totalText, activeText) : copy.qualityDestinationsSummary}
+              {copy.summary(totalText, activeText)}
             </p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {setupView === "warehouses" ? (
-              <>
-                {canManageMinimumStock && <StockMinimumManager locationId={selectedLocationId} onApplied={onMinimumApplied} />}
-                {canManageQualityDestinations ? (
-                  <button type="button" onClick={() => setSetupView("quality")} className={`inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 sm:text-sm ${focusRing}`}>
-                    <ShieldCheck aria-hidden="true" className="h-4 w-4" /><span>{copy.qualityDestinationsView}</span>
-                  </button>
-                ) : null}
-                <button type="button" disabled={!access.can("location.create")} onClick={openCreate} className={`inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-40 sm:text-sm ${focusRing}`}>
-                  <Plus aria-hidden="true" className="h-4 w-4" /><span>{copy.newWarehouse}</span>
-                </button>
-              </>
-            ) : (
-              <button type="button" onClick={() => setSetupView("warehouses")} className={`inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 sm:text-sm ${focusRing}`}>
-                <Building2 aria-hidden="true" className="h-4 w-4" /><span>{copy.warehousesView}</span>
+            {canManageMinimumStock && <StockMinimumManager locationId={selectedLocationId} onApplied={onMinimumApplied} />}
+            {canManageQualityDestinations ? (
+              <button type="button" onClick={() => setQualityDestinationsOpen(true)} className={`inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 sm:text-sm ${focusRing}`}>
+                <ShieldCheck aria-hidden="true" className="h-4 w-4" /><span>{copy.qualityDestinationsView}</span>
               </button>
-            )}
+            ) : null}
+            <button type="button" disabled={!access.can("location.create")} onClick={openCreate} className={`inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-40 sm:text-sm ${focusRing}`}>
+              <Plus aria-hidden="true" className="h-4 w-4" /><span>{copy.newWarehouse}</span>
+            </button>
           </div>
         </div>
 
-        {setupView === "warehouses" ? (
-          <>
         <div className="flex flex-col gap-2 border-b border-slate-100 p-3 sm:flex-row sm:items-center">
           <div className="relative min-w-0 flex-1">
             <Search aria-hidden="true" className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -716,15 +705,17 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
             <button type="button" onClick={handleNext} disabled={!nextCursor || loading || !canReadLocations} className={`rounded-lg border border-slate-200 bg-white p-2 disabled:opacity-40 ${focusRing}`} title={copy.next} aria-label={copy.next}>{isArabic ? <ChevronLeft aria-hidden="true" className="h-4 w-4" /> : <ChevronRight aria-hidden="true" className="h-4 w-4" />}</button>
           </div>
         </div>
-          </>
-        ) : (
-          <div className="p-3 sm:p-4" data-warehouse-setup-view="quality">
-            <QualityHandlingDestinationsCard />
-          </div>
-        )}
       </section>
         </>
       )}
+
+      <Modal
+        isOpen={qualityDestinationsOpen && canManageQualityDestinations}
+        onClose={() => setQualityDestinationsOpen(false)}
+        title={copy.qualityDestinationsView}
+      >
+        <QualityHandlingDestinationsCard compact />
+      </Modal>
 
       <Modal
         isOpen={formOpen}
