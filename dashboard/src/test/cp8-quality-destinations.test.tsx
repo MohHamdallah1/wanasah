@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { webcrypto } from "node:crypto";
 import i18n from "@/i18n";
@@ -15,19 +15,6 @@ vi.mock("@/hooks/useInventoryAccess", () => ({
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 import { QualityHandlingDestinationsCard } from "@/features/inventory/quality/QualityHandlingDestinationsCard";
-
-const payload = {
-  quarantine_location_id: null,
-  disposal_location_id: null,
-  vendor_return_staging_location_id: null,
-  allow_retiring_warehouse_balancing: false,
-};
-const draft = {
-  id: 3,
-  revision: 1,
-  status: "DRAFT" as const,
-  validated_payload: payload,
-};
 
 beforeEach(async () => {
   localStorage.clear();
@@ -62,7 +49,10 @@ it("never presents same-location truth while an explicit published policy is loa
 
   expect(screen.queryByText("Same current location")).toBeNull();
   expect(screen.queryByText("Effective default")).toBeNull();
-  expect(screen.getAllByText("Loading...").length).toBeGreaterThan(0);
+  expect(screen.getByRole("heading", { level: 3 }).closest("section")).toHaveAttribute(
+    "data-quality-destination-mode",
+    "loading",
+  );
 
   resolvePolicy({
     draft: null,
