@@ -1236,6 +1236,7 @@ async def publish_transfer_destination_policy(
             context={"current_revision": int(draft.revision)},
         )
 
+    submitted_revision = int(draft.revision)
     normalized = await validate_transfer_destination_policy_payload(
         db_session,
         company_id=company_id,
@@ -1295,7 +1296,8 @@ async def publish_transfer_destination_policy(
         await db_session.flush()
 
     before = {
-        "revision": int(draft.revision),
+        "revision": submitted_revision,
+        "materialized_revision": int(draft.revision),
         "status": "DRAFT",
         "previous_published": previous_published,
     }
@@ -1649,11 +1651,11 @@ def inventory_quality_action_availability(
     movable_quantity: Decimal,
     source_location_id: int,
     can_send: bool,
-    can_destination_here: bool = True,
     can_confirm_disposal: bool,
     can_confirm_vendor_return: bool,
     special_destinations: Dict[str, Optional[int]],
     purpose_access: Dict[str, bool],
+    can_destination_here: bool = True,
     terminal_evidence: Optional[Dict[str, Decimal]] = None,
     source_location_type: str = "WAREHOUSE",
 ) -> Dict[str, Any]:
@@ -1774,10 +1776,12 @@ async def read_special_transfer_destinations(
     *,
     company_id: int,
 ) -> dict[str, Optional[int]]:
-    """Read the current published special-transfer destinations without locks.
+    """Read effective special-transfer destinations without mutation.
 
-    Invalid/missing policy means no action is offered. The mutation path remains
-    fail-closed and revalidates the same policy under its normal guards.
+    With no Published policy, the safe V1 default is all-null (same current
+    warehouse). Invalid existing Published policy still fails closed by
+    returning no offered action. Mutation paths materialize/revalidate durable
+    evidence under their normal guards.
     """
     _draft, published = await get_transfer_destination_policy_state(
         db_session, company_id=company_id
