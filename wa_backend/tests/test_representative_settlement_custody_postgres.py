@@ -511,6 +511,62 @@ async def test_backoffice_representative_custody_postgres():
                 )
             assert still_blocked.value.status_code == 409
 
+        # A shortage also completes the same independent recount -> adjustment
+        # -> receiver-confirmed physical handoff -> financial seal journey.
+        async with _runtime_session(runtime_engine, company) as db:
+            access = actor.access(db)
+            approval = await settlement.approve_representative_variance(
+                variance_session,
+                settlement.CustodyVarianceApprove(
+                    request_id=uuid4(), password=ACTOR_PASSWORD,
+                ),
+                db=db, access=access, legacy_actor=actor.operational_driver,
+            )
+            assert approval["status"] == "RECONCILED_AWAITING_RECEIPT"
+            assert approval["financial_ready"] is False
+            recon_row = await db.scalar(select(StocktakeSession).where(
+                StocktakeSession.company_id == company,
+                StocktakeSession.related_work_session_id == variance_session,
+            ))
+            assert recon_row.status == "POSTED"
+            shortage_movements = (await db.scalars(select(InventoryMovement).where(
+                InventoryMovement.company_id == company,
+                InventoryMovement.stocktake_session_id == recon_row.id,
+            ))).all()
+            assert len(shortage_movements) == 1
+            assert shortage_movements[0].reference_type == "DRIVER_SHORTAGE"
+            assert Decimal(shortage_movements[0].quantity) == Decimal("1")
+            assert await _qty(db, company, variance_vehicle, batch, "DAMAGED") == Decimal("3")
+            pending = await settlement.read_representative_custody(
+                variance_session, db=db, access=access,
+            )
+            assert pending["lines"][0]["expected_quantity"] == "3"
+            assert pending["custody_received"] is False
+            handoff = await settlement.receive_representative_custody(
+                variance_session,
+                settlement.CustodyConfirm(
+                    request_id=uuid4(), destination_location_id=warehouse,
+                    receiver_confirms_handoff=True,
+                    items=[settlement.CustodyCount(
+                        line_key=pending["lines"][0]["line_key"],
+                        actual_quantity="3",
+                    )],
+                ),
+                db=db, access=access, legacy_actor=actor.operational_driver,
+            )
+            assert handoff["status"] == "CUSTODY_RECEIVED"
+            assert handoff["financial_ready"] is True
+            assert handoff["movement_count"] == 1
+            assert await _qty(db, company, variance_vehicle, batch, "DAMAGED") == 0
+            assert await _qty(db, company, warehouse, batch, "DAMAGED") == Decimal("5.125")
+            cash_close = await dispatch.settle_session(
+                variance_session,
+                SettleSessionRequest(actual_cash=Decimal("0"), notes=None),
+                db=db, access=access, legacy_actor=actor.operational_driver,
+            )
+            assert cash_close["is_settled"] is True
+            assert await _qty(db, company, warehouse, batch, "DAMAGED") == Decimal("5.125")
+
         # Surplus is approved through canonical Vehicle Recon, then received.
         async with _runtime_session(runtime_engine, company) as db:
             access = actor.access(db)
@@ -583,14 +639,14 @@ async def test_backoffice_representative_custody_postgres():
             assert done["financial_ready"] is True
             assert done["movement_count"] == 1
             assert await _qty(db, company, surplus_vehicle, batch, "DAMAGED") == 0
-            assert await _qty(db, company, warehouse, batch, "DAMAGED") == Decimal("5.125")
+            assert await _qty(db, company, warehouse, batch, "DAMAGED") == Decimal("8.125")
             settled = await dispatch.settle_session(
                 surplus_session,
                 SettleSessionRequest(actual_cash=Decimal("0"), notes=None),
                 db=db, access=access, legacy_actor=actor.operational_driver,
             )
             assert settled["is_settled"] is True
-            assert await _qty(db, company, warehouse, batch, "DAMAGED") == Decimal("5.125")
+            assert await _qty(db, company, warehouse, batch, "DAMAGED") == Decimal("8.125")
 
         async with _runtime_session(runtime_engine, company) as db:
             with pytest.raises(HTTPException) as foreign:
