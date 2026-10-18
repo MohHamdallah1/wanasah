@@ -1,0 +1,196 @@
+name: Inventory Representative Settlement Backend Acceptance
+
+on:
+  push:
+    branches:
+      - sol/representative-settlement-v1-backend
+    paths:
+      - "wa_backend/tests/test_representative_settlement_custody_postgres.py"
+      - "wa_backend/api/representative_settlement.py"
+      - "wa_backend/api/dispatch.py"
+      - "wa_backend/main.py"
+      - ".github/workflows/inventory-representative-settlement-backend.yml"
+  pull_request:
+    branches:
+      - integration/inventory-wave-2
+    paths:
+      - "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py"
+      - "wa_backend/services.py"
+      - ".github/workflows/inventory-representative-settlement-backend.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: representative-settlement-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-16:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp14CPostgresSyntheticOnlyKeyAbc123456789012345678901234
+      DATABASE_URL: postgresql+asyncpg://cp14c_app@127.0.0.1:55452/wanasah_cp14c_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp14c_admin@127.0.0.1:55452/wanasah_cp14c_test
+      WANASAH_CP14C_PG_GATE: "1"
+      WANASAH_CP14C_PG_URL: postgresql+asyncpg://cp14c_app@127.0.0.1:55452/wanasah_cp14c_test
+      WANASAH_CP14C_PG_ADMIN_URL: postgresql+asyncpg://cp14c_admin@127.0.0.1:55452/wanasah_cp14c_test
+      WANASAH_CP9_PG_GATE: "1"
+      WANASAH_VEHICLE_RECON_LOCK_ORDER_DB_GATE: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL acceptance dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name cp14c-postgres \
+            --env POSTGRES_USER=cp14c_admin \
+            --env POSTGRES_DB=wanasah_cp14c_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55452:55452 \
+            postgres:16 -p 55452
+          for attempt in $(seq 1 30); do
+            if docker exec cp14c-postgres pg_isready -U cp14c_admin -d wanasah_cp14c_test -p 55452; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs cp14c-postgres
+          exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              if conn.execute(
+                  "SELECT 1 FROM pg_roles WHERE rolname='cp14c_app'"
+              ).fetchone() is None:
+                  conn.execute(
+                      "CREATE ROLE cp14c_app LOGIN NOSUPERUSER NOCREATEDB "
+                      "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+                  )
+              flags = conn.execute(
+                  "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname='cp14c_app'"
+              ).fetchone()
+              assert flags == (False, False), flags
+          PY
+      - name: Clean Alembic bootstrap
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: Representative custody PostgreSQL movement and variance acceptance
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_representative_settlement_custody_postgres.py
+      - name: CP9 Stocktake PostgreSQL regression
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_cp9_stocktake_postgres.py
+      - name: Vehicle reconciliation deterministic lock-order PostgreSQL
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_vehicle_reconciliation_lock_order_postgres.py
+
+  focused-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp14CFocusedSyntheticOnlyKeyAbc1234567890123456789012345
+      DATABASE_URL: postgresql+asyncpg://cp14c_unit@127.0.0.1:1/cp14c_unit
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install focused Backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: CP9 Stocktake focused Backend
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_cp9_stocktake_closure_contract.py
+          tests/test_stocktake_canonical_auth_cutover.py
+          tests/test_stocktake_nullable_expiry_serialization.py
+      - name: CP4 lifecycle regression
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_cp4_warehouse_branch_lifecycle_closure.py
+      - name: CP8 open-transfer blocker smoke
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_cp8_transfers_backend.py
+      - name: CP10 Ledger movement smoke
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_cp10_ledger_backend.py
+      - name: CP11 canonical authorization smoke
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_authorization_core_compatibility.py
+          tests/test_inventory_access_canonical_boundary.py
+      - name: Warehouse route manifest
+        working-directory: wa_backend
+        run: python scripts/gate_warehouse_route_manifest.py
+      - name: py_compile representative custody and bounded Inventory regressions
+        run: >-
+          python -m py_compile
+          wa_backend/tests/test_representative_settlement_custody_postgres.py
+          wa_backend/api/representative_settlement.py
+          wa_backend/api/dispatch.py
+          wa_backend/main.py
+          wa_backend/services.py
+          wa_backend/api/warehouse/stocktake.py
+          wa_backend/api/warehouse/locations.py
+          wa_backend/api/warehouse/transfers.py
+          wa_backend/api/warehouse/transfer_policy.py
+          wa_backend/api/warehouse/ledger.py
+
+  dynamic-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Frozen-base ancestry, bounded ownership and whitespace
+        run: |
+          set -euo pipefail
+          BASE=8231ca07f945feb61737e7b4ac6150846cba60a8
+          git merge-base --is-ancestor "$BASE" HEAD
+          git diff --check "$BASE" HEAD
+          python - <<'PY'
+          import subprocess
+          base="8231ca07f945feb61737e7b4ac6150846cba60a8"
+          changed=set(subprocess.check_output(
+              ["git", "diff", "--name-only",base,"HEAD"],text=True
+          ).splitlines())
+          expected={
+              "wa_backend/api/representative_settlement.py",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/main.py",
+              "wa_backend/tests/test_representative_settlement_custody_postgres.py",
+              ".github/workflows/inventory-representative-settlement-backend.yml",
+          }
+          assert changed==expected, f"Unexpected scope: {sorted(changed ^ expected)}"
+          print("REP_SETTLEMENT_SCOPE_AND_DIFF_PASS")
+          PY
