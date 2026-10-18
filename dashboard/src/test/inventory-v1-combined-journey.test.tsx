@@ -197,7 +197,7 @@ async function confirmReceipt(dialog: HTMLElement, damaged = "4") {
   const confirmation = within(dialog).queryByRole("checkbox", { name: /confirm|received|أؤكد|استلم/i });
   if (confirmation) fireEvent.click(confirmation);
   fireEvent.click(within(dialog).getByRole("button", {
-    name: /Confirm.*(receipt|handoff)|Receive.*goods|تأكيد.*استلام|اعتماد.*استلام/i,
+    name: /Confirm.*(receipt|handoff)|Receive.*goods|تأكيد.*(?:استلام|التسليم)|اعتماد.*استلام/i,
   }));
 }
 async function closeFinancial(server: ReturnType<typeof fixtureServer>, lostResponse = false) {

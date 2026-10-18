@@ -11,8 +11,8 @@ import httpx
 import pytest
 import pytest_asyncio
 from fastapi import HTTPException
-from psycopg.types.range import Range
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import Range
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.warehouse import transfer_policy, transfers
@@ -26,6 +26,7 @@ from models import (
     SystemAuditLog, TenantOperationalPolicy, Permission, UserLocationAccess, UserRole,
     role_permissions, utc_now,
 )
+from services import SPECIAL_TRANSFER_PERMISSION
 from schemas import (
     SpecialTransferDispatchRequest, TransferDestinationPolicySaveRequest,
     TransferDestinationPolicyPublishRequest, UnifiedReceiveRequest,
@@ -94,7 +95,7 @@ async def journey(closure):
             request_id=uuid4())
         db.add(publication)
         await db.flush()
-        effectivity = Range(lower=earlier, upper=None, lower_inc=True)
+        effectivity = Range(lower=earlier.replace(tzinfo=timezone.utc), upper=None, bounds="[)")
         db.add_all([
             PriceBookEntry(company_id=a.company_id, price_book_id=book.id,
                 publication_id=publication.id, product_variant_id=a.variant, uom_id=a.uom,
@@ -384,6 +385,9 @@ async def test_explicit_legacy_policy_read_and_real_routing_are_preserved(closur
     gate, a = closure, closure.a
     async with AsyncSession(gate.admin_engine, expire_on_commit=False) as db:
         await _ensure_permissions(db, {"transfer.receive", "transfer.read"})
+        receiver = await seed_ordinary_backoffice_fixture(db, a.company_id)
+        await _grant_company(db, company_id=a.company_id, driver_id=receiver.driver_id,
+                             code=SPECIAL_TRANSFER_PERMISSION["DISPOSAL"])
         destination = InventoryLocation(company_id=a.company_id, code="LEGACY-DEST",
             name="Real legacy destination", location_type="WAREHOUSE", is_active=True)
         db.add(destination)
@@ -391,6 +395,9 @@ async def test_explicit_legacy_policy_read_and_real_routing_are_preserved(closur
         db.add(ProductLocation(company_id=a.company_id, location_id=destination.id,
                                product_variant_id=a.variant, created_by=a.actor.driver_id))
         await _grant_location(db, company_id=a.company_id, driver_id=a.actor.driver_id,
+            location_id=destination.id, codes=("location.read", "inventory.read", "ledger.read",
+                "transfer.read", "transfer.receive", "transfer.destination"))
+        await _grant_location(db, company_id=a.company_id, driver_id=receiver.driver_id,
             location_id=destination.id, codes=("location.read", "inventory.read", "ledger.read",
                 "transfer.read", "transfer.receive", "transfer.destination"))
         destination_id = destination.id
@@ -422,7 +429,7 @@ async def test_explicit_legacy_policy_read_and_real_routing_are_preserved(closur
         assert sent["destination_location_id"] == destination_id
         await transfers.unified_transfer_receive(UnifiedReceiveRequest(request_id=uuid4(),
             transfer_header_id=sent["header_id"], destination_location_id=destination_id),
-            db, a.actor.access(db), a.actor.operational_driver)
+            db, receiver.access(db), receiver.operational_driver)
         balance = await db.scalar(select(InventoryBalance).where(
             InventoryBalance.company_id == a.company_id,
             InventoryBalance.location_id == destination_id,
