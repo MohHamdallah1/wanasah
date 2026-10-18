@@ -50,103 +50,80 @@ it("does not infer policy permission from an Owner UI flag", () => {
   expect(mocks.fetch).not.toHaveBeenCalled();
 });
 
-it("uses same-location defaults without loading or requiring warehouse options", async () => {
-  mocks.fetch.mockImplementation(async (_url: string, options?: RequestInit) => {
-    if (!options?.method) return { draft: null, published: null };
-    if (options.method === "PUT") return { policy: draft };
-    return { policy: { ...draft, status: "PUBLISHED" } };
-  });
+it("shows the effective same-location default without setup writes", async () => {
+  mocks.fetch.mockResolvedValue({ draft: null, published: null });
 
   render(<QualityHandlingDestinationsCard />);
-  await waitFor(() =>
-    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled(),
-  );
+  await screen.findByText("Effective default");
 
   expect(screen.queryByRole("combobox")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
   expect(
     mocks.fetch.mock.calls.some(([url]) =>
       String(url).includes("/warehouse/locations/manage"),
     ),
   ).toBe(false);
   expect(screen.getAllByText("Same current location")).toHaveLength(3);
-
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
-  await waitFor(() =>
-    expect(screen.getByRole("button", { name: "Apply" })).toBeEnabled(),
-  );
-  const write = mocks.fetch.mock.calls.find(
-    ([, options]) => options?.method === "PUT",
-  )!;
-  const body = JSON.parse(write[1].body as string);
-  expect(body.payload).toEqual(payload);
+  expect(mocks.fetch).toHaveBeenCalledTimes(1);
+  expect(mocks.fetch.mock.calls[0][1]).toBeUndefined();
 });
 
-it("recovers save and apply lost responses with original IDs after remount", async () => {
-  let draftAttempts = 0;
-  let publishAttempts = 0;
-  let state: {
-    draft: typeof draft | null;
-    published: typeof draft | null;
-  } = { draft: null, published: null };
-
-  mocks.fetch.mockImplementation(async (_url: string, options?: RequestInit) => {
-    if (!options?.method) return state;
-    if (options.method === "PUT") {
-      state = { draft, published: null };
-      if (++draftAttempts === 1) {
-        throw Object.assign(new Error(), {
-          status: 0,
-          code: "NETWORK_UNAVAILABLE",
-        });
-      }
-      return { policy: draft };
-    }
-    const published = { ...draft, status: "PUBLISHED" as const };
-    state = { draft: null, published };
-    if (++publishAttempts === 1) {
-      throw Object.assign(new Error(), { status: 503 });
-    }
-    return { policy: published };
+it("renders an explicit published policy as read-only custom configuration", async () => {
+  mocks.fetch.mockResolvedValue({
+    draft: null,
+    published: {
+      id: 11,
+      revision: 4,
+      status: "PUBLISHED",
+      validated_payload: {
+        quarantine_location_id: 21,
+        disposal_location_id: 22,
+        vendor_return_staging_location_id: 23,
+        allow_retiring_warehouse_balancing: false,
+      },
+    },
   });
 
-  const first = render(<QualityHandlingDestinationsCard />);
-  await waitFor(() =>
-    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled(),
-  );
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
-  await screen.findByText(/result is unconfirmed/);
+  render(<QualityHandlingDestinationsCard />);
+  await screen.findByText("Custom configuration active");
 
-  const firstId = JSON.parse(
-    mocks.fetch.mock.calls.find(([, options]) => options?.method === "PUT")![1]
-      .body as string,
-  ).request_id;
-  first.unmount();
+  expect(screen.getByText("Location #21")).toBeInTheDocument();
+  expect(screen.getByText("Location #22")).toBeInTheDocument();
+  expect(screen.getByText("Location #23")).toBeInTheDocument();
+  expect(screen.queryByText("Same current location")).toBeNull();
+  expect(screen.getByText(/read-only/)).toBeInTheDocument();
+  expect(screen.queryByRole("combobox")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
+
+  // Opening/rendering the modal controller performs GET only and never
+  // overwrites the legacy Published configuration.
+  expect(mocks.fetch).toHaveBeenCalledTimes(1);
+  expect(mocks.fetch.mock.calls[0][1]).toBeUndefined();
+});
+
+it("labels mixed published policy fields truthfully per destination", async () => {
+  mocks.fetch.mockResolvedValue({
+    draft: null,
+    published: {
+      id: 12,
+      revision: 5,
+      status: "PUBLISHED",
+      validated_payload: {
+        quarantine_location_id: null,
+        disposal_location_id: 32,
+        vendor_return_staging_location_id: null,
+        allow_retiring_warehouse_balancing: false,
+      },
+    },
+  });
 
   render(<QualityHandlingDestinationsCard />);
-  await screen.findByText(/result is unconfirmed/);
-  expect(draftAttempts).toBe(1);
-  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-  await waitFor(() => expect(draftAttempts).toBe(2));
-  await waitFor(() =>
-    expect(screen.getByRole("button", { name: "Apply" })).toBeEnabled(),
-  );
-
-  const writes = mocks.fetch.mock.calls.filter(
-    ([, options]) => options?.method === "PUT",
-  );
-  expect(JSON.parse(writes[1][1].body as string).request_id).toBe(firstId);
-
-  fireEvent.click(screen.getByRole("button", { name: "Apply" }));
-  await screen.findByText(/result is unconfirmed/);
-  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-  await waitFor(() => expect(publishAttempts).toBe(2));
-
-  const publishes = mocks.fetch.mock.calls.filter(
-    ([, options]) => options?.method === "POST",
-  );
-  expect(JSON.parse(publishes[1][1].body as string).request_id).toBe(
-    JSON.parse(publishes[0][1].body as string).request_id,
-  );
+  await screen.findByText("Custom configuration active");
+  expect(screen.getAllByText("Same current location")).toHaveLength(2);
+  expect(screen.getByText("Location #32")).toBeInTheDocument();
+  expect(mocks.fetch).toHaveBeenCalledTimes(1);
 });
 
 it.each(["ar", "en"])(
