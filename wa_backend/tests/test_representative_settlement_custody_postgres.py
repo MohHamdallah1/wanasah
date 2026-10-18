@@ -5,13 +5,14 @@ role. No direct InventoryBalance writes; physical facts use the movement engine.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 import os
 from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
+from psycopg.types.range import Range
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -19,7 +20,8 @@ from sqlalchemy.pool import NullPool
 from api import dispatch, representative_settlement as settlement
 from models import (
     Company, DispatchRoute, Driver, InventoryBalance, InventoryLocation, InventoryMovement,
-    Product, ProductBatch, ProductLocation, ProductVariant,
+    PriceBook, PriceBookAssignment, PriceBookEntry, PricePublication,
+    Product, ProductBatch, ProductLocation, ProductVariant, RouteCommercialContext,
     StocktakeCountAttemptLine, StocktakeSession, SystemAuditLog, UOM, Vehicle,
     WorkSession, Zone, utc_now,
 )
@@ -117,6 +119,42 @@ async def _seed(admin_engine):
             company_id=company.id, location_id=warehouse.id,
             product_variant_id=variant.id, created_by=actor.driver_id,
         ))
+        # DRIVER_SHORTAGE uses the actual locked route price authority. Seed a
+        # published, effective price and a matching immutable route snapshot;
+        # never bypass the commercial evidence requirement in production code.
+        earlier = utc_now() - timedelta(days=1)
+        book = PriceBook(
+            company_id=company.id, code="CP15-LOCKED-PRICE",
+            name="Representative settlement locked price",
+            currency_code="JOD", status="ACTIVE", created_by=actor.driver_id,
+        )
+        db.add(book)
+        await db.flush()
+        published = PricePublication(
+            company_id=company.id, price_book_id=book.id,
+            revision=1, status="PUBLISHED", effective_at=earlier,
+            published_at=earlier, approved_at=earlier,
+            approved_by=actor.driver_id, created_by=actor.driver_id,
+            request_id=uuid4(),
+        )
+        db.add(published)
+        await db.flush()
+        effective = Range(lower=earlier, upper=None, lower_inc=True)
+        db.add_all([
+            PriceBookEntry(
+                company_id=company.id, price_book_id=book.id,
+                publication_id=published.id, product_variant_id=variant.id,
+                uom_id=uom.id, amount=Decimal("5.000000"),
+                effectivity=effective, is_published=True,
+                priority=0, entry_metadata={},
+            ),
+            PriceBookAssignment(
+                company_id=company.id, price_book_id=book.id,
+                scope_type="COMPANY_DEFAULT", scope_id=None,
+                revision=1, priority=0, allow_offers=False,
+                effectivity=effective, created_by=actor.driver_id,
+            ),
+        ])
         zone = Zone(company_id=company.id, name="CP15 Zone", is_active=True)
         db.add(zone)
         await db.flush()
@@ -143,12 +181,26 @@ async def _seed(admin_engine):
             )
             db.add(work)
             await db.flush()
-            db.add(DispatchRoute(
+            route = DispatchRoute(
                 company_id=company.id, zone_id=zone.id,
                 driver_id=actor.driver_id, vehicle_id=vehicle.id,
                 work_session_id=work.id, source_location_id=warehouse.id,
                 dispatch_date=date.today(), status="closed",
-            ))
+            )
+            db.add(route)
+            await db.flush()
+            if index == 1:
+                locked = RouteCommercialContext(
+                    company_id=company.id, dispatch_route_id=route.id,
+                    pricing_locked_at=utc_now(),
+                    price_publication_revision=1, assignment_revision=1,
+                    offer_ruleset_version=0, tax_ruleset_version=1,
+                    transaction_currency_code="JOD", functional_currency_code="JOD",
+                    rounding_policy_version=1, tenant_policy_revision=1,
+                )
+                db.add(locked)
+                await db.flush()
+                work.commercial_context_id = locked.id
             records.append((int(work.id), int(custody.id)))
         for session_id, location_id in records:
             await _grant_location(
