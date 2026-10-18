@@ -169,7 +169,7 @@ async def _seed(admin_engine):
         await _grant_location(
             db, company_id=company.id, driver_id=counter.driver_id,
             location_id=records[1][1],
-            codes=("inventory.read", "stocktake.read", "stocktake.count"),
+            codes=("inventory.read", "stocktake.read", "stocktake.count", "stocktake.recount"),
         )
         # Real foreign ended WorkSession for company-isolation negative coverage.
         await db.execute(
