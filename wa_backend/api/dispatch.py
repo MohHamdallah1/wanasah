@@ -953,8 +953,34 @@ async def settle_session(
     legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     company_id = access.company_id
+    # A lost-response retry must be resolved before the already-settled guard.
+    # The durable idempotency row and the financial close commit atomically.
+    request_hash = hashlib.sha256(json.dumps(
+        {
+            "work_session_id": session_id,
+            "actual_cash": str(payload.actual_cash),
+            "notes": payload.notes,
+            "inventory_jard": sorted(
+                (int(item.product_id), int(item.actual))
+                for item in payload.inventory_jard
+            ),
+        },
+        sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    ).encode("utf-8")).hexdigest()
 
     try:
+        idempotency_record, replay = await begin_idempotent_operation(
+            db,
+            company_id=company_id,
+            actor_id=legacy_actor.id,
+            operation="DISPATCH_FINANCIAL_SETTLEMENT",
+            request_id=str(payload.request_id),
+            request_hash=request_hash,
+        )
+        if replay is not None:
+            await db.rollback()
+            return replay
+
         session = (
             await db.execute(
                 select(WorkSession)
@@ -1101,16 +1127,24 @@ async def settle_session(
             )[:4000],
         ))
 
-        await db.commit()
-        return {
+        response = {
             "message": "تم اعتماد التسوية المالية بنجاح",
             "cash_difference": str(cash_difference),
             "is_settled": True,
         }
+        complete_idempotent_operation(idempotency_record, response)
+        await db.commit()
+        return response
 
     except HTTPException:
         await db.rollback()
         raise
+    except InventoryMutationError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "FINANCIAL_SETTLEMENT_IDEMPOTENCY_CONFLICT", "message": str(exc)},
+        ) from exc
     except IntegrityError as exc:
         await db.rollback()
         logger.error(f"Financial settlement integrity conflict: {str(exc)}", exc_info=True)
