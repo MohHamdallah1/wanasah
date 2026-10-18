@@ -139,10 +139,10 @@ export function VarianceReviewStep({
           );
         })}
       </div>
-      <div className="grid gap-2 sm:grid-cols-2">
+      {panel === "none" && <div className="grid gap-2 sm:grid-cols-2">
         <button type="button" onClick={() => { setPanel("recount"); setValidation(null); }} className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 font-black text-blue-800">{copy.requestRecount}</button>
         <button type="button" disabled={approveBlocked} onClick={() => { setPanel("approve"); setValidation(null); }} className="rounded-xl bg-slate-900 px-4 py-3 font-black text-white disabled:bg-slate-300">{copy.approve}</button>
-      </div>
+      </div>}
       {panel === "recount" && <div className="space-y-3 rounded-2xl border border-blue-200 bg-blue-50/50 p-4">
         <label className="block text-xs font-bold">{copy.recountReason}<textarea aria-label={copy.recountReason} value={reason} onChange={(e) => setReason(e.target.value)} className="mt-1 w-full rounded-lg border border-blue-200 bg-white p-2" /></label>
         <label className="block text-xs font-bold">{copy.authorizerUsername}<input aria-label={copy.authorizerUsername} value={username} onChange={(e) => setUsername(e.target.value)} className="mt-1 w-full rounded-lg border border-blue-200 bg-white p-2" /></label>
@@ -155,7 +155,7 @@ export function VarianceReviewStep({
       {panel === "approve" && !approveBlocked && <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
         <label className="block text-xs font-bold">{copy.approvalPassword}<input aria-label={copy.approvalPassword} type="password" value={approvalPassword} onChange={(e) => setApprovalPassword(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2" /></label>
         <label className="block text-xs font-bold">{copy.approvalNotes}<textarea aria-label={copy.approvalNotes} value={approvalNotes} onChange={(e) => setApprovalNotes(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2" /></label>
-        <button type="button" disabled={busy} onClick={() => {
+        <button type="button" aria-label={copy.approve} disabled={busy} onClick={() => {
           if (!approvalPassword) { setValidation(copy.approvalPasswordRequired); return; }
           onApprove({ password: approvalPassword, notes: approvalNotes.trim() || null });
         }} className="w-full rounded-xl bg-slate-900 px-4 py-2.5 font-black text-white disabled:bg-slate-300">{busy ? copy.busy : copy.approveFinal}</button>
