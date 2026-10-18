@@ -2823,6 +2823,7 @@ async def get_whole_product_quality_issue_sources(
                 can_confirm_vendor_return=bool(row.can_confirm_vendor_return),
                 special_destinations=special_destinations,
                 purpose_access=purpose_access,
+                source_location_type=str(row.location_type),
                 terminal_evidence={
                     "DISPOSAL": terminal_availability.get(
                         ("DISPOSAL", batch_id, location_id), Decimal("0")
@@ -3119,6 +3120,7 @@ async def get_batch_stock_sources(
             can_confirm_vendor_return=bool(row.can_confirm_vendor_return),
             special_destinations=special_destinations,
             purpose_access=purpose_access,
+            source_location_type=str(row.location_type),
             terminal_evidence={
                 "DISPOSAL": terminal_availability.get(
                     ("DISPOSAL", location_id), Decimal("0")
