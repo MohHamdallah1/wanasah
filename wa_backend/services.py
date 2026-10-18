@@ -1766,6 +1766,15 @@ async def resolve_special_transfer_direction_context(
         if in_place
         else int(configured_destination)
     )
+    if not in_place and destination_location_id == source_location_id:
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_SAME_LOCATION",
+            "المصدر يطابق الوجهة المعتمدة في السياسة.",
+            context={
+                "transfer_purpose": purpose,
+                "location_id": source_location_id,
+            },
+        )
 
     requested_ids = {source_location_id, destination_location_id}
     rows = (
