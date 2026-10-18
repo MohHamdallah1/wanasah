@@ -2619,15 +2619,25 @@ async def get_whole_product_quality_issue_sources(
         db, company_id=company_id
     )
     company_codes = set(await access.codes())
+    explicit_destination_ids = sorted({
+        int(destination_id)
+        for destination_id in special_destinations.values()
+        if destination_id is not None
+    })
     destination_codes = (
-        await access.codes_by_location(list(set(special_destinations.values())))
-        if special_destinations
+        await access.codes_by_location(explicit_destination_ids)
+        if explicit_destination_ids
         else {}
     )
     purpose_access = {
         purpose: (
             SPECIAL_TRANSFER_PERMISSION[purpose] in company_codes
-            and "transfer.destination" in set(destination_codes.get(destination_id, []))
+            and (
+                destination_id is None
+                or "transfer.destination" in set(
+                    destination_codes.get(int(destination_id), [])
+                )
+            )
         )
         for purpose, destination_id in special_destinations.items()
     }
@@ -2656,6 +2666,9 @@ async def get_whole_product_quality_issue_sources(
                     InventoryLocation.name.label("location_name"),
                     InventoryLocation.location_type,
                     can_send.label("can_send"),
+                    access.allows(
+                        "transfer.destination", InventoryLocation.id
+                    ).label("can_destination_here"),
                     access.allows(
                         "inventory.disposal.confirm", InventoryLocation.id
                     ).label("can_confirm_disposal"),
@@ -2819,6 +2832,7 @@ async def get_whole_product_quality_issue_sources(
                 movable_quantity=movable,
                 source_location_id=location_id,
                 can_send=bool(row.can_send),
+                can_destination_here=bool(row.can_destination_here),
                 can_confirm_disposal=bool(row.can_confirm_disposal),
                 can_confirm_vendor_return=bool(row.can_confirm_vendor_return),
                 special_destinations=special_destinations,
@@ -2964,15 +2978,25 @@ async def get_batch_stock_sources(
         db, company_id=company_id
     )
     company_codes = set(await access.codes())
+    explicit_destination_ids = sorted({
+        int(destination_id)
+        for destination_id in special_destinations.values()
+        if destination_id is not None
+    })
     destination_codes = (
-        await access.codes_by_location(list(set(special_destinations.values())))
-        if special_destinations
+        await access.codes_by_location(explicit_destination_ids)
+        if explicit_destination_ids
         else {}
     )
     purpose_access = {
         purpose: (
             SPECIAL_TRANSFER_PERMISSION[purpose] in company_codes
-            and "transfer.destination" in set(destination_codes.get(destination_id, []))
+            and (
+                destination_id is None
+                or "transfer.destination" in set(
+                    destination_codes.get(int(destination_id), [])
+                )
+            )
         )
         for purpose, destination_id in special_destinations.items()
     }
@@ -2988,6 +3012,9 @@ async def get_batch_stock_sources(
                 InventoryLocation.name.label("location_name"),
                 InventoryLocation.location_type,
                 can_send.label("can_send"),
+                access.allows(
+                    "transfer.destination", InventoryLocation.id
+                ).label("can_destination_here"),
                 access.allows(
                     "inventory.disposal.confirm", InventoryLocation.id
                 ).label("can_confirm_disposal"),
@@ -3116,6 +3143,7 @@ async def get_batch_stock_sources(
             movable_quantity=movable,
             source_location_id=location_id,
             can_send=bool(row.can_send),
+            can_destination_here=bool(row.can_destination_here),
             can_confirm_disposal=bool(row.can_confirm_disposal),
             can_confirm_vendor_return=bool(row.can_confirm_vendor_return),
             special_destinations=special_destinations,
