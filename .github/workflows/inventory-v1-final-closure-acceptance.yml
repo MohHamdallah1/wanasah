@@ -1,0 +1,154 @@
+name: Inventory V1 independent final closure acceptance
+
+on:
+  push:
+    branches: [codex/inventory-v1-closure-acceptance]
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/tests/test_inventory_v1_final_closure_acceptance_postgres.py"
+      - "dashboard/src/test/inventory-v1-final-closure-acceptance.test.tsx"
+      - ".github/workflows/inventory-v1-final-closure-acceptance.yml"
+      - "docs/verification/INVENTORY_V1_FINAL_CLOSURE_ACCEPTANCE.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: inventory-final-closure-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-16:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: ClosureAcceptanceSyntheticOnlyAbc12345678901234567890
+      DATABASE_URL: postgresql+asyncpg://cp8_app@127.0.0.1:55448/wanasah_cp8_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp8_admin@127.0.0.1:55448/wanasah_cp8_test
+      WANASAH_CP8_PG_GATE: "1"
+      WANASAH_CP8_PG_URL: postgresql+asyncpg://cp8_app@127.0.0.1:55448/wanasah_cp8_test
+      WANASAH_CP8_PG_ADMIN_URL: postgresql+asyncpg://cp8_admin@127.0.0.1:55448/wanasah_cp8_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install acceptance dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name closure-postgres \
+            --env POSTGRES_USER=cp8_admin --env POSTGRES_DB=wanasah_cp8_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55448:55448 postgres:16 -p 55448
+          for attempt in $(seq 1 30); do
+            if docker exec closure-postgres pg_isready -U cp8_admin -d wanasah_cp8_test -p 55448; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs closure-postgres
+          exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("CREATE ROLE cp8_app LOGIN NOSUPERUSER NOCREATEDB "
+                           "NOCREATEROLE NOINHERIT NOBYPASSRLS")
+              assert conn.execute(
+                  "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname='cp8_app'"
+              ).fetchone() == (False, False)
+          PY
+      - name: Fresh Alembic bootstrap
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: Independent PostgreSQL closure acceptance
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_inventory_v1_final_closure_acceptance_postgres.py
+          --junitxml=inventory-final-closure.xml
+      - name: Reject missing or skipped coverage
+        if: always()
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse("inventory-final-closure.xml").getroot()
+          cases = root.findall(".//testcase")
+          assert len(cases) >= 8, f"Missing closure cases: {len(cases)}"
+          assert not root.findall(".//skipped"), "Closure coverage must execute"
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: inventory-final-closure-postgres
+          path: wa_backend/inventory-final-closure.xml
+          if-no-files-found: error
+
+  dashboard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci
+        working-directory: dashboard
+      - name: Independent closure DOM acceptance
+        working-directory: dashboard
+        run: >-
+          npx vitest run src/test/inventory-v1-final-closure-acceptance.test.tsx
+          --reporter=default --reporter=junit --outputFile.junit=inventory-final-closure.xml
+      - name: Lint acceptance test
+        if: always()
+        working-directory: dashboard
+        run: npx eslint src/test/inventory-v1-final-closure-acceptance.test.tsx
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: inventory-final-closure-dashboard
+          path: dashboard/inventory-final-closure.xml
+          if-no-files-found: error
+
+  acceptance-only-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Prove exact acceptance-only delta from assigned base
+        run: |
+          python - <<'PY'
+          import subprocess
+          base = "8231ca07f945feb61737e7b4ac6150846cba60a8"
+          subprocess.run(["git", "merge-base", "--is-ancestor", base, "HEAD"], check=True)
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only", base, "HEAD"], text=True).splitlines())
+          expected = {
+              "wa_backend/tests/test_inventory_v1_final_closure_acceptance_postgres.py",
+              "dashboard/src/test/inventory-v1-final-closure-acceptance.test.tsx",
+              ".github/workflows/inventory-v1-final-closure-acceptance.yml",
+              "docs/verification/INVENTORY_V1_FINAL_CLOSURE_ACCEPTANCE.md",
+          }
+          assert changed == expected, sorted(changed)
+          subprocess.run(["git", "diff", "--check", base, "HEAD"], check=True)
+          print("ACCEPTANCE_ONLY_SCOPE=PASS; runtime/plans unchanged")
+          PY
