@@ -2082,9 +2082,11 @@ class InventoryStatusChangeResponse(BaseModel):
 
 # STAGE4E2A_TRANSFER_POLICY_GUARD
 class TransferDestinationPolicyPayload(RequestModel):
-    quarantine_location_id: PositiveDbInt
-    disposal_location_id: PositiveDbInt
-    vendor_return_staging_location_id: PositiveDbInt
+    # None means the V1 default: handle quality status in the current warehouse.
+    # Explicit location IDs remain supported for existing published policies.
+    quarantine_location_id: OptionalPositiveDbInt = None
+    disposal_location_id: OptionalPositiveDbInt = None
+    vendor_return_staging_location_id: OptionalPositiveDbInt = None
     allow_retiring_warehouse_balancing: bool = False
 
 
