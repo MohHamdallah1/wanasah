@@ -1,52 +1,93 @@
-name: Inventory V1 independent final closure acceptance
+name: Inventory V1 combined-candidate final acceptance
 
 on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: "Lead-supplied combined candidate: full 40-character commit SHA"
+        required: true
+        type: string
   push:
     branches: [codex/inventory-v1-closure-acceptance]
     paths:
-      - "wa_backend/tests/test_inventory_v1_final_closure_acceptance_postgres.py"
-      - "dashboard/src/test/inventory-v1-final-closure-acceptance.test.tsx"
+      - "wa_backend/tests/*inventory_v1*"
+      - "dashboard/src/test/inventory-v1-*.test.tsx"
       - ".github/workflows/inventory-v1-final-closure-acceptance.yml"
   pull_request:
     branches: [main]
     paths:
-      - "wa_backend/tests/test_inventory_v1_final_closure_acceptance_postgres.py"
-      - "dashboard/src/test/inventory-v1-final-closure-acceptance.test.tsx"
+      - "wa_backend/tests/*inventory_v1*"
+      - "dashboard/src/test/inventory-v1-*.test.tsx"
       - ".github/workflows/inventory-v1-final-closure-acceptance.yml"
-      - "docs/verification/INVENTORY_V1_FINAL_CLOSURE_ACCEPTANCE.md"
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: inventory-final-closure-${{ github.event.pull_request.head.ref || github.ref_name }}
+  group: inventory-final-${{ github.event.pull_request.head.sha || github.sha }}-${{ inputs.candidate_sha || 'no-candidate' }}
   cancel-in-progress: true
 
+env:
+  HARNESS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  CANDIDATE_SHA: ${{ inputs.candidate_sha || '' }}
+
 jobs:
-  postgres-16:
+  acceptance-only-scope:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    name: postgres-16 (${{ matrix.candidate }})
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.HARNESS_SHA }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fail-closed gate verifier self-tests
+        run: python -m unittest discover -s wa_backend/tests -p test_inventory_v1_candidate_gate.py -v
+      - name: Compile acceptance only
+        run: >-
+          python -m py_compile
+          wa_backend/tests/test_inventory_v1_final_closure_acceptance_postgres.py
+          wa_backend/tests/test_inventory_v1_combined_candidate_postgres.py
+          wa_backend/tests/inventory_v1_candidate_gate.py
+      - name: Prove exact acceptance-only ownership and unchanged production/plans
+        run: |
+          python - <<'PY'
+          import subprocess
+          original = "8231ca07f945feb61737e7b4ac6150846cba60a8"
+          assignment = "da045688c1778d1b5c2c2c3da62fb480555b5617"
+          allowed = {
+              ".github/workflows/inventory-v1-final-closure-acceptance.yml",
+              "wa_backend/tests/test_inventory_v1_final_closure_acceptance_postgres.py",
+              "wa_backend/tests/test_inventory_v1_combined_candidate_postgres.py",
+              "wa_backend/tests/inventory_v1_candidate_gate.py",
+              "wa_backend/tests/test_inventory_v1_candidate_gate.py",
+              "dashboard/src/test/inventory-v1-final-closure-acceptance.test.tsx",
+              "dashboard/src/test/inventory-v1-combined-journey.test.tsx",
+              "dashboard/src/test/inventory-v1-combined-quality.test.tsx",
+              "docs/verification/INVENTORY_V1_FINAL_CLOSURE_ACCEPTANCE.md",
+          }
+          for base in (original, assignment):
+              subprocess.run(["git", "merge-base", "--is-ancestor", base, "HEAD"], check=True)
+              changed = set(subprocess.check_output(
+                  ["git", "diff", "--name-only", base, "HEAD"], text=True).splitlines())
+              assert changed <= allowed, sorted(changed - allowed)
+              if base == original:
+                  assert changed == allowed, sorted(allowed - changed)
+              subprocess.run(["git", "diff", "--check", base, "HEAD"], check=True)
+          print("ACCEPTANCE_ONLY_SCOPE=PASS")
+          PY
+
+  postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    name: PostgreSQL 16 (${{ matrix.mode }})
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - candidate: assigned-base
-            source_ref: ""
-            selection: ""
-            expected_cases: 13
-          - candidate: receiver-worker
-            source_ref: f4bb3834cad5312c40b118882bb2dca5bbd664f8
-            selection: "not published_same_location"
-            expected_cases: 9
-          - candidate: quality-worker
-            source_ref: 02b5ea4cd59b653ff66c3f4b7662c342b3b7c8ed
-            selection: "one_warehouse_quantity_status or published_same_location"
-            expected_cases: 5
+        mode: [baseline, candidate]
     env:
-      CLOSURE_PYTEST_FILTER: ${{ matrix.selection }}
-      CLOSURE_EXPECTED_CASES: ${{ matrix.expected_cases }}
       ENVIRONMENT: test
       SECRET_KEY: ClosureAcceptanceSyntheticOnlyAbc12345678901234567890
       DATABASE_URL: postgresql+asyncpg://cp8_app@127.0.0.1:55448/wanasah_cp8_test
@@ -54,25 +95,41 @@ jobs:
       WANASAH_CP8_PG_GATE: "1"
       WANASAH_CP8_PG_URL: postgresql+asyncpg://cp8_app@127.0.0.1:55448/wanasah_cp8_test
       WANASAH_CP8_PG_ADMIN_URL: postgresql+asyncpg://cp8_admin@127.0.0.1:55448/wanasah_cp8_test
+      WANASAH_CLOSURE_BASELINE_EVIDENCE: ${{ matrix.mode == 'baseline' && '1' || '0' }}
+      MODE: ${{ matrix.mode }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ matrix.source_ref || github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/checkout@v4
-        if: matrix.source_ref != ''
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          path: .closure-acceptance
-      - name: Overlay acceptance tests only onto pinned worker source
-        if: matrix.source_ref != ''
+          ref: ${{ env.HARNESS_SHA }}
+          path: harness
+      - name: Validate exact requested source identity
         run: |
-          cp .closure-acceptance/wa_backend/tests/test_inventory_v1_final_closure_acceptance_postgres.py wa_backend/tests/
-          git diff --exit-code -- wa_backend ':!wa_backend/tests'
+          python - <<'PY'
+          import os
+          import sys
+          sys.path.insert(0, "harness/wa_backend/tests")
+          from inventory_v1_candidate_gate import BASE, exact_sha
+          sha = BASE if os.environ["MODE"] == "baseline" else exact_sha(os.environ["CANDIDATE_SHA"])
+          with open(os.environ["GITHUB_ENV"], "a") as target:
+              target.write("SOURCE_SHA=" + sha + "\n")
+          PY
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          path: source
+          fetch-depth: 0
+      - name: Verify source and overlay acceptance tests only
+        run: |
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+          git -C source merge-base --is-ancestor 8231ca07f945feb61737e7b4ac6150846cba60a8 HEAD
+          cp harness/wa_backend/tests/test_inventory_v1_final_closure_acceptance_postgres.py source/wa_backend/tests/
+          cp harness/wa_backend/tests/test_inventory_v1_combined_candidate_postgres.py source/wa_backend/tests/
+          git -C source diff --exit-code -- . ':!wa_backend/tests'
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install acceptance dependencies
-        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Install candidate dependencies
+        run: python -m pip install -r source/wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
       - name: Start disposable PostgreSQL 16
         run: |
           docker run --detach --name closure-postgres \
@@ -85,9 +142,8 @@ jobs:
             fi
             sleep 1
           done
-          docker logs closure-postgres
           exit 1
-      - name: Create restricted runtime role
+      - name: Restricted runtime identity
         run: |
           python - <<'PY'
           import os
@@ -102,107 +158,123 @@ jobs:
                   "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname='cp8_app'"
               ).fetchone() == (False, False)
           PY
-      - name: Fresh Alembic bootstrap
-        working-directory: wa_backend
+      - name: Fresh candidate Alembic bootstrap
+        working-directory: source/wa_backend
         run: alembic upgrade head
-      - name: Independent PostgreSQL closure acceptance
-        working-directory: wa_backend
+      - name: Execute all selected contracts and verify exact JUnit evidence
         run: >-
-          python -B -m pytest -p no:cacheprovider -q -s
-          tests/test_inventory_v1_final_closure_acceptance_postgres.py
-          --junitxml=inventory-final-closure.xml
-          -k "$CLOSURE_PYTEST_FILTER"
-      - name: Reject missing or skipped coverage
-        if: always()
-        working-directory: wa_backend
-        run: |
-          python - <<'PY'
-          import os
-          import xml.etree.ElementTree as ET
-          root = ET.parse("inventory-final-closure.xml").getroot()
-          cases = root.findall(".//testcase")
-          assert len(cases) == int(os.environ["CLOSURE_EXPECTED_CASES"]), len(cases)
-          assert not root.findall(".//skipped"), "Closure coverage must execute"
-          PY
+          python harness/wa_backend/tests/inventory_v1_candidate_gate.py run
+          --kind postgres --mode "$MODE" --source source
+          --candidate-sha "$CANDIDATE_SHA" --harness-sha "$HARNESS_SHA"
+          --output "artifacts/postgres-$MODE.json"
+      - name: Prove candidate runtime was not patched by the harness
+        if: always() && env.SOURCE_SHA != ''
+        run: git -C source diff --exit-code -- . ':!wa_backend/tests'
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && env.SOURCE_SHA != ''
         with:
-          name: inventory-final-closure-postgres-${{ matrix.candidate }}
-          path: wa_backend/inventory-final-closure.xml
+          name: closure-postgres-${{ matrix.mode }}
+          path: artifacts/
           if-no-files-found: error
 
   dashboard:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    name: dashboard (${{ matrix.candidate }})
+    timeout-minutes: 20
+    name: Dashboard (${{ matrix.mode }})
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - candidate: assigned-base
-            source_ref: ""
-          - candidate: dashboard-worker
-            source_ref: 4f3885f8abb42c10db21e8c3549861640667c0b5
+        mode: [baseline, candidate]
+    env:
+      MODE: ${{ matrix.mode }}
+      WANASAH_CLOSURE_BASELINE_EVIDENCE: ${{ matrix.mode == 'baseline' && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ matrix.source_ref || github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/checkout@v4
-        if: matrix.source_ref != ''
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          path: .closure-acceptance
-      - name: Overlay DOM acceptance only onto pinned Dashboard source
-        if: matrix.source_ref != ''
+          ref: ${{ env.HARNESS_SHA }}
+          path: harness
+      - name: Validate exact requested source identity
         run: |
-          cp .closure-acceptance/dashboard/src/test/inventory-v1-final-closure-acceptance.test.tsx dashboard/src/test/
-          git diff --exit-code -- dashboard ':!dashboard/src/test'
+          python - <<'PY'
+          import os
+          import sys
+          sys.path.insert(0, "harness/wa_backend/tests")
+          from inventory_v1_candidate_gate import BASE, exact_sha
+          sha = BASE if os.environ["MODE"] == "baseline" else exact_sha(os.environ["CANDIDATE_SHA"])
+          with open(os.environ["GITHUB_ENV"], "a") as target:
+              target.write("SOURCE_SHA=" + sha + "\n")
+          PY
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          path: source
+          fetch-depth: 0
+      - name: Overlay DOM tests only and verify source identity
+        run: |
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+          git -C source merge-base --is-ancestor 8231ca07f945feb61737e7b4ac6150846cba60a8 HEAD
+          cp harness/dashboard/src/test/inventory-v1-final-closure-acceptance.test.tsx source/dashboard/src/test/
+          cp harness/dashboard/src/test/inventory-v1-combined-journey.test.tsx source/dashboard/src/test/
+          cp harness/dashboard/src/test/inventory-v1-combined-quality.test.tsx source/dashboard/src/test/
+          git -C source diff --exit-code -- . ':!dashboard/src/test'
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: dashboard/package-lock.json
-      - run: npm ci
-        working-directory: dashboard
-      - name: Independent closure DOM acceptance
-        working-directory: dashboard
+          cache-dependency-path: source/dashboard/package-lock.json
+      - name: Install candidate Dashboard dependencies
+        working-directory: source/dashboard
+        run: npm ci
+      - name: Lint every acceptance DOM file
+        working-directory: source/dashboard
         run: >-
-          npx vitest run src/test/inventory-v1-final-closure-acceptance.test.tsx
-          --reporter=default --reporter=junit --outputFile.junit=inventory-final-closure.xml
-      - name: Lint acceptance test
-        if: always()
-        working-directory: dashboard
-        run: npx eslint src/test/inventory-v1-final-closure-acceptance.test.tsx
+          npx eslint src/test/inventory-v1-final-closure-acceptance.test.tsx
+          src/test/inventory-v1-combined-journey.test.tsx
+          src/test/inventory-v1-combined-quality.test.tsx
+      - name: Execute DOM contracts and verify exact JUnit evidence
+        run: >-
+          python harness/wa_backend/tests/inventory_v1_candidate_gate.py run
+          --kind dashboard --mode "$MODE" --source source
+          --candidate-sha "$CANDIDATE_SHA" --harness-sha "$HARNESS_SHA"
+          --output "artifacts/dashboard-$MODE.json"
+      - name: Prove candidate UI runtime was not patched
+        if: always() && env.SOURCE_SHA != ''
+        run: git -C source diff --exit-code -- . ':!dashboard/src/test'
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && env.SOURCE_SHA != ''
         with:
-          name: inventory-final-closure-dashboard-${{ matrix.candidate }}
-          path: dashboard/inventory-final-closure.xml
+          name: closure-dashboard-${{ matrix.mode }}
+          path: artifacts/
           if-no-files-found: error
 
-  acceptance-only-scope:
+  final-combined-verdict:
+    name: Final combined-candidate verdict
+    if: always()
+    needs: [acceptance-only-scope, postgres, dashboard]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Prove exact acceptance-only delta from assigned base
+          ref: ${{ env.HARNESS_SHA }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: closure-*
+          path: evidence
+      - name: One authoritative green or red result
+        env:
+          SCOPE_RESULT: ${{ needs.acceptance-only-scope.result }}
+          PG_RESULT: ${{ needs.postgres.result }}
+          UI_RESULT: ${{ needs.dashboard.result }}
         run: |
           python - <<'PY'
-          import subprocess
-          base = "8231ca07f945feb61737e7b4ac6150846cba60a8"
-          subprocess.run(["git", "merge-base", "--is-ancestor", base, "HEAD"], check=True)
-          changed = set(subprocess.check_output(
-              ["git", "diff", "--name-only", base, "HEAD"], text=True).splitlines())
-          expected = {
-              "wa_backend/tests/test_inventory_v1_final_closure_acceptance_postgres.py",
-              "dashboard/src/test/inventory-v1-final-closure-acceptance.test.tsx",
-              ".github/workflows/inventory-v1-final-closure-acceptance.yml",
-              "docs/verification/INVENTORY_V1_FINAL_CLOSURE_ACCEPTANCE.md",
-          }
-          assert changed == expected, sorted(changed)
-          subprocess.run(["git", "diff", "--check", base, "HEAD"], check=True)
-          print("ACCEPTANCE_ONLY_SCOPE=PASS; runtime/plans unchanged")
+          import os
+          import sys
+          sys.path.insert(0, "wa_backend/tests")
+          from inventory_v1_candidate_gate import exact_sha
+          exact_sha(os.environ["CANDIDATE_SHA"])
+          for name in ("SCOPE_RESULT", "PG_RESULT", "UI_RESULT"):
+              assert os.environ[name] == "success", (name, os.environ[name])
           PY
+          python wa_backend/tests/inventory_v1_candidate_gate.py final \
+            --candidate-sha "$CANDIDATE_SHA" --harness-sha "$HARNESS_SHA" --reports evidence

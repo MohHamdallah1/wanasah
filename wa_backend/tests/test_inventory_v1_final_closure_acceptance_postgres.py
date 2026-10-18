@@ -226,7 +226,11 @@ async def runtime_request(gate, tenant, *, path, method="GET", body=None,
 async def financial(gate, tenant, *, actor=None, session_id=None):
     return await runtime_request(gate, tenant, actor=actor, method="PUT",
         path=f"/admin/sessions/{session_id or tenant.work}/settle",
-        body={"actual_cash": "0.000", "notes": "Acceptance"})
+        body={
+            "actual_cash": "0.000", "notes": "Acceptance",
+            **({} if os.getenv("WANASAH_CLOSURE_BASELINE_EVIDENCE") == "1"
+               else {"request_id": str(uuid4())}),
+        })
 
 
 async def custody(gate, tenant, *, body=None, actor=None, session_id=None):
