@@ -17,8 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from api import dispatch, representative_settlement as settlement
-from api.warehouse import stocktake
-from domains.stocktake.contracts import StocktakeApprovalCommand
 from models import (
     Company, DispatchRoute, InventoryBalance, InventoryLocation, InventoryMovement,
     Product, ProductBatch, ProductLocation, ProductVariant,
@@ -397,6 +395,14 @@ async def test_backoffice_representative_custody_postgres():
             assert difference["status"] == "REVIEW_REQUIRED"
             assert difference["movement_count"] == 0
             assert difference["requires_independent_recount"] is True
+            assert "reconciliation_session_id" not in difference
+            business_review = await settlement.review_representative_variance(
+                variance_session, db=db, access=access,
+            )
+            assert business_review["requires_independent_recount"] is True
+            assert business_review["lines"][0]["actual_quantity"] == "3"
+            assert business_review["lines"][0]["variance_quantity"] == "-1"
+            assert "stocktake_session_id" not in business_review
             record = await db.scalar(select(StocktakeSession).where(
                 StocktakeSession.company_id == company,
                 StocktakeSession.related_work_session_id == variance_session,
@@ -450,24 +456,28 @@ async def test_backoffice_representative_custody_postgres():
             )
             assert surplus["status"] == "REVIEW_REQUIRED"
             assert surplus["requires_independent_recount"] is False
+            assert "reconciliation_session_id" not in surplus
             assert await _qty(db, company, surplus_vehicle, batch, "DAMAGED") == Decimal("2")
-            review = await stocktake.get_stocktake_review(
-                surplus["reconciliation_session_id"], db=db, access=access,
+            review = await settlement.review_representative_variance(
+                surplus_session, db=db, access=access,
             )
             assert Decimal(review["lines"][0]["variance_quantity"]) == Decimal("1")
-            approval = await stocktake.approve_stocktake_session(
-                surplus["reconciliation_session_id"],
-                StocktakeApprovalCommand(
-                    request_id=uuid4(),
-                    count_attempt_id=review["latest_attempt"]["id"],
-                    password=ACTOR_PASSWORD,
-                ),
+            assert "stocktake_session_id" not in review
+            approval = await settlement.approve_representative_variance(
+                surplus_session,
+                settlement.CustodyVarianceApprove(request_id=uuid4(), password=ACTOR_PASSWORD),
                 db=db, access=access, legacy_actor=actor.operational_driver,
             )
-            assert approval["status"] == "POSTED"
+            assert approval["status"] == "RECONCILED_AWAITING_RECEIPT"
+            assert approval["financial_ready"] is False
+            recon_row = await db.scalar(select(StocktakeSession).where(
+                StocktakeSession.company_id == company,
+                StocktakeSession.related_work_session_id == surplus_session,
+            ))
+            assert recon_row.status == "POSTED"
             surplus_movements = (await db.scalars(select(InventoryMovement).where(
                 InventoryMovement.company_id == company,
-                InventoryMovement.stocktake_session_id == surplus["reconciliation_session_id"],
+                InventoryMovement.stocktake_session_id == recon_row.id,
             ))).all()
             assert len(surplus_movements) == 1
             assert surplus_movements[0].reference_type == "DRIVER_SURPLUS"
