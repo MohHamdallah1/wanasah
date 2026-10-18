@@ -109,9 +109,13 @@ function fixtureServer({ variance = false, dropFinancialResponse = false } = {})
     let response: Wire;
     if (url.endsWith("/inventory-custody/receive")) {
       expect(body.receiver_confirms_handoff).toBe(true);
-      expect(body.destination_location_id).toBe(7);
+      expect(Number(body.destination_location_id)).toBe(7);
       const items = body.items as CountRow[];
+      expect(items.every(row => typeof row.actual_quantity === "string")).toBe(true);
       expect(new Set(items.map(row => row.line_key))).toEqual(new Set([availableKey, damagedKey]));
+      expect(Number(items.find(row => row.line_key === availableKey)?.actual_quantity)).toBe(6);
+      expect(Number(items.find(row => row.line_key === damagedKey)?.actual_quantity))
+        .toBe(variance ? 3 : 4);
       if (variance && !approved) {
         expect(Number(items.find(row => row.line_key === damagedKey)?.actual_quantity)).toBe(3);
         review = true;
@@ -134,12 +138,18 @@ function fixtureServer({ variance = false, dropFinancialResponse = false } = {})
     } else if (url.endsWith("/variance/count")) {
       expect(mocks.backofficeId).toBe(88);
       expect(recount).toBe(true);
+      const items = body.items as CountRow[];
+      expect(items.every(row => typeof row.actual_quantity === "string")).toBe(true);
+      expect(new Set(items.map(row => row.line_key))).toEqual(new Set([availableKey, damagedKey]));
+      expect(Number(items.find(row => row.line_key === availableKey)?.actual_quantity)).toBe(6);
+      expect(Number(items.find(row => row.line_key === damagedKey)?.actual_quantity)).toBe(3);
       independent = true;
       response = { status: "REVIEW_REQUIRED", reconciliation_reference: "VREC-CLOSURE",
         attempt_number: 2, requires_independent_recount: true };
     } else if (url.endsWith("/variance/approve")) {
       expect(independent).toBe(true);
       expect(mocks.backofficeId).toBe(77);
+      expect(body.password).toBe("ReceiverPassword123");
       approved = true;
       response = { status: "RECONCILED_AWAITING_RECEIPT", receiver_must_confirm_handoff: true,
         financial_ready: false, movement_count: 1, reconciliation_reference: "VREC-CLOSURE" };
@@ -191,11 +201,14 @@ async function confirmReceipt(dialog: HTMLElement, damaged = "4") {
   }));
 }
 async function closeFinancial(server: ReturnType<typeof fixtureServer>, lostResponse = false) {
-  const dialog = await screen.findByRole("dialog");
   await waitFor(() => expect(server.received()).toBe(true));
-  const cash = await within(dialog).findByLabelText(/actual.*cash|cash.*received|الكاش.*الفعلي|النقد.*الفعلي/i);
+  const cash = await screen.findByLabelText(/actual.*cash|cash.*received|الكاش.*الفعلي|النقد.*الفعلي/i);
+  const dialog = cash.closest('[role="dialog"]') as HTMLElement;
+  expect(dialog).not.toBeNull();
   fireEvent.change(cash, { target: { value: "10.000" } });
-  expect(within(dialog).queryByLabelText(/DAMAGED|AVAILABLE|تالف|متاح/i)).toBeNull();
+  for (const stock of within(dialog).queryAllByLabelText(/DAMAGED|AVAILABLE|تالف|متاح/i)) {
+    if (stock instanceof HTMLInputElement) expect(stock.readOnly || stock.disabled).toBe(true);
+  }
   const confirm = /Confirm.*(financial|settlement)|Close.*settlement|اعتماد.*التسوية|إغلاق.*العهدة/i;
   fireEvent.click(within(dialog).getByRole("button", { name: confirm }));
   await waitFor(() => expect(server.effects()).toBe(1));
@@ -242,7 +255,7 @@ describe("Combined candidate positive yellow-card settlement", () => {
     let rendered = mount();
     let dialog = await openYellowEntry();
     await confirmReceipt(dialog, "3");
-    expect((await within(dialog).findAllByText(/[-−]\\s*[1١]/)).length).toBeGreaterThan(0);
+    expect((await within(dialog).findAllByText(/[-−]\s*[1١]/)).length).toBeGreaterThan(0);
     expect(server.writes.some(row => row.url.endsWith("/settle"))).toBe(false);
     fireEvent.click(within(dialog).getByRole("button", { name: /Recount|إعادة.*عد/i }));
     fireEvent.change(within(dialog).getByLabelText(/username|authorizer|اسم المستخدم/i),
@@ -267,12 +280,23 @@ describe("Combined candidate positive yellow-card settlement", () => {
     localStorage.setItem("backoffice_user_id", "77");
     mount();
     dialog = await openYellowEntry();
-    expect((await within(dialog).findAllByText(/[-−]\\s*[1١]/)).length).toBeGreaterThan(0);
-    const password = within(dialog).queryByLabelText(/password|كلمة المرور/i);
-    if (password) fireEvent.change(password, { target: { value: "ReceiverPassword123" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: /Approve.*variance|Final approval|اعتماد.*فرق|اعتماد نهائي/i }));
+    expect((await within(dialog).findAllByText(/[-−]\s*[1١]/)).length).toBeGreaterThan(0);
+    const approvalName = /Approve.*variance|Final approval|اعتماد.*فرق|اعتماد نهائي/i;
+    if (!within(dialog).queryByLabelText(/password|كلمة المرور/i)) {
+      fireEvent.click(within(dialog).getByRole("button", { name: approvalName }));
+      dialog = screen.getAllByRole("dialog").at(-1)!;
+    }
+    const password = await within(dialog).findByLabelText(/password|كلمة المرور/i);
+    fireEvent.change(password, { target: { value: "ReceiverPassword123" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: approvalName }));
     await waitFor(() => expect(server.writes.some(row => row.url.endsWith("/variance/approve"))).toBe(true));
     expect(server.received()).toBe(false); // approval is never an automatic handoff
+    dialog = await waitFor(() => {
+      const receipt = screen.getAllByRole("dialog").find(current =>
+        within(current).queryByLabelText(/AVAILABLE|Available|متاح/i));
+      expect(receipt).toBeDefined();
+      return receipt!;
+    });
     await confirmReceipt(dialog, "3");
     await closeFinancial(server);
   });
