@@ -161,10 +161,46 @@ async def _seed(admin_engine):
             await _grant_company(
                 db, company_id=company.id, driver_id=actor.driver_id, code=code,
             )
+        # Real foreign ended WorkSession for company-isolation negative coverage.
+        await db.execute(
+            text("SELECT set_config('app.current_tenant', :tenant, true)"),
+            {"tenant": str(other.id)},
+        )
+        foreign_actor = await seed_ordinary_backoffice_fixture(
+            db, other.id, password="CP15ForeignSynthetic123"
+        )
+        foreign_zone = Zone(company_id=other.id, name="Foreign Zone", is_active=True)
+        db.add(foreign_zone)
+        foreign_vehicle = Vehicle(
+            company_id=other.id, plate_number="CP15-FOREIGN",
+            is_active=True, maintenance_status="Active",
+        )
+        db.add(foreign_vehicle)
+        await db.flush()
+        foreign_location = InventoryLocation(
+            company_id=other.id, code="CP15-FOREIGN-VEH", name="Foreign Vehicle",
+            location_type="VEHICLE", vehicle_id=foreign_vehicle.id, is_active=True,
+        )
+        db.add(foreign_location)
+        foreign_work = WorkSession(
+            company_id=other.id, driver_id=foreign_actor.driver_id,
+            start_time=utc_now(), session_date=date.today(),
+            end_time=utc_now(), is_settled=False,
+        )
+        db.add(foreign_work)
+        await db.flush()
+        db.add(DispatchRoute(
+            company_id=other.id, zone_id=foreign_zone.id,
+            driver_id=foreign_actor.driver_id, vehicle_id=foreign_vehicle.id,
+            work_session_id=foreign_work.id, source_location_id=foreign_location.id,
+            dispatch_date=date.today(), status="closed",
+        ))
+        await db.flush()
+        foreign_work_id = int(foreign_work.id)
         await db.commit()
         return (
             int(company.id), int(other.id), actor, denied, int(warehouse.id),
-            int(variant.id), int(batch.id), records,
+            int(variant.id), int(batch.id), records, foreign_work_id,
         )
 
 
@@ -177,7 +213,7 @@ async def test_backoffice_representative_custody_postgres():
         admin_url, poolclass=NullPool, connect_args={"timeout": 15},
     )
     try:
-        company, other, actor, denied, warehouse, variant, batch, records = await _seed(admin_engine)
+        company, other, actor, denied, warehouse, variant, batch, records, foreign_work_id = await _seed(admin_engine)
         matched_session, matched_vehicle = records[0]
         variance_session, variance_vehicle = records[1]
         surplus_session, surplus_vehicle = records[2]
@@ -261,6 +297,18 @@ async def test_backoffice_representative_custody_postgres():
                 legacy_actor=actor.operational_driver,
             )
             assert replay == closed
+            changed_items = list(confirmation.items)
+            changed_items[0] = changed_items[0].model_copy(
+                update={"actual_quantity": "0"}
+            )
+            with pytest.raises(HTTPException) as modified_replay:
+                await settlement.receive_representative_custody(
+                    matched_session,
+                    confirmation.model_copy(update={"items": changed_items}),
+                    db=db, access=access, legacy_actor=actor.operational_driver,
+                )
+            assert modified_replay.value.status_code == 409
+            await db.rollback()
             movement_rows = (await db.scalars(
                 select(InventoryMovement).where(
                     InventoryMovement.company_id == company,
@@ -447,7 +495,7 @@ async def test_backoffice_representative_custody_postgres():
         async with _runtime_session(runtime_engine, company) as db:
             with pytest.raises(HTTPException) as foreign:
                 await settlement.read_representative_custody(
-                    2147483647, db=db, access=actor.access(db),
+                    foreign_work_id, db=db, access=actor.access(db),
                 )
             assert foreign.value.status_code == 404
     finally:
