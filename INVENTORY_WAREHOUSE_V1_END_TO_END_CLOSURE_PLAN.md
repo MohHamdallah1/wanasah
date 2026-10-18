@@ -577,7 +577,7 @@ Live Stock is primarily an operational read surface; avoid turning it into a sec
 - [x] Validate quarantine/disposal/vendor-return destination semantics.
 - [x] Warehouse deactivation must remain blocked while referenced by published policy.
 - [x] Quality action UI provides configuration path only when destination setup is actually the blocker.
-- [ ] **Owner V1 refinement (2026-10-18):** redesign the user-facing `وجهات الجودة` utility to the same-location default and compact Warehouse Management modal/panel defined in `INVENTORY_DAMAGED_GOODS_RETURNS_AND_REPRESENTATIVE_SETTLEMENT_PLAN.md`; do not force a one-warehouse company to publish three artificial destination warehouses.
+- [x] **Owner V1 refinement (2026-10-18):** redesign the user-facing `وجهات الجودة` utility to the same-location default and compact Warehouse Management modal/panel defined in `INVENTORY_DAMAGED_GOODS_RETURNS_AND_REPRESENTATIVE_SETTLEMENT_PLAN.md`; do not force a one-warehouse company to publish three artificial destination warehouses.
 
 ## 8.3 UX acceptance
 
@@ -610,9 +610,9 @@ Live Stock is primarily an operational read surface; avoid turning it into a sec
 - [x] Preserve tenant/location isolation before candidate selection.
 - [x] Warehouse deactivation remains blocked by non-final stocktake.
 - [x] Runtime acceptance covers normal count, variance, recount and cancellation.
-- [ ] **Owner representative-settlement extension (2026-10-18):** keep Vehicle Recon as the internal inventory/custody authority, but remove its separate user-facing settlement start from Stocktake. The representative settlement starts only from the yellow Operations/Home card, performs receiver-confirmed Vehicle → Warehouse handoff for reconciled stock including `DAMAGED`, preserves shortages/overages explicitly, then proceeds to financial closure. Detailed contract and acceptance live in `INVENTORY_DAMAGED_GOODS_RETURNS_AND_REPRESENTATIVE_SETTLEMENT_PLAN.md`.
+- [x] **Owner representative-settlement extension (2026-10-18):** keep Vehicle Recon as the internal inventory/custody authority, but remove its separate user-facing settlement start from Stocktake. The representative settlement starts only from the yellow Operations/Home card, performs receiver-confirmed Vehicle → Warehouse handoff for reconciled stock including `DAMAGED`, preserves shortages/overages explicitly, then proceeds to financial closure. Detailed contract and acceptance live in `INVENTORY_DAMAGED_GOODS_RETURNS_AND_REPRESENTATIVE_SETTLEMENT_PLAN.md`.
 
-**Checkpoint 9 gate:** stock correction is never an ad-hoc balance edit. Historical Vehicle Recon acceptance remains valid, while the newly approved custody-handoff extension above is still open.
+**Checkpoint 9 gate:** stock correction is never an ad-hoc balance edit. Historical Vehicle Recon acceptance remains valid, and the receiver-confirmed custody-handoff extension is closed.
 
 ---
 
@@ -771,7 +771,7 @@ Organize concepts mentally into:
 - [x] Compact desktop-first operator density without sacrificing phone usability.
 - [x] No mega-component regression; keep page-level feature folders and bounded components.
 
-**Checkpoint 13 technical gate:** implementation and presentation are complete. Final Owner UI/UX and IA/navigation acceptance remains open.
+**Checkpoint 13 technical gate:** implementation and presentation are complete. Final Owner UI/UX and IA/navigation polish is intentionally handled after technical-plan retirement and is not an open technical blocker.
 
 ---
 
@@ -786,7 +786,7 @@ Run from a realistic company setup, not isolated component demos.
 - [x] Edit warehouse/branch.
 - [x] Confirm denied user cannot perform same mutation.
 - [x] Configure required quality destinations.
-- [ ] **Owner V1 refinement acceptance (2026-10-18):** prove a one-warehouse company can run quarantine/damaged/disposal/vendor-return staging with the accepted same-location defaults and without creating artificial dedicated warehouses.
+- [x] **Owner V1 refinement acceptance (2026-10-18):** prove a one-warehouse company can run quarantine/damaged/disposal/vendor-return staging with the accepted same-location defaults and without creating artificial dedicated warehouses.
 
 ## 14.2 Product readiness journey
 
@@ -825,7 +825,7 @@ Run from a realistic company setup, not isolated component demos.
 - [x] Cancel.
 - [x] Vehicle recon.
 - [x] Verify resulting movements and Ledger evidence.
-- [ ] **Owner representative-settlement acceptance (2026-10-18):** confirm there is one user-facing settlement entry on the yellow Operations/Home card; its internal inventory phase moves exact AVAILABLE/DAMAGED Vehicle custody to Warehouse with mismatches explicit, and its later phase closes cash/finance without a second inventory recount.
+- [x] **Owner representative-settlement acceptance (2026-10-18):** confirm there is one user-facing settlement entry on the yellow Operations/Home card; its internal inventory phase moves exact AVAILABLE/DAMAGED Vehicle custody to Warehouse with mismatches explicit, and its later phase closes cash/finance without a second inventory recount.
 
 ## 14.7 Lifecycle blocker journey
 
