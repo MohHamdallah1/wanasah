@@ -1877,6 +1877,13 @@ async def stage_inventory_quality_handling(
             await db.rollback()
             return replay_response
 
+        await ensure_effective_transfer_destination_policy(
+            db,
+            company_id=company_id,
+            actor_id=legacy_actor.id,
+            request_id=payload.request_id,
+        )
+
         requested_variant_ids = sorted({int(item.product_variant_id) for item in payload.items})
         await acquire_product_lifecycle_guards(
             db, company_id, requested_variant_ids, exclusive=False
