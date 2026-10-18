@@ -67,8 +67,16 @@ export function QualityHandlingDestinationsCard({
             {t("transferDestinationSetup.setup")}
           </h3>
           <div className="mt-1 max-w-3xl space-y-0.5 text-[10px] font-semibold leading-5 text-slate-500">
-            <p>{t("transferDestinationSetup.hint")}</p>
-            {!compact ? <p>{t("transferDestinationSetup.sameLocationHint")}</p> : null}
+            <p>
+              {t(
+                customConfigured
+                  ? "transferDestinationSetup.customHint"
+                  : "transferDestinationSetup.hint",
+              )}
+            </p>
+            {!compact && !customConfigured ? (
+              <p>{t("transferDestinationSetup.sameLocationHint")}</p>
+            ) : null}
           </div>
         </div>
         <span
