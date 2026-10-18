@@ -90,7 +90,7 @@ async def _capability(access: BackofficeCapabilityAccess, code: str, location: i
         raise HTTPException(status_code=403, detail={"code": "AUTHORIZATION_DENIED"}) from None
 
 
-async def _session_and_vehicle(db: AsyncSession, company_id: int, session_id: int, *, lock: bool):
+async def _session_and_vehicle(db: AsyncSession, company_id: int, session_id: int, *, lock: bool, allow_closed: bool = False):
     query = select(WorkSession).where(
         WorkSession.company_id == company_id, WorkSession.id == session_id
     )
@@ -101,7 +101,7 @@ async def _session_and_vehicle(db: AsyncSession, company_id: int, session_id: in
         raise HTTPException(status_code=404, detail={"code": "SETTLEMENT_SESSION_NOT_FOUND"})
     if work.end_time is None:
         raise HTTPException(status_code=409, detail={"code": "WORK_SESSION_NOT_ENDED"})
-    if work.is_settled:
+    if work.is_settled and not allow_closed:
         raise HTTPException(status_code=409, detail={"code": "FINANCIAL_SETTLEMENT_ALREADY_CLOSED"})
     route = (await db.execute(
         select(DispatchRoute).where(
@@ -201,7 +201,7 @@ async def read_representative_custody(
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_READ),
 ):
-    work, vehicle_location_id = await _session_and_vehicle(db, access.company_id, session_id, lock=False)
+    work, vehicle_location_id = await _session_and_vehicle(db, access.company_id, session_id, lock=False, allow_closed=True)
     await _capability(access, "inventory.read", vehicle_location_id)
     rows = await _lines(db, access.company_id, session_id, vehicle_location_id, lock=False)
     recon = await _recon(db, access.company_id, session_id)
@@ -307,7 +307,11 @@ async def receive_representative_custody(
     actor_id = int(legacy_actor.id)
     if session_id <= 0:
         raise HTTPException(status_code=422, detail={"code": "INVALID_SESSION"})
-    work, vehicle_location_id = await _session_and_vehicle(db, company_id, session_id, lock=False)
+    # A completed identical request remains replayable after financial closure.
+    # New commands still fail closed after their idempotency record is checked.
+    work, vehicle_location_id = await _session_and_vehicle(
+        db, company_id, session_id, lock=False, allow_closed=True,
+    )
     await _capability(access, "inventory.read", vehicle_location_id)
     await _capability(access, "transfer.send", vehicle_location_id)
     await _capability(access, "transfer.destination", payload.destination_location_id)
@@ -335,7 +339,11 @@ async def receive_representative_custody(
             await db.rollback()
             return replay
 
-        work, checked_vehicle_id = await _session_and_vehicle(db, company_id, session_id, lock=True)
+        work, checked_vehicle_id = await _session_and_vehicle(
+            db, company_id, session_id, lock=True, allow_closed=True,
+        )
+        if work.is_settled:
+            raise HTTPException(status_code=409, detail={"code": "FINANCIAL_SETTLEMENT_ALREADY_CLOSED"})
         if checked_vehicle_id != vehicle_location_id:
             raise HTTPException(status_code=409, detail={"code": "CUSTODY_CHANGED"})
         # Canonical order for all cross-location handoff guards.
