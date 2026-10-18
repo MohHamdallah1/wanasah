@@ -54,7 +54,7 @@ pytestmark = [
 
 
 @pytest_asyncio.fixture(loop_scope="function")
-async def closure(pg):
+async def closure(pg, request):
     """No Owner, exactly one Warehouse per tenant, distinct canonical identities."""
     gate = NS(runtime_engine=pg.runtime_engine, admin_engine=pg.admin_engine)
     gate.session = lambda tenant: _runtime_session(pg.runtime_engine, tenant.company_id)
@@ -106,16 +106,26 @@ async def closure(pg):
             now = utc_now()
             work = WorkSession(company_id=company.id, driver_id=field.driver.id,
                 start_time=now, end_time=now, session_date=date.today(), is_settled=False)
-            db.add_all([vehicle_location, variant, work])
+            db.add_all([vehicle_location, variant])
             await db.flush()
             batch = ProductBatch(company_id=company.id, product_variant_id=variant.id,
                                  batch_number="CLOSE-LOT")
             db.add(batch)
             db.add(ProductLocation(company_id=company.id, location_id=warehouse.id,
                                    product_variant_id=variant.id, created_by=actor.driver_id))
-            db.add(DispatchRoute(company_id=company.id, zone_id=zone.id,
-                driver_id=field.driver.id, vehicle_id=vehicle.id, work_session_id=work.id,
-                source_location_id=warehouse.id, dispatch_date=date.today(), status="closed"))
+            route = DispatchRoute(company_id=company.id, zone_id=zone.id,
+                driver_id=field.driver.id, vehicle_id=vehicle.id, work_session_id=None,
+                source_location_id=warehouse.id, dispatch_date=date.today(), status="closed")
+            db.add(route)
+            await db.flush()
+            # Optional combined-fixture context is locked at INSERT, never patched later.
+            seed_context = getattr(request, "param", None)
+            if seed_context is not None:
+                work.commercial_context_id = await seed_context(
+                    db, company=company, actor=actor, variant=variant, route=route, uom=uom)
+            db.add(work)
+            await db.flush()
+            route.work_session_id = work.id
             await db.flush()
             tenant = NS(company_id=company.id, actor=actor, denied=denied, field=field,
                 warehouse=warehouse.id, vehicle_location=vehicle_location.id, vehicle=vehicle.id,

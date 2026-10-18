@@ -59,6 +59,59 @@ async def policy_rows(gate, tenant):
          .order_by(TenantOperationalPolicy.id))).all())
 
 
+async def seed_commercial_context(db, *, company, actor, variant, route, uom):
+    """Seed real commercial prerequisites before the immutable session INSERT."""
+    variant.packs_per_carton = 1
+    earlier = utc_now() - timedelta(days=1)
+    book = PriceBook(company_id=company.id, code="CLOSURE-PRICE",
+        name="Closure locked price", currency_code="JOD", status="ACTIVE",
+        created_by=actor.driver_id)
+    db.add(book)
+    await db.flush()
+    publication = PricePublication(company_id=company.id, price_book_id=book.id,
+        revision=1, status="PUBLISHED", effective_at=earlier, published_at=earlier,
+        approved_at=earlier, approved_by=actor.driver_id, created_by=actor.driver_id,
+        request_id=uuid4())
+    db.add(publication)
+    await db.flush()
+    effectivity = Range(lower=earlier.replace(tzinfo=timezone.utc), upper=None, bounds="[)")
+    db.add_all([
+        PriceBookEntry(company_id=company.id, price_book_id=book.id,
+            publication_id=publication.id, product_variant_id=variant.id, uom_id=uom.id,
+            amount=Decimal("5.000000"), effectivity=effectivity, is_published=True,
+            priority=0, entry_metadata={}),
+        PriceBookAssignment(company_id=company.id, price_book_id=book.id,
+            scope_type="COMPANY_DEFAULT", scope_id=None, revision=1, priority=0,
+            allow_offers=False, effectivity=effectivity, created_by=actor.driver_id),
+    ])
+    context = RouteCommercialContext(company_id=company.id, dispatch_route_id=route.id,
+        pricing_locked_at=utc_now(), price_publication_revision=1, assignment_revision=1,
+        offer_ruleset_version=0, tax_ruleset_version=1,
+        transaction_currency_code="JOD", functional_currency_code="JOD",
+        rounding_policy_version=1, tenant_policy_revision=1)
+    db.add(context)
+    await db.flush()
+    tax = TaxRuleSet(company_id=company.id, code="CLOSURE-ZERO",
+        name="Explicit zero tax", created_by=actor.driver_id)
+    db.add(tax)
+    await db.flush()
+    aware = earlier.replace(tzinfo=timezone.utc)
+    version = TaxRuleSetVersion(company_id=company.id, tax_rule_set_id=tax.id,
+        revision=1, definition_version=1, status="PUBLISHED", priority=0,
+        price_mode="EXCLUSIVE", effective_from=aware, request_id=uuid4(),
+        created_by=actor.driver_id, approved_by=actor.driver_id,
+        approved_at=aware, published_at=aware)
+    db.add(version)
+    await db.flush()
+    db.add(TaxRuleComponent(company_id=company.id, tax_rule_set_version_id=version.id,
+        component_code="ZERO", name="Zero", sequence=1, rate=Decimal("0"),
+        basis_mode="TAXABLE_BASE"))
+    await publish_commercial_rounding_policy(db, company_id=company.id,
+        actor_id=actor.driver_id, expected_revision=0, precision=3, mode="HALF_UP")
+    await db.flush()
+    return context.id
+
+
 @pytest_asyncio.fixture(loop_scope="function")
 async def journey(closure):
     """Independent counter + real commercial evidence for shortage and later reload."""
@@ -81,60 +134,9 @@ async def journey(closure):
                     "stocktake.approve", "stocktake.recount", "dispatch.execute"))
         await _grant_location(db, company_id=a.company_id, driver_id=a.actor.driver_id,
             location_id=a.warehouse, codes=("dispatch.execute",))
-        variant = await db.get(ProductVariant, a.variant)
-        variant.packs_per_carton = 1
-        earlier = utc_now() - timedelta(days=1)
-        book = PriceBook(company_id=a.company_id, code="CLOSURE-PRICE",
-            name="Closure locked price", currency_code="JOD", status="ACTIVE",
-            created_by=a.actor.driver_id)
-        db.add(book)
-        await db.flush()
-        publication = PricePublication(company_id=a.company_id, price_book_id=book.id,
-            revision=1, status="PUBLISHED", effective_at=earlier, published_at=earlier,
-            approved_at=earlier, approved_by=a.actor.driver_id, created_by=a.actor.driver_id,
-            request_id=uuid4())
-        db.add(publication)
-        await db.flush()
-        effectivity = Range(lower=earlier.replace(tzinfo=timezone.utc), upper=None, bounds="[)")
-        db.add_all([
-            PriceBookEntry(company_id=a.company_id, price_book_id=book.id,
-                publication_id=publication.id, product_variant_id=a.variant, uom_id=a.uom,
-                amount=Decimal("5.000000"), effectivity=effectivity, is_published=True,
-                priority=0, entry_metadata={}),
-            PriceBookAssignment(company_id=a.company_id, price_book_id=book.id,
-                scope_type="COMPANY_DEFAULT", scope_id=None, revision=1, priority=0,
-                allow_offers=False, effectivity=effectivity, created_by=a.actor.driver_id),
-        ])
         route = await db.scalar(select(DispatchRoute).where(
             DispatchRoute.company_id == a.company_id, DispatchRoute.work_session_id == a.work))
-        context = RouteCommercialContext(company_id=a.company_id, dispatch_route_id=route.id,
-            pricing_locked_at=utc_now(), price_publication_revision=1, assignment_revision=1,
-            offer_ruleset_version=0, tax_ruleset_version=1,
-            transaction_currency_code="JOD", functional_currency_code="JOD",
-            rounding_policy_version=1, tenant_policy_revision=1)
-        db.add(context)
-        await db.flush()
-        from models import WorkSession
-        work = await db.get(WorkSession, a.work)
-        work.commercial_context_id = context.id
         a.route, a.zone = route.id, route.zone_id
-        tax = TaxRuleSet(company_id=a.company_id, code="CLOSURE-ZERO",
-            name="Explicit zero tax", created_by=a.actor.driver_id)
-        db.add(tax)
-        await db.flush()
-        aware = earlier.replace(tzinfo=timezone.utc)
-        version = TaxRuleSetVersion(company_id=a.company_id, tax_rule_set_id=tax.id,
-            revision=1, definition_version=1, status="PUBLISHED", priority=0,
-            price_mode="EXCLUSIVE", effective_from=aware, request_id=uuid4(),
-            created_by=a.actor.driver_id, approved_by=a.actor.driver_id,
-            approved_at=aware, published_at=aware)
-        db.add(version)
-        await db.flush()
-        db.add(TaxRuleComponent(company_id=a.company_id, tax_rule_set_version_id=version.id,
-            component_code="ZERO", name="Zero", sequence=1, rate=Decimal("0"),
-            basis_mode="TAXABLE_BASE"))
-        await publish_commercial_rounding_policy(db, company_id=a.company_id,
-            actor_id=a.actor.driver_id, expected_revision=0, precision=3, mode="HALF_UP")
         await db.commit()
     return closure
 
@@ -213,6 +215,7 @@ async def business(gate, tenant, suffix, *, body=None, actor=None):
         method="POST" if body is not None else "GET", body=body)
 
 
+@pytest.mark.parametrize("closure", [seed_commercial_context], indirect=True)
 async def test_independent_recount_approval_then_receiver_handoff_preserves_variance(journey):
     gate, a = journey, journey.a
     command, keys = await receiving_command(gate, a)
@@ -287,6 +290,7 @@ async def test_independent_recount_approval_then_receiver_handoff_preserves_vari
         assert getattr(closed, field) == getattr(stock, field)
 
 
+@pytest.mark.parametrize("closure", [seed_commercial_context], indirect=True)
 async def test_later_vehicle_reload_is_new_route_custody_not_closed_settlement_edit(journey):
     gate, a = journey, journey.a
     old_command = await receive_exact(gate, a)
