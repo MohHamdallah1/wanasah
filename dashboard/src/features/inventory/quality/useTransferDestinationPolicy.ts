@@ -184,6 +184,10 @@ export function useTransferDestinationPolicy(onSaved?: () => void | Promise<void
     }
     setLoading(true);
     if (loadedScope.current !== scope) {
+      // Fail closed on company/principal switches: old tenant policy must never
+      // remain visible while the new scope is resolving.
+      loadedScope.current = null;
+      setPolicy({ draft: null, published: null });
       setSaving(false);
       setPending(null);
     }
@@ -317,27 +321,34 @@ export function useTransferDestinationPolicy(onSaved?: () => void | Promise<void
   };
 
   const inScope = loadedScope.current === scope;
-  const visiblePolicy = inScope ? policy : { draft: null, published: null };
+  const resolved = inScope && ready.current && !loading && loadError === null;
+  const visiblePolicy = resolved ? policy : { draft: null, published: null };
   const publishedPayload = visiblePolicy.published?.validated_payload ?? null;
-  const inPlaceActive =
-    publishedPayload === null || isInPlacePayload(publishedPayload);
   const customConfigured =
-    publishedPayload !== null && !isInPlacePayload(publishedPayload);
-  const effectivePayload: PolicyPayload =
-    publishedPayload ?? {
-      quarantine_location_id: null,
-      disposal_location_id: null,
-      vendor_return_staging_location_id: null,
-      allow_retiring_warehouse_balancing: false,
-    };
+    resolved &&
+    publishedPayload !== null &&
+    !isInPlacePayload(publishedPayload);
+  const effectivePayload: PolicyPayload | null = resolved
+    ? publishedPayload ?? {
+        quarantine_location_id: null,
+        disposal_location_id: null,
+        vendor_return_staging_location_id: null,
+        allow_retiring_warehouse_balancing: false,
+      }
+    : null;
+  const inPlaceActive =
+    resolved &&
+    effectivePayload !== null &&
+    isInPlacePayload(effectivePayload);
 
   return {
     canManage,
     policy: visiblePolicy,
+    resolved,
     inPlaceActive,
     customConfigured,
     effectivePayload,
-    loading: loading || !inScope,
+    loading: !resolved,
     saving,
     pending: inScope ? pending : null,
     loadError,
