@@ -57,6 +57,24 @@ describe("representative settlement custody journey", () => {
     localStorage.setItem("backoffice_user_id", "9");
   });
 
+  it("resumes an already authorized blind recount without reopening the review step", async () => {
+    await i18n.changeLanguage("en");
+    const copy = representativeSettlementCopy("en");
+    const authFetch = vi.fn(async (path: string, options: RequestInit = {}) => {
+      const method = options.method || "GET";
+      if (path.startsWith("/warehouse/locations?")) return { items: [{ id: 91, name: "Main Warehouse", code: "WH-1" }], next_cursor: null, has_more: false, total: 1 };
+      if (path === "/inventory/access/locations/capabilities" && method === "POST") return { locations: { "91": ["transfer.destination"] } };
+      if (path === "/admin/sessions/80/inventory-custody" && method === "GET") return { ...custody, review_required: true };
+      if (path === "/admin/sessions/80/inventory-custody/variance/count-sheet" && method === "GET") return countSheet;
+      throw new Error("Unexpected request " + method + " " + path);
+    });
+
+    render(<RepresentativeCustodyModal isOpen onClose={vi.fn()} driverName="Representative A" sessionId={80} authFetch={authFetch as never} onFinancialReady={vi.fn()} />);
+    expect(await screen.findByText(copy.recountTitle)).toBeInTheDocument();
+    expect(screen.queryByText(copy.reviewTitle)).not.toBeInTheDocument();
+    expect(screen.queryByText(copy.expected)).not.toBeInTheDocument();
+  });
+
   for (const locale of ["ar", "en"] as const) {
     it("keeps custody, variance, recount, approval and handoff in one " + locale + " DOM journey", async () => {
       await i18n.changeLanguage(locale);

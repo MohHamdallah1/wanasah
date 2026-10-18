@@ -51,19 +51,22 @@ export function RepresentativeCustodyModal({
     const review = await readVariance(authFetch, sessionId, signal);
     setVariance(review);
     setError(null);
-    if (review.requires_independent_recount && !review.independent_recount_satisfied) {
-      try {
-        const sheet = await readRecountSheet(authFetch, sessionId, signal);
-        setRecountSheet(sheet);
-        setRecountActual({});
-        setStage("recount");
-        return;
-      } catch {
-        // Recount is not authorized yet; remain on the variance review.
-      }
-    }
     setStage("review");
   }, [authFetch, sessionId]);
+
+  const resumeVarianceStage = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const sheet = await readRecountSheet(authFetch, sessionId, signal);
+      setRecountSheet(sheet);
+      setRecountActual({});
+      setError(null);
+      setStage("recount");
+      return;
+    } catch {
+      // PENDING_REVIEW has no blind count sheet; use the business variance review.
+    }
+    await loadVarianceReview(signal);
+  }, [authFetch, loadVarianceReview, sessionId]);
 
   const loadJourney = useCallback(async (signal?: AbortSignal) => {
     setStage("loading");
@@ -83,7 +86,7 @@ export function RepresentativeCustodyModal({
       return;
     }
     if (snapshot.review_required) {
-      await loadVarianceReview(signal);
+      await resumeVarianceStage(signal);
       return;
     }
     if (snapshot.inventory_reconciled) {
@@ -93,7 +96,7 @@ export function RepresentativeCustodyModal({
     }
     setActual({});
     setStage("count");
-  }, [authFetch, loadVarianceReview, onFinancialReady, sessionId]);
+  }, [authFetch, onFinancialReady, resumeVarianceStage, sessionId]);
 
   useEffect(() => {
     if (!isOpen) return;
