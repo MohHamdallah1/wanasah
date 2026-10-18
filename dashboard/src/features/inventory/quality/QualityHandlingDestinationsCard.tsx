@@ -25,7 +25,6 @@ export function QualityHandlingDestinationsCard({
   const controller = useTransferDestinationPolicy(onSaved);
   const {
     canManage,
-    inPlaceActive,
     customConfigured,
     effectivePayload,
     loading,
