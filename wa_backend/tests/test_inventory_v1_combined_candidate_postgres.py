@@ -31,6 +31,7 @@ from schemas import (
     TransferDestinationPolicyPublishRequest, UnifiedReceiveRequest,
 )
 from tests.canonical_actor_fixtures import seed_ordinary_backoffice_fixture
+from tests.test_cp8_transfers_postgres import pg  # noqa: F401 -- shared closure dependency
 from tests.test_inventory_v1_final_closure_acceptance_postgres import (
     closure, custody, evidence, financial, receiving_command, runtime_request,
 )

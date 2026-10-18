@@ -242,7 +242,7 @@ describe("Combined candidate positive yellow-card settlement", () => {
     const server = fixtureServer();
     mount();
     const dialog = await openYellowEntry();
-    expect(within(dialog).getAllByText("CLOSE-LOT").length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText(/CLOSE-LOT/).length).toBeGreaterThan(0);
     await confirmReceipt(dialog);
     await closeFinancial(server);
     expect(server.writes.filter(row => row.url.endsWith("/receive"))).toHaveLength(1);
@@ -260,7 +260,7 @@ describe("Combined candidate positive yellow-card settlement", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: /Recount|إعادة.*عد/i }));
     fireEvent.change(within(dialog).getByLabelText(/username|authorizer|اسم المستخدم/i),
       { target: { value: "Independent receiver" } });
-    fireEvent.change(within(dialog).getByLabelText(/password|كلمة المرور/i),
+    fireEvent.change(within(dialog).getByLabelText(/password|كلمة\s+(?:ال)?مرور/i),
       { target: { value: "IndependentPassword123" } });
     const reason = within(dialog).queryByLabelText(/reason|سبب/i);
     if (reason) fireEvent.change(reason, { target: { value: "Independent physical recount" } });
@@ -282,11 +282,11 @@ describe("Combined candidate positive yellow-card settlement", () => {
     dialog = await openYellowEntry();
     expect((await within(dialog).findAllByText(/[-−]\s*[1١]/)).length).toBeGreaterThan(0);
     const approvalName = /Approve.*variance|Final approval|اعتماد.*فرق|اعتماد نهائي/i;
-    if (!within(dialog).queryByLabelText(/password|كلمة المرور/i)) {
+    if (!within(dialog).queryByLabelText(/password|كلمة\s+(?:ال)?مرور/i)) {
       fireEvent.click(within(dialog).getByRole("button", { name: approvalName }));
       dialog = screen.getAllByRole("dialog").at(-1)!;
     }
-    const password = await within(dialog).findByLabelText(/password|كلمة المرور/i);
+    const password = await within(dialog).findByLabelText(/password|كلمة\s+(?:ال)?مرور/i);
     fireEvent.change(password, { target: { value: "ReceiverPassword123" } });
     fireEvent.click(within(dialog).getByRole("button", { name: approvalName }));
     await waitFor(() => expect(server.writes.some(row => row.url.endsWith("/variance/approve"))).toBe(true));
