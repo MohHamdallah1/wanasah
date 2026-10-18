@@ -616,9 +616,22 @@ async def test_backoffice_representative_custody_postgres():
             assert handoff["movement_count"] == 1
             assert await _qty(db, company, variance_vehicle, batch, "DAMAGED") == 0
             assert await _qty(db, company, warehouse, batch, "DAMAGED") == Decimal("5.125")
+            # The shortage carries a locked unit-price financial difference;
+            # the canonical financial step requires an explicit explanation.
+            with pytest.raises(HTTPException) as missing_shortage_reason:
+                await dispatch.settle_session(
+                    variance_session,
+                    SettleSessionRequest(actual_cash=Decimal("0"), notes=None),
+                    db=db, access=access, legacy_actor=actor.operational_driver,
+                )
+            assert missing_shortage_reason.value.status_code == 400
+            await db.rollback()
             cash_close = await dispatch.settle_session(
                 variance_session,
-                SettleSessionRequest(actual_cash=Decimal("0"), notes=None),
+                SettleSessionRequest(
+                    actual_cash=Decimal("0"),
+                    notes="One damaged unit missing; DRIVER_SHORTAGE valued at locked JOD 5.000",
+                ),
                 db=db, access=access, legacy_actor=actor.operational_driver,
             )
             assert cash_close["is_settled"] is True
