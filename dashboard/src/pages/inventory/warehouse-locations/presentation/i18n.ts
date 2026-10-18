@@ -21,7 +21,7 @@ const ar: WarehousePresentationCopy = {
   deactivationNextStep: "راجع المرجع أو العملية الظاهرة أدناه ثم أعد المحاولة بعد إزالة المانع.",
   activationCheck: "عند التفعيل، يصبح المستودع متاحاً للعمليات التي تسمح بها الصلاحيات والسياسات الحالية.",
   qualityPolicy: "إعداد وسياسة",
-  qualityPolicyHint: "هذه إعدادات وجهات المعالجة فقط وليست إجراءً يوميًا على المخزون.",
+  qualityPolicyHint: "الافتراضي في V1 هو إبقاء المخزون في موقعه الحالي وتغيير حالة المخزون فقط.",
 };
 
 const en: WarehousePresentationCopy = {
@@ -34,7 +34,7 @@ const en: WarehousePresentationCopy = {
   deactivationNextStep: "Inspect the reference or process shown below, clear the blocker, then retry.",
   activationCheck: "Once activated, the warehouse becomes available to workflows allowed by the current permissions and policies.",
   qualityPolicy: "Setup / policy",
-  qualityPolicyHint: "These are destination settings only, not a daily stock action.",
+  qualityPolicyHint: "The V1 default keeps stock in its current location and changes stock status only.",
 };
 
 export const warehousePresentationCopy = (language: string | undefined): WarehousePresentationCopy =>
