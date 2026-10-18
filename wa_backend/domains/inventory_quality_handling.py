@@ -18,6 +18,13 @@ def quality_stage_target_status(purpose: str, source_status: str) -> str:
     normalized_status = str(source_status or "").strip().upper()
     if normalized_purpose == "DISPOSAL":
         return "DISPOSAL_PENDING"
+    if normalized_purpose == "RECALL_RETURN":
+        return "RECALLED"
+    if normalized_purpose == "QUARANTINE":
+        if normalized_status in {"BLOCKED", "RECALLED"}:
+            return normalized_status
+        if normalized_status in {"AVAILABLE", "QUARANTINED"}:
+            return "QUARANTINED"
     if normalized_purpose == "RETURN_TO_VENDOR":
         if normalized_status in {"QUARANTINED", "BLOCKED", "RECALLED", "DAMAGED"}:
             return normalized_status
@@ -48,7 +55,7 @@ async def stage_quality_handling_direct(
     the source and only its status changes until the terminal action is confirmed.
     """
     purpose = str(transfer_purpose or "").strip().upper()
-    if purpose not in {"DISPOSAL", "RETURN_TO_VENDOR"}:
+    if purpose not in {"QUARANTINE", "RECALL_RETURN", "DISPOSAL", "RETURN_TO_VENDOR"}:
         raise InventoryMutationError("Unsupported quality handling purpose.")
     if not source_lines:
         raise InventoryMutationError("Quality handling stage requires stock lines.")
