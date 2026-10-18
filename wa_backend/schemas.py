@@ -893,6 +893,7 @@ class JardItemInput(RequestModel):
 
 
 class SettleSessionRequest(RequestModel):
+    request_id: UUID
     # مبلغ التسوية قرار محاسبي صريح؛ غيابه أو إرساله فارغاً لا يتحول إلى صفر بصمت.
     actual_cash: RequiredMoneyInput
     inventory_jard: List[JardItemInput] = Field(default_factory=list, max_length=5000)
