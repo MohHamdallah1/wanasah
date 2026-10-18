@@ -1144,15 +1144,14 @@ async def save_transfer_destination_policy_draft(
                 "تغير Draft السياسة منذ فتحه. حدّث البيانات ثم أعد المحاولة.",
                 context={"current_revision": current_revision},
             )
-        if current_revision != max_revision:
-            raise InventoryMutationError(
-                "Policy invariant violated: active DRAFT is not latest revision."
-            )
         before = {
             "revision": current_revision,
             "validated_payload": dict(draft.validated_payload or {}),
         }
-        draft.revision = current_revision + 1
+        # A backend-owned default may have been lazily published after this
+        # draft was created. Preserve the draft and advance it beyond all
+        # materialized revisions on its next explicit save.
+        draft.revision = max_revision + 1
         draft.schema_version = TRANSFER_DESTINATION_POLICY_SCHEMA_VERSION
         draft.validated_payload = normalized
         draft.updated_at = now
@@ -1244,6 +1243,27 @@ async def publish_transfer_destination_policy(
         lock_locations=True,
     )
     draft.validated_payload = normalized
+
+    max_revision = int(
+        (
+            await db_session.execute(
+                select(
+                    func.coalesce(
+                        func.max(TenantOperationalPolicy.revision),
+                        0,
+                    )
+                ).filter(
+                    TenantOperationalPolicy.company_id == company_id,
+                    TenantOperationalPolicy.policy_code
+                    == TRANSFER_DESTINATION_POLICY_CODE,
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    if int(draft.revision) < max_revision:
+        draft.revision = max_revision + 1
+        await db_session.flush()
 
     current = (
         await db_session.execute(
@@ -1340,6 +1360,129 @@ async def get_transfer_destination_policy_state(
         None,
     )
     return draft, published
+
+
+async def ensure_effective_transfer_destination_policy(
+    db_session: AsyncSession,
+    *,
+    company_id: int,
+    actor_id: int,
+    request_id: UUID,
+) -> Tuple[TenantOperationalPolicy, Dict[str, Any], bool]:
+    """Return the published policy, lazily materializing the safe V1 default.
+
+    Reads never mutate. The first real special-transfer mutation calls this
+    inside its existing idempotent transaction, so the default policy evidence
+    is created exactly once per company and rolls back if the action fails.
+    Existing explicit published policies are never changed.
+    """
+    company_id = _strict_int(company_id, "company_id", minimum=1)
+    actor_id = _strict_int(actor_id, "actor_id", minimum=1)
+    request_id = UUID(str(request_id))
+
+    await _acquire_transfer_policy_guard(db_session, company_id)
+
+    published = (
+        await db_session.execute(
+            select(TenantOperationalPolicy)
+            .filter(
+                TenantOperationalPolicy.company_id == company_id,
+                TenantOperationalPolicy.policy_code
+                == TRANSFER_DESTINATION_POLICY_CODE,
+                TenantOperationalPolicy.status == "PUBLISHED",
+                TenantOperationalPolicy.effective_to.is_(None),
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+
+    if published is not None:
+        if int(published.schema_version) != TRANSFER_DESTINATION_POLICY_SCHEMA_VERSION:
+            raise InventoryRuleError(
+                "TRANSFER_POLICY_SCHEMA_UNSUPPORTED",
+                "نسخة Schema لسياسة وجهات التحويل المنشورة غير مدعومة.",
+                context={
+                    "policy_id": int(published.id),
+                    "policy_revision": int(published.revision),
+                    "schema_version": int(published.schema_version),
+                    "supported_schema_version": TRANSFER_DESTINATION_POLICY_SCHEMA_VERSION,
+                },
+            )
+        normalized = await validate_transfer_destination_policy_payload(
+            db_session,
+            company_id=company_id,
+            payload=dict(published.validated_payload or {}),
+            lock_locations=True,
+        )
+        return published, normalized, False
+
+    max_revision = int(
+        (
+            await db_session.execute(
+                select(
+                    func.coalesce(
+                        func.max(TenantOperationalPolicy.revision),
+                        0,
+                    )
+                ).filter(
+                    TenantOperationalPolicy.company_id == company_id,
+                    TenantOperationalPolicy.policy_code
+                    == TRANSFER_DESTINATION_POLICY_CODE,
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+
+    normalized = await validate_transfer_destination_policy_payload(
+        db_session,
+        company_id=company_id,
+        payload={
+            "quarantine_location_id": None,
+            "disposal_location_id": None,
+            "vendor_return_staging_location_id": None,
+            "allow_retiring_warehouse_balancing": False,
+        },
+        lock_locations=True,
+    )
+    now = utc_now()
+    published = TenantOperationalPolicy(
+        company_id=company_id,
+        policy_code=TRANSFER_DESTINATION_POLICY_CODE,
+        schema_version=TRANSFER_DESTINATION_POLICY_SCHEMA_VERSION,
+        revision=max_revision + 1,
+        validated_payload=normalized,
+        status="PUBLISHED",
+        effective_from=now,
+        effective_to=None,
+        approved_by=actor_id,
+        approved_at=now,
+        created_by=actor_id,
+        created_at=now,
+        updated_at=now,
+    )
+    db_session.add(published)
+    await db_session.flush()
+
+    record_domain_event(
+        db_session,
+        company_id=company_id,
+        actor_id=actor_id,
+        request_id=request_id,
+        event_type="TenantOperationalPolicyDefaultMaterialized",
+        entity_type="TenantOperationalPolicy",
+        entity_id=int(published.id),
+        reason="INVENTORY_TRANSFER_DESTINATIONS_EFFECTIVE_DEFAULT",
+        before=None,
+        after={
+            "revision": int(published.revision),
+            "status": "PUBLISHED",
+            "validated_payload": dict(normalized),
+            "materialization": "LAZY_SPECIAL_TRANSFER",
+        },
+        emit_outbox=True,
+    )
+    return published, normalized, True
 
 
 async def load_published_transfer_destination_policy(
@@ -1640,7 +1783,10 @@ async def read_special_transfer_destinations(
         db_session, company_id=company_id
     )
     if published is None:
-        return {}
+        return {
+            purpose: None
+            for purpose in SPECIAL_TRANSFER_DESTINATION_POLICY_KEY
+        }
     if int(published.schema_version) != TRANSFER_DESTINATION_POLICY_SCHEMA_VERSION:
         return {}
     try:
