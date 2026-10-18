@@ -88,6 +88,7 @@ from services import (
     change_product_batch_disposition,
     complete_idempotent_operation,
     batch_sellability_predicate,
+    ensure_effective_transfer_destination_policy,
     ensure_system_transit_location,
     get_company_local_date,
     inventory_business_error,
@@ -1555,6 +1556,16 @@ async def special_transfer_dispatch(
             await require_transfer_replay(access, int(replay_response["header_id"]), destination=True)
             await db.rollback()
             return replay_response
+
+        # No setup UI is required for the safe same-location default. The first
+        # real mutation materializes durable policy evidence exactly once under
+        # the tenant policy guard; an existing explicit Published policy wins.
+        await ensure_effective_transfer_destination_policy(
+            db,
+            company_id=company_id,
+            actor_id=legacy_actor.id,
+            request_id=payload.request_id,
+        )
 
         await require_special_destination(
             access,
