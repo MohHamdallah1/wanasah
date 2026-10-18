@@ -18,7 +18,7 @@ from sqlalchemy.pool import NullPool
 
 from api import dispatch, representative_settlement as settlement
 from models import (
-    Company, DispatchRoute, InventoryBalance, InventoryLocation, InventoryMovement,
+    Company, DispatchRoute, Driver, InventoryBalance, InventoryLocation, InventoryMovement,
     Product, ProductBatch, ProductLocation, ProductVariant,
     StocktakeCountAttemptLine, StocktakeSession, SystemAuditLog, UOM, Vehicle,
     WorkSession, Zone, utc_now,
@@ -456,12 +456,16 @@ async def test_backoffice_representative_custody_postgres():
                 variance_session, db=db, access=access,
             )
             assert first["independent_recount_satisfied"] is False
+            authorizer_driver = await db.scalar(select(Driver).where(
+                Driver.company_id == company, Driver.id == counter.driver_id,
+            ))
+            assert authorizer_driver is not None
             recount = await settlement.request_representative_recount(
                 variance_session,
                 settlement.CustodyVarianceRecount(
                     request_id=uuid4(),
                     reason="Independent physical receiver recount",
-                    authorizer_username=counter.operational_driver.username,
+                    authorizer_username=authorizer_driver.username,
                     authorizer_password=counter_password,
                 ),
                 db=db, access=access, legacy_actor=actor.operational_driver,
