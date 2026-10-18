@@ -1,4 +1,4 @@
-# Wanasah — Inventory Quality, Damaged Goods, Returns & Settlement Closed-Loop Plan
+# Wanasah — Inventory Damaged Goods, Returns & Representative Settlement Plan
 
 > **Owner decision date:** 2026-10-18
 >
@@ -62,48 +62,41 @@ The permanent architecture rule in `ARCHITECTURE.md` applies throughout this pla
 
 ---
 
-# 3. Settlement ownership — two phases, not duplicate buttons
+# 3. Representative settlement — one user-facing entry point
 
-The two current settlement entry points are **not duplicates** and must not be collapsed blindly.
+**Owner decision (2026-10-18):** the user-facing settlement of an ended representative work session must start from **one place only: the yellow card on Operations/Home**. Do not make the operator choose between a settlement button on the home page and another settlement button inside Inventory → Stocktake / Reconciliation.
 
-## 3.1 Inventory / vehicle reconciliation owner
+Internally, the single settlement flow may still execute two ordered backend phases:
 
-**Inventory → Stocktake / Reconciliation** owns the physical custody phase.
+## 3.1 Internal inventory/custody phase
 
-Its Vehicle Recon flow is responsible for:
+The existing Vehicle Recon / inventory-reconciliation authority remains the backend owner for physical stock truth:
 
-- [ ] selecting an ended work session/vehicle eligible for reconciliation;
-- [ ] counting all physical stock states carried by the vehicle, not AVAILABLE only;
-- [ ] comparing expected vs physically received quantities;
-- [ ] explicitly receiving the returned custody into the company/warehouse when the responsible user confirms it;
-- [ ] preserving every variance rather than silently zeroing it;
-- [ ] posting any approved stocktake correction only through Unified Inventory Movement;
-- [ ] retaining exact user, work-session, vehicle, product, Batch, stock-status, quantity, timestamp, and evidence links.
+- [ ] count the physical stock still under Vehicle custody, including non-AVAILABLE stock such as `DAMAGED`;
+- [ ] compare expected versus physically received quantities;
+- [ ] confirm the real Vehicle → Warehouse custody handoff when the responsible receiver accepts the goods;
+- [ ] keep any shortage/overage as explicit reconciliation evidence;
+- [ ] post approved inventory corrections only through Unified Inventory Movement;
+- [ ] retain exact user, work-session, vehicle, product, Batch, stock-status, quantity, timestamp, and evidence links.
 
-The user-facing label must remain unmistakably inventory-specific, e.g. **تسوية عهدة السيارة / Vehicle inventory reconciliation**, not a generic “settlement”.
+**UI decision:** when this flow is implemented, remove the separate user-facing **Vehicle settlement / Vehicle Recon** start button from the Stocktake page. Stocktake/reconciliation logic may be reused internally, but the operator starts the representative settlement from the yellow card only.
 
-## 3.2 Operations/Home financial settlement owner
+## 3.2 Financial/final phase
 
-The primary Operations/Home card owns the later financial closure.
+After the inventory/custody phase is sealed, the same yellow-card flow continues to the financial close:
 
-- [x] Current Backend/UI already refuses final financial settlement before the inventory reconciliation seal exists.
-- [ ] Keep the primary financial-close action on the Operations/Home surface.
-- [ ] Make its wording explicitly financial/final, e.g. **اعتماد التسوية المالية وإغلاق العهدة**.
-- [ ] It owns actual cash receipt, expected-vs-actual cash difference, required explanation/evidence, and final work-session settlement state.
-- [ ] It must consume inventory-reconciliation results; it must not independently invent or rewrite inventory truth.
-- [ ] Remove the editable inventory recount from the financial Settlement modal. Inventory was already authoritatively counted/sealed in Vehicle Recon; the financial modal may show that result read-only for context only.
+- [x] Current Backend already refuses final financial settlement before inventory reconciliation is complete.
+- [ ] Actual cash, expected-vs-actual cash difference, required explanation/evidence, and final work-session closure belong here.
+- [ ] The financial step consumes the sealed inventory result; it must not recalculate or mutate stock independently.
+- [ ] Remove the editable inventory recount from the financial Settlement modal. Inventory is counted once in the internal inventory/custody phase; the final step may show the result read-only for context.
 - [ ] Stop sending the legacy `inventory_jard` compatibility payload after Dashboard migration. Backend currently validates it against the sealed AVAILABLE Ending Snapshot but intentionally does not mutate inventory from it.
-- [ ] Retire/deprecate the compatibility field only after all supported clients have stopped depending on it; do not break old clients blindly.
+- [ ] Retire/deprecate that compatibility field only after all supported clients have stopped depending on it.
 
-**Decision:** keep both phases because they have different owners. Count physical stock once in Inventory reconciliation; close cash/finance once in Operations. Do not create two mutation surfaces for the same phase.
+**Decision:** one visible settlement journey, one entry point, two ordered internal authorities. The detailed yellow-card UX will be designed when Operations/Home reaches its polish phase; do not over-design it now.
 
 ## 3.3 Real-world cadence
 
-Do not hard-code the business assumption that settlement must happen every calendar day.
-
-A company may reconcile after each shift, daily, every two days, weekly, or according to its approved process. The system must preserve ended-session custody accurately until reconciliation occurs.
-
-Physical reality may happen in one meeting: the responsible employee counts stock, receives damaged goods and remaining saleable goods, and takes the cash. System ownership remains separated internally so stock custody is reconciled before final financial closure.
+Do not hard-code the assumption that settlement must happen every calendar day. A company may settle after each shift, daily, every two days, weekly, or according to its approved process. The system must preserve ended-session custody accurately until settlement occurs.
 
 ---
 
@@ -117,14 +110,14 @@ Expected sequence:
 
 1. driver/work session ends;
 2. vehicle remains authoritative custody for its recorded stock;
-3. responsible warehouse/backoffice user opens Vehicle Recon;
-4. system shows expected quantities by product + Batch + stock status;
+3. responsible user starts the representative settlement from the yellow Operations/Home card;
+4. the single flow enters its internal inventory/custody stage and shows expected quantities by product + Batch + stock status;
 5. receiver counts what is physically presented;
 6. receiver confirms actual receipt;
 7. matched quantities move from Vehicle custody to the chosen normal receiving warehouse/location using authoritative movement(s);
 8. any mismatch stays as explicit reconciliation variance;
 9. inventory reconciliation is sealed only according to the approved variance/recount rules;
-10. final financial settlement may proceed afterward.
+10. the same yellow-card journey may then continue to its financial/final phase.
 
 Required movement behavior:
 

@@ -20,7 +20,7 @@ No business workflow change is authorized without explicit prior discussion and 
 - Never expose database IDs, FEFO choices, internal Batch allocation, supplier-resolution mechanics, costing choices, idempotency/replay details, lock ordering, or reconciliation math as ordinary user work.
 - Keep Dashboard and Flutter simple by putting complexity in canonical backend/domain authorities, never by duplicating or weakening inventory, financial, audit, tenant, location, or permission truth in a client.
 - The full permanent rule is in `ARCHITECTURE.md` and applies to all future agents, pages, mobile workflows, imports, automation, and integrations.
-- Before changing quality destinations, quarantine, damaged goods, disposal, vendor return, Vehicle→Warehouse reconciliation handoff, or related financial closure, read `INVENTORY_QUALITY_RETURNS_CLOSED_LOOP_PLAN.md` and preserve its execution order and closed-loop invariants.
+- Before changing quality destinations, quarantine, damaged goods, disposal, vendor return, Vehicle→Warehouse reconciliation handoff, or related financial closure, read `INVENTORY_DAMAGED_GOODS_RETURNS_AND_REPRESENTATIVE_SETTLEMENT_PLAN.md` and preserve its execution order and closed-loop invariants.
 
 ## Canonical identity and authorization — mandatory
 

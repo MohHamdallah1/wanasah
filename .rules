@@ -21,7 +21,7 @@ BACKEND-OWNED COMPLEXITY / MINIMUM OPERATOR INPUT (MANDATORY):
 - Internal Batch resolution, FEFO, supplier provenance, costing, idempotency/replay, lock order, status/movement construction, and reconciliation math remain backend-owned.
 - Deterministic cases resolve automatically. Genuine ambiguity fails closed and requests only the smallest human-readable discriminator; never guess to save a click.
 - UI simplicity must come from backend-owned complexity, not from dropping validation, audit, isolation, inventory, or financial truth. This rule applies to Dashboard, Flutter/mobile, imports, automation, and integrations. See `ARCHITECTURE.md` for the canonical rule.
-- Any work touching quality destinations, quarantine, damaged goods, disposal, vendor return, Vehicle→Warehouse reconciliation handoff, or their financial closure must also read and preserve `INVENTORY_QUALITY_RETURNS_CLOSED_LOOP_PLAN.md`.
+- Any work touching quality destinations, quarantine, damaged goods, disposal, vendor return, Vehicle→Warehouse reconciliation handoff, or their financial closure must also read and preserve `INVENTORY_DAMAGED_GOODS_RETURNS_AND_REPRESENTATIVE_SETTLEMENT_PLAN.md`.
 
 DASHBOARD UX CONSTITUTION (MANDATORY):
 - Backend complexity must not leak into the operator experience. Preserve all authority, validation, audit, isolation, idempotency, and safety in backend/domain layers while keeping the dashboard path short and obvious.

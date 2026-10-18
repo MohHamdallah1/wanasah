@@ -18,7 +18,7 @@
 >
 > **Final polish rule:** بعد اكتمال الوظائف والـcontracts والصلاحيات نعمل Wave مستقلة لإعادة هندسة وصقل واجهة Inventory بالكامل. الـpolish النهائي لا يسبق صحة المنطق.
 
-**Owner closed-loop companion (2026-10-18):** the detailed quality/damaged-goods/Vehicle-handoff/financial-closure decisions discovered during final Owner polish are governed by `INVENTORY_QUALITY_RETURNS_CLOSED_LOOP_PLAN.md`. Historical `[x]` evidence in this plan remains valid for the technical contract it tested, but it must not be interpreted as closing a newer owner-approved end-to-end gap explicitly reopened in that companion plan.
+**Owner closed-loop companion (2026-10-18):** the detailed quality/damaged-goods/Vehicle-handoff/financial-closure decisions discovered during final Owner polish are governed by `INVENTORY_DAMAGED_GOODS_RETURNS_AND_REPRESENTATIVE_SETTLEMENT_PLAN.md`. Historical `[x]` evidence in this plan remains valid for the technical contract it tested, but it must not be interpreted as closing a newer owner-approved end-to-end gap explicitly reopened in that companion plan.
 
 ---
 
@@ -577,7 +577,7 @@ Live Stock is primarily an operational read surface; avoid turning it into a sec
 - [x] Validate quarantine/disposal/vendor-return destination semantics.
 - [x] Warehouse deactivation must remain blocked while referenced by published policy.
 - [x] Quality action UI provides configuration path only when destination setup is actually the blocker.
-- [ ] **Owner V1 refinement (2026-10-18):** redesign the user-facing `وجهات الجودة` utility to the same-location default and compact Warehouse Management modal/panel defined in `INVENTORY_QUALITY_RETURNS_CLOSED_LOOP_PLAN.md`; do not force a one-warehouse company to publish three artificial destination warehouses.
+- [ ] **Owner V1 refinement (2026-10-18):** redesign the user-facing `وجهات الجودة` utility to the same-location default and compact Warehouse Management modal/panel defined in `INVENTORY_DAMAGED_GOODS_RETURNS_AND_REPRESENTATIVE_SETTLEMENT_PLAN.md`; do not force a one-warehouse company to publish three artificial destination warehouses.
 
 ## 8.3 UX acceptance
 
@@ -610,7 +610,7 @@ Live Stock is primarily an operational read surface; avoid turning it into a sec
 - [x] Preserve tenant/location isolation before candidate selection.
 - [x] Warehouse deactivation remains blocked by non-final stocktake.
 - [x] Runtime acceptance covers normal count, variance, recount and cancellation.
-- [ ] **Owner closed-loop extension (2026-10-18):** add explicit receiver-confirmed Vehicle → Warehouse custody handoff for reconciled physical stock, including `DAMAGED`, without silently erasing shortages/overages. Detailed contract and acceptance live in `INVENTORY_QUALITY_RETURNS_CLOSED_LOOP_PLAN.md`.
+- [ ] **Owner representative-settlement extension (2026-10-18):** keep Vehicle Recon as the internal inventory/custody authority, but remove its separate user-facing settlement start from Stocktake. The representative settlement starts only from the yellow Operations/Home card, performs receiver-confirmed Vehicle → Warehouse handoff for reconciled stock including `DAMAGED`, preserves shortages/overages explicitly, then proceeds to financial closure. Detailed contract and acceptance live in `INVENTORY_DAMAGED_GOODS_RETURNS_AND_REPRESENTATIVE_SETTLEMENT_PLAN.md`.
 
 **Checkpoint 9 gate:** stock correction is never an ad-hoc balance edit. Historical Vehicle Recon acceptance remains valid, while the newly approved custody-handoff extension above is still open.
 
@@ -825,7 +825,7 @@ Run from a realistic company setup, not isolated component demos.
 - [x] Cancel.
 - [x] Vehicle recon.
 - [x] Verify resulting movements and Ledger evidence.
-- [ ] **Owner closed-loop acceptance (2026-10-18):** confirm receiver-accepted Vehicle → Warehouse handoff moves exact AVAILABLE/DAMAGED custody, keeps any mismatch explicit, and leaves the later Operations settlement financial-only.
+- [ ] **Owner representative-settlement acceptance (2026-10-18):** confirm there is one user-facing settlement entry on the yellow Operations/Home card; its internal inventory phase moves exact AVAILABLE/DAMAGED Vehicle custody to Warehouse with mismatches explicit, and its later phase closes cash/finance without a second inventory recount.
 
 ## 14.7 Lifecycle blocker journey
 
