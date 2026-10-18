@@ -4,10 +4,12 @@ on:
   push:
     branches:
       - sol/representative-settlement-v1-backend
+      - sol/inventory-v1-final-financial-idempotency
     paths:
       - "wa_backend/tests/test_representative_settlement_custody_postgres.py"
       - "wa_backend/api/representative_settlement.py"
       - "wa_backend/api/dispatch.py"
+      - "wa_backend/schemas.py"
       - "wa_backend/main.py"
       - ".github/workflows/inventory-representative-settlement-backend.yml"
   pull_request:
@@ -156,6 +158,7 @@ jobs:
           wa_backend/tests/test_representative_settlement_custody_postgres.py
           wa_backend/api/representative_settlement.py
           wa_backend/api/dispatch.py
+          wa_backend/schemas.py
           wa_backend/main.py
           wa_backend/services.py
           wa_backend/api/warehouse/stocktake.py
@@ -175,22 +178,34 @@ jobs:
       - name: Frozen-base ancestry, bounded ownership and whitespace
         run: |
           set -euo pipefail
-          BASE=8231ca07f945feb61737e7b4ac6150846cba60a8
+          if [ "$GITHUB_REF_NAME" = "sol/inventory-v1-final-financial-idempotency" ]; then
+            BASE=f78e656b0f4706f5f440f3a530da3f2b77195c4d
+          else
+            BASE=8231ca07f945feb61737e7b4ac6150846cba60a8
+          fi
           git merge-base --is-ancestor "$BASE" HEAD
           git diff --check "$BASE" HEAD
-          python - <<'PY'
-          import subprocess
-          base="8231ca07f945feb61737e7b4ac6150846cba60a8"
+          BASE="$BASE" python - <<'PY'
+          import os, subprocess
+          base=os.environ["BASE"]
           changed=set(subprocess.check_output(
               ["git", "diff", "--name-only",base,"HEAD"],text=True
           ).splitlines())
-          expected={
-              "wa_backend/api/representative_settlement.py",
-              "wa_backend/api/dispatch.py",
-              "wa_backend/main.py",
-              "wa_backend/tests/test_representative_settlement_custody_postgres.py",
-              ".github/workflows/inventory-representative-settlement-backend.yml",
-          }
+          if base.startswith("f78e656b"):
+              expected={
+                  "wa_backend/schemas.py",
+                  "wa_backend/api/dispatch.py",
+                  "wa_backend/tests/test_representative_settlement_custody_postgres.py",
+                  ".github/workflows/inventory-representative-settlement-backend.yml",
+              }
+          else:
+              expected={
+                  "wa_backend/api/representative_settlement.py",
+                  "wa_backend/api/dispatch.py",
+                  "wa_backend/main.py",
+                  "wa_backend/tests/test_representative_settlement_custody_postgres.py",
+                  ".github/workflows/inventory-representative-settlement-backend.yml",
+              }
           assert changed==expected, f"Unexpected scope: {sorted(changed ^ expected)}"
           print("REP_SETTLEMENT_SCOPE_AND_DIFF_PASS")
           PY
