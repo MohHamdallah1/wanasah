@@ -2,8 +2,10 @@ import { currentLocale } from "@/i18n";
 import { Radar, CheckCircle2, RotateCcw, Eye, Package, Banknote, Search } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Modal } from "@/components/ui/modal";
-import { FINANCIAL_SETTLEMENT_READY_STATUS, SESSION_STATUS } from "@/data/operations-data";
+import { isSettlementJourneyStatus, SESSION_STATUS } from "@/data/operations-data";
+import { representativeSettlementCopy } from "@/features/operations/representativeSettlement/copy";
 
 // --- الدروع الصارمة (Strict Interfaces) ---
 interface DriverVisits {
@@ -47,16 +49,20 @@ export interface ActiveDriver {
 
 interface CommandCenterProps {
   driver: ActiveDriver | null;
-  onApproveSettlement: () => void;
+  onOpenSettlement: () => void;
   onUndoEndWork?: () => void;
 }
 
-export function CommandCenter({ driver, onApproveSettlement, onUndoEndWork }: CommandCenterProps) {
+export function CommandCenter({ driver, onOpenSettlement, onUndoEndWork }: CommandCenterProps) {
   const [showInventoryModal, setShowInventoryModal] = useState(false);
-  const [inventorySearch, setInventorySearch] = useState(""); 
-  
-  const canApproveSettlement =
-    driver?.settlement?.status === FINANCIAL_SETTLEMENT_READY_STATUS;
+  const [inventorySearch, setInventorySearch] = useState("");
+  const { i18n } = useTranslation();
+  const settlementCopy = representativeSettlementCopy(i18n.resolvedLanguage || i18n.language);
+
+  const canOpenSettlement =
+    Boolean(driver && isSettlementJourneyStatus(driver.settlement.status));
+  const awaitingCustody =
+    driver?.settlement?.status === SESSION_STATUS.AWAITING_INVENTORY_RECONCILIATION;
   const canUndoEndWork =
     driver?.settlement?.status === SESSION_STATUS.AWAITING_INVENTORY_RECONCILIATION;
   const GLOBAL_CURRENCY = "د.أ";
@@ -113,7 +119,7 @@ export function CommandCenter({ driver, onApproveSettlement, onUndoEndWork }: Co
                     </span>
                   )}
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
-                    canApproveSettlement || canUndoEndWork
+                    canOpenSettlement || canUndoEndWork
                       ? "bg-amber-50 text-amber-600 border-amber-200"
                       : "bg-emerald-50 text-emerald-600 border-emerald-200"
                   }`}>
@@ -188,15 +194,17 @@ export function CommandCenter({ driver, onApproveSettlement, onUndoEndWork }: Co
               )}
 
               <button
-                onClick={onApproveSettlement}
-                disabled={!canApproveSettlement}
-                className={`w-full flex items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-sm font-bold transition-all shadow-sm ${
-                  canApproveSettlement
-                    ? "bg-slate-900 text-white hover:bg-slate-800 active:scale-[0.99] border border-slate-800"
+                onClick={onOpenSettlement}
+                disabled={!canOpenSettlement}
+                data-representative-settlement-entry="yellow-card"
+                className={`w-full flex items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-sm font-black transition-all shadow-sm ${
+                  canOpenSettlement
+                    ? "bg-amber-400 text-slate-900 hover:bg-amber-300 active:scale-[0.99] border border-amber-300"
                     : "bg-slate-50 text-slate-400 cursor-not-allowed border border-slate-200"
                 }`}
               >
-                <CheckCircle2 className="w-5 h-5" strokeWidth={2.5} /> اعتماد التسوية وإغلاق العهدة
+                <CheckCircle2 className="w-5 h-5" strokeWidth={2.5} />
+                {awaitingCustody ? settlementCopy.startSettlement : settlementCopy.financialSettlement}
               </button>
             </div>
           </motion.div>

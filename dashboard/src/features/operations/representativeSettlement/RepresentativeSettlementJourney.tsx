@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { SettlementModal } from "@/components/operations/SettlementModal";
 import { FINANCIAL_SETTLEMENT_READY_STATUS, type DriverData, type SessionSettlementReport } from "@/data/operations-data";
 import type { SettlementAuthFetch } from "./api";
@@ -21,6 +21,11 @@ export function RepresentativeSettlementJourney({
   onCustodyCompleted: (sessionId: number) => void;
 }) {
   const [phase, setPhase] = useState<"custody" | "financial">("custody");
+  const handleFinancialReady = useCallback((sessionId: number) => {
+    setPhase("financial");
+    onCustodyCompleted(sessionId);
+  }, [onCustodyCompleted]);
+
   useEffect(() => {
     if (!isOpen || !driver) return;
     setPhase(driver.settlement.status === FINANCIAL_SETTLEMENT_READY_STATUS ? "financial" : "custody");
@@ -29,5 +34,5 @@ export function RepresentativeSettlementJourney({
   if (phase === "financial") {
     return <SettlementModal isOpen={isOpen} onClose={onClose} driver={driver} report={report} isReportLoading={isReportLoading} reportError={reportError} onRetryReport={onRetryReport} isSubmitting={isSubmitting} onConfirmSettlement={onConfirmSettlement} />;
   }
-  return <RepresentativeCustodyModal isOpen={isOpen} onClose={onClose} driverName={driver.session.driver_name} sessionId={driver.session.session_id} authFetch={authFetch} onFinancialReady={(sessionId) => { setPhase("financial"); onCustodyCompleted(sessionId); }} />;
+  return <RepresentativeCustodyModal isOpen={isOpen} onClose={onClose} driverName={driver.session.driver_name} sessionId={driver.session.session_id} authFetch={authFetch} onFinancialReady={handleFinancialReady} />;
 }
