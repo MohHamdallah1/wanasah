@@ -157,7 +157,26 @@ The Backend worker's own tests are supporting evidence, not substituted for inde
   impacts for BOTH locations, without expanding Ledger access.
   Quality failures identified a missing required notes field in this test's DTO.
   That fixture input is corrected; no product behavior or expectation is relaxed.
-  Corrected pinned-worker results are pending.
+  Corrected execution on acceptance source
+  `fc5cf0618bcc74a0dd6085e1435072156c709fb8`:
+  [run 39136503456](https://github.com/MohHamdallah1/wanasah/actions/runs/39136503456).
+
+| Final selected execution | Result |
+| --- | --- |
+| PostgreSQL receiver worker f4bb3834 | **9 passed**, 4 intentionally deselected quality cases; 0 skipped/errors |
+| PostgreSQL quality worker 02b5ea4c | **5 passed**, 8 intentionally deselected unrelated cases; 0 skipped/errors |
+| Dashboard worker 4f3885f8 | **4 passed**, lint passed |
+| Assigned-base PostgreSQL | **4 passed / 9 failed / 0 skipped / 0 setup errors** |
+| Assigned-base Dashboard | **4 failed**, lint passed |
+| Exact acceptance-only scope | **PASS** |
+
+The nine baseline Backend failures are four null-default contract failures, the
+reproduced financial handoff bypass and four explicit missing-receiver-integration
+failures. The overall workflow is red by design because those baseline failures
+remain strict. Worker successes are scoped results, not final closure approval.
+Every source SHA is pinned in the matrix above; later worker commits are not covered.
+This final evidence update changes documentation only; tested source/workflow remain
+the exact fc5cf061 versions. Docs-only pushes do not rerun unchanged acceptance code.
 - PR #399 was opened against main and closed unmerged because the assigned base
   already includes 13 commits / 22 inherited files ahead of main. The worker delta
   is four files; inherited production changes are not proposed by this worker.
