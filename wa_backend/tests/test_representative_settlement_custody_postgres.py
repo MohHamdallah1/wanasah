@@ -86,6 +86,10 @@ async def _seed(admin_engine):
         denied = await seed_ordinary_backoffice_fixture(
             db, company.id, password="CP15DeniedSynthetic123"
         )
+        counter_password = "CP15IndependentCounterSynthetic123"
+        counter = await seed_ordinary_backoffice_fixture(
+            db, company.id, password=counter_password,
+        )
         warehouse = InventoryLocation(
             company_id=company.id, name="Receiving warehouse",
             code="CP15-RECEIVE", location_type="WAREHOUSE", is_active=True,
@@ -159,6 +163,14 @@ async def _seed(admin_engine):
             await _grant_company(
                 db, company_id=company.id, driver_id=actor.driver_id, code=code,
             )
+            await _grant_company(
+                db, company_id=company.id, driver_id=counter.driver_id, code=code,
+            )
+        await _grant_location(
+            db, company_id=company.id, driver_id=counter.driver_id,
+            location_id=records[1][1],
+            codes=("inventory.read", "stocktake.read", "stocktake.count"),
+        )
         # Real foreign ended WorkSession for company-isolation negative coverage.
         await db.execute(
             text("SELECT set_config('app.current_tenant', :tenant, true)"),
@@ -197,8 +209,8 @@ async def _seed(admin_engine):
         foreign_work_id = int(foreign_work.id)
         await db.commit()
         return (
-            int(company.id), int(other.id), actor, denied, int(warehouse.id),
-            int(variant.id), int(batch.id), records, foreign_work_id,
+            int(company.id), int(other.id), actor, denied, counter, counter_password,
+            int(warehouse.id), int(variant.id), int(batch.id), records, foreign_work_id,
         )
 
 
@@ -211,7 +223,7 @@ async def test_backoffice_representative_custody_postgres():
         admin_url, poolclass=NullPool, connect_args={"timeout": 15},
     )
     try:
-        company, other, actor, denied, warehouse, variant, batch, records, foreign_work_id = await _seed(admin_engine)
+        company, other, actor, denied, counter, counter_password, warehouse, variant, batch, records, foreign_work_id = await _seed(admin_engine)
         matched_session, matched_vehicle = records[0]
         variance_session, variance_vehicle = records[1]
         surplus_session, surplus_vehicle = records[2]
@@ -435,6 +447,65 @@ async def test_backoffice_representative_custody_postgres():
                     db=db, access=access, legacy_actor=actor.operational_driver,
                 )
             assert no_handoff.value.status_code == 409
+
+        # Shortage invokes the same independent recount via business endpoints;
+        # no Stocktake ID, batch ID, or attempt ID is ever required from the UI.
+        async with _runtime_session(runtime_engine, company) as db:
+            access = actor.access(db)
+            first = await settlement.review_representative_variance(
+                variance_session, db=db, access=access,
+            )
+            assert first["independent_recount_satisfied"] is False
+            recount = await settlement.request_representative_recount(
+                variance_session,
+                settlement.CustodyVarianceRecount(
+                    request_id=uuid4(),
+                    reason="Independent physical receiver recount",
+                    authorizer_username=counter.operational_driver.username,
+                    authorizer_password=counter_password,
+                ),
+                db=db, access=access, legacy_actor=actor.operational_driver,
+            )
+            assert recount["status"] == "RECOUNT_REQUIRED"
+
+        async with _runtime_session(runtime_engine, company) as db:
+            counter_access = counter.access(db)
+            sheet = await settlement.representative_recount_sheet(
+                variance_session, db=db, access=counter_access,
+                legacy_actor=counter.operational_driver,
+            )
+            assert len(sheet["lines"]) == 1
+            assert sheet["lines"][0]["product_name"] == "Custody SKU"
+            assert sheet["lines"][0]["batch_number"] == "CP15-BATCH"
+            assert "stocktake_line_id" not in sheet["lines"][0]
+            counted = await settlement.submit_representative_recount(
+                variance_session,
+                settlement.CustodyRecountSubmit(
+                    request_id=uuid4(),
+                    items=[settlement.CustodyCount(
+                        line_key=sheet["lines"][0]["line_key"],
+                        actual_quantity="3.000",
+                    )],
+                ),
+                db=db, access=counter_access,
+                legacy_actor=counter.operational_driver,
+            )
+            assert counted["status"] == "REVIEW_REQUIRED"
+            assert counted["attempt_number"] == 2
+            confirmed = await settlement.review_representative_variance(
+                variance_session, db=db, access=actor.access(db),
+            )
+            assert confirmed["independent_recount_satisfied"] is True
+            assert confirmed["lines"][0]["variance_quantity"] == "-1"
+            assert await _qty(db, company, variance_vehicle, batch, "DAMAGED") == Decimal("4")
+            with pytest.raises(HTTPException) as still_blocked:
+                await dispatch.settle_session(
+                    variance_session,
+                    SettleSessionRequest(actual_cash=Decimal("0"), notes=None),
+                    db=db, access=actor.access(db),
+                    legacy_actor=actor.operational_driver,
+                )
+            assert still_blocked.value.status_code == 409
 
         # Surplus is approved through canonical Vehicle Recon, then received.
         async with _runtime_session(runtime_engine, company) as db:
