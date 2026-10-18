@@ -888,19 +888,21 @@ These are not speculative and should drive the first implementation waves:
 
 ---
 
-# 17. Old Inbound/Batches plan absorption map
+# 17. Retired Inbound/Batches plan audit
 
-`INBOUND_BATCHES_EXPIRY_PRODUCTION_PLAN.md` remains useful detailed evidence, but execution is now governed by this master plan.
+The former narrow Inbound/Batches/Expiry plan was independently re-audited before retirement on 2026-10-18. It carried no remaining unique V1 technical requirement.
 
-- [x] Parts A/B → Checkpoint 1 and architecture invariants.
-- [x] Parts C/D → Checkpoint 2 + Checkpoint 13.
-- [x] Part E → Checkpoint 3.
-- [x] Part F → Checkpoint 6 + Checkpoint 13.
-- [x] Parts G/I → Checkpoint 12 + Checkpoint 13.
-- [x] Part H → Checkpoint 12.
-- [x] Part J → Checkpoints 14–15.
-- [x] Original observations 1–33 must be checked during corresponding checkpoints before the old plan is archived/removed.
-- [x] Do not mark this absorption complete merely because the mapping exists; verify each open observation against implementation evidence.
+- [x] Parts A/B are implemented/evidenced by Checkpoint 1 and architecture invariants.
+- [x] Parts C/D are implemented/evidenced by Checkpoint 2 + Checkpoint 13.
+- [x] Part E is implemented/evidenced by Checkpoint 3.
+- [x] Part F is implemented/evidenced by Checkpoint 6 + Checkpoint 13.
+- [x] Parts G/I are implemented/evidenced by Checkpoint 12 + Checkpoint 13.
+- [x] Part H is implemented/evidenced by Checkpoint 12.
+- [x] Part J is implemented/evidenced by Checkpoints 14–15.
+- [x] Original observations 1–33 were checked against the corresponding checkpoints and current implementation evidence.
+- [x] GS1/barcode foundation remains governed by `INVENTORY_COMMERCIAL_FOUNDATION_PLAN.md`; no unique GS1 V1 requirement depended on the retired plan.
+- [x] Optional Batches presentation preferences (grouping/columns/sort/warning-density ideas) are UI preferences, not missing inventory authority; final Owner UI/UX polish remains outside this technical closure tracker.
+- [x] The superseded plan was removed after this audit to avoid duplicate trackers and technical debt.
 
 ---
 
