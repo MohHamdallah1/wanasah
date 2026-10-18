@@ -167,6 +167,24 @@ both the original base and this assignment's starting HEAD, plus git diff --chec
 No production runtime, migration, plan checkbox, application grant, local machine
 or user database is modified. No merge, new branch or PR is required.
 
-Preparation CI results will be recorded after the acceptance-only push. Full positive
-candidate execution awaits the lead-supplied SHA. Updating only this evidence document
-does not rerun unchanged acceptance source.
+Preparation evidence for executable harness source
+`1259a91b584982b6c65b852a4aa13fa07a141a3c`:
+[GitHub Actions run 39140066422](https://github.com/MohHamdallah1/wanasah/actions/runs/39140066422).
+
+| Preparation check | Observed result |
+| --- | --- |
+| Verifier unit tests | 7 passed |
+| Acceptance Python compilation | PASS |
+| Lint all 3 acceptance DOM files | PASS |
+| Scope/ancestry/whitespace checks | PASS |
+| Frozen PostgreSQL control | Verified: 4 pass + 9 specific ordinary failures, no skipped/setup-error cases |
+| Frozen DOM control | Verified: 4 specific ordinary failures |
+| Candidate Backend / Dashboard | RED: COMBINED_CANDIDATE_REQUIRED, before any candidate checkout/execution |
+| Final combined-candidate verdict | RED: COMBINED_CANDIDATE_REQUIRED; no final PASS emitted |
+
+These results validate harness preparation and its refusal to certify a missing
+candidate. The 23 candidate PostgreSQL and 16 candidate DOM contracts have NOT been
+run against a lead-supplied combined candidate; their future green result is still
+required. Compilation/lint is not evidence that these positive runtime contracts pass.
+The documentation-only evidence commit does not alter tested source/workflow and
+does not rerun unchanged acceptance code. No production runtime or plan was changed.
