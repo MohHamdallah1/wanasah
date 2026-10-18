@@ -23,16 +23,20 @@ const driver: DriverData = {
 };
 
 describe("Operations revalidates exact custody settlement ownership", () => {
-  it("opens the existing settlement only after a fresh bounded session read", async () => {
-    mocks.fetch.mockResolvedValue([driver]);
+  it.each([
+    FINANCIAL_SETTLEMENT_READY_STATUS,
+    SESSION_STATUS.AWAITING_INVENTORY_RECONCILIATION,
+  ])("opens the %s settlement stage only after a fresh bounded session read", async (status) => {
+    const current = { ...driver, settlement: { ...driver.settlement, status } };
+    mocks.fetch.mockResolvedValue([current]);
     const onReady = vi.fn(), onConsumed = vi.fn();
     renderHook(() => useSettlementOwnerNavigation({ intent: { version: 1, kind: "settlement-owner", sessionId: 80 }, onReady, onConsumed }));
     await waitFor(() => expect(onConsumed).toHaveBeenCalledOnce());
     expect(mocks.fetch).toHaveBeenCalledWith("/admin/sessions/today?session_id=80", expect.objectContaining({ signal: expect.any(AbortSignal) }));
-    expect(onReady).toHaveBeenCalledWith(driver);
+    expect(onReady).toHaveBeenCalledWith(current);
   });
 
-  it.each([[], [{ ...driver, session: { ...driver.session, session_id: 81 } }], [{ ...driver, settlement: { ...driver.settlement, status: SESSION_STATUS.AWAITING_INVENTORY_RECONCILIATION } }]])("rejects missing, mismatched or unready custody sessions", async (response) => {
+  it.each([[], [{ ...driver, session: { ...driver.session, session_id: 81 } }], [{ ...driver, settlement: { ...driver.settlement, status: SESSION_STATUS.ACTIVE } }]])("rejects missing, mismatched or non-settlement sessions", async (response) => {
     mocks.fetch.mockResolvedValue(response);
     const onReady = vi.fn(), onConsumed = vi.fn();
     renderHook(() => useSettlementOwnerNavigation({ intent: { version: 1, kind: "settlement-owner", sessionId: 80 }, onReady, onConsumed }));

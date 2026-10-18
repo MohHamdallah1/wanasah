@@ -2,7 +2,6 @@ import { apiErrorMessage, apiErrorStatus } from "@/lib/apiErrors";
 import { useLocation, useNavigate } from "react-router-dom";
 import { parseOperationsNavigationState } from "@/features/operations/navigation";
 import { useSettlementOwnerNavigation } from "@/features/operations/useSettlementOwnerNavigation";
-import type { SettlementCountInput } from "@/components/operations/SettlementModal";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import {
@@ -19,7 +18,8 @@ import { PulseBar } from "@/components/operations/PulseBar";
 import { toast } from "sonner";
 import { FleetRadar } from "@/components/operations/FleetRadar";
 import { CommandCenter } from "@/components/operations/CommandCenter";
-import { SettlementModal } from "@/components/operations/SettlementModal";
+import { RepresentativeSettlementJourney } from "@/features/operations/representativeSettlement/RepresentativeSettlementJourney";
+import { submitFinancialSettlement } from "@/features/operations/representativeSettlement/financialSettlementAdapter";
 import { motion, AnimatePresence } from "framer-motion";
 
 import { AlertTriangle, RotateCcw, X, PackageOpen, BarChart3, TrendingUp } from "lucide-react";
@@ -240,8 +240,12 @@ const Index = () => {
   const openSettlementModal = useCallback(() => {
     if (!selectedDriver) return;
     setSettlementDriver(selectedDriver);
+    setSettlementReport(null);
+    setSettlementReportError(null);
     setIsSettlementModalOpen(true);
-    void loadSettlementReport(selectedDriver.session.session_id);
+    if (selectedDriver.settlement.status === FINANCIAL_SETTLEMENT_READY_STATUS) {
+      void loadSettlementReport(selectedDriver.session.session_id);
+    }
   }, [loadSettlementReport, selectedDriver]);
 
   const consumeSettlementOwner = useCallback(() => setSettlementOwnerIntent(null), []);
@@ -249,8 +253,12 @@ const Index = () => {
     setSelectedId(driver.session.session_id);
     setDrivers((rows) => [driver, ...rows.filter((row) => row.session.session_id !== driver.session.session_id)]);
     setSettlementDriver(driver);
+    setSettlementReport(null);
+    setSettlementReportError(null);
     setIsSettlementModalOpen(true);
-    void loadSettlementReport(driver.session.session_id);
+    if (driver.settlement.status === FINANCIAL_SETTLEMENT_READY_STATUS) {
+      void loadSettlementReport(driver.session.session_id);
+    }
   }, [loadSettlementReport]);
   useSettlementOwnerNavigation({ intent: settlementOwnerIntent, onReady: openSettlementOwner, onConsumed: consumeSettlementOwner });
   useEffect(() => {
@@ -346,7 +354,7 @@ const Index = () => {
   };
 
   // دالة تأكيد التسوية (مُحصنة)
-  const handleConfirmSettlement = async (actualCash: number, inventoryJard: SettlementCountInput[], notes: string) => {
+  const handleConfirmSettlement = async (actualCash: number, notes: string) => {
     if (!settlementDriver || !settlementReport || isSettling) return;
     if (settlementReport.status !== FINANCIAL_SETTLEMENT_READY_STATUS) {
       toast.error("لا يمكن اعتماد التسوية المالية قبل اكتمال التسوية المخزنية.");
@@ -355,10 +363,11 @@ const Index = () => {
 
     setIsSettling(true);
     try {
-      const response = await authFetch(`/admin/sessions/${settlementDriver.session.session_id}/settle`, {
-        method: 'PUT',
-        body: JSON.stringify({ actual_cash: actualCash, inventory_jard: inventoryJard, notes: notes })
-      });
+      const response = await submitFinancialSettlement(
+        authFetch,
+        settlementDriver.session.session_id,
+        { actualCash, notes },
+      );
       if (!response) throw new Error('فشل الاعتماد من الخادم');
 
       toast.success(`تم اعتماد تسوية ${settlementDriver.session.driver_name} وإغلاق العهدة بنجاح!`);
@@ -371,6 +380,11 @@ const Index = () => {
       setIsSettling(false);
     }
   };
+
+  const handleCustodyCompleted = useCallback((sessionId: number) => {
+    void loadSettlementReport(sessionId);
+    fetchLiveOperations().catch(() => {});
+  }, [fetchLiveOperations, loadSettlementReport]);
 
   // دالة التراجع عن إنهاء العمل (مُحصنة)
   const handleUndoEndWork = async () => {
@@ -441,7 +455,7 @@ const Index = () => {
         <CommandCenter
             // +++   إجبار المترجم على قبول هيكل السيرفر الحقيقي بدل الهيكل الوهمي القديم +++
             driver={selectedDriver}
-            onApproveSettlement={openSettlementModal}
+            onOpenSettlement={openSettlementModal}
             onUndoEndWork={() => {
               if (!selectedDriver) return;
               setUndoSessionId(selectedDriver.session.session_id);
@@ -450,7 +464,7 @@ const Index = () => {
         </div>
       </div>
 
-      <SettlementModal
+      <RepresentativeSettlementJourney
         isOpen={isSettlementModalOpen}
         onClose={closeSettlementModal}
         driver={settlementDriver}
@@ -460,6 +474,8 @@ const Index = () => {
         onRetryReport={retrySettlementReport}
         isSubmitting={isSettling}
         onConfirmSettlement={handleConfirmSettlement}
+        authFetch={authFetch}
+        onCustodyCompleted={handleCustodyCompleted}
       />
 
       {/* ═══ Custom Undo Confirmation Modal ═══ */}

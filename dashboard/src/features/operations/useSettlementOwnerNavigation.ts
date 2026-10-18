@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { apiErrorMessage } from "@/lib/apiErrors";
-import { FINANCIAL_SETTLEMENT_READY_STATUS, parseDriverDataList, type DriverData } from "@/data/operations-data";
+import { isSettlementJourneyStatus, parseDriverDataList, type DriverData } from "@/data/operations-data";
 import type { SettlementOwnerIntent } from "./navigation";
 
 export function useSettlementOwnerNavigation({ intent, onReady, onConsumed }: {
@@ -20,7 +20,7 @@ export function useSettlementOwnerNavigation({ intent, onReady, onConsumed }: {
       .then((raw) => {
         if (controller.signal.aborted) return;
         const driver = parseDriverDataList(raw).find((item) => item.session.session_id === intent.sessionId);
-        if (!driver || driver.settlement.status !== FINANCIAL_SETTLEMENT_READY_STATUS) throw new Error(t("archiveOwners.inaccessible"));
+        if (!driver || !isSettlementJourneyStatus(driver.settlement.status)) throw new Error(t("archiveOwners.inaccessible"));
         onReady(driver);
       }).catch((error: unknown) => {
         if (!controller.signal.aborted) toast.error(apiErrorMessage(error, t("archiveOwners.inaccessible")));

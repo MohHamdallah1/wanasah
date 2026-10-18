@@ -11,21 +11,9 @@ import {
   Loader2,
   RefreshCw,
 } from "lucide-react";
-import { QuantityInput } from "@/components/ui/quantity-input";
 import { FINANCIAL_SETTLEMENT_READY_STATUS } from "@/data/operations-data";
 import type { DriverData, SessionSettlementReport } from "@/data/operations-data";
 import { toast } from "sonner";
-
-interface InventoryJard {
-  product_id: number;
-  product_name: string;
-  expected: number;
-  packs_per_carton: number;
-  actual_cartons: number;
-  actual_loose_packs: number;
-}
-
-export interface SettlementCountInput { product_id: number; actual: number }
 
 interface SettlementModalProps {
   isOpen: boolean;
@@ -36,7 +24,7 @@ interface SettlementModalProps {
   reportError: string | null;
   onRetryReport: () => void;
   isSubmitting: boolean;
-  onConfirmSettlement: (actualCash: number, inventoryJard: SettlementCountInput[], notes: string) => void;
+  onConfirmSettlement: (actualCash: number, notes: string) => void;
 }
 
 export function SettlementModal({
@@ -51,7 +39,6 @@ export function SettlementModal({
   onConfirmSettlement,
 }: SettlementModalProps) {
   const [actualCash, setActualCash] = useState<string>("");
-  const [jardData, setJardData] = useState<InventoryJard[]>([]);
   const [settlementNotes, setSettlementNotes] = useState<string>("");
   const initializedSessionId = useRef<number | null>(null);
 
@@ -65,20 +52,6 @@ export function SettlementModal({
     ) {
       setActualCash(report.financials.expected_cash_in_hand);
       setSettlementNotes("");
-      setJardData(
-        report.inventory.map((item) => {
-          const ppc = item.packs_per_carton || 1;
-          const remaining = item.remaining_quantity || 0;
-          return {
-            product_id: item.product_id,
-            product_name: item.product_name,
-            expected: remaining,
-            packs_per_carton: ppc,
-            actual_cartons: Math.floor(remaining / ppc),
-            actual_loose_packs: remaining % ppc,
-          };
-        })
-      );
       initializedSessionId.current = driver.session.session_id;
     } else if (!isOpen) {
       initializedSessionId.current = null;
@@ -127,33 +100,6 @@ export function SettlementModal({
   const actual = parseFloat(actualCash) || 0;
   const diff = actual - expected;
 
-  const handleJardChange = (productId: number, field: "actual_cartons" | "actual_loose_packs", value: number) => {
-    setJardData((prev) =>
-      prev.map((item) => {
-        if (item.product_id === productId) {
-          const updated = { ...item, [field]: value };
-
-          // 1. الترحيل للأعلى (إذا زادت الحبات عن سعة الكرتونة)
-          if (updated.actual_loose_packs >= updated.packs_per_carton) {
-            updated.actual_cartons += Math.floor(updated.actual_loose_packs / updated.packs_per_carton);
-            updated.actual_loose_packs = updated.actual_loose_packs % updated.packs_per_carton;
-          }
-          // 2. +++  (متوسط 1): الاستدانة من الكراتين (فك كرتونة) إذا نقصت الحبات عن صفر +++
-          else if (updated.actual_loose_packs < 0) {
-            if (updated.actual_cartons > 0) {
-              updated.actual_cartons -= 1;
-              updated.actual_loose_packs = updated.packs_per_carton - 1;
-            } else {
-              updated.actual_loose_packs = 0; // لا يمكن الاستدانة، الكراتين صفر أصلاً
-            }
-          }
-          return updated;
-        }
-        return item;
-      })
-    );
-  };
-
   const handleConfirm = () => {
     // +++ درع التسامح (نسف 5): إجبارية الملاحظة عند وجود عجز مالي +++
     if (diff !== 0 && settlementNotes.trim() === "") {
@@ -161,12 +107,7 @@ export function SettlementModal({
       return;
     }
 
-    const payload = jardData.map(item => ({
-      product_id: item.product_id,
-      actual: (item.actual_cartons * item.packs_per_carton) + item.actual_loose_packs
-    }));
-
-    onConfirmSettlement(actual, payload, settlementNotes);
+    onConfirmSettlement(actual, settlementNotes);
   };
 
   const DiffBadge = () => {
@@ -325,83 +266,42 @@ export function SettlementModal({
 
         </div>
 
-        {/* ============ القسم الأيسر: الجرد المستودعي ============ */}
-        <div className="settlement-inventory-panel space-y-5 max-h-[70vh] overflow-y-auto custom-scrollbar pr-2">
-          <h4 className="font-extrabold text-slate-700 text-sm uppercase tracking-wide border-b border-slate-100 pb-2">
-            📦 جرد المستودع
-          </h4>
-
-          <div className="space-y-3">
-            {jardData.map((item) => {
-              const actualTotalPacks = (item.actual_cartons * item.packs_per_carton) + item.actual_loose_packs;
-              const invDiffPacks = actualTotalPacks - item.expected;
-
-              const diffCartons = Math.floor(Math.abs(invDiffPacks) / item.packs_per_carton);
-              const diffLoose = Math.abs(invDiffPacks) % item.packs_per_carton;
-              const diffStr = (invDiffPacks < 0 ? "- " : "+ ") + (diffCartons > 0 ? `${diffCartons}ك ` : "") + (diffLoose > 0 ? `${diffLoose}ح` : "");
-
-              return (
-                <div
-                  key={item.product_id}
-                  className={`rounded-2xl p-4 border transition-all ${invDiffPacks < 0
-                    ? "bg-red-50 border-red-200"
-                    : invDiffPacks > 0
-                      ? "bg-amber-50 border-amber-200"
-                      : "bg-slate-50 border-slate-200"
-                    }`}
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="font-bold text-slate-700 text-sm">{item.product_name}</p>
-                    {invDiffPacks !== 0 && (
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${invDiffPacks < 0 ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-700"
-                        }`} dir="ltr">
-                        {diffStr}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1 text-center">
-                      <p className="text-[10px] text-slate-400 mb-1">المتوقع</p>
-                      <p className="text-sm font-extrabold tabular-nums text-slate-600">
-                        <span dir="ltr">{Math.floor(item.expected / item.packs_per_carton)}ك {item.expected % item.packs_per_carton > 0 ? `${item.expected % item.packs_per_carton}ح` : ''}</span>
-                      </p>
-                    </div>
-                    <div className="text-slate-300 font-bold">←</div>
-                    <div className="flex-[2]">
-                      <p className="text-[10px] text-slate-400 mb-1 text-center">الجرد الفعلي</p>
-                      <div className="flex items-center justify-center gap-2">
-                        <div className="flex items-center gap-1">
-                          <QuantityInput
-                            value={item.actual_cartons}
-                            onChange={(v) => handleJardChange(item.product_id, "actual_cartons", v)}
-                            min={0}
-                          />
-                          <span className="text-xs font-bold text-slate-500">ك</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          {/* +++  (متوسط 1): السماح بالنزول لـ -1 لتفعيل الاستدانة من الكراتين +++ */}
-                          <QuantityInput
-                            value={item.actual_loose_packs}
-                            onChange={(v) => handleJardChange(item.product_id, "actual_loose_packs", v)}
-                            min={-1}
-                          />
-                          <span className="text-xs font-bold text-slate-500">ح</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+        {/* ============ نتيجة المخزون المختومة — عرض فقط ============ */}
+        <div
+          className="settlement-inventory-panel space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar pr-2"
+          data-representative-settlement-inventory="read-only"
+        >
+          <div>
+            <h4 className="font-extrabold text-slate-700 text-sm uppercase tracking-wide border-b border-slate-100 pb-2">
+              📦 نتيجة استلام البضاعة
+            </h4>
+            <p className="mt-2 text-xs font-bold text-slate-500">
+              هذه النتيجة مثبتة من مرحلة الاستلام والمطابقة السابقة ولا يمكن تعديلها من التسوية المالية.
+            </p>
           </div>
 
-          {/* ملخص الجرد */}
-          {jardData.some((i) => ((i.actual_cartons * i.packs_per_carton) + i.actual_loose_packs) !== i.expected) && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
-              <p className="text-xs font-bold text-amber-700 flex items-center gap-1">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                يوجد فروقات مستودعية — سيتم عزلها وتسجيلها في تقرير التسوية
-              </p>
+          {report.inventory.length === 0 ? (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-center text-sm font-bold text-slate-500">
+              لا توجد بضاعة متبقية ضمن نتيجة المخزون.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {report.inventory.map((item) => {
+                const ppc = item.packs_per_carton || 1;
+                const remaining = item.remaining_quantity || 0;
+                const cartons = Math.floor(remaining / ppc);
+                const loose = remaining % ppc;
+                return (
+                  <div key={item.product_id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-bold text-slate-700 text-sm">{item.product_name}</p>
+                      <span className="text-sm font-black text-slate-800" dir="ltr">
+                        {cartons}ك{loose > 0 ? ` + ${loose}ح` : ""}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
