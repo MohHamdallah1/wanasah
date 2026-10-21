@@ -74,6 +74,11 @@ class ReturnAmbiguity {
           ? <ReturnEvidence>[]
           : FieldJson.list(failure.context['choices'], 'choices')
               .map(ReturnEvidence.fromJson).toList();
+      if (choices.any((choice) => required.any(
+        (field) => !choice.toJson().containsKey(field.code),
+      ))) {
+        return null;
+      }
       return ReturnAmbiguity._(required, choices);
     } on FormatException {
       return null; // Original ApiFailure remains intact for recovery.

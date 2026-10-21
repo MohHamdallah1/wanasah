@@ -88,6 +88,7 @@ void main() {
       {'required_evidence': ['lot_number', 'lot_number']},
       {'required_evidence': ['expiry_date'], 'choices': [{'expiry_date': '2026-02-31'}]},
       {'required_evidence': 'lot_number'},
+      {'required_evidence': ['lot_number'], 'choices': [{'batch_id': 987}]},
     ]) {
       expect(ReturnAmbiguity.fromFailure(ambiguityFailure(context: context)), isNull);
     }
