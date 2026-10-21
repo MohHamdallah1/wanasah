@@ -86,7 +86,7 @@ async def pg():
             # The feature foundation may be tested standalone or together
             # with the independently accepted Product tracking defaults.
             assert await db.scalar(text("SELECT version_num FROM alembic_version")) in {
-                "f1a6c8e2b940", "b9c5e18a0f42",
+                "f1a6c8e2b940", "b9c5e18a0f42", "c7f3a8e5d912",
             }
             for code in PERMISSIONS:
                 await db.execute(text("INSERT INTO permissions(code) VALUES(:code) ON CONFLICT(code) DO NOTHING"),
