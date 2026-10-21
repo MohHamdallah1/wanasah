@@ -6,7 +6,7 @@ Map<String, dynamic> invoiceJson({String status = 'COMMITTED', bool revision = t
   'currency_code': 'JOD',
   'calculated_at': '2026-10-22T10:15:30.123456+03:00',
   'rounding': {'precision': 3, 'mode': 'HALF_UP'},
-  'totals': {
+  'totals': <String, dynamic>{
     'gross_amount': '9007199254740993.123456',
     'discount_amount': '1.000000',
     'post_offer_amount': '9007199254740992.123456',
@@ -30,7 +30,7 @@ Map<String, dynamic> invoiceJson({String status = 'COMMITTED', bool revision = t
 Map<String, dynamic> resolvedJson() => {
   'status': 'RESOLVED',
   'resolution_token': 'opaque.header.signature-DO_NOT_DECODE',
-  'evidence': {
+  'evidence': <String, dynamic>{
     'lot_number': 'LOT / A  ',
     'production_date': '2026-01-03',
     'expiry_date': '2027-01-03',
