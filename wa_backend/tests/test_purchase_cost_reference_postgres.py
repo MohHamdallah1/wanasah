@@ -226,15 +226,17 @@ async def test_currency_is_explicit_and_global_currency_is_not_changed(pg):
     assert error.value.code == "PURCHASE_REFERENCE_CURRENCY_MISMATCH"
     await pg.write(t, command(t))
     async with AsyncSession(pg.admin) as db:
-        # Deliberately demonstrate the existing global mutability; this feature
-        # neither changes that policy nor silently relabels its own stored value.
-        await db.execute(text("UPDATE companies SET currency_code='USD' WHERE id=:c"), {"c": t.company_id})
-        await db.commit()
+        # Company currency is now immutable at the PostgreSQL boundary.
+        # An attempted direct SQL rewrite must fail even for this admin role.
+        with pytest.raises(DBAPIError, match="COMPANY_CURRENCY_IMMUTABLE"):
+            await db.execute(text("UPDATE companies SET currency_code='USD' WHERE id=:c"), {"c": t.company_id})
+        await db.rollback()
     async with pg.session(t) as db:
         assert await db.scalar(text("SELECT currency_code FROM purchase_cost_references")) == "JOD"
-        with pytest.raises(PurchaseReferenceError) as error:
-            await read_reference(db, access=t.owner.access(db), product_variant_id=t.variant_id)
-        assert error.value.code == "PURCHASE_REFERENCE_CURRENCY_MISMATCH"
+        assert await db.scalar(text("SELECT currency_code FROM companies WHERE id=:c"), {"c": t.company_id}) == "JOD"
+        reference = await read_reference(db, access=t.owner.access(db), product_variant_id=t.variant_id)
+        assert reference.reference is not None
+        assert reference.reference.currency_code == "JOD"
 
 
 async def test_exact_conversion_rejects_rounding_and_unmapped_uom(pg):
