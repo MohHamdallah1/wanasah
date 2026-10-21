@@ -1033,6 +1033,8 @@ export function Tab2Inbound({
                                   nextRow,
                                 ],
                               }));
+                              setReferenceChoices(new Map());
+                              setSelectedReferences(new Map());
                               const firstControl =
                                 rowControlOrder(variant)[0] ?? "quantity";
                               window.setTimeout(() =>
@@ -1055,6 +1057,8 @@ export function Tab2Inbound({
                                     current[String(variant.id)] ?? []
                                   ).filter((value) => value.row_id !== row.row_id),
                                 }));
+                                setReferenceChoices(new Map());
+                                setSelectedReferences(new Map());
                                 if (validationError?.row_id === row.row_id) {
                                   setValidationError(null);
                                 }
