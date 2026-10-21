@@ -555,7 +555,7 @@ Known extraction targets and V1 timing:
 - [ ] `local_database.dart`: remaining visit/inventory projection persistence split when Returns/Custody wiring lands.
 - [x] `visit_bloc.dart`: canonical payload serializer and local projection helpers extracted before further Visit behavior work.
 - [x] `visit_bloc.dart`: Event/State declarations extracted behind compatibility exports.
-- [ ] `visit_bloc.dart`: extract Returns/Samples/financial orchestration immediately before FIELD seam wiring.
+- [x] `visit_bloc.dart`: completed-visit restoration, cart policy, submission mapping, and submission use-case extracted before FIELD seam wiring; Bloc reduced to orchestration shell.
 - [x] `visit_screen.dart`: catalog/product-card presentation mechanically extracted before Returns/Batch UI changes; screen reduced from ~1445 to ~1018 lines.
 - [ ] `visit_screen.dart`: residual shell/footer/contact/submit presentation split only when the next owned responsibility requires it.
 - [x] `dashboard_bloc.dart`: Work Session and Custody responsibilities mechanically extracted before behavior work.
@@ -573,7 +573,7 @@ This is not a separate refactor project. Each split happens immediately before t
 2. [x] Durable command persistence split before Offline lifecycle hardening.
 3. [x] Visit command serializer/projection helper split before Visit contract correction.
 4. [x] Mechanically extract `VisitCatalog` / product-card presentation and Visit Event/State declarations with zero intended behavior change.
-5. [ ] Extract Returns/Samples/financial orchestration immediately before wiring Return Resolution / Damaged / Expired / Factory_Defect / invoice preview.
+5. [x] Extract completed-visit restoration, cart policy, sale/sample/return submission mapping, and financial submission use-case before FIELD seam wiring.
 6. [x] Mechanically extract Work Session and Custody application/presentation responsibilities before behavior implementation.
 7. [ ] Split remaining Recovery/quarantine/sync responsibility when its behavior/design wave begins.
 8. [ ] Split app/bootstrap/theme immediately before the field-first UI redesign.
@@ -627,6 +627,26 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] Merge commit: `19a04e76085db29a265e84fadf33c64ec5088793`.
 - [ ] Current `part of DashboardBloc` coupling is transitional only; Work Session/Custody behavioral waves must move authority behind feature-owned orchestration/data boundaries before those features are considered architecturally closed.
 - [ ] Recovery/quarantine/sync remains in the Dashboard compatibility shell and is not marked decomposed.
+
+### 10.7 Visit commercial decomposition stability point — 2026-10-22
+
+- [x] Implementation branch: `sol/flutter-v1-visit-commercial-decomposition`.
+- [x] Completed-visit restoration extracted to `features/visits/application/completed_visit_restorer.dart`.
+- [x] Cart quantity/inventory mutation policy extracted to `features/visits/application/visit_cart_policy.dart`.
+- [x] Sale/sample/legacy-return transport mapping extracted to `features/visits/data/visit_submission_mapper.dart`.
+- [x] Visit submission use-case extracted to `features/visits/application/visit_submission_service.dart`.
+- [x] Submission use-case is decoupled from `VisitReady` / Bloc state and receives explicit inputs only.
+- [x] `visit_bloc.dart` reduced to ~187 lines and remains the compatibility orchestration shell.
+- [x] Canonical Visit serializer remains the mutation-body authority.
+- [x] PR #435 merged into `sol/flutter-v1-field-closure`.
+- [x] Merge commit: `2697caf44152b04e23d9c55cc4c455237b0aa84d`.
+- [x] GitHub `flutter analyze`: PASS.
+- [x] Visit commercial decomposition tests: PASS.
+- [x] Visit decomposition regression: PASS.
+- [x] Visit command-correction regression: PASS.
+- [x] Offline durable-command regression: PASS.
+- [ ] New FIELD Return Resolution / Damaged / commercial-readiness / authoritative invoice adapters are not yet wired into this use-case.
+- [ ] Legacy Factory_Defect/Expired mapping remains compatibility behavior until the new feature-owned Return Resolution contracts are integrated.
 
 ## 11. UI / design-system closure
 
