@@ -521,8 +521,10 @@ Known extraction targets and V1 timing:
 - [x] `local_database.dart`: durable command lifecycle extracted to `PendingCommandStore`; compatibility facade retained.
 - [ ] `local_database.dart`: remaining visit/inventory projection persistence split when Returns/Custody wiring lands.
 - [x] `visit_bloc.dart`: canonical payload serializer and local projection helpers extracted before further Visit behavior work.
-- [ ] `visit_bloc.dart`: extract Returns/Samples/financial orchestration before wiring the new FIELD seams.
-- [ ] `visit_screen.dart` (~1400 lines): NEXT mechanical split before Returns/Batch UI changes.
+- [x] `visit_bloc.dart`: Event/State declarations extracted behind compatibility exports.
+- [ ] `visit_bloc.dart`: extract Returns/Samples/financial orchestration immediately before FIELD seam wiring.
+- [x] `visit_screen.dart`: catalog/product-card presentation mechanically extracted before Returns/Batch UI changes; screen reduced from ~1445 to ~1018 lines.
+- [ ] `visit_screen.dart`: residual shell/footer/contact/submit presentation split only when the next owned responsibility requires it.
 - [ ] `dashboard_bloc.dart` (~600+ lines): split Session/Custody/Recovery responsibilities immediately before that wave.
 - [ ] `dashboard_screen.dart` (~900+ lines): split workday/session/custody presentation immediately before redesign.
 - [ ] `sync_repository.dart` (~480 lines): extract operation-specific Visit/Transfer/Shop adapters as those contracts are wired.
@@ -535,10 +537,11 @@ This is not a separate refactor project. Each split happens immediately before t
 1. [x] Network seam split before Network behavior hardening.
 2. [x] Durable command persistence split before Offline lifecycle hardening.
 3. [x] Visit command serializer/projection helper split before Visit contract correction.
-4. [ ] **Next:** mechanically split `visit_screen.dart` + remaining Visit orchestration with zero intended behavior change, then wire Return Resolution / Damaged / Expired / Factory_Defect / invoice preview.
-5. [ ] Split Session/Custody/Recovery out of Dashboard files immediately before Session/Custody implementation.
-6. [ ] Split app/bootstrap/theme immediately before the field-first UI redesign.
-7. [ ] Post-V1 only: cosmetic renames, broad folder migration, dependency modernization, and non-blocking abstractions.
+4. [x] Mechanically extract `VisitCatalog` / product-card presentation and Visit Event/State declarations with zero intended behavior change.
+5. [ ] Extract Returns/Samples/financial orchestration immediately before wiring Return Resolution / Damaged / Expired / Factory_Defect / invoice preview.
+6. [ ] Split Session/Custody/Recovery out of Dashboard files immediately before Session/Custody implementation.
+7. [ ] Split app/bootstrap/theme immediately before the field-first UI redesign.
+8. [ ] Post-V1 only: cosmetic renames, broad folder migration, dependency modernization, and non-blocking abstractions.
 
 Rule: a decomposition checkbox becomes `[x]` only after focused characterization/analyze gates pass. A partial extraction never marks the whole god-file as complete.
 
@@ -556,6 +559,22 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] PR #428 merged to `main`.
 - [x] Backend merge commit: `8aa76c2099024e627da0cae34f15da9310020d7c`.
 - [ ] Flutter typed adapters/wiring for these seams remains open.
+
+### 10.5 Visit mechanical decomposition stability point — 2026-10-22
+
+- [x] Implementation branch: `sol/flutter-v1-visit-decomposition`.
+- [x] `VisitCatalog` + product-card presentation extracted to `features/visits/presentation/visit_catalog.dart`.
+- [x] Visit Events extracted to `features/visits/application/visit_event.dart`.
+- [x] Visit States extracted to `features/visits/application/visit_state.dart`.
+- [x] Legacy `visit_bloc.dart` imports remain compatible through explicit exports.
+- [x] `visit_screen.dart` reduced from ~1445 to ~1018 lines without intended behavior change.
+- [x] `visit_bloc.dart` reduced to ~378 lines.
+- [x] PR #430 merged into `sol/flutter-v1-field-closure` only.
+- [x] Merge commit: `3afb27403573296bfe0a6dd67f15c8a0041544fd`.
+- [x] GitHub `flutter analyze`: PASS.
+- [x] Focused decomposition characterization: PASS.
+- [x] Existing Visit command-correction regression: PASS.
+- [ ] Remaining Visit shell/orchestration is split only as the next Returns/Finance responsibility requires it; no cosmetic rewrite.
 
 ## 11. UI / design-system closure
 
@@ -635,7 +654,8 @@ Final field acceptance:
 
 ### Day 2 — visit vertical slice + durable command core
 - [x] mechanically extract Visit command serializer / projection helpers before further behavior work.
-- [ ] mechanically extract major Visit presentation widgets before Returns UI wiring.
+- [x] mechanically extract Visit catalog/product-card presentation before Returns UI wiring.
+- [ ] mechanically extract any remaining Visit presentation only when required by the next feature slice.
 - [x] strict VisitUpdateRequest serializer: path ID only; no unknown fields.
 - [x] persist visit UUID/body before first send.
 - [ ] exact-money transport; local figures are estimates, not authority.
