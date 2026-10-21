@@ -174,6 +174,8 @@ def import_error_field(
         or "PACKAGE_UOM" in normalized
     ):
         return "package_uom"
+    if "PURCHASE_COST" in normalized:
+        return "purchase_unit_cost"
     if "PACKAGE_PRICE" in normalized:
         return "package_price"
     if "UNIT_BARCODE" in normalized:
