@@ -1,3 +1,5 @@
+import { isPurchaseReferenceCreateInput } from "./purchaseReferenceCreateContract";
+import "./purchaseReferenceCreateI18n";
 import type {
   Dispatch,
   RefObject,
@@ -226,6 +228,10 @@ export function useCreateProductMutation({
             );
           }
 
+          if (draft.purchase_cost_reference && !isPurchaseReferenceCreateInput(draft.purchase_cost_reference)) {
+            throw new Error(t("productCreatePurchaseReference:invalid"));
+          }
+
           const selectedFamily =
             familyIntent.family_id === null
               ? null
@@ -236,6 +242,9 @@ export function useCreateProductMutation({
                 );
           const commandPayload:
             ProductCreateCommandPayload = {
+              ...(draft.purchase_cost_reference ? { purchase_cost_reference: {
+                ...draft.purchase_cost_reference, amount: draft.purchase_cost_reference.amount.trim(),
+              } } : {}),
               name:
                 draft.name.trim(),
               family_mode:
@@ -381,6 +390,9 @@ export function useCreateProductMutation({
           companyId !== null &&
           driverId !== null &&
           code !== undefined &&
+          // A later permission denial cannot prove an earlier timed-out create
+          // was rolled back. Preserve the full command for authorized replay.
+          code !== "PURCHASE_REFERENCE_ACCESS_DENIED" &&
           code !==
             "DURABLE_OPERATION_PENDING" &&
           code !==

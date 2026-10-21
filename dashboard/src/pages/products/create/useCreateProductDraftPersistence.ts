@@ -5,6 +5,8 @@ import type {
 } from "react";
 import {
   useEffect,
+  useLayoutEffect,
+  useRef,
 } from "react";
 import type {
   TFunction,
@@ -37,10 +39,8 @@ export function useCreateProductDraftPersistence({
   restoredDraftKey,
   t,
 }: Params) {
-  useEffect(() => {
-    if (!draftStorageKey) {
-      return;
-    }
+  const skipScopeTransitionPersist = useRef(false);
+  useLayoutEffect(() => {
     if (
       restoredDraftKey.current ===
       draftStorageKey
@@ -48,8 +48,12 @@ export function useCreateProductDraftPersistence({
       return;
     }
 
-    restoredDraftKey.current =
-      draftStorageKey;
+    restoredDraftKey.current = draftStorageKey;
+    // Restore before paint and never persist the previous identity's render
+    // into the new company/user key while setDraft is taking effect.
+    skipScopeTransitionPersist.current = true;
+    setDraft(emptyDraft);
+    if (!draftStorageKey) return;
     try {
       const raw =
         sessionStorage.getItem(
@@ -101,6 +105,10 @@ export function useCreateProductDraftPersistence({
   ]);
 
   useEffect(() => {
+    if (skipScopeTransitionPersist.current) {
+      skipScopeTransitionPersist.current = false;
+      return;
+    }
     if (
       !draftStorageKey ||
       restoredDraftKey.current !==
