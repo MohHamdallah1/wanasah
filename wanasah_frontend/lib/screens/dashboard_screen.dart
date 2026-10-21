@@ -539,7 +539,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               );
             },
           ),
-
           const Divider(height: 30, thickness: 1),
           Text('ملخص الجولة:', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 12),
