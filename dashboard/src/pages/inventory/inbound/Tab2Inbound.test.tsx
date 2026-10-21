@@ -194,6 +194,9 @@ describe("Checkpoint 1 inbound UI", () => {
     const row = (await screen.findByText("Reference product")).closest("tr")!;
     const cost = within(row).getByLabelText("Actual cost") as HTMLInputElement;
     await waitFor(() => expect(cost.value).toBe("4.250000"));
+    expect(cost.readOnly).toBe(true);
+    fireEvent.click(within(row).getByRole("button", { name: "Edit actual purchase cost" }));
+    expect(cost.readOnly).toBe(false);
     fireEvent.change(cost, { target: { value: "5.100000" } });
     fireEvent.change(within(row).getByLabelText("Quantity"), { target: { value: "2" } });
     expect(cost.value).toBe("5.100000");
@@ -238,10 +241,20 @@ describe("Checkpoint 1 inbound UI", () => {
     const row = (await screen.findByText("Pencil product")).closest("tr")!;
     const input = within(row).getByLabelText("Actual cost") as HTMLInputElement;
     const edit = within(row).getByRole("button", { name: "Edit actual purchase cost" });
+    expect(input.readOnly).toBe(true);
+    fireEvent.change(input, { target: { value: "99" } });
+    expect(input.value).toBe("");
     fireEvent.click(edit);
     await waitFor(() => expect(document.activeElement).toBe(input));
+    expect(input.readOnly).toBe(false);
     fireEvent.change(input, { target: { value: "4.250000" } });
     expect(input.value).toBe("4.250000");
+    fireEvent.blur(input);
+    expect(input.readOnly).toBe(true);
+    fireEvent.keyDown(input, { key: "F2" });
+    expect(input.readOnly).toBe(false);
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(input.readOnly).toBe(true);
   });
 
   it("renders NONE / OPTIONAL / REQUIRED tracking fields directly", async () => {
