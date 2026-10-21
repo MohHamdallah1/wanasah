@@ -198,6 +198,9 @@ describe("Checkpoint 1 inbound UI", () => {
     expect(within(row).queryByRole("button", { name: "Edit actual purchase cost" })).toBeNull();
     const referenceButton = within(row).getByRole("button", { name: "Use reference cost 4.25 JOD" });
     expect(referenceButton).toHaveTextContent("Reference");
+    expect(referenceButton).not.toHaveAttribute("title");
+    const referenceWrap = referenceButton.closest(".inventory-inbound-reference-wrap");
+    expect(referenceWrap).toHaveAttribute("data-tooltip", "Use reference cost 4.25 JOD");
     expect(referenceButton.closest(".inventory-inbound-cost-control"))
       .toBe(cost.closest(".inventory-inbound-cost-control"));
     fireEvent.change(cost, { target: { value: "5.100000" } });
@@ -329,16 +332,20 @@ describe("Checkpoint 1 inbound UI", () => {
     expect(production.type).toBe("text");
     expect(expiry.type).toBe("text");
     expect(expiryCalendar.type).toBe("date");
-    expect(production.placeholder).toBe("01252026");
-    expect(expiry.placeholder).toBe("01252026");
+    expect(production.placeholder).toBe("25082026");
+    expect(expiry.placeholder).toBe("25082026");
     expect(
       (within(secondRow).getByLabelText("Production date") as HTMLInputElement)
         .placeholder,
     ).toBe("");
 
-    fireEvent.change(expiry, { target: { value: "01252026" } });
+    fireEvent.change(expiry, { target: { value: "25082026" } });
     fireEvent.blur(expiry);
-    expect(expiry.value).toBe("2026-01-25");
+    expect(expiry.value).toBe("2026-08-25");
+
+    fireEvent.change(production, { target: { value: "25/08/2026" } });
+    fireEvent.blur(production);
+    expect(production.value).toBe("2026-08-25");
 
     fireEvent.change(expiryCalendar, { target: { value: "2026-12-31" } });
     expect(expiry.value).toBe("2026-12-31");
@@ -514,6 +521,15 @@ describe("Checkpoint 1 inbound UI", () => {
     const expiry = within(row).getByLabelText("Expiry date") as HTMLElement;
 
     cost.focus();
+    fireEvent.keyDown(cost, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(quantity);
+    fireEvent.keyDown(quantity, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(cost);
+    fireEvent.keyDown(cost, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(nextCost);
+    fireEvent.keyDown(nextCost, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(cost);
+
     fireEvent.keyDown(cost, { key: "Enter" });
     expect(document.activeElement).toBe(quantity);
 
@@ -606,8 +622,9 @@ describe("Checkpoint 1 inbound UI", () => {
       "Quantity & purchase unit*",
       "Production date",
       "Expiry date",
-      "Lot / batch number*",
+      "Lot / batch number",
     ]);
+    expect(localeRow.querySelectorAll(".inventory-inbound-required-marker")).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Next page" })).toBeNull();
 
     Object.defineProperties(scroller, {
@@ -628,6 +645,11 @@ describe("Checkpoint 1 inbound UI", () => {
       await setAppLanguage("ar");
     });
     await waitFor(() => expect(root.getAttribute("dir")).toBe("rtl"));
+    const rtlCost = within(localeRow).getByLabelText(i18n.t("inventoryInbound.unitCostPlaceholder"));
+    const rtlQuantity = within(localeRow).getByLabelText(i18n.t("inventoryInbound.quantity"));
+    (rtlCost as HTMLElement).focus();
+    fireEvent.keyDown(rtlCost, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(rtlQuantity);
     expect(
       screen.getByRole("columnheader", {
         name: i18n.t("inventoryInbound.batchNumber"),

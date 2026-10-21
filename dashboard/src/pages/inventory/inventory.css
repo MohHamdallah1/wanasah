@@ -3155,6 +3155,39 @@
   text-align: center;
 }
 
+.inventory-inbound-reference-wrap {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.inventory-inbound-reference-wrap::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  inset-inline-start: 0;
+  top: calc(100% + 0.25rem);
+  z-index: 40;
+  width: max-content;
+  max-width: 18rem;
+  padding: 0.38rem 0.5rem;
+  border-radius: 0.45rem;
+  color: #fff;
+  background: #1f2937;
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1.35;
+  white-space: normal;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+}
+
+.inventory-inbound-reference-wrap:hover::after,
+.inventory-inbound-reference-wrap:focus-within::after {
+  opacity: 1;
+  visibility: visible;
+}
+
 .inventory-inbound-reference-button {
   display: inline-flex;
   min-height: 1.7rem;
@@ -3235,6 +3268,27 @@
 .inventory-inbound-production-cell input,
 .inventory-inbound-expiry-cell input {
   width: 100%;
+}
+
+.inventory-inbound-required-entry {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.inventory-inbound-required-entry > input,
+.inventory-inbound-required-entry > .inventory-inbound-date-entry {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.inventory-inbound-required-marker {
+  flex: 0 0 auto;
+  color: #e11d48;
+  font-size: 0.8rem;
+  font-weight: 900;
+  line-height: 1;
 }
 
 .inventory-inbound-date-entry {

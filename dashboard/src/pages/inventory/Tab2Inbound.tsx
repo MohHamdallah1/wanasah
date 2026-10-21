@@ -81,6 +81,16 @@ const cleanQuantityEntry = (value: string) => {
   return cleaned;
 };
 
+const isValidCalendarDate = (year: number, month: number, day: number) => {
+  if (year < 1900 || year > 2200 || month < 1 || month > 12 || day < 1 || day > 31) {
+    return false;
+  }
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day;
+};
+
 const normalizeDateEntry = (value: string) => {
   const text = value.trim();
   if (!text) return "";
@@ -91,21 +101,19 @@ const normalizeDateEntry = (value: string) => {
 
   const firstFour = Number(compact.slice(0, 4));
   if (firstFour >= 1900 && firstFour <= 2200) {
-    return `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`;
+    const year = firstFour;
+    const month = Number(compact.slice(4, 6));
+    const day = Number(compact.slice(6, 8));
+    return isValidCalendarDate(year, month, day)
+      ? `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`
+      : text;
   }
 
-  const month = Number(compact.slice(0, 2));
-  const day = Number(compact.slice(2, 4));
+  const day = Number(compact.slice(0, 2));
+  const month = Number(compact.slice(2, 4));
   const year = Number(compact.slice(4, 8));
-  if (
-    month >= 1 &&
-    month <= 12 &&
-    day >= 1 &&
-    day <= 31 &&
-    year >= 1900 &&
-    year <= 2200
-  ) {
-    return `${compact.slice(4, 8)}-${compact.slice(0, 2)}-${compact.slice(2, 4)}`;
+  if (isValidCalendarDate(year, month, day)) {
+    return `${compact.slice(4, 8)}-${compact.slice(2, 4)}-${compact.slice(0, 2)}`;
   }
   return text;
 };
@@ -560,6 +568,50 @@ export function Tab2Inbound({
     if (nextRowId) focusControl(nextRowId, "unit_cost");
   };
 
+  const handleCellArrow = (
+    event: KeyboardEvent<HTMLElement>,
+    rowId: string,
+    variant: CatalogVariant,
+    current: InboundRowControl,
+  ) => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
+    const key = event.key;
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(key)) return false;
+
+    let targetRowId = rowId;
+    let targetControl = current;
+
+    if (key === "ArrowUp" || key === "ArrowDown") {
+      const direction = key === "ArrowDown" ? 1 : -1;
+      const rowIndex = keyboardRowIds.indexOf(rowId);
+      if (rowIndex < 0) return false;
+      let nextIndex = rowIndex + direction;
+      while (nextIndex >= 0 && nextIndex < keyboardRowIds.length) {
+        const candidateRowId = keyboardRowIds[nextIndex];
+        if (controlRefs.current.has(controlKey(candidateRowId, current))) {
+          targetRowId = candidateRowId;
+          break;
+        }
+        nextIndex += direction;
+      }
+      if (targetRowId === rowId) return false;
+    } else {
+      const order = rowControlOrder(variant);
+      const currentIndex = order.indexOf(current);
+      if (currentIndex < 0) return false;
+      const forwardKey = i18n.dir() === "rtl" ? "ArrowLeft" : "ArrowRight";
+      const direction = key === forwardKey ? 1 : -1;
+      const next = order[currentIndex + direction];
+      if (!next) return false;
+      targetControl = next;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    focusControl(targetRowId, targetControl);
+    return true;
+  };
+
   const keyboardRowIds = useMemo(
     () =>
       visibleCatalog.flatMap((variant) => {
@@ -871,18 +923,8 @@ export function Tab2Inbound({
                   <span aria-hidden="true" className="ms-1 text-rose-600">*</span>
                 </th>
                 <th className="text-start">{t("inventoryInbound.productionDate")}</th>
-                <th className="text-start">
-                  {t("inventoryInbound.expiryDate")}
-                  {visibleCatalog.some((variant) => inboundTrackingPolicy(variant).expiry.required) ? (
-                    <span aria-hidden="true" className="ms-1 text-rose-600">*</span>
-                  ) : null}
-                </th>
-                <th className="text-start">
-                  {t("inventoryInbound.batchNumber")}
-                  {visibleCatalog.some((variant) => inboundTrackingPolicy(variant).lot.required) ? (
-                    <span aria-hidden="true" className="ms-1 text-rose-600">*</span>
-                  ) : null}
-                </th>
+                <th className="text-start">{t("inventoryInbound.expiryDate")}</th>
+                <th className="text-start">{t("inventoryInbound.batchNumber")}</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -960,9 +1002,10 @@ export function Tab2Inbound({
                             aria-label={t("inventoryInbound.unitCostPlaceholder")}
                             aria-invalid={fieldHasError(row.row_id, "unit_cost")}
                             onFocus={(event) => event.currentTarget.select()}
-                            onKeyDown={(event) =>
-                              handleRowEnter(event, row.row_id, variant, "unit_cost")
-                            }
+                            onKeyDown={(event) => {
+                              if (handleCellArrow(event, row.row_id, variant, "unit_cost")) return;
+                              handleRowEnter(event, row.row_id, variant, "unit_cost");
+                            }}
                             onChange={(event) => {
                               update(variant, row.row_id, {
                                 unit_cost: event.target.value.replace(/[^0-9.]/g, ""),
@@ -977,25 +1020,29 @@ export function Tab2Inbound({
                               : ""}
                           </span>
                           {option?.purchase_cost_reference && (
-                            <button
-                              type="button"
-                              disabled={submitting || posting.pending !== null}
-                              aria-label={t("inventoryInbound.useReferenceSuggestion", {
+                            <span
+                              className="inventory-inbound-reference-wrap"
+                              data-tooltip={t("inventoryInbound.useReferenceSuggestion", {
                                 cost: conciseMoney(option.purchase_cost_reference.amount),
                                 currency: option.purchase_cost_reference.currency_code,
                               })}
-                              title={t("inventoryInbound.useReferenceSuggestion", {
-                                cost: conciseMoney(option.purchase_cost_reference.amount),
-                                currency: option.purchase_cost_reference.currency_code,
-                              })}
-                              onClick={() => update(variant, row.row_id, {
-                                uom_id: String(option.purchase_cost_reference!.purchase_uom_id),
-                                unit_cost: conciseMoney(option.purchase_cost_reference!.amount),
-                              })}
-                              className="inventory-inbound-reference-button"
                             >
-                              {t("inventoryInbound.useReferenceShort")}
-                            </button>
+                              <button
+                                type="button"
+                                disabled={submitting || posting.pending !== null}
+                                aria-label={t("inventoryInbound.useReferenceSuggestion", {
+                                  cost: conciseMoney(option.purchase_cost_reference.amount),
+                                  currency: option.purchase_cost_reference.currency_code,
+                                })}
+                                onClick={() => update(variant, row.row_id, {
+                                  uom_id: String(option.purchase_cost_reference!.purchase_uom_id),
+                                  unit_cost: conciseMoney(option.purchase_cost_reference!.amount),
+                                })}
+                                className="inventory-inbound-reference-button"
+                              >
+                                {t("inventoryInbound.useReferenceShort")}
+                              </button>
+                            </span>
                           )}
                         </div>
                         {fieldHasError(row.row_id, "unit_cost") && (
@@ -1013,9 +1060,10 @@ export function Tab2Inbound({
                             aria-label={t("inventoryInbound.quantity")}
                             aria-invalid={fieldHasError(row.row_id, "quantity")}
                             onFocus={(event) => event.currentTarget.select()}
-                            onKeyDown={(event) =>
-                              handleRowEnter(event, row.row_id, variant, "quantity")
-                            }
+                            onKeyDown={(event) => {
+                              if (handleCellArrow(event, row.row_id, variant, "quantity")) return;
+                              handleRowEnter(event, row.row_id, variant, "quantity");
+                            }}
                             onChange={(event) =>
                               update(variant, row.row_id, {
                                 quantity: cleanQuantityEntry(event.target.value),
@@ -1028,9 +1076,10 @@ export function Tab2Inbound({
                             value={selectedUom}
                             aria-label={t("inventoryInbound.purchaseUnit")}
                             aria-invalid={fieldHasError(row.row_id, "uom_id")}
-                            onKeyDown={(event) =>
-                              handleRowEnter(event, row.row_id, variant, "uom_id")
-                            }
+                            onKeyDown={(event) => {
+                              if (handleCellArrow(event, row.row_id, variant, "uom_id")) return;
+                              handleRowEnter(event, row.row_id, variant, "uom_id");
+                            }}
                             onChange={(event) =>
                               update(variant, row.row_id, {
                                 uom_id: event.target.value,
@@ -1074,14 +1123,10 @@ export function Tab2Inbound({
                               value={row.production_date}
                               label={t("inventoryInbound.productionDate")}
                               invalid={fieldHasError(row.row_id, "production_date")}
-                              onEnter={(event) =>
-                                handleRowEnter(
-                                  event,
-                                  row.row_id,
-                                  variant,
-                                  "production_date"
-                                )
-                              }
+                              onEnter={(event) => {
+                                if (handleCellArrow(event, row.row_id, variant, "production_date")) return;
+                                handleRowEnter(event, row.row_id, variant, "production_date");
+                              }}
                               placeholder={
                                 variantIndex === 0 && index === 0
                                   ? t("inventoryInbound.dateQuickPlaceholder")
@@ -1106,10 +1151,11 @@ export function Tab2Inbound({
                       <td className="inventory-inbound-expiry-cell">
                         {tracking.expiry.visible ? (
                           <>
-                            <InboundDateInput
-                              inputRef={(node) =>
-                                setControlRef(row.row_id, "expiry_date", node)
-                              }
+                            <div className="inventory-inbound-required-entry">
+                              <InboundDateInput
+                                inputRef={(node) =>
+                                  setControlRef(row.row_id, "expiry_date", node)
+                                }
                               value={row.expiry_date}
                               label={t("inventoryInbound.expiryDate")}
                               required={tracking.expiry.required}
@@ -1119,20 +1165,20 @@ export function Tab2Inbound({
                                   ? t("inventoryInbound.dateQuickPlaceholder")
                                   : undefined
                               }
-                              onEnter={(event) =>
-                                handleRowEnter(
-                                  event,
-                                  row.row_id,
-                                  variant,
-                                  "expiry_date"
-                                )
-                              }
-                              onChange={(value) =>
-                                update(variant, row.row_id, {
-                                  expiry_date: value,
-                                })
-                              }
-                            />
+                              onEnter={(event) => {
+                                if (handleCellArrow(event, row.row_id, variant, "expiry_date")) return;
+                                handleRowEnter(event, row.row_id, variant, "expiry_date");
+                              }}
+                                onChange={(value) =>
+                                  update(variant, row.row_id, {
+                                    expiry_date: value,
+                                  })
+                                }
+                              />
+                              {tracking.expiry.required ? (
+                                <span aria-hidden="true" className="inventory-inbound-required-marker">*</span>
+                              ) : null}
+                            </div>
                             {fieldHasError(row.row_id, "expiry_date") && (
                               <small role="alert" className="inventory-inbound-field-error">
                                 {validationMessage}
@@ -1146,23 +1192,20 @@ export function Tab2Inbound({
                       <td className="inventory-inbound-lot-cell">
                         {tracking.lot.visible ? (
                           <>
-                            <input
-                              ref={(node) =>
-                                setControlRef(row.row_id, "batch_number", node)
-                              }
-                              value={row.batch_number}
+                            <div className="inventory-inbound-required-entry">
+                              <input
+                                ref={(node) =>
+                                  setControlRef(row.row_id, "batch_number", node)
+                                }
+                                value={row.batch_number}
                               required={tracking.lot.required}
                               aria-required={tracking.lot.required}
                               aria-invalid={fieldHasError(row.row_id, "batch_number")}
                               aria-label={t("inventoryInbound.batchNumber")}
-                              onKeyDown={(event) =>
-                                handleRowEnter(
-                                  event,
-                                  row.row_id,
-                                  variant,
-                                  "batch_number"
-                                )
-                              }
+                              onKeyDown={(event) => {
+                                if (handleCellArrow(event, row.row_id, variant, "batch_number")) return;
+                                handleRowEnter(event, row.row_id, variant, "batch_number");
+                              }}
                               onChange={(event) =>
                                 update(variant, row.row_id, {
                                   batch_number: event.target.value,
@@ -1173,12 +1216,16 @@ export function Tab2Inbound({
                                   ? "inventoryInbound.rowBatchRequiredHint"
                                   : "inventoryInbound.rowBatchOptionalHint"
                               )}
-                              className={
-                                fieldHasError(row.row_id, "batch_number")
-                                  ? "is-error"
-                                  : ""
-                              }
-                            />
+                                className={
+                                  fieldHasError(row.row_id, "batch_number")
+                                    ? "is-error"
+                                    : ""
+                                }
+                              />
+                              {tracking.lot.required ? (
+                                <span aria-hidden="true" className="inventory-inbound-required-marker">*</span>
+                              ) : null}
+                            </div>
                             {fieldHasError(row.row_id, "batch_number") && (
                               <small role="alert" className="inventory-inbound-field-error">
                                 {validationMessage}
