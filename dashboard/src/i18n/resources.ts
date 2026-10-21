@@ -1325,6 +1325,7 @@ export const resources = {
       },
       inventoryInbound: {
         title: "توريد بضاعة",
+        editPurchaseCost: "تعديل تكلفة الشراء الفعلية",
         product: "المنتج",
         search: "بحث...",
         searchLabel: "بحث المنتجات",
@@ -3601,6 +3602,7 @@ export const resources = {
       },
       inventoryInbound: {
         title: "Receive stock",
+        editPurchaseCost: "Edit actual purchase cost",
         product: "Product",
         search: "Search...",
         searchLabel: "Product search",
