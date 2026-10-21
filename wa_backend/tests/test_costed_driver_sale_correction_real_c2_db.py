@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import unittest
 from tests.canonical_actor_fixtures import load_company_owner_fixture, seed_field_fixture
+from tests.supplier_fixtures import seed_receipt_supplier
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
@@ -77,6 +78,7 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.actor = self.owner.operational_driver
         self.field = await seed_field_fixture(self.db, self.tenant)
         self.assertIsNotNone(self.actor)
+        self.supplier_id = await seed_receipt_supplier(self.db, self.actor)
         self.warehouse_id = await self.db.scalar(
             text("SELECT id FROM inventory_locations WHERE company_id=:t "
                  "AND location_type='WAREHOUSE' AND is_active=true LIMIT 1"),

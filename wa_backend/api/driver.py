@@ -88,6 +88,13 @@ from domains.sales_calculation.driver_sale import (
 from domains.sales_evidence.core import SalesEvidenceError
 from domains.sales_evidence.service import freeze_sales_evidence
 
+from api.field_visit_contracts import (
+    begin_field_shop_command, complete_field_shop_command,
+    canonicalize_visit_returns, revalidate_return_provenance,
+    revalidate_return_batch_metadata, invoice_from_calculation,
+    pending_shop_commercial_state,
+)
+
 logger = logging.getLogger("wanasah_logger")
 
 VISIT_OUTBOUND_INVENTORY_REFERENCE_TYPES = (
@@ -663,6 +670,9 @@ async def update_visit(
     company_id = field_context.company_id
     driver_id = legacy_actor.id
 
+    payload, return_proofs = canonicalize_visit_returns(
+        payload, context=field_context, driver_id=driver_id, visit_id=visit_id,
+    )
     canonical_payload = payload.model_dump(mode="json", exclude={"request_id"})
     # ترتيب أسطر Flutter ليس جزءاً من المعنى التجاري؛ retry مطابق لا يفشل لمجرد إعادة ترتيب القوائم.
     canonical_payload["cart_items"] = sorted(
@@ -677,6 +687,13 @@ async def update_visit(
             str(item["return_type"]),
         ),
     )
+    if return_proofs:
+        canonical_payload["return_resolutions"] = sorted(
+            return_proofs, key=lambda proof: (
+                proof["request"]["product_variant_id"], proof["batch"],
+                proof["request"]["return_type"],
+            ),
+        )
     request_hash = hashlib.sha256(
         json.dumps(
             {"visit_id": visit_id, "payload": canonical_payload},
@@ -932,6 +949,11 @@ async def update_visit(
                 ),
             )
 
+        await revalidate_return_provenance(
+            db, context=field_context, driver_id=driver_id,
+            visit=visit, session=active_session, proofs=return_proofs,
+        )
+
         if visit.status == "Completed":
             correction_audit_before = {
                 "request_id": str(payload.request_id),
@@ -1186,6 +1208,10 @@ async def update_visit(
                         f"{missing_variants[:10]}"
                     ),
                 )
+
+        await revalidate_return_batch_metadata(
+            db, company_id=company_id, proofs=return_proofs,
+        )
 
         # Batch المرتجع قد يكون منتهياً/غير فعال، لكنه يجب أن يكون حقيقياً ومن نفس الصنف والشركة.
         return_batch_ids = sorted({ret.batch_id for ret in payload.returns})
@@ -1976,6 +2002,10 @@ async def update_visit(
             "message": "Visit updated successfully",
             "new_balance": str(shop.current_balance or "0.000"),
         }
+        response_payload["invoice"] = (
+            invoice_from_calculation(resolved_sale.calculation)
+            if resolved_sale is not None else None
+        )
         complete_idempotent_operation(idempotency_record, response_payload)
         await db.commit()
         return response_payload
@@ -3325,6 +3355,13 @@ async def add_new_shop(
     # Legacy operational ownership locator; canonical context owns authentication.
     driver_id = legacy_actor.id
 
+    shop_command, shop_replay = await begin_field_shop_command(
+        db, payload=payload, company_id=field_context.company_id, driver_id=driver_id,
+    )
+    if shop_replay is not None:
+        await db.rollback()
+        return shop_replay
+
     # 2. جلب الجلسة النشطة (مع درع الـ Limit لتسريع الداتابيز)
     stmt_session = (
         select(WorkSession)
@@ -3429,8 +3466,14 @@ async def add_new_shop(
         )
         db.add(new_visit)
         
+        response_payload = {
+            "message": "Shop added successfully",
+            "shop": {"id": new_shop.id, "name": new_shop.name},
+            "commercial_readiness": pending_shop_commercial_state(),
+        }
+        complete_field_shop_command(shop_command, response_payload)
         await db.commit()
-        return {"message": "Shop added successfully", "shop": {"id": new_shop.id, "name": new_shop.name}}
+        return response_payload
         
     except IntegrityError as e:
         # +++ الدرع الفولاذي: التقاط الـ IntegrityError ورمي 409 Conflict محترم للمندوب +++

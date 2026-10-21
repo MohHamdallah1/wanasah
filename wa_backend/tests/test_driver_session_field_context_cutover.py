@@ -53,6 +53,10 @@ from services import InventoryMutationError, InventoryReversalError
 from domains.sales_calculation.core import CalculationError
 from domains.sales_evidence.core import SalesEvidenceError
 from schemas import BreakToggleRequest, SessionStartRequest
+from api.field_visit_contracts import (
+    canonicalize_visit_returns, revalidate_return_provenance,
+    revalidate_return_batch_metadata, invoice_from_calculation,
+)
 
 CONTEXT = FieldRequestContext(101, 7, 202, 13)
 NOW = datetime(2026, 10, 12, 10, 0)
