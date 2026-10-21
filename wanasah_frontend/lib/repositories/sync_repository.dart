@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart'; // +++ للـ Isolates (compute) +++
 import 'package:uuid/uuid.dart';
 import '../core/network/api_client.dart';
 import '../core/db/local_database.dart';
+import '../core/sync/durable_command.dart';
 import '../models/product_model.dart';
 import '../models/visit_model.dart';
 
@@ -55,20 +56,55 @@ class SyncRepository {
       // 1. محاولة رفع المعلقات
       await syncUp();
 
-      // 2. فحص المعلقات النشطة واستثناء المحجورات لمنع تجميد المزامنة (X1)
+      // 2. أي سجل غير محسوم هو دليل محلي محمي. السجلات المحجورة
+      // لا تُستثنى من الحماية لأنها قد تحمل مبيعات/مخزوناً لم يُسوَّ بعد.
       final pendingCheck = await _db.getPendingSyncs();
-      final activePending = pendingCheck.where((p) => !p['type'].toString().startsWith('quarantined_')).toList();
+      final unresolved = pendingCheck.where(isUnresolvedOfflineCommand).toList();
+      final blocked = unresolved.where((row) {
+        final rawType = row['type']?.toString() ?? '';
+        return DurableCommandState.fromStorage(row['state']) ==
+                DurableCommandState.blocked ||
+            DurableCommandType.isLegacyQuarantined(rawType);
+      }).toList();
 
-      bool hasBlockingPending = activePending.any((p) => p['type'] != 'submit_sale');
-      if (hasBlockingPending) {
-        developer.log('[SyncRepository] Aborting syncDown: Blocking active pending syncs exist.');
-        throw Exception('يوجد عمليات أوفلاين حساسة معلقة. يجب أن ينجح إرسالها أولاً لحماية بياناتك.');
+      if (blocked.isNotEmpty) {
+        developer.log(
+          '[SyncRepository] Aborting syncDown: blocked recovery evidence exists.',
+        );
+        throw Exception(
+          'يوجد عمليات أوفلاين تحتاج معالجة قبل تحديث البيانات المحلية.',
+        );
       }
 
-      bool hasUnsyncedSales = activePending.any((p) => p['type'] == 'submit_sale');
+      final activePending = unresolved;
+      final hasBlockingPending = activePending.any(
+        (p) => DurableCommandType.normalizeLegacyType(
+              p['type']?.toString() ?? '',
+            ) !=
+            DurableCommandType.submitSale,
+      );
+      if (hasBlockingPending) {
+        developer.log(
+          '[SyncRepository] Aborting syncDown: unresolved non-sale commands exist.',
+        );
+        throw Exception(
+          'يوجد عمليات أوفلاين حساسة معلقة. يجب تسويتها أولاً لحماية بياناتك.',
+        );
+      }
+
+      final hasUnsyncedSales = activePending.any(
+        (p) => DurableCommandType.normalizeLegacyType(
+              p['type']?.toString() ?? '',
+            ) ==
+            DurableCommandType.submitSale,
+      );
       if (hasUnsyncedSales) {
-        developer.log('[SyncRepository] Aborting local DB refresh: Un-uploaded offline sales exist.');
-        throw Exception('يرجى الانتظار، جاري رفع بعض فواتير الأوفلاين للسيرفر أولاً.');
+        developer.log(
+          '[SyncRepository] Aborting local DB refresh: unresolved offline sales exist.',
+        );
+        throw Exception(
+          'يرجى الانتظار، جاري رفع بعض فواتير الأوفلاين للسيرفر أولاً.',
+        );
       }
 
       final response = await _api.get('/driver/visits');
@@ -107,12 +143,18 @@ class SyncRepository {
       final List<VisitModel> visitModels = await compute(_parseVisits, visitsData);
       final List<ProductModel> productModels = await compute(_parseProducts, productsData);
 
-      // F4: إعادة الفحص لمنع مسح فاتورة سُجلت أثناء انتظار الشبكة (TOCTOU)
+      // F4: أي أمر ظهر أثناء fetch يمنع استبدال الإسقاط المحلي حتى تتم
+      // معالجته؛ لا نستثني blocked/quarantine من هذا الفحص.
       final postCheck = await _db.getPendingSyncs();
-      final postActive = postCheck.where((p) => !p['type'].toString().startsWith('quarantined_')).toList();
-      if (postActive.any((p) => p['type'] == 'submit_sale')) {
-         developer.log('[SyncRepository] Aborting local DB refresh: Offline sale occurred during fetch.');
-         throw Exception('تم تسجيل فاتورة أوفلاين أثناء التحديث. يرجى المزامنة مجدداً.');
+      final postUnresolved =
+          postCheck.where(isUnresolvedOfflineCommand).toList();
+      if (postUnresolved.isNotEmpty) {
+        developer.log(
+          '[SyncRepository] Aborting local DB refresh: unresolved command appeared during fetch.',
+        );
+        throw Exception(
+          'تم تسجيل عملية أوفلاين أثناء التحديث. عالج المزامنة أولاً ثم أعد المحاولة.',
+        );
       }
 
       await _db.refreshSessionData(
@@ -176,12 +218,15 @@ class SyncRepository {
         final statusCode = e.response!.statusCode!;
         if (statusCode >= 400 && statusCode < 500 && statusCode != 429 && statusCode != 408) {
           developer.log('[SyncRepository] Server strict rejection ($statusCode). Saving draft then rethrowing.');
-          safePayload['quarantine_reason'] = 'Direct Validation Reject: $statusCode';
           await _db.addPendingSync(
-            type: 'quarantined_draft_sale',
+            type: DurableCommandType.submitSale,
             payload: jsonEncode({...safePayload, 'visitId': visitId}),
+            commandId: safePayload['request_id']?.toString(),
+            state: DurableCommandState.blocked,
+            lastErrorCode: 'HTTP_$statusCode',
+            lastErrorMessage: 'Direct validation rejection',
           );
-          rethrow; 
+          rethrow;
         }
       }
       developer.log('[SyncRepository] Offline mode triggered for invoice #$visitId. Reason: $e');
@@ -198,10 +243,18 @@ class SyncRepository {
         developer.log('[SyncRepository] Invoice #$visitId synced and saved atomically.');
       } else {
         await _db.saveOfflineInvoiceAtomic(
-          visitId: visitId, payload: jsonEncode({...safePayload, 'visitId': visitId}),
-          status: finalStatus, outcome: outcome, cashCollected: cashCollected, debtPaid: debtPaid,
-          cartItemsJson: cartItemsJson, returnsJson: returnsJson, notes: notes,
-          cartItems: cartItems, returnItems: returnsItems,
+          visitId: visitId,
+          payload: jsonEncode({...safePayload, 'visitId': visitId}),
+          status: finalStatus,
+          outcome: outcome,
+          cashCollected: cashCollected,
+          debtPaid: debtPaid,
+          cartItemsJson: cartItemsJson,
+          returnsJson: returnsJson,
+          notes: notes,
+          cartItems: cartItems,
+          returnItems: returnsItems,
+          commandId: safePayload['request_id']?.toString(),
         );
         developer.log('[SyncRepository] Invoice #$visitId saved offline atomically.');
       }
@@ -256,8 +309,9 @@ class SyncRepository {
         return true; // +++ أرسلت بنجاح +++
       } else {
         await _db.addPendingSync(
-          type: 'transfer_response',
+          type: DurableCommandType.transferResponse,
           payload: jsonEncode(payload),
+          commandId: _uuid.v4(),
         );
         await _db.removeIncomingTransfer(transferId);
         return false; // +++ دخلت طابور الأوفلاين +++
@@ -280,126 +334,187 @@ class SyncRepository {
   // syncUp — إرسال كل العمليات المعلقة
   // -----------------------------------------------------------------------
   Future<int> syncUp() async {
-    // إغلاق القفل فوراً قبل أي await لمنع الـ Race Condition (H1)
     if (_isSyncing) {
       developer.log('[SyncRepository] syncUp is already running. Skipped.');
       return 0;
     }
+
     _isSyncing = true;
     int successCount = 0;
-    List<Map<String, dynamic>> pending = []; // +++ إصلاح الـ Scope +++
 
     try {
-      pending = await _db.getPendingSyncs();
+      final pending = await _db.getPendingSyncs();
       if (pending.isEmpty) return 0;
 
       developer.log(
-        '[SyncRepository] Found ${pending.length} pending records to syncUp.',
+        '[SyncRepository] Found ${pending.length} unresolved command records.',
       );
 
       for (final record in pending) {
         final recordId = record['id'] as int;
-        final type = record['type'] as String;
-        
-        // +++   تخطي السجلات المحجورة فوراً قبل لمسها أو محاولة فك تشفيرها (منع إعادة التدوير اللانهائي) +++
-        if (type.startsWith('quarantined_')) continue;
+        final rawType = record['type']?.toString() ?? '';
+        final state = DurableCommandState.fromStorage(record['state']);
 
-        Map<String, dynamic> payload;
-        // +++ H3: نسف الزومبي الدلالي (حماية الـ jsonDecode) +++
-        try {
-          payload = jsonDecode(record['payload'] as String);
-        } catch (e) {
-          developer.log('[SyncRepository] ☠️ Corrupted payload. Quarantining raw record #$recordId');
-          // الاحتفاظ بالنص الأصلي (Raw Payload) لتمكين استرجاع البيانات يدوياً
-          await _db.addPendingSync(type: 'quarantined_corrupt', payload: record['payload'] as String);
-          await _db.deletePendingSync(recordId);
+        if (state == DurableCommandState.blocked ||
+            DurableCommandType.isLegacyQuarantined(rawType)) {
           continue;
         }
 
+        final type = DurableCommandType.normalizeLegacyType(rawType);
+
+        if (DurableCommandType.isTemporal(type)) {
+          await _db.markPendingSyncBlocked(
+            recordId,
+            errorCode: 'STALE_TEMPORAL_COMMAND',
+            errorMessage:
+                'Offline break commands cannot be replayed after their original time.',
+          );
+          continue;
+        }
+
+        if (!DurableCommandType.isReplayable(type)) {
+          await _db.markPendingSyncBlocked(
+            recordId,
+            errorCode: 'UNKNOWN_OFFLINE_COMMAND',
+            errorMessage: 'Unsupported offline command type: $type',
+          );
+          continue;
+        }
+
+        Map<String, dynamic> payload;
         try {
-          if (!['submit_sale', 'toggle_break', 'transfer_response'].contains(type)) {
-             developer.log('[SyncRepository] ☠️ Poison Pill detected: Unknown type "$type". Deleting record #$recordId');
-             await _db.deletePendingSync(recordId);
-             continue; 
-          }
+          payload = jsonDecode(record['payload'] as String);
+        } catch (e) {
+          await _db.markPendingSyncBlocked(
+            recordId,
+            errorCode: 'CORRUPT_OFFLINE_PAYLOAD',
+            errorMessage: e.toString(),
+          );
+          continue;
+        }
 
-          if (
-            type == 'submit_sale' &&
+        if (type == DurableCommandType.submitSale &&
             (payload['request_id'] == null ||
-                payload['request_id'].toString().trim().isEmpty)
-          ) {
-            payload['request_id'] = _uuid.v4();
-            // Persist before any network I/O. If the app dies after the server
-            // commits but before receiving the response, the next retry uses
-            // exactly the same request_id.
-            await _db.updatePendingSyncPayload(
-              recordId,
-              jsonEncode(payload),
-            );
-          }
+                payload['request_id'].toString().trim().isEmpty)) {
+          payload['request_id'] = _uuid.v4();
+          await _db.updatePendingSyncPayload(recordId, jsonEncode(payload));
+        }
 
+        final existingCommandId = record['command_id']?.toString().trim() ?? '';
+        if (existingCommandId.isEmpty) {
+          final commandId = type == DurableCommandType.submitSale
+              ? payload['request_id']?.toString() ?? _uuid.v4()
+              : _uuid.v4();
+          await _db.updatePendingSyncCommandId(recordId, commandId);
+        }
+
+        await _db.markPendingSyncInFlight(recordId);
+
+        try {
           await _dispatchPendingRecord(type: type, payload: payload);
           await _db.deletePendingSync(recordId);
           successCount++;
         } on DioException catch (e) {
-          if (e.response != null && e.response!.statusCode != null) {
-            final statusCode = e.response!.statusCode!;
-            if (statusCode >= 400 && statusCode < 500) {
-              if (statusCode == 401) {
-                developer.log('[SyncRepository] Auth Error ($statusCode) - Halting sync.');
-                break;
-              }
-              if (statusCode == 429 || statusCode == 408) {
-                developer.log('[SyncRepository] Transient error ($statusCode). Halting sync.');
-                break;
-              }
+          final statusCode = e.response?.statusCode;
+          final requestId = _requestIdFromDio(e);
 
-              String errorMessage = '';
-              if (e.response?.data is Map) {
-                errorMessage = e.response?.data?['message']?.toString() ?? e.response?.data?['detail']?.toString() ?? '';
-              }
-              
-              if (statusCode == 403 && errorMessage.contains('تم تسويتها')) {
-                  developer.log('[SyncRepository] ⚠️ Settlement Collision. Deleting offline record.');
-                  await _db.deletePendingSync(recordId);
-                  continue;
-              }
-              
-              if (statusCode == 400 && type == 'toggle_break') {
-                  developer.log('[SyncRepository] ⚠️ Break record rejected. Deleting it to unblock sync.');
-                  await _db.deletePendingSync(recordId);
-                  continue;
-              }
-
-              // +++ N3: حجر صحي مع حفظ سبب الرفض الصريح للتشخيص اللاحق +++
-              developer.log('[SyncRepository] FATAL: Server strictly rejected #$recordId. Moving to Quarantine.');
-              payload['quarantine_reason'] = 'Server Rejected: $statusCode | $errorMessage';
-              await _db.addPendingSync(type: 'quarantined_$type', payload: jsonEncode(payload));
-              await _db.deletePendingSync(recordId);
-              continue;
-            }
+          if (statusCode == 401) {
+            await _db.markPendingSyncPending(
+              recordId,
+              lastErrorCode: 'AUTH_REQUIRED',
+              lastErrorMessage: 'Authentication required before replay.',
+              lastRequestId: requestId,
+            );
+            break;
           }
-          developer.log('[SyncRepository] Offline or 5xx — stopping syncUp.');
-          break;
+
+          if (statusCode == 408 ||
+              statusCode == 429 ||
+              statusCode == null ||
+              statusCode >= 500) {
+            await _db.markPendingSyncPending(
+              recordId,
+              lastErrorCode:
+                  statusCode == null ? 'NETWORK_AMBIGUOUS' : 'HTTP_$statusCode',
+              lastErrorMessage: _displayErrorFromDio(e),
+              lastRequestId: requestId,
+            );
+            break;
+          }
+
+          await _db.markPendingSyncBlocked(
+            recordId,
+            errorCode: _stableErrorCodeFromDio(e),
+            errorMessage: _displayErrorFromDio(e),
+            requestId: requestId,
+          );
         } catch (e) {
           if (e.toString().contains('DatabaseException')) {
-             developer.log('[SyncRepository] Transient DB Error in #$recordId: $e. Halting sync.');
-             break;
+            await _db.markPendingSyncPending(
+              recordId,
+              lastErrorCode: 'LOCAL_DATABASE_TRANSIENT',
+              lastErrorMessage: e.toString(),
+            );
+            break;
           }
-          developer.log('[SyncRepository] ☠️ Semantic/Type Error in #$recordId: $e. Quarantining. (Note: potential duplication window between add and delete)');
-          payload['quarantine_reason'] = 'Local Type Error: $e';
-          await _db.addPendingSync(type: 'quarantined_$type', payload: jsonEncode(payload));
-          await _db.deletePendingSync(recordId);
-          continue; 
+
+          await _db.markPendingSyncBlocked(
+            recordId,
+            errorCode: 'LOCAL_COMMAND_ERROR',
+            errorMessage: e.toString(),
+          );
         }
       }
     } finally {
-      _isSyncing = false; 
+      _isSyncing = false;
       developer.log(
         '[SyncRepository] syncUp() completed. Processed successes: $successCount.',
       );
     }
+
     return successCount;
+  }
+
+  String? _requestIdFromDio(DioException error) {
+    final header = error.response?.headers.value('x-request-id');
+    if (header != null && header.trim().isNotEmpty) return header.trim();
+
+    final data = error.response?.data;
+    if (data is Map) {
+      final nested = data['error'];
+      if (nested is Map && nested['request_id'] != null) {
+        final value = nested['request_id'].toString().trim();
+        if (value.isNotEmpty) return value;
+      }
+      final topLevel = data['request_id']?.toString().trim() ?? '';
+      if (topLevel.isNotEmpty) return topLevel;
+    }
+    return null;
+  }
+
+  String _stableErrorCodeFromDio(DioException error) {
+    final data = error.response?.data;
+    if (data is Map && data['error'] is Map) {
+      final code = (data['error'] as Map)['code']?.toString().trim() ?? '';
+      if (code.isNotEmpty) return code;
+    }
+    final status = error.response?.statusCode;
+    return status == null ? 'NETWORK_ERROR' : 'HTTP_$status';
+  }
+
+  String? _displayErrorFromDio(DioException error) {
+    final data = error.response?.data;
+    if (data is Map) {
+      if (data['error'] is Map) {
+        final message = (data['error'] as Map)['message']?.toString().trim();
+        if (message != null && message.isNotEmpty) return message;
+      }
+      final message = data['message']?.toString().trim();
+      if (message != null && message.isNotEmpty) return message;
+      final detail = data['detail']?.toString().trim();
+      if (detail != null && detail.isNotEmpty) return detail;
+    }
+    return error.message;
   }
 
   // -----------------------------------------------------------------------
@@ -410,7 +525,7 @@ class SyncRepository {
     required Map<String, dynamic> payload,
   }) async {
     switch (type) {
-      case 'submit_sale':
+      case DurableCommandType.submitSale:
         final int visitId = int.tryParse(payload['visitId']?.toString() ?? '') ?? 0;
         final body = Map<String, dynamic>.from(payload)
           ..remove('visitId')
@@ -447,15 +562,12 @@ class SyncRepository {
         }
         break;
 
-      case 'toggle_break':
-        final String action = payload['action']?.toString() ?? '';
-        await _api.put(
-          '/driver/sessions/break',
-          data: {'action': action},
+      case DurableCommandType.legacyToggleBreak:
+        throw StateError(
+          'Historical offline break commands are not replayable.',
         );
-        break;
 
-      case 'transfer_response':
+      case DurableCommandType.transferResponse:
         final int tId = int.tryParse(payload['transferId']?.toString() ?? '') ?? 0;
         final body = {
           'response': payload['response'],
