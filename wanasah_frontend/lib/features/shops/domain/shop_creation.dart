@@ -1,5 +1,3 @@
-import '../../../core/network/api_failure.dart';
-
 class ShopCreateCommand {
   const ShopCreateCommand({
     required this.requestId,
@@ -75,14 +73,21 @@ class ShopCreateResult {
 
 class ShopCreateFailure implements Exception {
   const ShopCreateFailure({
-    required this.failure,
     required this.ambiguous,
+    required this.status,
+    required this.code,
+    required this.context,
+    required this.requestId,
+    required this.displayFallback,
   });
 
-  final ApiFailure failure;
   final bool ambiguous;
+  final int? status;
+  final String? code;
+  final Map<String, dynamic> context;
+  final String? requestId;
+  final String? displayFallback;
 }
-
 
 abstract class ShopCreationGateway {
   Future<ShopCreateResult> create(ShopCreateCommand command);
