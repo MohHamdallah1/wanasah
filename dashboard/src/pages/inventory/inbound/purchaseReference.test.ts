@@ -35,7 +35,8 @@ describe("Inbound purchase cost reference V1", () => {
     const row = prefilledInboundRow("r1", "1", option);
     expect(row.unit_cost).toBe("8.500000");
     expect(row.uom_id).toBe("2");
-    expect(row.quantity).toBe("0");
+    // Latest local draft UX represents untouched quantity as a blank input.
+    expect(row.quantity).toBe("");
   });
 
   it("leaves a missing or unauthorized suggestion unknown, not 0", () => {
