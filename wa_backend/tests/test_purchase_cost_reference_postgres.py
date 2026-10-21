@@ -235,8 +235,8 @@ async def test_currency_is_explicit_and_global_currency_is_not_changed(pg):
         assert await db.scalar(text("SELECT currency_code FROM purchase_cost_references")) == "JOD"
         assert await db.scalar(text("SELECT currency_code FROM companies WHERE id=:c"), {"c": t.company_id}) == "JOD"
         reference = await read_reference(db, access=t.owner.access(db), product_variant_id=t.variant_id)
-        assert reference.reference is not None
-        assert reference.reference.currency_code == "JOD"
+        assert reference["reference"] is not None
+        assert reference["reference"]["currency_code"] == "JOD"
 
 
 async def test_exact_conversion_rejects_rounding_and_unmapped_uom(pg):
