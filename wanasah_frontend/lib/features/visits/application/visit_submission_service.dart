@@ -1,7 +1,7 @@
 import '../../../core/visit/visit_command_serializer.dart';
 import '../../../repositories/sync_repository.dart';
 import '../data/visit_submission_mapper.dart';
-import 'visit_state.dart';
+import '../../../models/cart_item_model.dart';
 
 class VisitSubmissionService {
   VisitSubmissionService(this._syncRepository);
@@ -13,13 +13,14 @@ class VisitSubmissionService {
     required String outcome,
     String? notes,
     required double debtPaid,
-    required VisitReady state,
+    required double cashCollected,
+    required List<CartItemModel> cart,
   }) async {
-    final lines = mapVisitSubmissionLines(state.cart);
+    final lines = mapVisitSubmissionLines(cart);
     final payload = buildCanonicalVisitPayload(
       outcome: outcome,
       notes: notes,
-      cashCollected: state.cashCollected.toStringAsFixed(3),
+      cashCollected: cashCollected.toStringAsFixed(3),
       debtPaid: debtPaid.toStringAsFixed(3),
       cartItems: lines.cartItems,
       returns: lines.returns,
