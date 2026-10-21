@@ -16,15 +16,22 @@ import 'dashboard_state.dart';
 import 'package:dio/dio.dart';
 import '../../services/location_service.dart';
 import '../../repositories/dashboard_repository.dart';
+import '../../features/work_session/application/work_session_coordinator.dart';
+import '../../features/work_session/application/work_session_failure.dart';
+import '../../features/work_session/application/work_session_location_source.dart';
+import '../../features/work_session/application/work_session_outcome.dart';
+import '../../features/work_session/data/work_session_remote_data_source.dart';
+import '../../features/work_session/data/work_session_snapshot.dart';
+import '../../features/work_session/presentation/work_session_result_message.dart';
 
-part '../../features/work_session/application/work_session_handlers.dart';
 part '../../features/custody/application/custody_handlers.dart';
 
 class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
   final SyncRepository _syncRepository;
   final LocalDatabase _db;
   final DashboardRepository _dashboardRepo;
-  final LocationService _locationService;
+  final WorkSessionCoordinator _workSessionCoordinator;
+  bool _workSessionRecoveryCompleted = false;
 
   // +++ EVT-1: محول تسلسلي (Sequential Transformer) لإجبار البلوك على معالجة الأحداث بالدور ومنع السباق +++
   EventTransformer<T> _sequential<T>() {
@@ -36,11 +43,19 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     LocalDatabase? db,
     DashboardRepository? dashboardRepo,
     LocationService? locationService,
+    WorkSessionCoordinator? workSessionCoordinator,
   })
     : _syncRepository = syncRepository ?? SyncRepository(),
       _db = db ?? LocalDatabase.instance,
       _dashboardRepo = dashboardRepo ?? DashboardRepository(),
-      _locationService = locationService ?? LocationService.instance,
+      _workSessionCoordinator =
+          workSessionCoordinator ??
+          WorkSessionCoordinator(
+            remote: ApiWorkSessionRemoteDataSource(),
+            locationSource: DeviceWorkSessionLocationSource(
+              locationService ?? LocationService.instance,
+            ),
+          ),
       super(const DashboardInitial()) {
       
     // +++ ربط جميع الأحداث بالمحول التسلسلي لمنع الانهيار المعماري +++
@@ -58,18 +73,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       (event, emit) => _handleRespondToBatchTransfer(this, event, emit),
       transformer: _sequential(),
     );
-    on<StartSessionEvent>(
-      (event, emit) => _handleStartSession(this, event, emit),
-      transformer: _sequential(),
-    );
-    on<EndSessionEvent>(
-      (event, emit) => _handleEndSession(this, event, emit),
-      transformer: _sequential(),
-    );
-    on<ToggleBreakEvent>(
-      (event, emit) => _handleToggleBreak(this, event, emit),
-      transformer: _sequential(),
-    );
+    on<StartSessionEvent>(_onStartSession, transformer: _sequential());
+    on<EndSessionEvent>(_onEndSession, transformer: _sequential());
+    on<ToggleBreakEvent>(_onToggleBreak, transformer: _sequential());
     on<ClearActionMessageEvent>((event, emit) {
       if (state is DashboardLoaded) {
         emit((state as DashboardLoaded).copyWith(clearActionMessage: true));
@@ -258,6 +264,14 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     // +++  لـ Bug 3: منع الشاشة البيضاء (Jank) وتفريغ الواجهة إذا كانت محملة مسبقاً +++
     if (state is! DashboardLoaded) emit(const DashboardLoading());
 
+    WorkSessionRecoveryResult? restartRecovery;
+    if (!_workSessionRecoveryCompleted) {
+      restartRecovery = await _workSessionCoordinator.recoverActiveSession();
+      if (restartRecovery.succeeded) {
+        _workSessionRecoveryCompleted = true;
+      }
+    }
+
     try {
       // +++  لـ Bug 2: الاعتماد على المستودع لجلب البيانات +++
       final response = await _dashboardRepo.fetchDashboardRaw();
@@ -269,24 +283,21 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       }
       final Map<String, dynamic> data = Map<String, dynamic>.from(response.data as Map);
 
-      final sessionData = data['active_session'] is Map 
-          ? Map<String, dynamic>.from(data['active_session'] as Map) 
+      final sessionData = data['active_session'] is Map
+          ? Map<String, dynamic>.from(data['active_session'] as Map)
           : null;
-      final bool sessionIsActive =
-          (sessionData != null && sessionData['session_id'] != null);
+      final sessionSnapshot =
+          WorkSessionSnapshot.fromDashboardResponse(data);
+      final bool sessionIsActive = sessionSnapshot.isActive;
 
       bool isAuthorized = false;
-      bool isOnBreak = false;
-      String? startTimeStr;
+      final bool isOnBreak = sessionSnapshot.isOnBreak ?? false;
+      final String? startTimeStr = sessionSnapshot.startTime;
       List<ProductModel> apiProducts = [];
 
       if (sessionData != null) {
         isAuthorized = sessionData['is_authorized_to_sell'] == true;
-        isOnBreak =
-            sessionData['break_start_time'] != null &&
-            sessionData['break_end_time'] == null;
-        startTimeStr = sessionData['start_time']?.toString();
-        
+
         // +++ درع القوائم: حماية الـ List من الانهيار إذا أرسل السيرفر null أو Map بالخطأ +++
         final dynamic rawInv = sessionData['inventory'];
         final List<dynamic> inventoryList = rawInv is List ? rawInv : [];
@@ -400,7 +411,13 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       if (isOfflineError) {
         try {
           // النت مقطوع -> نعرض بيانات الخزنة
-          final localData = await _loadFromLocal(isOffline: true);
+          var localData = await _loadFromLocal(isOffline: true);
+          if (restartRecovery?.succeeded == true) {
+            localData = _applyRecoveredWorkSession(
+              localData,
+              restartRecovery!.session!,
+            );
+          }
           emit(localData);
         } catch (localErr) {
           emit(
@@ -422,6 +439,96 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       developer.log('[DashboardBloc] Parsing Error: $e');
       emit(DashboardError(message: 'حدث خطأ في معالجة بيانات لوحة التحكم: $e'));
     }
+  }
+
+
+  Future<void> _onStartSession(
+    StartSessionEvent event,
+    Emitter<DashboardState> emit,
+  ) async {
+    final result = await _workSessionCoordinator.startSession();
+    _completeWorkSessionAction(result, event.driverId, emit);
+  }
+
+  Future<void> _onEndSession(
+    EndSessionEvent event,
+    Emitter<DashboardState> emit,
+  ) async {
+    final result = await _workSessionCoordinator.endSession();
+    _completeWorkSessionAction(result, event.driverId, emit);
+  }
+
+  Future<void> _onToggleBreak(
+    ToggleBreakEvent event,
+    Emitter<DashboardState> emit,
+  ) async {
+    final result = await _workSessionCoordinator.toggleBreak(
+      start: event.action == 'start',
+    );
+    _completeWorkSessionAction(result, event.driverId, emit);
+  }
+
+  void _completeWorkSessionAction(
+    WorkSessionOperationResult result,
+    int driverId,
+    Emitter<DashboardState> emit,
+  ) {
+    final message = workSessionResultMessage(result);
+
+    if (result.isSuccess) {
+      if (state is DashboardLoaded) {
+        emit(
+          (state as DashboardLoaded).copyWith(
+            actionSuccessMessage: message,
+          ),
+        );
+      }
+      add(FetchDashboardData(driverId: driverId));
+      return;
+    }
+
+    emit(DashboardError(message: message));
+
+    final failure = result.failure;
+    final shouldRefreshAuthoritativeState =
+        result.reconciledSession != null ||
+        (failure?.kind == WorkSessionFailureKind.businessRejected &&
+            (failure?.status == 404 || failure?.status == 409));
+
+    if (shouldRefreshAuthoritativeState) {
+      add(FetchDashboardData(driverId: driverId));
+    }
+  }
+
+  DashboardLoaded _applyRecoveredWorkSession(
+    DashboardLoaded current,
+    WorkSessionSnapshot session,
+  ) {
+    return DashboardLoaded(
+      visits: current.visits,
+      products: current.products,
+      totalVisits: current.totalVisits,
+      completedVisits: current.completedVisits,
+      pendingVisits: current.pendingVisits,
+      offlineVisits: current.offlineVisits,
+      quarantinedVisits: current.quarantinedVisits,
+      salesInCompleted: current.salesInCompleted,
+      driverName: current.driverName,
+      assignedRegion: current.assignedRegion,
+      totalSalesCash: current.totalSalesCash,
+      totalDebtPaid: current.totalDebtPaid,
+      debtPaymentsCount: current.debtPaymentsCount,
+      totalCashOverall: current.totalCashOverall,
+      isActiveSession: session.isActive,
+      activeSessionStartTime: session.startTime,
+      isOnBreak:
+          session.isActive
+              ? (session.isOnBreak ?? current.isOnBreak)
+              : false,
+      isOffline: current.isOffline,
+      pendingTransfer: current.pendingTransfer,
+      actionSuccessMessage: current.actionSuccessMessage,
+    );
   }
 
 }
