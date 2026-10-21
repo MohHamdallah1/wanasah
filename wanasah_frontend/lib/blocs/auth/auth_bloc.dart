@@ -13,11 +13,11 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../core/db/local_database.dart';
 import '../../core/network/api_client.dart';
 import 'auth_event.dart';
-import 'auth_failure_policy.dart';
-import 'auth_messages.dart';
+import '../../features/auth/application/auth_failure_policy.dart';
+import '../../features/auth/presentation/auth_messages.dart';
 import 'auth_state.dart';
 import 'offline_owner_guard.dart';
-import 'stored_auth_identity.dart';
+import '../../features/auth/application/stored_auth_identity.dart';
 
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   static const String _offlineOwnerDriverKey =
