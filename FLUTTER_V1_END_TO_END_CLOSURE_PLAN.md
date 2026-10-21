@@ -216,6 +216,88 @@ Migration rules:
 - [ ] legacy rows receive safe defaults;
 - [ ] unattributed active pending work fails closed.
 
+### 4.1 Frozen Offline V1 command model
+
+The existing `pending_sync(type,payload,created_at)` table is retained and migrated in place; no drop/recreate and no deletion of old evidence.
+
+V1 durable command metadata:
+- `command_id`: local stable UUID/operation identity; for visit commands it binds to the durable visit `request_id`.
+- `state`: `pending | in_flight | blocked`.
+- `owner_company_code`: explicit tenant evidence in addition to physical DB isolation.
+- `owner_driver_id`: nullable only for migrated legacy rows until safely attributed; new field commands must carry the current field owner when available.
+- `attempt_count`: monotonically increasing diagnostic count.
+- `last_error_code`: stable machine-readable classification when known.
+- `last_error_message`: display/diagnostic fallback only; never business authority.
+- `last_request_id`: latest HTTP incident/correlation ID when available.
+- `updated_at`: lifecycle timestamp.
+
+Compatibility:
+- Keep legacy `type`, `payload`, `created_at` during V1.
+- Existing `quarantined_*` rows migrate to/behave as `blocked`; evidence is preserved.
+- Legacy rows without command/owner metadata are never silently discarded.
+- FIFO remains `created_at ASC, id ASC` among eligible pending commands.
+
+### 4.2 Lifecycle and evidence rules
+
+- [ ] A command is persisted before its first mutation network attempt whenever lost-response replay requires durable identity.
+- [ ] `pending -> in_flight -> success(delete after local finalize)` is the normal path.
+- [ ] Ambiguous network/5xx result returns the same row to replayable `pending` or leaves recoverable `in_flight`; identity/body never change.
+- [ ] Confirmed business/semantic rejection becomes `blocked` in place.
+- [ ] Corrupt payload becomes `blocked` in place while raw payload is preserved.
+- [ ] Unknown command type becomes `blocked` in place; never delete a poison pill.
+- [ ] Moving to blocked/quarantine is one UPDATE on the same row, not add-then-delete.
+- [ ] Blocked commands remain ownership-protected unresolved evidence.
+- [ ] Session/cache clearing must fail closed while ANY unresolved command exists, including blocked/quarantined evidence.
+- [ ] Ordinary representative UI has no “clear all quarantine” or permanent evidence-delete action.
+- [ ] Retry/supersession later must be operation-specific; corrupt and stale temporal commands are not generic retry candidates.
+
+### 4.3 Operation policy
+
+**Visit update**
+- [ ] Durable `request_id` + exact semantic body are persisted before first send.
+- [ ] Lost response replays the same identity/body.
+- [ ] Successful server replay finalizes local visit/projection exactly once before command deletion.
+- [ ] Strict server rejection preserves the command as blocked evidence without pretending the sale committed.
+- [ ] A deliberate later correction is a different logical command with a new UUID only after the prior command is resolved.
+
+**Transfer response**
+- [ ] Store exact transfer ID, decision and normalized rejection reason.
+- [ ] Local command UUID is for lifecycle/diagnostics; Backend replay truth is the exact state decision.
+- [ ] Exact repeated decision may replay; conflicting decision remains blocked/actionable.
+- [ ] Do not reconstruct inventory movement in Flutter.
+
+**Break**
+- [x] Backend audit proves historical offline break replay is unsupported.
+- [ ] Stop creating new `toggle_break` offline commands.
+- [ ] Do not optimistically change durable break state on network failure.
+- [ ] Existing legacy queued break commands are preserved as blocked/recovery evidence; they are not replayed later.
+
+**Unknown/corrupt legacy commands**
+- [ ] preserve row + raw payload;
+- [ ] mark blocked with stable local reason;
+- [ ] never delete merely to unblock sync.
+
+### 4.4 Ownership guard
+
+- [ ] Any unresolved row—pending, in-flight, blocked, or legacy quarantined—protects the original offline owner.
+- [ ] Quarantine-only work must block unsafe driver/company switching exactly like pending financial/stock work.
+- [ ] Same owner may resume recovery.
+- [ ] Invalid/missing owner metadata with unresolved rows fails closed.
+- [ ] Refresh/logout cleanup failures never turn a blocked ownership decision into allow.
+
+### 4.5 Offline slice ownership
+
+Lead Offline branch will own only:
+- `wanasah_frontend/lib/core/db/local_database.dart`
+- new `wanasah_frontend/lib/core/sync/**`
+- `wanasah_frontend/lib/repositories/sync_repository.dart`
+- `wanasah_frontend/lib/repositories/dashboard_repository.dart` only for removing deferred break persistence
+- `wanasah_frontend/lib/blocs/auth/offline_owner_guard.dart`
+- Flutter quarantine UI/event/BLoC code only to remove destructive evidence deletion
+- focused tests for this slice
+
+It will not touch Backend, web Dashboard, pricing/returns UI, or the Network worker-owned `core/network/**`.
+
 ## 5. Error model / observability
 
 - [ ] Introduce a typed Flutter API failure model.
@@ -530,7 +612,11 @@ Second chat read-only audit:
 - extraction order;
 - UX risk map.
 
-Future implementation workers receive disjoint file ownership only after this audit is frozen.
+Current implementation ownership is frozen:
+- Backend worker: Backend FIELD seams only.
+- Network worker: `wanasah_frontend/lib/core/network/**` + focused network tests.
+- Lead Offline worker: durable command/quarantine/persistence ownership listed in §4.5.
+- No worker may edit another worker's owned files without lead handoff.
 
 ## 15. Audit findings still open
 
