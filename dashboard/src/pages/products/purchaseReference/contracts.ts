@@ -49,8 +49,10 @@ export const validateReferenceCommand = (
   draft: { amount: string; purchase_uom_id: number; currency_code: string },
   expectedRevision: number,
 ): PurchaseReferenceCommand => {
-  const amount = draft.amount.trim();
+  const entered = draft.amount.trim();
+  const amount = entered.replace(/^0+(?=[0-9])/, "");
   if (
+    entered.length > 64 ||
     !/^[0-9]+(?:\.[0-9]{1,6})?$/.test(amount) ||
     amount.split(".")[0].replace(/^0+/, "").length > 14 ||
     !Number.isSafeInteger(draft.purchase_uom_id) || draft.purchase_uom_id <= 0 ||
