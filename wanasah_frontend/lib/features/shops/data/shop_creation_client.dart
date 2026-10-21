@@ -4,7 +4,7 @@ import '../../../core/network/api_client.dart';
 import '../../../core/network/api_failure.dart';
 import '../domain/shop_creation.dart';
 
-class ShopCreationClient {
+class ShopCreationClient implements ShopCreationGateway {
   ShopCreationClient({ApiClient? apiClient})
       : _api = apiClient ?? ApiClient.instance;
 
