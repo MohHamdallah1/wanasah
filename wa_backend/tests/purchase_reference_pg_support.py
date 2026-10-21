@@ -45,7 +45,7 @@ class Gate:
             return result
 
     async def grant(self, tenant, codes):
-        async with AsyncSession(self.admin) as db:
+        async with AsyncSession(self.admin, expire_on_commit=False) as db:
             await db.execute(text("SELECT set_config('app.current_tenant',:tenant,true)"),
                              {"tenant": str(tenant.company_id)})
             role = Role(company_id=tenant.company_id, name="PCR-" + uuid4().hex)
