@@ -84,7 +84,7 @@ Map<String, dynamic> canonicalError(
   };
 }
 
-Dio protectedDio({
+Dio _protectedDio({
   required _MemoryTokenStore tokenStore,
   required Dio refreshDio,
   required void Function() onUnauthorized,
@@ -119,7 +119,7 @@ void main() {
     );
 
     var unauthorizedCalls = 0;
-    final dio = protectedDio(
+    final dio = _protectedDio(
       tokenStore: tokenStore,
       refreshDio: refreshDio,
       onUnauthorized: () {
@@ -159,7 +159,7 @@ void main() {
     );
 
     var unauthorizedCalls = 0;
-    final dio = protectedDio(
+    final dio = _protectedDio(
       tokenStore: tokenStore,
       refreshDio: refreshDio,
       onUnauthorized: () {

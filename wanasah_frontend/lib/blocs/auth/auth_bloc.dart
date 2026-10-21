@@ -224,8 +224,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       }
 
       final String? refreshTokenRaw = data['refresh_token']?.toString();
-      final String? refreshToken =
-          refreshTokenRaw == null ? null : refreshTokenRaw.trim();
+      final String? refreshToken = refreshTokenRaw?.trim();
       if (refreshToken == null ||
           refreshToken.isEmpty ||
           refreshToken == 'null') {
