@@ -1,4 +1,5 @@
 name: Flutter V1 Visit command correction acceptance
+# Validate the PR merge result against the current field-closure integration base.
 
 on:
   pull_request:
