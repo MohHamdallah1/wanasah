@@ -42,7 +42,8 @@ export interface InboundVariantOptions {
   product_variant_id: number;
   base_uom_id: number;
   uoms: InboundUomOption[];
-  purchase_cost_reference: InboundPurchaseCostReference | null;
+  // Optional for legacy callers/fixtures; the server's new response includes null when masked.
+  purchase_cost_reference?: InboundPurchaseCostReference | null;
 }
 
 export interface InboundOptionsResponse {
