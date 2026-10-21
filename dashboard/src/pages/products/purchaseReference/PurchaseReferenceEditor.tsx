@@ -52,14 +52,21 @@ export function PurchaseReferenceEditor({
       try {
         // A lost HTTP response must be reconciled with the ORIGINAL command.
         const frozen = await readDurableCommand<PurchaseReferenceCommand>(scope);
+        if (frozen) {
+          // Recovery cannot depend on a second GET succeeding first.
+          if (!active) return;
+          setPending(frozen);
+          setAmount(frozen.payload.amount);
+          setUomId(frozen.payload.purchase_uom_id);
+          return;
+        }
         const result = parsePurchaseReference(
           await authenticatedFetch("/purchase-cost-references/" + product.id),
         );
         if (!active) return;
         setReference(result);
-        setPending(frozen);
-        setAmount(frozen?.payload.amount ?? result?.amount ?? "");
-        setUomId(frozen?.payload.purchase_uom_id ?? result?.purchase_uom_id ?? product.base_uom_id);
+        setAmount(result?.amount ?? "");
+        setUomId(result?.purchase_uom_id ?? product.base_uom_id);
       } catch (exception) {
         if (active) setError(
           apiErrorMessage(exception, t("products.purchaseReference.loadFailed")),
@@ -97,9 +104,11 @@ export function PurchaseReferenceEditor({
       onClose();
     } catch (exception) {
       if (apiErrorCode(exception) === "PURCHASE_REFERENCE_REVISION_CONFLICT") {
-        // A confirmed revision rejection cannot have committed this command.
-        // A committed-but-lost response would instead return durable replay.
-        // Keep the editor locked so the operator explicitly reopens to reload.
+        // A confirmed revision rejection never committed: the backend checks
+        // successful replay before the revision compare.
+        const stale = await readDurableCommand<PurchaseReferenceCommand>(scope);
+        if (stale) completeDurableOperation(scope, stale.requestId);
+        setPending(null);
         setError(t("products.purchaseReference.conflict"));
       } else {
         toast.error(apiErrorMessage(exception, t("products.purchaseReference.saveFailed")));
