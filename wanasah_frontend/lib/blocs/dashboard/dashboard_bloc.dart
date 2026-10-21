@@ -635,7 +635,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
 
       if (e.response == null) {
         emit(
-          const DashboardError(
+          DashboardError(
             message:
                 'بدء أو إنهاء الاستراحة يحتاج اتصالاً مباشراً بالسيرفر ولا يُحفظ كأمر أوفلاين.',
           ),
