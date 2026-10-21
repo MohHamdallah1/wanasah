@@ -21,7 +21,7 @@ def _value_constraints(prefix):
         CheckConstraint("currency_code ~ '^[A-Z][A-Z0-9]{2,9}$'", name=prefix + "_currency"),
         CheckConstraint("jsonb_typeof(provenance) = 'object'", name=prefix + "_provenance"),
         CheckConstraint(
-            "(source = 'MANUAL_PRODUCT' AND source_cost_event_id IS NULL) OR "
+            "(source IN ('MANUAL_PRODUCT','PRODUCT_IMPORT') AND source_cost_event_id IS NULL) OR "
             "(source = 'SUPPLIER_INBOUND' AND source_cost_event_id IS NOT NULL)",
             name=prefix + "_source",
         ),
@@ -52,7 +52,7 @@ class PurchaseReferenceCommand(Base):
             name="pcrc_profile_fk", ondelete="RESTRICT",
         ),
         CheckConstraint("request_hash ~ '^[0-9a-f]{64}$'", name="pcrc_hash"),
-        CheckConstraint("operation IN ('MANUAL_PRODUCT_SET','SUPPLIER_INBOUND_SET')", name="pcrc_operation"),
+        CheckConstraint("operation IN ('MANUAL_PRODUCT_SET','SUPPLIER_INBOUND_SET','PRODUCT_IMPORT_SET')", name="pcrc_operation"),
         CheckConstraint("jsonb_typeof(response_json) = 'object'", name="pcrc_response"),
     )
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="RESTRICT"), primary_key=True)
