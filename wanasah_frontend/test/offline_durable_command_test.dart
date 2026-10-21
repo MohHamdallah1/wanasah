@@ -100,6 +100,47 @@ void main() {
       );
     });
 
+    test('visit identity is durable before first mutation send', () async {
+      final source =
+          await File('lib/repositories/sync_repository.dart').readAsString();
+
+      final stageIndex = source.indexOf('stageVisitCommandAtomic(');
+      final firstDispatchAfterStage =
+          source.indexOf('_dispatchPendingRecord(', stageIndex);
+      expect(stageIndex, greaterThanOrEqualTo(0));
+      expect(firstDispatchAfterStage, greaterThan(stageIndex));
+      expect(source, contains('isFirstUnresolvedCommand'));
+      expect(source, contains('markPendingSyncInFlight'));
+      expect(
+        source,
+        contains('finalizeVisitCommandLocalState'),
+      );
+    });
+
+    test('local visit projection is marked exactly once before command deletion', () async {
+      final dbSource =
+          await File('lib/core/db/local_database.dart').readAsString();
+      final syncSource =
+          await File('lib/repositories/sync_repository.dart').readAsString();
+
+      expect(dbSource, contains('local_effect_applied INTEGER NOT NULL DEFAULT 0'));
+      expect(dbSource, contains("'local_effect_applied': 1"));
+      expect(
+        dbSource,
+        contains('Unresolved visit commands are immutable until reconciliation'),
+      );
+
+      final replayDispatch =
+          syncSource.indexOf('await _dispatchPendingRecord(type: type, payload: payload);');
+      final replayFinalize =
+          syncSource.indexOf('_finalizeVisitCommandLocalState(', replayDispatch);
+      final replayDelete =
+          syncSource.indexOf('await _db.deletePendingSync(recordId);', replayFinalize);
+      expect(replayDispatch, greaterThanOrEqualTo(0));
+      expect(replayFinalize, greaterThan(replayDispatch));
+      expect(replayDelete, greaterThan(replayFinalize));
+    });
+
     test('sync engine never deletes unknown, stale break, or rejected evidence', () async {
       final source =
           await File('lib/repositories/sync_repository.dart').readAsString();
