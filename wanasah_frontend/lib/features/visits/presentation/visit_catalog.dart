@@ -18,6 +18,7 @@ class VisitCatalog extends StatefulWidget {
   final VoidCallback onClose; // +++ أمر الإغلاق الآمن +++
 
   const VisitCatalog({
+    super.key,
     required this.catalog,
     required this.cart,
     required this.visitBloc,
