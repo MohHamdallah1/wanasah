@@ -809,11 +809,19 @@ class LocalDatabase {
     required double cashCollected, required double debtPaid,
     String? cartItemsJson, String? returnsJson, String? notes,
     required List<dynamic> cartItems, List<dynamic>? returnItems,
+    String? commandId,
+    int? ownerDriverId,
   }) async {
     final db = await database;
     await db.transaction((txn) async {
       await revertOfflineVisit(visitId, txn: txn);
-      await addPendingSync(type: 'submit_sale', payload: payload, txn: txn);
+      await addPendingSync(
+        type: DurableCommandType.submitSale,
+        payload: payload,
+        commandId: commandId,
+        ownerDriverId: ownerDriverId,
+        txn: txn,
+      );
       await updateVisitStatus(visitId: visitId, status: status, outcome: outcome, cashCollected: cashCollected, debtPaid: debtPaid, cartItemsJson: cartItemsJson, returnsJson: returnsJson, notes: notes, txn: txn);
       await deductInventoryLocal(cartItems, returnItems: returnItems, txn: txn);
     });
