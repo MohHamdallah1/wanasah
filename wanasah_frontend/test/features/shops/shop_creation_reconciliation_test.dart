@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:wanasah_frontend/core/network/api_failure.dart';
 import 'package:wanasah_frontend/features/shops/application/shop_creation_service.dart';
 import 'package:wanasah_frontend/features/shops/domain/shop_creation.dart';
 
@@ -23,16 +22,12 @@ class _FakeGateway implements ShopCreationGateway {
 void main() {
   test('ambiguous shop creation replays exact same command identity', () async {
     const ambiguous = ShopCreateFailure(
-      failure: ApiFailure(
-        kind: ApiFailureKind.connection,
-        status: null,
-        code: null,
-        message: null,
-        context: <String, dynamic>{},
-        requestId: null,
-        displayFallback: 'network',
-      ),
       ambiguous: true,
+      status: null,
+      code: null,
+      context: <String, dynamic>{},
+      requestId: null,
+      displayFallback: 'network',
     );
     const success = ShopCreateResult(
       shopId: 9,
