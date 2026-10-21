@@ -922,18 +922,29 @@ async def test_disposable_5k_real_import_worker_performance_and_parity(journey, 
     This measures Product creation + PriceBook + optional reference/audit writes,
     not network upload time or complete 50k production wall-clock performance.
     """
+    import os
     from time import perf_counter
     from domains.simple_products.imports.application.execution_service import IMPORT_BATCH
     assert IMPORT_BATCH == 200
+    long_run = os.environ.get("WANASAH_DISPOSABLE_IMPORT_50K_PERF") == "1"
+    perf_mode = os.environ.get("WANASAH_IMPORT_PERF_MODE", "").strip().lower()
+    batches = 250 if long_run else 25
+    target_rows = batches * IMPORT_BATCH
+    if long_run:
+        # An explicit opt-in never overrides the pre-existing disposable Pg gate.
+        assert "127.0.0.1:55473/wanasah_purchase_reference_e2e" in os.environ["DATABASE_URL"]
+    if perf_mode not in ("", "legacy", "cost"):
+        raise AssertionError(f"Unknown WANASAH_IMPORT_PERF_MODE={perf_mode!r}")
+    modes = (False, True) if not perf_mode else (perf_mode == "cost",)
     g = journey
     company_id = g.t.company_id
     before_accounting = await g.snapshot(ACCOUNTING)
     durations = {}
-    for with_cost in (False, True):
+    for with_cost in modes:
         begin = perf_counter()
         total = 0
         sample_variants = []
-        for batch in range(25):
+        for batch in range(batches):
             job_id = uuid4()
             token = uuid4().hex[:12]
             rows = [
@@ -965,31 +976,49 @@ async def test_disposable_5k_real_import_worker_performance_and_parity(journey, 
             sample_variants.extend(int(row.product_variant_id) for row in rows)
             total += len(rows)
         durations["with_cost" if with_cost else "legacy"] = perf_counter() - begin
-        assert total == 5000 and len(set(sample_variants)) == total
+        assert total == target_rows and len(set(sample_variants)) == total
         async with g.session() as db:
             count = await db.scalar(text(
                 "SELECT count(*) FROM purchase_cost_references "
                 "WHERE company_id=:c AND product_variant_id=ANY(:ids)"
             ), {"c": company_id, "ids": sample_variants})
-            assert count == (5000 if with_cost else 0)
+            assert count == (target_rows if with_cost else 0)
             if with_cost:
                 history = await db.scalar(text(
                     "SELECT count(*) FROM purchase_cost_reference_changes "
                     "WHERE company_id=:c AND product_variant_id=ANY(:ids)"
                 ), {"c": company_id, "ids": sample_variants})
-                assert history == 5000
+                assert history == target_rows
     assert await g.snapshot(ACCOUNTING) == before_accounting
+    if perf_mode:
+        key = "with_cost" if perf_mode == "cost" else "legacy"
+        seconds = durations[key]
+        print(
+            f"REAL_POSTGRES_IMPORT_FAIR_{target_rows:,} mode={perf_mode} "
+            f"seconds={seconds:.2f}",
+            flush=True,
+        )
+        g.record(
+            "15_real_import_worker_fair_single_mode",
+            mode=perf_mode, seconds=round(seconds, 2), sample_size=target_rows,
+            inventory_cost_and_cogs_unchanged=True,
+        )
+        return
+
     factor = durations["with_cost"] / max(durations["legacy"], 0.001)
-    print(f"REAL_POSTGRES_IMPORT_5K legacy_seconds={durations['legacy']:.2f} "
+    print(f"REAL_POSTGRES_IMPORT_{target_rows:,} legacy_seconds={durations['legacy']:.2f} "
           f"with_cost_seconds={durations['with_cost']:.2f} ratio={factor:.3f}", flush=True)
     # A 50k real-production SLA needs separate complete worker profiling.
     # Here we guard against pathological extra writes / batch serialization.
-    assert factor <= 2.50, f"Import cost bulk-write overhead is pathological: {factor:.3f}"
-    g.record("15_real_import_worker_5k_each",
-             legacy_5k_seconds=round(durations["legacy"], 2),
-             with_cost_5k_seconds=round(durations["with_cost"], 2),
+    assert factor <= (1.75 if long_run else 2.50), (
+        f"Import cost bulk-write overhead exceeds guarded diagnostic budget: {factor:.3f}"
+    )
+    g.record("15_real_import_worker_50k_each" if long_run else "15_real_import_worker_5k_each",
+             legacy_seconds=round(durations["legacy"], 2),
+             with_cost_seconds=round(durations["with_cost"], 2),
+             sample_size=target_rows,
              ratio=round(factor, 3), legacy_reference_rows=0,
-             optional_reference_rows=5000,
+             optional_reference_rows=target_rows,
              inventory_cost_and_cogs_unchanged=True)
 
 
