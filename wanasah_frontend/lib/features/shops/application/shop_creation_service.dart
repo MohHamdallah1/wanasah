@@ -5,12 +5,12 @@ import '../domain/shop_creation.dart';
 
 class ShopCreationService {
   ShopCreationService({
-    ShopCreationClient? client,
+    ShopCreationGateway? client,
     Uuid? uuid,
   })  : _client = client ?? ShopCreationClient(),
         _uuid = uuid ?? const Uuid();
 
-  final ShopCreationClient _client;
+  final ShopCreationGateway _client;
   final Uuid _uuid;
 
   ShopCreateCommand prepare({
