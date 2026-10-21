@@ -19,6 +19,7 @@ import 'dart:convert'; // +++ إضافة مكتبة فك التشفير +++
 // +++ استيراد الموديلات الذكية لفرض الحماية +++
 import '../../models/product_model.dart';
 import '../../models/visit_model.dart';
+import '../sync/durable_command.dart';
 
 class LocalDatabase {
   // -----------------------------------------------------------------------
@@ -113,7 +114,7 @@ class LocalDatabase {
 
     return await openDatabase(
       dbPath,
-      version: 9, // رجعنا لـ v9 لأنه لم يعد هناك حاجة لحقول company_id
+      version: 10, // V10: durable offline command lifecycle without deleting legacy evidence
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -193,12 +194,25 @@ class LocalDatabase {
 
     await db.execute('''
       CREATE TABLE pending_sync (
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        type       TEXT    NOT NULL,
-        payload    TEXT    NOT NULL,
-        created_at TEXT    NOT NULL
+        id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+        type               TEXT    NOT NULL,
+        payload            TEXT    NOT NULL,
+        created_at         TEXT    NOT NULL,
+        command_id         TEXT,
+        state              TEXT    NOT NULL DEFAULT 'pending',
+        owner_company_code TEXT,
+        owner_driver_id    INTEGER,
+        attempt_count      INTEGER NOT NULL DEFAULT 0,
+        last_error_code    TEXT,
+        last_error_message TEXT,
+        last_request_id    TEXT,
+        updated_at         TEXT
       )
     ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS ix_pending_sync_state_created '
+      'ON pending_sync(state, created_at, id)',
+    );
 
     developer.log('[LocalDatabase] All tables created successfully.');
   }
@@ -291,7 +305,37 @@ class LocalDatabase {
       await _safeAlterTable(db, 'ALTER TABLE products ADD COLUMN sold_cartons INTEGER DEFAULT 0');
       await _safeAlterTable(db, 'ALTER TABLE products ADD COLUMN sold_packs INTEGER DEFAULT 0');
     }
-    // مسحنا V10 نهائياً لتطبيق العزل الفيزيائي.
+    if (oldVersion < 10) {
+      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN command_id TEXT');
+      await _safeAlterTable(db, "ALTER TABLE pending_sync ADD COLUMN state TEXT NOT NULL DEFAULT 'pending'");
+      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN owner_company_code TEXT');
+      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN owner_driver_id INTEGER');
+      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0');
+      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN last_error_code TEXT');
+      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN last_error_message TEXT');
+      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN last_request_id TEXT');
+      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN updated_at TEXT');
+
+      await db.rawUpdate(
+        "UPDATE pending_sync SET state = ? WHERE type LIKE 'quarantined_%'",
+        [DurableCommandState.blocked.storageValue],
+      );
+      await db.rawUpdate(
+        'UPDATE pending_sync SET owner_company_code = ? '
+        'WHERE owner_company_code IS NULL OR TRIM(owner_company_code) = ?',
+        [currentTenant, ''],
+      );
+      await db.rawUpdate(
+        'UPDATE pending_sync SET updated_at = created_at WHERE updated_at IS NULL',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS ix_pending_sync_state_created '
+        'ON pending_sync(state, created_at, id)',
+      );
+      developer.log(
+        '[LocalDatabase] v10 migration: preserved pending_sync rows and added durable lifecycle metadata.',
+      );
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -300,26 +344,27 @@ class LocalDatabase {
 
   Future<void> clearSessionData({bool clearPendingSyncs = false}) async {
     final db = await database;
-    
-    if (!clearPendingSyncs) {
-      final pendingCount = Sqflite.firstIntValue(await db.query(
-        'pending_sync',
-        columns: ['COUNT(*)'],
-        where: "type NOT LIKE 'quarantined_%'",
-      ));
-      if (pendingCount != null && pendingCount > 0) {
-        developer.log('[LocalDatabase] Skipped clearing tables to protect active pending syncs.');
-        return;
-      }
+
+    if (clearPendingSyncs) {
+      throw UnsupportedError(
+        'Offline command evidence cannot be bulk-deleted by session cleanup.',
+      );
+    }
+
+    final unresolvedCount = Sqflite.firstIntValue(
+      await db.rawQuery('SELECT COUNT(*) FROM pending_sync'),
+    );
+    if (unresolvedCount != null && unresolvedCount > 0) {
+      developer.log(
+        '[LocalDatabase] Skipped clearing session tables: unresolved offline command evidence exists.',
+      );
+      return;
     }
 
     await db.transaction((txn) async {
       await txn.delete('products');
       await txn.delete('visits');
       await txn.delete('incoming_transfers');
-      if (clearPendingSyncs) {
-        await txn.delete('pending_sync');
-      }
     });
     developer.log('[LocalDatabase] Session tables cleared safely via transaction.');
   }
@@ -353,13 +398,29 @@ class LocalDatabase {
   Future<int> addPendingSync({
     required String type,
     required String payload,
+    String? commandId,
+    DurableCommandState state = DurableCommandState.pending,
+    int? ownerDriverId,
+    String? lastErrorCode,
+    String? lastErrorMessage,
+    String? lastRequestId,
     Transaction? txn,
   }) async {
     final db = txn ?? await database;
+    final now = DateTime.now().toIso8601String();
     final id = await db.insert('pending_sync', {
       'type': type,
       'payload': payload,
-      'created_at': DateTime.now().toIso8601String(),
+      'created_at': now,
+      'command_id': commandId,
+      'state': state.storageValue,
+      'owner_company_code': currentTenant,
+      'owner_driver_id': ownerDriverId,
+      'attempt_count': 0,
+      'last_error_code': lastErrorCode,
+      'last_error_message': lastErrorMessage,
+      'last_request_id': lastRequestId,
+      'updated_at': now,
     });
     return id;
   }
@@ -372,6 +433,71 @@ class LocalDatabase {
   Future<void> deletePendingSync(int id) async {
     final db = await database;
     await db.delete('pending_sync', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> markPendingSyncInFlight(int id) async {
+    final db = await database;
+    final updated = await db.rawUpdate(
+      'UPDATE pending_sync '
+      'SET state = ?, attempt_count = attempt_count + 1, updated_at = ? '
+      'WHERE id = ?',
+      [
+        DurableCommandState.inFlight.storageValue,
+        DateTime.now().toIso8601String(),
+        id,
+      ],
+    );
+    if (updated != 1) {
+      throw StateError('Pending command #$id was not found.');
+    }
+  }
+
+  Future<void> markPendingSyncPending(
+    int id, {
+    String? lastErrorCode,
+    String? lastErrorMessage,
+    String? lastRequestId,
+  }) async {
+    final db = await database;
+    final updated = await db.update(
+      'pending_sync',
+      {
+        'state': DurableCommandState.pending.storageValue,
+        'last_error_code': lastErrorCode,
+        'last_error_message': lastErrorMessage,
+        'last_request_id': lastRequestId,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (updated != 1) {
+      throw StateError('Pending command #$id was not found.');
+    }
+  }
+
+  Future<void> markPendingSyncBlocked(
+    int id, {
+    required String errorCode,
+    String? errorMessage,
+    String? requestId,
+  }) async {
+    final db = await database;
+    final updated = await db.update(
+      'pending_sync',
+      {
+        'state': DurableCommandState.blocked.storageValue,
+        'last_error_code': errorCode,
+        'last_error_message': errorMessage,
+        'last_request_id': requestId,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (updated != 1) {
+      throw StateError('Pending command #$id was not found.');
+    }
   }
 
   Future<void> updatePendingSyncPayload(
@@ -697,40 +823,60 @@ class LocalDatabase {
     final db = await database;
     return db.query(
       'pending_sync',
-      where: "type LIKE 'quarantined_%'",
-      orderBy: 'created_at DESC',
+      where: "state = ? OR type LIKE 'quarantined_%'",
+      whereArgs: [DurableCommandState.blocked.storageValue],
+      orderBy: 'created_at DESC, id DESC',
     );
   }
 
+  @Deprecated('Blocked offline evidence must not be deleted from field UI.')
   Future<void> deleteQuarantinedSync(int id) async {
-    final db = await database;
-    await db.delete(
-      'pending_sync',
-      where: "id = ? AND type LIKE 'quarantined_%'",
-      whereArgs: [id],
+    throw UnsupportedError(
+      'Blocked offline command evidence cannot be deleted from field UI.',
     );
   }
 
+  @Deprecated('Blocked offline evidence must not be bulk-deleted.')
   Future<void> clearAllQuarantinedSyncs() async {
-    final db = await database;
-    await db.delete(
-      'pending_sync',
-      where: "type LIKE 'quarantined_%'",
+    throw UnsupportedError(
+      'Blocked offline command evidence cannot be bulk-deleted.',
     );
   }
 
   Future<void> retryQuarantinedSync(int id) async {
     final db = await database;
-    final record = await db.query('pending_sync', where: 'id = ?', whereArgs: [id]);
-    if (record.isNotEmpty) {
-      String type = record.first['type'] as String;
-      if (type.startsWith('quarantined_')) {
-        String originalType = type.replaceFirst('quarantined_', '');
-        if (originalType == 'corrupt') return; 
-        if (originalType == 'draft_sale') originalType = 'submit_sale';
-        
-        await db.update('pending_sync', {'type': originalType}, where: 'id = ?', whereArgs: [id]);
-      }
+    final record = await db.query(
+      'pending_sync',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (record.isEmpty) {
+      throw StateError('Blocked command #$id was not found.');
     }
+
+    final row = record.first;
+    final rawType = row['type']?.toString() ?? '';
+    final normalizedType = DurableCommandType.normalizeLegacyType(rawType);
+
+    if (!DurableCommandType.isReplayable(normalizedType)) {
+      throw StateError(
+        'Blocked command type "$normalizedType" requires recovery, not generic retry.',
+      );
+    }
+
+    await db.update(
+      'pending_sync',
+      {
+        'type': normalizedType,
+        'state': DurableCommandState.pending.storageValue,
+        'last_error_code': null,
+        'last_error_message': null,
+        'last_request_id': null,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 }
