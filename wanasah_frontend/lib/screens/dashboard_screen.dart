@@ -86,7 +86,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     Map<String, dynamic> batchData,
   ) async {
     final result = await showPendingTransferDialog(context, batchData);
-    if (!mounted) return;
+    if (!context.mounted) return;
 
     _isShowingDialog = false;
 
