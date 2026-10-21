@@ -23,7 +23,7 @@ type Props = {
   rowNumber: number;
   pricingVisible: boolean;
   canEditPrice: boolean;
-  canEditPurchaseReference: boolean;
+  canEditPurchaseReference?: boolean;
   canRenameProduct: boolean;
   canReassignFamily: boolean;
   canEditTracking: boolean;
@@ -44,7 +44,7 @@ type Props = {
   onEditPrice: (
     item: SimpleProduct,
   ) => void;
-  onEditPurchaseReference: (item: SimpleProduct) => void;
+  onEditPurchaseReference?: (item: SimpleProduct) => void;
   onReassignFamily: (
     item: SimpleProduct,
   ) => void;
