@@ -915,30 +915,64 @@ async def complete_journey(g):
 
 @pytest.mark.parametrize("method", ["FIFO"])
 async def test_disposable_5k_real_import_worker_performance_and_parity(journey, method):
-    """Bounded real PostgreSQL Product Import 5k legacy vs 5k cost rows.
+    """Real PostgreSQL Product Import publication benchmark.
 
-    Only GitHub's named disposable PostgreSQL may run this fixture. The original
-    500-row staging/validation and 200-row publication limits stay unchanged.
-    This measures Product creation + PriceBook + optional reference/audit writes,
-    not network upload time or complete 50k production wall-clock performance.
+    Default focused coverage remains 5k legacy + 5k cost rows. The explicit
+    disposable 50k mode runs exactly one A/B arm per fresh PostgreSQL job so
+    both arms start from the same clean schema/fixture conditions. This measures
+    Product creation + PriceBook publication + optional purchase-reference
+    persistence, not network upload or source parsing wall time.
     """
+    import json
+    import os
     from time import perf_counter
+
     from domains.simple_products.imports.application.execution_service import IMPORT_BATCH
+    from domains.simple_products.imports.application.staging_service import STAGE_BATCH
+    from domains.simple_products.imports.application.validation_service import VALIDATION_BATCH_SIZE
+
+    assert STAGE_BATCH == 500
+    assert VALIDATION_BATCH_SIZE == 500
     assert IMPORT_BATCH == 200
+
+    long_run = os.environ.get("WANASAH_DISPOSABLE_IMPORT_50K_PERF") == "1"
+    perf_mode = os.environ.get("WANASAH_IMPORT_PERF_MODE", "").strip().lower()
+    batches = 250 if long_run else 25
+    target_rows = batches * IMPORT_BATCH
+    if long_run:
+        # Opt-in cannot bypass the existing named disposable PostgreSQL gate.
+        assert "127.0.0.1:55473/wanasah_purchase_reference_e2e" in os.environ["DATABASE_URL"]
+    if perf_mode not in ("", "legacy", "cost"):
+        raise AssertionError(f"Unknown WANASAH_IMPORT_PERF_MODE={perf_mode!r}")
+    modes = (False, True) if not perf_mode else (perf_mode == "cost",)
+
     g = journey
     company_id = g.t.company_id
     before_accounting = await g.snapshot(ACCOUNTING)
     durations = {}
-    for with_cost in (False, True):
+    evidence = {}
+
+    for with_cost in modes:
+        mode = "cost" if with_cost else "legacy"
+        async with g.session() as db:
+            reference_commands_before = int(await db.scalar(text(
+                "SELECT count(*) FROM purchase_cost_reference_commands "
+                "WHERE company_id=:c AND operation='PRODUCT_IMPORT_SET'"
+            ), {"c": company_id}) or 0)
+            import_commands_before = int(await db.scalar(text(
+                "SELECT count(*) FROM operation_idempotency "
+                "WHERE company_id=:c AND operation='PRODUCT_IMPORT_ROW_CREATE'"
+            ), {"c": company_id}) or 0)
+
         begin = perf_counter()
         total = 0
         sample_variants = []
-        for batch in range(25):
+        for batch in range(batches):
             job_id = uuid4()
             token = uuid4().hex[:12]
             rows = [
                 SimpleNamespace(
-                    id=i + 1, row_identity=uuid4(), row_number=batch * 200 + i + 2,
+                    id=i + 1, row_identity=uuid4(), row_number=batch * IMPORT_BATCH + i + 2,
                     status="VALID", version=1, product_variant_id=None,
                     error_code=None, error_message=None,
                     normalized_data=dict(
@@ -964,33 +998,128 @@ async def test_disposable_5k_real_import_worker_performance_and_parity(journey, 
                 await db.commit()
             sample_variants.extend(int(row.product_variant_id) for row in rows)
             total += len(rows)
-        durations["with_cost" if with_cost else "legacy"] = perf_counter() - begin
-        assert total == 5000 and len(set(sample_variants)) == total
+
+        seconds = perf_counter() - begin
+        durations[mode] = seconds
+        assert total == target_rows and len(set(sample_variants)) == target_rows
+
         async with g.session() as db:
-            count = await db.scalar(text(
+            variant_count = int(await db.scalar(text(
+                "SELECT count(*) FROM product_variants "
+                "WHERE company_id=:c AND id=ANY(:ids)"
+            ), {"c": company_id, "ids": sample_variants}) or 0)
+            product_count = int(await db.scalar(text(
+                "SELECT count(*) FROM products p "
+                "JOIN product_variants v ON v.company_id=p.company_id AND v.product_id=p.id "
+                "WHERE v.company_id=:c AND v.id=ANY(:ids)"
+            ), {"c": company_id, "ids": sample_variants}) or 0)
+            pricing = (await db.execute(text(
+                "SELECT count(*) AS entry_count, "
+                "count(DISTINCT publication_id) AS publication_count, "
+                "count(DISTINCT price_book_id) AS book_count "
+                "FROM price_book_entries "
+                "WHERE company_id=:c AND product_variant_id=ANY(:ids)"
+            ), {"c": company_id, "ids": sample_variants})).one()
+            reference_count = int(await db.scalar(text(
                 "SELECT count(*) FROM purchase_cost_references "
                 "WHERE company_id=:c AND product_variant_id=ANY(:ids)"
-            ), {"c": company_id, "ids": sample_variants})
-            assert count == (5000 if with_cost else 0)
-            if with_cost:
-                history = await db.scalar(text(
-                    "SELECT count(*) FROM purchase_cost_reference_changes "
-                    "WHERE company_id=:c AND product_variant_id=ANY(:ids)"
-                ), {"c": company_id, "ids": sample_variants})
-                assert history == 5000
-    assert await g.snapshot(ACCOUNTING) == before_accounting
-    factor = durations["with_cost"] / max(durations["legacy"], 0.001)
-    print(f"REAL_POSTGRES_IMPORT_5K legacy_seconds={durations['legacy']:.2f} "
-          f"with_cost_seconds={durations['with_cost']:.2f} ratio={factor:.3f}", flush=True)
-    # A 50k real-production SLA needs separate complete worker profiling.
-    # Here we guard against pathological extra writes / batch serialization.
+            ), {"c": company_id, "ids": sample_variants}) or 0)
+            history_count = int(await db.scalar(text(
+                "SELECT count(*) FROM purchase_cost_reference_changes "
+                "WHERE company_id=:c AND product_variant_id=ANY(:ids)"
+            ), {"c": company_id, "ids": sample_variants}) or 0)
+            reference_commands_after = int(await db.scalar(text(
+                "SELECT count(*) FROM purchase_cost_reference_commands "
+                "WHERE company_id=:c AND operation='PRODUCT_IMPORT_SET'"
+            ), {"c": company_id}) or 0)
+            import_commands_after = int(await db.scalar(text(
+                "SELECT count(*) FROM operation_idempotency "
+                "WHERE company_id=:c AND operation='PRODUCT_IMPORT_ROW_CREATE'"
+            ), {"c": company_id}) or 0)
+            invalid_current = int(await db.scalar(text(
+                "SELECT count(*) FROM purchase_cost_references "
+                "WHERE company_id=:c AND product_variant_id=ANY(:ids) "
+                "AND (revision<>1 OR source<>'PRODUCT_IMPORT' OR source_cost_event_id IS NOT NULL "
+                "OR purchase_uom_id<>base_uom_id OR factor_numerator<>1 OR factor_denominator<>1)"
+            ), {"c": company_id, "ids": sample_variants}) or 0)
+            invalid_history = int(await db.scalar(text(
+                "SELECT count(*) FROM purchase_cost_reference_changes "
+                "WHERE company_id=:c AND product_variant_id=ANY(:ids) "
+                "AND (revision<>1 OR before_snapshot IS NOT NULL OR source<>'PRODUCT_IMPORT' "
+                "OR source_cost_event_id IS NOT NULL OR purchase_uom_id<>base_uom_id "
+                "OR factor_numerator<>1 OR factor_denominator<>1)"
+            ), {"c": company_id, "ids": sample_variants}) or 0)
+
+        reference_command_count = reference_commands_after - reference_commands_before
+        import_command_count = import_commands_after - import_commands_before
+        expected_reference_rows = target_rows if with_cost else 0
+        expected_reference_commands = batches if with_cost else 0
+
+        assert variant_count == target_rows
+        assert product_count == target_rows
+        assert int(pricing.entry_count) == target_rows
+        assert int(pricing.publication_count) == batches
+        assert int(pricing.book_count) == 1
+        assert reference_count == expected_reference_rows
+        assert history_count == expected_reference_rows
+        assert reference_command_count == expected_reference_commands
+        assert import_command_count == batches
+        assert invalid_current == 0
+        assert invalid_history == 0
+        assert await g.snapshot(ACCOUNTING) == before_accounting
+
+        evidence[mode] = {
+            "seconds": round(seconds, 2),
+            "sample_size": target_rows,
+            "stage_batch_size": STAGE_BATCH,
+            "validation_batch_size": VALIDATION_BATCH_SIZE,
+            "publication_batch_size": IMPORT_BATCH,
+            "product_count": product_count,
+            "product_variant_count": variant_count,
+            "price_book_entry_count": int(pricing.entry_count),
+            "price_publication_count": int(pricing.publication_count),
+            "price_book_count": int(pricing.book_count),
+            "purchase_cost_reference_count": reference_count,
+            "purchase_cost_history_count": history_count,
+            "purchase_reference_command_count": reference_command_count,
+            "product_import_idempotency_count": import_command_count,
+            "purchase_reference_evidence_invalid_count": invalid_current + invalid_history,
+            "inventory_cost_and_cogs_unchanged": True,
+        }
+        print(
+            "POST423_IMPORT_BENCHMARK_EVIDENCE="
+            + json.dumps({"mode": mode, **evidence[mode]}, sort_keys=True),
+            flush=True,
+        )
+
+    if perf_mode:
+        g.record(
+            "15_real_import_worker_fair_single_mode_post423",
+            mode=perf_mode,
+            **evidence[perf_mode],
+        )
+        return
+
+    factor = durations["cost"] / max(durations["legacy"], 0.001)
+    print(
+        f"REAL_POSTGRES_IMPORT_{target_rows:,} "
+        f"legacy_seconds={durations['legacy']:.2f} "
+        f"with_cost_seconds={durations['cost']:.2f} ratio={factor:.3f}",
+        flush=True,
+    )
+    # Keep the existing focused diagnostic guard. The dedicated 50k workflow
+    # compares isolated arms externally rather than inventing a new acceptance SLA.
     assert factor <= 2.50, f"Import cost bulk-write overhead is pathological: {factor:.3f}"
-    g.record("15_real_import_worker_5k_each",
-             legacy_5k_seconds=round(durations["legacy"], 2),
-             with_cost_5k_seconds=round(durations["with_cost"], 2),
-             ratio=round(factor, 3), legacy_reference_rows=0,
-             optional_reference_rows=5000,
-             inventory_cost_and_cogs_unchanged=True)
+    g.record(
+        "15_real_import_worker_5k_each",
+        legacy_seconds=round(durations["legacy"], 2),
+        with_cost_seconds=round(durations["cost"], 2),
+        sample_size=target_rows,
+        ratio=round(factor, 3),
+        legacy_reference_rows=0,
+        optional_reference_rows=target_rows,
+        inventory_cost_and_cogs_unchanged=True,
+    )
 
 
 @pytest.mark.parametrize("method", ["FIFO", "MOVING_AVERAGE"])
