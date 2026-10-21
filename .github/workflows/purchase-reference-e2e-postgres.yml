@@ -76,6 +76,9 @@ jobs:
         run: |
           mkdir -p artifacts
           python -m pytest -v -s tests/test_purchase_reference_e2e_postgres.py --junitxml=artifacts/purchase-reference-e2e-junit.xml | tee artifacts/purchase-reference-e2e-pytest.log
+      - name: Product Import rejected-row corrections, legacy replay and exact identities
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_product_import_phase8_idempotency_correction.py -k Phase8CorrectionIntegrationTests
       - name: Publish precise PASS/FAIL evidence
         if: always()
         working-directory: wa_backend
