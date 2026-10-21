@@ -639,7 +639,9 @@ class LocalDatabase {
     List<Map<String, dynamic>> matchingPayloads = [];
 
     for (var p in pendingSyncs) {
-      if (p['type'] == 'submit_sale') {
+      final state = DurableCommandState.fromStorage(p['state']);
+      if (p['type'] == DurableCommandType.submitSale &&
+          state == DurableCommandState.pending) {
         try {
           final payload = jsonDecode(p['payload'] as String);
           if (payload['visitId'].toString() == visitId.toString()) {
@@ -647,7 +649,9 @@ class LocalDatabase {
             syncIdsToDelete.add(p['id'] as int);
           }
         } catch (e) {
-          developer.log('[LocalDatabase] Corrupted payload ignored during revert: $e');
+          developer.log(
+            '[LocalDatabase] Corrupted pending draft ignored during revert: $e',
+          );
         }
       }
     }
