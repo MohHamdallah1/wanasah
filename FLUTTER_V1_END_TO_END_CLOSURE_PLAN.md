@@ -110,11 +110,11 @@ Current `AuthInterceptor`:
 - [x] retry decision is not mutation-specific.
 
 Required closure:
-- [ ] Introduce operation-aware retry classification.
-- [ ] Auto-replay only requests proven safe/idempotent.
-- [ ] Durable visit submission reuses the exact same `request_id` and body.
-- [ ] Non-idempotent/ambiguous mutations must reconcile rather than blind replay.
-- [ ] Token-refresh retry remains allowed only under the authenticated-before-handler safety contract.
+- [x] Introduce operation-aware retry classification.
+- [x] Auto-replay only requests proven safe/idempotent.
+- [x] Durable visit submission reuses the exact same `request_id` and body.
+- [x] Non-idempotent/ambiguous mutations reconcile rather than receiving blind generic retry.
+- [x] Token-refresh retry remains allowed only under the authenticated-before-handler safety contract.
 
 ### 3.4 Offline break semantics
 
@@ -124,10 +124,10 @@ Current Flutter:
 - [x] deletes queued break operations on generic HTTP 400 during replay.
 
 Required closure:
-- [ ] Decide from Backend contract whether break changes are online-only or have an explicit reconciliation model.
-- [ ] Do not replay stale temporal commands blindly.
-- [ ] Never treat arbitrary 400 as proof that a deferred command is safely settled.
-- [ ] UI distinguishes local tentative state from server-confirmed state if offline behavior is retained.
+- [x] Backend contract confirms break changes are online/reconcile-only for V1.
+- [x] Do not replay stale temporal commands blindly.
+- [x] Never treat arbitrary 400 as proof that a deferred command is safely settled.
+- [x] Offline tentative break state was removed; break state remains server-confirmed.
 
 ### 3.5 Quarantine/recovery data loss
 
@@ -136,11 +136,11 @@ Current Flutter:
 - [x] Dashboard exposes a path that deletes all quarantined rows locally.
 
 Required closure:
-- [ ] Remove destructive “clear all rejected operations” from ordinary field UX.
-- [ ] Quarantine is evidence/recovery state, not trash.
-- [ ] Store stable failure classification/code/context/correlation ID.
-- [ ] Allow only safe retry, explicit supersession, or an approved recovery workflow.
-- [ ] Never lose an unresolved sale/collection/return command silently.
+- [x] Remove destructive “clear all rejected operations” from ordinary field UX.
+- [x] Quarantine is evidence/recovery state, not trash.
+- [x] Store stable failure classification/code/context/correlation ID where available.
+- [x] Allow only safe retry, explicit supersession, or an approved recovery workflow.
+- [x] Never lose an unresolved sale/collection/return command silently.
 
 
 ### 3.6 Strict visit payload mismatch
@@ -148,16 +148,16 @@ Required closure:
 Independent audit confirmed the current Flutter visit command can fail the strict Backend schema:
 - [x] Flutter payload includes `visit_id` and compatibility `visitId`; only the path ID is authoritative.
 - [x] NoSale additionally emits `no_sale_reason`, while Backend expects the reason in `notes`.
-- [ ] Canonical Flutter serializer must emit only fields accepted by `VisitUpdateRequest`.
-- [ ] Characterization tests must lock Sale / NoSale / Postponed payloads before refactor.
+- [x] Canonical Flutter serializer emits only fields accepted by `VisitUpdateRequest`.
+- [x] Characterization tests lock Sale / NoSale / Postponed payloads.
 
 ### 3.7 UUID durability before first send
 
 Backend visit replay is durable and exact only if Flutter preserves the original UUID and semantic body.
 - [x] Current Flutter creates the UUID before direct send but persists the pending command only after failure.
-- [ ] Persist the durable visit command identity/body before the first mutation attempt.
-- [ ] Lost response or app crash must replay the same UUID/body, never mint a new identity.
-- [ ] A later deliberate completed-visit correction uses a new UUID only after the prior logical result is resolved.
+- [x] Persist the durable visit command identity/body before the first mutation attempt.
+- [x] Lost response or app crash replays the same UUID/body, never minting a new identity.
+- [x] A later deliberate completed-visit correction uses a new UUID only after the prior logical result is resolved.
 
 ### 3.8 Confirmed Backend prerequisites for field V1
 
@@ -191,24 +191,24 @@ The independent Backend audit found four genuine field-transport prerequisites. 
 - [ ] Lost/ambiguous shop creation must reconcile assigned visits/shop evidence before retry.
 - [x] Session start/end have no durable command identity; reconcile active session/dashboard before retry.
 - [x] Historical offline break replay is unsupported by Backend because server execution time defines break timing.
-- [ ] Break start/end become online/reconcile operations for V1; no stale temporal replay queue.
+- [x] Break start/end are online/reconcile operations for V1; no stale temporal replay queue.
 
 ## 4. Offline command engine hardening
 
 Current pending queue is generic `id/type/payload/created_at`.
 
 Target V1 durable command record should support, as needed:
-- [ ] stable operation/request identity;
-- [ ] command type;
-- [ ] owner company + field identity binding;
-- [ ] exact canonical payload;
-- [ ] created time;
-- [ ] state: pending / in-flight-recoverable / blocked / reconciled;
-- [ ] retry attempt metadata;
-- [ ] last stable error code/context/correlation ID;
-- [ ] no free-text-message decisions;
-- [ ] deterministic FIFO where ordering matters;
-- [ ] explicit operation-specific replay policy.
+- [x] stable operation/request identity;
+- [x] command type;
+- [x] owner company + field identity binding;
+- [x] exact canonical payload;
+- [x] created time;
+- [x] state: pending / in-flight-recoverable / blocked (success is removed after finalize);
+- [x] retry attempt metadata;
+- [x] last stable error code/message/correlation ID;
+- [x] no free-text-message decisions inside the durable command engine;
+- [x] deterministic FIFO where ordering matters;
+- [x] explicit operation-specific replay policy.
 
 Migration rules:
 - [x] preserve existing pending rows;
@@ -313,14 +313,31 @@ It will not touch Backend, web Dashboard, pricing/returns UI, or the Network wor
 - [x] GitHub `flutter analyze`: PASS.
 - [x] Focused `offline_owner_guard_test.dart` + `offline_durable_command_test.dart`: PASS.
 - [ ] AVAILABLE vs DAMAGED local inventory projection remains a separate V1 projection wave.
-- [ ] Completed online visit correction projection remains a separate V1 correction wave.
+- [x] Completed online visit correction now applies AVAILABLE vehicle inventory by old-to-new delta; returned non-sellable custody remains separate.
 - [ ] Full Flutter suite / Android build / real-device offline acceptance remain final gates.
+
+## 4.7 Network + visit-command stability point — 2026-10-22
+
+- [x] Network foundation PR #426 merged into `sol/flutter-v1-field-closure` only.
+- [x] Network merge commit: `1c3cc63d07617126ca387492f5cf77faa7f1944a`.
+- [x] Network `flutter analyze`: PASS.
+- [x] Focused retry / ApiFailure / AuthInterceptor tests: PASS.
+- [x] Visit correction PR #427 merged into `sol/flutter-v1-field-closure` only.
+- [x] Visit correction merge commit: `a1fa6d123ad417433fb9ab811476d0b3906c5ef1`.
+- [x] Canonical Sale / NoSale / Postponed serializer removes compatibility-only HTTP fields.
+- [x] Money is serialized as fixed three-decimal strings at the visit transport boundary.
+- [x] Completed visit AVAILABLE projection uses old-to-new delta instead of double-deducting the replacement command.
+- [x] Integrated Network + Offline + Visit `flutter analyze`: PASS.
+- [x] Integrated focused Offline + Visit tests: PASS.
+- [ ] Returned-Batch resolution, Damaged reason/UI, and non-sellable vehicle custody remain open.
+- [ ] Backend-authoritative invoice preview/final commercial truth remains open.
+- [ ] Auth/session typed-failure adoption is delegated as the next parallel Flutter slice.
 
 ## 5. Error model / observability
 
-- [ ] Introduce a typed Flutter API failure model.
-- [ ] Parse stable `code`, structured `context`, status and correlation/request ID.
-- [ ] Keep localized server text for display only.
+- [x] Introduce a typed Flutter API failure model.
+- [x] Parse stable `code`, structured `context`, status and correlation/request ID.
+- [x] Keep localized server text for display only inside Network classification.
 - [ ] Remove business branching on Arabic/free-text messages.
 - [ ] User-facing errors must distinguish:
   - connectivity,
