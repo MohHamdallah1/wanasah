@@ -29,7 +29,7 @@ import type {
 type Props = {
   item: SimpleProduct;
   canEditPrice: boolean;
-  canEditPurchaseReference: boolean;
+  canEditPurchaseReference?: boolean;
   canRenameProduct: boolean;
   canReassignFamily: boolean;
   canEditTracking: boolean;
@@ -45,7 +45,7 @@ type Props = {
   onEditPrice: (
     item: SimpleProduct,
   ) => void;
-  onEditPurchaseReference: (item: SimpleProduct) => void;
+  onEditPurchaseReference?: (item: SimpleProduct) => void;
   onReassignFamily: (
     item: SimpleProduct,
   ) => void;
@@ -265,9 +265,9 @@ export function ProductRowActions({
           </DropdownMenuItem>
         ) : null}
 
-        {canEditPurchaseReference ? (
+        {canEditPurchaseReference && onEditPurchaseReference ? (
           <DropdownMenuItem
-            onSelect={() => queueAfterMenuClose(() => onEditPurchaseReference(item))}
+            onSelect={() => queueAfterMenuClose(() => onEditPurchaseReference?.(item))}
             className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
           >
             <CircleDollarSign className="h-4 w-4 shrink-0 text-slate-400" />
