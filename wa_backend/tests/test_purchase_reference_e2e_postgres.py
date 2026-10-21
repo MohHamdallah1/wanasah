@@ -927,16 +927,20 @@ async def test_disposable_5k_real_import_worker_performance_and_parity(journey, 
     from domains.simple_products.imports.application.execution_service import IMPORT_BATCH
     assert IMPORT_BATCH == 200
     long_run = os.environ.get("WANASAH_DISPOSABLE_IMPORT_50K_PERF") == "1"
+    perf_mode = os.environ.get("WANASAH_IMPORT_PERF_MODE", "").strip().lower()
     batches = 250 if long_run else 25
     target_rows = batches * IMPORT_BATCH
     if long_run:
         # An explicit opt-in never overrides the pre-existing disposable Pg gate.
         assert "127.0.0.1:55473/wanasah_purchase_reference_e2e" in os.environ["DATABASE_URL"]
+    if perf_mode not in ("", "legacy", "cost"):
+        raise AssertionError(f"Unknown WANASAH_IMPORT_PERF_MODE={perf_mode!r}")
+    modes = (False, True) if not perf_mode else (perf_mode == "cost",)
     g = journey
     company_id = g.t.company_id
     before_accounting = await g.snapshot(ACCOUNTING)
     durations = {}
-    for with_cost in (False, True):
+    for with_cost in modes:
         begin = perf_counter()
         total = 0
         sample_variants = []
@@ -986,6 +990,21 @@ async def test_disposable_5k_real_import_worker_performance_and_parity(journey, 
                 ), {"c": company_id, "ids": sample_variants})
                 assert history == target_rows
     assert await g.snapshot(ACCOUNTING) == before_accounting
+    if perf_mode:
+        key = "with_cost" if perf_mode == "cost" else "legacy"
+        seconds = durations[key]
+        print(
+            f"REAL_POSTGRES_IMPORT_FAIR_{target_rows:,} mode={perf_mode} "
+            f"seconds={seconds:.2f}",
+            flush=True,
+        )
+        g.record(
+            "15_real_import_worker_fair_single_mode",
+            mode=perf_mode, seconds=round(seconds, 2), sample_size=target_rows,
+            inventory_cost_and_cogs_unchanged=True,
+        )
+        return
+
     factor = durations["with_cost"] / max(durations["legacy"], 0.001)
     print(f"REAL_POSTGRES_IMPORT_{target_rows:,} legacy_seconds={durations['legacy']:.2f} "
           f"with_cost_seconds={durations['with_cost']:.2f} ratio={factor:.3f}", flush=True)
