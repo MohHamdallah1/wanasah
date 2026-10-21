@@ -200,7 +200,10 @@ describe("Checkpoint 1 inbound UI", () => {
       ],
     }));
     renderInbound([makeVariant(7, "Mixed product", "OPTIONAL", "NONE")]);
-    await screen.findByText("Mixed product");
+    await screen.findAllByText("Mixed product");
+    await waitFor(() => expect(
+      (screen.getAllByLabelText("Purchase unit")[0] as HTMLSelectElement).disabled
+    ).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "choose-supplier" }));
     fireEvent.click(screen.getByRole("button", { name: "Post receipt" }));
     expect(mocks.post).not.toHaveBeenCalled();
