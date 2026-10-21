@@ -5,7 +5,6 @@ import 'dart:developer' as developer;
 import 'package:dio/dio.dart';
 import '../../core/db/local_database.dart';
 import '../../models/product_model.dart';
-import '../../models/cart_item_model.dart';
 import '../../repositories/sync_repository.dart';
 import '../../features/visits/application/completed_visit_restorer.dart';
 import '../../features/visits/application/visit_cart_policy.dart';
