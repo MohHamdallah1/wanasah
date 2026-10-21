@@ -8,7 +8,8 @@ on:
   pull_request:
     paths:
       - "wanasah_frontend/lib/blocs/auth/**"
-      - "wanasah_frontend/test/blocs/auth/**"
+      - "wanasah_frontend/lib/features/auth/**"
+      - "wanasah_frontend/test/features/auth/**"
       - "wanasah_frontend/test/offline_owner_guard_test.dart"
       - "wanasah_frontend/lib/core/network/**"
       - ".github/workflows/flutter-v1-auth-session-recovery.yml"
@@ -45,8 +46,8 @@ jobs:
       - name: Focused Auth and session tests
         run: >-
           flutter test
-          test/blocs/auth/auth_failure_policy_test.dart
-          test/blocs/auth/stored_auth_identity_test.dart
-          test/blocs/auth/auth_session_recovery_test.dart
+          test/features/auth/application/auth_failure_policy_test.dart
+          test/features/auth/application/stored_auth_identity_test.dart
+          test/features/auth/application/auth_session_recovery_test.dart
           test/offline_owner_guard_test.dart
           test/core/network/auth_interceptor_test.dart
