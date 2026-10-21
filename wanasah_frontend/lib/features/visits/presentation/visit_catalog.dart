@@ -26,10 +26,10 @@ class VisitCatalog extends StatefulWidget {
   });
 
   @override
-  State<VisitCatalog> createState() => VisitCatalogState();
+  State<VisitCatalog> createState() => _VisitCatalogState();
 }
 
-class VisitCatalogState extends State<VisitCatalog> {
+class _VisitCatalogState extends State<VisitCatalog> {
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController(); // +++ متحكم لتفريغ البحث +++
   // +++ تنظيف الذاكرة: إعدام متغير _drafts الميت +++
