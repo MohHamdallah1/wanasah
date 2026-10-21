@@ -186,82 +186,144 @@ class SyncRepository {
     Map<String, dynamic> safePayload;
     try {
       safePayload = jsonDecode(jsonEncode(payload));
-      // Generate once per business operation and persist the same UUID through
-      // direct send, offline storage, automatic retry and syncUp replay.
       safePayload['request_id'] ??= _uuid.v4();
     } catch (e) {
       developer.log('[SyncRepository] Payload encoding failed: $e');
       rethrow;
     }
 
-    final String finalStatus =
-        (safePayload['outcome'] == 'Postponed') ? 'Pending' : 'Completed';
+    final commandPayload = <String, dynamic>{
+      ...safePayload,
+      'visitId': visitId,
+    };
+    final requestId = safePayload['request_id'].toString();
 
-    final double cashCollected = double.tryParse(safePayload['cash_collected']?.toString() ?? '') ?? 0.0;
-    final double debtPaid = double.tryParse(safePayload['debt_paid']?.toString() ?? '') ?? 0.0;
-    final String outcome = safePayload['outcome'] ?? 'Sale';
-    final String? cartItemsJson = safePayload['cart_items'] != null ? jsonEncode(safePayload['cart_items']) : null;
-    final String? returnsJson = safePayload['returns'] != null ? jsonEncode(safePayload['returns']) : null;
-    final String? notes = safePayload['notes']?.toString();
-    final List<dynamic> cartItems = safePayload['cart_items'] ?? [];
-    final List<dynamic>? returnsItems = safePayload['returns'];
+    // Persist identity/body before the first mutation attempt. If the process
+    // dies after the server commits, restart replays this exact command.
+    final commandRecordId = await _db.stageVisitCommandAtomic(
+      visitId: visitId,
+      payload: jsonEncode(commandPayload),
+      requestId: requestId,
+    );
+    await _db.markPendingSyncInFlight(commandRecordId);
 
-    bool dispatchSuccess = false;
     try {
       await _dispatchPendingRecord(
-        type: 'submit_sale',
-        payload: {...safePayload, 'visitId': visitId},
+        type: DurableCommandType.submitSale,
+        payload: commandPayload,
       );
-      dispatchSuccess = true;
-    } catch (e) {
-      if (e is DioException && e.response?.statusCode != null) {
-        final statusCode = e.response!.statusCode!;
-        if (statusCode >= 400 && statusCode < 500 && statusCode != 429 && statusCode != 408) {
-          developer.log('[SyncRepository] Server strict rejection ($statusCode). Saving draft then rethrowing.');
-          await _db.addPendingSync(
-            type: DurableCommandType.submitSale,
-            payload: jsonEncode({...safePayload, 'visitId': visitId}),
-            commandId: safePayload['request_id']?.toString(),
-            state: DurableCommandState.blocked,
-            lastErrorCode: 'HTTP_$statusCode',
-            lastErrorMessage: 'Direct validation rejection',
-          );
-          rethrow;
-        }
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      final incidentId = _requestIdFromDio(e);
+
+      if (statusCode == 401) {
+        await _db.markPendingSyncPending(
+          commandRecordId,
+          lastErrorCode: 'AUTH_REQUIRED',
+          lastErrorMessage: _displayErrorFromDio(e),
+          lastRequestId: incidentId,
+        );
+        rethrow;
       }
-      developer.log('[SyncRepository] Offline mode triggered for invoice #$visitId. Reason: $e');
+
+      if (statusCode != null &&
+          statusCode >= 400 &&
+          statusCode < 500 &&
+          statusCode != 408 &&
+          statusCode != 429) {
+        await _db.markPendingSyncBlocked(
+          commandRecordId,
+          errorCode: _stableErrorCodeFromDio(e),
+          errorMessage: _displayErrorFromDio(e),
+          requestId: incidentId,
+        );
+        rethrow;
+      }
+
+      await _db.markPendingSyncPending(
+        commandRecordId,
+        lastErrorCode:
+            statusCode == null ? 'NETWORK_AMBIGUOUS' : 'HTTP_$statusCode',
+        lastErrorMessage: _displayErrorFromDio(e),
+        lastRequestId: incidentId,
+      );
+
+      // The representative may continue offline. The local projection is
+      // applied exactly once and is tied to the still-unresolved command.
+      await _finalizeVisitCommandLocalState(
+        commandRecordId: commandRecordId,
+        payload: commandPayload,
+      );
+      developer.log(
+        '[SyncRepository] Visit #$visitId preserved offline with durable request $requestId.',
+      );
+      return;
+    } catch (e) {
+      await _db.markPendingSyncBlocked(
+        commandRecordId,
+        errorCode: 'LOCAL_COMMAND_ERROR',
+        errorMessage: e.toString(),
+      );
+      rethrow;
     }
 
     try {
-      if (dispatchSuccess) {
-        await _db.saveOnlineInvoiceAtomic(
-          visitId: visitId, status: finalStatus, outcome: outcome,
-          cashCollected: cashCollected, debtPaid: debtPaid,
-          cartItemsJson: cartItemsJson, returnsJson: returnsJson, notes: notes,
-          cartItems: cartItems, returnItems: returnsItems,
-        );
-        developer.log('[SyncRepository] Invoice #$visitId synced and saved atomically.');
-      } else {
-        await _db.saveOfflineInvoiceAtomic(
-          visitId: visitId,
-          payload: jsonEncode({...safePayload, 'visitId': visitId}),
-          status: finalStatus,
-          outcome: outcome,
-          cashCollected: cashCollected,
-          debtPaid: debtPaid,
-          cartItemsJson: cartItemsJson,
-          returnsJson: returnsJson,
-          notes: notes,
-          cartItems: cartItems,
-          returnItems: returnsItems,
-          commandId: safePayload['request_id']?.toString(),
-        );
-        developer.log('[SyncRepository] Invoice #$visitId saved offline atomically.');
-      }
+      await _finalizeVisitCommandLocalState(
+        commandRecordId: commandRecordId,
+        payload: commandPayload,
+      );
+      await _db.deletePendingSync(commandRecordId);
+      developer.log(
+        '[SyncRepository] Visit #$visitId committed and locally finalized with durable request $requestId.',
+      );
     } catch (localDbError) {
-      developer.log('[SyncRepository] FATAL: Local DB error while saving invoice state: $localDbError');
+      // Do not delete the command. A later replay returns the Backend's stored
+      // idempotent response and completes local finalization exactly once.
+      developer.log(
+        '[SyncRepository] Local finalize failed after visit dispatch: $localDbError',
+      );
       rethrow;
     }
+  }
+
+  Future<void> _finalizeVisitCommandLocalState({
+    required int commandRecordId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final visitId =
+        int.tryParse(payload['visitId']?.toString() ?? '') ?? 0;
+    if (visitId <= 0) {
+      throw StateError('Visit command is missing a valid visitId.');
+    }
+
+    final outcome = payload['outcome']?.toString() ?? 'Sale';
+    final finalStatus = outcome == 'Postponed' ? 'Pending' : 'Completed';
+    final cashCollected =
+        double.tryParse(payload['cash_collected']?.toString() ?? '') ?? 0.0;
+    final debtPaid =
+        double.tryParse(payload['debt_paid']?.toString() ?? '') ?? 0.0;
+    final cartItems = payload['cart_items'] is List
+        ? List<dynamic>.from(payload['cart_items'] as List)
+        : <dynamic>[];
+    final returnItems = payload['returns'] is List
+        ? List<dynamic>.from(payload['returns'] as List)
+        : null;
+
+    await _db.finalizeVisitCommandLocalState(
+      commandRecordId: commandRecordId,
+      visitId: visitId,
+      status: finalStatus,
+      outcome: outcome,
+      cashCollected: cashCollected,
+      debtPaid: debtPaid,
+      cartItemsJson:
+          payload['cart_items'] != null ? jsonEncode(payload['cart_items']) : null,
+      returnsJson:
+          payload['returns'] != null ? jsonEncode(payload['returns']) : null,
+      notes: payload['notes']?.toString(),
+      cartItems: cartItems,
+      returnItems: returnItems,
+    );
   }
 
   // -----------------------------------------------------------------------
@@ -413,6 +475,18 @@ class SyncRepository {
 
         try {
           await _dispatchPendingRecord(type: type, payload: payload);
+          if (type == DurableCommandType.submitSale) {
+            await _finalizeVisitCommandLocalState(
+              commandRecordId: recordId,
+              payload: payload,
+            );
+          } else if (type == DurableCommandType.transferResponse) {
+            final transferId =
+                int.tryParse(payload['transferId']?.toString() ?? '') ?? 0;
+            if (transferId > 0) {
+              await _db.removeIncomingTransfer(transferId);
+            }
+          }
           await _db.deletePendingSync(recordId);
           successCount++;
         } on DioException catch (e) {
