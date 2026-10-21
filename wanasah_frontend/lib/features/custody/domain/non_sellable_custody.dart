@@ -1,4 +1,4 @@
-import 'src/field_json.dart';
+import 'package:wanasah_frontend/core/serialization/json_contract.dart';
 
 enum NonSellableCustodyStatus {
   quarantined('QUARANTINED'),
@@ -27,15 +27,15 @@ class NonSellableCustodyItem {
   final String quantity;
 
   factory NonSellableCustodyItem.fromJson(Object? value) {
-    final json = FieldJson.object(value, 'custody.item');
+    final json = JsonContract.object(value, 'custody.item');
     return NonSellableCustodyItem._(
-      productVariantId: FieldJson.integer(
+      productVariantId: JsonContract.integer(
         json['product_variant_id'], 'product_variant_id', minimum: 1),
-      productName: FieldJson.text(json['product_name'], 'product_name'),
-      status: FieldJson.code(json['stock_status'], NonSellableCustodyStatus.values,
+      productName: JsonContract.text(json['product_name'], 'product_name'),
+      status: JsonContract.code(json['stock_status'], NonSellableCustodyStatus.values,
         (status) => status.code, 'stock_status'),
-      uomCode: FieldJson.text(json['uom_code'], 'uom_code'),
-      quantity: FieldJson.decimal(json['quantity'], 'quantity'),
+      uomCode: JsonContract.text(json['uom_code'], 'uom_code'),
+      quantity: JsonContract.decimal(json['quantity'], 'quantity'),
     );
   }
 }
@@ -50,23 +50,23 @@ class NonSellableCustodyPage {
   final String? nextCursor;
 
   factory NonSellableCustodyPage.fromJson(Object? value) {
-    final json = FieldJson.object(value, 'custody');
-    final rows = FieldJson.list(json['items'], 'custody.items');
-    if (rows.length > 200) FieldJson.invalid('custody.items');
+    final json = JsonContract.object(value, 'custody');
+    final rows = JsonContract.list(json['items'], 'custody.items');
+    if (rows.length > 200) JsonContract.invalid('custody.items');
     return NonSellableCustodyPage._(
-      FieldJson.integer(json['session_id'], 'session_id', minimum: 1),
+      JsonContract.integer(json['session_id'], 'session_id', minimum: 1),
       rows.map(NonSellableCustodyItem.fromJson).toList(),
-      FieldJson.optionalText(json['next_cursor'], 'next_cursor'),
+      JsonContract.optionalText(json['next_cursor'], 'next_cursor'),
     );
   }
 }
 
 class CustodyQuery {
   CustodyQuery({this.limit = 100, this.cursor}) {
-    if (limit < 1 || limit > 200) FieldJson.invalid('custody.limit');
+    if (limit < 1 || limit > 200) JsonContract.invalid('custody.limit');
     if (cursor != null) {
-      FieldJson.text(cursor, 'custody.cursor');
-      if (cursor!.length > 8192) FieldJson.invalid('custody.cursor');
+      JsonContract.text(cursor, 'custody.cursor');
+      if (cursor!.length > 8192) JsonContract.invalid('custody.cursor');
     }
   }
 

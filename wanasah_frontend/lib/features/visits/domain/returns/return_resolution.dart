@@ -1,5 +1,5 @@
 import 'return_evidence.dart';
-import 'src/field_json.dart';
+import 'package:wanasah_frontend/core/serialization/json_contract.dart';
 
 enum FieldReturnType {
   damaged('Damaged'),
@@ -19,11 +19,11 @@ class ReturnResolutionRequest {
     this.returnType = FieldReturnType.damaged,
     this.evidence = const ReturnEvidence(),
   }) {
-    FieldJson.integer(productVariantId, 'product_variant_id', minimum: 1);
-    FieldJson.integer(quantity, 'quantity');
-    FieldJson.integer(packsQuantity, 'packs_quantity');
+    JsonContract.integer(productVariantId, 'product_variant_id', minimum: 1);
+    JsonContract.integer(quantity, 'quantity');
+    JsonContract.integer(packsQuantity, 'packs_quantity');
     if (quantity == 0 && packsQuantity == 0) {
-      FieldJson.invalid('return.quantity');
+      JsonContract.invalid('return.quantity');
     }
   }
 
@@ -60,10 +60,10 @@ class FieldReturnResolution {
     Object? value, {
     required ReturnResolutionRequest request,
   }) {
-    final json = FieldJson.object(value, 'return.resolution');
-    if (json['status'] != 'RESOLVED') FieldJson.invalid('return.status');
-    final token = FieldJson.text(json['resolution_token'], 'resolution_token');
-    if (token.length > 8192) FieldJson.invalid('resolution_token');
+    final json = JsonContract.object(value, 'return.resolution');
+    if (json['status'] != 'RESOLVED') JsonContract.invalid('return.status');
+    final token = JsonContract.text(json['resolution_token'], 'resolution_token');
+    if (token.length > 8192) JsonContract.invalid('resolution_token');
     return FieldReturnResolution._(
       request: request,
       resolutionToken: token,

@@ -1,36 +1,35 @@
 import 'package:dio/dio.dart';
+import 'package:wanasah_frontend/core/errors/api_failure_exception.dart';
+import 'package:wanasah_frontend/core/network/api_client.dart';
+import 'package:wanasah_frontend/core/serialization/json_contract.dart';
 
-import '../network/api_client.dart';
-import 'commercial_readiness.dart';
-import 'field_invoice.dart';
-import 'field_seam_failure.dart';
-import 'invoice_preview_request.dart';
-import 'non_sellable_custody.dart';
-import 'return_resolution.dart';
-import 'src/field_json.dart';
+import '../domain/commercial/commercial_readiness.dart';
+import '../domain/invoice/field_invoice.dart';
+import '../domain/invoice/invoice_preview_request.dart';
+import '../domain/returns/return_resolution.dart';
 
-typedef FieldGet = Future<Object?> Function(
+typedef VisitGet = Future<Object?> Function(
   String path, {Map<String, dynamic>? queryParameters}
 );
-typedef FieldPost = Future<Object?> Function(
+typedef VisitPost = Future<Object?> Function(
   String path, {required Map<String, dynamic> data}
 );
 
-/// Typed seam adapter, with no retries, queue, auth policy or local projection.
+/// Visits-only FIELD reads, with no retries, queue or local projection.
 /// Supply the existing authenticated ApiClient; callbacks support focused tests.
-class FieldSeamsClient {
-  const FieldSeamsClient({required FieldGet get, required FieldPost post})
+class VisitFieldClient {
+  const VisitFieldClient({required VisitGet get, required VisitPost post})
     : _get = get, _post = post;
 
-  factory FieldSeamsClient.withApiClient(ApiClient client) => FieldSeamsClient(
+  factory VisitFieldClient.withApiClient(ApiClient client) => VisitFieldClient(
     get: (path, {queryParameters}) async =>
         (await client.get<Object?>(path, queryParameters: queryParameters)).data,
     post: (path, {required data}) async =>
         (await client.post<Object?>(path, data: data)).data,
   );
 
-  final FieldGet _get;
-  final FieldPost _post;
+  final VisitGet _get;
+  final VisitPost _post;
 
   Future<FieldReturnResolution> resolveReturn(
     int visitId, ReturnResolutionRequest request,
@@ -56,14 +55,8 @@ class FieldSeamsClient {
     CommittedInvoiceResult.fromReadResponse,
   );
 
-  Future<NonSellableCustodyPage> custody({CustodyQuery? query}) => _read(
-    () => _get('/driver/custody',
-      queryParameters: (query ?? CustodyQuery()).toQueryParameters()),
-    NonSellableCustodyPage.fromJson,
-  );
-
   static String _visit(int id) {
-    FieldJson.integer(id, 'visit_id', minimum: 1);
+    JsonContract.integer(id, 'visit_id', minimum: 1);
     return '/visits/$id';
   }
 
@@ -73,7 +66,7 @@ class FieldSeamsClient {
     try {
       return parse(await send());
     } on DioException catch (error) {
-      throw FieldSeamFailure.fromDioException(error);
+      throw ApiFailureException.fromDioException(error);
     }
   }
 }

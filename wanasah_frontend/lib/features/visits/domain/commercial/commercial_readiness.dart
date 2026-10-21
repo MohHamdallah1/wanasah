@@ -1,4 +1,4 @@
-import 'src/field_json.dart';
+import 'package:wanasah_frontend/core/serialization/json_contract.dart';
 
 enum CommercialReadinessStatus { ready, actionRequired }
 
@@ -14,30 +14,30 @@ class CommercialReadiness {
 
   /// Accepts the readiness object shared by GET and POST /shops responses.
   factory CommercialReadiness.fromJson(Object? value) {
-    final json = FieldJson.object(value, 'commercial_readiness');
-    final saleReady = FieldJson.boolean(json['sale_ready'], 'sale_ready');
+    final json = JsonContract.object(value, 'commercial_readiness');
+    final saleReady = JsonContract.boolean(json['sale_ready'], 'sale_ready');
     switch (json['status']) {
       case 'READY':
         if (!saleReady || json['code'] != null || json['required_action'] != null) {
-          FieldJson.invalid('commercial_readiness.READY');
+          JsonContract.invalid('commercial_readiness.READY');
         }
         return const CommercialReadiness._(
           CommercialReadinessStatus.ready, null, null,
         );
       case 'ACTION_REQUIRED':
-        if (saleReady) FieldJson.invalid('commercial_readiness.ACTION_REQUIRED');
+        if (saleReady) JsonContract.invalid('commercial_readiness.ACTION_REQUIRED');
         return CommercialReadiness._(
           CommercialReadinessStatus.actionRequired,
-          FieldJson.text(json['code'], 'commercial_readiness.code'),
-          FieldJson.text(json['required_action'], 'required_action'),
+          JsonContract.text(json['code'], 'commercial_readiness.code'),
+          JsonContract.text(json['required_action'], 'required_action'),
         );
       default:
-        FieldJson.invalid('commercial_readiness.status');
+        JsonContract.invalid('commercial_readiness.status');
     }
   }
 
   factory CommercialReadiness.fromResponse(Object? value) =>
       CommercialReadiness.fromJson(
-        FieldJson.object(value, 'commercial_state')['commercial_readiness'],
+        JsonContract.object(value, 'commercial_state')['commercial_readiness'],
       );
 }

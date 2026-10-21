@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:wanasah_frontend/core/field/field_contracts.dart';
+import 'package:wanasah_frontend/features/custody/domain/non_sellable_custody.dart';
 
-import 'field_contract_fixtures.dart';
+import 'custody_fixtures.dart';
 
 void main() {
   for (final status in NonSellableCustodyStatus.values) {

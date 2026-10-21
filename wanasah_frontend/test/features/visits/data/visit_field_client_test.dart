@@ -1,14 +1,16 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:wanasah_frontend/core/field/field_contracts.dart';
+import 'package:wanasah_frontend/core/errors/api_failure_exception.dart';
+import 'package:wanasah_frontend/features/visits/visit_field_contracts.dart';
 import 'package:wanasah_frontend/core/network/api_failure.dart';
 
-import 'field_contract_fixtures.dart';
+import '../domain/invoice/invoice_fixtures.dart';
+import '../domain/returns/return_fixtures.dart';
 
 void main() {
-  test('all five reads use exact routes, verbs and quantity-only bodies', () async {
+  test('all four Visit reads use exact routes, verbs and quantity-only bodies', () async {
     final calls = <Map<String, dynamic>>[];
-    final client = FieldSeamsClient(
+    final client = VisitFieldClient(
       get: (path, {queryParameters}) async {
         calls.add({'method': 'GET', 'path': path, 'query': queryParameters});
         switch (path) {
@@ -18,8 +20,6 @@ void main() {
             }};
           case '/visits/11/invoice':
             return {'invoice': invoiceJson()};
-          case '/driver/custody':
-            return {'session_id': 33, 'items': [custodyItemJson()], 'next_cursor': null};
           default:
             throw StateError('Unexpected GET');
         }
@@ -42,28 +42,25 @@ void main() {
       productVariantId: 44, quantity: 1, packsQuantity: 3)]);
     expect((await client.previewInvoice(11, previewRequest)).commitRequired, isTrue);
     expect((await client.readInvoice(11)).invoice!.revisionNumber, 2);
-    expect((await client.custody(query: CustodyQuery(limit: 1, cursor: 'opaque-page')))
-      .items.single.status, NonSellableCustodyStatus.damaged);
 
     expect(calls, [
       {'method': 'POST', 'path': '/visits/11/return-resolution', 'data': request.toJson()},
       {'method': 'GET', 'path': '/visits/11/commercial-state', 'query': null},
       {'method': 'POST', 'path': '/visits/11/invoice-preview', 'data': previewRequest.toJson()},
       {'method': 'GET', 'path': '/visits/11/invoice', 'query': null},
-      {'method': 'GET', 'path': '/driver/custody', 'query': {'limit': 1, 'cursor': 'opaque-page'}},
     ]);
   });
 
   test('structured failure preserves Network metadata and typed ambiguity', () async {
     final error = responseError();
-    final client = FieldSeamsClient(
+    final client = VisitFieldClient(
       get: (path, {queryParameters}) async => throw error,
       post: (path, {required data}) async => throw error,
     );
     try {
       await client.resolveReturn(11, ReturnResolutionRequest(productVariantId: 44, packsQuantity: 1));
-      fail('Expected FieldSeamFailure');
-    } on FieldSeamFailure catch (failure) {
+      fail('Expected ApiFailureException');
+    } on ApiFailureException catch (failure) {
       expect(failure.apiFailure.kind, ApiFailureKind.serverResponse);
       expect(failure.apiFailure.status, 409);
       expect(failure.code, 'FIELD_RETURN_EVIDENCE_REQUIRED');
@@ -75,24 +72,12 @@ void main() {
     }
   });
 
-  test('business classification uses code, never Arabic/English display text', () {
-    for (final message in ['Confirm lot', 'أكد التشغيلة', 'Unrelated wording']) {
-      final failure = FieldSeamFailure.fromDioException(responseError(message: message));
-      expect(failure.returnAmbiguity, isNotNull);
-      expect(failure.apiFailure.message, message);
-    }
-    final unknown = FieldSeamFailure.fromDioException(responseError(
-      code: 'UNKNOWN_CODE', message: 'FIELD_RETURN_EVIDENCE_REQUIRED'));
-    expect(unknown.returnAmbiguity, isNull);
-    expect(unknown.code, 'UNKNOWN_CODE');
-  });
-
   test('existing ApiFailure can be carried without reparsing or losing context', () {
     final original = ambiguityFailure(context: {
       'required_evidence': ['delivery_date'],
       'structured_extra': {'nested': [1, true, null]},
     });
-    final failure = FieldSeamFailure(original);
+    final failure = ApiFailureException(original);
     expect(failure.apiFailure, same(original));
     expect(failure.context, same(original.context));
     expect(failure.requestId, original.requestId);
@@ -100,7 +85,7 @@ void main() {
 
   test('timeout on read-only POST is surfaced once without a client retry policy', () async {
     var sends = 0;
-    final client = FieldSeamsClient(
+    final client = VisitFieldClient(
       get: (path, {queryParameters}) async => throw StateError('No GET'),
       post: (path, {required data}) async {
         sends++;
@@ -112,14 +97,14 @@ void main() {
     );
     await expectLater(
       client.resolveReturn(11, ReturnResolutionRequest(productVariantId: 44, packsQuantity: 1)),
-      throwsA(isA<FieldSeamFailure>().having(
+      throwsA(isA<ApiFailureException>().having(
         (failure) => failure.apiFailure.kind, 'kind', ApiFailureKind.timeout)),
     );
     expect(sends, 1);
   });
 
   test('malformed success stays a contract failure without invented server metadata', () async {
-    final client = FieldSeamsClient(
+    final client = VisitFieldClient(
       get: (path, {queryParameters}) async => {},
       post: (path, {required data}) async => {},
     );
@@ -129,7 +114,7 @@ void main() {
 
   test('invalid visit locator fails before transport', () async {
     var sends = 0;
-    final client = FieldSeamsClient(
+    final client = VisitFieldClient(
       get: (path, {queryParameters}) async { sends++; return {}; },
       post: (path, {required data}) async { sends++; return {}; },
     );
@@ -137,27 +122,26 @@ void main() {
     expect(sends, 0);
   });
 
-  test('all endpoint failures reuse ApiFailure correlation header fallback', () async {
-    final request = RequestOptions(path: '/driver/custody');
+  test('all Visit endpoint failures reuse ApiFailure correlation header fallback', () async {
+    final request = RequestOptions(path: '/visits/11/invoice');
     final error = DioException(
       requestOptions: request, type: DioExceptionType.badResponse,
       response: Response(requestOptions: request, statusCode: 503,
         headers: Headers.fromMap({'x-request-id': ['only-header-id']}),
         data: {'error': {'code': 'TEMPORARY', 'context': {'retry': true}}}),
     );
-    final client = FieldSeamsClient(
+    final client = VisitFieldClient(
       get: (path, {queryParameters}) async => throw error,
       post: (path, {required data}) async => throw error,
     );
     for (final send in <Future<Object?> Function()>[
       () => client.commercialState(11),
       () => client.readInvoice(11),
-      () => client.custody(),
       () => client.resolveReturn(11, ReturnResolutionRequest(productVariantId: 44, packsQuantity: 1)),
       () => client.previewInvoice(11, InvoicePreviewRequest([
         InvoicePreviewLine(productVariantId: 44, packsQuantity: 1)])),
     ]) {
-      await expectLater(send(), throwsA(isA<FieldSeamFailure>()
+      await expectLater(send(), throwsA(isA<ApiFailureException>()
         .having((failure) => failure.requestId, 'requestId', 'only-header-id')
         .having((failure) => failure.code, 'code', 'TEMPORARY')
         .having((failure) => failure.context, 'context', {'retry': true})));

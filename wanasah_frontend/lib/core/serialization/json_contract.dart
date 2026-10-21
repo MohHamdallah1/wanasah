@@ -1,7 +1,7 @@
 /// Shape validation only. Business acceptance remains Backend-owned.
-abstract final class FieldJson {
+abstract final class JsonContract {
   static Never invalid(String field) =>
-      throw FormatException('Invalid FIELD contract: $field');
+      throw FormatException('Invalid API contract: $field');
 
   static Map<String, dynamic> object(Object? value, String field) {
     if (value is! Map) invalid(field);

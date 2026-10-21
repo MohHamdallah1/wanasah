@@ -1,9 +1,12 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:wanasah_frontend/core/field/field_contracts.dart';
+import 'package:wanasah_frontend/core/errors/api_failure_exception.dart';
+import 'package:wanasah_frontend/features/visits/domain/returns/return_ambiguity.dart';
+import 'package:wanasah_frontend/features/visits/domain/returns/return_evidence.dart';
+import 'package:wanasah_frontend/features/visits/domain/returns/return_resolution.dart';
 
-import 'field_contract_fixtures.dart';
+import 'return_fixtures.dart';
 
 void main() {
   test('deterministic tracked resolution preserves human evidence and request', () {
@@ -122,4 +125,17 @@ void main() {
       expect(() => FieldReturnResolution.fromJson(json, request: request), throwsFormatException);
     }
   });
+  test('business classification uses code, never Arabic/English display text', () {
+    for (final message in ['Confirm lot', 'أكد التشغيلة', 'Unrelated wording']) {
+      final failure = ApiFailureException.fromDioException(responseError(message: message));
+      expect(failure.returnAmbiguity, isNotNull);
+      expect(failure.apiFailure.message, message);
+    }
+    final unknown = ApiFailureException.fromDioException(responseError(
+      code: 'UNKNOWN_CODE', message: 'FIELD_RETURN_EVIDENCE_REQUIRED'));
+    expect(unknown.returnAmbiguity, isNull);
+    expect(unknown.code, 'UNKNOWN_CODE');
+  });
+
+
 }

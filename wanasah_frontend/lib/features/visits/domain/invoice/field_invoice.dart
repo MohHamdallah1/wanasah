@@ -1,4 +1,4 @@
-import 'src/field_json.dart';
+import 'package:wanasah_frontend/core/serialization/json_contract.dart';
 
 enum FieldInvoiceStatus {
   preview('PREVIEW'),
@@ -22,12 +22,12 @@ class InvoiceRounding {
   final InvoiceRoundingMode mode;
 
   factory InvoiceRounding.fromJson(Object? value) {
-    final json = FieldJson.object(value, 'invoice.rounding');
-    final precision = FieldJson.integer(json['precision'], 'rounding.precision');
-    if (precision > 6) FieldJson.invalid('rounding.precision');
+    final json = JsonContract.object(value, 'invoice.rounding');
+    final precision = JsonContract.integer(json['precision'], 'rounding.precision');
+    if (precision > 6) JsonContract.invalid('rounding.precision');
     return InvoiceRounding._(
       precision,
-      FieldJson.code(json['mode'], InvoiceRoundingMode.values,
+      JsonContract.code(json['mode'], InvoiceRoundingMode.values,
         (mode) => mode.code, 'rounding.mode'),
     );
   }
@@ -56,8 +56,8 @@ class InvoiceTotals {
   final String finalAmount;
 
   factory InvoiceTotals.fromJson(Object? value) {
-    final json = FieldJson.object(value, 'invoice.totals');
-    String amount(String key) => FieldJson.decimal(json[key], 'totals.$key');
+    final json = JsonContract.object(value, 'invoice.totals');
+    String amount(String key) => JsonContract.decimal(json[key], 'totals.$key');
     return InvoiceTotals._(
       grossAmount: amount('gross_amount'),
       discountAmount: amount('discount_amount'),
@@ -87,14 +87,14 @@ class FieldInvoiceLine {
   final String finalAmount;
 
   factory FieldInvoiceLine.fromJson(Object? value) {
-    final json = FieldJson.object(value, 'invoice.line');
+    final json = JsonContract.object(value, 'invoice.line');
     return FieldInvoiceLine._(
-      productVariantId: FieldJson.integer(
+      productVariantId: JsonContract.integer(
         json['product_variant_id'], 'line.product_variant_id', minimum: 1),
-      grossAmount: FieldJson.decimal(json['gross_amount'], 'line.gross_amount'),
-      discountAmount: FieldJson.decimal(json['discount_amount'], 'line.discount_amount'),
-      taxAmount: FieldJson.decimal(json['tax_amount'], 'line.tax_amount'),
-      finalAmount: FieldJson.decimal(json['final_amount'], 'line.final_amount'),
+      grossAmount: JsonContract.decimal(json['gross_amount'], 'line.gross_amount'),
+      discountAmount: JsonContract.decimal(json['discount_amount'], 'line.discount_amount'),
+      taxAmount: JsonContract.decimal(json['tax_amount'], 'line.tax_amount'),
+      finalAmount: JsonContract.decimal(json['final_amount'], 'line.final_amount'),
     );
   }
 }
@@ -105,10 +105,10 @@ class FieldInvoiceReward {
   final String baseQuantity;
 
   factory FieldInvoiceReward.fromJson(Object? value) {
-    final json = FieldJson.object(value, 'invoice.reward');
+    final json = JsonContract.object(value, 'invoice.reward');
     return FieldInvoiceReward._(
-      FieldJson.integer(json['product_variant_id'], 'reward.product_variant_id', minimum: 1),
-      FieldJson.decimal(json['base_quantity'], 'reward.base_quantity'),
+      JsonContract.integer(json['product_variant_id'], 'reward.product_variant_id', minimum: 1),
+      JsonContract.decimal(json['base_quantity'], 'reward.base_quantity'),
     );
   }
 }
@@ -137,24 +137,24 @@ class FieldInvoice {
   final int? revisionNumber;
 
   factory FieldInvoice.fromJson(Object? value) {
-    final json = FieldJson.object(value, 'invoice');
-    final timestamp = FieldJson.text(json['calculated_at'], 'calculated_at');
-    if (DateTime.tryParse(timestamp) == null) FieldJson.invalid('calculated_at');
-    final lines = FieldJson.list(json['lines'], 'invoice.lines');
-    final rewards = FieldJson.list(json['rewards'], 'invoice.rewards');
+    final json = JsonContract.object(value, 'invoice');
+    final timestamp = JsonContract.text(json['calculated_at'], 'calculated_at');
+    if (DateTime.tryParse(timestamp) == null) JsonContract.invalid('calculated_at');
+    final lines = JsonContract.list(json['lines'], 'invoice.lines');
+    final rewards = JsonContract.list(json['rewards'], 'invoice.rewards');
     if (lines.length > 500 || rewards.length > 500) {
-      FieldJson.invalid('invoice.lines');
+      JsonContract.invalid('invoice.lines');
     }
     return FieldInvoice._(
-      status: FieldJson.code(json['status'], FieldInvoiceStatus.values,
+      status: JsonContract.code(json['status'], FieldInvoiceStatus.values,
         (status) => status.code, 'invoice.status'),
-      currencyCode: FieldJson.text(json['currency_code'], 'currency_code'),
+      currencyCode: JsonContract.text(json['currency_code'], 'currency_code'),
       calculatedAt: timestamp,
       rounding: InvoiceRounding.fromJson(json['rounding']),
       totals: InvoiceTotals.fromJson(json['totals']),
       lines: lines.map(FieldInvoiceLine.fromJson).toList(),
       rewards: rewards.map(FieldInvoiceReward.fromJson).toList(),
-      revisionNumber: json['revision_number'] == null ? null : FieldJson.integer(
+      revisionNumber: json['revision_number'] == null ? null : JsonContract.integer(
         json['revision_number'], 'revision_number', minimum: 1),
     );
   }
@@ -166,10 +166,10 @@ class InvoicePreview {
   bool get commitRequired => true;
 
   factory InvoicePreview.fromJson(Object? value) {
-    final json = FieldJson.object(value, 'invoice_preview');
+    final json = JsonContract.object(value, 'invoice_preview');
     final invoice = FieldInvoice.fromJson(json['invoice']);
     if (json['commit_required'] != true || invoice.status != FieldInvoiceStatus.preview) {
-      FieldJson.invalid('invoice_preview.status');
+      JsonContract.invalid('invoice_preview.status');
     }
     return InvoicePreview._(invoice);
   }
@@ -190,9 +190,9 @@ class CommittedInvoiceResult {
       CommittedInvoiceResult._parse(value, frozenRead: true);
 
   static CommittedInvoiceResult _parse(Object? value, {required bool frozenRead}) {
-    final json = FieldJson.object(value, 'invoice_result');
+    final json = JsonContract.object(value, 'invoice_result');
     if (!json.containsKey('invoice')) {
-      if (frozenRead) FieldJson.invalid('invoice_result.invoice');
+      if (frozenRead) JsonContract.invalid('invoice_result.invoice');
       return const CommittedInvoiceResult._(InvoiceAvailability.legacyResponse, null);
     }
     if (json['invoice'] == null) {
@@ -201,7 +201,7 @@ class CommittedInvoiceResult {
     final invoice = FieldInvoice.fromJson(json['invoice']);
     if (invoice.status != FieldInvoiceStatus.committed ||
         (frozenRead && invoice.revisionNumber == null)) {
-      FieldJson.invalid('invoice_result.status');
+      JsonContract.invalid('invoice_result.status');
     }
     return CommittedInvoiceResult._(InvoiceAvailability.available, invoice);
   }
