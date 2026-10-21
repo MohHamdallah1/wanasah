@@ -474,26 +474,27 @@ async def legacy_receipt(g, variant, *, supplier_present):
 
 
 async def import_contract(g, original_variant):
-    assert tuple(CANONICAL_IMPORT_FIELDS) == TEN_COLUMNS
+    assert tuple(CANONICAL_IMPORT_FIELDS[:10]) == TEN_COLUMNS
+    assert CANONICAL_IMPORT_FIELDS[10] == "purchase_unit_cost"
     for locale in ("ar", "en"):
         blob = build_product_import_template(locale=locale)
         wb = load_workbook(BytesIO(blob))
         sheet = wb.active
-        assert sheet.max_column == 10 and sheet.auto_filter.ref.startswith("A1:J")
+        assert sheet.max_column == 11 and sheet.auto_filter.ref.startswith("A1:K")
         sheet.append(["E2E imported " + locale, None, "CARTON", "12", "60", None,
                       None, None, "NONE", "NONE"])
         output = BytesIO()
         wb.save(output)
         wb.close()
         with open_source("e2e-" + locale + ".xlsx", output.getvalue()) as source:
-            assert len(source.headers) == 10
+            assert len(source.headers) == 11
             mapping = validate_mapping(source.headers, suggest_mapping(source.headers))
-            assert set(mapping) == set(TEN_COLUMNS)
+            assert set(mapping) == set(TEN_COLUMNS) | {"purchase_unit_cost"}
             rows = list(source.rows)
             assert len(rows) == 1
             data = normalize_raw_row(rows[0].raw, mapping,
                 default_lot_control_mode="NONE", default_expiry_control_mode="NONE")
-            assert "purchase_cost_reference" not in data
+            assert data["purchase_unit_cost"] is None
             with pytest.raises(ValueError, match="Unknown mapping field"):
                 validate_mapping(source.headers, {**mapping, "purchase_cost_reference": source.headers[0]})
         before = await g.snapshot(ACCOUNTING + REFERENCES)
