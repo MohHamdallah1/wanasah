@@ -558,8 +558,10 @@ Known extraction targets and V1 timing:
 - [ ] `visit_bloc.dart`: extract Returns/Samples/financial orchestration immediately before FIELD seam wiring.
 - [x] `visit_screen.dart`: catalog/product-card presentation mechanically extracted before Returns/Batch UI changes; screen reduced from ~1445 to ~1018 lines.
 - [ ] `visit_screen.dart`: residual shell/footer/contact/submit presentation split only when the next owned responsibility requires it.
-- [ ] `dashboard_bloc.dart` (~600+ lines): split Session/Custody/Recovery responsibilities immediately before that wave.
-- [ ] `dashboard_screen.dart` (~900+ lines): split workday/session/custody presentation immediately before redesign.
+- [x] `dashboard_bloc.dart`: Work Session and Custody responsibilities mechanically extracted before behavior work.
+- [ ] `dashboard_bloc.dart`: Recovery/quarantine/sync shell remains and is split only when its next owned behavior wave requires it.
+- [x] `dashboard_screen.dart`: Work Session controls, pending-transfer dialog, and vehicle-inventory presentation extracted into feature-owned presentation files.
+- [ ] `dashboard_screen.dart`: residual recovery/summaries/navigation shell remains until the design/recovery wave.
 - [ ] `sync_repository.dart` (~480 lines): extract operation-specific Visit/Transfer/Shop adapters as those contracts are wired.
 - [ ] app/bootstrap/theme extraction: perform with the design-system wave, not before P0 contracts close.
 
@@ -572,9 +574,10 @@ This is not a separate refactor project. Each split happens immediately before t
 3. [x] Visit command serializer/projection helper split before Visit contract correction.
 4. [x] Mechanically extract `VisitCatalog` / product-card presentation and Visit Event/State declarations with zero intended behavior change.
 5. [ ] Extract Returns/Samples/financial orchestration immediately before wiring Return Resolution / Damaged / Expired / Factory_Defect / invoice preview.
-6. [ ] Split Session/Custody/Recovery out of Dashboard files immediately before Session/Custody implementation.
-7. [ ] Split app/bootstrap/theme immediately before the field-first UI redesign.
-8. [ ] Post-V1 only: cosmetic renames, broad folder migration, dependency modernization, and non-blocking abstractions.
+6. [x] Mechanically extract Work Session and Custody application/presentation responsibilities before behavior implementation.
+7. [ ] Split remaining Recovery/quarantine/sync responsibility when its behavior/design wave begins.
+8. [ ] Split app/bootstrap/theme immediately before the field-first UI redesign.
+9. [ ] Post-V1 only: cosmetic renames, broad folder migration, dependency modernization, and non-blocking abstractions.
 
 Rule: a decomposition checkbox becomes `[x]` only after focused characterization/analyze gates pass. A partial extraction never marks the whole god-file as complete.
 
@@ -608,6 +611,22 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] Focused decomposition characterization: PASS.
 - [x] Existing Visit command-correction regression: PASS.
 - [ ] Remaining Visit shell/orchestration is split only as the next Returns/Finance responsibility requires it; no cosmetic rewrite.
+
+### 10.6 Session / Custody mechanical decomposition stability point — 2026-10-22
+
+- [x] Implementation branch: `sol/flutter-v1-session-custody-decomposition`.
+- [x] Work Session application logic extracted to `features/work_session/application/work_session_handlers.dart`.
+- [x] Work Session controls extracted to `features/work_session/presentation/work_session_controls.dart`.
+- [x] Custody transfer orchestration extracted to `features/custody/application/custody_handlers.dart`.
+- [x] Pending-transfer dialog extracted to `features/custody/presentation/pending_transfer_dialog.dart`.
+- [x] Vehicle-inventory presentation extracted to `features/custody/presentation/vehicle_inventory_section.dart`.
+- [x] `dashboard_bloc.dart` reduced by ~36.9% in the mechanical wave.
+- [x] `dashboard_screen.dart` reduced by ~41.4% in the mechanical wave.
+- [x] GitHub run `39688931001`: `flutter analyze` PASS + 14 focused/regression tests PASS.
+- [x] PR #434 merged into `sol/flutter-v1-field-closure`.
+- [x] Merge commit: `19a04e76085db29a265e84fadf33c64ec5088793`.
+- [ ] Current `part of DashboardBloc` coupling is transitional only; Work Session/Custody behavioral waves must move authority behind feature-owned orchestration/data boundaries before those features are considered architecturally closed.
+- [ ] Recovery/quarantine/sync remains in the Dashboard compatibility shell and is not marked decomposed.
 
 ## 11. UI / design-system closure
 
