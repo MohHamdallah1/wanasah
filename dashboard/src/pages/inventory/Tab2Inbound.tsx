@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import {
   CalendarDays,
   Eraser,
+  Pencil,
   Search,
   Trash2,
 } from "lucide-react";
@@ -1007,6 +1008,16 @@ export function Tab2Inbound({
                             }
                             className={fieldHasError(row.row_id, "unit_cost") ? "is-error" : ""}
                           />
+                          <button
+                            type="button"
+                            aria-label={t("inventoryInbound.editPurchaseCost")}
+                            title={t("inventoryInbound.editPurchaseCost")}
+                            disabled={submitting || posting.pending !== null}
+                            onClick={() => focusControl(row.row_id, "unit_cost")}
+                            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-500 disabled:opacity-50"
+                          >
+                            <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                          </button>
                           <span>
                             {costPolicy?.currency_code ?? ""}
                             {selectedOption

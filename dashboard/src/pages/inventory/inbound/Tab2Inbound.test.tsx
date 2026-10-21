@@ -233,6 +233,17 @@ describe("Checkpoint 1 inbound UI", () => {
       .toEqual(["3.000000", "4.000000"]);
   });
 
+  it("focuses the inline purchase-cost editor through the localized pencil", async () => {
+    renderInbound([makeVariant(17, "Pencil product", "NONE", "NONE")]);
+    const row = (await screen.findByText("Pencil product")).closest("tr")!;
+    const input = within(row).getByLabelText("Actual cost") as HTMLInputElement;
+    const edit = within(row).getByRole("button", { name: "Edit actual purchase cost" });
+    fireEvent.click(edit);
+    await waitFor(() => expect(document.activeElement).toBe(input));
+    fireEvent.change(input, { target: { value: "4.250000" } });
+    expect(input.value).toBe("4.250000");
+  });
+
   it("renders NONE / OPTIONAL / REQUIRED tracking fields directly", async () => {
     renderInbound([
       makeVariant(1, "None product", "NONE", "NONE"),
