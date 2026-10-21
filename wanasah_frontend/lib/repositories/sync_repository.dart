@@ -205,6 +205,19 @@ class SyncRepository {
       payload: jsonEncode(commandPayload),
       requestId: requestId,
     );
+    final isQueueHead =
+        await _db.isFirstUnresolvedCommand(commandRecordId);
+    if (!isQueueHead) {
+      await _finalizeVisitCommandLocalState(
+        commandRecordId: commandRecordId,
+        payload: commandPayload,
+      );
+      developer.log(
+        '[SyncRepository] Visit #$visitId queued behind earlier unresolved evidence.',
+      );
+      return;
+    }
+
     await _db.markPendingSyncInFlight(commandRecordId);
 
     try {
