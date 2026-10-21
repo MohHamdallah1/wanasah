@@ -20,6 +20,9 @@ jobs:
   import-contract:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: ProductImportPurchaseCostTestOnlyKey01234567890123456789
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
