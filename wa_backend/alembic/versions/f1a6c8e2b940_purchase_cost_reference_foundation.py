@@ -140,9 +140,13 @@ def upgrade():
                 RAISE EXCEPTION 'Purchase reference revision must advance exactly once' USING ERRCODE='55000';
             END IF;
             RETURN NEW;
-        END $$;
+        END $;
+    """)
+    op.execute("""
         CREATE TRIGGER purchase_reference_revision BEFORE UPDATE OR DELETE ON purchase_cost_references
         FOR EACH ROW EXECUTE FUNCTION protect_purchase_reference_revision();
+    """)
+    op.execute("""
         CREATE TRIGGER purchase_reference_no_truncate BEFORE TRUNCATE ON purchase_cost_references
         FOR EACH STATEMENT EXECUTE FUNCTION protect_purchase_reference_evidence();
     """)
@@ -160,7 +164,9 @@ def upgrade():
                     USING ERRCODE='23514';
             END IF;
             RETURN NEW;
-        END $$;
+        END $;
+    """)
+    op.execute("""
         CREATE CONSTRAINT TRIGGER purchase_reference_audited
         AFTER INSERT OR UPDATE ON purchase_cost_references
         DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
@@ -178,7 +184,9 @@ def upgrade():
                 RAISE EXCEPTION 'Purchase reference actor/profile mismatch' USING ERRCODE='23514';
             END IF;
             RETURN NEW;
-        END $$;
+        END $;
+    """)
+    op.execute("""
         CREATE TRIGGER purchase_reference_actor BEFORE INSERT ON purchase_cost_reference_commands
         FOR EACH ROW EXECUTE FUNCTION validate_purchase_reference_actor();
     """)
