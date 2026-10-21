@@ -142,6 +142,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     try {
       final identity = StoredAuthIdentity.tryParse(
         token: await _storage.read(key: 'auth_token'),
+        refreshToken: await _storage.read(key: 'refresh_token'),
         driverId: await _storage.read(key: 'driver_id'),
         companyCode: await _storage.read(key: 'company_code'),
       );
@@ -205,39 +206,33 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
               : rawDriverId?.toString();
       final returnedCompanyCodeRaw =
           data['company_code']?.toString() ?? event.companyCode;
+      final String? refreshTokenRaw = data['refresh_token']?.toString();
       final identity = StoredAuthIdentity.tryParse(
         token: data['token']?.toString(),
+        refreshToken: refreshTokenRaw,
         driverId: driverIdText,
         companyCode: returnedCompanyCodeRaw,
       );
 
       if (identity == null) {
         developer.log(
-          '[AuthBloc] Login → Missing or malformed identity in server response.',
+          '[AuthBloc] Login → Missing or malformed session identity in server response.',
         );
         emit(
           AuthError(
-            message: authMessage(AuthMessageKey.incompleteServerSession),
-          ),
-        );
-        return;
-      }
-
-      final String? refreshTokenRaw = data['refresh_token']?.toString();
-      final String? refreshToken = refreshTokenRaw?.trim();
-      if (refreshToken == null ||
-          refreshToken.isEmpty ||
-          refreshToken == 'null') {
-        developer.log('[AuthBloc] Login → Server did not send refresh_token.');
-        emit(
-          AuthError(
-            message: authMessage(AuthMessageKey.missingRefreshToken),
+            message:
+                refreshTokenRaw == null ||
+                        refreshTokenRaw.trim().isEmpty ||
+                        refreshTokenRaw.trim() == 'null'
+                    ? authMessage(AuthMessageKey.missingRefreshToken)
+                    : authMessage(AuthMessageKey.incompleteServerSession),
           ),
         );
         return;
       }
 
       final String token = identity.token;
+      final String refreshToken = identity.refreshToken;
       final int driverId = identity.driverId;
       final String returnedCompanyCode = identity.companyCode;
       final String? oldDriverId = await _storage.read(key: 'driver_id');
