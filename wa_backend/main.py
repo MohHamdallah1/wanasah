@@ -24,6 +24,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 # +++ استيراد المكونات الداخلية للنظام +++
+from api import field_contracts
 from api import auth, branches, catalog, commercial_policy, driver, dispatch, inventory_stock_policy, offers, pricing, taxation, product_locations, product_tracking, tenant, warehouse, reconciliation, platform_manager, representatives, vehicles, sales_returns, simple_products, representative_settlement
 from config import Config
 from database import engine, get_db, warm_database_pool
@@ -438,6 +439,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # +++ تفعيل الروترز لتتطابق مع طلبات React و Flutter الحقيقية +++
 app.include_router(auth.router, tags=["Authentication"])
 app.include_router(driver.router, tags=["Driver Operations"])
+app.include_router(field_contracts.router)
 app.include_router(sales_returns.router)
 app.include_router(dispatch.router, tags=["Dispatch & Routing"])
 app.include_router(representative_settlement.router)

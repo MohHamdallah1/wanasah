@@ -502,6 +502,7 @@ class PendingBatchResponse(BaseModel):
     items: List[PendingTransferItem]
 
 class AddShopRequest(RequestModel):
+    request_id: Optional[UUID] = None
     name: str = Field(..., min_length=2, max_length=150)
     phone_number: str = Field(..., min_length=5, max_length=20)
     address: Optional[str] = Field(None, max_length=2000)
@@ -712,6 +713,27 @@ class VisitReturnInput(RequestModel):
         return self
 
 
+class ResolvedVisitReturnInput(RequestModel):
+    """FIELD transport: a signed resolution replaces operator Batch input."""
+    product_variant_id: PositiveDbInt
+    resolution_token: str = Field(min_length=1, max_length=8192)
+    quantity: NonNegativeDbInt = 0
+    packs_quantity: NonNegativeDbInt = 0
+    return_type: Literal["Expired", "Damaged", "Factory_Defect"] = "Damaged"
+    reason: Optional[str] = Field(None, max_length=2000)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def normalize_reason(cls, value):
+        return _optional_text(value)
+
+    @model_validator(mode="after")
+    def require_nonzero_return(self):
+        if self.quantity + self.packs_quantity == 0:
+            raise ValueError("A positive returned quantity is required.")
+        return self
+
+
 class VisitUpdateRequest(RequestModel):
     request_id: UUID
     outcome: Literal["Sale", "NoSale", "Postponed"]
@@ -722,7 +744,7 @@ class VisitUpdateRequest(RequestModel):
     cash_collected: MoneyInput = Decimal("0.000")
     debt_paid: MoneyInput = Decimal("0.000")
     cart_items: List[VisitItemInput] = Field(default_factory=list, max_length=500)
-    returns: List[VisitReturnInput] = Field(default_factory=list, max_length=500)
+    returns: List[Union[VisitReturnInput, ResolvedVisitReturnInput]] = Field(default_factory=list, max_length=500)
 
     @field_validator("notes", mode="before")
     @classmethod
@@ -738,7 +760,8 @@ class VisitUpdateRequest(RequestModel):
             )
 
         return_keys = [
-            (item.product_variant_id, item.batch_id, item.return_type)
+            (item.product_variant_id, getattr(item, "batch_id", None),
+             getattr(item, "resolution_token", None), item.return_type)
             for item in self.returns
         ]
         if len(return_keys) != len(set(return_keys)):

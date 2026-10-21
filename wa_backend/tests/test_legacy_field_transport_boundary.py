@@ -81,6 +81,85 @@ def digest(nodes):
     return hashlib.sha256(ast.dump(tree, include_attributes=False).encode()).hexdigest()
 
 
+# The four approved FIELD additions are removed structurally ONLY for the old
+# workflow fingerprint. Each exact statement must exist once; all old business
+# statements, locks, ordering and response fields remain fingerprinted.
+FIELD_IMPORTS = [
+    "begin_field_shop_command", "complete_field_shop_command",
+    "canonicalize_visit_returns", "revalidate_return_provenance",
+    "revalidate_return_batch_metadata", "invoice_from_calculation",
+    "pending_shop_commercial_state",
+]
+FIELD_VISIT_STATEMENTS = (
+    """if return_proofs:
+        canonical_payload["return_resolutions"] = sorted(
+            return_proofs, key=lambda proof: (
+                proof["request"]["product_variant_id"], proof["batch"],
+                proof["request"]["return_type"]))""",
+    """payload, return_proofs = canonicalize_visit_returns(
+        payload, context=field_context, driver_id=driver_id, visit_id=visit_id)""",
+    """await revalidate_return_provenance(
+        db, context=field_context, driver_id=driver_id,
+        visit=visit, session=active_session, proofs=return_proofs)""",
+    """await revalidate_return_batch_metadata(
+        db, company_id=company_id, proofs=return_proofs)""",
+    """response_payload["invoice"] = (
+        invoice_from_calculation(resolved_sale.calculation)
+        if resolved_sale is not None else None)""",
+)
+FIELD_SHOP_STATEMENTS = (
+    """shop_command, shop_replay = await begin_field_shop_command(
+        db, payload=payload, company_id=field_context.company_id, driver_id=driver_id)""",
+    """if shop_replay is not None:
+        await db.rollback()
+        return shop_replay""",
+    """complete_field_shop_command(shop_command, response_payload)""",
+)
+
+
+def without_field_additions(node):
+    node = copy.deepcopy(node)
+    snippets = FIELD_VISIT_STATEMENTS if node.name == "update_visit" else (
+        FIELD_SHOP_STATEMENTS if node.name == "add_new_shop" else ()
+    )
+    expected = {ast.dump(ast.parse(source).body[0], include_attributes=False): 0 for source in snippets}
+    shop_response = None
+    if node.name == "add_new_shop":
+        assignments = [part for part in ast.walk(node) if isinstance(part, ast.Assign)
+                       and len(part.targets) == 1 and isinstance(part.targets[0], ast.Name)
+                       and part.targets[0].id == "response_payload"]
+        if len(assignments) != 1 or not isinstance(assignments[0].value, ast.Dict):
+            raise AssertionError("Expected exactly the approved shop response addition")
+        response = assignments[0].value
+        entries = list(zip(response.keys, response.values))
+        additions = [(key, value) for key, value in entries
+                     if isinstance(key, ast.Constant) and key.value == "commercial_readiness"]
+        if len(additions) != 1 or ast.unparse(additions[0][1]) != "pending_shop_commercial_state()":
+            raise AssertionError("Unexpected shop commercial readiness authority")
+        legacy = [(key, value) for key, value in entries if key is not additions[0][0]]
+        shop_response = ast.Dict(keys=[key for key, _ in legacy], values=[value for _, value in legacy])
+
+    class RemoveApproved(ast.NodeTransformer):
+        def visit(self, part):
+            shape = ast.dump(part, include_attributes=False)
+            if shape in expected:
+                expected[shape] += 1
+                return None
+            if shop_response is not None:
+                if (isinstance(part, ast.Assign) and any(isinstance(target, ast.Name)
+                        and target.id == "response_payload" for target in part.targets)):
+                    return None
+                if (isinstance(part, ast.Return) and isinstance(part.value, ast.Name)
+                        and part.value.id == "response_payload"):
+                    return ast.Return(value=copy.deepcopy(shop_response))
+            return super().visit(part)
+
+    node = RemoveApproved().visit(node)
+    if any(count != 1 for count in expected.values()):
+        raise AssertionError(f"Approved FIELD statement changed or duplicated: {expected}")
+    return node.body
+
+
 class OperationalLocator:
     id = 303
     full_name = "Operational display name"
@@ -179,7 +258,7 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
     def test_entire_workflows_locks_transactions_idempotency_and_responses_preserved(self):
         for name, expected in BODY_DIGESTS.items():
             with self.subTest(endpoint=name):
-                self.assertEqual(digest(self.functions[name].body), expected)
+                self.assertEqual(digest(without_field_additions(self.functions[name])), expected)
                 self.assertEqual([ast.unparse(item) for item in self.functions[name].decorator_list],
                                  ROUTES[name])
 
@@ -191,6 +270,9 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
         }
         for node in self.tree.body:
             if isinstance(node, ast.AsyncFunctionDef) and node.name in BODY_DIGESTS:
+                continue
+            if isinstance(node, ast.ImportFrom) and node.module == "api.field_visit_contracts":
+                self.assertEqual([alias.name for alias in node.names], FIELD_IMPORTS)
                 continue
             if isinstance(node, ast.ImportFrom) and node.module in allowed_imports:
                 self.assertEqual([alias.name for alias in node.names], [allowed_imports[node.module]])

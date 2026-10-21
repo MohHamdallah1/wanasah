@@ -1,0 +1,116 @@
+name: Flutter V1 Backend FIELD contract prerequisites
+
+on:
+  push:
+    branches: [codex/flutter-v1-backend-field-seams]
+  pull_request:
+    paths:
+      - "wa_backend/api/field_contracts.py"
+      - "wa_backend/api/field_visit_contracts.py"
+      - "wa_backend/api/driver.py"
+      - "wa_backend/domains/field_operations/**"
+      - "wa_backend/schemas.py"
+      - "wa_backend/tests/test_field_*.py"
+      - ".github/workflows/flutter-v1-backend-field-contracts.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: FieldContractsSyntheticOnlyKey012345678901234567890123456
+      DATABASE_URL: postgresql+asyncpg://field_unit@127.0.0.1:1/field_unit
+    defaults:
+      run:
+        working-directory: wa_backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pinned Backend and test dependencies
+        run: python -m pip install -r requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: FIELD resolution, financial and custody contracts
+        run: python -m pytest -q tests/test_field_return_resolution.py tests/test_field_read_contracts.py
+      - name: Existing field identity, session, visit, custody and durable transport regressions
+        run: >-
+          python -m pytest -q
+          tests/test_legacy_field_transport_boundary.py
+          tests/test_legacy_field_transport.py
+          tests/test_driver_session_field_context_boundary.py
+          tests/test_driver_session_field_context_cutover.py
+          tests/test_driver_mixed_visit_authorization_cutover.py
+          tests/test_canonical_field_runtime_compatibility.py
+          tests/test_reconciliation_field_canonical_auth.py
+          tests/test_vehicle_reconciliation_strict_custody.py
+          tests/test_dispatch_canonical_authorization_cutover.py
+      - name: Syntax and whitespace
+        run: |
+          python -m compileall -q api/field_contracts.py api/field_visit_contracts.py domains/field_operations tests/test_field_contracts_postgres.py tests/field_contract_postgres_fixture.py
+          git diff --check
+
+  postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: field_gate_admin
+          POSTGRES_DB: wanasah_field_contracts
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["55475:5432"]
+        options: >-
+          --health-cmd "pg_isready -U field_gate_admin -d wanasah_field_contracts"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: FieldContractsSyntheticOnlyKey012345678901234567890123456
+      DATABASE_URL: postgresql+asyncpg://field_gate_runtime@127.0.0.1:55475/wanasah_field_contracts
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://field_gate_admin@127.0.0.1:55475/wanasah_field_contracts
+      WANASAH_FIELD_CONTRACT_PG_GATE: "1"
+    defaults:
+      run:
+        working-directory: wa_backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pinned Backend and test dependencies
+        run: python -m pip install -r requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Create restricted disposable runtime role
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect("postgresql://field_gate_admin@127.0.0.1:55475/wanasah_field_contracts", autocommit=True) as db:
+              db.execute("CREATE ROLE field_gate_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Canonical fresh Alembic schema and parity
+        run: |
+          alembic upgrade head
+          alembic check
+      - name: Seed isolated synthetic contract fixture
+        run: python -m tests.field_contract_postgres_fixture
+      - name: Real FIELD calculation, return provenance, exchange, custody and replay
+        run: >-
+          python -m pytest -q -s
+          tests/test_field_contracts_postgres.py
+          tests/test_costed_driver_customer_return_c2_db.py
+          tests/test_costed_driver_sale_correction_real_c2_db.py
+          --junitxml=field-contract-postgres.xml
+      - name: Reject skipped or empty PostgreSQL acceptance
+        if: always()
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse("field-contract-postgres.xml").getroot()
+          assert list(root.iter("testcase")), "No FIELD PostgreSQL acceptance executed"
+          assert not list(root.iter("skipped")), "FIELD PostgreSQL acceptance must not skip"
+          assert not list(root.iter("failure")) and not list(root.iter("error")), "FIELD PostgreSQL acceptance failed"
+          print("FIELD_POSTGRES_EXECUTED=" + str(len(list(root.iter("testcase")))))
+          PY
