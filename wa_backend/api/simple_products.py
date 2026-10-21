@@ -1750,26 +1750,75 @@ async def list_simple_products(
                 )
 
         if search_tokens:
-            search_patterns = [
-                f"%{_escaped_like(token)}%"
-                for token in search_tokens
-            ]
-            search_variant_ids = select(
-                func.public.simple_products_search_variant_ids(
-                    company_id,
-                    bindparam(
-                        "simple_products_search_patterns",
-                        search_patterns,
-                        type_=ARRAY(String()),
+            normalized_search = " ".join(search_tokens)
+            exact_barcode_match = (
+                select(ProductBarcode.id)
+                .where(
+                    ProductBarcode.company_id == company_id,
+                    ProductBarcode.product_variant_id == ProductVariant.id,
+                    ProductBarcode.is_active.is_(True),
+                    ProductBarcode.valid_from <= barcode_now,
+                    or_(
+                        ProductBarcode.valid_to.is_(None),
+                        ProductBarcode.valid_to > barcode_now,
                     ),
-                    barcode_now,
+                    func.lower(ProductBarcode.barcode)
+                    == normalized_search,
                 )
+                .limit(1)
+                .correlate(ProductVariant)
+                .scalar_subquery()
+                .is_not(None)
             )
-            stmt = stmt.where(
-                ProductVariant.id.in_(
-                    search_variant_ids
+            exact_match_clause = or_(
+                func.lower(ProductVariant.name)
+                == normalized_search,
+                func.lower(ProductVariant.sku)
+                == normalized_search,
+                func.lower(
+                    func.coalesce(
+                        ProductVariant.gtin,
+                        "",
+                    )
                 )
+                == normalized_search,
+                exact_barcode_match,
             )
+            exact_match_id = await db.scalar(
+                stmt.with_only_columns(
+                    ProductVariant.id
+                )
+                .where(exact_match_clause)
+                .limit(1)
+            )
+
+            if exact_match_id is not None:
+                # A complete identity match wins. This keeps an exact product
+                # name/SKU/barcode from being buried in broad token matches.
+                stmt = stmt.where(
+                    exact_match_clause
+                )
+            else:
+                search_patterns = [
+                    f"%{_escaped_like(token)}%"
+                    for token in search_tokens
+                ]
+                search_variant_ids = select(
+                    func.public.simple_products_search_variant_ids(
+                        company_id,
+                        bindparam(
+                            "simple_products_search_patterns",
+                            search_patterns,
+                            type_=ARRAY(String()),
+                        ),
+                        barcode_now,
+                    )
+                )
+                stmt = stmt.where(
+                    ProductVariant.id.in_(
+                        search_variant_ids
+                    )
+                )
 
         if (
             after_key is not None
