@@ -45,7 +45,7 @@ from domains.inventory_costing.purchase_reference.api import router as reference
 from domains.inventory_costing.purchase_reference.public import MANAGE, READ
 from domains.inventory_supplier_evidence import record_supplier_evidence
 from domains.pricing.resolver import resolve_prices_bulk
-from domains.simple_products.imports.application.execution_service import build_product_spec
+from domains.simple_products.imports.application.execution_service import build_product_spec, _execute_rows_once
 from domains.simple_products.imports.application.purchase_reference_import import record_import_reference_batch
 from domains.inventory_costing.purchase_reference.repository import acquire_writer_guard
 from domains.simple_products.imports.domain.localization import CANONICAL_IMPORT_FIELDS
@@ -532,6 +532,85 @@ async def import_contract(g, original_variant):
         await price_check(g, original_variant)
 
 
+async def import_200_cost_rows_in_real_postgres(g):
+    """Real bounded 200-row worker execution, immutable costs and frozen retry.
+
+    This exercises the same row-create method, 200-row idempotency and bulk
+    reference/command/audit writes as Product Import, using disposable Postgres.
+    No queues or developer machine is involved.
+    """
+    import_batch_id = uuid4()
+    prefix = uuid4().hex[:12]
+    items = []
+    for i in range(200):
+        items.append(SimpleNamespace(
+            id=i + 1, row_identity=uuid4(), row_number=i + 2,
+            status="VALID", version=1, product_variant_id=None,
+            error_code=None, error_message=None,
+            normalized_data=dict(
+                name=f"Purchase import batch {prefix} {i:03d}",
+                family_name=None, package_uom_code=None,
+                units_per_package=1, package_price=None,
+                unit_price="4.000000",
+                unit_barcode=None, package_barcode=None,
+                lot_control_mode="NONE", expiry_control_mode="NONE",
+                purchase_unit_cost="1.250000",
+            ),
+        ))
+    before = await g.snapshot(ACCOUNTING)
+    async with g.session() as db:
+        actor = await db.get(Driver, g.t.owner.driver_id)
+        await _execute_rows_once(
+            db, company_id=g.t.company_id, actor=actor,
+            access=g.t.owner.access(db), job_id=import_batch_id, rows=items,
+        )
+        assert all(r.status == "IMPORTED" and r.product_variant_id for r in items)
+        await db.commit()
+    variants = [int(r.product_variant_id) for r in items]
+    assert len(set(variants)) == 200
+    async with g.session() as db:
+        summary = (await db.execute(text(
+            "SELECT count(*) AS refs, count(*) FILTER (WHERE amount = 1.250000 "
+            "AND currency_code = 'JOD' AND source = 'PRODUCT_IMPORT' "
+            "AND purchase_uom_id = :each) AS matching "
+            "FROM purchase_cost_references WHERE company_id = :c "
+            "AND product_variant_id = ANY(:ids)"
+        ), {"c": g.t.company_id, "each": g.t.each_id, "ids": variants})).one()
+        assert (summary.refs, summary.matching) == (200, 200)
+        revisions = await db.scalar(text(
+            "SELECT count(*) FROM purchase_cost_reference_changes "
+            "WHERE company_id=:c AND product_variant_id=ANY(:ids)"
+        ), {"c": g.t.company_id, "ids": variants})
+        assert revisions == 200
+    assert await g.snapshot(ACCOUNTING) == before
+
+    # A later manual edit wins; replay of the original imported operation is frozen.
+    first_variant = variants[0]
+    ok(await g.send("PUT", f"/purchase-cost-references/{first_variant}",
+                    manual(g.t, 1, "2", uom=g.t.each_id)))
+    after_edit = await g.snapshot()
+    replay_rows = [SimpleNamespace(
+        id=r.id, row_identity=r.row_identity, row_number=r.row_number,
+        status="VALID", version=1, product_variant_id=None,
+        error_code=None, error_message=None, normalized_data=r.normalized_data,
+    ) for r in items]
+    async with g.session() as db:
+        actor = await db.get(Driver, g.t.owner.driver_id)
+        await _execute_rows_once(
+            db, company_id=g.t.company_id, actor=actor,
+            access=g.t.owner.access(db), job_id=import_batch_id, rows=replay_rows,
+        )
+        assert [r.product_variant_id for r in replay_rows] == variants
+        # Deliberately no commit: replay should be read-only.
+    assert await g.snapshot() == after_edit
+    edited = await reference(g, first_variant)
+    assert edited["amount"] == "2.000000" and edited["revision"] == 2
+    g.record("14_200_row_import_batch_postgres",
+             imported_variants=200, reference_rows=200, history_rows=200,
+             idempotent_replay_kept_newer_manual=True,
+             inventory_and_cogs_unchanged=True)
+
+
 async def complete_journey(g):
     t = g.t
     g.stage = "01_product_create_atomic"
@@ -829,7 +908,9 @@ async def complete_journey(g):
               import_reference_backfill=False,
              company_inventory_value="232.000000", historical_cogs="12.000000",
              old_invoices_cogs_prices_unchanged=True)
-    g.record("SCENARIO_COMPLETE", original_variant_id=v, phases_passed=13)
+    if g.method == "FIFO":
+        await import_200_cost_rows_in_real_postgres(g)
+    g.record("SCENARIO_COMPLETE", original_variant_id=v, phases_passed=14 if g.method == "FIFO" else 13)
 
 
 @pytest.mark.parametrize("method", ["FIFO", "MOVING_AVERAGE"])
