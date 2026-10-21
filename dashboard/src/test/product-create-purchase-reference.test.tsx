@@ -1,5 +1,5 @@
-import { createRef, useState } from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { createRef, useRef, useState } from "react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { webcrypto } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +11,9 @@ import { isProductCreateCommandPayload, productCreateRequestBody, productDraftFr
   type ProductCreateCommandPayload } from "@/pages/products/create/productCreateCommand";
 import { emptyDraft } from "@/pages/products/create/useCreateProductState";
 import { useCreateProductMutation } from "@/pages/products/create/useCreateProductMutation";
+import { useCreateProductDraftPersistence } from "@/pages/products/create/useCreateProductDraftPersistence";
+import { useCreateProductWorkflow } from "@/pages/products/create/useCreateProductWorkflow";
+import * as durable from "@/lib/durableOperations";
 import type { ProductDraft } from "@/pages/products/create/types";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }));
@@ -30,7 +33,7 @@ beforeEach(async () => {
   Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true });
   await i18n.changeLanguage("en");
 });
-afterEach(() => cleanup());
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 function Fields() {
   const [value, setValue] = useState(draft);
@@ -72,6 +75,14 @@ function MutationBody({ authFetch, value, client }: {
 
 const response = { message: "Product created.", product_variant_id: 91, package_price: "60.000000",
   unit_price: "5.000000", lot_control_mode: "NONE", expiry_control_mode: "NONE" };
+
+function DraftScope({ storageKey }: { storageKey: string | null }) {
+  const [value, setValue] = useState<ProductDraft>(emptyDraft);
+  const restored = useRef<string | null>(null);
+  useCreateProductDraftPersistence({ draftStorageKey: storageKey, draft: value,
+    setDraft: setValue, restoredDraftKey: restored, t: i18n.t.bind(i18n) });
+  return <output data-testid="scoped-draft">{JSON.stringify(value)}</output>;
+}
 
 describe("Product quick-create optional purchase reference", () => {
   it("keeps old durable commands and no-reference request bodies unchanged", () => {
@@ -169,5 +180,45 @@ describe("Product quick-create optional purchase reference", () => {
     fireEvent.click(screen.getByRole("button", { name: "submit" }));
     await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
     expect(JSON.parse(fetch.mock.calls[0][1].body)).not.toHaveProperty("purchase_cost_reference");
+  });
+
+  it("never carries or persists a purchase-cost draft across company/user scopes", () => {
+    const saved = { ...draft, purchase_cost_reference: reference };
+    sessionStorage.setItem("company-a-user-a", JSON.stringify(saved));
+    const { rerender } = render(<DraftScope storageKey="company-a-user-a" />);
+    expect(JSON.parse(screen.getByTestId("scoped-draft").textContent!).purchase_cost_reference).toEqual(reference);
+    rerender(<DraftScope storageKey="company-b-user-b" />);
+    expect(JSON.parse(screen.getByTestId("scoped-draft").textContent!)).not.toHaveProperty("purchase_cost_reference");
+    const otherScope = sessionStorage.getItem("company-b-user-b");
+    if (otherScope) expect(JSON.parse(otherScope)).not.toHaveProperty("purchase_cost_reference");
+    expect(JSON.parse(sessionStorage.getItem("company-a-user-a")!).purchase_cost_reference).toEqual(reference);
+    rerender(<DraftScope storageKey="company-a-user-a" />);
+    expect(JSON.parse(screen.getByTestId("scoped-draft").textContent!).purchase_cost_reference).toEqual(reference);
+    rerender(<DraftScope storageKey={null} />);
+    expect(JSON.parse(screen.getByTestId("scoped-draft").textContent!)).not.toHaveProperty("purchase_cost_reference");
+  });
+
+  it("ignores a previous identity's late asynchronous durable-command restore", async () => {
+    let resolve!: (value: durable.DurableCommand<unknown>) => void;
+    const pending = new Promise<durable.DurableCommand<unknown>>((done) => { resolve = done; });
+    vi.spyOn(durable, "readDurableCommand").mockReturnValueOnce(pending);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const fetch = vi.fn().mockResolvedValue({ items: options.uoms.slice(1) });
+    const { result, rerender } = renderHook(({ companyId }) => useCreateProductWorkflow({
+      companyId, driverId: 31, authFetch: fetch, queryClient: client, t: i18n.t.bind(i18n),
+      online: true, trackingDefaults: undefined, trackingDefaultsError: false,
+      retryTrackingDefaults: vi.fn(), setCursor: vi.fn(), setHistory: vi.fn(),
+    }), { initialProps: { companyId: 7 },
+      wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+    let opening!: Promise<void>;
+    act(() => { opening = result.current.openCreateProduct(); });
+    rerender({ companyId: 8 });
+    await act(async () => {
+      resolve({ requestId: "old-company-request", createdAt: Date.now(),
+        payload: { ...command, purchase_cost_reference: reference } });
+      await opening;
+    });
+    expect(result.current.modalProps.open).toBe(false);
+    expect(result.current.modalProps.draft).not.toHaveProperty("purchase_cost_reference");
   });
 });
