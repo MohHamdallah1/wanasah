@@ -28,6 +28,9 @@ import {
 import {
   buildInboundItems,
   emptyInboundBatch,
+  inboundReferenceChoices,
+  prefilledInboundRow,
+  type InboundReferenceSelection,
   inboundProductIds,
   inboundStorageKeys,
   isInboundRowValidationError,
@@ -108,6 +111,8 @@ export function Tab2Inbound({
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [optionsLoading, setOptionsLoading] = useState(false);
+  const [referenceChoices, setReferenceChoices] = useState<Map<number, InboundReferenceSelection[]>>(new Map());
+  const [selectedReferences, setSelectedReferences] = useState<Map<number, InboundReferenceSelection>>(new Map());
   const [submitting, setSubmitting] = useState(false);
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
@@ -308,15 +313,24 @@ export function Tab2Inbound({
       );
       const rows = current[key]?.length
         ? [...current[key]]
-        : [emptyInboundBatch(rowId, defaultUom)];
+        : [prefilledInboundRow(rowId, defaultUom, variantOptions)];
       const index = rows.findIndex((row) => row.row_id === rowId);
       if (index < 0) {
-        rows.push({ ...emptyInboundBatch(rowId, defaultUom), ...patch });
+        rows.push({ ...prefilledInboundRow(rowId, defaultUom, variantOptions), ...patch });
       } else {
-        rows[index] = { ...rows[index], ...patch };
+        // A cost belongs to its purchase unit. Changing UOM must not silently
+        // reuse the old cost under a different unit.
+        const changingUom = patch.uom_id !== undefined && patch.uom_id !== rows[index].uom_id;
+        rows[index] = {
+          ...rows[index],
+          ...(changingUom ? { unit_cost: "" } : {}),
+          ...patch,
+        };
       }
       return { ...current, [key]: rows };
     });
+    setReferenceChoices(new Map());
+    setSelectedReferences(new Map());
     const patchFields = Object.keys(patch) as InboundField[];
     if (
       validationError?.row_id === rowId &&
@@ -390,6 +404,8 @@ export function Tab2Inbound({
     localStorage.removeItem(keys.batchDefault);
     setDocumentDefaults({ batch_number: "" });
     setValidationError(null);
+    setReferenceChoices(new Map());
+    setSelectedReferences(new Map());
     setClearOpen(false);
   };
 
@@ -467,14 +483,31 @@ export function Tab2Inbound({
         uomOptions,
         documentDefaults
       );
+      const choices = inboundReferenceChoices(items);
+      const selections: InboundReferenceSelection[] = [];
+      let missingSelection = false;
+      for (const [variantId, alternatives] of choices) {
+        const selected = selectedReferences.get(variantId);
+        if (!selected || !alternatives.some((choice) =>
+          choice.uom_id === selected.uom_id && choice.unit_cost === selected.unit_cost
+        )) {
+          missingSelection = true;
+        } else selections.push(selected);
+      }
+      if (missingSelection) {
+        setReferenceChoices(choices);
+        toast.error(t("inventoryInbound.referenceSelectionRequired"));
+        return;
+      }
       const businessPayload = {
         supplier_id: supplierId,
         location_id: locationId,
         reference_id: referenceId.trim(),
         notes: notes.trim() || null,
         items,
+        ...(selections.length ? { purchase_reference_selections: selections } : {}),
       };
-      await posting.post(businessPayload);
+      if (!(await posting.post(businessPayload))) return;
       toast.success(t("inventoryInbound.received"));
       clear(true);
       await onSuccess();
@@ -550,6 +583,42 @@ export function Tab2Inbound({
           </p>
         </div>
 
+        {referenceChoices.size > 0 && (
+          <div className="mx-4 mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3">
+            <p className="mb-2 text-xs font-bold text-amber-900">
+              {t("inventoryInbound.referenceSelectionRequired")}
+            </p>
+            {[...referenceChoices.entries()].map(([variantId, choices]) => (
+              <label key={variantId} className="mb-2 block text-xs font-semibold text-slate-700">
+                {catalog.find((item) => item.id === variantId)?.name ?? String(variantId)}
+                <select
+                  aria-label={t("inventoryInbound.referenceSelectionFor", { id: variantId })}
+                  className="mt-1 block w-full rounded-lg border border-amber-300 bg-white p-2"
+                  value={selectedReferences.has(variantId)
+                    ? choices.findIndex((choice) =>
+                      choice.uom_id === selectedReferences.get(variantId)?.uom_id &&
+                      choice.unit_cost === selectedReferences.get(variantId)?.unit_cost
+                    ) : ""}
+                  onChange={(event) => {
+                    const option = choices[Number(event.target.value)];
+                    if (!option) return;
+                    setSelectedReferences((previous) => new Map(previous).set(variantId, option));
+                  }}
+                >
+                  <option value="">{t("inventoryInbound.referenceSelectPlaceholder")}</option>
+                  {choices.map((choice, index) => (
+                    <option key={choice.uom_id + "|" + choice.unit_cost} value={index}>
+                      {choice.unit_cost} {costPolicy?.currency_code ?? ""} / {uomOptions.get(variantId)?.uoms.find((unit) =>
+                        unit.id === choice.uom_id
+                      )?.code ?? String(choice.uom_id)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+        )}
+
         <div className="flex-1 min-h-0 overflow-auto mt-3">
           <table className="w-full text-sm min-w-[1120px]">
             <thead className="sticky top-0 bg-slate-50 border-b z-10">
@@ -604,7 +673,7 @@ export function Tab2Inbound({
                 );
                 const rows = drafts[String(variant.id)]?.length
                   ? drafts[String(variant.id)]
-                  : [emptyInboundBatch(`base-${variant.id}`, defaultUom)];
+                  : [prefilledInboundRow(`base-${variant.id}`, defaultUom, option)];
 
                 return rows.map((row, index) => {
                   const selectedUom = row.uom_id || defaultUom;
@@ -899,6 +968,22 @@ export function Tab2Inbound({
                               : ""}
                           </span>
                         </div>
+                        {option?.purchase_cost_reference && (
+                          <button
+                            type="button"
+                            disabled={submitting || posting.pending !== null}
+                            onClick={() => update(variant, row.row_id, {
+                              uom_id: String(option.purchase_cost_reference!.purchase_uom_id),
+                              unit_cost: option.purchase_cost_reference!.amount,
+                            })}
+                            className="mt-1 text-xs font-semibold text-emerald-800 underline"
+                          >
+                            {t("inventoryInbound.useReferenceSuggestion", {
+                              cost: option.purchase_cost_reference.amount,
+                              currency: option.purchase_cost_reference.currency_code,
+                            })}
+                          </button>
+                        )}
                         {fieldHasError(row.row_id, "unit_cost") && (
                           <p
                             role="alert"
