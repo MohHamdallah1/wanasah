@@ -18,6 +18,7 @@ class AddShopScreen extends StatefulWidget {
 class _AddShopScreenState extends State<AddShopScreen> {
   final _formKey = GlobalKey<FormState>();
   final ShopCreationService _shopCreationService = ShopCreationService();
+  ShopCreateCommand? _pendingShopCommand;
 
   // --- Controllers للحقول (تم تعديل الأسماء والوظائف) ---
   final _nameController = TextEditingController(); // اسم المحل (إجباري)
@@ -145,7 +146,7 @@ class _AddShopScreenState extends State<AddShopScreen> {
     if (_isSaving) return;
     setState(() => _isSaving = true);
 
-    final command = _shopCreationService.prepare(
+    final command = _pendingShopCommand ??= _shopCreationService.prepare(
       name: _nameController.text.trim(),
       phoneNumber: _phoneController.text.trim(),
       address: _governorateAreaController.text.trim(),
@@ -160,6 +161,7 @@ class _AddShopScreenState extends State<AddShopScreen> {
       final result = await _shopCreationService.execute(command);
       if (!mounted) return;
 
+      _pendingShopCommand = null;
       final readiness = result.commercialReadiness;
       final message = readiness.saleReady
           ? 'تم حفظ المحل بنجاح.'
@@ -175,8 +177,11 @@ class _AddShopScreenState extends State<AddShopScreen> {
     } on ShopCreateFailure catch (failure) {
       if (!mounted) return;
       final f = failure.failure;
+      if (!failure.ambiguous) {
+        _pendingShopCommand = null;
+      }
       final message = failure.ambiguous
-          ? 'تعذر تأكيد نتيجة إضافة المحل بعد إعادة التحقق الآمنة. لا تنشئ طلباً جديداً قبل التحقق من القائمة.'
+          ? 'تعذر تأكيد نتيجة إضافة المحل. أعد المحاولة من نفس الشاشة ليُعاد إرسال نفس الطلب بأمان.'
           : (f.displayFallback ?? 'رفض الخادم طلب إضافة المحل.');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.red),
