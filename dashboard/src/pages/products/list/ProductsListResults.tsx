@@ -373,27 +373,27 @@ export function ProductsListResults({
                   )}
                 </th>
                 {columns.package ? (
-                  <th className={`${tableHeaderSpacing} text-center`}>
+                  <th className={`${tableHeaderSpacing} w-[84px] text-center`}>
                     {t(
                       "products.columns.package",
                     )}
                   </th>
                 ) : null}
                 {columns.unitsPerPackage ? (
-                  <th className={`${tableHeaderSpacing} text-center`}>
+                  <th className={`${tableHeaderSpacing} w-[92px] text-center`}>
                     {t(
                       "products.columns.unitsPerPackage",
                     )}
                   </th>
                 ) : null}
                 {columns.tracking ? (
-                  <th className={`${tableHeaderSpacing} text-center`}>
+                  <th className={`${tableHeaderSpacing} w-[235px] text-center`}>
                     {t(
                       "products.columns.tracking",
                     )}
                   </th>
                 ) : null}
-                <th scope="col" className={`${tableHeaderSpacing} text-center`}>
+                <th scope="col" className={`${tableHeaderSpacing} w-[108px] text-center`}>
                   {t("products.tableStatus.column")}
                 </th>
                 {columns.unitBarcode ? (
