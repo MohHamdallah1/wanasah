@@ -331,7 +331,7 @@ It will not touch Backend, web Dashboard, pricing/returns UI, or the Network wor
 - [x] Integrated focused Offline + Visit tests: PASS.
 - [ ] Returned-Batch resolution, Damaged reason/UI, and non-sellable vehicle custody remain open.
 - [ ] Backend-authoritative invoice preview/final commercial truth remains open.
-- [ ] Auth/session typed-failure adoption is delegated as the next parallel Flutter slice.
+- [x] Auth/session typed-failure adoption completed and merged.
 
 ## 5. Error model / observability
 
@@ -361,8 +361,29 @@ Closure:
 - [ ] Verify current login/refresh response against canonical field principal/representative mapping.
 - [ ] Bind durable commands to the stable identity required by current Backend field contract.
 - [ ] No legacy `Driver.is_admin` or client role flag becomes authority.
-- [ ] Token refresh cannot wipe pending work.
-- [ ] Same-user app restart restores the correct tenant DB and sync state.
+- [x] Token refresh / unauthorized logout cannot wipe pending work; unresolved offline evidence is preserved.
+- [x] Same-user app restart restores a complete validated stored identity and selects the correct tenant DB without destructive repair guesses.
+- [ ] Final same-user restart acceptance still verifies resumed pending sync state end-to-end on device.
+
+### 6.1 Auth / session recovery stability point — 2026-10-22
+
+- [x] Implementation branch: `sol/flutter-v1-auth-session-recovery`.
+- [x] Typed login failure policy uses `ApiFailure` status/code/context/request ID.
+- [x] 401/403 are confirmed auth rejection; 429 is rate-limit; network/timeout are connectivity; 5xx is server failure.
+- [x] Localized/free-text server content is display fallback only, not auth classification.
+- [x] Offline-owner guard remains before returned session persistence.
+- [x] Ambiguous refresh transport/5xx does not force logout.
+- [x] Only confirmed refresh 401/403 reaches unauthorized logout.
+- [x] Stored identity restore fails closed on missing/blank/`null` tokens, invalid driver IDs, or missing company code.
+- [x] CheckAuth failure performs no destructive local cleanup.
+- [x] User logout preserves unresolved offline evidence.
+- [x] New helper responsibilities are organized under `features/auth/application/**` and `features/auth/presentation/**`.
+- [x] PR #432 merged into `sol/flutter-v1-field-closure`.
+- [x] Merge commit: `6ac2f48f2539cf12bb7524e08a6a686682b73113`.
+- [x] GitHub `flutter analyze`: PASS.
+- [x] Focused Auth/session tests: PASS.
+- [x] Offline durable-command regression gate: PASS.
+- [ ] Canonical principal/representative identity mapping remains a separate contract check before final field acceptance.
 
 ## 7. Session / route / custody
 
@@ -449,6 +470,17 @@ lib/
     formatting/
 ```
 
+Architecture policy — frozen for V1 and future expansion:
+- [x] Feature-first ownership is mandatory for new/extracted product code.
+- [x] Single Responsibility Principle is mandatory: one file/class should have one primary reason to change.
+- [x] `core/**` is reserved for genuinely cross-cutting infrastructure, not business-feature dumping grounds.
+- [x] New business contracts/models live under their owning feature/domain.
+- [x] Tests mirror production feature ownership.
+- [x] Generic dumping folders such as `helpers/`, `utils/`, `misc/` are forbidden unless the contents are truly cross-cutting and narrowly defined.
+- [x] Prefer small cohesive folders/files over one mega client/repository/BLoC.
+- [x] Mechanical extraction must preserve behavior and pass focused characterization before the checkbox is closed.
+- [x] Compatibility facades/exports may remain temporarily when they reduce migration risk, but new logic goes to the feature-owned location.
+
 Rules:
 - [ ] Screens do not call `ApiClient` directly.
 - [ ] Widgets do not decide Backend business authority.
@@ -518,6 +550,7 @@ The line count is not the criterion. Ownership/correctness risk is.
 
 Known extraction targets and V1 timing:
 - [x] Network core: `ApiClient` auth/retry/error responsibilities extracted into focused files.
+- [x] Auth typed-failure and stored-identity helpers placed under `features/auth/application/**`; user-facing auth messages under `features/auth/presentation/**`.
 - [x] `local_database.dart`: durable command lifecycle extracted to `PendingCommandStore`; compatibility facade retained.
 - [ ] `local_database.dart`: remaining visit/inventory projection persistence split when Returns/Custody wiring lands.
 - [x] `visit_bloc.dart`: canonical payload serializer and local projection helpers extracted before further Visit behavior work.
