@@ -518,6 +518,27 @@ class LocalDatabase {
     }
   }
 
+  Future<void> updatePendingSyncCommandId(
+    int id,
+    String commandId,
+  ) async {
+    final db = await database;
+    final updated = await db.update(
+      'pending_sync',
+      {
+        'command_id': commandId,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (updated != 1) {
+      throw StateError(
+        'Pending sync command identity update failed for record #$id.',
+      );
+    }
+  }
+
   Future<List<Map<String, dynamic>>> getProducts() async {
     final db = await database;
     return db.query('products');
