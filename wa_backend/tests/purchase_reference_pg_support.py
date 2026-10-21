@@ -83,7 +83,11 @@ async def pg():
             ))).one()
             assert tuple(identity) == ("wanasah_purchase_reference_gate", "purchase_reference_runtime", False, False)
         async with AsyncSession(admin, expire_on_commit=False) as db:
-            assert await db.scalar(text("SELECT version_num FROM alembic_version")) == "f1a6c8e2b940"
+            # The feature foundation may be tested standalone or together
+            # with the independently accepted Product tracking defaults.
+            assert await db.scalar(text("SELECT version_num FROM alembic_version")) in {
+                "f1a6c8e2b940", "b9c5e18a0f42",
+            }
             for code in PERMISSIONS:
                 await db.execute(text("INSERT INTO permissions(code) VALUES(:code) ON CONFLICT(code) DO NOTHING"),
                                  {"code": code})
