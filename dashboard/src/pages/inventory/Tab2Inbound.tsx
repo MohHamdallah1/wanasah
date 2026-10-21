@@ -170,10 +170,12 @@ function InboundDateInput({
 const rowControlOrder = (variant: CatalogVariant): InboundRowControl[] => {
   const policy = inboundTrackingPolicy(variant);
   return [
-    "quantity",
     "unit_cost",
-    ...(policy.lot.required ? (["batch_number"] as const) : []),
-    ...(policy.expiry.required ? (["expiry_date"] as const) : []),
+    "quantity",
+    "uom_id",
+    ...(policy.production.visible ? (["production_date"] as const) : []),
+    ...(policy.expiry.visible ? (["expiry_date"] as const) : []),
+    ...(policy.lot.visible ? (["batch_number"] as const) : []),
   ];
 };
 
@@ -555,7 +557,7 @@ export function Tab2Inbound({
     }
     const rowIndex = keyboardRowIds.indexOf(rowId);
     const nextRowId = rowIndex >= 0 ? keyboardRowIds[rowIndex + 1] : undefined;
-    if (nextRowId) focusControl(nextRowId, "quantity");
+    if (nextRowId) focusControl(nextRowId, "unit_cost");
   };
 
   const keyboardRowIds = useMemo(
@@ -850,21 +852,37 @@ export function Tab2Inbound({
             <colgroup>
               <col className="inventory-inbound-col-number" />
               <col className="inventory-inbound-col-product" />
-              <col className="inventory-inbound-col-quantity" />
               <col className="inventory-inbound-col-cost" />
-              <col className="inventory-inbound-col-lot" />
+              <col className="inventory-inbound-col-quantity" />
               <col className="inventory-inbound-col-production" />
               <col className="inventory-inbound-col-expiry" />
+              <col className="inventory-inbound-col-lot" />
             </colgroup>
             <thead>
               <tr>
                 <th className="inventory-inbound-number-head">#</th>
                 <th className="text-start">{t("inventoryInbound.product")}</th>
-                <th className="text-start">{t("inventoryInbound.quantityAndUnit")}</th>
-                <th className="text-start">{t("inventoryInbound.purchaseCost")}</th>
-                <th className="text-start">{t("inventoryInbound.batchNumber")}</th>
+                <th className="text-start">
+                  {t("inventoryInbound.purchaseCost")}
+                  <span aria-hidden="true" className="ms-1 text-rose-600">*</span>
+                </th>
+                <th className="text-start">
+                  {t("inventoryInbound.quantityAndUnit")}
+                  <span aria-hidden="true" className="ms-1 text-rose-600">*</span>
+                </th>
                 <th className="text-start">{t("inventoryInbound.productionDate")}</th>
-                <th className="text-start">{t("inventoryInbound.expiryDate")}</th>
+                <th className="text-start">
+                  {t("inventoryInbound.expiryDate")}
+                  {visibleCatalog.some((variant) => inboundTrackingPolicy(variant).expiry.required) ? (
+                    <span aria-hidden="true" className="ms-1 text-rose-600">*</span>
+                  ) : null}
+                </th>
+                <th className="text-start">
+                  {t("inventoryInbound.batchNumber")}
+                  {visibleCatalog.some((variant) => inboundTrackingPolicy(variant).lot.required) ? (
+                    <span aria-hidden="true" className="ms-1 text-rose-600">*</span>
+                  ) : null}
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -932,6 +950,60 @@ export function Tab2Inbound({
                           ) : null}
                         </div>
                       </td>
+                      <td className="inventory-inbound-cost-cell">
+                        <div className="inventory-inbound-cost-control">
+                          <input
+                            ref={(node) => setControlRef(row.row_id, "unit_cost", node)}
+                            inputMode="decimal"
+                            value={row.unit_cost}
+                            disabled={submitting || posting.pending !== null}
+                            aria-label={t("inventoryInbound.unitCostPlaceholder")}
+                            aria-invalid={fieldHasError(row.row_id, "unit_cost")}
+                            onFocus={(event) => event.currentTarget.select()}
+                            onKeyDown={(event) =>
+                              handleRowEnter(event, row.row_id, variant, "unit_cost")
+                            }
+                            onChange={(event) => {
+                              update(variant, row.row_id, {
+                                unit_cost: event.target.value.replace(/[^0-9.]/g, ""),
+                              });
+                            }}
+                            className={fieldHasError(row.row_id, "unit_cost") ? "is-error" : ""}
+                          />
+                          <span>
+                            {costPolicy?.currency_code ?? ""}
+                            {selectedOption
+                              ? ` / ${uomLabel(selectedOption.code, selectedOption.name)}`
+                              : ""}
+                          </span>
+                          {option?.purchase_cost_reference && (
+                            <button
+                              type="button"
+                              disabled={submitting || posting.pending !== null}
+                              aria-label={t("inventoryInbound.useReferenceSuggestion", {
+                                cost: conciseMoney(option.purchase_cost_reference.amount),
+                                currency: option.purchase_cost_reference.currency_code,
+                              })}
+                              title={t("inventoryInbound.useReferenceSuggestion", {
+                                cost: conciseMoney(option.purchase_cost_reference.amount),
+                                currency: option.purchase_cost_reference.currency_code,
+                              })}
+                              onClick={() => update(variant, row.row_id, {
+                                uom_id: String(option.purchase_cost_reference!.purchase_uom_id),
+                                unit_cost: conciseMoney(option.purchase_cost_reference!.amount),
+                              })}
+                              className="inventory-inbound-reference-button"
+                            >
+                              {t("inventoryInbound.useReferenceShort")}
+                            </button>
+                          )}
+                        </div>
+                        {fieldHasError(row.row_id, "unit_cost") && (
+                          <p role="alert" className="inventory-inbound-field-error">
+                            {validationMessage}
+                          </p>
+                        )}
+                      </td>
                       <td className="inventory-inbound-quantity-cell">
                         <div className="inventory-inbound-quantity-controls">
                           <input
@@ -956,6 +1028,9 @@ export function Tab2Inbound({
                             value={selectedUom}
                             aria-label={t("inventoryInbound.purchaseUnit")}
                             aria-invalid={fieldHasError(row.row_id, "uom_id")}
+                            onKeyDown={(event) =>
+                              handleRowEnter(event, row.row_id, variant, "uom_id")
+                            }
                             onChange={(event) =>
                               update(variant, row.row_id, {
                                 uom_id: event.target.value,
@@ -989,106 +1064,6 @@ export function Tab2Inbound({
                           </p>
                         )}
                       </td>
-                      <td className="inventory-inbound-cost-cell">
-                        <div className="inventory-inbound-cost-control">
-                          <input
-                            ref={(node) => setControlRef(row.row_id, "unit_cost", node)}
-                            inputMode="decimal"
-                            value={row.unit_cost}
-                            disabled={submitting || posting.pending !== null}
-                            aria-label={t("inventoryInbound.unitCostPlaceholder")}
-                            aria-invalid={fieldHasError(row.row_id, "unit_cost")}
-                            onFocus={(event) => event.currentTarget.select()}
-                            onKeyDown={(event) =>
-                              handleRowEnter(event, row.row_id, variant, "unit_cost")
-                            }
-                            onChange={(event) => {
-                              update(variant, row.row_id, {
-                                unit_cost: event.target.value.replace(/[^0-9.]/g, ""),
-                              });
-                            }}
-                            className={fieldHasError(row.row_id, "unit_cost") ? "is-error" : ""}
-                          />
-                          <span>
-                            {costPolicy?.currency_code ?? ""}
-                            {selectedOption
-                              ? ` / ${uomLabel(selectedOption.code, selectedOption.name)}`
-                              : ""}
-                          </span>
-                        </div>
-                        {option?.purchase_cost_reference && (
-                          <button
-                            type="button"
-                            disabled={submitting || posting.pending !== null}
-                            aria-label={t("inventoryInbound.useReferenceSuggestion", {
-                              cost: conciseMoney(option.purchase_cost_reference.amount),
-                              currency: option.purchase_cost_reference.currency_code,
-                            })}
-                            title={t("inventoryInbound.useReferenceSuggestion", {
-                              cost: conciseMoney(option.purchase_cost_reference.amount),
-                              currency: option.purchase_cost_reference.currency_code,
-                            })}
-                            onClick={() => update(variant, row.row_id, {
-                              uom_id: String(option.purchase_cost_reference!.purchase_uom_id),
-                              unit_cost: conciseMoney(option.purchase_cost_reference!.amount),
-                            })}
-                            className="mt-1 inline-flex min-h-7 items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-black text-emerald-800 transition hover:bg-emerald-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-500 disabled:opacity-50"
-                          >
-                            {t("inventoryInbound.useReferenceShort")}
-                          </button>
-                        )}
-                        {fieldHasError(row.row_id, "unit_cost") && (
-                          <p role="alert" className="inventory-inbound-field-error">
-                            {validationMessage}
-                          </p>
-                        )}
-                      </td>
-                      <td className="inventory-inbound-lot-cell">
-                        {tracking.lot.visible ? (
-                          <>
-                            <input
-                              ref={(node) =>
-                                setControlRef(row.row_id, "batch_number", node)
-                              }
-                              value={row.batch_number}
-                              required={tracking.lot.required}
-                              aria-required={tracking.lot.required}
-                              aria-invalid={fieldHasError(row.row_id, "batch_number")}
-                              aria-label={t("inventoryInbound.batchNumber")}
-                              onKeyDown={(event) =>
-                                handleRowEnter(
-                                  event,
-                                  row.row_id,
-                                  variant,
-                                  "batch_number"
-                                )
-                              }
-                              onChange={(event) =>
-                                update(variant, row.row_id, {
-                                  batch_number: event.target.value,
-                                })
-                              }
-                              title={t(
-                                tracking.lot.required
-                                  ? "inventoryInbound.rowBatchRequiredHint"
-                                  : "inventoryInbound.rowBatchOptionalHint"
-                              )}
-                              className={
-                                fieldHasError(row.row_id, "batch_number")
-                                  ? "is-error"
-                                  : ""
-                              }
-                            />
-                            {fieldHasError(row.row_id, "batch_number") && (
-                              <small role="alert" className="inventory-inbound-field-error">
-                                {validationMessage}
-                              </small>
-                            )}
-                          </>
-                        ) : (
-                          <span className="inventory-inbound-not-applicable">{"\u2014"}</span>
-                        )}
-                      </td>
                       <td className="inventory-inbound-production-cell">
                         {tracking.production.visible ? (
                           <>
@@ -1099,6 +1074,14 @@ export function Tab2Inbound({
                               value={row.production_date}
                               label={t("inventoryInbound.productionDate")}
                               invalid={fieldHasError(row.row_id, "production_date")}
+                              onEnter={(event) =>
+                                handleRowEnter(
+                                  event,
+                                  row.row_id,
+                                  variant,
+                                  "production_date"
+                                )
+                              }
                               placeholder={
                                 variantIndex === 0 && index === 0
                                   ? t("inventoryInbound.dateQuickPlaceholder")
@@ -1151,6 +1134,52 @@ export function Tab2Inbound({
                               }
                             />
                             {fieldHasError(row.row_id, "expiry_date") && (
+                              <small role="alert" className="inventory-inbound-field-error">
+                                {validationMessage}
+                              </small>
+                            )}
+                          </>
+                        ) : (
+                          <span className="inventory-inbound-not-applicable">{"\u2014"}</span>
+                        )}
+                      </td>
+                      <td className="inventory-inbound-lot-cell">
+                        {tracking.lot.visible ? (
+                          <>
+                            <input
+                              ref={(node) =>
+                                setControlRef(row.row_id, "batch_number", node)
+                              }
+                              value={row.batch_number}
+                              required={tracking.lot.required}
+                              aria-required={tracking.lot.required}
+                              aria-invalid={fieldHasError(row.row_id, "batch_number")}
+                              aria-label={t("inventoryInbound.batchNumber")}
+                              onKeyDown={(event) =>
+                                handleRowEnter(
+                                  event,
+                                  row.row_id,
+                                  variant,
+                                  "batch_number"
+                                )
+                              }
+                              onChange={(event) =>
+                                update(variant, row.row_id, {
+                                  batch_number: event.target.value,
+                                })
+                              }
+                              title={t(
+                                tracking.lot.required
+                                  ? "inventoryInbound.rowBatchRequiredHint"
+                                  : "inventoryInbound.rowBatchOptionalHint"
+                              )}
+                              className={
+                                fieldHasError(row.row_id, "batch_number")
+                                  ? "is-error"
+                                  : ""
+                              }
+                            />
+                            {fieldHasError(row.row_id, "batch_number") && (
                               <small role="alert" className="inventory-inbound-field-error">
                                 {validationMessage}
                               </small>

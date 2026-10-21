@@ -196,8 +196,10 @@ describe("Checkpoint 1 inbound UI", () => {
     await waitFor(() => expect(cost.value).toBe("4.25"));
     expect(cost.disabled).toBe(false);
     expect(within(row).queryByRole("button", { name: "Edit actual purchase cost" })).toBeNull();
-    expect(within(row).getByRole("button", { name: "Use reference cost 4.25 JOD" }))
-      .toHaveTextContent("Reference");
+    const referenceButton = within(row).getByRole("button", { name: "Use reference cost 4.25 JOD" });
+    expect(referenceButton).toHaveTextContent("Reference");
+    expect(referenceButton.closest(".inventory-inbound-cost-control"))
+      .toBe(cost.closest(".inventory-inbound-cost-control"));
     fireEvent.change(cost, { target: { value: "5.100000" } });
     fireEvent.change(within(row).getByLabelText("Quantity"), { target: { value: "2" } });
     expect(cost.value).toBe("5.100000");
@@ -494,7 +496,7 @@ describe("Checkpoint 1 inbound UI", () => {
     expect(mocks.post).not.toHaveBeenCalled();
   });
 
-  it("uses the keyboard-first common path and only stops for required tracking", async () => {
+  it("follows the visible column order with Enter for keyboard-first receiving", async () => {
     renderInbound([
       makeVariant(1, "Keyboard", "REQUIRED", "REQUIRED"),
       makeVariant(2, "Next product", "NONE", "NONE"),
@@ -504,27 +506,31 @@ describe("Checkpoint 1 inbound UI", () => {
     const quantity = within(row).getByLabelText("Quantity") as HTMLElement;
     const unit = within(row).getByLabelText("Purchase unit") as HTMLElement;
     const cost = within(row).getByLabelText("Actual cost") as HTMLElement;
-    const nextQuantity = within(nextRow).getByLabelText("Quantity") as HTMLElement;
+    const nextCost = within(nextRow).getByLabelText("Actual cost") as HTMLElement;
 
     fireEvent.change(quantity, { target: { value: "1" } });
     const lot = within(row).getByLabelText("Lot / batch number") as HTMLElement;
     const production = within(row).getByLabelText("Production date") as HTMLElement;
     const expiry = within(row).getByLabelText("Expiry date") as HTMLElement;
 
-    quantity.focus();
-    fireEvent.keyDown(quantity, { key: "Enter" });
-    expect(document.activeElement).toBe(cost);
-    expect(document.activeElement).not.toBe(unit);
-
+    cost.focus();
     fireEvent.keyDown(cost, { key: "Enter" });
+    expect(document.activeElement).toBe(quantity);
+
+    fireEvent.keyDown(quantity, { key: "Enter" });
+    expect(document.activeElement).toBe(unit);
+
+    fireEvent.keyDown(unit, { key: "Enter" });
+    expect(document.activeElement).toBe(production);
+
+    fireEvent.keyDown(production, { key: "Enter" });
+    expect(document.activeElement).toBe(expiry);
+
+    fireEvent.keyDown(expiry, { key: "Enter" });
     expect(document.activeElement).toBe(lot);
 
     fireEvent.keyDown(lot, { key: "Enter" });
-    expect(document.activeElement).toBe(expiry);
-    expect(document.activeElement).not.toBe(production);
-
-    fireEvent.keyDown(expiry, { key: "Enter" });
-    expect(document.activeElement).toBe(nextQuantity);
+    expect(document.activeElement).toBe(nextCost);
     expect(mocks.post).not.toHaveBeenCalled();
   });
 
@@ -591,6 +597,17 @@ describe("Checkpoint 1 inbound UI", () => {
     expect(
       screen.getByRole("columnheader", { name: "Lot / batch number" }),
     ).toBeTruthy();
+    const headers = [...container.querySelectorAll(".inventory-inbound-table thead th")]
+      .map((header) => header.textContent?.replace(/\s+/g, " ").trim());
+    expect(headers).toEqual([
+      "#",
+      "Product",
+      "Purchase cost*",
+      "Quantity & purchase unit*",
+      "Production date",
+      "Expiry date",
+      "Lot / batch number*",
+    ]);
     expect(screen.queryByRole("button", { name: "Next page" })).toBeNull();
 
     Object.defineProperties(scroller, {

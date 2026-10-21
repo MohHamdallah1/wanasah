@@ -148,7 +148,7 @@ export function ProductTableRow({
       </td>
 
       {visibleColumns.package ? (
-        <td className={`${cellSpacing} text-center text-xs font-bold text-slate-700`}>
+        <td className={`${cellSpacing} w-[84px] text-center text-xs font-bold text-slate-700`}>
           {item.package_uom_code
             ? t(
                 `uom.${item.package_uom_code}`,
@@ -158,7 +158,7 @@ export function ProductTableRow({
       ) : null}
 
       {visibleColumns.unitsPerPackage ? (
-        <td className={`${cellSpacing} text-center text-xs font-black tabular-nums text-slate-800`}>
+        <td className={`${cellSpacing} w-[92px] text-center text-xs font-black tabular-nums text-slate-800`}>
           {item.package_uom_code
             ? formatPackageUnits(
                 item.units_per_package,
@@ -168,8 +168,8 @@ export function ProductTableRow({
       ) : null}
 
       {visibleColumns.tracking ? (
-        <td className={`${cellSpacing} text-center`}>
-          <div className="mx-auto flex max-w-[220px] flex-wrap justify-center gap-1">
+        <td className={`${cellSpacing} w-[235px] text-center`}>
+          <div className="mx-auto flex flex-nowrap items-center justify-center gap-1 whitespace-nowrap">
             <span className="inline-flex items-center rounded-md bg-slate-100 px-1.5 py-1 text-[10px] font-bold leading-4 text-slate-600">
               {t(
                 "products.tracking.shortLot",
@@ -192,7 +192,7 @@ export function ProductTableRow({
         </td>
       ) : null}
 
-      <td className={`${cellSpacing} text-center`}>
+      <td className={`${cellSpacing} w-[108px] text-center`}>
         <ProductStatusBadges item={item} />
       </td>
 

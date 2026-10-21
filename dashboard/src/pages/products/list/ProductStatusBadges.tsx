@@ -50,7 +50,7 @@ export function ProductStatusBadges({
   };
 
   return (
-    <div dir={i18n.dir()} className="min-w-[8.75rem] text-start">
+    <div dir={i18n.dir()} className="min-w-0 text-start">
       <div className="flex items-center gap-2">
         <span
           aria-hidden="true"
@@ -68,7 +68,7 @@ export function ProductStatusBadges({
               ? `${t(reason.valueKey)} (${statusReason})`
               : t(reason.valueKey)
           }
-          className="mt-1 max-w-[18rem] truncate whitespace-nowrap ps-4 text-[9px] font-semibold leading-4 text-slate-500"
+          className="mt-1 max-w-[7rem] truncate whitespace-nowrap ps-4 text-[9px] font-semibold leading-4 text-slate-500"
         >
           {t(reason.valueKey)}
           {statusReason ? ` (${statusReason})` : ""}
