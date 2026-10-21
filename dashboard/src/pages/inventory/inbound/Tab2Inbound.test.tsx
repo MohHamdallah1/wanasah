@@ -646,6 +646,7 @@ describe("Checkpoint 1 inbound UI", () => {
     const quantity = within(row).getByLabelText("Quantity") as HTMLInputElement;
     const cost = row.querySelector(".inventory-inbound-cost-cell input") as HTMLInputElement;
     fireEvent.change(quantity, { target: { value: "3" } });
+    fireEvent.click(within(row).getByRole("button", { name: "Edit actual purchase cost" }));
     fireEvent.change(cost, { target: { value: "4.500" } });
     fireEvent.click(screen.getByRole("button", { name: "choose-supplier" }));
     const keys = inboundStorageKeys(1, 2, 3);
@@ -668,6 +669,7 @@ describe("Checkpoint 1 inbound UI", () => {
     renderInbound([makeVariant(1, "Clearable product", "NONE", "NONE")]);
     const row = (await screen.findByText("Clearable product")).closest("tr")!;
     fireEvent.change(within(row).getByLabelText("Quantity"), { target: { value: "5" } });
+    fireEvent.click(within(row).getByRole("button", { name: "Edit actual purchase cost" }));
     fireEvent.change(row.querySelector(".inventory-inbound-cost-cell input")!, { target: { value: "8" } });
     fireEvent.change(screen.getByLabelText(i18n.t("inventoryInbound.reference")), { target: { value: "REF-ABC" } });
     fireEvent.change(screen.getByLabelText(i18n.t("inventoryInbound.notes")), { target: { value: "draft notes" } });
