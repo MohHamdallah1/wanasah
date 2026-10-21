@@ -3,8 +3,9 @@ import i18n from "@/i18n";
 const copy = {
   en: {
     enable: "Add a purchase-cost reference (optional)",
-    hint: "Purchase cost is independent from the sale prices above. This reference does not change inventory value.",
-    amount: "Purchase reference amount",
+    hint: "Reference only - it does not change inventory value.",
+    amount: "Purchase cost reference (optional)",
+    amountPlaceholder: "Leave blank if not used",
     uom: "Purchase unit",
     currency: "Company currency: {{currency}}",
     invalid: "Enter an exact nonnegative purchase amount with up to six decimal places and select its purchase unit.",
@@ -17,8 +18,9 @@ const copy = {
   },
   ar: {
     enable: "إضافة تكلفة شراء مرجعية (اختياري)",
-    hint: "تكلفة الشراء مستقلة عن أسعار البيع أعلاه. هذه القيمة المرجعية لا تغيّر تقييم المخزون.",
-    amount: "مبلغ تكلفة الشراء المرجعية",
+    hint: "قيمة مرجعية فقط - لا تغيّر تقييم المخزون.",
+    amount: "تكلفة الشراء المرجعية (اختياري)",
+    amountPlaceholder: "اتركها فارغة إذا لم تستخدمها",
     uom: "وحدة الشراء",
     currency: "عملة الشركة: {{currency}}",
     invalid: "أدخل تكلفة شراء غير سالبة بدقة حتى ست منازل عشرية واختر وحدة الشراء.",

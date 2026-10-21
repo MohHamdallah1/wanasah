@@ -130,6 +130,14 @@ const validMoney = (value: string): string => {
   return clean;
 };
 
+export const conciseMoney = (value: string): string => {
+  const clean = validMoney(value);
+  const [rawInteger, rawFraction = ""] = clean.split(".");
+  const integer = rawInteger.replace(/^0+(?=\d)/, "") || "0";
+  const fraction = rawFraction.replace(/0+$/, "");
+  return fraction ? `${integer}.${fraction}` : integer;
+};
+
 const isoDate = (value: string, optional: boolean): boolean => {
   if (!value) return optional;
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
@@ -638,6 +646,6 @@ export const prefilledInboundRow = (
   if (!ref) return emptyInboundBatch(rowId, defaultUomId);
   return {
     ...emptyInboundBatch(rowId, String(ref.purchase_uom_id)),
-    unit_cost: ref.amount,
+    unit_cost: conciseMoney(ref.amount),
   };
 };

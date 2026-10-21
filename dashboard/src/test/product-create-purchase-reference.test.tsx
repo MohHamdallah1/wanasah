@@ -37,15 +37,16 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 function Fields() {
   const [value, setValue] = useState(draft);
-  return <>
-    <CreateProductCommerceSection draft={value} createFieldError={null} packageUoms={options.uoms.slice(1)}
-      packageUomsLoading={false} packageUomsError={false} draftDerived={null}
-      createUnitsRef={createRef()} createPackagePriceRef={createRef()} createUnitPriceRef={createRef()}
-      onHasPackageChange={vi.fn()} onRetryPackageUoms={vi.fn()} onPackageUomChange={vi.fn()}
-      onUnitsPerPackageChange={vi.fn()} onPackagePriceChange={vi.fn()} onUnitPriceChange={vi.fn()} />
+  const purchaseReference = (
     <CreateProductPurchaseReferenceSection draft={value} options={options} saving={false} onRetry={vi.fn()}
       onChange={(next) => setValue((current) => ({ ...current, purchase_cost_reference: next }))} />
-  </>;
+  );
+  return <CreateProductCommerceSection draft={value} createFieldError={null} packageUoms={options.uoms.slice(1)}
+    packageUomsLoading={false} packageUomsError={false} draftDerived={null}
+    createUnitsRef={createRef()} createPackagePriceRef={createRef()} createUnitPriceRef={createRef()}
+    onHasPackageChange={vi.fn()} onRetryPackageUoms={vi.fn()} onPackageUomChange={vi.fn()}
+    onUnitsPerPackageChange={vi.fn()} onPackagePriceChange={vi.fn()} onUnitPriceChange={vi.fn()}
+    purchaseReference={purchaseReference} />;
 }
 
 function Mutation({ authFetch, value = { ...draft, purchase_cost_reference: reference } }: {
@@ -108,29 +109,36 @@ describe("Product quick-create optional purchase reference", () => {
     expect(() => parsePurchaseReferenceCreateOptions({ ...options, currency_code: null })).toThrow();
   });
 
-  it("labels purchase cost separately and never changes unit or package sale prices", () => {
+  it("keeps optional purchase cost visible inside commerce and defaults to the outer package", () => {
     render(<Fields />);
-    expect(screen.queryByLabelText("Purchase reference amount")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText("Add a purchase-cost reference (optional)"));
-    fireEvent.change(screen.getByLabelText("Purchase reference amount"), { target: { value: "24.123456" } });
-    fireEvent.change(screen.getByLabelText("Purchase unit"), { target: { value: "2" } });
-    expect(screen.getByLabelText("Purchase reference amount")).toHaveValue("24.123456");
+    const amount = screen.getByLabelText("Purchase cost reference (optional)");
+    const purchaseUnit = screen.getByLabelText("Purchase unit");
+    expect(amount).toHaveValue("");
+    expect(purchaseUnit).toHaveValue("2");
+    fireEvent.change(amount, { target: { value: "24.123456" } });
+    expect(amount).toHaveValue("24.123456");
     expect(screen.getByText("Company currency: JOD")).toBeInTheDocument();
     expect(screen.getByDisplayValue("60")).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText("Add a purchase-cost reference (optional)"));
-    expect(screen.queryByLabelText("Purchase reference amount")).not.toBeInTheDocument();
+    fireEvent.change(amount, { target: { value: "" } });
+    expect(amount).toHaveValue("");
     expect(screen.getByDisplayValue("60")).toBeInTheDocument();
+  });
+
+  it("falls back to the base unit when there is no outer package", () => {
+    render(<CreateProductPurchaseReferenceSection draft={{ ...draft, has_package: false }}
+      options={options} saving={false} onRetry={vi.fn()} onChange={vi.fn()} />);
+    expect(screen.getByLabelText("Purchase unit")).toHaveValue("1");
   });
 
   it("hides the optional entry without cost MANAGE and preserves a draft when options fail", () => {
     const { rerender } = render(<CreateProductPurchaseReferenceSection draft={draft}
       options={{ can_manage: false, currency_code: null, uoms: [] }} saving={false}
       onRetry={vi.fn()} onChange={vi.fn()} />);
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Purchase cost reference (optional)")).not.toBeInTheDocument();
     const retry = vi.fn();
     rerender(<CreateProductPurchaseReferenceSection draft={{ ...draft, purchase_cost_reference: reference }}
       failed saving={false} onRetry={retry} onChange={vi.fn()} />);
-    expect(screen.getByLabelText("Purchase reference amount")).toHaveValue("24.000000");
+    expect(screen.getByLabelText("Purchase cost reference (optional)")).toHaveValue("24.000000");
     fireEvent.click(screen.getByText("Retry purchase reference options"));
     expect(retry).toHaveBeenCalledOnce();
   });
@@ -139,7 +147,7 @@ describe("Product quick-create optional purchase reference", () => {
     await act(() => i18n.changeLanguage("ar"));
     render(<CreateProductPurchaseReferenceSection draft={draft} options={options} saving={false}
       onRetry={vi.fn()} onChange={vi.fn()} />);
-    expect(screen.getByLabelText("إضافة تكلفة شراء مرجعية (اختياري)").closest("section")).toHaveAttribute("dir", "rtl");
+    expect(screen.getByLabelText("تكلفة الشراء المرجعية (اختياري)").closest('[dir="rtl"]')).toBeTruthy();
   });
 
   it("posts Product and reference together once with no follow-up HTTP mutation", async () => {

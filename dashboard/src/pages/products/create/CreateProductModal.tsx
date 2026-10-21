@@ -273,14 +273,13 @@ export function CreateProductModal({
         onUnitPriceChange={
           onUnitPriceChange
         }
+        purchaseReference={onPurchaseReferenceChange ? <CreateProductPurchaseReferenceSection
+          draft={draft} saving={saving} options={purchaseReferenceOptions}
+          failed={purchaseReferenceOptionsError}
+          onRetry={onRetryPurchaseReferenceOptions ?? (() => undefined)}
+          onChange={onPurchaseReferenceChange}
+        /> : null}
       />
-
-      {onPurchaseReferenceChange ? <CreateProductPurchaseReferenceSection
-        draft={draft} saving={saving} options={purchaseReferenceOptions}
-        failed={purchaseReferenceOptionsError}
-        onRetry={onRetryPurchaseReferenceOptions ?? (() => undefined)}
-        onChange={onPurchaseReferenceChange}
-      /> : null}
 
       <CreateProductBarcodeSection
         draft={draft}
