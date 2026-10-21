@@ -286,6 +286,32 @@ Rules:
 - [ ] Files should remain reviewable; split by responsibility before god-files grow again.
 - [ ] Avoid a single mega repository or mega BLoC replacing current mega screens.
 
+### 10.1 V1 decomposition strategy — preserve behavior first
+
+We will not choose between a pure file move and a full rewrite. The V1 strategy is staged:
+
+**Stage A — mechanical extraction with zero intended behavior change**
+- [ ] Move cohesive widgets, DTOs, mappers, repository helpers and persistence helpers out of god files while preserving public behavior and contracts.
+- [ ] Keep existing event/state semantics during the first extraction unless a proven V1 defect requires change.
+- [ ] Add focused characterization tests around the behavior being moved before or with the extraction.
+- [ ] One extraction owns a narrow file set and must remain reviewable as a standalone diff.
+
+**Stage B — responsibility split only where V1 needs correctness work**
+- [ ] Separate transport/persistence/orchestration from presentation for Offline, Visit, Returns, Session and Custody because these areas require contract fixes now.
+- [ ] Replace duplicated client business authority only where the Backend contract is already authoritative and verified.
+- [ ] Do not rewrite stable code merely to fit the target folder tree.
+
+**Stage C — post-V1 cleanup**
+- [ ] Defer broad renames, aesthetic layering, dependency changes and non-blocking abstractions until after field acceptance.
+- [ ] Leave an explicit debt note for any god-file region intentionally kept for V1.
+
+Decision rule:
+- If a split reduces collision/risk for code we are about to change, do it now.
+- If a split is only cosmetic and does not improve V1 safety, testing or ownership, defer it.
+- Never combine a large behavior rewrite with a large file move in the same wave.
+
+This prevents two opposite failures: shipping new V1 logic deeper into current god files, or spending the four-day closure window on architecture for its own sake.
+
 Known extraction targets:
 - [ ] `visit_screen.dart` (~1400 lines)
 - [ ] `dashboard_screen.dart` (~900+ lines)
