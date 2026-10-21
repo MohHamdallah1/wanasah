@@ -76,10 +76,10 @@ Current Flutter:
 - [x] projects replacement quantity locally but does not model returned non-sellable vehicle custody by Batch/status.
 
 Required closure:
-- [ ] Define/verify a Backend-owned Batch-resolution seam for Flutter.
-- [ ] Deterministic Batch cases resolve server-side automatically.
-- [ ] Ambiguous cases return only minimal human-readable evidence (lot/expiry/etc.).
-- [ ] Flutter stores/sends the resolved hidden identity without displaying technical IDs.
+- [x] Define/verify a Backend-owned Batch-resolution seam for Flutter.
+- [x] Deterministic Batch cases resolve server-side automatically.
+- [x] Ambiguous cases return only minimal human-readable evidence (lot/expiry/etc.).
+- [ ] Flutter stores/sends the resolved opaque resolution token without displaying technical IDs. Backend seam is complete; Flutter wiring remains open.
 - [ ] Add Damaged + Expired + Factory_Defect consistently.
 - [ ] Preserve carton/pack quantities.
 - [ ] Preserve one stable idempotency identity across offline retry/replay.
@@ -164,26 +164,26 @@ Backend visit replay is durable and exact only if Flutter preserves the original
 The independent Backend audit found four genuine field-transport prerequisites. These are not permission to move authority into Flutter.
 
 1. **Returned-Batch resolution seam**
-   - [ ] Add a FIELD-authorized Backend capability that resolves the returned Batch from owned shop/visit/product plus authoritative provenance/tracking evidence.
-   - [ ] Deterministic cases resolve internally.
-   - [ ] Ambiguity requests only the smallest human-readable discriminator.
-   - [ ] Mutation revalidates the resolved identity.
-   - [ ] Never expose or ask the representative for database `batch_id`.
+   - [x] Add a FIELD-authorized Backend capability that resolves the returned Batch from owned shop/visit/product plus authoritative provenance/tracking evidence.
+   - [x] Deterministic cases resolve internally.
+   - [x] Ambiguity requests only the smallest human-readable discriminator.
+   - [x] Mutation revalidates the resolved identity.
+   - [x] Never expose or ask the representative for database `batch_id`.
 
 2. **Tax jurisdiction for field-created shops**
-   - [ ] `POST /shops` must lead to an approved canonical tax-jurisdiction outcome or an explicit actionable completion path.
-   - [ ] Do not guess jurisdiction from GPS/zone in Flutter.
-   - [ ] New-shop first sale must not dead-end on `TAX_JURISDICTION_REQUIRED`.
+   - [x] `POST /shops` returns an explicit actionable commercial-readiness completion path.
+   - [x] Backend contract does not guess jurisdiction from GPS/zone; Flutter must consume the readiness result.
+   - [x] Backend exposes `commercial_readiness` plus `GET /visits/{id}/commercial-state` so Flutter can surface the required Backoffice completion instead of dead-ending.
 
 3. **Authoritative field invoice result/preview**
-   - [ ] Reuse the existing Backend sale calculator and expose enough FIELD transport for authoritative payable/final totals, rounding and currency.
-   - [ ] Flutter cached catalog prices remain display/offline estimate evidence only.
-   - [ ] Do not build a second pricing engine in Dart.
+   - [x] Reuse the existing Backend sale calculator and expose FIELD preview/frozen invoice transport for payable/final totals, rounding and currency.
+   - [ ] Flutter cached catalog prices remain display/offline estimate evidence only; client authority cleanup remains open.
+   - [x] Backend authoritative invoice seam exists; do not build a second pricing engine in Dart.
 
 4. **Non-sellable vehicle custody read**
-   - [ ] Add a bounded FIELD projection/read for supported non-sellable custody such as DAMAGED after exchanges/recovery.
-   - [ ] Preserve hidden Batch authority and business-readable evidence.
-   - [ ] AVAILABLE-only reads are insufficient for return/recovery field truth.
+   - [x] Add bounded `GET /driver/custody` FIELD projection for supported non-sellable custody including DAMAGED.
+   - [x] Preserve hidden Batch authority and expose business-readable product/status/UOM/quantity evidence only.
+   - [x] Backend now exposes non-sellable custody separately from AVAILABLE reads.
 
 ### 3.9 Shop-create retry and session semantics
 
@@ -516,13 +516,46 @@ Independent Flutter architecture audit confirmed staged extraction rather than r
 
 The line count is not the criterion. Ownership/correctness risk is.
 
-Known extraction targets:
-- [ ] `visit_screen.dart` (~1400 lines)
-- [ ] `dashboard_screen.dart` (~900+ lines)
-- [ ] `local_database.dart` (~700+ lines)
-- [ ] `dashboard_bloc.dart` (~600+ lines)
-- [ ] `visit_bloc.dart` (~500+ lines)
-- [ ] `sync_repository.dart` (~480 lines)
+Known extraction targets and V1 timing:
+- [x] Network core: `ApiClient` auth/retry/error responsibilities extracted into focused files.
+- [x] `local_database.dart`: durable command lifecycle extracted to `PendingCommandStore`; compatibility facade retained.
+- [ ] `local_database.dart`: remaining visit/inventory projection persistence split when Returns/Custody wiring lands.
+- [x] `visit_bloc.dart`: canonical payload serializer and local projection helpers extracted before further Visit behavior work.
+- [ ] `visit_bloc.dart`: extract Returns/Samples/financial orchestration before wiring the new FIELD seams.
+- [ ] `visit_screen.dart` (~1400 lines): NEXT mechanical split before Returns/Batch UI changes.
+- [ ] `dashboard_bloc.dart` (~600+ lines): split Session/Custody/Recovery responsibilities immediately before that wave.
+- [ ] `dashboard_screen.dart` (~900+ lines): split workday/session/custody presentation immediately before redesign.
+- [ ] `sync_repository.dart` (~480 lines): extract operation-specific Visit/Transfer/Shop adapters as those contracts are wired.
+- [ ] app/bootstrap/theme extraction: perform with the design-system wave, not before P0 contracts close.
+
+### 10.3 Frozen decomposition execution order
+
+This is not a separate refactor project. Each split happens immediately before the feature area is changed:
+
+1. [x] Network seam split before Network behavior hardening.
+2. [x] Durable command persistence split before Offline lifecycle hardening.
+3. [x] Visit command serializer/projection helper split before Visit contract correction.
+4. [ ] **Next:** mechanically split `visit_screen.dart` + remaining Visit orchestration with zero intended behavior change, then wire Return Resolution / Damaged / Expired / Factory_Defect / invoice preview.
+5. [ ] Split Session/Custody/Recovery out of Dashboard files immediately before Session/Custody implementation.
+6. [ ] Split app/bootstrap/theme immediately before the field-first UI redesign.
+7. [ ] Post-V1 only: cosmetic renames, broad folder migration, dependency modernization, and non-blocking abstractions.
+
+Rule: a decomposition checkbox becomes `[x]` only after focused characterization/analyze gates pass. A partial extraction never marks the whole god-file as complete.
+
+### 10.4 Backend FIELD seam stability point — 2026-10-22
+
+- [x] Backend branch: `codex/flutter-v1-backend-field-seams`.
+- [x] Exact implementation HEAD: `d2498f46aeba050f5d6cb43ca6d0d568fb39e585`.
+- [x] Exact GitHub Actions run `39682777565`: PASS.
+- [x] Returned-Batch resolution contract: PASS.
+- [x] Shop commercial/tax readiness contract: PASS.
+- [x] Authoritative invoice preview/frozen-read contract: PASS.
+- [x] Non-sellable vehicle custody contract: PASS.
+- [x] Real PostgreSQL FIELD acceptance: PASS, zero skipped.
+- [x] Legacy FIELD transport compatibility coverage: PASS.
+- [x] PR #428 merged to `main`.
+- [x] Backend merge commit: `8aa76c2099024e627da0cae34f15da9310020d7c`.
+- [ ] Flutter typed adapters/wiring for these seams remains open.
 
 ## 11. UI / design-system closure
 
@@ -549,18 +582,18 @@ Current Flutter test coverage is minimal.
 
 Required focused tests:
 - [ ] auth/offline owner guard regressions;
-- [ ] API error parsing;
-- [ ] mutation retry classification;
-- [ ] durable command migration and persistence;
-- [ ] visit request serialization;
-- [ ] stable request_id replay;
+- [x] API error parsing;
+- [x] mutation retry classification;
+- [x] durable command migration and persistence;
+- [x] visit request serialization;
+- [x] stable request_id replay;
 - [ ] return Batch-resolution transport;
 - [ ] Damaged/Expired/Factory_Defect payloads;
 - [ ] exact money transport;
-- [ ] break offline policy;
+- [x] break offline policy;
 - [ ] transfer exact-repeat/state-idempotent replay;
-- [ ] quarantine/recovery preservation;
-- [ ] account/company switch with pending work;
+- [x] quarantine/recovery preservation;
+- [x] account/company switch with pending/blocked work;
 - [ ] local projection apply/revert exactly once.
 
 Per-wave gates:
@@ -594,25 +627,26 @@ Final field acceptance:
 - [x] complete Backend/Flutter contract matrix.
 - [x] freeze retry/idempotency matrix.
 - [x] freeze A/B/C decomposition classification.
-- [ ] launch one isolated Backend FIELD-seam worker for the four confirmed prerequisites.
+- [x] launch and integrate one isolated Backend FIELD-seam worker for the four confirmed prerequisites.
 - [ ] Flutter Wave 0 characterization tests.
-- [ ] Flutter Wave 1 network/error seam: mechanical extraction first, behavior fix second.
-- [ ] freeze break policy as online/reconcile, not deferred replay.
-- [ ] remove evidence-destruction paths behind focused tests.
+- [x] Flutter Wave 1 network/error seam: mechanical extraction first, behavior fix second.
+- [x] freeze break policy as online/reconcile, not deferred replay.
+- [x] remove evidence-destruction paths behind focused tests.
 
 ### Day 2 — visit vertical slice + durable command core
-- [ ] mechanically extract visit DTO/payload mapping and major presentation widgets.
-- [ ] strict VisitUpdateRequest serializer: path ID only; no unknown fields.
-- [ ] persist visit UUID/body before first send.
+- [x] mechanically extract Visit command serializer / projection helpers before further behavior work.
+- [ ] mechanically extract major Visit presentation widgets before Returns UI wiring.
+- [x] strict VisitUpdateRequest serializer: path ID only; no unknown fields.
+- [x] persist visit UUID/body before first send.
 - [ ] exact-money transport; local figures are estimates, not authority.
 - [ ] sale/collection/sample contract parity.
 - [ ] Damaged / Expired / Factory_Defect + Backend Batch-resolution flow.
-- [ ] durable command store migration preserving old rows.
+- [x] durable command store migration preserving old rows.
 - [ ] visit/offline tests.
 
 ### Day 3 — projection/session/custody + field-first UX
 - [ ] correct AVAILABLE-out vs DAMAGED-custody-in projection.
-- [ ] completed-visit correction apply/revert exactly once.
+- [x] completed-visit AVAILABLE projection correction applies old-to-new delta exactly once.
 - [ ] separate Session / Custody / Recovery responsibilities from DashboardBloc.
 - [ ] transfer exact-decision replay and 100-item runtime batch limit.
 - [ ] shop creation typed transport + ambiguous-result reconciliation.
