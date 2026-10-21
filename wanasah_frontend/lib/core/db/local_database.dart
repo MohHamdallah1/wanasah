@@ -21,6 +21,7 @@ import '../../models/product_model.dart';
 import '../../models/visit_model.dart';
 import '../sync/durable_command.dart';
 import '../sync/pending_command_store.dart';
+import '../visit/local_inventory_projection.dart';
 
 class LocalDatabase {
   // -----------------------------------------------------------------------
@@ -663,6 +664,33 @@ class LocalDatabase {
           (commandRows.first['local_effect_applied'] as num?)?.toInt() == 1;
       if (alreadyApplied) return;
 
+      final previousVisitRows = await txn.query(
+        'visits',
+        columns: ['cart_items', 'returns'],
+        where: 'visit_id = ?',
+        whereArgs: [visitId],
+        limit: 1,
+      );
+      if (previousVisitRows.isEmpty) {
+        throw StateError(
+          'Visit #$visitId is missing before local command finalization.',
+        );
+      }
+
+      final oldCartItems =
+          _decodeStoredVisitList(previousVisitRows.first['cart_items']);
+      final oldReturns =
+          _decodeStoredVisitList(previousVisitRows.first['returns']);
+      final newReturns = returnItems ?? const <dynamic>[];
+
+      await _applyVisitInventoryCorrection(
+        txn: txn,
+        oldCartItems: oldCartItems,
+        oldReturns: oldReturns,
+        newCartItems: cartItems,
+        newReturns: newReturns,
+      );
+
       await updateVisitStatus(
         visitId: visitId,
         status: status,
@@ -674,11 +702,7 @@ class LocalDatabase {
         notes: notes,
         txn: txn,
       );
-      await deductInventoryLocal(
-        cartItems,
-        returnItems: returnItems,
-        txn: txn,
-      );
+
       final updated = await txn.update(
         'pending_sync',
         {
@@ -694,6 +718,107 @@ class LocalDatabase {
         );
       }
     });
+  }
+
+  List<dynamic> _decodeStoredVisitList(Object? raw) {
+    if (raw == null) return const <dynamic>[];
+    if (raw is List) return List<dynamic>.from(raw);
+    if (raw is! String || raw.trim().isEmpty || raw == 'null') {
+      return const <dynamic>[];
+    }
+
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) {
+      throw StateError('Stored visit projection is not a list.');
+    }
+    return List<dynamic>.from(decoded);
+  }
+
+  Future<void> _applyVisitInventoryCorrection({
+    required Transaction txn,
+    required List<dynamic> oldCartItems,
+    required List<dynamic> oldReturns,
+    required List<dynamic> newCartItems,
+    required List<dynamic> newReturns,
+  }) async {
+    final oldProjection = visitInventoryProjection(
+      cartItems: oldCartItems,
+      returns: oldReturns,
+    );
+    final newProjection = visitInventoryProjection(
+      cartItems: newCartItems,
+      returns: newReturns,
+    );
+    final variantIds = <int>{
+      ...oldProjection.keys,
+      ...newProjection.keys,
+    }.toList()
+      ..sort();
+
+    for (final variantId in variantIds) {
+      final rows = await txn.query(
+        'products',
+        columns: [
+          'packs_per_carton',
+          'current_cartons',
+          'current_packs',
+        ],
+        where: 'id = ?',
+        whereArgs: [variantId],
+        limit: 1,
+      );
+      if (rows.isEmpty) {
+        throw StateError(
+          'Product variant #$variantId is missing from local vehicle inventory.',
+        );
+      }
+
+      final row = rows.first;
+      final packsPerCarton =
+          (row['packs_per_carton'] as num?)?.toInt() ?? 0;
+      if (packsPerCarton <= 0) {
+        throw StateError(
+          'Product variant #$variantId has invalid packs_per_carton.',
+        );
+      }
+
+      final currentCartons =
+          (row['current_cartons'] as num?)?.toInt() ?? 0;
+      final currentPacks =
+          (row['current_packs'] as num?)?.toInt() ?? 0;
+      final currentBasePacks =
+          (currentCartons * packsPerCarton) + currentPacks;
+
+      final deltaBasePacks = inventoryCorrectionDeltaBasePacks(
+        oldProjection:
+            oldProjection[variantId] ?? const VisitInventoryQuantity(),
+        newProjection:
+            newProjection[variantId] ?? const VisitInventoryQuantity(),
+        packsPerCarton: packsPerCarton,
+      );
+      final correctedBasePacks = currentBasePacks + deltaBasePacks;
+
+      if (correctedBasePacks < 0) {
+        throw StateError(
+          'Visit correction would make local inventory negative for variant #$variantId.',
+        );
+      }
+
+      final updated = await txn.update(
+        'products',
+        {
+          'current_cartons': correctedBasePacks ~/ packsPerCarton,
+          'current_packs': correctedBasePacks % packsPerCarton,
+        },
+        where: 'id = ?',
+        whereArgs: [variantId],
+      );
+      if (updated != 1) {
+        throw StateError(
+          'Local inventory correction failed for variant #$variantId.',
+        );
+      }
+    }
   }
 
   Future<void> updateShopBalanceLocally(int visitId, double newBalance) async {
