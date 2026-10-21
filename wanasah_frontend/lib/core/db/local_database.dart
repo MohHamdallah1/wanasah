@@ -19,6 +19,8 @@ import 'dart:convert'; // +++ إضافة مكتبة فك التشفير +++
 // +++ استيراد الموديلات الذكية لفرض الحماية +++
 import '../../models/product_model.dart';
 import '../../models/visit_model.dart';
+import '../sync/durable_command.dart';
+import '../sync/pending_command_store.dart';
 
 class LocalDatabase {
   // -----------------------------------------------------------------------
@@ -27,6 +29,11 @@ class LocalDatabase {
   LocalDatabase._privateConstructor();
 
   static final LocalDatabase instance = LocalDatabase._privateConstructor();
+
+  late final PendingCommandStore pendingCommands = PendingCommandStore(
+    databaseProvider: () => database,
+    tenantProvider: () => currentTenant,
+  );
 
   // الاتصال الوحيد بقاعدة البيانات — null حتى يتم التهيئة للمرة الأولى
   static Database? _database;
@@ -113,7 +120,7 @@ class LocalDatabase {
 
     return await openDatabase(
       dbPath,
-      version: 9, // رجعنا لـ v9 لأنه لم يعد هناك حاجة لحقول company_id
+      version: 10, // V10: durable offline command lifecycle without deleting legacy evidence
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -193,12 +200,26 @@ class LocalDatabase {
 
     await db.execute('''
       CREATE TABLE pending_sync (
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        type       TEXT    NOT NULL,
-        payload    TEXT    NOT NULL,
-        created_at TEXT    NOT NULL
+        id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+        type               TEXT    NOT NULL,
+        payload            TEXT    NOT NULL,
+        created_at         TEXT    NOT NULL,
+        command_id         TEXT,
+        state              TEXT    NOT NULL DEFAULT 'pending',
+        owner_company_code TEXT,
+        owner_driver_id    INTEGER,
+        attempt_count      INTEGER NOT NULL DEFAULT 0,
+        last_error_code    TEXT,
+        last_error_message TEXT,
+        last_request_id    TEXT,
+        local_effect_applied INTEGER NOT NULL DEFAULT 0,
+        updated_at         TEXT
       )
     ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS ix_pending_sync_state_created '
+      'ON pending_sync(state, created_at, id)',
+    );
 
     developer.log('[LocalDatabase] All tables created successfully.');
   }
@@ -291,7 +312,41 @@ class LocalDatabase {
       await _safeAlterTable(db, 'ALTER TABLE products ADD COLUMN sold_cartons INTEGER DEFAULT 0');
       await _safeAlterTable(db, 'ALTER TABLE products ADD COLUMN sold_packs INTEGER DEFAULT 0');
     }
-    // مسحنا V10 نهائياً لتطبيق العزل الفيزيائي.
+    if (oldVersion < 10) {
+      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN command_id TEXT');
+      await _safeAlterTable(db, "ALTER TABLE pending_sync ADD COLUMN state TEXT NOT NULL DEFAULT 'pending'");
+      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN owner_company_code TEXT');
+      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN owner_driver_id INTEGER');
+      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0');
+      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN last_error_code TEXT');
+      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN last_error_message TEXT');
+      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN last_request_id TEXT');
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE pending_sync ADD COLUMN local_effect_applied INTEGER NOT NULL DEFAULT 0',
+      );
+      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN updated_at TEXT');
+
+      await db.rawUpdate(
+        "UPDATE pending_sync SET state = ? WHERE type LIKE 'quarantined_%'",
+        [DurableCommandState.blocked.storageValue],
+      );
+      await db.rawUpdate(
+        'UPDATE pending_sync SET owner_company_code = ? '
+        'WHERE owner_company_code IS NULL OR TRIM(owner_company_code) = ?',
+        [currentTenant, ''],
+      );
+      await db.rawUpdate(
+        'UPDATE pending_sync SET updated_at = created_at WHERE updated_at IS NULL',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS ix_pending_sync_state_created '
+        'ON pending_sync(state, created_at, id)',
+      );
+      developer.log(
+        '[LocalDatabase] v10 migration: preserved pending_sync rows and added durable lifecycle metadata.',
+      );
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -300,26 +355,27 @@ class LocalDatabase {
 
   Future<void> clearSessionData({bool clearPendingSyncs = false}) async {
     final db = await database;
-    
-    if (!clearPendingSyncs) {
-      final pendingCount = Sqflite.firstIntValue(await db.query(
-        'pending_sync',
-        columns: ['COUNT(*)'],
-        where: "type NOT LIKE 'quarantined_%'",
-      ));
-      if (pendingCount != null && pendingCount > 0) {
-        developer.log('[LocalDatabase] Skipped clearing tables to protect active pending syncs.');
-        return;
-      }
+
+    if (clearPendingSyncs) {
+      throw UnsupportedError(
+        'Offline command evidence cannot be bulk-deleted by session cleanup.',
+      );
+    }
+
+    final unresolvedCount = Sqflite.firstIntValue(
+      await db.rawQuery('SELECT COUNT(*) FROM pending_sync'),
+    );
+    if (unresolvedCount != null && unresolvedCount > 0) {
+      developer.log(
+        '[LocalDatabase] Skipped clearing session tables: unresolved offline command evidence exists.',
+      );
+      return;
     }
 
     await db.transaction((txn) async {
       await txn.delete('products');
       await txn.delete('visits');
       await txn.delete('incoming_transfers');
-      if (clearPendingSyncs) {
-        await txn.delete('pending_sync');
-      }
     });
     developer.log('[LocalDatabase] Session tables cleared safely via transaction.');
   }
@@ -353,44 +409,69 @@ class LocalDatabase {
   Future<int> addPendingSync({
     required String type,
     required String payload,
+    String? commandId,
+    DurableCommandState state = DurableCommandState.pending,
+    int? ownerDriverId,
+    String? lastErrorCode,
+    String? lastErrorMessage,
+    String? lastRequestId,
     Transaction? txn,
-  }) async {
-    final db = txn ?? await database;
-    final id = await db.insert('pending_sync', {
-      'type': type,
-      'payload': payload,
-      'created_at': DateTime.now().toIso8601String(),
-    });
-    return id;
-  }
-
-  Future<List<Map<String, dynamic>>> getPendingSyncs({int? limit}) async {
-    final db = await database;
-    return db.query('pending_sync', orderBy: 'created_at ASC, id ASC', limit: limit);
-  }
-
-  Future<void> deletePendingSync(int id) async {
-    final db = await database;
-    await db.delete('pending_sync', where: 'id = ?', whereArgs: [id]);
-  }
-
-  Future<void> updatePendingSyncPayload(
-    int id,
-    String payload,
-  ) async {
-    final db = await database;
-    final updated = await db.update(
-      'pending_sync',
-      {'payload': payload},
-      where: 'id = ?',
-      whereArgs: [id],
+  }) {
+    return pendingCommands.add(
+      type: type,
+      payload: payload,
+      commandId: commandId,
+      state: state,
+      ownerDriverId: ownerDriverId,
+      lastErrorCode: lastErrorCode,
+      lastErrorMessage: lastErrorMessage,
+      lastRequestId: lastRequestId,
+      txn: txn,
     );
-    if (updated != 1) {
-      throw StateError(
-        'Pending sync payload update failed for record #$id.',
-      );
-    }
   }
+
+  Future<List<Map<String, dynamic>>> getPendingSyncs({int? limit}) =>
+      pendingCommands.all(limit: limit);
+
+  Future<void> deletePendingSync(int id) =>
+      pendingCommands.deleteAfterConfirmedSuccess(id);
+
+  Future<void> markPendingSyncInFlight(int id) =>
+      pendingCommands.markInFlight(id);
+
+  Future<void> markPendingSyncPending(
+    int id, {
+    String? lastErrorCode,
+    String? lastErrorMessage,
+    String? lastRequestId,
+  }) {
+    return pendingCommands.markPending(
+      id,
+      lastErrorCode: lastErrorCode,
+      lastErrorMessage: lastErrorMessage,
+      lastRequestId: lastRequestId,
+    );
+  }
+
+  Future<void> markPendingSyncBlocked(
+    int id, {
+    required String errorCode,
+    String? errorMessage,
+    String? requestId,
+  }) {
+    return pendingCommands.markBlocked(
+      id,
+      errorCode: errorCode,
+      errorMessage: errorMessage,
+      requestId: requestId,
+    );
+  }
+
+  Future<void> updatePendingSyncPayload(int id, String payload) =>
+      pendingCommands.updatePayload(id, payload);
+
+  Future<void> updatePendingSyncCommandId(int id, String commandId) =>
+      pendingCommands.updateCommandId(id, commandId);
 
   Future<List<Map<String, dynamic>>> getProducts() async {
     final db = await database;
@@ -480,78 +561,139 @@ class LocalDatabase {
     await batch.commit(noResult: true);
   }
 
+  @Deprecated(
+    'Unresolved visit commands are immutable until reconciliation; use stageVisitCommandAtomic.',
+  )
   Future<void> revertOfflineVisit(int visitId, {Transaction? txn}) async {
-    final db = txn ?? await database;
-
-    final pendingSyncs = await db.query(
-      'pending_sync',
-      orderBy: 'created_at DESC',
+    throw UnsupportedError(
+      'Visit #$visitId has durable offline evidence and cannot be auto-reverted.',
     );
-    List<int> syncIdsToDelete = []; 
+  }
 
-    List<Map<String, dynamic>> matchingPayloads = [];
+  Future<int> stageVisitCommandAtomic({
+    required int visitId,
+    required String payload,
+    required String requestId,
+    int? ownerDriverId,
+  }) async {
+    final db = await database;
+    return db.transaction((txn) async {
+      final unresolved = await txn.query(
+        'pending_sync',
+        orderBy: 'created_at ASC, id ASC',
+      );
 
-    for (var p in pendingSyncs) {
-      if (p['type'] == 'submit_sale') {
+      for (final row in unresolved) {
+        final rawType = row['type']?.toString() ?? '';
+        final normalizedType =
+            DurableCommandType.normalizeLegacyType(rawType);
+
+        if (normalizedType == DurableCommandType.corrupt) {
+          throw StateError(
+            'Corrupt unresolved offline evidence must be recovered before creating another visit command.',
+          );
+        }
+        if (normalizedType != DurableCommandType.submitSale) {
+          continue;
+        }
+
+        Map<String, dynamic> existing;
         try {
-          final payload = jsonDecode(p['payload'] as String);
-          if (payload['visitId'].toString() == visitId.toString()) {
-            matchingPayloads.add(payload);
-            syncIdsToDelete.add(p['id'] as int);
-          }
-        } catch (e) {
-          developer.log('[LocalDatabase] Corrupted payload ignored during revert: $e');
-        }
-      }
-    }
-
-    if (matchingPayloads.isNotEmpty && syncIdsToDelete.isNotEmpty) {
-      final batch = db.batch();
-      Map<int, Map<String, int>> additions = {};
-
-      void addToReturn(int variantId, int qty, int packs) {
-        if (variantId == 0 || (qty == 0 && packs == 0)) return;
-        additions.putIfAbsent(variantId, () => {'qty': 0, 'packs': 0});
-        additions[variantId]!['qty'] = (additions[variantId]!['qty'] ?? 0) + qty;
-        additions[variantId]!['packs'] = (additions[variantId]!['packs'] ?? 0) + packs;
-      }
-
-      for (var payload in matchingPayloads) {
-        final List<dynamic> cartItems = payload['cart_items'] ?? [];
-        for (var item in cartItems) {
-          if (item['is_cancelled'] == true || item['is_cancelled'] == 1) continue;
-          addToReturn((item['product_variant_id'] as num?)?.toInt() ?? 0, ((item['quantity'] as num?)?.toInt() ?? 0) + ((item['sample_quantity'] as num?)?.toInt() ?? (item['sample_cartons'] as num?)?.toInt() ?? 0) + ((item['bonus_quantity'] as num?)?.toInt() ?? 0), ((item['packs_quantity'] as num?)?.toInt() ?? (item['packs'] as num?)?.toInt() ?? 0) + ((item['sample_packs_quantity'] as num?)?.toInt() ?? (item['sample_packs'] as num?)?.toInt() ?? 0));
+          existing = Map<String, dynamic>.from(
+            jsonDecode(row['payload'] as String) as Map,
+          );
+        } catch (_) {
+          throw StateError(
+            'Unreadable unresolved sale evidence must be recovered before creating another visit command.',
+          );
         }
 
-        final List<dynamic> returns = payload['returns'] ?? [];
-        for (var ret in returns) {
-          if (ret['is_cancelled'] == true || ret['is_cancelled'] == 1) continue;
-          addToReturn((ret['product_variant_id'] as num?)?.toInt() ?? 0, (ret['quantity'] as num?)?.toInt() ?? (ret['cartons'] as num?)?.toInt() ?? 0, (ret['packs_quantity'] as num?)?.toInt() ?? (ret['packs'] as num?)?.toInt() ?? 0);
+        if (existing['visitId'].toString() == visitId.toString()) {
+          throw StateError(
+            'Visit #$visitId already has an unresolved command. Resolve it before creating a correction or replacement command.',
+          );
         }
       }
 
-      for (var entry in additions.entries) {
-        batch.rawUpdate(
-          '''
-          UPDATE products 
-          SET 
-            current_cartons = ((current_cartons * packs_per_carton) + current_packs + (? * packs_per_carton) + ?) / MAX(packs_per_carton, 1),
-            current_packs = ((current_cartons * packs_per_carton) + current_packs + (? * packs_per_carton) + ?) % MAX(packs_per_carton, 1)
-          WHERE id = ?
-          ''',
-          [entry.value['qty']!, entry.value['packs']!, entry.value['qty']!, entry.value['packs']!, entry.key],
+      return addPendingSync(
+        type: DurableCommandType.submitSale,
+        payload: payload,
+        commandId: requestId,
+        ownerDriverId: ownerDriverId,
+        txn: txn,
+      );
+    });
+  }
+
+  Future<bool> isFirstUnresolvedCommand(int commandRecordId) async {
+    final rows = await getPendingSyncs(limit: 1);
+    if (rows.isEmpty) return false;
+    return (rows.first['id'] as num?)?.toInt() == commandRecordId;
+  }
+
+  Future<void> finalizeVisitCommandLocalState({
+    required int commandRecordId,
+    required int visitId,
+    required String status,
+    required String outcome,
+    required double cashCollected,
+    required double debtPaid,
+    String? cartItemsJson,
+    String? returnsJson,
+    String? notes,
+    required List<dynamic> cartItems,
+    List<dynamic>? returnItems,
+  }) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      final commandRows = await txn.query(
+        'pending_sync',
+        columns: ['local_effect_applied'],
+        where: 'id = ?',
+        whereArgs: [commandRecordId],
+        limit: 1,
+      );
+      if (commandRows.isEmpty) {
+        throw StateError(
+          'Offline command #$commandRecordId is missing before local finalize.',
         );
       }
 
-      for (var id in syncIdsToDelete) {
-        batch.delete(
-          'pending_sync',
-          where: 'id = ?',
-          whereArgs: [id],
+      final alreadyApplied =
+          (commandRows.first['local_effect_applied'] as num?)?.toInt() == 1;
+      if (alreadyApplied) return;
+
+      await updateVisitStatus(
+        visitId: visitId,
+        status: status,
+        outcome: outcome,
+        cashCollected: cashCollected,
+        debtPaid: debtPaid,
+        cartItemsJson: cartItemsJson,
+        returnsJson: returnsJson,
+        notes: notes,
+        txn: txn,
+      );
+      await deductInventoryLocal(
+        cartItems,
+        returnItems: returnItems,
+        txn: txn,
+      );
+      final updated = await txn.update(
+        'pending_sync',
+        {
+          'local_effect_applied': 1,
+          'updated_at': DateTime.now().toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: [commandRecordId],
+      );
+      if (updated != 1) {
+        throw StateError(
+          'Offline command #$commandRecordId disappeared during local finalize.',
         );
       }
-      await batch.commit(noResult: true);
-    }
+    });
   }
 
   Future<void> updateShopBalanceLocally(int visitId, double newBalance) async {
@@ -678,59 +820,68 @@ class LocalDatabase {
     });
   }
 
+  @Deprecated(
+    'Use SyncRepository.saveInvoice; durable identity must be staged before first send.',
+  )
   Future<void> saveOfflineInvoiceAtomic({
-    required int visitId, required String payload, required String status, required String outcome,
-    required double cashCollected, required double debtPaid,
-    String? cartItemsJson, String? returnsJson, String? notes,
-    required List<dynamic> cartItems, List<dynamic>? returnItems,
+    required int visitId,
+    required String payload,
+    required String status,
+    required String outcome,
+    required double cashCollected,
+    required double debtPaid,
+    String? cartItemsJson,
+    String? returnsJson,
+    String? notes,
+    required List<dynamic> cartItems,
+    List<dynamic>? returnItems,
+    String? commandId,
+    int? ownerDriverId,
   }) async {
-    final db = await database;
-    await db.transaction((txn) async {
-      await revertOfflineVisit(visitId, txn: txn);
-      await addPendingSync(type: 'submit_sale', payload: payload, txn: txn);
-      await updateVisitStatus(visitId: visitId, status: status, outcome: outcome, cashCollected: cashCollected, debtPaid: debtPaid, cartItemsJson: cartItemsJson, returnsJson: returnsJson, notes: notes, txn: txn);
-      await deductInventoryLocal(cartItems, returnItems: returnItems, txn: txn);
-    });
-  }
-
-  Future<List<Map<String, dynamic>>> getQuarantinedSyncs() async {
-    final db = await database;
-    return db.query(
-      'pending_sync',
-      where: "type LIKE 'quarantined_%'",
-      orderBy: 'created_at DESC',
-    );
-  }
-
-  Future<void> deleteQuarantinedSync(int id) async {
-    final db = await database;
-    await db.delete(
-      'pending_sync',
-      where: "id = ? AND type LIKE 'quarantined_%'",
-      whereArgs: [id],
-    );
-  }
-
-  Future<void> clearAllQuarantinedSyncs() async {
-    final db = await database;
-    await db.delete(
-      'pending_sync',
-      where: "type LIKE 'quarantined_%'",
-    );
-  }
-
-  Future<void> retryQuarantinedSync(int id) async {
-    final db = await database;
-    final record = await db.query('pending_sync', where: 'id = ?', whereArgs: [id]);
-    if (record.isNotEmpty) {
-      String type = record.first['type'] as String;
-      if (type.startsWith('quarantined_')) {
-        String originalType = type.replaceFirst('quarantined_', '');
-        if (originalType == 'corrupt') return; 
-        if (originalType == 'draft_sale') originalType = 'submit_sale';
-        
-        await db.update('pending_sync', {'type': originalType}, where: 'id = ?', whereArgs: [id]);
-      }
+    final requestId = commandId?.trim() ?? '';
+    if (requestId.isEmpty) {
+      throw StateError('Offline visit command requires a durable request ID.');
     }
+
+    final commandRecordId = await stageVisitCommandAtomic(
+      visitId: visitId,
+      payload: payload,
+      requestId: requestId,
+      ownerDriverId: ownerDriverId,
+    );
+    await finalizeVisitCommandLocalState(
+      commandRecordId: commandRecordId,
+      visitId: visitId,
+      status: status,
+      outcome: outcome,
+      cashCollected: cashCollected,
+      debtPaid: debtPaid,
+      cartItemsJson: cartItemsJson,
+      returnsJson: returnsJson,
+      notes: notes,
+      cartItems: cartItems,
+      returnItems: returnItems,
+    );
   }
+
+  Future<List<Map<String, dynamic>>> getQuarantinedSyncs() =>
+      pendingCommands.blocked();
+
+  @Deprecated('Blocked offline evidence must not be deleted from field UI.')
+  Future<void> deleteQuarantinedSync(int id) async {
+    throw UnsupportedError(
+      'Blocked offline command evidence cannot be deleted from field UI.',
+    );
+  }
+
+  @Deprecated('Blocked offline evidence must not be bulk-deleted.')
+  Future<void> clearAllQuarantinedSyncs() async {
+    throw UnsupportedError(
+      'Blocked offline command evidence cannot be bulk-deleted.',
+    );
+  }
+
+  Future<void> retryQuarantinedSync(int id) =>
+      pendingCommands.retryBlocked(id);
+
 }

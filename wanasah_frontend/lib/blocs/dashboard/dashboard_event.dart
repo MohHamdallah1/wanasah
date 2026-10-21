@@ -104,10 +104,3 @@ class ToggleBreakEvent extends DashboardEvent {
 class ClearActionMessageEvent extends DashboardEvent {
   const ClearActionMessageEvent();
 }
-
-// +++ حدث مسح فواتير الحجر الصحي بعد تسويتها مع المسؤول +++
-class ClearQuarantineEvent extends DashboardEvent {
-  const ClearQuarantineEvent();
-  @override
-  List<Object?> get props => [];
-}

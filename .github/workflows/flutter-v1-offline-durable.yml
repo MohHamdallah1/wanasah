@@ -1,0 +1,36 @@
+name: Flutter V1 Offline durable command acceptance
+
+on:
+  pull_request:
+    paths:
+      - "wanasah_frontend/**"
+      - ".github/workflows/flutter-v1-offline-durable.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  offline-durable:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: wanasah_frontend
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.29.3"
+          channel: "stable"
+          cache: true
+      - run: flutter pub get
+      - name: Provide CI-only dotenv asset
+        run: printf 'API_BASE_URL=http://127.0.0.1:8000\n' > .env
+      - name: Analyze Flutter
+        run: flutter analyze
+      - name: Focused Offline safety tests
+        run: >-
+          flutter test
+          test/offline_owner_guard_test.dart
+          test/offline_durable_command_test.dart

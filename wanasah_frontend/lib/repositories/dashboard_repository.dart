@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../core/network/api_client.dart';
@@ -32,40 +31,20 @@ class DashboardRepository {
     );
   }
 
-  // +++ إرجاع bool للإبلاغ عن حالة الرفع الفعلية (true = نجح, false = طابور أوفلاين) +++
+  // Break timestamps are server-execution truth. A delayed offline
+  // start/end would record the wrong real-world time and may hit a later session.
   Future<bool> toggleBreak(int driverId, String action) async {
-    bool isQueuedOffline = false;
-    try {
-      await _apiClient.put(
-        '/driver/sessions/break',
-        data: {'action': action},
-        options: Options(sendTimeout: const Duration(seconds: 10)),
-      );
-    } on DioException catch (e) {
-      if (e.response?.statusCode == 404) rethrow; 
+    await _apiClient.put(
+      '/driver/sessions/break',
+      data: {'action': action},
+      options: Options(sendTimeout: const Duration(seconds: 10)),
+    );
 
-      // +++ تقييد شرط الأوفلاين: يجب أن يكون الرد null مع خطأ شبكي حقيقي لمنع ابتلاع أخطاء السيرفر +++
-      final isOffline = e.response == null && (
-                        e.type == DioExceptionType.connectionTimeout || 
-                        e.type == DioExceptionType.receiveTimeout || 
-                        e.type == DioExceptionType.sendTimeout || 
-                        e.type == DioExceptionType.connectionError || 
-                        e.type == DioExceptionType.unknown ||
-                        e.error.toString().contains('SocketException'));
-
-      if (isOffline) {
-        await _db.addPendingSync(
-          type: 'toggle_break',
-          payload: jsonEncode({'driver_id': driverId, 'action': action}),
-        );
-        isQueuedOffline = true;
-      } else {
-        rethrow; 
-      }
-    }
-    
-    await _storage.write(key: 'is_on_break', value: action == 'start' ? 'true' : 'false');
-    return !isQueuedOffline; // نعيد true إذا لم يتم وضعه في الطابور
+    await _storage.write(
+      key: 'is_on_break',
+      value: action == 'start' ? 'true' : 'false',
+    );
+    return true;
   }
 
   Future<void> clearSessionLocally() async {
