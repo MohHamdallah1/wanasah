@@ -456,84 +456,119 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
   
-  // +++ الدرع البصري والإداري: شاشة تسوية فواتير الحجر الصحي +++
+  // السجلات المحجورة دليل استرداد محمي وليست سلة محذوفات.
   void _showQuarantineBottomSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (ctx) {
         return FutureBuilder<List<Map<String, dynamic>>>(
           future: LocalDatabase.instance.getQuarantinedSyncs(),
           builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) return const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()));
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Padding(
+                padding: EdgeInsets.all(20),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+
             final syncs = snapshot.data ?? [];
-            if (syncs.isEmpty) return const Padding(padding: EdgeInsets.all(20), child: Text('لا يوجد فواتير مرفوضة.'));
+            if (syncs.isEmpty) {
+              return const Padding(
+                padding: EdgeInsets.all(20),
+                child: Text('لا توجد عمليات تحتاج معالجة.'),
+              );
+            }
 
             return Padding(
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.warning_rounded, color: Colors.red, size: 50),
+                  const Icon(
+                    Icons.report_problem_outlined,
+                    color: Colors.orange,
+                    size: 48,
+                  ),
                   const SizedBox(height: 10),
-                  const Text('الفواتير المرفوضة نهائياً', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 10),
+                  const Text(
+                    'عمليات أوفلاين تحتاج معالجة',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'هذه السجلات محفوظة لحماية الفواتير والمخزون. لا يمكن حذفها من تطبيق المندوب لمجرد إخفاء الخطأ.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
                   Flexible(
                     child: ListView.builder(
                       shrinkWrap: true,
                       itemCount: syncs.length,
                       itemBuilder: (context, index) {
                         final item = syncs[index];
-                        String reason = 'غير معروف';
                         String visitIdInfo = '';
-                        String type = item['type']?.toString().replaceFirst('quarantined_', '') ?? '';
+                        String fallbackReason = '';
                         try {
                           final payload = jsonDecode(item['payload']);
-                          reason = payload['quarantine_reason'] ?? 'مرفوضة من الإدارة';
-                          visitIdInfo = payload['visitId'] != null ? ' (زيارة #${payload['visitId']})' : '';
+                          fallbackReason =
+                              payload['quarantine_reason']?.toString() ?? '';
+                          visitIdInfo = payload['visitId'] != null
+                              ? ' (زيارة #${payload['visitId']})'
+                              : '';
                         } catch (_) {}
+
+                        final type = item['type']
+                                ?.toString()
+                                .replaceFirst('quarantined_', '') ??
+                            'unknown';
+                        final code =
+                            item['last_error_code']?.toString() ?? 'غير مصنف';
+                        final reason =
+                            item['last_error_message']?.toString().trim();
+                        final displayReason =
+                            (reason != null && reason.isNotEmpty)
+                                ? reason
+                                : (fallbackReason.isNotEmpty
+                                    ? fallbackReason
+                                    : 'تحتاج مراجعة قبل إعادة المحاولة.');
+
                         return Card(
-                          color: Colors.red.shade50,
                           child: ListTile(
-                            leading: const Icon(Icons.error_outline, color: Colors.red),
-                            title: Text('عملية: $type$visitIdInfo', style: const TextStyle(fontWeight: FontWeight.bold)),
-                            subtitle: Text('السبب: $reason\nالتاريخ: ${item['created_at']?.toString().split('T').first ?? ''}', style: const TextStyle(color: Colors.red)),
+                            leading: const Icon(
+                              Icons.shield_outlined,
+                              color: Colors.orange,
+                            ),
+                            title: Text(
+                              'عملية: $type$visitIdInfo',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            subtitle: Text(
+                              'الرمز: $code\n'
+                              'السبب: $displayReason\n'
+                              'التاريخ: ${item['created_at']?.toString().split('T').first ?? ''}',
+                            ),
                           ),
                         );
                       },
                     ),
                   ),
-                  const SizedBox(height: 15),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-                      onPressed: () async {
-                        // +++   إضافة جدار تأكيد أخير قبل إبادة السجلات المالية +++
-                        final bool? confirmed = await _showConfirmationDialog(
-                          context,
-                          'تأكيد المسح النهائي',
-                          'هل أنت متأكد من تسوية هذه الفواتير مع الإدارة؟ سيتم مسح الدليل من جهازك نهائياً ولا يمكن التراجع.',
-                        );
-                        
-                        if (confirmed == true && context.mounted) {
-                          context.read<DashboardBloc>().add(const ClearQuarantineEvent());
-                          Navigator.pop(ctx);
-                        }
-                      },
-                      child: const Text('تمت التسوية مع المسؤول (مسح السجلات)', style: TextStyle(fontWeight: FontWeight.bold)),
-                    ),
-                  )
                 ],
               ),
             );
-          }
+          },
         );
-      }
+      },
     );
   }
-  
+
   // --- دالة بناء المحتوى (تعتمد 100% على الـ State) ---
   Widget _buildDashboardContent(DashboardLoaded state) {
     String startTimeFormatted = '';
@@ -668,7 +703,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        'تنبيه خطير: يوجد (${state.quarantinedVisits}) فواتير مرفوضة! اضغط هنا للتفاصيل والتسوية.',
+                        'يوجد (${state.quarantinedVisits}) عمليات تحتاج معالجة قبل متابعة المزامنة. اضغط للتفاصيل.',
                         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
                       ),
                     ),
