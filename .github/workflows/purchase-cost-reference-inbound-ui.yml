@@ -1,0 +1,36 @@
+name: Purchase reference Inbound UI
+on:
+  push:
+    branches: [sol/purchase-cost-reference-inbound-ui-v1]
+    paths:
+      - dashboard/src/pages/inventory/**
+      - dashboard/src/i18n/resources.ts
+      - .github/workflows/purchase-cost-reference-inbound-ui.yml
+  pull_request:
+    paths:
+      - dashboard/src/pages/inventory/**
+      - dashboard/src/i18n/resources.ts
+      - .github/workflows/purchase-cost-reference-inbound-ui.yml
+permissions:
+  contents: read
+jobs:
+  inbound-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Strict TypeScript
+        run: npx tsc --noEmit
+      - name: Inbound draft and reference tests
+        run: npm test -- src/pages/inventory/inbound/contracts.test.ts src/pages/inventory/inbound/purchaseReference.test.ts src/pages/inventory/inbound/Tab2Inbound.test.tsx
+      - name: Production build
+        run: npm run build
