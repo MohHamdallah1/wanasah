@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Building2, ChevronLeft, ChevronRight, Pencil, Plus, Power, PowerOff, RefreshCcw, Search, ShieldCheck } from "lucide-react";
+import { Building2, Pencil, Plus, Power, PowerOff, RefreshCcw, Search, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Modal } from "@/components/ui/modal";
@@ -197,14 +197,12 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
 
   const [items, setItems] = useState<WarehouseLocationItem[]>([]);
   const access = useInventoryAccess();
-  const minimumStockAccess = useInventoryAccess(selectedLocationId);
   const canReadLocations = access.canAny("location.read");
   const canManageQualityDestinations = access.can("inventory.transfer_policy.manage");
   const canAt = useLocationCapabilities(items.map((item) => item.id));
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [cursor, setCursor] = useState<string | null>(null);
-  const [cursorHistory, setCursorHistory] = useState<Array<string | null>>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -212,6 +210,7 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
   const [refreshKey, setRefreshKey] = useState(0);
   const [qualityDestinationsOpen, setQualityDestinationsOpen] = useState(false);
   const requestSeq = useRef(0);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<FormMode>("create");
@@ -238,7 +237,6 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
       const clean = searchInput.trim();
       setSearch(clean.length >= 2 ? clean : "");
       setCursor(null);
-      setCursorHistory([]);
       setNextCursor(null);
     }, 300);
     return () => window.clearTimeout(timeoutId);
@@ -264,12 +262,17 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
       const raw = await authenticatedFetch(`/warehouse/locations/manage?${params.toString()}`);
       if (seq !== requestSeq.current) return;
       const page = asWarehousePage(raw);
-      setItems(page.items);
+      setItems((current) => {
+        if (cursor === null) return page.items;
+        const merged = new Map(current.map((item) => [item.id, item]));
+        page.items.forEach((item) => merged.set(item.id, item));
+        return Array.from(merged.values());
+      });
       setNextCursor(page.next_cursor);
       if (page.total !== null) setTotal(page.total);
     } catch (error: unknown) {
       if (seq !== requestSeq.current) return;
-      setItems([]);
+      if (cursor === null) setItems([]);
       setNextCursor(null);
       const message = apiErrorMessage(error, loadFailedMessage) || presentation.listLoadFailed;
       setLoadIssue(message);
@@ -281,16 +284,32 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
 
   useEffect(() => { void fetchPage(); }, [fetchPage, refreshKey]);
   useEffect(() => {
+    if (!nextCursor || loading || typeof IntersectionObserver === "undefined") return;
+    const target = loadMoreRef.current;
+    if (!target) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) setCursor(nextCursor);
+    }, { rootMargin: "240px 0px" });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [loading, nextCursor]);
+  useEffect(() => {
     if (!canManageQualityDestinations) setQualityDestinationsOpen(false);
   }, [canManageQualityDestinations]);
 
   const activeCount = useMemo(() => items.filter((item) => item.is_active).length, [items]);
-  const canManageMinimumStock = selectedLocationId !== null && access.can("inventory.minimum_stock.manage") && minimumStockAccess.can("inventory.read");
+  const minimumStockLocations = items
+    .filter(
+      (item) =>
+        item.is_active &&
+        canAt(item.id, "inventory.minimum_stock.manage") &&
+        canAt(item.id, "inventory.read"),
+    )
+    .map((item) => ({ id: item.id, name: item.name, code: item.code }));
   const showFirstWarehouseStart = canReadLocations && total === 0 && !loading && !loadIssue && !search && cursor === null && items.length === 0;
 
   const resetToFirstPageAndRefresh = useCallback(() => {
     setCursor(null);
-    setCursorHistory([]);
     setNextCursor(null);
     setRefreshKey((value) => value + 1);
   }, []);
@@ -482,22 +501,8 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
     }
   };
 
-  const handleNext = () => {
-    if (!nextCursor) return;
-    setCursorHistory((prev) => [...prev, cursor]);
-    setCursor(nextCursor);
-  };
-
-  const handlePrevious = () => {
-    if (cursorHistory.length === 0) return;
-    const previous = cursorHistory[cursorHistory.length - 1] ?? null;
-    setCursorHistory((prev) => prev.slice(0, -1));
-    setCursor(previous);
-  };
-
   const totalText = total === null ? "—" : formatInventoryInteger(total, language);
   const activeText = formatInventoryInteger(activeCount, language);
-  const pageText = formatInventoryInteger(cursorHistory.length + 1, language);
 
   const rowActions = (location: WarehouseLocationItem) => (
     <div className="flex items-center justify-end gap-1.5">
@@ -548,7 +553,7 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
   );
 
   return (
-    <div dir={dir} className="inventory-view inventory-locations flex min-h-0 flex-1 flex-col gap-3">
+    <div dir={dir} className="inventory-view inventory-locations flex h-full min-h-0 flex-1 flex-col gap-0">
       {showFirstWarehouseStart ? (
         <section
           data-testid="warehouse-first-empty"
@@ -605,11 +610,10 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
         </section>
       ) : (
         <>
-      <section className="glass-card overflow-hidden rounded-2xl" aria-labelledby="warehouse-setup-title" data-cp13-density="compact">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-3 sm:p-4">
-          <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-blue-700">{presentation.setupEyebrow}</p>
-            <h2 id="warehouse-setup-title" className="mt-0.5 flex items-center gap-2 break-words font-black text-slate-800">
+      <section className="glass-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl" aria-labelledby="warehouse-setup-title" data-cp13-density="compact">
+        <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 p-3 sm:p-4">
+          <div className="min-w-fit shrink-0">
+            <h2 id="warehouse-setup-title" className="flex items-center gap-2 break-words font-black text-slate-800">
               <Building2 aria-hidden="true" className="h-5 w-5 shrink-0 text-blue-600" />
               {copy.title}
             </h2>
@@ -617,8 +621,40 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
               {copy.summary(totalText, activeText)}
             </p>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {canManageMinimumStock && <StockMinimumManager locationId={selectedLocationId} onApplied={onMinimumApplied} />}
+
+          <div className="flex min-w-[260px] flex-1 items-center gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Search aria-hidden="true" className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                disabled={!canReadLocations}
+                aria-label={copy.search}
+                placeholder={copy.search}
+                maxLength={100}
+                className={`w-full rounded-xl border border-slate-200 bg-white py-2.5 ps-10 pe-3 text-sm disabled:opacity-50 ${focusRing}`}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setRefreshKey((value) => value + 1)}
+              disabled={loading || !canReadLocations}
+              className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 disabled:opacity-40 ${focusRing}`}
+              aria-label={copy.refresh}
+              title={copy.refresh}
+            >
+              <RefreshCcw aria-hidden="true" className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            </button>
+          </div>
+
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {minimumStockLocations.length > 0 && (
+              <StockMinimumManager
+                locations={minimumStockLocations}
+                preferredLocationId={selectedLocationId}
+                onApplied={onMinimumApplied}
+              />
+            )}
             {canManageQualityDestinations ? (
               <button type="button" onClick={() => setQualityDestinationsOpen(true)} className={`inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 sm:text-sm ${focusRing}`}>
                 <ShieldCheck aria-hidden="true" className="h-4 w-4" /><span>{copy.qualityDestinationsView}</span>
@@ -628,16 +664,6 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
               <Plus aria-hidden="true" className="h-4 w-4" /><span>{copy.newWarehouse}</span>
             </button>
           </div>
-        </div>
-
-        <div className="flex flex-col gap-2 border-b border-slate-100 p-3 sm:flex-row sm:items-center">
-          <div className="relative min-w-0 flex-1">
-            <Search aria-hidden="true" className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} disabled={!canReadLocations} aria-label={copy.search} placeholder={copy.search} maxLength={100} className={`w-full rounded-xl border border-slate-200 bg-white py-2.5 ps-10 pe-3 text-sm disabled:opacity-50 ${focusRing}`} />
-          </div>
-          <button type="button" onClick={() => setRefreshKey((value) => value + 1)} disabled={loading || !canReadLocations} className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 disabled:opacity-40 ${focusRing}`} aria-label={copy.refresh}>
-            <RefreshCcw aria-hidden="true" className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /><span className="sm:hidden">{copy.refresh}</span>
-          </button>
         </div>
 
         {loadIssue ? (
@@ -651,10 +677,11 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
 
         {loading && items.length === 0 ? <p role="status" className="p-6 text-center text-xs font-semibold text-slate-500">{t("common.loading")}</p> : null}
 
-        <div className="min-h-0 overflow-x-auto overflow-y-auto" data-cp13-phone-list="true">
+        <div className="min-h-0 flex-1 overflow-auto" data-cp13-phone-list="true">
           <table className={`w-full min-w-0 text-sm md:min-w-[760px] ${isArabic ? "text-right" : "text-left"}`}>
             <thead className="hidden bg-slate-50/95 md:table-header-group">
               <tr className="h-10 text-xs text-slate-600">
+                <th className="w-16 px-3 py-2 text-center">{copy.number}</th>
                 <th className="px-3 py-2">{copy.warehouse}</th>
                 <th className="px-3 py-2">{copy.code}</th>
                 <th className="px-3 py-2">{copy.address}</th>
@@ -664,14 +691,17 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
               </tr>
             </thead>
             <tbody className="grid gap-2 p-2 md:table-row-group md:divide-y md:divide-slate-100 md:p-0">
-              {items.map((location) => (
+              {items.map((location, index) => (
                 <tr
                   key={location.id}
                   className={`block rounded-xl border p-2 md:table-row md:h-14 md:rounded-none md:border-0 md:p-0 md:hover:bg-slate-50/70 ${selectedLocationId === location.id ? "border-blue-200 bg-blue-50/60" : "border-slate-100 bg-white md:bg-transparent"}`}
                 >
+                  <td className="block px-2 py-1 text-xs font-black text-slate-500 md:table-cell md:w-16 md:px-3 md:py-2 md:text-center">
+                    <span className="me-2 text-[10px] font-bold text-slate-400 md:hidden">{copy.number}</span>
+                    {formatInventoryInteger(index + 1, language)}
+                  </td>
                   <td className="block px-2 py-1 md:table-cell md:px-3 md:py-2">
                     <div className="font-bold text-slate-800">{location.name}</div>
-                    <div className="mt-0.5 text-[10px] text-slate-400">#{formatInventoryInteger(location.id, language)}</div>
                   </td>
                   <td className="block px-2 py-1 font-mono text-xs text-slate-600 md:table-cell md:px-3 md:py-2">
                     <span className="me-2 font-sans text-[10px] font-bold text-slate-400 md:hidden">{copy.code}</span>{location.code}
@@ -689,21 +719,17 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
               ))}
               {!loading && items.length === 0 && !loadIssue && (
                 <tr className="block md:table-row">
-                  <td colSpan={6} className="block p-8 text-center text-sm text-slate-400 md:table-cell md:p-10">
+                  <td colSpan={7} className="block p-8 text-center text-sm text-slate-400 md:table-cell md:p-10">
                     {search ? copy.emptySearch : access.can("location.create") ? copy.emptyCreate : copy.emptyNoAccess}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
-        </div>
-
-        <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-3 py-2.5">
-          <span className="min-w-0 break-words text-xs text-slate-500">{copy.page(pageText)}</span>
-          <div className="flex shrink-0 gap-2">
-            <button type="button" onClick={handlePrevious} disabled={cursorHistory.length === 0 || loading || !canReadLocations} className={`rounded-lg border border-slate-200 bg-white p-2 disabled:opacity-40 ${focusRing}`} title={copy.previous} aria-label={copy.previous}>{isArabic ? <ChevronRight aria-hidden="true" className="h-4 w-4" /> : <ChevronLeft aria-hidden="true" className="h-4 w-4" />}</button>
-            <button type="button" onClick={handleNext} disabled={!nextCursor || loading || !canReadLocations} className={`rounded-lg border border-slate-200 bg-white p-2 disabled:opacity-40 ${focusRing}`} title={copy.next} aria-label={copy.next}>{isArabic ? <ChevronLeft aria-hidden="true" className="h-4 w-4" /> : <ChevronRight aria-hidden="true" className="h-4 w-4" />}</button>
-          </div>
+          <div ref={loadMoreRef} className="min-h-2" aria-hidden="true" />
+          {loading && items.length > 0 ? (
+            <p role="status" className="border-t border-slate-100 px-3 py-2 text-center text-xs font-semibold text-slate-500">{t("common.loading")}</p>
+          ) : null}
         </div>
       </section>
         </>

@@ -12,6 +12,7 @@ export interface WarehouseLocationsCopy {
   firstWarehouseDescription: string;
   createFirstWarehouse: string;
   search: string;
+  number: string;
   warehouse: string;
   code: string;
   branch: string;
@@ -75,6 +76,7 @@ const warehouseAr: WarehouseLocationsCopy = {
   firstWarehouseDescription: "بعد إنشاء المستودع تصبح عمليات المستودع جاهزة للعمل.",
   createFirstWarehouse: "إنشاء أول مستودع",
   search: "بحث بالاسم أو الكود (حرفان على الأقل)",
+  number: "الرقم",
   warehouse: "المستودع",
   code: "الكود",
   branch: "الفرع",
@@ -145,6 +147,7 @@ const warehouseEn: WarehouseLocationsCopy = {
   firstWarehouseDescription: "After creating the warehouse, warehouse operations are ready to use.",
   createFirstWarehouse: "Create first warehouse",
   search: "Search by name or code (2+ characters)",
+  number: "No.",
   warehouse: "Warehouse",
   code: "Code",
   branch: "Branch",

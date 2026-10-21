@@ -323,6 +323,11 @@ describe(
           "../../../wa_backend/alembic/versions/c1f4e8a2d6b9_simple_products_native_trgm_search.py",
         ),
       );
+      const catalogApi = compact(
+        readSource(
+          "../../../wa_backend/api/catalog.py",
+        ),
+      );
 
       expect(api).toContain(
         "simple_products_search_variant_ids(",
@@ -338,6 +343,21 @@ describe(
       );
       expect(api).toContain(
         "ProductVariant.id.in_(",
+      );
+      expect(api).toContain(
+        "exact_match_clause = or_(",
+      );
+      expect(api).toContain(
+        "exact_match_id = await db.scalar(",
+      );
+      expect(api).toContain(
+        "if exact_match_id is not None:",
+      );
+      expect(catalogApi).toContain(
+        "exact_id = await db.scalar(",
+      );
+      expect(catalogApi).toContain(
+        "if exact_id is not None:",
       );
 
       expect(migration).toContain(
