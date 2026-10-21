@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
 import 'dart:developer' as developer;
-import 'dart:async'; // لاستخدام TimeoutException
-import '../core/network/api_client.dart'; // +++ الملحق المعماري للاتصالات +++
-import 'package:dio/dio.dart'; // +++ لمعالجة أخطاء الشبكة بذكاء +++
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../services/location_service.dart';
 import '../features/shops/application/shop_creation_service.dart';
@@ -176,13 +173,12 @@ class _AddShopScreenState extends State<AddShopScreen> {
       Navigator.pop(context, true);
     } on ShopCreateFailure catch (failure) {
       if (!mounted) return;
-      final f = failure.failure;
       if (!failure.ambiguous) {
         _pendingShopCommand = null;
       }
       final message = failure.ambiguous
           ? 'تعذر تأكيد نتيجة إضافة المحل. أعد المحاولة من نفس الشاشة ليُعاد إرسال نفس الطلب بأمان.'
-          : (f.displayFallback ?? 'رفض الخادم طلب إضافة المحل.');
+          : (failure.displayFallback ?? 'رفض الخادم طلب إضافة المحل.');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
