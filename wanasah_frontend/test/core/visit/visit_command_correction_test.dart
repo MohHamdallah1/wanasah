@@ -180,15 +180,21 @@ void main() {
     });
   });
 
-  test('VisitBloc no longer builds compatibility-only body fields', () async {
-    final source = await File('lib/blocs/visit/visit_bloc.dart').readAsString();
-    final submitStart = source.indexOf('Future<void> _onSubmitVisit');
-    expect(submitStart, greaterThanOrEqualTo(0));
-    final submitSource = source.substring(submitStart);
+  test('Visit submission path keeps compatibility-only body fields out', () async {
+    final blocSource =
+        await File('lib/blocs/visit/visit_bloc.dart').readAsString();
+    final serviceSource = await File(
+      'lib/features/visits/application/visit_submission_service.dart',
+    ).readAsString();
 
-    expect(submitSource, contains('buildCanonicalVisitPayload'));
-    expect(submitSource, isNot(contains("'visit_id':")));
-    expect(submitSource, isNot(contains("'visitId':")));
-    expect(submitSource, isNot(contains("'no_sale_reason':")));
+    expect(blocSource, contains('VisitSubmissionService'));
+    expect(blocSource, contains('await _submissionService.submit('));
+    expect(serviceSource, contains('buildCanonicalVisitPayload'));
+
+    for (final source in <String>[blocSource, serviceSource]) {
+      expect(source, isNot(contains("'visit_id':")));
+      expect(source, isNot(contains("'visitId':")));
+      expect(source, isNot(contains("'no_sale_reason':")));
+    }
   });
 }
