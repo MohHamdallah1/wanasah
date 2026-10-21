@@ -7,6 +7,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'dart:developer' as developer;
 import 'dart:async';
 import '../../core/db/local_database.dart';
+import '../../core/sync/durable_command.dart';
 import '../../models/product_model.dart';
 import '../../models/visit_model.dart';
 import '../../repositories/sync_repository.dart';
@@ -54,9 +55,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         emit((state as DashboardLoaded).copyWith(clearActionMessage: true));
       }
     }, transformer: _sequential());
-    // +++ ربط حدث التسوية +++
-    on<ClearQuarantineEvent>(_onClearQuarantine, transformer: _sequential());
-  }
+}
 
   // ─── LoadDashboardData ────────────────────────────────────────────────────
   /// يقرأ من SQLite مباشرة — لا شبكة، لا انتظار.
@@ -169,10 +168,20 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         : (int.tryParse(allData['cached_sales_in_completed'] ?? '0') ?? 0);
 
     final pendingSyncs = await _db.getPendingSyncs();
-    // +++ تصفية السجلات السليمة للأوفلاين +++
-    final int offlineCount = pendingSyncs.where((p) => !(p['type']?.toString().startsWith('quarantined_') ?? false)).length;
-    // +++   حساب الفواتير المرفوضة نهائياً (الجثث) لتنبيه المندوب +++
-    final int quarantinedCount = pendingSyncs.where((p) => p['type']?.toString().startsWith('quarantined_') ?? false).length;
+    final int quarantinedCount = pendingSyncs.where((row) {
+      final type = row['type']?.toString() ?? '';
+      return DurableCommandState.fromStorage(row['state']) ==
+              DurableCommandState.blocked ||
+          DurableCommandType.isLegacyQuarantined(type);
+    }).length;
+    final int offlineCount = pendingSyncs.where((row) {
+      final type = row['type']?.toString() ?? '';
+      final isBlocked =
+          DurableCommandState.fromStorage(row['state']) ==
+                  DurableCommandState.blocked ||
+              DurableCommandType.isLegacyQuarantined(type);
+      return !isBlocked;
+    }).length;
 
     // +++ حل فخ "فقدان الذاكرة المالية وهوية المندوب" +++
     final driverName = allData['cached_driver_name'] ?? 'مندوب (أوفلاين)';
@@ -220,20 +229,6 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     );
   }
   
-
-  // +++ مسح الجثث من الخزنة بعد تسويتها +++
-  Future<void> _onClearQuarantine(
-    ClearQuarantineEvent event,
-    Emitter<DashboardState> emit,
-  ) async {
-    await _db.clearAllQuarantinedSyncs();
-    if (state is DashboardLoaded) {
-      emit((state as DashboardLoaded).copyWith(
-        quarantinedVisits: 0,
-        actionSuccessMessage: 'تمت تسوية الفواتير المرفوضة ومسحها 🧹',
-      ));
-    }
-  }
 
   // ─── FetchDashboardData (المحرك المالي الشامل المحصن) ─────────────────────────────
   Future<void> _onFetchDashboardData(
@@ -623,16 +618,34 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       add(FetchDashboardData(driverId: event.driverId));
       
     } on DioException catch (e) {
-      if (e.response?.statusCode == 401) return; // +++  لـ Bug 6: منع الشبح والـ SnackBar الأحمر عند انتهاء الجلسة +++
+      if (e.response?.statusCode == 401) return;
       if (e.response?.statusCode == 404) {
         await _dashboardRepo.clearSessionLocally();
-        if (state is DashboardLoaded) emit((state as DashboardLoaded).copyWith(actionSuccessMessage: 'الجلسة غير موجودة على السيرفر! تم إعادة الضبط 🧹'));
+        if (state is DashboardLoaded) {
+          emit(
+            (state as DashboardLoaded).copyWith(
+              actionSuccessMessage:
+                  'الجلسة غير موجودة على السيرفر! تم إعادة الضبط محلياً.',
+            ),
+          );
+        }
         add(FetchDashboardData(driverId: event.driverId));
         return;
       }
+
+      if (e.response == null) {
+        emit(
+          const DashboardError(
+            message:
+                'بدء أو إنهاء الاستراحة يحتاج اتصالاً مباشراً بالسيرفر ولا يُحفظ كأمر أوفلاين.',
+          ),
+        );
+        return;
+      }
+
       final data = e.response?.data;
-      // +++  (البند 10): التوافق مع بنية أخطاء Pydantic/FastAPI +++
-      final msg = (data is Map) ? (data['message'] ?? data['detail']) : 'فشل (استجابة غير متوقعة)';
+      final msg =
+          (data is Map) ? (data['message'] ?? data['detail']) : 'فشل (استجابة غير متوقعة)';
       emit(DashboardError(message: 'خطأ: $msg'));
     } catch (e) {
       emit(DashboardError(message: 'فشل في عملية الاستراحة.'));
