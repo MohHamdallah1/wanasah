@@ -1,4 +1,4 @@
-import '../../core/network/api_failure.dart';
+import '../../../core/network/api_failure.dart';
 
 class ShopCreateCommand {
   const ShopCreateCommand({
@@ -81,4 +81,9 @@ class ShopCreateFailure implements Exception {
 
   final ApiFailure failure;
   final bool ambiguous;
+}
+
+
+abstract class ShopCreationGateway {
+  Future<ShopCreateResult> create(ShopCreateCommand command);
 }
