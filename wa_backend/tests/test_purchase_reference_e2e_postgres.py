@@ -913,6 +913,86 @@ async def complete_journey(g):
     g.record("SCENARIO_COMPLETE", original_variant_id=v, phases_passed=14 if g.method == "FIFO" else 13)
 
 
+@pytest.mark.parametrize("method", ["FIFO"])
+async def test_disposable_5k_real_import_worker_performance_and_parity(journey, method):
+    """Bounded real PostgreSQL Product Import 5k legacy vs 5k cost rows.
+
+    Only GitHub's named disposable PostgreSQL may run this fixture. The original
+    500-row staging/validation and 200-row publication limits stay unchanged.
+    This measures Product creation + PriceBook + optional reference/audit writes,
+    not network upload time or complete 50k production wall-clock performance.
+    """
+    from time import perf_counter
+    from domains.simple_products.imports.application.execution_service import IMPORT_BATCH
+    assert IMPORT_BATCH == 200
+    g = journey
+    company_id = g.t.company_id
+    before_accounting = await g.snapshot(ACCOUNTING)
+    durations = {}
+    for with_cost in (False, True):
+        begin = perf_counter()
+        total = 0
+        sample_variants = []
+        for batch in range(25):
+            job_id = uuid4()
+            token = uuid4().hex[:12]
+            rows = [
+                SimpleNamespace(
+                    id=i + 1, row_identity=uuid4(), row_number=batch * 200 + i + 2,
+                    status="VALID", version=1, product_variant_id=None,
+                    error_code=None, error_message=None,
+                    normalized_data=dict(
+                        name=f"Import perf {method} {int(with_cost)} {token} {i}",
+                        family_name=None, package_uom_code=None,
+                        units_per_package=1, package_price=None,
+                        unit_price="4.000000", unit_barcode=None,
+                        package_barcode=None, lot_control_mode="NONE",
+                        expiry_control_mode="NONE",
+                        purchase_unit_cost="1.250000" if with_cost else None,
+                    ),
+                )
+                for i in range(IMPORT_BATCH)
+            ]
+            async with g.session() as db:
+                actor = await db.get(Driver, g.t.owner.driver_id)
+                await _execute_rows_once(
+                    db, company_id=company_id, actor=actor,
+                    access=g.t.owner.access(db),
+                    job_id=job_id, rows=rows,
+                )
+                assert all(row.status == "IMPORTED" for row in rows)
+                await db.commit()
+            sample_variants.extend(int(row.product_variant_id) for row in rows)
+            total += len(rows)
+        durations["with_cost" if with_cost else "legacy"] = perf_counter() - begin
+        assert total == 5000 and len(set(sample_variants)) == total
+        async with g.session() as db:
+            count = await db.scalar(text(
+                "SELECT count(*) FROM purchase_cost_references "
+                "WHERE company_id=:c AND product_variant_id=ANY(:ids)"
+            ), {"c": company_id, "ids": sample_variants})
+            assert count == (5000 if with_cost else 0)
+            if with_cost:
+                history = await db.scalar(text(
+                    "SELECT count(*) FROM purchase_cost_reference_changes "
+                    "WHERE company_id=:c AND product_variant_id=ANY(:ids)"
+                ), {"c": company_id, "ids": sample_variants})
+                assert history == 5000
+    assert await g.snapshot(ACCOUNTING) == before_accounting
+    factor = durations["with_cost"] / max(durations["legacy"], 0.001)
+    print(f"REAL_POSTGRES_IMPORT_5K legacy_seconds={durations['legacy']:.2f} "
+          f"with_cost_seconds={durations['with_cost']:.2f} ratio={factor:.3f}", flush=True)
+    # A 50k real-production SLA needs separate complete worker profiling.
+    # Here we guard against pathological extra writes / batch serialization.
+    assert factor <= 2.50, f"Import cost bulk-write overhead is pathological: {factor:.3f}"
+    g.record("15_real_import_worker_5k_each",
+             legacy_5k_seconds=round(durations["legacy"], 2),
+             with_cost_5k_seconds=round(durations["with_cost"], 2),
+             ratio=round(factor, 3), legacy_reference_rows=0,
+             optional_reference_rows=5000,
+             inventory_cost_and_cogs_unchanged=True)
+
+
 @pytest.mark.parametrize("method", ["FIFO", "MOVING_AVERAGE"])
 async def test_v1_purchase_reference_end_to_end(journey, method):
     try:
