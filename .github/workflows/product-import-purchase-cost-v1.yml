@@ -23,6 +23,8 @@ jobs:
     env:
       ENVIRONMENT: test
       SECRET_KEY: ProductImportPurchaseCostTestOnlyKey01234567890123456789
+      DATABASE_URL: postgresql+asyncpg://import_test_runtime@127.0.0.1:55474/product_import_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://import_test_admin@127.0.0.1:55474/product_import_contract_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
