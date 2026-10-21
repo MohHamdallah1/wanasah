@@ -31,6 +31,40 @@ from domains.simple_products.service import (
 )
 
 
+def optional_purchase_unit_cost(raw: Any) -> str | None:
+    """New optional import field. Never infer it from a sale price.
+
+    The only supported unit in the one-column V1 extension is EACH (the
+    Product's canonical base UOM), not its outer package. Decimal arithmetic
+    avoids binary-float rounding or a hidden implicit UOM conversion.
+    """
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    if isinstance(raw, bool):
+        raise SimpleProductError(
+            "IMPORT_PURCHASE_COST_INVALID", "Purchase reference cost must be a nonnegative exact decimal.",
+            status_code=422,
+        )
+    value = str(raw).strip()
+    if not value or len(value) > 60 or not value.replace(".", "", 1).isdigit():
+        raise SimpleProductError(
+            "IMPORT_PURCHASE_COST_INVALID", "Purchase reference cost must be an ordinary decimal number.",
+            status_code=422,
+        )
+    try:
+        cost = Decimal(value)
+    except Exception as exc:
+        raise SimpleProductError(
+            "IMPORT_PURCHASE_COST_INVALID", "Purchase reference cost is invalid.", status_code=422,
+        ) from exc
+    if not cost.is_finite() or cost < 0 or cost >= Decimal("100000000000000") or cost.as_tuple().exponent < -6:
+        raise SimpleProductError(
+            "IMPORT_PURCHASE_COST_INVALID", "Use a nonnegative purchase cost with at most six decimal places.",
+            status_code=422,
+        )
+    return format(cost, ".6f")
+
+
 def tracking_import_mode(
     raw_value: Any,
     *,
@@ -334,4 +368,6 @@ def normalize_raw_row(
             lot_control_mode,
         "expiry_control_mode":
             expiry_control_mode,
+        # Absent in legacy A:J files. None avoids any reference write.
+        "purchase_unit_cost": optional_purchase_unit_cost(value("purchase_unit_cost")),
     }

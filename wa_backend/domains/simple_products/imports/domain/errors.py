@@ -90,6 +90,7 @@ def user_safe_error_message(
 
 
 _ROW_SAFE_MESSAGES: dict[str, str] = {
+    "IMPORT_PURCHASE_COST_INVALID": "Purchase reference cost must be a nonnegative decimal with at most six places.",
     "IMPORT_NAME_REQUIRED":
         "Product name is required.",
     "IMPORT_NAME_TOO_LONG":
@@ -134,6 +135,7 @@ _ROW_SAFE_MESSAGES: dict[str, str] = {
 
 
 _ROW_SAFE_MESSAGES_AR: dict[str, str] = {
+    "IMPORT_PURCHASE_COST_INVALID": "تكلفة شراء الوحدة غير صالحة؛ أدخل رقماً غير سالب بدقة حتى ست منازل عشرية.",
     "IMPORT_NAME_REQUIRED": "اسم المنتج مطلوب.",
     "IMPORT_NAME_TOO_LONG": "اسم المنتج أطول من الحد المسموح.",
     "IMPORT_PACKAGE_SELECTION_REQUIRED": "اختر عدم وجود عبوة خارجية أو حدّد نوع العبوة.",
@@ -172,6 +174,8 @@ def import_error_field(
         or "PACKAGE_UOM" in normalized
     ):
         return "package_uom"
+    if "PURCHASE_COST" in normalized:
+        return "purchase_unit_cost"
     if "PACKAGE_PRICE" in normalized:
         return "package_price"
     if "UNIT_BARCODE" in normalized:

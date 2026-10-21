@@ -22,6 +22,10 @@ describe("Purchase cost reference transport", () => {
   it("reads the explicit purchase unit, company currency and independent revision", () => {
     expect(parsePurchaseReference({ reference: validReference })).toMatchObject(validReference);
   });
+  it("reads imported purchase-cost references without masking or rejecting their audit source", () => {
+    const imported = { ...validReference, source: "PRODUCT_IMPORT", revision: 1, amount: "1.250000" };
+    expect(parsePurchaseReference({ reference: imported })).toMatchObject(imported);
+  });
   it("fails closed on malformed, missing or imprecise server values", () => {
     for (const reference of [
       { ...validReference, amount: 2.5 },

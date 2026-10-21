@@ -8,7 +8,7 @@ export interface PurchaseReference {
   base_uom_code: string;
   currency_code: string;
   revision: number;
-  source: "MANUAL_PRODUCT" | "SUPPLIER_INBOUND";
+  source: "MANUAL_PRODUCT" | "SUPPLIER_INBOUND" | "PRODUCT_IMPORT";
 }
 
 export const parsePurchaseReference = (raw: unknown): PurchaseReference | null => {
@@ -32,7 +32,7 @@ export const parsePurchaseReference = (raw: unknown): PurchaseReference | null =
     typeof row.currency_code !== "string" || !/^[A-Z][A-Z0-9]{2,9}$/.test(row.currency_code) ||
     typeof row.purchase_uom_code !== "string" || !row.purchase_uom_code ||
     typeof row.base_uom_code !== "string" || !row.base_uom_code ||
-    !["MANUAL_PRODUCT", "SUPPLIER_INBOUND"].includes(String(row.source))
+    !["MANUAL_PRODUCT", "SUPPLIER_INBOUND", "PRODUCT_IMPORT"].includes(String(row.source))
   ) {
     throw new Error("PURCHASE_REFERENCE_RESPONSE_INVALID");
   }

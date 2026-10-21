@@ -155,7 +155,7 @@ def build_product_import_template(
         )
 
     sheet.auto_filter.ref = (
-        f"A1:J{MAX_TEMPLATE_ROWS + 1}"
+        f"A1:K{MAX_TEMPLATE_ROWS + 1}"
     )
     sheet.row_dimensions[1].height = 30
 
@@ -170,6 +170,7 @@ def build_product_import_template(
         20,
         16,
         16,
+        23,  # K: optional purchase cost, original A:J unchanged
     )
     for index, width in enumerate(
         widths,
@@ -184,6 +185,7 @@ def build_product_import_template(
     package_price_column = "E"
     unit_price_column = "F"
     package_barcode_column = "H"
+    purchase_cost_column = "K"
 
     package_validation = DataValidation(
         type="list",
@@ -283,6 +285,23 @@ def build_product_import_template(
     sheet.column_dimensions[
         unit_price_column
     ].number_format = "0.000"
+    sheet.column_dimensions[purchase_cost_column].number_format = "0.000000"
+
+    # New optional reference field, independent of all selling-price rules.
+    # Existing 10-column downloads and all A:J validation ranges are untouched.
+    purchase_cost_validation = DataValidation(
+        type="custom",
+        formula1='=OR(K2="",AND(ISNUMBER(K2),K2>=0,K2<100000000000000,ROUND(K2,6)=K2))',
+        allow_blank=True,
+    )
+    purchase_cost_validation.errorTitle = copy.price_validation_title
+    purchase_cost_validation.error = copy.purchase_unit_cost_note
+    purchase_cost_validation.promptTitle = copy.price_validation_title
+    purchase_cost_validation.prompt = copy.purchase_unit_cost_note
+    purchase_cost_validation.showErrorMessage = True
+    purchase_cost_validation.showInputMessage = True
+    sheet.add_data_validation(purchase_cost_validation)
+    purchase_cost_validation.add(f"{purchase_cost_column}2:{purchase_cost_column}{MAX_TEMPLATE_ROWS + 1}")
 
     for field in _BARCODE_FIELDS:
         column_index = (
@@ -422,6 +441,7 @@ def build_product_import_template(
             copy.package_price_note,
         "unit_price":
             copy.unit_price_note,
+        "purchase_unit_cost": copy.purchase_unit_cost_note,
         "unit_barcode":
             copy.unit_barcode_note,
         "package_barcode":
