@@ -316,7 +316,13 @@ export function Tab2Inbound({
         : [prefilledInboundRow(rowId, defaultUom, variantOptions)];
       const index = rows.findIndex((row) => row.row_id === rowId);
       if (index < 0) {
-        rows.push({ ...prefilledInboundRow(rowId, defaultUom, variantOptions), ...patch });
+        const initial = prefilledInboundRow(rowId, defaultUom, variantOptions);
+        const changedUnit = patch.uom_id !== undefined && patch.uom_id !== initial.uom_id;
+        rows.push({
+          ...initial,
+          ...(changedUnit && patch.unit_cost === undefined ? { unit_cost: "" } : {}),
+          ...patch,
+        });
       } else {
         // A cost belongs to its purchase unit. Changing UOM must not silently
         // reuse the old cost under a different unit.
