@@ -1354,8 +1354,8 @@ export const resources = {
         rowBatchOptionalHint:
           "اختياري. أدخله فقط إذا كان رقم الدفعة الحقيقي متاحًا؛ غير ذلك اتركه فارغًا.",
         noTrackingFields: "لا يحتاج معلومات تتبع — النظام يتولى ذلك تلقائيًا.",
-        datePickerHint: "اكتب التاريخ مباشرة من لوحة المفاتيح أو استخدم زر التقويم داخل الحقل.",
-        dateQuickPlaceholder: "01252026",
+        datePickerHint: "اكتب التاريخ يوم/شهر/سنة، مثل 25082026، أو استخدم زر التقويم داخل الحقل.",
+        dateQuickPlaceholder: "25082026",
         factorToBase: "= {{factor}} {{unit}}",
         unitCostPlaceholder: "التكلفة الفعلية",
         addBatch: "إضافة دفعة أخرى",
@@ -3633,8 +3633,8 @@ export const resources = {
         rowBatchOptionalHint:
           "Optional. Enter it only when a genuine lot number is available; otherwise leave it blank.",
         noTrackingFields: "No tracking input needed — Wanasah handles it automatically.",
-        datePickerHint: "Type the date directly with the keyboard or use the calendar button inside the field.",
-        dateQuickPlaceholder: "01252026",
+        datePickerHint: "Type the date as day/month/year, for example 25082026, or use the calendar button inside the field.",
+        dateQuickPlaceholder: "25082026",
         factorToBase: "= {{factor}} {{unit}}",
         unitCostPlaceholder: "Actual cost",
         addBatch: "Add another batch",
