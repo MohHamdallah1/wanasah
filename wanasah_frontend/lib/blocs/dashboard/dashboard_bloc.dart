@@ -17,6 +17,9 @@ import 'package:dio/dio.dart';
 import '../../services/location_service.dart';
 import '../../repositories/dashboard_repository.dart';
 
+part '../../features/work_session/application/work_session_handlers.dart';
+part '../../features/custody/application/custody_handlers.dart';
+
 class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
   final SyncRepository _syncRepository;
   final LocalDatabase _db;
@@ -44,12 +47,29 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     on<LoadDashboardData>(_onLoadDashboardData, transformer: _sequential());
     on<ForceSyncData>(_onForceSyncData, transformer: _sequential());
     on<FetchDashboardData>(_onFetchDashboardData, transformer: _sequential());
-    on<CheckPendingTransfers>(_onCheckPendingTransfers); // هذا يمكن تركه لأنه يُستدعى داخلياً بعد Fetch
-    on<RespondToTransfer>(_onRespondToTransfer, transformer: _sequential());
-    on<RespondToBatchTransfer>(_onRespondToBatchTransfer, transformer: _sequential());
-    on<StartSessionEvent>(_onStartSession, transformer: _sequential());
-    on<EndSessionEvent>(_onEndSession, transformer: _sequential());
-    on<ToggleBreakEvent>(_onToggleBreak, transformer: _sequential());
+    on<CheckPendingTransfers>(
+      (event, emit) => _handleCheckPendingTransfers(this, event, emit),
+    ); // هذا يمكن تركه لأنه يُستدعى داخلياً بعد Fetch
+    on<RespondToTransfer>(
+      (event, emit) => _handleRespondToTransfer(this, event, emit),
+      transformer: _sequential(),
+    );
+    on<RespondToBatchTransfer>(
+      (event, emit) => _handleRespondToBatchTransfer(this, event, emit),
+      transformer: _sequential(),
+    );
+    on<StartSessionEvent>(
+      (event, emit) => _handleStartSession(this, event, emit),
+      transformer: _sequential(),
+    );
+    on<EndSessionEvent>(
+      (event, emit) => _handleEndSession(this, event, emit),
+      transformer: _sequential(),
+    );
+    on<ToggleBreakEvent>(
+      (event, emit) => _handleToggleBreak(this, event, emit),
+      transformer: _sequential(),
+    );
     on<ClearActionMessageEvent>((event, emit) {
       if (state is DashboardLoaded) {
         emit((state as DashboardLoaded).copyWith(clearActionMessage: true));
@@ -404,251 +424,4 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     }
   }
 
-  // ─── دوال المصافحة (Transfers Handshake) ──────────────────────────────────
-  Future<void> _onCheckPendingTransfers(
-    CheckPendingTransfers event,
-    Emitter<DashboardState> emit,
-  ) async {
-    if (state is! DashboardLoaded) return;
-
-    try {
-      final response = await _dashboardRepo.checkPendingTransfersRaw();
-      final dynamic rawTransfers = response.data;
-      final List<dynamic> transfers = rawTransfers is List ? rawTransfers : [];
-
-      if (transfers.isNotEmpty) {
-        // +++  لـ Bug 1: فحص State الحية قبل الـ Emit لمنع طمس البيانات +++
-        if (state is DashboardLoaded) {
-          emit((state as DashboardLoaded).copyWith(pendingTransfer: transfers.first));
-        }
-      }
-    } catch (e) {
-      developer.log('[DashboardBloc] Error checking transfers (Offline?): $e');
-      // +++  (البند 1): تغليف بيانات الأوفلاين المسطحة لتطابق شكل الـ API وتفهمها الشاشة +++
-      try {
-        final localTransfers = await _db.getIncomingTransfers();
-        if (localTransfers.isNotEmpty) {
-          if (state is DashboardLoaded) {
-            final wrappedData = {
-              'items': localTransfers.map((t) => {
-                'real_transfer_id': t['transfer_id'],
-                'product_variant_id': t['product_variant_id'],
-                'product_name': t['product_name'],
-                'delta_cartons': t['delta_cartons'],
-                'delta_packs': t['delta_packs'],
-                'status': t['status'],
-              }).toList()
-            };
-            emit((state as DashboardLoaded).copyWith(pendingTransfer: wrappedData));
-          }
-          developer.log('[DashboardBloc] Loaded pending transfer from local DB.');
-        }
-      } catch (localErr) {
-        developer.log('[DashboardBloc] Error reading local transfers: $localErr');
-      }
-    }
-  }
-
-  Future<void> _onRespondToTransfer(
-    RespondToTransfer event,
-    Emitter<DashboardState> emit,
-  ) async {
-    if (state is! DashboardLoaded) return;
-    
-    // +++ DAB-2: أخذ لقطة للحالة (Snapshot) قبل مسح الحوالة لاسترجاعها عند الفشل +++
-    final snapshot = state as DashboardLoaded;
-    emit(snapshot.copyWith(clearPendingTransfer: true));
-
-    try {
-      // +++ الإصلاح: توجيه الرد للـ SyncRepository المحصن بدلاً من الـ Repo القديم +++
-      final wasSentLive = await _syncRepository.respondToTransfer(
-        transferId: event.transferId, 
-        responseStr: event.responseStatus,
-      );
-
-      if (wasSentLive) {
-        final int? driverId = await _dashboardRepo.getDriverId();
-        add(FetchDashboardData(driverId: driverId ?? 0));
-      } else {
-        emit(snapshot.copyWith(
-          clearPendingTransfer: true,
-          actionSuccessMessage: 'تم حفظ ردك. سيتم إرساله تلقائياً عند عودة الإنترنت 📡',
-        ));
-      }
-    } catch (e) {
-      developer.log('[DashboardBloc] Error responding to transfer: $e');
-      emit(DashboardError(message: 'فشل إرسال الرد للإدارة: $e'));
-      emit(snapshot); // +++ إعادة الحوالة للشاشة لكي يحاول المندوب مرة أخرى +++
-    }
-  }
-
-  // ─── المحرك الصاروخي (Batch Handshake) ──────────────────────────────────
-  Future<void> _onRespondToBatchTransfer(
-    RespondToBatchTransfer event,
-    Emitter<DashboardState> emit,
-  ) async {
-    if (state is! DashboardLoaded) return;
-    final snapshot = state as DashboardLoaded;
-    emit(snapshot.copyWith(clearPendingTransfer: true));
-
-    // +++ البند 9: خدعة لتنظيف الحوالة العالقة إذا كانت الدفعة فارغة +++
-    if (event.detailedTransfers.isEmpty) return;
-
-    try {
-      bool isAnyQueued = false;
-      for (final t in event.detailedTransfers) {
-        final tid = int.tryParse(t['transfer_id']?.toString() ?? '');
-        if (tid == null) continue;
-        
-        // استلام النتيجة الحقيقية (أرسلت فوراً أم تخزنت أوفلاين)
-        final wasSentLive = await _syncRepository.respondToTransfer(
-          transferId: tid, 
-          responseStr: t['status'] as String,
-        );
-        
-        if (!wasSentLive) isAnyQueued = true;
-      }
-
-      if (!isAnyQueued) {
-        final int? driverId = await _dashboardRepo.getDriverId();
-        add(FetchDashboardData(driverId: driverId ?? 0));
-      } else {
-        emit(snapshot.copyWith(
-          clearPendingTransfer: true,
-          actionSuccessMessage: 'تم حفظ ردك. سيتم إرساله تلقائياً عند عودة الإنترنت 📡',
-        ));
-      }
-    } catch (e) {
-      developer.log('[DashboardBloc] Error responding to batch: $e');
-      // اصطياد الخطأ الصريح من السيرفر (4xx) الذي قمنا برميه الآن
-      emit(DashboardError(message: e.toString().replaceAll('Exception: ', '')));
-      emit(snapshot); // نعيد النافذة ليتدارك المندوب الخطأ
-    }
-  }
-
-
-  // ─── دوال إدارة جلسة العمل (Clean Architecture: Delegation to Repository) ───
-
-  Future<void> _onStartSession(StartSessionEvent event, Emitter<DashboardState> emit) async {
-    try {
-      final position = await _locationService.getCurrentLocation();
-      await _dashboardRepo.startSession(position?.latitude, position?.longitude);
-
-      if (state is DashboardLoaded) emit((state as DashboardLoaded).copyWith(actionSuccessMessage: 'تم بدء جلسة العمل!'));
-      add(FetchDashboardData(driverId: event.driverId)); 
-      
-    } on DioException catch (e) {
-      if (e.response?.statusCode == 409) {
-        if (state is DashboardLoaded) emit((state as DashboardLoaded).copyWith(actionSuccessMessage: 'يوجد جلسة عمل نشطة بالفعل.'));
-        add(FetchDashboardData(driverId: event.driverId));
-      } else if (e.response?.statusCode != 401) {
-        // +++ DAB-3: درع استخراج الرسائل الآمن لمنع كراش الـ NoSuchMethodError +++
-        final data = e.response?.data;
-        // +++  (البند 10): التوافق مع بنية أخطاء Pydantic/FastAPI +++
-      final msg = (data is Map) ? (data['message'] ?? data['detail']) : 'فشل (استجابة غير متوقعة)';
-        emit(DashboardError(message: 'خطأ: $msg'));
-      }
-    } catch (e) {
-      // +++   اصطياد كافة مشاكل الـ GPS ومنع الجلسة من البدء بدون إحداثيات +++
-      if (e.toString().contains('GPS_DISABLED')) {
-        emit(DashboardError(message: 'الرجاء تفعيل خدمة الموقع (GPS) لبدء العمل.'));
-      } else if (e.toString().contains('GPS_DENIED_FOREVER')) {
-        // +++   توجيه المندوب للإعدادات بدلاً من تضليله +++
-        emit(DashboardError(message: 'صلاحية الموقع مرفوضة نهائياً. افتح إعدادات الجهاز وامنح التطبيق صلاحية الموقع ثم أعد المحاولة.'));
-      } else if (e.toString().contains('GPS_DENIED')) {
-        emit(DashboardError(message: 'صلاحية الموقع مطلوبة لبدء العمل.'));
-      } else if (e.toString().contains('FAKE_GPS_DETECTED')) {
-        // +++ الدرع الأمني: فضح التلاعب أمام المندوب فوراً +++
-        emit(DashboardError(message: 'تحذير أمني: تم رصد تطبيق تزوير موقع (Fake GPS). أوقفه لمتابعة العمل.'));
-      } else if (e.toString().contains('GPS_TIMEOUT')) {
-        emit(DashboardError(message: 'فشل تحديد الموقع. الرجاء التأكد من قوة إشارة الـ GPS والمحاولة في مكان مفتوح.'));
-      } else {
-        emit(DashboardError(message: 'حدث خطأ غير متوقع: ${e.toString().replaceAll('Exception: ', '')}'));
-      }
-    }
-  }
-
-  Future<void> _onEndSession(EndSessionEvent event, Emitter<DashboardState> emit) async {
-    try {
-      await _dashboardRepo.endSession();
-      if (state is DashboardLoaded) emit((state as DashboardLoaded).copyWith(actionSuccessMessage: 'تم إنهاء العمل.'));
-      add(FetchDashboardData(driverId: event.driverId));
-      
-    } on DioException catch (e) {
-      if (e.response?.statusCode == 401) return;
-
-      if (e.response?.statusCode == 404) {
-        await _dashboardRepo.clearSessionLocally();
-        if (state is DashboardLoaded) emit((state as DashboardLoaded).copyWith(actionSuccessMessage: 'تم اكتشاف تصفير للسيرفر. تم تنظيف الجلسة الوهمية محلياً 🧹'));
-        add(FetchDashboardData(driverId: event.driverId));
-        return;
-      }
-
-      // +++   إضافة كافة حالات الـ Offline لمنع الخطأ الوهمي +++
-      final isOffline = e.response == null || 
-                        e.type == DioExceptionType.connectionTimeout || 
-                        e.type == DioExceptionType.receiveTimeout || 
-                        e.type == DioExceptionType.sendTimeout || 
-                        e.type == DioExceptionType.connectionError || 
-                        e.type == DioExceptionType.unknown ||
-                        e.error.toString().contains('SocketException');
-
-      final data = e.response?.data;
-      // +++  (البند 10): التوافق مع بنية أخطاء Pydantic/FastAPI +++
-      final msg = (data is Map) ? (data['message'] ?? data['detail']) : 'فشل (استجابة غير متوقعة)';
-      emit(DashboardError(message: isOffline 
-          ? 'لا يمكن إنهاء العمل وأنت أوفلاين. يجب الاتصال بالإنترنت لمطابقة العهدة وتسليمها.' 
-          : 'خطأ: $msg'));
-    } catch (e) {
-      emit(DashboardError(message: 'حدث خطأ أثناء إنهاء الجلسة.'));
-    }
-  }
-
-  Future<void> _onToggleBreak(ToggleBreakEvent event, Emitter<DashboardState> emit) async {
-    try {
-      // نستقبل النتيجة الحقيقية (أونلاين أم أوفلاين)
-      final wasSentLive = await _dashboardRepo.toggleBreak(event.driverId, event.action);
-      
-      if (state is DashboardLoaded) {
-        final actionText = event.action == 'start' ? 'تم بدء الاستراحة' : 'تم إنهاء الاستراحة';
-        // +++ رسالة صادقة للمندوب بناءً على حالة الشبكة +++
-        final successMsg = wasSentLive ? '$actionText (مسجلة).' : '$actionText (محفوظة أوفلاين 📡).';
-        emit((state as DashboardLoaded).copyWith(actionSuccessMessage: successMsg));
-      }
-      add(FetchDashboardData(driverId: event.driverId));
-      
-    } on DioException catch (e) {
-      if (e.response?.statusCode == 401) return;
-      if (e.response?.statusCode == 404) {
-        await _dashboardRepo.clearSessionLocally();
-        if (state is DashboardLoaded) {
-          emit(
-            (state as DashboardLoaded).copyWith(
-              actionSuccessMessage:
-                  'الجلسة غير موجودة على السيرفر! تم إعادة الضبط محلياً.',
-            ),
-          );
-        }
-        add(FetchDashboardData(driverId: event.driverId));
-        return;
-      }
-
-      if (e.response == null) {
-        emit(
-          DashboardError(
-            message:
-                'بدء أو إنهاء الاستراحة يحتاج اتصالاً مباشراً بالسيرفر ولا يُحفظ كأمر أوفلاين.',
-          ),
-        );
-        return;
-      }
-
-      final data = e.response?.data;
-      final msg =
-          (data is Map) ? (data['message'] ?? data['detail']) : 'فشل (استجابة غير متوقعة)';
-      emit(DashboardError(message: 'خطأ: $msg'));
-    } catch (e) {
-      emit(DashboardError(message: 'فشل في عملية الاستراحة.'));
-    }
-  }
-} // +++   هذا القوس اللي طار وكسرلك الملف كله! +++
+}
