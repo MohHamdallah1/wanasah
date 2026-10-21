@@ -9,6 +9,7 @@ import '../../core/db/local_database.dart';
 import '../../models/product_model.dart';
 import '../../models/cart_item_model.dart';
 import '../../repositories/sync_repository.dart'; // +++ للتعامل مع الخزنة وحفظ الفاتورة +++
+import '../../core/visit/visit_command_serializer.dart';
 
 // ============================================================================
 // 1. الأوامر (Events)
@@ -479,29 +480,22 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
         }
       }
 
-      // 3. بناء الـ Payload المطابق 100% للسيرفر بعد التحديث
-      final payload = <String, dynamic>{
-        'visit_id': event.visitId, // +++   حقن الـ ID بوضوح ليتعرف التطبيق على مسودته +++
-        'visitId': event.visitId, // ضمان التوافقية
-        'outcome': event.outcome,
-        'notes': event.notes ?? '',
-      };
+      // 3. Build only the strict Backend VisitUpdateRequest body.
+      // visitId remains a local durable-envelope field owned by SyncRepository
+      // and is never sent in the HTTP body.
+      final payload = buildCanonicalVisitPayload(
+        outcome: event.outcome,
+        notes: event.notes,
+        cashCollected: currentState.cashCollected.toStringAsFixed(3),
+        debtPaid: event.debtPaid.toStringAsFixed(3),
+        cartItems: cartItems,
+        returns: returns,
+      );
 
-      // +++ التوافق المعماري (I-01 Shield): عزل الأموال والبضاعة عن الزيارات المؤجلة لمنع الـ 400 +++
-      if (event.outcome == 'Sale' || event.outcome == 'NoSale') {
-        payload['cash_collected'] = currentState.cashCollected;
-        payload['debt_paid'] = event.debtPaid;
-        
-        if (cartItems.isNotEmpty) payload['cart_items'] = cartItems;
-        if (returns.isNotEmpty) payload['returns'] = returns;
-
-        if (event.outcome == 'NoSale') {
-          payload['no_sale_reason'] = event.notes ?? '';
-        }
-      }
-
-      // 5. الضرب المباشر على الخزنة السرية (SyncRepository)
-      await _syncRepo.saveInvoice(visitId: event.visitId, payload: payload);
+      await _syncRepo.saveInvoice(
+        visitId: event.visitId,
+        payload: payload,
+      );
 
       // إعلان نجاح العملية لتغلق الشاشة
       emit(VisitSubmissionSuccess());
