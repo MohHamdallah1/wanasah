@@ -1,4 +1,5 @@
 name: Flutter V1 Visit commercial decomposition
+# Gate the feature-owned Visit commercial split before FIELD seam wiring.
 
 on:
   push:
