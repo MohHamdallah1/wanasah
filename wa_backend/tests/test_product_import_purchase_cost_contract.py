@@ -89,3 +89,29 @@ def test_import_cost_does_not_infer_from_selling_price():
     assert has_import_cost([SimpleNamespace(normalized_data=data)]) is False
     data["purchase_unit_cost"] = "0.000000"
     assert has_import_cost([SimpleNamespace(normalized_data=data)]) is True
+
+
+def test_50k_legacy_rows_do_not_turn_on_reference_writer():
+    """No unrequested financial write on the established 50k-row fast path.
+
+    Each IMPORT_BATCH=200 unit preserves the old zero-reference mutation
+    path. This is a bounded contract, not a claim of a full database benchmark.
+    """
+    from domains.simple_products.imports.application.execution_service import IMPORT_BATCH
+    from domains.simple_products.imports.application.staging_service import STAGE_BATCH
+    from domains.simple_products.imports.application.validation_service import VALIDATION_BATCH_SIZE
+
+    assert (IMPORT_BATCH, STAGE_BATCH, VALIDATION_BATCH_SIZE) == (200, 500, 500)
+    legacy = SimpleNamespace(normalized_data={"unit_price": "2.000000"})
+    for _ in range(50_000 // IMPORT_BATCH):
+        assert not has_import_cost([legacy] * IMPORT_BATCH)
+
+
+def test_200_row_cost_batch_has_bounded_size_and_never_infers_from_sale_price():
+    rows = [SimpleNamespace(normalized_data={
+        "unit_price": "20.000000",
+        "purchase_unit_cost": "1.250000" if i % 2 == 0 else None,
+    }) for i in range(200)]
+    assert has_import_cost(rows)
+    assert sum(row.normalized_data["purchase_unit_cost"] is not None for row in rows) == 100
+    assert all(row.normalized_data["unit_price"] == "20.000000" for row in rows)
