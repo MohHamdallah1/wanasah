@@ -220,6 +220,7 @@ EN_IMPORT_LOCALE = ImportLocalePack(
             "each price",
         ),
         "purchase_unit_cost": (
+            "purchase cost per base unit (optional)",
             "purchase cost per base unit",
             "purchase cost each",
             "purchase unit cost",
@@ -389,6 +390,7 @@ AR_IMPORT_LOCALE = ImportLocalePack(
             "سعر القطعة",
         ),
         "purchase_unit_cost": (
+            "تكلفة شراء الوحدة الأساسية (اختياري)",
             "تكلفة شراء الوحدة الأساسية",
             "تكلفة شراء الوحدة",
             "تكلفة الشراء",
