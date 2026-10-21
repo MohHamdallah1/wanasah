@@ -84,6 +84,7 @@ const makeVariant = (
 const makeFetch = (
   variants: CatalogVariant[],
   nextCursor: string | null = null,
+  purchaseReference: { amount: string; purchase_uom_id: number; currency_code: string; revision: number } | null = null,
 ) =>
   vi.fn(async (url: string, opts?: RequestInit): Promise<unknown> => {
     if (url.startsWith("/catalog/variants?")) {
@@ -99,6 +100,7 @@ const makeFetch = (
         items: variants.map((item) => ({
           product_variant_id: item.id,
           base_uom_id: 1,
+          purchase_cost_reference: purchaseReference,
           uoms: [
             {
               id: 1,
@@ -127,8 +129,9 @@ const makeFetch = (
 const renderInbound = (
   variants: CatalogVariant[],
   nextCursor: string | null = null,
+  purchaseReference: { amount: string; purchase_uom_id: number; currency_code: string; revision: number } | null = null,
 ) => {
-  const fetch = makeFetch(variants, nextCursor);
+  const fetch = makeFetch(variants, nextCursor, purchaseReference);
   const view = render(
     <div data-testid="host">
       <Tab2Inbound
@@ -163,6 +166,52 @@ describe("Checkpoint 1 inbound UI", () => {
       configurable: true,
       value: vi.fn(),
     });
+  });
+
+  it("prefills a pristine receipt cost and does not overwrite the operator's actual edit", async () => {
+    const keys = inboundStorageKeys(1, 2, 3);
+    localStorage.setItem(keys.reference, "INB-PREFILL");
+    renderInbound(
+      [makeVariant(7, "Reference product", "NONE", "NONE")],
+      null,
+      { amount: "8.500000", purchase_uom_id: 1, currency_code: "JOD", revision: 2 },
+    );
+    const row = (await screen.findByText("Reference product")).closest("tr")!;
+    const cost = within(row).getByLabelText("Actual cost") as HTMLInputElement;
+    await waitFor(() => expect(cost.value).toBe("8.500000"));
+    fireEvent.change(cost, { target: { value: "9.250000" } });
+    fireEvent.change(within(row).getByLabelText("Quantity"), { target: { value: "2" } });
+    await waitFor(() => expect(cost.value).toBe("9.250000"));
+    fireEvent.click(screen.getByRole("button", { name: "choose-supplier" }));
+    fireEvent.click(screen.getByRole("button", { name: "Post receipt" }));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
+    expect(mocks.post.mock.calls[0][0].items[0].unit_cost).toBe("9.250000");
+  });
+
+  it("requires a deliberate future reference choice for distinct receipt-line costs", async () => {
+    const keys = inboundStorageKeys(1, 2, 3);
+    localStorage.setItem(keys.reference, "INB-MIXED");
+    localStorage.setItem(keys.drafts, JSON.stringify({
+      "7": [
+        { row_id: "lot-1", quantity: "2", uom_id: "1", unit_cost: "3.000000",
+          batch_number: "LOT1", production_date: "", expiry_date: "" },
+        { row_id: "lot-2", quantity: "2", uom_id: "1", unit_cost: "4.000000",
+          batch_number: "LOT2", production_date: "", expiry_date: "" },
+      ],
+    }));
+    renderInbound([makeVariant(7, "Mixed product", "OPTIONAL", "NONE")]);
+    await screen.findByText("Mixed product");
+    fireEvent.click(screen.getByRole("button", { name: "choose-supplier" }));
+    fireEvent.click(screen.getByRole("button", { name: "Post receipt" }));
+    expect(mocks.post).not.toHaveBeenCalled();
+    const choice = await screen.findByLabelText("Select purchase reference for product 7");
+    fireEvent.change(choice, { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Post receipt" }));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
+    expect(mocks.post.mock.calls[0][0].purchase_reference_selections).toEqual([
+      { product_variant_id: 7, uom_id: 1, unit_cost: "4.000000" },
+    ]);
+    expect(mocks.post.mock.calls[0][0].items.map((x: { unit_cost: string }) => x.unit_cost)).toEqual(["3.000000", "4.000000"]);
   });
 
   it("renders NONE / OPTIONAL / REQUIRED tracking fields exactly", async () => {
