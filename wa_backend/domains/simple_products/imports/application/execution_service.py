@@ -377,7 +377,7 @@ async def _execute_rows_once(
     *,
     company_id: int,
     actor,
-    access: BackofficeCapabilityAccess,
+    access: BackofficeCapabilityAccess | None = None,
     job_id: UUID,
     rows: list[Any],
 ) -> None:
@@ -450,6 +450,8 @@ async def _execute_rows_once(
         return
 
     if has_import_cost(rows):
+        if access is None:
+            raise ProductImportTerminalError("Missing purchase-cost import authorization context")
         # Only import batches with an explicit cost take this guard.
         # Acquire before Product/Pricing locks, exactly once per 200-row unit.
         await acquire_writer_guard(db, company_id=company_id)
