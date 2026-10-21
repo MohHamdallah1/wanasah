@@ -216,6 +216,9 @@ export function Tab2Inbound({
   const [optionsLoading, setOptionsLoading] = useState(false);
   const [referenceChoices, setReferenceChoices] = useState<Map<number, InboundReferenceSelection[]>>(new Map());
   const [selectedReferences, setSelectedReferences] = useState<Map<number, InboundReferenceSelection>>(new Map());
+  // Cost is read-only until the operator explicitly edits this receipt line.
+  // It is UI-only state: actual costs, saved drafts and reference history are untouched.
+  const [editingCostRows, setEditingCostRows] = useState<Set<string>>(() => new Set());
   const [submitting, setSubmitting] = useState(false);
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [costPolicyOpen, setCostPolicyOpen] = useState(false);
@@ -521,6 +524,20 @@ export function Tab2Inbound({
     else controlRefs.current.delete(key);
   };
 
+  const enableCostEditing = (rowId: string) => {
+    setEditingCostRows((current) => new Set(current).add(rowId));
+    focusControl(rowId, "unit_cost");
+  };
+
+  const stopCostEditing = (rowId: string) => {
+    setEditingCostRows((current) => {
+      if (!current.has(rowId)) return current;
+      const next = new Set(current);
+      next.delete(rowId);
+      return next;
+    });
+  };
+
   const focusControl = (rowId: string, control: InboundRowControl) => {
     window.requestAnimationFrame(() => {
       rowRefs.current.get(rowId)?.scrollIntoView({
@@ -590,6 +607,7 @@ export function Tab2Inbound({
     setValidationError(null);
     setReferenceChoices(new Map());
     setSelectedReferences(new Map());
+    setEditingCostRows(new Set());
     setClearOpen(false);
   };
 
@@ -995,17 +1013,32 @@ export function Tab2Inbound({
                             ref={(node) => setControlRef(row.row_id, "unit_cost", node)}
                             inputMode="decimal"
                             value={row.unit_cost}
+                            readOnly={!editingCostRows.has(row.row_id)}
                             aria-label={t("inventoryInbound.unitCostPlaceholder")}
                             aria-invalid={fieldHasError(row.row_id, "unit_cost")}
                             onFocus={(event) => event.currentTarget.select()}
-                            onKeyDown={(event) =>
-                              handleRowEnter(event, row.row_id, variant, "unit_cost")
-                            }
-                            onChange={(event) =>
+                            onKeyDown={(event) => {
+                              // Keep Enter-to-next-field navigation; F2 opens cost
+                              // entry for keyboard-only operators.
+                              if (event.key === "F2") {
+                                event.preventDefault();
+                                enableCostEditing(row.row_id);
+                                return;
+                              }
+                              if (event.key === "Escape" && editingCostRows.has(row.row_id)) {
+                                event.preventDefault();
+                                stopCostEditing(row.row_id);
+                                return;
+                              }
+                              handleRowEnter(event, row.row_id, variant, "unit_cost");
+                            }}
+                            onBlur={() => stopCostEditing(row.row_id)}
+                            onChange={(event) => {
+                              if (!editingCostRows.has(row.row_id)) return;
                               update(variant, row.row_id, {
                                 unit_cost: event.target.value.replace(/[^0-9.]/g, ""),
-                              })
-                            }
+                              });
+                            }}
                             className={fieldHasError(row.row_id, "unit_cost") ? "is-error" : ""}
                           />
                           <button
@@ -1013,7 +1046,7 @@ export function Tab2Inbound({
                             aria-label={t("inventoryInbound.editPurchaseCost")}
                             title={t("inventoryInbound.editPurchaseCost")}
                             disabled={submitting || posting.pending !== null}
-                            onClick={() => focusControl(row.row_id, "unit_cost")}
+                            onClick={() => enableCostEditing(row.row_id)}
                             className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-500 disabled:opacity-50"
                           >
                             <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
