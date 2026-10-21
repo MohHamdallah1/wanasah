@@ -159,7 +159,8 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
         outcome: event.outcome,
         notes: event.notes,
         debtPaid: event.debtPaid,
-        state: currentState,
+        cashCollected: currentState.cashCollected,
+        cart: currentState.cart,
       );
       emit(VisitSubmissionSuccess());
     } catch (e) {
