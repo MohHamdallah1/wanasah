@@ -1,3 +1,5 @@
+import { useQuery } from "@tanstack/react-query";
+import { parsePurchaseReferenceCreateOptions, type PurchaseReferenceCreateInput } from "./purchaseReferenceCreateContract";
 import type {
   Dispatch,
   SetStateAction,
@@ -183,6 +185,15 @@ export function useCreateProductWorkflow({
     t,
   });
 
+  const purchaseReferenceOptions = useQuery({
+    queryKey: ["product-create-purchase-reference-options", companyId, driverId],
+    enabled: createOpen && companyId !== null && driverId !== null,
+    retry: false,
+    queryFn: async ({ signal }) => parsePurchaseReferenceCreateOptions(
+      await authFetch("/simple-products/purchase-reference-create-options", { signal }),
+    ),
+  });
+
   const familyOptionParams =
     useCreateFamilyOptionParams(
       familyOptionSearch
@@ -288,6 +299,11 @@ export function useCreateProductWorkflow({
       setFamilyOptionSearch,
     },
     modalProps: {
+      purchaseReferenceOptions: purchaseReferenceOptions.data,
+      purchaseReferenceOptionsError: purchaseReferenceOptions.isError,
+      onRetryPurchaseReferenceOptions: () => { void purchaseReferenceOptions.refetch(); },
+      onPurchaseReferenceChange: (value: PurchaseReferenceCreateInput | undefined) =>
+        setDraft((current) => ({ ...current, purchase_cost_reference: value })),
       open: createOpen,
       saving:
         createMutation.isPending,
