@@ -66,6 +66,14 @@ from product_lifecycle import (
 )
 from domains.suppliers.public import SupplierError, select_active_supplier, require_supplier_permission
 from domains.inventory_supplier_evidence import record_supplier_evidence
+from domains.inventory_costing.purchase_reference.public import (
+    PurchaseReferenceError,
+    begin_receipt_reference,
+    inbound_reference_prefill,
+    receipt_hash_arguments,
+    select_reference_pairs,
+    write_receipt_references,
+)
 from domains.product_tracking import (
     build_internal_no_lot_batch_number,
     is_reserved_internal_batch_number,
@@ -657,6 +665,13 @@ async def warehouse_inbound_options(
             ),
         )
 
+    try:
+        reference_prefill = await inbound_reference_prefill(
+            db, access=access, variant_ids=sorted(base_by_variant),
+        )
+    except PurchaseReferenceError as exc:
+        raise HTTPException(exc.status_code, detail=exc.as_detail()) from exc
+
     items = []
     for variant_id in sorted(base_by_variant):
         base_uom_id = base_by_variant[variant_id]
@@ -685,6 +700,8 @@ async def warehouse_inbound_options(
             "lot_control_mode": lot_control_mode,
             "expiry_control_mode": expiry_control_mode,
             "uoms": option_rows,
+            # Suggestions only: posting still requires each operator's actual unit_cost.
+            "purchase_cost_reference": reference_prefill.get(variant_id),
         })
 
     return {
@@ -796,7 +813,7 @@ async def warehouse_inbound(
     try:
         if payload.supplier_id is not None:
             await require_supplier_permission(access)
-        request_hash = _stable_request_hash(payload, exclude_fields={"supplier_id"} if payload.supplier_id is None else None)
+        request_hash = _stable_request_hash(payload, **receipt_hash_arguments(payload))
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
@@ -808,6 +825,14 @@ async def warehouse_inbound(
         if replay_response is not None:
             await db.rollback()
             return replay_response
+
+        reference_writer = await begin_receipt_reference(
+            db, access=access, operation=idempotency_record, location_id=payload.location_id,
+        )
+        actual_pairs = {}
+        for item in payload.items:
+            actual_pairs.setdefault(item.product_variant_id, set()).add((item.uom_id, item.unit_cost))
+        select_reference_pairs(actual_pairs, payload.purchase_reference_selections)
 
         if not payload.items:
             raise HTTPException(status_code=400, detail="No inbound items were supplied.")
@@ -1257,11 +1282,20 @@ async def warehouse_inbound(
             supplier=supplier, request_id=payload.request_id,
         )
 
+        await write_receipt_references(
+            db, access=access, writer=reference_writer, reference_id=reference_id,
+            movement_ids=[row.id for row in posted_movements],
+            selections=payload.purchase_reference_selections,
+        )
+
         response_payload = {"message": "INBOUND_POSTED"}
         complete_idempotent_operation(idempotency_record, response_payload)
         await db.commit()
         return response_payload
 
+    except PurchaseReferenceError as exc:
+        await db.rollback()
+        raise HTTPException(exc.status_code, detail=exc.as_detail()) from exc
     except SupplierError as exc:
         await db.rollback()
         raise HTTPException(exc.status_code, detail=exc.as_detail()) from exc
@@ -1333,3 +1367,6 @@ async def warehouse_inbound(
                 "Supplier inbound could not be completed.",
             ),
         ) from exc
+    except BaseException:
+        await db.rollback()
+        raise

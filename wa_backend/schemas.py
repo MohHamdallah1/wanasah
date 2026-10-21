@@ -1966,6 +1966,13 @@ class InboundBatchItem(RequestModel):
 
 
 
+class InboundPurchaseReferenceSelection(RequestModel):
+    """Select one actual native cost/UOM pair, independent of receipt line order."""
+    product_variant_id: PositiveDbInt
+    uom_id: PositiveDbInt
+    unit_cost: InventoryCostMoneyInput
+
+
 class InboundOptionsRequest(RequestModel):
     ids: List[PositiveDbInt] = Field(..., min_length=1, max_length=200)
 
@@ -1991,6 +1998,10 @@ class UpgradedInboundRequest(RequestModel):
     reference_id: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = Field(None, max_length=4000)
     items: List[InboundBatchItem] = Field(..., min_length=1, max_length=5000)
+
+    purchase_reference_selections: Optional[List[InboundPurchaseReferenceSelection]] = Field(
+        default=None, max_length=5000,
+    )
 
     @field_validator("reference_id", "notes", mode="before")
     @classmethod
