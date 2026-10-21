@@ -2,7 +2,9 @@ name: Isolated 50k Product Import purchase cost performance
 
 on:
   push:
-    branches: [sol/product-import-50k-performance-evidence]
+    branches:
+      - sol/product-import-50k-performance-evidence
+      - sol/product-import-cost-write-optimization-perf
   workflow_dispatch:
 
 permissions:
