@@ -1,0 +1,110 @@
+name: Purchase reference V1 end-to-end PostgreSQL acceptance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "wa_backend/tests/test_purchase_reference_e2e_postgres.py"
+      - ".github/workflows/purchase-reference-e2e-postgres.yml"
+      - "wa_backend/api/simple_products.py"
+      - "wa_backend/api/warehouse/inbound.py"
+      - "wa_backend/domains/inventory_costing/**"
+      - "wa_backend/domains/simple_products/**"
+      - "wa_backend/domains/inventory_supplier_evidence.py"
+      - "wa_backend/domains/authorization/**"
+      - "wa_backend/schemas.py"
+      - "wa_backend/alembic/**"
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: purchase_reference_e2e_admin
+          POSTGRES_DB: wanasah_purchase_reference_e2e
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["55473:5432"]
+        options: >-
+          --health-cmd "pg_isready -U purchase_reference_e2e_admin -d wanasah_purchase_reference_e2e"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: PurchaseReferenceE2EOnlyKeyAbc123456789012345678901
+      DATABASE_URL: postgresql+asyncpg://purchase_reference_e2e_runtime@127.0.0.1:55473/wanasah_purchase_reference_e2e
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://purchase_reference_e2e_admin@127.0.0.1:55473/wanasah_purchase_reference_e2e
+      WANASAH_PURCHASE_REFERENCE_E2E: "1"
+      WANASAH_E2E_EVIDENCE: artifacts/purchase-reference-e2e-evidence.jsonl
+      EXPECTED_E2E_BASE: ab6307086516483f9615e5b0a7a6c46a6c205110
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Record exact revision and acceptance base
+        shell: bash
+        run: |
+          git rev-parse HEAD
+          git merge-base --is-ancestor "$EXPECTED_E2E_BASE" HEAD
+          git diff --check "$EXPECTED_E2E_BASE" HEAD
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install locked backend and test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Create restricted disposable runtime role
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect("postgresql://purchase_reference_e2e_admin@127.0.0.1:55473/wanasah_purchase_reference_e2e", autocommit=True) as db:
+              db.execute("CREATE ROLE purchase_reference_e2e_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Empty database canonical Alembic bootstrap
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: Model migration parity
+        working-directory: wa_backend
+        run: alembic check
+      - name: Same-company complete FIFO and moving-average HTTP/PostgreSQL journeys
+        working-directory: wa_backend
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          python -m pytest -v -s tests/test_purchase_reference_e2e_postgres.py --junitxml=artifacts/purchase-reference-e2e-junit.xml | tee artifacts/purchase-reference-e2e-pytest.log
+      - name: Publish precise PASS/FAIL evidence
+        if: always()
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          report = Path("artifacts/purchase-reference-e2e-evidence.jsonl")
+          junit = Path("artifacts/purchase-reference-e2e-junit.xml")
+          rows = [json.loads(line) for line in report.read_text().splitlines()] if report.exists() else []
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
+              out.write("## Purchase reference V1 PostgreSQL evidence\n\n")
+              out.write("| Method | Company | Stage | Result |\n|---|---|---|---|\n")
+              for row in rows:
+                  out.write(f"| {row['method']} | {row['company_id']} | {row['stage']} | {row['status']} |\n")
+              if not rows:
+                  out.write("| — | — | Setup / collection | NO JOURNEY EVIDENCE — inspect job failure |\n")
+              if junit.exists():
+                  suites = ET.parse(junit).getroot()
+                  for suite in suites.iter("testsuite"):
+                      out.write(f"\nJUnit: {suite.attrib}\n")
+          PY
+      - name: Retain test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: purchase-reference-e2e-${{ github.sha }}
+          path: wa_backend/artifacts/
+          if-no-files-found: warn
+      - name: Exact-base whitespace check
+        run: git diff --check "$EXPECTED_E2E_BASE" HEAD
