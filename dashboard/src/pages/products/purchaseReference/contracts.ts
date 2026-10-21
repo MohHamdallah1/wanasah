@@ -64,3 +64,30 @@ export const validateReferenceCommand = (
     currency_code: draft.currency_code, expected_revision: expectedRevision,
   };
 };
+
+/** Validate the immutable committed reply before clearing a durable request. */
+export const assertReferenceSaved = (
+  raw: unknown,
+  command: PurchaseReferenceCommand,
+  productVariantId: number,
+): void => {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("PURCHASE_REFERENCE_RESPONSE_INVALID");
+  }
+  const row = (raw as { reference?: unknown }).reference;
+  if (!row || typeof row !== "object" || Array.isArray(row)) {
+    throw new Error("PURCHASE_REFERENCE_RESPONSE_INVALID");
+  }
+  const ref = row as Record<string, unknown>;
+  const parts = command.amount.split(".");
+  const canonicalAmount = parts[0] + "." + (parts[1] ?? "").padEnd(6, "0");
+  if (
+    ref.product_variant_id !== productVariantId ||
+    ref.amount !== canonicalAmount ||
+    ref.purchase_uom_id !== command.purchase_uom_id ||
+    ref.currency_code !== command.currency_code ||
+    ref.revision !== command.expected_revision + 1
+  ) {
+    throw new Error("PURCHASE_REFERENCE_RESPONSE_INVALID");
+  }
+};
