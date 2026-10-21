@@ -357,7 +357,8 @@ class SyncRepository {
 
         if (state == DurableCommandState.blocked ||
             DurableCommandType.isLegacyQuarantined(rawType)) {
-          continue;
+          // FIFO fail-closed: never let later commands leapfrog unresolved evidence.
+          break;
         }
 
         final type = DurableCommandType.normalizeLegacyType(rawType);
@@ -369,7 +370,7 @@ class SyncRepository {
             errorMessage:
                 'Offline break commands cannot be replayed after their original time.',
           );
-          continue;
+          break;
         }
 
         if (!DurableCommandType.isReplayable(type)) {
@@ -378,7 +379,7 @@ class SyncRepository {
             errorCode: 'UNKNOWN_OFFLINE_COMMAND',
             errorMessage: 'Unsupported offline command type: $type',
           );
-          continue;
+          break;
         }
 
         Map<String, dynamic> payload;
@@ -390,7 +391,7 @@ class SyncRepository {
             errorCode: 'CORRUPT_OFFLINE_PAYLOAD',
             errorMessage: e.toString(),
           );
-          continue;
+          break;
         }
 
         if (type == DurableCommandType.submitSale &&
@@ -448,6 +449,7 @@ class SyncRepository {
             errorMessage: _displayErrorFromDio(e),
             requestId: requestId,
           );
+          break;
         } catch (e) {
           if (e.toString().contains('DatabaseException')) {
             await _db.markPendingSyncPending(
@@ -463,6 +465,7 @@ class SyncRepository {
             errorCode: 'LOCAL_COMMAND_ERROR',
             errorMessage: e.toString(),
           );
+          break;
         }
       }
     } finally {
