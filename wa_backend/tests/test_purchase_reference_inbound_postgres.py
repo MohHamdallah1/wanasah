@@ -95,26 +95,43 @@ async def test_atomic_receipt_keeps_normal_accounting_and_native_cost(pg, method
         "24.000000", t.carton_id, "JOD", 1)
     assert ref["source"] == "SUPPLIER_INBOUND"
     assert (ref["factor_numerator"], ref["factor_denominator"]) == ("12", "1")
+    # Seed a real historical external exit so old COGS/FIFO consumption evidence
+    # must remain byte-identical across the next supplier receipt.
+    from services import apply_inventory_movements_batch
+    async with pg.session(t) as db:
+        batch_id = await db.scalar(text(
+            "SELECT min(batch_id) FROM inventory_movements WHERE company_id=:c"
+        ), {"c": t.company_id})
+        await apply_inventory_movements_batch(
+            db, company_id=t.company_id, performed_by=t.owner.driver_id,
+            movements=[dict(product_variant_id=t.variant_id, batch_id=batch_id, quantity=Decimal("3"),
+                            movement_kind="PHYSICAL", reference_type="REFERENCE_TEST_EXIT",
+                            reference_id="COGS-HISTORY", idempotency_key="COGS-" + uuid4().hex,
+                            source_location_id=t.location_id, source_stock_status="AVAILABLE",
+                            destination_location_id=None, destination_stock_status=None)],
+        )
+        await db.commit()
     before = await snapshot(pg, t)
     second = receipt(t, supplier, items=[
         dict(product_variant_id=t.variant_id, quantity="2", uom_id=t.each_id, unit_cost="3")
     ])
     await post(pg, t, second)
     after = await snapshot(pg, t)
-    assert len(after["inventory_cost_events"]) == 2
+    assert len(after["inventory_cost_events"]) == 3
     assert set(before["inventory_cost_events"]) <= set(after["inventory_cost_events"])
     assert set(before["inventory_movements"]) <= set(after["inventory_movements"])
     assert set(before["inventory_supplier_evidence"]) <= set(after["inventory_supplier_evidence"])
     assert set(before["inventory_cost_layers"]) <= set(after["inventory_cost_layers"])
-    assert after["inventory_cost_allocations"] == before["inventory_cost_allocations"] == []
+    assert after["inventory_cost_allocations"] == before["inventory_cost_allocations"]
+    assert len(after["inventory_cost_allocations"]) == (1 if method == "FIFO" else 0)
     for table in ("price_books", "price_book_entries", "price_publications"):
         assert after[table] == before[table]
     async with pg.session(t) as db:
         state = (await db.execute(text(
             "SELECT quantity,inventory_value,average_unit_cost FROM inventory_cost_states WHERE company_id=:c"
         ), {"c": t.company_id})).one()
-        assert state.quantity == Decimal("14") and state.inventory_value == Decimal("30")
-        assert state.average_unit_cost == Decimal("2.142857")
+        assert state.quantity == Decimal("11") and state.inventory_value == Decimal("24")
+        assert state.average_unit_cost == Decimal("2.181818")
         audit = (await db.scalars(select(PurchaseReferenceChange).where(
             PurchaseReferenceChange.company_id == t.company_id
         ).order_by(PurchaseReferenceChange.revision))).all()

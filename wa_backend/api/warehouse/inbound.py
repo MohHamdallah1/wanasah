@@ -670,7 +670,7 @@ async def warehouse_inbound_options(
             db, access=access, variant_ids=sorted(base_by_variant),
         )
     except PurchaseReferenceError as exc:
-        raise HTTPException(exc.status_code, detail=exc.as_detail()) from exc
+        raise HTTPException(exc.status_code, detail=exc.detail()) from exc
 
     items = []
     for variant_id in sorted(base_by_variant):
@@ -1295,7 +1295,7 @@ async def warehouse_inbound(
 
     except PurchaseReferenceError as exc:
         await db.rollback()
-        raise HTTPException(exc.status_code, detail=exc.as_detail()) from exc
+        raise HTTPException(exc.status_code, detail=exc.detail()) from exc
     except SupplierError as exc:
         await db.rollback()
         raise HTTPException(exc.status_code, detail=exc.as_detail()) from exc

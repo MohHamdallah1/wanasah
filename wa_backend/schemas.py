@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, ConfigDict, model_validator, AliasChoices, field_validator
+from pydantic import BaseModel, Field, ConfigDict, model_validator, AliasChoices, field_validator, model_serializer
 from pydantic.functional_validators import BeforeValidator
 from pydantic.functional_serializers import PlainSerializer
 from typing import Optional, List, Any, Literal, Annotated, Dict, Union
@@ -2002,6 +2002,14 @@ class UpgradedInboundRequest(RequestModel):
     purchase_reference_selections: Optional[List[InboundPurchaseReferenceSelection]] = Field(
         default=None, max_length=5000,
     )
+
+    @model_serializer(mode="wrap")
+    def serialize_receipt(self, handler):
+        # A newly optional field must not change pre-feature hash producers.
+        body = handler(self)
+        if not body.get("purchase_reference_selections"):
+            body.pop("purchase_reference_selections", None)
+        return body
 
     @field_validator("reference_id", "notes", mode="before")
     @classmethod

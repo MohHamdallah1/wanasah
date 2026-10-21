@@ -33,6 +33,7 @@ def test_historical_request_hash_remains_byte_compatible(supplier):
         key: value for key, value in old_body.items() if key not in kw["exclude"]
     })
     legacy = _stable_request_hash(old, exclude_fields={"supplier_id"} if supplier is None else None)
+    assert _stable_request_hash(request, exclude_fields={"supplier_id"} if supplier is None else None) == legacy
     assert _stable_request_hash(request, **receipt_hash_arguments(request)) == legacy
     assert _stable_request_hash(request.model_copy(update={"items": list(reversed(request.items))}),
                                 **receipt_hash_arguments(request)) == legacy
