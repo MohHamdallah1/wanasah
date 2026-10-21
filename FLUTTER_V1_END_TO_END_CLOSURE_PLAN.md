@@ -52,7 +52,11 @@ Verified on the initial base:
 Important:
 - [x] These compatibility routes are deliberately protected by current Backend tests.
 - [x] Proposed routes in `DRIVER_DISPATCH_MODULARIZATION_PLAN.md` are future targets and must not trigger a blind Flutter cutover.
-- [ ] Reconcile this list against the Backend audit worker report before implementation.
+- [x] Reconciled against the independent Backend audit. No main contract drift was found at audit time.
+- [x] `GET /driver/sessions/active` is the restart/session-recovery read.
+- [x] `GET /visits/{visit_id}` is the visit detail/recovery read.
+- [x] `PUT /driver/transfers/batch_respond` exists; runtime limit is 100 items despite a wider schema allowance.
+- [x] `POST /driver/session/{session_id}/reconcile` exists as the legacy field reconciliation transport.
 
 ## 3. Confirmed P0 blockers / correctness gaps
 
@@ -137,6 +141,57 @@ Required closure:
 - [ ] Store stable failure classification/code/context/correlation ID.
 - [ ] Allow only safe retry, explicit supersession, or an approved recovery workflow.
 - [ ] Never lose an unresolved sale/collection/return command silently.
+
+
+### 3.6 Strict visit payload mismatch
+
+Independent audit confirmed the current Flutter visit command can fail the strict Backend schema:
+- [x] Flutter payload includes `visit_id` and compatibility `visitId`; only the path ID is authoritative.
+- [x] NoSale additionally emits `no_sale_reason`, while Backend expects the reason in `notes`.
+- [ ] Canonical Flutter serializer must emit only fields accepted by `VisitUpdateRequest`.
+- [ ] Characterization tests must lock Sale / NoSale / Postponed payloads before refactor.
+
+### 3.7 UUID durability before first send
+
+Backend visit replay is durable and exact only if Flutter preserves the original UUID and semantic body.
+- [x] Current Flutter creates the UUID before direct send but persists the pending command only after failure.
+- [ ] Persist the durable visit command identity/body before the first mutation attempt.
+- [ ] Lost response or app crash must replay the same UUID/body, never mint a new identity.
+- [ ] A later deliberate completed-visit correction uses a new UUID only after the prior logical result is resolved.
+
+### 3.8 Confirmed Backend prerequisites for field V1
+
+The independent Backend audit found four genuine field-transport prerequisites. These are not permission to move authority into Flutter.
+
+1. **Returned-Batch resolution seam**
+   - [ ] Add a FIELD-authorized Backend capability that resolves the returned Batch from owned shop/visit/product plus authoritative provenance/tracking evidence.
+   - [ ] Deterministic cases resolve internally.
+   - [ ] Ambiguity requests only the smallest human-readable discriminator.
+   - [ ] Mutation revalidates the resolved identity.
+   - [ ] Never expose or ask the representative for database `batch_id`.
+
+2. **Tax jurisdiction for field-created shops**
+   - [ ] `POST /shops` must lead to an approved canonical tax-jurisdiction outcome or an explicit actionable completion path.
+   - [ ] Do not guess jurisdiction from GPS/zone in Flutter.
+   - [ ] New-shop first sale must not dead-end on `TAX_JURISDICTION_REQUIRED`.
+
+3. **Authoritative field invoice result/preview**
+   - [ ] Reuse the existing Backend sale calculator and expose enough FIELD transport for authoritative payable/final totals, rounding and currency.
+   - [ ] Flutter cached catalog prices remain display/offline estimate evidence only.
+   - [ ] Do not build a second pricing engine in Dart.
+
+4. **Non-sellable vehicle custody read**
+   - [ ] Add a bounded FIELD projection/read for supported non-sellable custody such as DAMAGED after exchanges/recovery.
+   - [ ] Preserve hidden Batch authority and business-readable evidence.
+   - [ ] AVAILABLE-only reads are insufficient for return/recovery field truth.
+
+### 3.9 Shop-create retry and session semantics
+
+- [x] Shop creation has no durable operation UUID; duplicate phone is not proof that a lost command succeeded.
+- [ ] Lost/ambiguous shop creation must reconcile assigned visits/shop evidence before retry.
+- [x] Session start/end have no durable command identity; reconcile active session/dashboard before retry.
+- [x] Historical offline break replay is unsupported by Backend because server execution time defines break timing.
+- [ ] Break start/end become online/reconcile operations for V1; no stale temporal replay queue.
 
 ## 4. Offline command engine hardening
 
@@ -312,6 +367,38 @@ Decision rule:
 
 This prevents two opposite failures: shipping new V1 logic deeper into current god files, or spending the four-day closure window on architecture for its own sake.
 
+
+### 10.2 Frozen audit classification
+
+Independent Flutter architecture audit confirmed staged extraction rather than rewrite.
+
+**B — responsibility correction required for V1**
+- `ApiClient` retry/error responsibilities.
+- durable sync/queue.
+- `LocalDatabase` command/projection responsibilities.
+- `SyncRepository`.
+- Visit commercial/returns logic.
+- work-session/break.
+- quarantine/recovery.
+- completed-visit correction.
+
+**A — mechanical extraction first**
+- Visit presentation widgets.
+- Dashboard presentation widgets.
+- Visit List presentation.
+- app/bootstrap/theme.
+- DTOs and payload mappers before behavior change.
+
+**C — leave largely intact until after V1**
+- broad `AuthBloc` restructuring.
+- `VisitListBloc` redesign.
+- `LocationService` redesign.
+- router framework migration.
+- dependency modernization.
+- cosmetic architecture cleanup.
+
+The line count is not the criterion. Ownership/correctness risk is.
+
 Known extraction targets:
 - [ ] `visit_screen.dart` (~1400 lines)
 - [ ] `dashboard_screen.dart` (~900+ lines)
@@ -386,29 +473,35 @@ Final field acceptance:
 
 ## 13. Four-day execution order
 
-### Day 1 — contract and safety foundation
-- [ ] complete Backend/Flutter contract matrix;
-- [ ] freeze retry/idempotency matrix;
-- [ ] close/assign Batch-resolution prerequisite;
-- [ ] typed errors + mutation retry policy;
-- [ ] offline command/quarantine hardening foundation;
-- [ ] focused tests.
+### Day 1 — freeze contracts + launch independent prerequisites
+- [x] complete Backend/Flutter contract matrix.
+- [x] freeze retry/idempotency matrix.
+- [x] freeze A/B/C decomposition classification.
+- [ ] launch one isolated Backend FIELD-seam worker for the four confirmed prerequisites.
+- [ ] Flutter Wave 0 characterization tests.
+- [ ] Flutter Wave 1 network/error seam: mechanical extraction first, behavior fix second.
+- [ ] freeze break policy as online/reconcile, not deferred replay.
+- [ ] remove evidence-destruction paths behind focused tests.
 
-### Day 2 — visit vertical slice
-- [ ] modularize visit data/application boundaries without behavior drift;
-- [ ] exact-money transport;
-- [ ] sale/collection/sample contract parity;
-- [ ] three return reasons + Batch-resolution flow;
-- [ ] local projection corrections;
+### Day 2 — visit vertical slice + durable command core
+- [ ] mechanically extract visit DTO/payload mapping and major presentation widgets.
+- [ ] strict VisitUpdateRequest serializer: path ID only; no unknown fields.
+- [ ] persist visit UUID/body before first send.
+- [ ] exact-money transport; local figures are estimates, not authority.
+- [ ] sale/collection/sample contract parity.
+- [ ] Damaged / Expired / Factory_Defect + Backend Batch-resolution flow.
+- [ ] durable command store migration preserving old rows.
 - [ ] visit/offline tests.
 
-### Day 3 — workday UX + architecture extraction
-- [ ] app shell/design tokens;
-- [ ] work-session/home;
-- [ ] visit list/detail/action UX;
-- [ ] transfer/recovery UX;
-- [ ] shop creation contract cleanup;
-- [ ] split god screens/BLoCs by feature responsibility.
+### Day 3 — projection/session/custody + field-first UX
+- [ ] correct AVAILABLE-out vs DAMAGED-custody-in projection.
+- [ ] completed-visit correction apply/revert exactly once.
+- [ ] separate Session / Custody / Recovery responsibilities from DashboardBloc.
+- [ ] transfer exact-decision replay and 100-item runtime batch limit.
+- [ ] shop creation typed transport + ambiguous-result reconciliation.
+- [ ] app shell/design tokens and workday-task-first home.
+- [ ] persistent sync/recovery status.
+- [ ] compact visit/quantity/returns field UX.
 
 ### Day 4 — field acceptance and only blocker fixes
 - [ ] real Android device end-to-end journey;
@@ -441,10 +534,10 @@ Future implementation workers receive disjoint file ownership only after this au
 
 ## 15. Audit findings still open
 
-- [ ] Backend worker report incorporated.
-- [ ] Flutter/UI worker report incorporated.
+- [x] Backend worker report incorporated.
+- [x] Flutter/UI worker report incorporated.
 - [x] Current `flutter analyze` baseline recorded: PASS, no issues.
 - [x] Current `flutter test` baseline recorded: 13 offline-owner tests PASS; stale default counter widget test FAILS and is not a valid product gate.
-- [ ] Exact Backend return-Batch resolution capability confirmed or assigned.
-- [ ] Current error-code/correlation-ID coverage mapped.
-- [ ] Final P0/P1/P2 implementation backlog frozen.
+- [x] Exact verdict confirmed: no current operator-simple FIELD returned-Batch resolver; Backend prerequisite required and specified.
+- [x] Current error-code/correlation-ID coverage mapped; structured envelope exists but several field business refusals still lack semantic codes.
+- [x] Final P0 implementation backlog frozen by merged Backend + Flutter audits; P1 visual polish remains subordinate to field acceptance.
