@@ -31,10 +31,18 @@ export interface InboundUomOption {
   factor_to_base: string;
 }
 
+export interface InboundPurchaseCostReference {
+  amount: string;
+  purchase_uom_id: number;
+  currency_code: string;
+  revision: number;
+}
+
 export interface InboundVariantOptions {
   product_variant_id: number;
   base_uom_id: number;
   uoms: InboundUomOption[];
+  purchase_cost_reference: InboundPurchaseCostReference | null;
 }
 
 export interface InboundOptionsResponse {
@@ -499,10 +507,37 @@ export const parseInboundOptions = (raw: unknown): InboundOptionsResponse => {
         factor_to_base: uom.factor_to_base,
       };
     });
+    const rawReference = item.purchase_cost_reference;
+    let purchaseCostReference: InboundPurchaseCostReference | null = null;
+    if (rawReference !== null && rawReference !== undefined) {
+      if (typeof rawReference !== "object" || Array.isArray(rawReference)) {
+        throw codedError("INBOUND_OPTIONS_INVALID");
+      }
+      const ref = rawReference as Record<string, unknown>;
+      if (
+        typeof ref.amount !== "string" ||
+        !/^\d+(?:\.\d{1,6})?$/.test(ref.amount) ||
+        typeof ref.currency_code !== "string" ||
+        ref.currency_code !== value.currency_code ||
+        !positiveId(ref.purchase_uom_id) ||
+        !uoms.some((uom) => uom.id === ref.purchase_uom_id) ||
+        typeof ref.revision !== "number" ||
+        !Number.isSafeInteger(ref.revision) || ref.revision < 1
+      ) {
+        throw codedError("INBOUND_OPTIONS_INVALID");
+      }
+      purchaseCostReference = {
+        amount: validMoney(ref.amount),
+        currency_code: ref.currency_code,
+        purchase_uom_id: ref.purchase_uom_id,
+        revision: ref.revision,
+      };
+    }
     return {
       product_variant_id: item.product_variant_id,
       base_uom_id: item.base_uom_id,
       uoms,
+      purchase_cost_reference: purchaseCostReference,
     };
   });
   return { currency_code: value.currency_code, items };
@@ -573,4 +608,48 @@ export const parseInboundResponse = (raw: unknown): void => {
   ) {
     throw codedError("INBOUND_RESPONSE_INVALID");
   }
+};
+
+export interface InboundReferenceSelection {
+  product_variant_id: number;
+  uom_id: number;
+  unit_cost: string;
+}
+
+/** Explicit selection is only needed when one variant has multiple native cost/UOM pairs. */
+export function inboundReferenceChoices(items: InboundItemPayload[]): Map<number, InboundReferenceSelection[]> {
+  const pairs = new Map<number, Map<string, InboundReferenceSelection>>();
+  for (const item of items) {
+    const unitCost = validMoney(item.unit_cost);
+    // Canonicalize decimals as strings; never calculate financial values in JS floats.
+    const parts = unitCost.split(".");
+    const canonical = (parts[0].replace(/^0+/, "") || "0") + "." + (parts[1] ?? "").padEnd(6, "0");
+    const pair: InboundReferenceSelection = {
+      product_variant_id: item.product_variant_id,
+      uom_id: item.uom_id,
+      unit_cost: canonical,
+    };
+    if (!pairs.has(item.product_variant_id)) pairs.set(item.product_variant_id, new Map());
+    pairs.get(item.product_variant_id)!.set(pair.uom_id + "|" + pair.unit_cost, pair);
+  }
+  return new Map([...pairs]
+    .filter(([, alternatives]) => alternatives.size > 1)
+    .map(([id, alternatives]) => [
+      id,
+      [...alternatives.values()].sort((a, b) => (a.uom_id - b.uom_id) || a.unit_cost.localeCompare(b.unit_cost)),
+    ]));
+}
+
+export const prefilledInboundRow = (
+  rowId: string,
+  defaultUomId: string,
+  option: InboundVariantOptions | undefined,
+): InboundBatchDraft => {
+  const ref = option?.purchase_cost_reference;
+  if (!ref) return emptyInboundBatch(rowId, defaultUomId);
+  // Only synthetically untouched rows receive a default. Never overwrite stored drafts.
+  return {
+    ...emptyInboundBatch(rowId, String(ref.purchase_uom_id)),
+    unit_cost: ref.amount,
+  };
 };
