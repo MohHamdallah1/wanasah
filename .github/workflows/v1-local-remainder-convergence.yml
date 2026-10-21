@@ -1,0 +1,79 @@
+name: V1 local remainder merge and migration convergence
+on:
+  push:
+    branches: [sol/v1-final-local-remainder-acceptance]
+  pull_request:
+    paths:
+      - "wa_backend/alembic/**"
+      - "wa_backend/models.py"
+      - "wa_backend/api/catalog.py"
+      - "wa_backend/domains/product_tracking.py"
+      - "dashboard/src/pages/inventory/**"
+      - "dashboard/src/pages/products/**"
+      - ".github/workflows/v1-local-remainder-convergence.yml"
+permissions:
+  contents: read
+jobs:
+  dashboard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: TypeScript noEmit
+        run: npx tsc --noEmit
+      - name: Focused inventory, supplier and Product regressions
+        run: npm test -- src/pages/inventory/inbound/purchaseReferenceLocal.test.ts src/pages/inventory/inbound/Tab2Inbound.test.tsx src/test/inventory-cp6-minimum-stock-dashboard.test.tsx src/test/inventory-cp13-warehouse-presentation.test.tsx src/test/suppliers-v1.test.tsx src/test/products-table-p3.test.tsx src/pages/products/list/rankProductsForSearch.test.ts
+      - name: Production build
+        run: npm run build
+  database:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: purchase_reference_e2e_admin
+          POSTGRES_DB: wanasah_purchase_reference_e2e
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["55473:5432"]
+        options: >-
+          --health-cmd "pg_isready -U purchase_reference_e2e_admin -d wanasah_purchase_reference_e2e"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: PurchaseReferenceE2EOnlyKeyAbc123456789012345678901
+      DATABASE_URL: postgresql+asyncpg://purchase_reference_e2e_runtime@127.0.0.1:55473/wanasah_purchase_reference_e2e
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://purchase_reference_e2e_admin@127.0.0.1:55473/wanasah_purchase_reference_e2e
+      WANASAH_PURCHASE_REFERENCE_E2E: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend and test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Create restricted test role
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect("postgresql://purchase_reference_e2e_admin@127.0.0.1:55473/wanasah_purchase_reference_e2e", autocommit=True) as db:
+              db.execute("CREATE ROLE purchase_reference_e2e_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migration merge with one unique head
+        working-directory: wa_backend
+        run: |
+          test "$(alembic heads | grep -c '(head)')" -eq 1
+          alembic upgrade head
+          alembic check
+      - name: Local tracking, catalog and full cost reference E2E tests
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_product_tracking_default_policy.py tests/test_catalog_tracking_batch_b3.py tests/test_purchase_reference_e2e_postgres.py
