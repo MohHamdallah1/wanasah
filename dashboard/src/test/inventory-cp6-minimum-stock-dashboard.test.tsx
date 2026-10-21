@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const MANAGE = "inventory.minimum_stock.manage";
 const READ = "inventory.read";
+const LOCATION_READ = "location.read";
 const LOCATION = 55;
 
 const mocks = vi.hoisted(() => ({
@@ -81,6 +82,10 @@ const warehousePage = {
       id: LOCATION,
       name: "Main warehouse",
       code: "MAIN",
+      address: null,
+      location_link: null,
+      latitude: null,
+      longitude: null,
       branch_id: null,
       branch_name: null,
       is_active: true,
@@ -101,7 +106,7 @@ const accessPayload = (locationId: number | null) => ({
   is_company_owner: accessState.owner,
   location_id: locationId,
   permissions: accessState.manage ? [MANAGE] : [],
-  any_permissions: [],
+  any_permissions: accessState.readableLocations.size > 0 ? [LOCATION_READ] : [],
   location_permissions:
     locationId !== null && accessState.readableLocations.has(locationId)
       ? [READ]
@@ -118,7 +123,12 @@ const installWarehouseFetch = () => {
     if (url === "/inventory/access/locations/capabilities") {
       const ids = JSON.parse(String(opts?.body)).location_ids as number[];
       return {
-        locations: Object.fromEntries(ids.map((id) => [String(id), []])),
+        locations: Object.fromEntries(ids.map((id) => {
+          const codes: string[] = [];
+          if (accessState.manage) codes.push(MANAGE);
+          if (accessState.readableLocations.has(id)) codes.push(READ);
+          return [String(id), codes];
+        })),
       };
     }
     if (url.startsWith("/warehouse/locations/manage?")) return warehousePage;
@@ -235,7 +245,13 @@ describe("CP6 minimum-stock Dashboard parity", () => {
       return minimumResponse;
     });
 
-    render(<StockMinimumManager locationId={LOCATION} onApplied={vi.fn()} />);
+    render(
+      <StockMinimumManager
+        locations={[{ id: LOCATION, name: "Main warehouse", code: "MAIN" }]}
+        preferredLocationId={LOCATION}
+        onApplied={vi.fn()}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "inventoryMinimum.button" }));
 
     const applyButton = await screen.findByRole("button", {
@@ -266,7 +282,7 @@ describe("CP6 minimum-stock Dashboard parity", () => {
     expect({ ...nextBody, request_id: retryBody.request_id }).toEqual(retryBody);
   });
 
-  it("keeps the existing manager, scope/apply modes, UOM hint, and business-error path", () => {
+  it("keeps the manager simple: scope, UOM hint, safe overwrite contract, and business-error path", () => {
     const read = (path: string) =>
       readFileSync(resolve(process.cwd(), "src", path), "utf8");
     const manager = read("pages/inventory/StockMinimumManager.tsx");
@@ -279,11 +295,11 @@ describe("CP6 minimum-stock Dashboard parity", () => {
     expect(manager).toContain('["ALL", "scopeAll"]');
     expect(manager).toContain('["FAMILY", "scopeFamily"]');
     expect(manager).toContain('["PRODUCT", "scopeProduct"]');
-    expect(manager).toContain('applyMode === "OVERWRITE"');
-    expect(manager).toContain('applyMode === "ONLY_UNSET"');
+    expect(manager).toContain('apply_mode: "OVERWRITE" as const');
+    expect(manager).not.toContain("applyMode");
     expect(manager).toContain('t("inventoryMinimum.unitHint")');
     expect(manager).toContain("apiErrorMessage(");
-    expect(warehouses).toContain('access.can("inventory.minimum_stock.manage")');
-    expect(warehouses).toContain('minimumStockAccess.can("inventory.read")');
+    expect(warehouses).toContain('canAt(item.id, "inventory.minimum_stock.manage")');
+    expect(warehouses).toContain('canAt(item.id, "inventory.read")');
   });
 });

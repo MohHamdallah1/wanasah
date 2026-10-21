@@ -219,7 +219,7 @@ export const resources = {
           unitsPerPackage:
             "عدد الوحدات الأساسية داخل {{package}}",
           packagePrice:
-            "سعر {{package}}",
+            "سعر بيع {{package}}",
           packageBarcode:
             "باركود {{package}}",
           showAdvanced: "عرض الإعدادات",
@@ -322,8 +322,8 @@ export const resources = {
           lifecycle: "حالة المنتج",
           unitBarcode: "باركود الحبة",
           packageBarcode: "باركود العبوة",
-          packagePrice: "سعر العبوة",
-          unitPrice: "سعر الحبة",
+          packagePrice: "سعر بيع العبوة",
+          unitPrice: "سعر بيع الحبة",
           action: "الإجراء",
         },
         displayPreferences: {
@@ -351,8 +351,8 @@ export const resources = {
             lifecycle: "حالة المنتج",
             unitBarcode: "باركود الحبة",
             packageBarcode: "باركود العبوة",
-            packagePrice: "سعر العبوة",
-            unitPrice: "سعر الحبة",
+            packagePrice: "سعر بيع العبوة",
+            unitPrice: "سعر بيع الحبة"
           },
           detailSectionsOptions: {
             package: "العبوة ووحدات القياس",
@@ -362,7 +362,22 @@ export const resources = {
             compatibility: "التوافق",
           },
         },
-        editPrice: "تعديل السعر",
+        editPrice: "تعديل سعر البيع",
+        purchaseReference: {
+          action: "تعديل تكلفة الشراء المرجعية",
+          title: "تكلفة الشراء المرجعية",
+          amount: "تكلفة الشراء",
+          purchaseUnit: "وحدة الشراء",
+          revision: "رقم المراجعة",
+          help: "هذه قيمة مرجعية للتوريد القادم فقط. لن تتغير الفواتير القديمة أو تكلفة المخزون المحاسبية أو أسعار البيع.",
+          pending: "طلب الحفظ السابق لم تُحسم نتيجته. أعد نفس الطلب دون تغيير المبلغ أو الوحدة.",
+          retry: "إعادة نفس الطلب",
+          save: "حفظ التكلفة المرجعية",
+          saved: "تم تحديث تكلفة الشراء المرجعية.",
+          loadFailed: "تعذر تحميل التكلفة المرجعية. أعد فتح النافذة.",
+          saveFailed: "تعذر حفظ التكلفة المرجعية. أعد نفس الطلب.",
+          conflict: "عدّل مستخدم آخر هذه التكلفة. أغلق النافذة ثم راجع القيمة الأحدث قبل التعديل.",
+        },
         rename: {
           action: "تعديل اسم المنتج",
           title: "تعديل اسم المنتج",
@@ -581,8 +596,8 @@ export const resources = {
         packageType: "نوع العبوة",
         unitsPerPackage:
           "عدد الحبات داخل العبوة",
-        packagePrice: "سعر العبوة",
-        unitPrice: "سعر الحبة",
+        packagePrice: "سعر بيع العبوة",
+        unitPrice: "سعر بيع الحبة",
         packagePricePlaceholder:
           "اتركه فارغاً إذا أدخلت سعر الحبة",
         unitPricePlaceholder:
@@ -598,7 +613,7 @@ export const resources = {
           "نسخ باركود الحبة",
         copiedBarcode: "تم نسخ الباركود",
         saveProduct: "حفظ المنتج",
-        savePrice: "حفظ السعر",
+        savePrice: "حفظ سعر البيع",
         priceHelp:
           "أدخل سعراً واحداً ليحسب النظام الآخر، أو أدخل السعرين ليتم اعتمادهما كما هما.",
         draftRestored:
@@ -731,6 +746,8 @@ export const resources = {
           },
           expiryExample:
             "مثال: الأغذية غالباً لها تاريخ صلاحية، بينما الأدوات وقطع الغيار قد لا يكون لها تاريخ صلاحية.",
+          foodExpiryRecommendation:
+            "إذا كان المنتج غذائياً أو دوائياً، أو كانت صلاحيته جزءاً أساسياً من سلامة البيع، يُنصح بجعل تاريخ الصلاحية إلزامياً.",
         },
         trackingSettings: {
           action: "إعدادات الدفعة والصلاحية",
@@ -1310,28 +1327,36 @@ export const resources = {
         title: "توريد بضاعة",
         product: "المنتج",
         search: "بحث...",
+        searchLabel: "بحث المنتجات",
         batchAndDates: "الدفعة والتواريخ",
         quantityAndUnit: "الكمية ووحدة الشراء",
-        purchaseCost: "تكلفة الشراء للوحدة",
+        purchaseCost: "تكلفة الشراء",
+        useReferenceSuggestion: "استخدام التكلفة المرجعية: {{cost}} {{currency}}",
+        referenceSelectionRequired: "نفس المنتج وارد بأكثر من تكلفة أو وحدة. اختر تكلفة الشراء المرجعية القادمة؛ بنود الفاتورة تبقى كما هي.",
+        referenceSelectionFor: "اختيار تكلفة الشراء المرجعية للمنتج {{id}}",
+        referenceSelectPlaceholder: "اختر التكلفة المرجعية",
         clearDraft: "تصفير المسودة",
+        actions: "الإجراءات",
         noProducts: "لا توجد أصناف فعالة",
-        batchNumber: "رقم الدفعة",
+        batchNumber: "رقم التشغيلة (LOT)",
         productionDate: "تاريخ الإنتاج",
         expiryDate: "تاريخ الصلاحية",
         required: "مطلوب",
         optional: "اختياري",
         quantity: "الكمية",
         purchaseUnit: "وحدة الشراء",
-        optionalLotPlaceholder: "اختياري — اتركه فارغًا بدون دفعة فعلية",
+        optionalLotPlaceholder: "اختياري — أدخله فقط إذا كان LOT موجودًا",
         rowBatchRequiredHint:
-          "أدخل رقم الدفعة، أو اتركه فارغًا لاستخدام القيمة الافتراضية لهذا السند.",
+          "أدخل رقم التشغيلة الحقيقي الموجود على البضاعة أو مستند التتبع. لا تستخدم رقم الفاتورة كبديل.",
         rowBatchOptionalHint:
-          "اختياري. إذا تُرك فارغًا فلن تُسجل دفعة فعلية، ولن تُطبق القيمة الافتراضية.",
-        noTrackingFields: "لا يتطلب هذا المنتج دفعة أو تواريخ تتبع.",
+          "اختياري. أدخله فقط إذا كان رقم التشغيلة الحقيقي متاحًا؛ غير ذلك اتركه فارغًا.",
+        noTrackingFields: "لا يحتاج معلومات تتبع — النظام يتولى ذلك تلقائيًا.",
+        datePickerHint: "اكتب التاريخ مباشرة من لوحة المفاتيح أو استخدم زر التقويم داخل الحقل.",
+        dateQuickPlaceholder: "01252026",
         factorToBase: "= {{factor}} {{unit}}",
         unitCostPlaceholder: "التكلفة الفعلية",
         addBatch: "إضافة دفعة أخرى",
-        removeBatch: "حذف الدفعة",
+        removeBatch: "حذف السطر",
         previousPage: "الصفحة السابقة",
         nextPage: "الصفحة التالية",
         reference: "رقم الفاتورة / المرجع",
@@ -1340,6 +1365,11 @@ export const resources = {
         chooseCostMethod: "اختر طريقة التكلفة — لا يوجد اختيار افتراضي",
         costMethodRequired: "قبل أول توريد، اختر طريقة التكلفة واحفظها. ستُثبّت بعد أول توريد.",
         costMethodNoPermission: "يجب أن يختار مسؤول مخوّل طريقة التكلفة قبل أول توريد.",
+        costSetupTitle: "إعداد احتساب تكلفة المخزون",
+        costSetupSubtitle: "إعداد مالي للشركة يُختار مرة واحدة قبل أول استلام، وليس جزءًا من بيانات الفاتورة.",
+        costSetupMovingAverage: "يجمع تكاليف الشراء في متوسط تكلفة محدث. أبسط لمعظم الشركات التجارية.",
+        costSetupFifo: "يحتفظ بطبقات تكلفة منفصلة ويحمّل الأقدم محاسبيًا أولًا.",
+        costSetupSettingsNote: "هذا الإعداد مؤقتًا هنا فقط لأن صفحة الإعدادات لم تُبنَ بعد، وسيُنقل إليها لاحقًا.",
         methods: {
           MOVING_AVERAGE: "متوسط متحرك",
           FIFO: "الوارد أولاً يخرج أولاً",
@@ -1350,13 +1380,6 @@ export const resources = {
         clearTitle: "تأكيد تصفير المسودة",
         clearConfirm: "تصفير",
         clearBody: "سيتم مسح مسودة التوريد المحلية الحالية فقط.",
-        defaultBatchTitle: "رقم دفعة افتراضي للمنتجات التي تتطلب دفعة",
-        defaultBatchHint:
-          "يُستخدم فقط عندما يكون تتبع الدفعة مطلوبًا ويُترك حقل السطر فارغًا. لا يُطبّق على المنتجات الاختيارية أو بدون تتبع دفعة.",
-        defaultBatchPlaceholder: "مثال: LOT-2026-09",
-        overrideBatchPlaceholder: "الافتراضي: {{batch}}",
-        rowBatchOverrideHint:
-          "اترك الحقل فارغاً لاستخدام دفعة السند الافتراضية، أو أدخل دفعة مختلفة لهذا الصنف فقط.",
         addReceiptLine: "إضافة كمية/وحدة أخرى لنفس المنتج",
         policySaved: "تم حفظ طريقة احتساب التكلفة.",
         received: "تم توثيق التوريد والتكلفة بنجاح.",
@@ -1397,6 +1420,8 @@ export const resources = {
         refreshAccess: "تحديث المواقع والصلاحيات",
         noWarehouseCreated:
           "لم تُنشئ الشركة مستودعاً فعالاً بعد. أنشئ المستودع من شاشة إدارة المستودعات أولاً.",
+        createWarehouseFirstNotice:
+          "أنشئ المستودع الأول قبل فتح بقية عمليات المخزون.",
         noAccessibleWarehouse:
           "توجد مستودعات فعالة للشركة، لكن حسابك لا يملك وصولاً إلى أي منها.",
         noWarehouseSelected:
@@ -1616,24 +1641,26 @@ export const resources = {
           "حدد الحد الأدنى للمخزون في المستودع الحالي لكل المنتجات أو لعائلات ومنتجات تختارها.",
         scopeAll: "كل المنتجات",
         scopeAllHint:
-          "سيشمل التعديل جميع منتجات المستودع الحالي. اختر طريقة التطبيق بالأسفل قبل التنفيذ.",
+          "سيشمل التطبيق جميع منتجات المستودع الحالي.",
         scopeFamily: "عائلات محددة",
         scopeProduct: "منتجات محددة",
         searchFamily: "ابحث عن عائلة...",
         searchProduct: "ابحث عن منتج أو SKU...",
+        targetTitle: "النطاق المستهدف",
+        settingsTitle: "الحد الأدنى",
+        currentMinimum: "الحد الحالي",
+        zeroHint: "أدخل 0 لإيقاف تنبيه النقص للمنتجات ضمن النطاق المختار.",
+        selectionLimit: "يمكن تحديد حتى {{count}} عنصر في العملية الواحدة.",
+        familyMoreHint: "هناك عائلات إضافية. استخدم البحث للوصول إليها بسرعة.",
+        searchMoreHint: "اكتب حرفين على الأقل للبحث.",
+        loadingMore: "جارٍ تحميل المزيد...",
+        noResults: "لا توجد نتائج مطابقة.",
+        conflictInactive: "سياسة غير فعالة",
+        conflictTarget: "أعلى من الحد المستهدف",
+        conflictQuantity: "كمية غير صالحة",
         valueLabel: "الحد الأدنى للمخزون",
         unitHint:
           "يُطبّق الرقم بوحدة العرض الخاصة بكل منتج؛ كرتونة للمنتجات المعروضة بالكرتونة وحبة للمنتجات المعروضة بالحبة.",
-        onlyUnset: "فقط غير المحدد",
-        onlyUnsetHint: "يحافظ على الحدود التي تم ضبطها سابقاً.",
-        overwrite: "استبدال الحالي",
-        overwriteHint: "يحدّث الحد الأدنى حتى لو كان محدداً مسبقاً.",
-        applyToSelection: "تحديث العناصر المحددة",
-        applyToSelectionHint:
-          "يضع الرقم الجديد على كامل النطاق المختار، ويستبدل الحد السابق إن وجد.",
-        fillMissingOnly: "إضافة للمنتجات بدون حد",
-        fillMissingOnlyHint:
-          "لا يغيّر أي حد موجود مسبقاً؛ يضبط فقط المنتجات التي لم يُحدد لها حد.",
         preview: "معاينة",
         previewOptional: "معاينة (اختياري)",
         apply: "تطبيق",
@@ -1647,13 +1674,12 @@ export const resources = {
         previewConflict:
           "{{count}} منتج لديه تعارض يمنع التطبيق الآمن. عدّل الإعداد قبل التنفيذ.",
         applied: "تم تحديث الحد الأدنى لـ {{count}} منتج.",
-        noChangesExisting:
-          "لم يتغير شيء: {{count}} منتج لديه حد مسبقاً. اختر «تحديث العناصر المحددة» إذا أردت تغيير الحدود الحالية.",
         noChangesSame:
           "لا يوجد تغيير: القيمة المدخلة مطابقة للحد الحالي في النطاق المختار.",
         errors: {
           preview: "تعذر معاينة تطبيق الحد الأدنى.",
           apply: "تعذر تطبيق الحد الأدنى للمخزون.",
+          products: "تعذر تحميل المزيد من المنتجات.",
         },
       },
       inventoryLive: {
@@ -2468,7 +2494,7 @@ export const resources = {
           unitsPerPackage:
             "Base units inside {{package}}",
           packagePrice:
-            "{{package}} price",
+            "{{package}} sale price",
           packageBarcode:
             "{{package}} barcode",
           showAdvanced: "Show settings",
@@ -2572,8 +2598,8 @@ export const resources = {
           lifecycle: "Product status",
           unitBarcode: "Unit barcode",
           packageBarcode: "Package barcode",
-          packagePrice: "Package price",
-          unitPrice: "Unit price",
+          packagePrice: "Package sale price",
+          unitPrice: "Unit sale price",
           action: "Action",
         },
         displayPreferences: {
@@ -2601,8 +2627,8 @@ export const resources = {
             lifecycle: "Product status",
             unitBarcode: "Unit barcode",
             packageBarcode: "Package barcode",
-            packagePrice: "Package price",
-            unitPrice: "Unit price",
+            packagePrice: "Package sale price",
+            unitPrice: "Unit sale price"
           },
           detailSectionsOptions: {
             package: "Packaging and UOM",
@@ -2612,7 +2638,22 @@ export const resources = {
             compatibility: "Compatibility",
           },
         },
-        editPrice: "Edit price",
+        editPrice: "Edit sale price",
+        purchaseReference: {
+          action: "Edit purchase cost reference",
+          title: "Purchase cost reference",
+          amount: "Purchase cost",
+          purchaseUnit: "Purchase unit",
+          revision: "Revision",
+          help: "This is a default for future receipts only. Past invoices, accounting stock valuation and sale prices never change.",
+          pending: "The previous write has an unknown outcome. Retry the identical command without changing amount or unit.",
+          retry: "Retry same command",
+          save: "Save purchase cost reference",
+          saved: "Purchase cost reference updated.",
+          loadFailed: "Could not load purchase cost reference. Reopen this dialog.",
+          saveFailed: "Could not save purchase cost reference. Retry the same command.",
+          conflict: "Another user changed this reference. Close and reopen to review the latest value.",
+        },
         rename: {
           action: "Edit product name",
           title: "Edit product name",
@@ -2832,8 +2873,8 @@ export const resources = {
         packageType: "Package type",
         unitsPerPackage:
           "Units inside package",
-        packagePrice: "Package price",
-        unitPrice: "Unit price",
+        packagePrice: "Package sale price",
+        unitPrice: "Unit sale price",
         packagePricePlaceholder:
           "Leave blank if you entered a unit price",
         unitPricePlaceholder:
@@ -2849,7 +2890,7 @@ export const resources = {
           "Copy unit barcode",
         copiedBarcode: "Barcode copied",
         saveProduct: "Save product",
-        savePrice: "Save price",
+        savePrice: "Save sale price",
         priceHelp:
           "Enter one price to calculate the other, or enter both to keep them independent.",
         draftRestored:
@@ -2982,6 +3023,8 @@ export const resources = {
           },
           expiryExample:
             "Example: food often needs expiry tracking, while spare parts and tools may have no expiry date at all.",
+          foodExpiryRecommendation:
+            "For food, medicine, or any product where expiry is essential to safe selling, make the expiry date Required.",
         },
         trackingSettings: {
           action: "Batch and expiry settings",
@@ -3560,28 +3603,36 @@ export const resources = {
         title: "Receive stock",
         product: "Product",
         search: "Search...",
+        searchLabel: "Product search",
         batchAndDates: "Batch & dates",
         quantityAndUnit: "Quantity & purchase unit",
-        purchaseCost: "Purchase cost per unit",
+        purchaseCost: "Purchase cost",
+        useReferenceSuggestion: "Use reference cost: {{cost}} {{currency}}",
+        referenceSelectionRequired: "The same product has different receipt costs or units. Choose its next reference; actual receipt line costs stay unchanged.",
+        referenceSelectionFor: "Select purchase reference for product {{id}}",
+        referenceSelectPlaceholder: "Select next purchase reference",
         clearDraft: "Clear draft",
+        actions: "Actions",
         noProducts: "No active products",
-        batchNumber: "Batch number",
+        batchNumber: "Lot / batch number",
         productionDate: "Production date",
         expiryDate: "Expiry date",
         required: "Required",
         optional: "Optional",
         quantity: "Quantity",
         purchaseUnit: "Purchase unit",
-        optionalLotPlaceholder: "Optional — leave blank for no real lot",
+        optionalLotPlaceholder: "Optional — enter only when a real lot exists",
         rowBatchRequiredHint:
-          "Enter a lot number, or leave it blank to use this receipt's default lot.",
+          "Enter the real lot number from the goods or tracking document. Do not substitute the invoice number.",
         rowBatchOptionalHint:
-          "Optional. Leave it blank for no real lot; the receipt default is not applied.",
-        noTrackingFields: "This product does not use lot or date tracking.",
+          "Optional. Enter it only when a genuine lot number is available; otherwise leave it blank.",
+        noTrackingFields: "No tracking input needed — Wanasah handles it automatically.",
+        datePickerHint: "Type the date directly with the keyboard or use the calendar button inside the field.",
+        dateQuickPlaceholder: "01252026",
         factorToBase: "= {{factor}} {{unit}}",
         unitCostPlaceholder: "Actual cost",
         addBatch: "Add another batch",
-        removeBatch: "Remove batch",
+        removeBatch: "Remove row",
         previousPage: "Previous page",
         nextPage: "Next page",
         reference: "Invoice / reference number",
@@ -3590,6 +3641,11 @@ export const resources = {
         chooseCostMethod: "Choose a costing method — no default selection",
         costMethodRequired: "Choose and save a costing method before the first receipt. It locks after posting.",
         costMethodNoPermission: "An authorized manager must select a costing method before the first receipt.",
+        costSetupTitle: "Inventory costing setup",
+        costSetupSubtitle: "A company-level financial setting chosen once before the first receipt, not invoice data.",
+        costSetupMovingAverage: "Maintains a continuously updated average purchase cost. Simpler for most trading companies.",
+        costSetupFifo: "Keeps separate cost layers and consumes the oldest cost layer first for accounting.",
+        costSetupSettingsNote: "This setup appears here only until the Settings workspace exists; it will move there later.",
         methods: {
           MOVING_AVERAGE: "Moving average",
           FIFO: "First in, first out",
@@ -3600,13 +3656,6 @@ export const resources = {
         clearTitle: "Clear draft?",
         clearConfirm: "Clear",
         clearBody: "Only the current local inbound draft will be cleared.",
-        defaultBatchTitle: "Default lot for products that require one",
-        defaultBatchHint:
-          "Used only for REQUIRED lot tracking when the row is blank. It is never applied to OPTIONAL or NONE lot tracking.",
-        defaultBatchPlaceholder: "Example: LOT-2026-09",
-        overrideBatchPlaceholder: "Default: {{batch}}",
-        rowBatchOverrideHint:
-          "Leave this empty to use the receipt default, or enter a different batch for this item only.",
         addReceiptLine: "Add another quantity/unit for this product",
         policySaved: "Costing method saved.",
         received: "Receipt and purchase cost posted successfully.",
@@ -3647,6 +3696,8 @@ export const resources = {
         refreshAccess: "Refresh locations and permissions",
         noWarehouseCreated:
           "The company has no active warehouse yet. Create one in Warehouse Management first.",
+        createWarehouseFirstNotice:
+          "Create the first warehouse before opening the other inventory workflows.",
         noAccessibleWarehouse:
           "The company has active warehouses, but your account cannot access any of them.",
         noWarehouseSelected:
@@ -3866,24 +3917,26 @@ export const resources = {
           "Set minimum stock for the current warehouse across all products or selected families and products.",
         scopeAll: "All products",
         scopeAllHint:
-          "The update will include every product in the current warehouse. Choose how existing values should be handled below.",
+          "The update will include every product in the current warehouse.",
         scopeFamily: "Selected families",
         scopeProduct: "Selected products",
         searchFamily: "Search family...",
         searchProduct: "Search product or SKU...",
+        targetTitle: "Target scope",
+        settingsTitle: "Minimum stock",
+        currentMinimum: "Current minimum",
+        zeroHint: "Enter 0 to disable the low-stock alert for products in the selected scope.",
+        selectionLimit: "Up to {{count}} items can be selected in one operation.",
+        familyMoreHint: "More families exist. Use search to reach them quickly.",
+        searchMoreHint: "Type at least two characters to search.",
+        loadingMore: "Loading more...",
+        noResults: "No matching results.",
+        conflictInactive: "Inactive policy",
+        conflictTarget: "Above target quantity",
+        conflictQuantity: "Invalid quantity",
         valueLabel: "Minimum stock",
         unitHint:
           "The number uses each product's display unit: cartons for carton-displayed products and eaches for each-displayed products.",
-        onlyUnset: "Only unset",
-        onlyUnsetHint: "Keeps thresholds that were already configured.",
-        overwrite: "Replace current",
-        overwriteHint: "Updates the minimum even when a value already exists.",
-        applyToSelection: "Update selected items",
-        applyToSelectionHint:
-          "Applies the new value to the entire selected scope and replaces an existing minimum when present.",
-        fillMissingOnly: "Set only missing minimums",
-        fillMissingOnlyHint:
-          "Keeps existing minimums unchanged and sets a value only where no minimum exists.",
         preview: "Preview",
         previewOptional: "Preview (optional)",
         apply: "Apply",
@@ -3897,13 +3950,12 @@ export const resources = {
         previewConflict:
           "{{count}} products have conflicts that block a safe update. Resolve them before applying.",
         applied: "Minimum stock updated for {{count}} products.",
-        noChangesExisting:
-          "Nothing changed: {{count}} products already have a minimum. Choose “Update selected items” to change existing values.",
         noChangesSame:
           "Nothing changed: the entered value already matches the current minimum in the selected scope.",
         errors: {
           preview: "Could not preview the minimum-stock update.",
           apply: "Could not apply minimum stock.",
+          products: "Could not load more products.",
         },
       },
       inventoryLive: {

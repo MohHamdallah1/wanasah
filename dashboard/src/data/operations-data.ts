@@ -57,6 +57,10 @@ export const SESSION_STATUS = {
 export const FINANCIAL_SETTLEMENT_READY_STATUS =
   SESSION_STATUS.AWAITING_FINANCIAL_SETTLEMENT;
 
+export const isSettlementJourneyStatus = (status: string): boolean =>
+  status === SESSION_STATUS.AWAITING_INVENTORY_RECONCILIATION ||
+  status === SESSION_STATUS.AWAITING_FINANCIAL_SETTLEMENT;
+
 export interface SettlementSampleItem {
   shop_name: string;
   product_name: string;

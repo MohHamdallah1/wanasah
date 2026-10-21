@@ -769,11 +769,11 @@ async def main() -> None:
             )
             await app.rollback()
         record(
-            "tenant without saved defaults keeps fail-closed fallback",
+            "tenant without saved defaults uses optional platform fallback",
             before_defaults.lot_control_mode
-            == "REQUIRED"
+            == "OPTIONAL"
             and before_defaults.expiry_control_mode
-            == "REQUIRED"
+            == "OPTIONAL"
             and before_defaults.lot_control_source
             == "PLATFORM_FALLBACK"
             and before_defaults.expiry_control_source

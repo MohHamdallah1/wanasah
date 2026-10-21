@@ -3,10 +3,16 @@ import { resolveAppLocale } from "@/lib/locale";
 export interface WarehouseLocationsCopy {
   title: string;
   summary: (total: string, active: string) => string;
-  manageBranches: string;
   refresh: string;
   newWarehouse: string;
+  warehousesView: string;
+  qualityDestinationsView: string;
+  qualityDestinationsSummary: string;
+  firstWarehouseTitle: string;
+  firstWarehouseDescription: string;
+  createFirstWarehouse: string;
   search: string;
+  number: string;
   warehouse: string;
   code: string;
   branch: string;
@@ -30,6 +36,15 @@ export interface WarehouseLocationsCopy {
   name: string;
   warehouseCode: string;
   codePlaceholder: string;
+  codeHint: string;
+  address: string;
+  addressPlaceholder: string;
+  addressRequired: string;
+  locationLink: string;
+  latitude: string;
+  longitude: string;
+  coordinatesHint: string;
+  coordinatesInvalid: string;
   deactivate: string;
   activate: string;
   deactivateReason: string;
@@ -52,10 +67,16 @@ export interface WarehouseLocationsCopy {
 const warehouseAr: WarehouseLocationsCopy = {
   title: "إدارة المستودعات",
   summary: (total, active) => `${total} مستودع · ${active} فعال في الصفحة الحالية`,
-  manageBranches: "إدارة الفروع",
   refresh: "تحديث",
   newWarehouse: "مستودع جديد",
+  warehousesView: "المستودعات",
+  qualityDestinationsView: "وجهات الجودة",
+  qualityDestinationsSummary: "إعداد وجهات الجودة لعمليات المخزون.",
+  firstWarehouseTitle: "أنشئ أول مستودع",
+  firstWarehouseDescription: "بعد إنشاء المستودع تصبح عمليات المستودع جاهزة للعمل.",
+  createFirstWarehouse: "إنشاء أول مستودع",
   search: "بحث بالاسم أو الكود (حرفان على الأقل)",
+  number: "الرقم",
   warehouse: "المستودع",
   code: "الكود",
   branch: "الفرع",
@@ -78,7 +99,16 @@ const warehouseAr: WarehouseLocationsCopy = {
   edit: "تعديل المستودع",
   name: "اسم المستودع",
   warehouseCode: "كود المستودع",
-  codePlaceholder: "AMMAN-01",
+  codePlaceholder: "WH-001",
+  codeHint: "يُقترح تلقائياً مثل WH-001، ويمكنك تعديله قبل الحفظ.",
+  address: "العنوان",
+  addressPlaceholder: "مثال: عمّان، ماركا الشمالية، اسم الشارع...",
+  addressRequired: "العنوان مطلوب وبحد أقصى 2000 حرف.",
+  locationLink: "رابط الموقع أو Google Maps (اختياري)",
+  latitude: "خط العرض (اختياري)",
+  longitude: "خط الطول (اختياري)",
+  coordinatesHint: "يمكنك إدخال رابط الخرائط أو الإحداثيات؛ يكفي أحدهما.",
+  coordinatesInvalid: "أدخل خط العرض وخط الطول معاً بقيم جغرافية صحيحة.",
   deactivate: "تعطيل المستودع",
   activate: "تفعيل المستودع",
   deactivateReason: "سبب التعطيل - إجباري",
@@ -108,10 +138,16 @@ const warehouseAr: WarehouseLocationsCopy = {
 const warehouseEn: WarehouseLocationsCopy = {
   title: "Manage warehouses",
   summary: (total, active) => `${total} warehouses · ${active} active on this page`,
-  manageBranches: "Manage branches",
   refresh: "Refresh",
   newWarehouse: "New warehouse",
+  warehousesView: "Warehouses",
+  qualityDestinationsView: "Quality destinations",
+  qualityDestinationsSummary: "Configure quality destinations for inventory operations.",
+  firstWarehouseTitle: "Create your first warehouse",
+  firstWarehouseDescription: "After creating the warehouse, warehouse operations are ready to use.",
+  createFirstWarehouse: "Create first warehouse",
   search: "Search by name or code (2+ characters)",
+  number: "No.",
   warehouse: "Warehouse",
   code: "Code",
   branch: "Branch",
@@ -134,7 +170,16 @@ const warehouseEn: WarehouseLocationsCopy = {
   edit: "Edit warehouse",
   name: "Warehouse name",
   warehouseCode: "Warehouse code",
-  codePlaceholder: "AMMAN-01",
+  codePlaceholder: "WH-001",
+  codeHint: "Suggested automatically, for example WH-001. You can edit it before saving.",
+  address: "Address",
+  addressPlaceholder: "Example: Amman, Marka Al-Shamaliyah, street ...",
+  addressRequired: "Address is required when creating a new warehouse and must be at most 2000 characters.",
+  locationLink: "Location or Google Maps link - optional",
+  latitude: "Latitude - optional",
+  longitude: "Longitude - optional",
+  coordinatesHint: "Enter a map link or coordinates; either one is enough.",
+  coordinatesInvalid: "Enter latitude and longitude together using valid geographic values.",
   deactivate: "Deactivate warehouse",
   activate: "Activate warehouse",
   deactivateReason: "Deactivation reason - required",

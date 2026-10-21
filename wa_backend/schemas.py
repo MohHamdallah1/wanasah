@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, ConfigDict, model_validator, AliasChoices, field_validator
+from pydantic import BaseModel, Field, ConfigDict, model_validator, AliasChoices, field_validator, model_serializer
 from pydantic.functional_validators import BeforeValidator
 from pydantic.functional_serializers import PlainSerializer
 from typing import Optional, List, Any, Literal, Annotated, Dict, Union
@@ -893,6 +893,7 @@ class JardItemInput(RequestModel):
 
 
 class SettleSessionRequest(RequestModel):
+    request_id: UUID
     # مبلغ التسوية قرار محاسبي صريح؛ غيابه أو إرساله فارغاً لا يتحول إلى صفر بصمت.
     actual_cash: RequiredMoneyInput
     inventory_jard: List[JardItemInput] = Field(default_factory=list, max_length=5000)
@@ -1807,6 +1808,10 @@ class WarehouseLocationCreateRequest(RequestModel):
     name: str = Field(..., min_length=1, max_length=150)
     code: str = Field(..., min_length=1, max_length=50)
     branch_id: OptionalPositiveDbInt = None
+    address: Optional[str] = Field(None, max_length=2000)
+    location_link: Optional[str] = Field(None, max_length=500)
+    latitude: Latitude = None
+    longitude: Longitude = None
 
     @field_validator("name", mode="before")
     @classmethod
@@ -1818,6 +1823,17 @@ class WarehouseLocationCreateRequest(RequestModel):
     def normalize_code(cls, v: Any) -> str:
         return _warehouse_code_input(v)
 
+    @field_validator("address", "location_link", mode="before")
+    @classmethod
+    def normalize_optional_location_text(cls, v: Any) -> Optional[str]:
+        return _optional_text(v)
+
+    @model_validator(mode="after")
+    def require_coordinate_pair(self) -> "WarehouseLocationCreateRequest":
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("يجب إدخال خط العرض وخط الطول معاً أو تركهما فارغين.")
+        return self
+
 
 class WarehouseLocationUpdateRequest(RequestModel):
     request_id: UUID
@@ -1825,6 +1841,10 @@ class WarehouseLocationUpdateRequest(RequestModel):
     name: Optional[str] = Field(None, min_length=1, max_length=150)
     code: Optional[str] = Field(None, min_length=1, max_length=50)
     branch_id: OptionalPositiveDbInt = None
+    address: Optional[str] = Field(None, max_length=2000)
+    location_link: Optional[str] = Field(None, max_length=500)
+    latitude: Latitude = None
+    longitude: Longitude = None
 
     @field_validator("name", mode="before")
     @classmethod
@@ -1840,10 +1860,22 @@ class WarehouseLocationUpdateRequest(RequestModel):
             return None
         return _warehouse_code_input(v)
 
+    @field_validator("address", "location_link", mode="before")
+    @classmethod
+    def normalize_optional_location_text(cls, v: Any) -> Optional[str]:
+        return _optional_text(v)
+
     @model_validator(mode="after")
     def require_mutation(self) -> "WarehouseLocationUpdateRequest":
-        if not ({"name", "code", "branch_id"} & self.model_fields_set):
+        mutable_fields = {"name", "code", "branch_id", "address", "location_link", "latitude", "longitude"}
+        if not (mutable_fields & self.model_fields_set):
             raise ValueError("يجب إرسال حقل واحد على الأقل لتعديل المستودع.")
+        coordinates_touched = bool({"latitude", "longitude"} & self.model_fields_set)
+        if coordinates_touched:
+            if not {"latitude", "longitude"}.issubset(self.model_fields_set):
+                raise ValueError("يجب إرسال خط العرض وخط الطول معاً عند تعديل الموقع.")
+            if (self.latitude is None) != (self.longitude is None):
+                raise ValueError("يجب إدخال خط العرض وخط الطول معاً أو مسحهما معاً.")
         return self
 
 
@@ -1862,6 +1894,10 @@ class WarehouseLocationItem(BaseModel):
     id: int
     name: str
     code: str
+    address: Optional[str] = None
+    location_link: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     branch_id: Optional[int] = None
     branch_name: Optional[str] = None
     is_active: bool
@@ -1880,6 +1916,10 @@ class WarehouseLocationCursorPage(BaseModel):
 class WarehouseLocationMutationResponse(BaseModel):
     message: str
     location: WarehouseLocationItem
+
+
+class WarehouseLocationCodeSuggestionResponse(BaseModel):
+    code: str = Field(..., min_length=1, max_length=50)
 
 
 class WarehouseSetupStatusResponse(BaseModel):
@@ -1926,6 +1966,13 @@ class InboundBatchItem(RequestModel):
 
 
 
+class InboundPurchaseReferenceSelection(RequestModel):
+    """Select one actual native cost/UOM pair, independent of receipt line order."""
+    product_variant_id: PositiveDbInt
+    uom_id: PositiveDbInt
+    unit_cost: InventoryCostMoneyInput
+
+
 class InboundOptionsRequest(RequestModel):
     ids: List[PositiveDbInt] = Field(..., min_length=1, max_length=200)
 
@@ -1951,6 +1998,18 @@ class UpgradedInboundRequest(RequestModel):
     reference_id: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = Field(None, max_length=4000)
     items: List[InboundBatchItem] = Field(..., min_length=1, max_length=5000)
+
+    purchase_reference_selections: Optional[List[InboundPurchaseReferenceSelection]] = Field(
+        default=None, max_length=5000,
+    )
+
+    @model_serializer(mode="wrap")
+    def serialize_receipt(self, handler):
+        # A newly optional field must not change pre-feature hash producers.
+        body = handler(self)
+        if not body.get("purchase_reference_selections"):
+            body.pop("purchase_reference_selections", None)
+        return body
 
     @field_validator("reference_id", "notes", mode="before")
     @classmethod
@@ -2043,9 +2102,11 @@ class InventoryStatusChangeResponse(BaseModel):
 
 # STAGE4E2A_TRANSFER_POLICY_GUARD
 class TransferDestinationPolicyPayload(RequestModel):
-    quarantine_location_id: PositiveDbInt
-    disposal_location_id: PositiveDbInt
-    vendor_return_staging_location_id: PositiveDbInt
+    # None means the V1 default: handle quality status in the current warehouse.
+    # Explicit location IDs remain supported for existing published policies.
+    quarantine_location_id: OptionalPositiveDbInt = None
+    disposal_location_id: OptionalPositiveDbInt = None
+    vendor_return_staging_location_id: OptionalPositiveDbInt = None
     allow_retiring_warehouse_balancing: bool = False
 
 

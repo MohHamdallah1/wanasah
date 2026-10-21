@@ -21,6 +21,7 @@ type Props = {
   item: SimpleProduct;
   pricingVisible: boolean;
   canEditPrice: boolean;
+  canEditPurchaseReference?: boolean;
   canRenameProduct: boolean;
   canReassignFamily: boolean;
   canEditTracking: boolean;
@@ -41,6 +42,7 @@ type Props = {
   onEditPrice: (
     item: SimpleProduct,
   ) => void;
+  onEditPurchaseReference?: (item: SimpleProduct) => void;
   onReassignFamily: (
     item: SimpleProduct,
   ) => void;
@@ -91,6 +93,7 @@ export function ProductMobileCard({
   item,
   pricingVisible,
   canEditPrice,
+  canEditPurchaseReference,
   canRenameProduct,
   canReassignFamily,
   canEditTracking,
@@ -103,6 +106,7 @@ export function ProductMobileCard({
   onOpenDetails,
   onRenameProduct,
   onEditPrice,
+  onEditPurchaseReference,
   onReassignFamily,
   onEditTracking,
   onManageBarcodes,
@@ -195,6 +199,7 @@ export function ProductMobileCard({
           canEditPrice={
             canEditPrice
           }
+          canEditPurchaseReference={canEditPurchaseReference}
           canRenameProduct={
             canRenameProduct
           }
@@ -222,6 +227,7 @@ export function ProductMobileCard({
           onEditPrice={
             onEditPrice
           }
+          onEditPurchaseReference={onEditPurchaseReference}
           onReassignFamily={
             onReassignFamily
           }

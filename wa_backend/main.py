@@ -24,10 +24,11 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 # +++ استيراد المكونات الداخلية للنظام +++
-from api import auth, branches, catalog, commercial_policy, driver, dispatch, inventory_stock_policy, offers, pricing, taxation, product_locations, product_tracking, tenant, warehouse, reconciliation, platform_manager, representatives, vehicles, sales_returns, simple_products
+from api import auth, branches, catalog, commercial_policy, driver, dispatch, inventory_stock_policy, offers, pricing, taxation, product_locations, product_tracking, tenant, warehouse, reconciliation, platform_manager, representatives, vehicles, sales_returns, simple_products, representative_settlement
 from config import Config
 from database import engine, get_db, warm_database_pool
 from domains.simple_products.imports.api import router as product_import_router
+from domains.inventory_costing.purchase_reference.api import router as purchase_reference_router
 from ws_manager import dispatch_manager
 from realtime.worker_event_relay import worker_event_relay
 from realtime.auth import WebSocketAuthError, authenticate_websocket_admin
@@ -439,6 +440,7 @@ app.include_router(auth.router, tags=["Authentication"])
 app.include_router(driver.router, tags=["Driver Operations"])
 app.include_router(sales_returns.router)
 app.include_router(dispatch.router, tags=["Dispatch & Routing"])
+app.include_router(representative_settlement.router)
 app.include_router(warehouse.router, tags=["Warehouse & Inventory"])
 app.include_router(inventory_stock_policy.router, tags=["Warehouse & Inventory"])
 app.include_router(branches.router)
@@ -446,6 +448,7 @@ app.include_router(representatives.router)
 app.include_router(vehicles.router)
 app.include_router(catalog.router)
 app.include_router(simple_products.router)
+app.include_router(purchase_reference_router)
 app.include_router(product_import_router)
 app.include_router(product_tracking.router)
 app.include_router(pricing.router)

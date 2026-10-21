@@ -1108,18 +1108,18 @@ export default function MainInventory() {
     }
   }, [selectedLocationId, fetchStockSummary, stockRefreshKey]);
 
+  const requiresFirstWarehouse =
+    !loadingLocations &&
+    !locationError &&
+    locations.length === 0 &&
+    warehouseSetup?.warehouse_ready === false &&
+    warehouseSetup.can_create;
+
   useEffect(() => {
-    if (
-      !loadingLocations &&
-      !locationError &&
-      locations.length === 0 &&
-      warehouseSetup?.warehouse_ready === false &&
-      warehouseSetup.can_create &&
-      activeTab !== "warehouses"
-    ) {
+    if (requiresFirstWarehouse && activeTab !== "warehouses") {
       setActiveTab("warehouses");
     }
-  }, [activeTab, loadingLocations, locationError, locations.length, warehouseSetup]);
+  }, [activeTab, requiresFirstWarehouse]);
 
   const canShowWarmLiveDuringAccessRefresh =
     activeTab === "live" &&
@@ -1169,7 +1169,11 @@ export default function MainInventory() {
 
   // ─── UI ─────────────────────────────────────────────────────────────────────
   return (
-    <div data-live-view={activeTab === "live"} className="inventory-workspace flex flex-col gap-4 w-full h-full flex-1 min-h-0">
+    <div
+      data-live-view={activeTab === "live"}
+      data-inbound-view={activeTab === "inbound"}
+      className="inventory-workspace flex flex-col gap-4 w-full h-full flex-1 min-h-0"
+    >
 
       <InventoryTopDock
         items={TABS.filter((tab) => tabAllowed(tab.id)).map(
@@ -1182,13 +1186,16 @@ export default function MainInventory() {
         activeId={activeTab}
         ariaLabel={t("inventoryShell.tabsLabel")}
         onChange={(id) => {
-          if (isTabId(id)) {
-            setActiveTab(id);
+          if (!isTabId(id)) return;
+          if (requiresFirstWarehouse && id !== "warehouses") {
+            toast.info(t("inventoryShell.createWarehouseFirstNotice"));
+            return;
           }
+          setActiveTab(id);
         }}
       />
 
-      {activeTab !== "live" && (
+      {activeTab !== "live" && activeTab !== "warehouses" && activeTab !== "inbound" && (
         <div className="inventory-shared-context-row">
           <div className="inventory-context-bar flex flex-wrap items-center gap-3 px-3 py-2">
             {locations.length > 0 && (
@@ -1381,7 +1388,9 @@ export default function MainInventory() {
             key={`${locationAccess.data.company_id}:${locationAccess.data.backoffice_user_id}:${selectedLocationId}`}
             companyId={locationAccess.data.company_id}
             actorId={locationAccess.data.backoffice_user_id}
-            locationId={selectedLocationId} // +++ تمرير الموقع لعملية الإدخال +++
+            locationId={selectedLocationId}
+            locations={locations}
+            onLocationChange={handleLocationChange}
             isAuditLocked={effectiveAuditLocked}
             authenticatedFetch={authFetch}
             onSuccess={async () => {

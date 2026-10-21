@@ -22,6 +22,7 @@ from pydantic import (
     Field,
     field_validator,
     model_validator,
+    model_serializer,
 )
 from sqlalchemy import (
     String,
@@ -49,6 +50,16 @@ from domains.inventory_batch_restrictions import load_batch_restrictions
 from domains.inventory_catalog_presence import (
     InventoryCatalogPresenceForbidden,
     variant_ids_present_in_all_warehouses,
+)
+from domains.inventory_costing.purchase_reference.public import (
+    MANAGE as PURCHASE_REFERENCE_MANAGE,
+    ExactAmount,
+    ManualReferenceWrite,
+    PurchaseReferenceError,
+    acquire_operation_guard as acquire_reference_operation_guard,
+    acquire_writer_guard as acquire_reference_writer_guard,
+    currency_value,
+    write_manual_reference,
 )
 from domains.pricing.core import PricingError
 from domains.simple_products.catalog_summary import (
@@ -91,6 +102,7 @@ from models import (
     ProductBarcode,
     ProductVariant,
     SystemAuditLog,
+    UOM,
 )
 from services import (
     InventoryMutationError,
@@ -107,7 +119,19 @@ class StrictRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ProductCreatePurchaseReference(StrictRequest):
+    amount: ExactAmount
+    purchase_uom_id: int = Field(gt=0, strict=True)
+    currency_code: str = Field(min_length=3, max_length=10)
+
+    @field_validator("currency_code", mode="before")
+    @classmethod
+    def currency(cls, value):
+        return currency_value(value)
+
+
 class SimpleProductCreate(StrictRequest):
+    purchase_cost_reference: ProductCreatePurchaseReference | None = None
     request_id: UUID
     name: str = Field(min_length=1, max_length=200)
     family_id: int | None = Field(None, gt=0)
@@ -140,6 +164,14 @@ class SimpleProductCreate(StrictRequest):
         None,
         max_length=20,
     )
+
+    @model_serializer(mode="wrap")
+    def serialize_create(self, handler):
+        # Preserve historical DTO/hash producers when the optional field is absent.
+        body = handler(self)
+        if body.get("purchase_cost_reference") is None:
+            body.pop("purchase_cost_reference", None)
+        return body
 
     @field_validator("name", mode="before")
     @classmethod
@@ -351,6 +383,8 @@ def _request_hash(
     # original idempotency hash for replay after deployment.
     if isinstance(payload, SimpleProductCreate) and payload.family_mode is None:
         excluded.add("family_mode")
+    if isinstance(payload, SimpleProductCreate) and payload.purchase_cost_reference is None:
+        excluded.add("purchase_cost_reference")
     body = payload.model_dump(
         mode="json",
         exclude=excluded,
@@ -1716,26 +1750,75 @@ async def list_simple_products(
                 )
 
         if search_tokens:
-            search_patterns = [
-                f"%{_escaped_like(token)}%"
-                for token in search_tokens
-            ]
-            search_variant_ids = select(
-                func.public.simple_products_search_variant_ids(
-                    company_id,
-                    bindparam(
-                        "simple_products_search_patterns",
-                        search_patterns,
-                        type_=ARRAY(String()),
+            normalized_search = " ".join(search_tokens)
+            exact_barcode_match = (
+                select(ProductBarcode.id)
+                .where(
+                    ProductBarcode.company_id == company_id,
+                    ProductBarcode.product_variant_id == ProductVariant.id,
+                    ProductBarcode.is_active.is_(True),
+                    ProductBarcode.valid_from <= barcode_now,
+                    or_(
+                        ProductBarcode.valid_to.is_(None),
+                        ProductBarcode.valid_to > barcode_now,
                     ),
-                    barcode_now,
+                    func.lower(ProductBarcode.barcode)
+                    == normalized_search,
                 )
+                .limit(1)
+                .correlate(ProductVariant)
+                .scalar_subquery()
+                .is_not(None)
             )
-            stmt = stmt.where(
-                ProductVariant.id.in_(
-                    search_variant_ids
+            exact_match_clause = or_(
+                func.lower(ProductVariant.name)
+                == normalized_search,
+                func.lower(ProductVariant.sku)
+                == normalized_search,
+                func.lower(
+                    func.coalesce(
+                        ProductVariant.gtin,
+                        "",
+                    )
                 )
+                == normalized_search,
+                exact_barcode_match,
             )
+            exact_match_id = await db.scalar(
+                stmt.with_only_columns(
+                    ProductVariant.id
+                )
+                .where(exact_match_clause)
+                .limit(1)
+            )
+
+            if exact_match_id is not None:
+                # A complete identity match wins. This keeps an exact product
+                # name/SKU/barcode from being buried in broad token matches.
+                stmt = stmt.where(
+                    exact_match_clause
+                )
+            else:
+                search_patterns = [
+                    f"%{_escaped_like(token)}%"
+                    for token in search_tokens
+                ]
+                search_variant_ids = select(
+                    func.public.simple_products_search_variant_ids(
+                        company_id,
+                        bindparam(
+                            "simple_products_search_patterns",
+                            search_patterns,
+                            type_=ARRAY(String()),
+                        ),
+                        barcode_now,
+                    )
+                )
+                stmt = stmt.where(
+                    ProductVariant.id.in_(
+                        search_variant_ids
+                    )
+                )
 
         if (
             after_key is not None
@@ -2055,6 +2138,32 @@ async def list_simple_products(
         raise _pricing_error(exc) from exc
 
 
+@router.get("/purchase-reference-create-options")
+async def purchase_reference_create_options(
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+):
+    """Quick-create metadata only; never exposes another product's cost."""
+    await _require_manage(access)
+    try:
+        await access.require(PURCHASE_REFERENCE_MANAGE)  # company scope only
+    except BackofficeCapabilityAccessRejected:
+        return {"can_manage": False, "currency_code": None, "uoms": []}
+    try:
+        company = await load_company(db, access.company_id)
+        currency = currency_value(company.currency_code)
+        each = await db.scalar(select(UOM).where(UOM.code == "EACH"))
+        if each is None:
+            raise SimpleProductError("SIMPLE_PRODUCT_UOM_MISSING", "Base purchase UOM is unavailable.")
+        return {"can_manage": True, "currency_code": currency,
+                "uoms": [{"id": int(each.id), "code": "EACH"}, *await list_package_uoms(db)]}
+    except SimpleProductError as exc:
+        raise _http_error(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(409, detail={"code": "PURCHASE_REFERENCE_CURRENCY_INVALID",
+                                        "message": "Company currency is unavailable.", "context": {}}) from exc
+
+
 @router.post("", status_code=201)
 async def create_simple_product(
     payload: SimpleProductCreate,
@@ -2065,6 +2174,13 @@ async def create_simple_product(
     await _require_manage(access)
 
     try:
+        if payload.purchase_cost_reference is not None:
+            try:
+                await access.require(PURCHASE_REFERENCE_MANAGE)
+            except BackofficeCapabilityAccessRejected as exc:
+                raise PurchaseReferenceError("PURCHASE_REFERENCE_ACCESS_DENIED",
+                                             "Purchase-reference manage permission is required.",
+                                             status_code=403) from exc
         idem, replay = await begin_idempotent_operation(
             db,
             company_id=int(access.company_id),
@@ -2076,6 +2192,12 @@ async def create_simple_product(
         if replay is not None:
             await db.rollback()
             return replay
+
+        if payload.purchase_cost_reference is not None:
+            # Match manual reference command -> writer order before any Product
+            # or Pricing lock. Durable Product replay already exited above.
+            await acquire_reference_operation_guard(db, access.company_id, payload.request_id)
+            await acquire_reference_writer_guard(db, company_id=access.company_id)
 
         created = await create_products_and_prices(
             db,
@@ -2100,6 +2222,14 @@ async def create_simple_product(
             ],
         )
         variant, prices = created[0]
+        if payload.purchase_cost_reference is not None:
+            await write_manual_reference(
+                db, access=access, product_variant_id=int(variant.id),
+                payload=ManualReferenceWrite(
+                    request_id=payload.request_id, expected_revision=0, reason="PRODUCT_CREATE",
+                    **payload.purchase_cost_reference.model_dump(mode="python"),
+                ),
+            )
         response = {
             "message": "Product created.",
             "product_variant_id": int(variant.id),
@@ -2136,6 +2266,9 @@ async def create_simple_product(
         )
         await db.commit()
         return response
+    except PurchaseReferenceError as exc:
+        await db.rollback()
+        raise HTTPException(exc.status_code, detail=exc.detail()) from exc
     except HTTPException:
         await db.rollback()
         raise
@@ -2158,6 +2291,10 @@ async def create_simple_product(
                 "context": {},
             },
         ) from exc
+    except BaseException:
+        # Includes cancellation and unexpected failure after reference/audit flush.
+        await db.rollback()
+        raise
 
 
 @router.patch("/{variant_id}/price")

@@ -6,7 +6,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import Integer, and_, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
@@ -34,6 +34,7 @@ from models import (
     TenantOperationalPolicy,
 )
 from schemas import (
+    WarehouseLocationCodeSuggestionResponse,
     WarehouseLocationCreateRequest,
     WarehouseLocationCursorPage,
     WarehouseLocationMutationResponse,
@@ -179,6 +180,10 @@ def _warehouse_location_to_payload(
         "id": int(location.id),
         "name": str(location.name),
         "code": str(location.code),
+        "address": str(location.address) if location.address is not None else None,
+        "location_link": str(location.location_link) if location.location_link is not None else None,
+        "latitude": float(location.latitude) if location.latitude is not None else None,
+        "longitude": float(location.longitude) if location.longitude is not None else None,
         "branch_id": (
             int(location.branch_id)
             if location.branch_id is not None
@@ -429,7 +434,36 @@ async def manage_warehouse_locations(
 
 
 # ====================================================
-# 0.9 إنشاء مستودع جديد مع idempotency والتدقيق وتحديث Live Stock
+# 0.9 Suggest the next company-scoped warehouse code
+# ====================================================
+@router.get(
+    "/warehouse/locations/code-suggestion",
+    response_model=WarehouseLocationCodeSuggestionResponse,
+    status_code=200,
+)
+async def suggest_warehouse_location_code(
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+):
+    # Suggestion only: the company-scoped DB unique constraint remains authoritative.
+    await _require_location_capability(access, 'location.create')
+    numeric_suffix = cast(
+        func.substring(InventoryLocation.code, r'^WH-([0-9]+)$'),
+        Integer,
+    )
+    max_sequence = await db.scalar(
+        select(func.max(numeric_suffix)).filter(
+            InventoryLocation.company_id == access.company_id,
+            InventoryLocation.location_type == 'WAREHOUSE',
+        )
+    )
+    return {"code": f"WH-{int(max_sequence or 0) + 1:03d}"}
+
+
+# ====================================================
+# 0.10 Create a warehouse with idempotency, audit, and Live Stock refresh
 # ====================================================
 @router.post(
     "/warehouse/locations",
@@ -500,6 +534,10 @@ async def create_warehouse_location(
             branch_id=payload.branch_id,
             name=payload.name,
             code=payload.code,
+            address=payload.address,
+            location_link=payload.location_link,
+            latitude=payload.latitude,
+            longitude=payload.longitude,
             location_type='WAREHOUSE',
             vehicle_id=None,
             system_role=None,
@@ -569,7 +607,7 @@ async def create_warehouse_location(
 
 
 # ====================================================
-# 0.10 تحديث بيانات المستودع مع قفل الصف والتحقق من الإصدار
+# 0.10 Create a warehouse with idempotency, audit, and Live Stock refresh
 # ====================================================
 @router.patch(
     "/warehouse/locations/{location_id}",
@@ -657,6 +695,16 @@ async def update_warehouse_location(
 
         if "name" in payload.model_fields_set:
             location.name = payload.name
+
+        if "address" in payload.model_fields_set:
+            location.address = payload.address
+
+        if "location_link" in payload.model_fields_set:
+            location.location_link = payload.location_link
+
+        if {"latitude", "longitude"}.issubset(payload.model_fields_set):
+            location.latitude = payload.latitude
+            location.longitude = payload.longitude
 
         if "code" in payload.model_fields_set:
             if payload.code == "TRANSIT-SYS":

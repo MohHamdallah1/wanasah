@@ -133,9 +133,13 @@ async def _require_transfer_policy_location_access(
     validated_payload: dict,
 ) -> None:
     location_ids = sorted({
-        int(validated_payload["quarantine_location_id"]),
-        int(validated_payload["disposal_location_id"]),
-        int(validated_payload["vendor_return_staging_location_id"]),
+        int(location_id)
+        for location_id in (
+            validated_payload.get("quarantine_location_id"),
+            validated_payload.get("disposal_location_id"),
+            validated_payload.get("vendor_return_staging_location_id"),
+        )
+        if location_id is not None
     })
     for location_id in location_ids:
         # Policy administration itself is company-scoped; referenced locations

@@ -45,7 +45,7 @@ from models import (
     role_permissions,
     utc_now,
 )
-from services import apply_inventory_movement
+from services import apply_inventory_movement, read_special_transfer_destinations
 from schemas import (UnifiedDispatchRequest, UnifiedReceiveRequest, UnifiedTransferDecisionRequest,
     TransferDestinationPolicySaveRequest, TransferDestinationPolicyPublishRequest,
     WarehouseLocationStateRequest, SpecialTransferDispatchRequest)
@@ -232,8 +232,19 @@ async def pg():
                 seed.add(vehicle)
                 await seed.flush()
                 vehicle_location = InventoryLocation(company_id=company.id, code="VA", name="Overlap Warehouse", location_type="VEHICLE", vehicle_id=vehicle.id)
-                quarantine = InventoryLocation(company_id=company.id, code="Q", name="Policy Warehouse", location_type="WAREHOUSE")
-                seed.add_all([vehicle_location, quarantine])
+                quarantine = (
+                    InventoryLocation(
+                        company_id=company.id,
+                        code="Q",
+                        name="Policy Warehouse",
+                        location_type="WAREHOUSE",
+                    )
+                    if index == 0
+                    else locations[0]
+                )
+                seed.add(vehicle_location)
+                if index == 0:
+                    seed.add(quarantine)
                 await seed.flush()
                 reason = OverrideReason(company_id=company.id, code="APPROVED", description="Synthetic override")
                 seed.add(reason)
@@ -248,7 +259,11 @@ async def pg():
                 later = ProductBatch(company_id=company.id, product_variant_id=variant.id, batch_number="LOT-LATER", expiry_date=date.today() + timedelta(days=60))
                 expired = ProductBatch(company_id=company.id, product_variant_id=variant.id, batch_number="LOT-EXPIRED", expiry_date=date.today() - timedelta(days=1))
                 seed.add_all([later, expired])
-                for location in [*locations, quarantine]:
+                product_locations = {
+                    int(location.id): location
+                    for location in [*locations, quarantine]
+                }
+                for location in product_locations.values():
                     seed.add(ProductLocation(company_id=company.id, location_id=location.id, product_variant_id=variant.id, created_by=owner.driver_id))
                 await seed.flush()
                 tenants.append(
@@ -548,6 +563,348 @@ async def test_policy_draft_publish_replay_revocation_and_deactivation_blocker(p
                 elif operation == "draft": await transfer_policy.save_transfer_destination_policy(request, db, ordinary.access(db), ordinary.operational_driver)
                 else: await transfer_policy.publish_transfer_destination_policy_endpoint(draft["policy"]["id"], publish, db, ordinary.access(db), ordinary.operational_driver)
             assert revoked.value.status_code == 403
+
+
+async def test_zero_policy_one_warehouse_uses_effective_default_and_materializes_once(pg):
+    tenant = pg.b
+    actor = tenant.owner
+    source_location_id = tenant.locations[0]
+    request_id = uuid4()
+    command = SpecialTransferDispatchRequest(
+        request_id=request_id,
+        source_location_id=source_location_id,
+        transfer_purpose="DISPOSAL",
+        notes="CP8 lazy same-location default",
+        items=[dict(
+            product_variant_id=tenant.variant_id,
+            batch_id=tenant.expired_batch_id,
+            source_status="AVAILABLE",
+            quantity="2",
+            uom_id=tenant.uom_id,
+        )],
+    )
+
+    async with pg.session(tenant) as db:
+        active_warehouses = await db.scalar(
+            select(func.count()).select_from(InventoryLocation).where(
+                InventoryLocation.company_id == tenant.company_id,
+                InventoryLocation.location_type == "WAREHOUSE",
+                InventoryLocation.is_active.is_(True),
+            )
+        )
+        assert active_warehouses == 1
+        assert await db.scalar(
+            select(func.count()).select_from(TenantOperationalPolicy).where(
+                TenantOperationalPolicy.company_id == tenant.company_id,
+                TenantOperationalPolicy.policy_code == "INVENTORY_TRANSFER_DESTINATIONS",
+            )
+        ) == 0
+
+        # Read authority exposes the effective default but does not materialize it.
+        assert await read_special_transfer_destinations(
+            db, company_id=tenant.company_id
+        ) == {
+            "RETURN_TO_VENDOR": None,
+            "QUARANTINE": None,
+            "RECALL_RETURN": None,
+            "DISPOSAL": None,
+        }
+        assert await db.scalar(
+            select(func.count()).select_from(TenantOperationalPolicy).where(
+                TenantOperationalPolicy.company_id == tenant.company_id,
+                TenantOperationalPolicy.policy_code == "INVENTORY_TRANSFER_DESTINATIONS",
+            )
+        ) == 0
+
+    async with pg.session(tenant) as db:
+        first = await transfers.special_transfer_dispatch(
+            command,
+            db,
+            actor.access(db),
+            actor.operational_driver,
+        )
+        assert first["source_location_id"] == source_location_id
+        assert first["destination_location_id"] == source_location_id
+
+        policies = (
+            await db.execute(
+                select(TenantOperationalPolicy).where(
+                    TenantOperationalPolicy.company_id == tenant.company_id,
+                    TenantOperationalPolicy.policy_code == "INVENTORY_TRANSFER_DESTINATIONS",
+                )
+            )
+        ).scalars().all()
+        assert len(policies) == 1
+        policy = policies[0]
+        assert policy.status == "PUBLISHED"
+        assert dict(policy.validated_payload) == {
+            "quarantine_location_id": None,
+            "disposal_location_id": None,
+            "vendor_return_staging_location_id": None,
+            "allow_retiring_warehouse_balancing": False,
+        }
+
+        header = await db.get(InventoryTransferHeader, first["header_id"])
+        assert header.tenant_policy_id == policy.id
+        assert header.tenant_policy_revision == policy.revision
+        assert header.workflow_type == "DIRECT"
+        assert header.status == "POSTED"
+
+        movement = await db.scalar(
+            select(InventoryMovement).where(
+                InventoryMovement.company_id == tenant.company_id,
+                InventoryMovement.transfer_header_id == first["header_id"],
+            )
+        )
+        assert movement.movement_kind == "STATUS_CHANGE"
+        assert movement.source_location_id == source_location_id
+        assert movement.destination_location_id == source_location_id
+
+        # Exact retry returns the committed result before attempting another
+        # lazy materialization or creating duplicate movement evidence.
+        replay = await transfers.special_transfer_dispatch(
+            command,
+            db,
+            actor.access(db),
+            actor.operational_driver,
+        )
+        assert replay == first
+        assert await db.scalar(
+            select(func.count()).select_from(TenantOperationalPolicy).where(
+                TenantOperationalPolicy.company_id == tenant.company_id,
+                TenantOperationalPolicy.policy_code == "INVENTORY_TRANSFER_DESTINATIONS",
+            )
+        ) == 1
+        assert await db.scalar(
+            select(func.count()).select_from(InventoryTransferHeader).where(
+                InventoryTransferHeader.company_id == tenant.company_id,
+                InventoryTransferHeader.id == first["header_id"],
+            )
+        ) == 1
+
+        # Lazy evidence may create the canonical system transit location, but it
+        # must never invent another operational warehouse.
+        assert await db.scalar(
+            select(func.count()).select_from(InventoryLocation).where(
+                InventoryLocation.company_id == tenant.company_id,
+                InventoryLocation.location_type == "WAREHOUSE",
+                InventoryLocation.is_active.is_(True),
+            )
+        ) == 1
+
+
+async def test_explicit_legacy_published_policy_still_routes_to_explicit_destination(pg):
+    actor = pg.a.owner
+    explicit_destination = pg.a.quarantine_id
+
+    async with pg.session(pg.a) as db:
+        draft = await transfer_policy.save_transfer_destination_policy(
+            TransferDestinationPolicySaveRequest(
+                request_id=uuid4(),
+                payload=dict(
+                    quarantine_location_id=explicit_destination,
+                    disposal_location_id=explicit_destination,
+                    vendor_return_staging_location_id=explicit_destination,
+                ),
+            ),
+            db,
+            actor.access(db),
+            actor.operational_driver,
+        )
+        published = await transfer_policy.publish_transfer_destination_policy_endpoint(
+            draft["policy"]["id"],
+            TransferDestinationPolicyPublishRequest(
+                request_id=uuid4(),
+                expected_revision=draft["policy"]["revision"],
+            ),
+            db,
+            actor.access(db),
+            actor.operational_driver,
+        )
+        published_payload = dict(published["policy"]["validated_payload"])
+
+    command = SpecialTransferDispatchRequest(
+        request_id=uuid4(),
+        source_location_id=pg.a.locations[0],
+        transfer_purpose="DISPOSAL",
+        notes="CP8 explicit legacy route",
+        items=[dict(
+            product_variant_id=pg.a.variant_id,
+            batch_id=pg.a.expired_batch_id,
+            source_status="AVAILABLE",
+            quantity="2",
+            uom_id=pg.a.uom_id,
+        )],
+    )
+    async with pg.session(pg.a) as db:
+        result = await transfers.special_transfer_dispatch(
+            command,
+            db,
+            actor.access(db),
+            actor.operational_driver,
+        )
+        assert result["destination_location_id"] == explicit_destination
+        assert result["source_location_id"] != result["destination_location_id"]
+        header = await db.get(InventoryTransferHeader, result["header_id"])
+        assert header.workflow_type == "TRANSIT"
+        assert header.status == "IN_TRANSIT"
+        assert await transfers.special_transfer_dispatch(
+            command,
+            db,
+            actor.access(db),
+            actor.operational_driver,
+        ) == result
+
+        current = await db.scalar(
+            select(TenantOperationalPolicy).where(
+                TenantOperationalPolicy.company_id == pg.a.company_id,
+                TenantOperationalPolicy.policy_code == "INVENTORY_TRANSFER_DESTINATIONS",
+                TenantOperationalPolicy.status == "PUBLISHED",
+            )
+        )
+        assert dict(current.validated_payload) == published_payload
+        assert current.id == published["policy"]["id"]
+
+
+async def test_in_place_quality_policy_stages_status_without_physical_transfer(pg):
+    actor = pg.a.owner
+    source_location_id = pg.a.locations[0]
+    command = SpecialTransferDispatchRequest(
+        request_id=uuid4(),
+        source_location_id=source_location_id,
+        transfer_purpose="DISPOSAL",
+        notes="CP8 in-place quality default",
+        items=[dict(
+            product_variant_id=pg.a.variant_id,
+            batch_id=pg.a.expired_batch_id,
+            source_status="AVAILABLE",
+            quantity="2",
+            uom_id=pg.a.uom_id,
+        )],
+    )
+
+    async with pg.session(pg.a) as db:
+        before_total = await db.scalar(
+            select(func.sum(InventoryBalance.on_hand_quantity)).where(
+                InventoryBalance.company_id == pg.a.company_id,
+                InventoryBalance.location_id == source_location_id,
+            )
+        )
+        draft = await transfer_policy.save_transfer_destination_policy(
+            TransferDestinationPolicySaveRequest(
+                request_id=uuid4(),
+                payload=dict(
+                    quarantine_location_id=None,
+                    disposal_location_id=None,
+                    vendor_return_staging_location_id=None,
+                ),
+            ),
+            db,
+            actor.access(db),
+            actor.operational_driver,
+        )
+        assert draft["policy"]["validated_payload"]["quarantine_location_id"] is None
+        publish_request = TransferDestinationPolicyPublishRequest(
+            request_id=uuid4(),
+            expected_revision=draft["policy"]["revision"],
+        )
+        published = await transfer_policy.publish_transfer_destination_policy_endpoint(
+            draft["policy"]["id"],
+            publish_request,
+            db,
+            actor.access(db),
+            actor.operational_driver,
+        )
+        assert published["policy"]["validated_payload"] == {
+            "quarantine_location_id": None,
+            "disposal_location_id": None,
+            "vendor_return_staging_location_id": None,
+            "allow_retiring_warehouse_balancing": False,
+        }
+
+    async with pg.session(pg.a) as db:
+        result = await transfers.special_transfer_dispatch(
+            command,
+            db,
+            actor.access(db),
+            actor.operational_driver,
+        )
+        assert result["source_location_id"] == source_location_id
+        assert result["destination_location_id"] == source_location_id
+        assert await transfers.special_transfer_dispatch(
+            command,
+            db,
+            actor.access(db),
+            actor.operational_driver,
+        ) == result
+
+        header = await db.get(InventoryTransferHeader, result["header_id"])
+        assert header.workflow_type == "DIRECT"
+        assert header.status == "POSTED"
+        assert header.source_location_id == source_location_id
+        assert header.destination_location_id == source_location_id
+        assert header.commercial_context["quality_stage_v1"] is True
+
+        movement = await db.scalar(
+            select(InventoryMovement).where(
+                InventoryMovement.company_id == pg.a.company_id,
+                InventoryMovement.transfer_header_id == result["header_id"],
+            )
+        )
+        assert movement.movement_kind == "STATUS_CHANGE"
+        assert movement.source_location_id == source_location_id
+        assert movement.destination_location_id == source_location_id
+        assert movement.source_stock_status == "AVAILABLE"
+        assert movement.destination_stock_status == "DISPOSAL_PENDING"
+
+        # The other V1 quality destinations use the same direct status-only
+        # evidence path; this also proves the expanded PostgreSQL constraint.
+        for purpose, target_status in (
+            ("QUARANTINE", "QUARANTINED"),
+            ("RETURN_TO_VENDOR", "QUARANTINED"),
+        ):
+            same_location = SpecialTransferDispatchRequest(
+                request_id=uuid4(),
+                source_location_id=source_location_id,
+                transfer_purpose=purpose,
+                notes=f"CP8 in-place {purpose.lower()}",
+                items=[dict(
+                    product_variant_id=pg.a.variant_id,
+                    batch_id=pg.a.expired_batch_id,
+                    source_status="AVAILABLE",
+                    quantity="1",
+                    uom_id=pg.a.uom_id,
+                )],
+            )
+            staged = await transfers.special_transfer_dispatch(
+                same_location,
+                db,
+                actor.access(db),
+                actor.operational_driver,
+            )
+            assert staged["destination_location_id"] == source_location_id
+            staged_header = await db.get(InventoryTransferHeader, staged["header_id"])
+            assert staged_header.workflow_type == "DIRECT"
+            assert staged_header.status == "POSTED"
+            staged_movement = await db.scalar(
+                select(InventoryMovement).where(
+                    InventoryMovement.company_id == pg.a.company_id,
+                    InventoryMovement.transfer_header_id == staged["header_id"],
+                )
+            )
+            assert staged_movement.movement_kind == "STATUS_CHANGE"
+            assert staged_movement.source_location_id == source_location_id
+            assert staged_movement.destination_location_id == source_location_id
+            assert staged_movement.source_stock_status == "AVAILABLE"
+            assert staged_movement.destination_stock_status == target_status
+
+        after_total = await db.scalar(
+            select(func.sum(InventoryBalance.on_hand_quantity)).where(
+                InventoryBalance.company_id == pg.a.company_id,
+                InventoryBalance.location_id == source_location_id,
+            )
+        )
+        assert after_total == before_total
 
 
 async def test_query_counts_are_bounded_by_page_not_rows(pg):

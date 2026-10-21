@@ -54,7 +54,7 @@ vi.mock("@/components/ui/modal", () => ({
     isOpen ? <div role="dialog" aria-label={title}>{children}</div> : null,
 }));
 vi.mock("@/pages/inventory/warehouse-locations/QualityHandlingDestinationsCard", () => ({
-  QualityHandlingDestinationsCard: () => null,
+  QualityHandlingDestinationsCard: () => <div data-testid="quality-destinations-view">quality-destinations-view</div>,
 }));
 vi.mock("@/pages/inventory/StockMinimumManager", () => ({
   StockMinimumManager: () => <button type="button">minimum-stock-manager</button>,
@@ -115,17 +115,19 @@ describe("CP4 Warehouse/Branch Dashboard closure", () => {
     installFetch();
   });
 
-  it("keeps canonical non-owner branch reachability and independent action gates", async () => {
+  it("keeps branch administration out of the warehouse page while preserving canonical branch gates", async () => {
     mocks.companyCaps.add("branch.read");
     const view = renderWarehouses();
-    expect(screen.getByRole("button", { name: "إدارة الفروع" })).toBeTruthy();
-    expect(calls("/warehouse/locations/manage?")).toHaveLength(0);
-    fireEvent.click(screen.getByRole("button", { name: "إدارة الفروع" }));
+    expect(screen.queryByRole("button", { name: "إدارة الفروع" })).toBeNull();
+    expect(calls("/warehouse/branches/manage?")).toHaveLength(0);
+    view.unmount();
+
+    const readOnlyModal = renderBranchModal();
     await screen.findByText(branch.name);
     expect(screen.getByRole("button", { name: "فرع جديد" })).toBeDisabled();
     expect(screen.getByTitle("تعديل")).toBeDisabled();
     expect(screen.getByTitle("تعطيل")).toBeDisabled();
-    view.unmount();
+    readOnlyModal.unmount();
 
     mocks.companyCaps.add("branch.create");
     const modal = renderBranchModal();
@@ -133,6 +135,46 @@ describe("CP4 Warehouse/Branch Dashboard closure", () => {
     expect(screen.getByRole("button", { name: "فرع جديد" })).toBeEnabled();
     expect(screen.getByTitle("تعديل")).toBeDisabled();
     modal.unmount();
+  });
+
+  it("shows only the first-warehouse start experience when the company has no warehouses", async () => {
+    mocks.companyCaps.add("location.read");
+    mocks.companyCaps.add("location.create");
+    mocks.authFetch.mockImplementation(async (url: string) => {
+      if (url.startsWith("/warehouse/locations/manage?")) {
+        return { items: [], next_cursor: null, has_more: false, total: 0 };
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    renderWarehouses();
+    const start = await screen.findByTestId("warehouse-first-empty");
+    expect(start).toHaveTextContent("أنشئ أول مستودع");
+    expect(start).toHaveTextContent("بعد إنشاء المستودع تصبح عمليات المستودع جاهزة للعمل.");
+    expect(screen.queryByLabelText("بحث بالاسم أو الكود (حرفان على الأقل)")).toBeNull();
+    expect(screen.queryByRole("button", { name: "إدارة الفروع" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "تحديث" })).toBeNull();
+    expect(screen.queryByText("minimum-stock-manager")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "إنشاء أول مستودع" }));
+    expect(screen.getByRole("dialog", { name: "إضافة مستودع" })).toBeTruthy();
+  });
+
+  it("opens quality destinations as a dedicated warehouse setup view and returns to warehouses", async () => {
+    mocks.companyCaps.add("location.read");
+    mocks.companyCaps.add("inventory.transfer_policy.manage");
+    renderWarehouses();
+    await screen.findByText("Main warehouse");
+
+    expect(screen.queryByTestId("quality-destinations-view")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "وجهات الجودة" }));
+    expect(screen.getByTestId("quality-destinations-view")).toBeTruthy();
+    expect(screen.queryByLabelText("بحث بالاسم أو الكود (حرفان على الأقل)")).toBeNull();
+    expect(screen.queryByRole("button", { name: "مستودع جديد" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "المستودعات" }));
+    expect(screen.queryByTestId("quality-destinations-view")).toBeNull();
+    expect(screen.getByLabelText("بحث بالاسم أو الكود (حرفان على الأقل)")).toBeTruthy();
   });
 
   it("never treats CompanyOwner as branch authority", () => {
@@ -260,11 +302,12 @@ describe("CP4 Warehouse/Branch Dashboard closure", () => {
     expect(patchBodies[1].request_id).not.toBe(patchBodies[0].request_id);
   });
 
-  it("refreshes branch choices on machine-readable relation failures", async () => {
+  it("keeps Branch discovery dormant in Warehouse V1 even when branch.read exists", async () => {
     mocks.anyCaps.add("location.read");
     mocks.companyCaps.add("branch.read");
     mocks.locationCaps.set(LOCATION, new Set(["location.update"]));
     let optionCalls = 0;
+    const patchBodies: Array<Record<string, unknown>> = [];
     mocks.authFetch.mockImplementation(async (url: string, opts?: RequestInit) => {
       if (url.startsWith("/warehouse/locations/manage?")) return warehousePage;
       if (url.startsWith("/warehouse/branches/options?")) {
@@ -273,20 +316,27 @@ describe("CP4 Warehouse/Branch Dashboard closure", () => {
       }
       if (url === `/warehouse/locations/${LOCATION}` && opts?.method === "PATCH") {
         const body = JSON.parse(String(opts.body));
-        expect(body.branch_id).toBe(OTHER_BRANCH);
-        throw structuredError("WAREHOUSE_BRANCH_INACTIVE", { branch_id: OTHER_BRANCH });
+        patchBodies.push(body);
+        return { message: "updated", location: { ...warehouse, name: body.name, version: 2 } };
       }
       throw new Error(`Unexpected request: ${url}`);
     });
     renderWarehouses(LOCATION);
-    await screen.findByText("Main warehouse");
-    fireEvent.click(screen.getByTitle("تعديل"));
-    await waitFor(() => expect(optionCalls).toBe(1));
-    const select = screen.getByRole("combobox");
-    fireEvent.change(select, { target: { value: String(OTHER_BRANCH) } });
-    fireEvent.submit(select.closest("form")!);
-    expect(await screen.findByText(/الفرع المحدد غير نشط/)).toBeTruthy();
-    await waitFor(() => expect(optionCalls).toBeGreaterThan(1));
+    const warehouseName = await screen.findByText("Main warehouse");
+    const warehouseRow = warehouseName.closest("tr");
+    expect(warehouseRow).toBeTruthy();
+    const editButton = warehouseRow!.querySelector("button");
+    expect(editButton).toBeTruthy();
+    fireEvent.click(editButton!);
+    expect(optionCalls).toBe(0);
+    expect(screen.queryByRole("combobox")).toBeNull();
+    const dialog = screen.getByRole("dialog");
+    const name = dialog.querySelectorAll("input")[0];
+    fireEvent.change(name, { target: { value: "Updated warehouse" } });
+    fireEvent.submit(name.closest("form")!);
+    await waitFor(() => expect(patchBodies).toHaveLength(1));
+    expect(patchBodies[0]).not.toHaveProperty("branch_id");
+    expect(optionCalls).toBe(0);
   });
 
   it("keeps AR/EN direction, non-cascade wording, and CP6 gating exact", async () => {

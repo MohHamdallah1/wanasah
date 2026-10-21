@@ -143,6 +143,9 @@ async def api(gate):
     app.dependency_overrides[get_db] = lambda: db
 
     async def canonical_access():
+        # Match production's request-scoped tenant setup after handler rollback.
+        await db.execute(text("SELECT set_config('app.current_tenant',:tenant,true)"),
+                         {"tenant": str(auth.company_id)})
         owner_profile_id = await db.scalar(select(CompanyOwner.backoffice_user_id).where(
             CompanyOwner.company_id == auth.company_id,
             CompanyOwner.backoffice_user_id == auth.backoffice_user_id,

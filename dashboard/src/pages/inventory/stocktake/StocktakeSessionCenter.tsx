@@ -14,8 +14,6 @@ interface StocktakeSessionCenterProps {
   onRefresh: () => void;
   onStartCycle: () => void;
   cycleStartDisabled: boolean;
-  vehicleStartDisabled: boolean;
-  onStartVehicleRecon: () => void;
   onLoadMore: () => void;
   onOpenSession: (session: StocktakeSessionSummary) => void | Promise<void>;
 }
@@ -35,8 +33,8 @@ const canOpenSession = (status: StocktakeStatus): boolean =>
 
 export function StocktakeSessionCenter({
   sessions, total, loading, loadingMore, nextCursor, currentSessionId,
-  onRefresh, onStartCycle, cycleStartDisabled, vehicleStartDisabled,
-  onStartVehicleRecon, onLoadMore, onOpenSession,
+  onRefresh, onStartCycle, cycleStartDisabled,
+  onLoadMore, onOpenSession,
 }: StocktakeSessionCenterProps) {
   const { t } = useTranslation();
   const { copy, dir } = useStocktakeUiCopy();
@@ -68,7 +66,6 @@ export function StocktakeSessionCenter({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" disabled={vehicleStartDisabled} onClick={onStartVehicleRecon} className="px-3 py-2 rounded-lg bg-violet-600 disabled:bg-slate-300 text-white text-xs font-black" title={text.vehicleHint}>{text.vehicleAction}</button>
           <button type="button" onClick={onStartCycle} disabled={cycleStartDisabled} className="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-black disabled:opacity-40 disabled:cursor-not-allowed" title={cycleStartDisabled ? text.cycleLocked : text.cycleHint}>{text.cycleAction}</button>
           <button type="button" onClick={onRefresh} disabled={loading} aria-label={text.refresh} className="p-2 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-[#1e87bb] disabled:opacity-50" title={text.refresh}><RefreshCcw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} aria-hidden="true" /></button>
         </div>

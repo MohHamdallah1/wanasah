@@ -19,25 +19,49 @@ describe("CP13 Warehouse setup final presentation", () => {
     expect(source).toContain("disabled={!canAt(location.id, \"location.state\")}");
   });
 
-  it("separates identity, Branch assignment and lifecycle in create/edit", () => {
+  it("keeps create/edit focused on warehouse identity and the bounded V1 physical location profile", () => {
     const source = warehouse();
     expect(source).toContain("presentation.identityTitle");
-    expect(source).toContain("presentation.branchTitle");
-    expect(source).toContain("presentation.lifecycleTitle");
+    expect(source).toContain("presentation.locationTitle");
+    expect(source).not.toContain("presentation.lifecycleTitle");
+    expect(source).toContain("/warehouse/locations/code-suggestion");
+    expect(source).toContain("copy.codeHint");
+    expect(source).toContain("copy.address");
+    expect(source).toContain("copy.locationLink");
+    expect(source).toContain("copy.latitude");
+    expect(source).toContain("copy.longitude");
+    expect(source).not.toContain("presentation.locationHint");
+    expect(source).not.toContain("presentation.identityHint");
+    expect(source).not.toContain("copy.requiredFieldsPrefix");
+    expect(source).not.toContain("copy.requiredFieldsSuffix");
+    expect(source).toContain("copy.coordinatesHint");
+    expect(source).toContain('type="submit"');
+    expect(source).toContain("<form noValidate");
+    expect(source).toContain("onSubmit={(event) => { event.preventDefault(); void handleSave(); }}");
+    expect(source).not.toContain("ref={nameInputRef} required");
+    expect(source).not.toContain("ref={codeInputRef} required");
+    expect(source).not.toContain("required={formMode === \"create\"}");
+    expect(source).toContain('t("inventoryWarehouses.errors.nameInvalid")');
+    expect(source).toContain('t("inventoryWarehouses.errors.codeInvalid")');
+    expect(source).toContain("copy.addressRequired");
     expect(source).toContain("aria-invalid={fieldIssue?.field === \"name\"}");
     expect(source).toContain("aria-invalid={fieldIssue?.field === \"code\"}");
     expect(source).toContain("requestAnimationFrame");
   });
 
-  it("keeps Branch management discoverable, secondary, capability-gated and non-owner specific", () => {
+  it("keeps Branch association dormant in the V1 Warehouse UX without deleting the backend relation", () => {
     const source = warehouse();
-    expect(source).toContain('const canReadBranches = access.can("branch.read")');
-    expect(source).toContain("{canReadBranches && (");
-    expect(source).toContain("copy.manageBranches");
+    expect(source).not.toContain('const canReadBranches = access.can("branch.read")');
+    expect(source).not.toContain("<BranchSelector");
+    expect(source).not.toContain("presentation.branchTitle");
+    expect(source).not.toContain("mutationBody.branch_id");
+    expect(source).toContain("branch_id: number | null");
+    expect(source).not.toContain("BranchManagementModal");
+    expect(source).not.toContain("copy.manageBranches");
     expect(source).not.toMatch(/isOwner|ownerOnly|role\s*===\s*["']owner/i);
   });
 
-  it("makes active-only Branch assignment semantics explicit while preserving the current inactive association", () => {
+  it("preserves the dormant Branch selector contract for the later organization workflow", () => {
     const selector = read("src/pages/inventory/warehouse-locations/BranchSelector.tsx");
     const ar = branchSelectorCopy("ar");
     const en = branchSelectorCopy("en");
@@ -49,13 +73,32 @@ describe("CP13 Warehouse setup final presentation", () => {
     expect(en.assignmentRule).toContain("active branches");
   });
 
-  it("presents quality destinations as setup/policy rather than a daily stock action", () => {
+  it("presents quality destinations as one compact modal with the V1 in-place default", () => {
+    const source = warehouse();
     const quality = read("src/features/inventory/quality/QualityHandlingDestinationsCard.tsx");
+    const policyHook = read("src/features/inventory/quality/useTransferDestinationPolicy.ts");
+    expect(source).toContain('access.can("inventory.transfer_policy.manage")');
+    expect(source).toContain("setQualityDestinationsOpen(true)");
+    expect(source).toContain("isOpen={qualityDestinationsOpen && canManageQualityDestinations}");
+    expect(source).not.toContain("WarehouseSetupView");
+    expect(source).not.toContain('data-warehouse-setup-view="quality"');
+    expect(source.match(/<QualityHandlingDestinationsCard/g)?.length).toBe(1);
     expect(quality).toContain('data-warehouse-setup="quality-policy"');
+    expect(quality).toContain("data-quality-destination-mode={");
+    expect(quality).toContain('!resolved ? "loading" : customConfigured ? "custom" : "in-place"');
+    expect(quality).not.toContain("<select");
+    expect(quality).not.toContain("<Search");
+    expect(policyHook).not.toContain("/warehouse/locations/manage");
+    expect(policyHook).toContain("quarantine_location_id: null");
+    expect(policyHook).toContain("vendor_return_staging_location_id: null");
+    expect(policyHook).toContain("disposal_location_id: null");
+    expect(policyHook).toContain("customConfigured");
+    expect(quality).toContain("customConfigured");
+    expect(quality).toContain("effectivePayload.quarantine_location_id");
+    expect(quality).not.toContain("saveDraft");
+    expect(quality).not.toContain("publish()");
     expect(quality).toContain("presentation.qualityPolicy");
-    expect(quality).toContain("presentation.qualityPolicyHint");
     expect(quality).toContain("useTransferDestinationPolicy");
-    expect(quality).not.toMatch(/quality.?staging/i);
   });
 
   it("keeps backend blocker authority and turns accepted blocker evidence into operator references", () => {
@@ -73,7 +116,8 @@ describe("CP13 Warehouse setup final presentation", () => {
     expect(source).toContain('access.can("location.create")');
     expect(source).toContain('canAt(location.id, "location.update")');
     expect(source).toContain('canAt(location.id, "location.state")');
-    expect(source).toContain('access.can("inventory.minimum_stock.manage")');
+    expect(source).toContain('canAt(item.id, "inventory.minimum_stock.manage")');
+    expect(source).toContain('canAt(item.id, "inventory.read")');
     expect(source).not.toMatch(/admin|superuser/i);
   });
 
@@ -96,8 +140,9 @@ describe("CP13 Warehouse setup final presentation", () => {
     expect(source).toContain("autoFocus");
     expect(source).toContain('data-cp13-phone-list="true"');
     expect(source).toContain("md:hidden");
-    expect(source).toContain("overflow-x-auto");
-    expect(source).toContain("md:min-w-[760px]");
+    expect(source).toContain("overflow-auto");
+    expect(source).toContain("loadMoreRef");
+    expect(source).toContain("IntersectionObserver");
     expect(modal).toContain("useDialogFocusTrap");
     expect(focusTrap).toContain('event.key === "Escape"');
     expect(focusTrap).toContain("restore.focus()");
@@ -109,7 +154,7 @@ describe("CP13 Warehouse setup final presentation", () => {
     expect(source).toContain("setLoadIssue(message)");
     expect(source).toContain("presentation.retry");
     expect(source).toContain("setRefreshKey((value) => value + 1)");
-    expect(warehousePresentationCopy("ar").qualityPolicy).toBe("إعداد وسياسة");
-    expect(warehousePresentationCopy("en").qualityPolicy).toBe("Setup / policy");
+    expect(warehousePresentationCopy("ar").qualityPolicy).toBe("معالجة الجودة");
+    expect(warehousePresentationCopy("en").qualityPolicy).toBe("Quality handling");
   });
 });

@@ -49,9 +49,22 @@ async def _require_destination(access: BackofficeCapabilityAccess, location_id: 
         raise HTTPException(403, detail={"code": "TRANSFER_CAPABILITY_REQUIRED", "context": {}}) from None
 
 
-async def require_special_destination(access: BackofficeCapabilityAccess, purpose: str) -> None:
+async def require_special_destination(
+    access: BackofficeCapabilityAccess,
+    purpose: str,
+    *,
+    source_location_id: int | None = None,
+) -> None:
     _, payload = await load_published_transfer_destination_policy(
         access.db, company_id=access.company_id, revalidate_locations=False,
     )
     key = SPECIAL_TRANSFER_DESTINATION_POLICY_KEY[purpose]
-    await _require_destination(access, int(payload[key]))
+    destination_id = payload[key]
+    if destination_id is None:
+        if source_location_id is None:
+            raise HTTPException(
+                409,
+                detail={"code": "TRANSFER_POLICY_STALE", "context": {}},
+            )
+        destination_id = source_location_id
+    await _require_destination(access, int(destination_id))

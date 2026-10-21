@@ -8,11 +8,9 @@ import { useStocktakeReview } from "./stocktake/hooks/useStocktakeReview";
 import { useStocktakeActions } from "./stocktake/hooks/useStocktakeActions";
 import { useStocktakeLifecycle } from "./stocktake/hooks/useStocktakeLifecycle";
 import { useCycleCountStart } from "./stocktake/hooks/useCycleCountStart";
-import { useVehicleReconStart } from "./stocktake/hooks/useVehicleReconStart";
 import { useStocktakeCopy } from "./stocktake/copy";
 import { StocktakeSessionCenter } from "./stocktake/StocktakeSessionCenter";
 import { StocktakeCycleStartModal } from "./stocktake/StocktakeCycleStartModal";
-import { StocktakeVehicleReconModal } from "./stocktake/StocktakeVehicleReconModal";
 import { StocktakeIdlePanel } from "./stocktake/StocktakeIdlePanel";
 import { StocktakeIndependentWait } from "./stocktake/StocktakeIndependentWait";
 import { StocktakeCountingPanel } from "./stocktake/StocktakeCountingPanel";
@@ -55,7 +53,6 @@ export function Tab3Stocktake({
   const [showRecountModal, setShowRecountModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showCycleModal, setShowCycleModal] = useState(false);
-  const [showVehicleReconModal, setShowVehicleReconModal] = useState(false);
 
   const stocktakeState = useStocktakeState({ companyId, locationId });
   const warehouseAccess = useInventoryAccess(locationId);
@@ -177,15 +174,6 @@ export function Tab3Stocktake({
     notifyStocktakeChanged,
   });
 
-  const vehicleReconWorkflow = useVehicleReconStart({
-    durableIdentity,
-    sourceLocationId: locationId,
-    enabled: showVehicleReconModal,
-    authenticatedFetch,
-    openSessionById: lifecycle.openSessionById,
-    notifyStocktakeChanged,
-  });
-
   const submitCount = async () => {
     if (await countingWorkflow.handleSubmit()) setShowSubmitModal(false);
   };
@@ -209,16 +197,6 @@ export function Tab3Stocktake({
   const startCycle = async () => {
     if (await cycleWorkflow.startCycleCount()) setShowCycleModal(false);
   };
-  const closeVehicleReconModal = () => {
-    if (vehicleReconWorkflow.busyWorkSessionId !== null) return;
-    setShowVehicleReconModal(false);
-    vehicleReconWorkflow.resetForm();
-  };
-  const vehicleReconOpened = () => {
-    setShowVehicleReconModal(false);
-    vehicleReconWorkflow.resetForm();
-  };
-
   return (
     <div dir={dir} className="inventory-view inventory-stocktake flex h-full min-h-0 flex-1 flex-col gap-4 pt-1">
       <StocktakeSessionCenter
@@ -231,8 +209,6 @@ export function Tab3Stocktake({
         onRefresh={refreshSessions}
         onStartCycle={() => setShowCycleModal(true)}
         cycleStartDisabled={isAuditLocked || sessionsLoading || !warehouseAccess.can("stocktake.start")}
-        vehicleStartDisabled={!warehouseAccess.canAny("stocktake.start")}
-        onStartVehicleRecon={() => setShowVehicleReconModal(true)}
         onLoadMore={loadMoreSessions}
         onOpenSession={lifecycle.openServerSession}
       />
@@ -289,12 +265,6 @@ export function Tab3Stocktake({
         </p>
       )}
 
-      <StocktakeVehicleReconModal
-        open={showVehicleReconModal}
-        controller={vehicleReconWorkflow}
-        onClose={closeVehicleReconModal}
-        onOpened={vehicleReconOpened}
-      />
       <StocktakeCycleStartModal
         open={showCycleModal}
         controller={cycleWorkflow}

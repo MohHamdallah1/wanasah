@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Building2, ChevronLeft, ChevronRight, GitBranch, Pencil, Plus, Power, PowerOff, RefreshCcw, Search } from "lucide-react";
+import { Building2, Pencil, Plus, Power, PowerOff, RefreshCcw, Search, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Modal } from "@/components/ui/modal";
 import { apiErrorCode, apiErrorContext, apiErrorMessage } from "@/lib/apiErrors";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { useInventoryAccess, useLocationCapabilities } from "@/hooks/useInventoryAccess";
-import { BranchManagementModal } from "./warehouse-locations/BranchManagementModal";
-import { BranchSelector } from "./warehouse-locations/BranchSelector";
 import { StockMinimumManager } from "./StockMinimumManager";
 import { QualityHandlingDestinationsCard } from "./warehouse-locations/QualityHandlingDestinationsCard";
 import {
@@ -23,6 +21,10 @@ interface WarehouseLocationItem {
   id: number;
   name: string;
   code: string;
+  address: string | null;
+  location_link: string | null;
+  latitude: number | null;
+  longitude: number | null;
   branch_id: number | null;
   branch_name: string | null;
   is_active: boolean;
@@ -43,10 +45,17 @@ interface WarehouseLocationMutationResponse {
   location: WarehouseLocationItem;
 }
 
+interface WarehouseLocationCodeSuggestionResponse {
+  code: string;
+}
+
 interface WarehouseFormState {
   name: string;
   code: string;
-  branch_id: number | null;
+  address: string;
+  location_link: string;
+  latitude: string;
+  longitude: string;
 }
 
 interface Props {
@@ -57,7 +66,7 @@ interface Props {
 
 type FormMode = "create" | "edit";
 type StateAction = "activate" | "deactivate";
-type FormFieldIssue = { field: "name" | "code"; message: string } | null;
+type FormFieldIssue = { field: "name" | "code" | "address" | "coordinates"; message: string } | null;
 
 const WAREHOUSE_CODE_RE = /^[A-Z0-9][A-Z0-9_-]*$/;
 const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30";
@@ -88,6 +97,10 @@ const asWarehousePage = (value: unknown): WarehouseLocationCursorPage => {
     const id = row.id;
     const name = row.name;
     const code = row.code;
+    const address = row.address === undefined ? null : row.address;
+    const locationLink = row.location_link === undefined ? null : row.location_link;
+    const latitude = row.latitude === undefined ? null : row.latitude;
+    const longitude = row.longitude === undefined ? null : row.longitude;
     const branchId = row.branch_id;
     const branchName = row.branch_name;
     const isActive = row.is_active;
@@ -99,6 +112,11 @@ const asWarehousePage = (value: unknown): WarehouseLocationCursorPage => {
       typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0 ||
       typeof name !== "string" || !name.trim() ||
       typeof code !== "string" || !code.trim() ||
+      (address !== null && typeof address !== "string") ||
+      (locationLink !== null && typeof locationLink !== "string") ||
+      (latitude !== null && (typeof latitude !== "number" || !Number.isFinite(latitude) || latitude < -90 || latitude > 90)) ||
+      (longitude !== null && (typeof longitude !== "number" || !Number.isFinite(longitude) || longitude < -180 || longitude > 180)) ||
+      ((latitude === null) !== (longitude === null)) ||
       (branchId !== null && (typeof branchId !== "number" || !Number.isSafeInteger(branchId) || branchId <= 0)) ||
       (branchName !== null && typeof branchName !== "string") ||
       typeof isActive !== "boolean" ||
@@ -111,6 +129,10 @@ const asWarehousePage = (value: unknown): WarehouseLocationCursorPage => {
       id: id as number,
       name: name as string,
       code: code as string,
+      address: address as string | null,
+      location_link: locationLink as string | null,
+      latitude: latitude as number | null,
+      longitude: longitude as number | null,
       branch_id: branchId as number | null,
       branch_name: branchName as string | null,
       is_active: isActive as boolean,
@@ -147,6 +169,17 @@ const asMutationResponse = (value: unknown): WarehouseLocationMutationResponse =
   return value as WarehouseLocationMutationResponse;
 };
 
+const asCodeSuggestion = (value: unknown): WarehouseLocationCodeSuggestionResponse => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    warehouseLocationContractError("WAREHOUSE_LOCATION_CODE_SUGGESTION_INVALID");
+  }
+  const code = (value as { code?: unknown }).code;
+  if (typeof code !== "string" || !code.trim() || code.length > 50 || !WAREHOUSE_CODE_RE.test(code)) {
+    warehouseLocationContractError("WAREHOUSE_LOCATION_CODE_SUGGESTION_INVALID");
+  }
+  return { code };
+};
+
 const contextNumber = (context: Record<string, unknown> | null, key: string) => {
   const value = context?.[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -164,33 +197,33 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
 
   const [items, setItems] = useState<WarehouseLocationItem[]>([]);
   const access = useInventoryAccess();
-  const minimumStockAccess = useInventoryAccess(selectedLocationId);
   const canReadLocations = access.canAny("location.read");
-  const canReadBranches = access.can("branch.read");
+  const canManageQualityDestinations = access.can("inventory.transfer_policy.manage");
   const canAt = useLocationCapabilities(items.map((item) => item.id));
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [cursor, setCursor] = useState<string | null>(null);
-  const [cursorHistory, setCursorHistory] = useState<Array<string | null>>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadIssue, setLoadIssue] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [qualityDestinationsOpen, setQualityDestinationsOpen] = useState(false);
   const requestSeq = useRef(0);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<FormMode>("create");
   const [editingLocation, setEditingLocation] = useState<WarehouseLocationItem | null>(null);
-  const [form, setForm] = useState<WarehouseFormState>({ name: "", code: "", branch_id: null });
+  const [form, setForm] = useState<WarehouseFormState>({ name: "", code: "", address: "", location_link: "", latitude: "", longitude: "" });
   const [formRequestId, setFormRequestId] = useState(() => crypto.randomUUID());
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formIssue, setFormIssue] = useState<string | null>(null);
   const [fieldIssue, setFieldIssue] = useState<FormFieldIssue>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const codeInputRef = useRef<HTMLInputElement>(null);
-  const [branchManagerOpen, setBranchManagerOpen] = useState(false);
-  const [branchRefreshKey, setBranchRefreshKey] = useState(0);
+  const addressInputRef = useRef<HTMLTextAreaElement>(null);
+  const latitudeInputRef = useRef<HTMLInputElement>(null);
 
   const [stateAction, setStateAction] = useState<StateAction | null>(null);
   const [stateLocation, setStateLocation] = useState<WarehouseLocationItem | null>(null);
@@ -204,7 +237,6 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
       const clean = searchInput.trim();
       setSearch(clean.length >= 2 ? clean : "");
       setCursor(null);
-      setCursorHistory([]);
       setNextCursor(null);
     }, 300);
     return () => window.clearTimeout(timeoutId);
@@ -230,12 +262,17 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
       const raw = await authenticatedFetch(`/warehouse/locations/manage?${params.toString()}`);
       if (seq !== requestSeq.current) return;
       const page = asWarehousePage(raw);
-      setItems(page.items);
+      setItems((current) => {
+        if (cursor === null) return page.items;
+        const merged = new Map(current.map((item) => [item.id, item]));
+        page.items.forEach((item) => merged.set(item.id, item));
+        return Array.from(merged.values());
+      });
       setNextCursor(page.next_cursor);
       if (page.total !== null) setTotal(page.total);
     } catch (error: unknown) {
       if (seq !== requestSeq.current) return;
-      setItems([]);
+      if (cursor === null) setItems([]);
       setNextCursor(null);
       const message = apiErrorMessage(error, loadFailedMessage) || presentation.listLoadFailed;
       setLoadIssue(message);
@@ -246,13 +283,33 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
   }, [authenticatedFetch, canReadLocations, cursor, loadFailedMessage, presentation.listLoadFailed, search]);
 
   useEffect(() => { void fetchPage(); }, [fetchPage, refreshKey]);
+  useEffect(() => {
+    if (!nextCursor || loading || typeof IntersectionObserver === "undefined") return;
+    const target = loadMoreRef.current;
+    if (!target) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) setCursor(nextCursor);
+    }, { rootMargin: "240px 0px" });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [loading, nextCursor]);
+  useEffect(() => {
+    if (!canManageQualityDestinations) setQualityDestinationsOpen(false);
+  }, [canManageQualityDestinations]);
 
   const activeCount = useMemo(() => items.filter((item) => item.is_active).length, [items]);
-  const canManageMinimumStock = selectedLocationId !== null && access.can("inventory.minimum_stock.manage") && minimumStockAccess.can("inventory.read");
+  const minimumStockLocations = items
+    .filter(
+      (item) =>
+        item.is_active &&
+        canAt(item.id, "inventory.minimum_stock.manage") &&
+        canAt(item.id, "inventory.read"),
+    )
+    .map((item) => ({ id: item.id, name: item.name, code: item.code }));
+  const showFirstWarehouseStart = canReadLocations && total === 0 && !loading && !loadIssue && !search && cursor === null && items.length === 0;
 
   const resetToFirstPageAndRefresh = useCallback(() => {
     setCursor(null);
-    setCursorHistory([]);
     setNextCursor(null);
     setRefreshKey((value) => value + 1);
   }, []);
@@ -260,17 +317,34 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
   const openCreate = () => {
     setFormMode("create");
     setEditingLocation(null);
-    setForm({ name: "", code: "", branch_id: null });
+    setForm({ name: "", code: "", address: "", location_link: "", latitude: "", longitude: "" });
     setFormIssue(null);
     setFieldIssue(null);
     setFormRequestId(crypto.randomUUID());
     setFormOpen(true);
+
+    void (async () => {
+      try {
+        const raw = await authenticatedFetch("/warehouse/locations/code-suggestion");
+        const suggestion = asCodeSuggestion(raw);
+        setForm((current) => current.code.trim() ? current : { ...current, code: suggestion.code });
+      } catch {
+        // Code suggestion is a convenience only; manual code entry remains available.
+      }
+    })();
   };
 
   const openEdit = (location: WarehouseLocationItem) => {
     setFormMode("edit");
     setEditingLocation(location);
-    setForm({ name: location.name, code: location.code, branch_id: location.branch_id });
+    setForm({
+      name: location.name,
+      code: location.code,
+      address: location.address ?? "",
+      location_link: location.location_link ?? "",
+      latitude: location.latitude === null ? "" : String(location.latitude),
+      longitude: location.longitude === null ? "" : String(location.longitude),
+    });
     setFormIssue(null);
     setFieldIssue(null);
     setFormRequestId(crypto.randomUUID());
@@ -284,20 +358,47 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
     setFormRequestId(crypto.randomUUID());
   };
 
-  const failField = (field: "name" | "code", message: string) => {
+  const failField = (field: "name" | "code" | "address" | "coordinates", message: string) => {
     setFieldIssue({ field, message });
-    toast.error(message);
-    window.requestAnimationFrame(() => (field === "name" ? nameInputRef.current : codeInputRef.current)?.focus());
+    window.requestAnimationFrame(() => {
+      if (field === "name") nameInputRef.current?.focus();
+      else if (field === "code") codeInputRef.current?.focus();
+      else if (field === "address") addressInputRef.current?.focus();
+      else latitudeInputRef.current?.focus();
+    });
   };
 
   const handleSave = async () => {
     if (formMode === "create" ? !access.can("location.create") : !editingLocation || !canAt(editingLocation.id, "location.update")) return;
     const name = form.name.trim();
     const code = form.code.trim().toUpperCase();
+    const address = form.address.trim();
+    const locationLink = form.location_link.trim();
+    const latitudeText = form.latitude.trim();
+    const longitudeText = form.longitude.trim();
+    const hasLatitude = latitudeText.length > 0;
+    const hasLongitude = longitudeText.length > 0;
+    const latitude = hasLatitude ? Number(latitudeText) : null;
+    const longitude = hasLongitude ? Number(longitudeText) : null;
+
     if (!name || name.length > 150) return failField("name", t("inventoryWarehouses.errors.nameInvalid"));
     if (!code || code.length > 50 || !WAREHOUSE_CODE_RE.test(code)) return failField("code", t("inventoryWarehouses.errors.codeInvalid"));
     if (code === "TRANSIT-SYS") return failField("code", t("inventoryWarehouses.errors.systemCodeReserved"));
-    if (formMode === "edit" && editingLocation && editingLocation.name === name && editingLocation.code === code && editingLocation.branch_id === form.branch_id) {
+    if (formMode === "create" && (!address || address.length > 2000)) return failField("address", copy.addressRequired);
+    if (address.length > 2000) return failField("address", copy.addressRequired);
+    if (hasLatitude !== hasLongitude || (hasLatitude && (latitude === null || longitude === null || !Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180))) {
+      return failField("coordinates", copy.coordinatesInvalid);
+    }
+
+    if (
+      formMode === "edit" && editingLocation &&
+      editingLocation.name === name &&
+      editingLocation.code === code &&
+      (editingLocation.address ?? "") === address &&
+      (editingLocation.location_link ?? "") === locationLink &&
+      editingLocation.latitude === latitude &&
+      editingLocation.longitude === longitude
+    ) {
       toast.info(t("inventoryWarehouses.noChanges"));
       return;
     }
@@ -306,9 +407,16 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
     setFormIssue(null);
     setFieldIssue(null);
     try {
-      const mutationBody: Record<string, unknown> = { request_id: formRequestId, name, code };
+      const mutationBody: Record<string, unknown> = {
+        request_id: formRequestId,
+        name,
+        code,
+        address: address || null,
+        location_link: locationLink || null,
+        latitude,
+        longitude,
+      };
       if (formMode === "edit" && editingLocation) mutationBody.expected_version = editingLocation.version;
-      if (formMode === "create" || editingLocation?.branch_id !== form.branch_id) mutationBody.branch_id = form.branch_id;
       const raw = await authenticatedFetch(
         formMode === "create" ? "/warehouse/locations" : `/warehouse/locations/${editingLocation?.id}`,
         { method: formMode === "create" ? "POST" : "PATCH", body: JSON.stringify(mutationBody) },
@@ -329,16 +437,6 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
         setFormRequestId(crypto.randomUUID());
         setFormIssue(copy.versionChanged);
         toast.error(copy.versionChanged);
-      } else if (codeValue === "WAREHOUSE_BRANCH_NOT_FOUND") {
-        setBranchRefreshKey((value) => value + 1);
-        setFormRequestId(crypto.randomUUID());
-        setFormIssue(copy.branchMissing);
-        toast.error(copy.branchMissing);
-      } else if (codeValue === "WAREHOUSE_BRANCH_INACTIVE") {
-        setBranchRefreshKey((value) => value + 1);
-        setFormRequestId(crypto.randomUUID());
-        setFormIssue(copy.branchInactive);
-        toast.error(copy.branchInactive);
       } else {
         toast.error(apiErrorMessage(error, t("inventoryWarehouses.errors.saveFailed")));
       }
@@ -403,22 +501,8 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
     }
   };
 
-  const handleNext = () => {
-    if (!nextCursor) return;
-    setCursorHistory((prev) => [...prev, cursor]);
-    setCursor(nextCursor);
-  };
-
-  const handlePrevious = () => {
-    if (cursorHistory.length === 0) return;
-    const previous = cursorHistory[cursorHistory.length - 1] ?? null;
-    setCursorHistory((prev) => prev.slice(0, -1));
-    setCursor(previous);
-  };
-
   const totalText = total === null ? "—" : formatInventoryInteger(total, language);
   const activeText = formatInventoryInteger(activeCount, language);
-  const pageText = formatInventoryInteger(cursorHistory.length + 1, language);
 
   const rowActions = (location: WarehouseLocationItem) => (
     <div className="flex items-center justify-end gap-1.5">
@@ -469,38 +553,117 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
   );
 
   return (
-    <div dir={dir} className="inventory-view inventory-locations flex min-h-0 flex-1 flex-col gap-3">
-      <section className="glass-card overflow-hidden rounded-2xl" aria-labelledby="warehouse-setup-title" data-cp13-density="compact">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-3 sm:p-4">
-          <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-blue-700">{presentation.setupEyebrow}</p>
-            <h2 id="warehouse-setup-title" className="mt-0.5 flex items-center gap-2 break-words font-black text-slate-800">
+    <div dir={dir} className="inventory-view inventory-locations flex h-full min-h-0 flex-1 flex-col gap-0">
+      {showFirstWarehouseStart ? (
+        <section
+          data-testid="warehouse-first-empty"
+          aria-labelledby="warehouse-first-empty-title"
+          className="relative isolate flex min-h-[58vh] items-center justify-center overflow-hidden rounded-[28px] border border-slate-200/90 bg-[#fbfcfe] px-5 py-12 sm:px-8"
+        >
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 opacity-[0.42]"
+            style={{
+              backgroundImage: "linear-gradient(to right, rgba(15,23,42,.055) 1px, transparent 1px), linear-gradient(to bottom, rgba(15,23,42,.055) 1px, transparent 1px)",
+              backgroundSize: "28px 28px",
+            }}
+          />
+          <div aria-hidden="true" className="pointer-events-none absolute inset-x-6 top-6 flex items-center justify-between text-[9px] font-black tracking-[0.22em] text-slate-300 sm:inset-x-9">
+            <span>WH / 001</span>
+            <span>00°00′</span>
+          </div>
+          <div className="relative mx-auto flex w-full max-w-[680px] flex-col items-center text-center">
+            <div aria-hidden="true" className="relative mb-7 h-32 w-52 text-slate-700">
+              <div className="absolute inset-x-4 bottom-2 h-[78px] border-x border-b-2 border-t border-slate-300 bg-white/90 shadow-[8px_8px_0_0_rgba(226,232,240,0.75)]">
+                <div className="absolute inset-x-0 top-5 border-t border-dashed border-slate-200" />
+                <div className="absolute bottom-0 start-1/2 h-11 w-12 -translate-x-1/2 border-x border-t-2 border-slate-500 bg-slate-50">
+                  <div className="mx-auto mt-3 h-px w-5 bg-blue-500" />
+                </div>
+              </div>
+              <div className="absolute start-1/2 top-2 h-8 w-px -translate-x-1/2 bg-blue-500" />
+              <div className="absolute start-1/2 top-9 -translate-x-1/2 bg-[#fbfcfe] px-2">
+                <Building2 className="h-11 w-11 stroke-[1.35] text-slate-800" />
+              </div>
+              <span className="absolute start-0 top-7 border-s border-t border-slate-300 px-2 py-1 text-[9px] font-black tracking-[0.16em] text-slate-400">01</span>
+              <span className="absolute end-0 bottom-4 border-b border-e border-slate-300 px-2 py-1 text-[9px] font-black tracking-[0.16em] text-slate-400">START</span>
+            </div>
+            <h2 id="warehouse-first-empty-title" className="max-w-[620px] text-balance text-2xl font-black leading-tight text-slate-950 sm:text-[32px]">
+              {copy.firstWarehouseTitle}
+            </h2>
+            <p className="mt-3 max-w-[590px] text-pretty text-sm font-medium leading-7 text-slate-600 sm:text-[15px]">
+              {copy.firstWarehouseDescription}
+            </p>
+
+            <button
+              type="button"
+              disabled={!access.can("location.create")}
+              onClick={openCreate}
+              className={`group mt-7 inline-flex min-h-12 items-center gap-3 rounded-full bg-slate-950 px-5 py-2.5 text-sm font-black text-white shadow-[0_8px_0_0_rgba(15,23,42,0.10)] transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0 ${focusRing}`}
+            >
+              <span className="grid h-7 w-7 place-items-center rounded-full border border-white/20 bg-white/10">
+                <Plus aria-hidden="true" className="h-4 w-4" />
+              </span>
+              <span>{copy.createFirstWarehouse}</span>
+              <span aria-hidden="true" className="h-px w-5 bg-white/45 transition-[width] duration-200 group-hover:w-8" />
+            </button>
+          </div>
+        </section>
+      ) : (
+        <>
+      <section className="glass-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl" aria-labelledby="warehouse-setup-title" data-cp13-density="compact">
+        <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 p-3 sm:p-4">
+          <div className="min-w-fit shrink-0">
+            <h2 id="warehouse-setup-title" className="flex items-center gap-2 break-words font-black text-slate-800">
               <Building2 aria-hidden="true" className="h-5 w-5 shrink-0 text-blue-600" />
               {copy.title}
             </h2>
-            <p className="mt-0.5 break-words text-xs text-slate-500">{copy.summary(totalText, activeText)}</p>
+            <p className="mt-0.5 break-words text-xs text-slate-500">
+              {copy.summary(totalText, activeText)}
+            </p>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {canManageMinimumStock && <StockMinimumManager locationId={selectedLocationId} onApplied={onMinimumApplied} />}
-            {canReadBranches && (
-              <button type="button" onClick={() => setBranchManagerOpen(true)} className={`inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 ${focusRing}`}>
-                <GitBranch aria-hidden="true" className="h-4 w-4" /><span>{copy.manageBranches}</span>
-              </button>
+
+          <div className="flex min-w-[260px] flex-1 items-center gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Search aria-hidden="true" className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                disabled={!canReadLocations}
+                aria-label={copy.search}
+                placeholder={copy.search}
+                maxLength={100}
+                className={`w-full rounded-xl border border-slate-200 bg-white py-2.5 ps-10 pe-3 text-sm disabled:opacity-50 ${focusRing}`}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setRefreshKey((value) => value + 1)}
+              disabled={loading || !canReadLocations}
+              className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 disabled:opacity-40 ${focusRing}`}
+              aria-label={copy.refresh}
+              title={copy.refresh}
+            >
+              <RefreshCcw aria-hidden="true" className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            </button>
+          </div>
+
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {minimumStockLocations.length > 0 && (
+              <StockMinimumManager
+                locations={minimumStockLocations}
+                preferredLocationId={selectedLocationId}
+                onApplied={onMinimumApplied}
+              />
             )}
+            {canManageQualityDestinations ? (
+              <button type="button" onClick={() => setQualityDestinationsOpen(true)} className={`inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 sm:text-sm ${focusRing}`}>
+                <ShieldCheck aria-hidden="true" className="h-4 w-4" /><span>{copy.qualityDestinationsView}</span>
+              </button>
+            ) : null}
             <button type="button" disabled={!access.can("location.create")} onClick={openCreate} className={`inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-40 sm:text-sm ${focusRing}`}>
               <Plus aria-hidden="true" className="h-4 w-4" /><span>{copy.newWarehouse}</span>
             </button>
           </div>
-        </div>
-
-        <div className="flex flex-col gap-2 border-b border-slate-100 p-3 sm:flex-row sm:items-center">
-          <div className="relative min-w-0 flex-1">
-            <Search aria-hidden="true" className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} disabled={!canReadLocations} aria-label={copy.search} placeholder={copy.search} maxLength={100} className={`w-full rounded-xl border border-slate-200 bg-white py-2.5 ps-10 pe-3 text-sm disabled:opacity-50 ${focusRing}`} />
-          </div>
-          <button type="button" onClick={() => setRefreshKey((value) => value + 1)} disabled={loading || !canReadLocations} className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 disabled:opacity-40 ${focusRing}`} aria-label={copy.refresh}>
-            <RefreshCcw aria-hidden="true" className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /><span className="sm:hidden">{copy.refresh}</span>
-          </button>
         </div>
 
         {loadIssue ? (
@@ -514,33 +677,38 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
 
         {loading && items.length === 0 ? <p role="status" className="p-6 text-center text-xs font-semibold text-slate-500">{t("common.loading")}</p> : null}
 
-        <div className="min-h-0 overflow-x-auto overflow-y-auto" data-cp13-phone-list="true">
+        <div className="min-h-0 flex-1 overflow-auto" data-cp13-phone-list="true">
           <table className={`w-full min-w-0 text-sm md:min-w-[760px] ${isArabic ? "text-right" : "text-left"}`}>
             <thead className="hidden bg-slate-50/95 md:table-header-group">
               <tr className="h-10 text-xs text-slate-600">
+                <th className="w-16 px-3 py-2 text-center">{copy.number}</th>
                 <th className="px-3 py-2">{copy.warehouse}</th>
                 <th className="px-3 py-2">{copy.code}</th>
-                <th className="px-3 py-2">{copy.branch}</th>
+                <th className="px-3 py-2">{copy.address}</th>
                 <th className="px-3 py-2">{copy.status}</th>
                 <th className="px-3 py-2">{copy.updated}</th>
                 <th className="px-3 py-2 text-center">{copy.actions}</th>
               </tr>
             </thead>
             <tbody className="grid gap-2 p-2 md:table-row-group md:divide-y md:divide-slate-100 md:p-0">
-              {items.map((location) => (
+              {items.map((location, index) => (
                 <tr
                   key={location.id}
                   className={`block rounded-xl border p-2 md:table-row md:h-14 md:rounded-none md:border-0 md:p-0 md:hover:bg-slate-50/70 ${selectedLocationId === location.id ? "border-blue-200 bg-blue-50/60" : "border-slate-100 bg-white md:bg-transparent"}`}
                 >
+                  <td className="block px-2 py-1 text-xs font-black text-slate-500 md:table-cell md:w-16 md:px-3 md:py-2 md:text-center">
+                    <span className="me-2 text-[10px] font-bold text-slate-400 md:hidden">{copy.number}</span>
+                    {formatInventoryInteger(index + 1, language)}
+                  </td>
                   <td className="block px-2 py-1 md:table-cell md:px-3 md:py-2">
                     <div className="font-bold text-slate-800">{location.name}</div>
-                    <div className="mt-0.5 text-[10px] text-slate-400">#{formatInventoryInteger(location.id, language)}</div>
                   </td>
                   <td className="block px-2 py-1 font-mono text-xs text-slate-600 md:table-cell md:px-3 md:py-2">
                     <span className="me-2 font-sans text-[10px] font-bold text-slate-400 md:hidden">{copy.code}</span>{location.code}
                   </td>
-                  <td className="block px-2 py-1 text-xs text-slate-600 md:table-cell md:px-3 md:py-2 md:text-sm">
-                    <span className="me-2 text-[10px] font-bold text-slate-400 md:hidden">{copy.branch}</span>{location.branch_name || copy.unassigned}
+                  <td className="block max-w-[320px] px-2 py-1 text-xs text-slate-600 md:table-cell md:px-3 md:py-2 md:text-sm">
+                    <span className="me-2 text-[10px] font-bold text-slate-400 md:hidden">{copy.address}</span>
+                    <span className="line-clamp-2">{location.address || "—"}</span>
                   </td>
                   <td className="block px-2 py-1 md:table-cell md:px-3 md:py-2">{stateBadge(location)}</td>
                   <td className="block px-2 py-1 text-xs text-slate-500 md:table-cell md:px-3 md:py-2">
@@ -551,55 +719,75 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
               ))}
               {!loading && items.length === 0 && !loadIssue && (
                 <tr className="block md:table-row">
-                  <td colSpan={6} className="block p-8 text-center text-sm text-slate-400 md:table-cell md:p-10">
+                  <td colSpan={7} className="block p-8 text-center text-sm text-slate-400 md:table-cell md:p-10">
                     {search ? copy.emptySearch : access.can("location.create") ? copy.emptyCreate : copy.emptyNoAccess}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
-        </div>
-
-        <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-3 py-2.5">
-          <span className="min-w-0 break-words text-xs text-slate-500">{copy.page(pageText)}</span>
-          <div className="flex shrink-0 gap-2">
-            <button type="button" onClick={handlePrevious} disabled={cursorHistory.length === 0 || loading || !canReadLocations} className={`rounded-lg border border-slate-200 bg-white p-2 disabled:opacity-40 ${focusRing}`} title={copy.previous} aria-label={copy.previous}>{isArabic ? <ChevronRight aria-hidden="true" className="h-4 w-4" /> : <ChevronLeft aria-hidden="true" className="h-4 w-4" />}</button>
-            <button type="button" onClick={handleNext} disabled={!nextCursor || loading || !canReadLocations} className={`rounded-lg border border-slate-200 bg-white p-2 disabled:opacity-40 ${focusRing}`} title={copy.next} aria-label={copy.next}>{isArabic ? <ChevronLeft aria-hidden="true" className="h-4 w-4" /> : <ChevronRight aria-hidden="true" className="h-4 w-4" />}</button>
-          </div>
+          <div ref={loadMoreRef} className="min-h-2" aria-hidden="true" />
+          {loading && items.length > 0 ? (
+            <p role="status" className="border-t border-slate-100 px-3 py-2 text-center text-xs font-semibold text-slate-500">{t("common.loading")}</p>
+          ) : null}
         </div>
       </section>
+        </>
+      )}
 
-      <QualityHandlingDestinationsCard />
+      <Modal
+        isOpen={qualityDestinationsOpen && canManageQualityDestinations}
+        onClose={() => setQualityDestinationsOpen(false)}
+        title={copy.qualityDestinationsView}
+      >
+        <QualityHandlingDestinationsCard compact />
+      </Modal>
 
-      <Modal isOpen={formOpen} onClose={() => { if (!formSubmitting) setFormOpen(false); }} title={formMode === "create" ? copy.add : copy.edit}>
-        <form className="space-y-3" dir={dir} onSubmit={(event) => { event.preventDefault(); void handleSave(); }}>
+      <Modal
+        isOpen={formOpen}
+        onClose={() => { if (!formSubmitting) setFormOpen(false); }}
+        title={formMode === "create" ? copy.add : copy.edit}
+      >
+        <form noValidate className="space-y-3" dir={dir} onSubmit={(event) => { event.preventDefault(); void handleSave(); }}>
           <section className="rounded-xl border border-slate-100 bg-slate-50/60 p-3" aria-labelledby="warehouse-identity-heading">
-            <h3 id="warehouse-identity-heading" className="text-xs font-black text-slate-800">{presentation.identityTitle}</h3>
-            <p className="mb-3 mt-0.5 text-[10px] font-semibold leading-4 text-slate-500">{presentation.identityHint}</p>
+            <h3 id="warehouse-identity-heading" className="mb-3 text-xs font-black text-slate-800">{presentation.identityTitle}</h3>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-xs font-bold text-slate-600">
-                {copy.name}
+                {copy.name}<span aria-hidden="true" className="ms-1 text-red-600">*</span>
                 <input ref={nameInputRef} autoFocus value={form.name} onChange={(event) => updateForm({ name: event.target.value })} maxLength={150} aria-invalid={fieldIssue?.field === "name"} className={`mt-1 w-full rounded-xl border px-3 py-2.5 ${fieldIssue?.field === "name" ? "border-red-300" : "border-slate-200"} ${focusRing}`} />
                 {fieldIssue?.field === "name" ? <span role="alert" className="mt-1 block text-[10px] font-semibold text-red-600">{fieldIssue.message}</span> : null}
               </label>
               <label className="block text-xs font-bold text-slate-600">
-                {copy.warehouseCode}
+                {copy.warehouseCode}<span aria-hidden="true" className="ms-1 text-red-600">*</span>
                 <input ref={codeInputRef} value={form.code} onChange={(event) => updateForm({ code: event.target.value.toUpperCase() })} maxLength={50} dir="ltr" aria-invalid={fieldIssue?.field === "code"} className={`mt-1 w-full rounded-xl border px-3 py-2.5 font-mono ${fieldIssue?.field === "code" ? "border-red-300" : "border-slate-200"} ${focusRing}`} placeholder={copy.codePlaceholder} />
-                {fieldIssue?.field === "code" ? <span role="alert" className="mt-1 block text-[10px] font-semibold text-red-600">{fieldIssue.message}</span> : null}
+                {fieldIssue?.field === "code" ? <span role="alert" className="mt-1 block text-[10px] font-semibold text-red-600">{fieldIssue.message}</span> : <span className="mt-1 block text-[10px] font-semibold leading-4 text-slate-400">{copy.codeHint}</span>}
               </label>
             </div>
           </section>
 
-          <section className="rounded-xl border border-slate-100 p-3" aria-labelledby="warehouse-branch-heading">
-            <h3 id="warehouse-branch-heading" className="text-xs font-black text-slate-800">{presentation.branchTitle}</h3>
-            <p className="mb-3 mt-0.5 text-[10px] font-semibold leading-4 text-slate-500">{presentation.branchHint}</p>
-            <BranchSelector value={form.branch_id} currentLabel={editingLocation?.branch_name ?? null} disabled={formSubmitting} refreshKey={branchRefreshKey} canReadBranches={canReadBranches} onChange={(branchId) => updateForm({ branch_id: branchId })} />
-          </section>
-
-          <section className="rounded-xl border border-slate-100 p-3" aria-labelledby="warehouse-lifecycle-heading">
-            <h3 id="warehouse-lifecycle-heading" className="text-xs font-black text-slate-800">{presentation.lifecycleTitle}</h3>
-            <p className="mt-0.5 text-[10px] font-semibold leading-4 text-slate-500">{presentation.lifecycleHint}</p>
-            {formMode === "edit" && editingLocation ? <div className="mt-2">{stateBadge(editingLocation)}</div> : null}
+          <section className="rounded-xl border border-slate-100 p-3" aria-labelledby="warehouse-location-heading">
+            <h3 id="warehouse-location-heading" className="mb-3 text-xs font-black text-slate-800">{presentation.locationTitle}</h3>
+            <label className="block text-xs font-bold text-slate-600">
+              {copy.address}{formMode === "create" ? <span aria-hidden="true" className="ms-1 text-red-600">*</span> : null}
+              <textarea ref={addressInputRef} value={form.address} onChange={(event) => updateForm({ address: event.target.value })} maxLength={2000} aria-invalid={fieldIssue?.field === "address"} placeholder={copy.addressPlaceholder} className={`mt-1 min-h-20 w-full rounded-xl border px-3 py-2.5 ${fieldIssue?.field === "address" ? "border-red-300" : "border-slate-200"} ${focusRing}`} />
+              {fieldIssue?.field === "address" ? <span role="alert" className="mt-1 block text-[10px] font-semibold text-red-600">{fieldIssue.message}</span> : null}
+            </label>
+            <label className="mt-3 block text-xs font-bold text-slate-600">
+              {copy.locationLink}
+              <input value={form.location_link} onChange={(event) => updateForm({ location_link: event.target.value })} maxLength={500} dir="ltr" className={`mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 ${focusRing}`} placeholder="https://maps.google.com/..." />
+            </label>
+            <p className="mt-3 text-[10px] font-semibold leading-4 text-slate-500">{copy.coordinatesHint}</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="block text-xs font-bold text-slate-600">
+                {copy.latitude}
+                <input ref={latitudeInputRef} value={form.latitude} onChange={(event) => updateForm({ latitude: event.target.value })} inputMode="decimal" dir="ltr" aria-invalid={fieldIssue?.field === "coordinates"} className={`mt-1 w-full rounded-xl border px-3 py-2.5 ${fieldIssue?.field === "coordinates" ? "border-red-300" : "border-slate-200"} ${focusRing}`} placeholder="31.9539" />
+              </label>
+              <label className="block text-xs font-bold text-slate-600">
+                {copy.longitude}
+                <input value={form.longitude} onChange={(event) => updateForm({ longitude: event.target.value })} inputMode="decimal" dir="ltr" aria-invalid={fieldIssue?.field === "coordinates"} className={`mt-1 w-full rounded-xl border px-3 py-2.5 ${fieldIssue?.field === "coordinates" ? "border-red-300" : "border-slate-200"} ${focusRing}`} placeholder="35.9106" />
+              </label>
+            </div>
+            {fieldIssue?.field === "coordinates" ? <span role="alert" className="mt-1 block text-[10px] font-semibold text-red-600">{fieldIssue.message}</span> : null}
           </section>
 
           {formIssue ? <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">{formIssue}</p> : null}
@@ -607,17 +795,6 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
         </form>
       </Modal>
 
-      {canReadBranches && (
-        <BranchManagementModal
-          isOpen={branchManagerOpen}
-          onClose={() => setBranchManagerOpen(false)}
-          onBranchesChanged={async () => {
-            setBranchRefreshKey((value) => value + 1);
-            setRefreshKey((value) => value + 1);
-            await onLocationsChanged();
-          }}
-        />
-      )}
 
       <Modal isOpen={stateAction !== null && stateLocation !== null} onClose={() => { if (!stateSubmitting) { setStateAction(null); setStateLocation(null); setStateIssue(null); } }} title={stateAction === "deactivate" ? copy.deactivate : copy.activate}>
         <form className="space-y-4" dir={dir} onSubmit={(event) => { event.preventDefault(); void handleStateChange(); }}>
@@ -626,7 +803,7 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
               <p className="break-words text-sm text-slate-600">{copy.warehouse}: <span className="font-bold text-slate-900">{stateLocation?.name}</span></p>
               {stateLocation ? stateBadge(stateLocation) : null}
             </div>
-            <p className="mt-2 text-[10px] font-semibold leading-4 text-slate-500">{stateAction === "deactivate" ? presentation.deactivationCheck : presentation.activationBranchNote}</p>
+            <p className="mt-2 text-[10px] font-semibold leading-4 text-slate-500">{stateAction === "deactivate" ? presentation.deactivationCheck : presentation.activationCheck}</p>
           </div>
           <label className="block text-xs font-bold text-slate-600">
             {stateAction === "deactivate" ? copy.deactivateReason : copy.activateNote}

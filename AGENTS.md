@@ -13,6 +13,15 @@ changes. `ARCHITECTURE.md` is the canonical architecture constitution for the en
 The workflow-protection rule applies to the entire repository and all future tasks.
 No business workflow change is authorized without explicit prior discussion and approval from the project owner.
 
+## Backend-owned complexity / minimum operator input — mandatory
+
+- If Wanasah can safely derive or reconcile a fact from authoritative backend evidence, the operator must not be asked to supply the technical answer.
+- Ask only for the smallest human-readable business fact required to resolve genuine ambiguity; deterministic cases resolve automatically and ambiguous unsafe cases fail closed rather than guess.
+- Never expose database IDs, FEFO choices, internal Batch allocation, supplier-resolution mechanics, costing choices, idempotency/replay details, lock ordering, or reconciliation math as ordinary user work.
+- Keep Dashboard and Flutter simple by putting complexity in canonical backend/domain authorities, never by duplicating or weakening inventory, financial, audit, tenant, location, or permission truth in a client.
+- The full permanent rule is in `ARCHITECTURE.md` and applies to all future agents, pages, mobile workflows, imports, automation, and integrations.
+- Before changing quality destinations, quarantine, damaged goods, disposal, vendor return, Vehicle→Warehouse reconciliation handoff, or related financial closure, read `INVENTORY_DAMAGED_GOODS_RETURNS_AND_REPRESENTATIVE_SETTLEMENT_PLAN.md` and preserve its execution order and closed-loop invariants.
+
 ## Canonical identity and authorization — mandatory
 
 - `CompanyPrincipal` is the company credential/authentication root. Initial company principal types are `BACKOFFICE` and `FIELD_REPRESENTATIVE`; principal type classifies identity/access channel and is never authorization authority.

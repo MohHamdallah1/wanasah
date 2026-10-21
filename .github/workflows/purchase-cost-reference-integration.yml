@@ -1,0 +1,34 @@
+name: Purchase cost reference V1 integration
+on:
+  push:
+    branches: [sol/purchase-cost-reference-integration-v1]
+  pull_request:
+    paths:
+      - "dashboard/src/pages/products/**"
+      - "dashboard/src/pages/inventory/**"
+      - "dashboard/src/i18n/resources.ts"
+      - "dashboard/src/test/purchase-reference-contract.test.ts"
+      - ".github/workflows/purchase-cost-reference-integration.yml"
+permissions:
+  contents: read
+jobs:
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: TypeScript type safety
+        run: npx tsc --noEmit
+      - name: Product and Inbound reference integration
+        run: npm test -- src/test/purchase-reference-contract.test.ts src/test/products-p9-4-pricing.test.ts src/pages/inventory/inbound/purchaseReference.test.ts src/pages/inventory/inbound/contracts.test.ts src/pages/inventory/inbound/Tab2Inbound.test.tsx
+      - name: Production build
+        run: npm run build

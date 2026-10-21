@@ -22,7 +22,7 @@ def test_transfer_header_allows_only_scoped_inplace_quality_evidence():
     assert "source_location_id <> destination_location_id" in sql
     assert "workflow_type = 'DIRECT'" in sql
     assert "status = 'POSTED'" in sql
-    assert "transfer_purpose IN ('DISPOSAL','RETURN_TO_VENDOR')" in sql
+    assert "transfer_purpose IN ('QUARANTINE','RECALL_RETURN','DISPOSAL','RETURN_TO_VENDOR')" in sql
     assert "reference_number LIKE 'QSTG-%'" in sql
     assert "tenant_policy_id IS NOT NULL" in sql
     assert "tenant_policy_revision IS NOT NULL" in sql
@@ -40,3 +40,17 @@ def test_migration_preserves_regular_distinct_location_invariant_and_downgrade_e
     assert "fixed_name = op.f(_CONSTRAINT)" in migration
     assert "op.drop_constraint(fixed_name, _TABLE" in migration
     assert "op.create_check_constraint(fixed_name, _TABLE" in migration
+
+
+def test_quality_destination_migration_expands_only_scoped_inplace_purposes():
+    migration = (
+        ROOT / "alembic" / "versions" / "e6b4c2d9a731_quality_destination_inplace_purposes.py"
+    ).read_text(encoding="utf-8")
+    assert 'down_revision = "d7a4c9e21b30"' in migration
+    assert "source_location_id <> destination_location_id" in migration
+    assert "transfer_purpose IN ('QUARANTINE','RECALL_RETURN','DISPOSAL','RETURN_TO_VENDOR')" in migration
+    assert "workflow_type = 'DIRECT'" in migration
+    assert "status = 'POSTED'" in migration
+    assert "reference_number LIKE 'QSTG-%'" in migration
+    assert "commercial_context ->> 'quality_stage_v1' = 'true'" in migration
+    assert "Cannot downgrade: in-place quarantine/recall quality evidence exists" in migration

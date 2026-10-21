@@ -1,0 +1,60 @@
+name: Purchase cost reference backend
+on:
+  pull_request:
+    paths:
+      - "wa_backend/domains/inventory_costing/purchase_reference/**"
+      - "wa_backend/domains/authorization/capabilities.py"
+      - "wa_backend/alembic/**"
+      - "wa_backend/api/warehouse/inbound.py"
+      - "wa_backend/api/warehouse/_shared.py"
+      - "wa_backend/schemas.py"
+      - "wa_backend/tests/*purchase*reference*"
+      - ".github/workflows/purchase-cost-reference-backend.yml"
+permissions:
+  contents: read
+jobs:
+  postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: purchase_reference_gate
+          POSTGRES_DB: wanasah_purchase_reference_gate
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U purchase_reference_gate -d wanasah_purchase_reference_gate"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: PurchaseReferenceGateOnlyKeyAbc123456789012345678901
+      DATABASE_URL: postgresql+asyncpg://purchase_reference_runtime@127.0.0.1:5432/wanasah_purchase_reference_gate
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://purchase_reference_gate@127.0.0.1:5432/wanasah_purchase_reference_gate
+      WANASAH_PURCHASE_REFERENCE_DB_GATE: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend and focused test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Create restricted disposable runtime role
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect("postgresql://purchase_reference_gate@127.0.0.1:5432/wanasah_purchase_reference_gate", autocommit=True) as db:
+              db.execute("CREATE ROLE purchase_reference_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migrate empty database through canonical Alembic graph
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: Model migration parity
+        working-directory: wa_backend
+        run: alembic check
+      - name: Focused exact-value and committed PostgreSQL acceptance
+        working-directory: wa_backend
+        run: python -m pytest -q tests/test_purchase_cost_reference_values.py tests/test_purchase_cost_reference_postgres.py tests/test_purchase_reference_inbound_postgres.py tests/test_purchase_reference_inbound_contract.py tests/test_supplier_inbound_quality_canonical_auth_cutover.py

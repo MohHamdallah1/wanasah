@@ -28,6 +28,8 @@ describe("CP13.2 Inventory shell polish", () => {
     expect(shell).toContain('activeTab !== "live"');
     expect(shell).toContain('aria-label={t("inventoryShell.warehouseSelectLabel")}');
     expect(shell).toContain('warehouseSetup?.warehouse_ready === false');
+    expect(shell).toContain("requiresFirstWarehouse");
+    expect(shell).toContain('toast.info(t("inventoryShell.createWarehouseFirstNotice"))');
     expect(shell).toContain('setActiveTab("warehouses")');
     expect(live).toContain("<LiveStockWarehouseContext");
     expect(live).toContain("onLocationChange={onLocationChange}");

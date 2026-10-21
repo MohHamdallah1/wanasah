@@ -57,7 +57,7 @@ const ar = {
     types: {
       FULL_COUNT: "جرد شامل",
       CYCLE_COUNT: "جرد دوري",
-      VEHICLE_RECON: "تسوية سيارة",
+      VEHICLE_RECON: "جرد استلام العهدة",
     },
     statuses: {
       DRAFT: "مسودة",
@@ -202,7 +202,7 @@ const en: typeof ar = {
     types: {
       FULL_COUNT: "Full count",
       CYCLE_COUNT: "Cycle count",
-      VEHICLE_RECON: "Vehicle reconciliation",
+      VEHICLE_RECON: "Custody receipt count",
     },
     statuses: {
       DRAFT: "Draft",

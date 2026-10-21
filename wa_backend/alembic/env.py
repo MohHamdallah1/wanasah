@@ -49,6 +49,7 @@ from domains.identity import models as identity_models  # noqa: F401
 from domains.identity.migration import models as identity_bridge_models  # noqa: F401
 from domains.auth_sessions import models as auth_session_models  # noqa: F401
 from domains import inventory_supplier_evidence  # noqa: F401
+from domains.inventory_costing.purchase_reference import models as purchase_reference_models  # noqa: F401
 
 target_metadata = Base.metadata
 

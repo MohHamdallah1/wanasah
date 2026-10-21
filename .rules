@@ -15,6 +15,14 @@ ARCHITECTURE CONSTITUTION (MANDATORY):
 - No feature implementation may weaken its tenant/company isolation, location isolation, module ownership, or boundary rules.
 - The approved target is a Strict Modular Monolith (Modulith): monolith operational simplicity/performance with microservice-grade domain boundaries and isolation. Microservices require explicit evidence and approval.
 
+BACKEND-OWNED COMPLEXITY / MINIMUM OPERATOR INPUT (MANDATORY):
+- If authoritative backend evidence can safely derive, resolve, validate, allocate, or reconcile a fact, do not ask the operator to provide it.
+- Ask only for the smallest human business fact needed when safe automatic resolution is genuinely impossible. Never expose technical database IDs or internal allocation choices as operator work.
+- Internal Batch resolution, FEFO, supplier provenance, costing, idempotency/replay, lock order, status/movement construction, and reconciliation math remain backend-owned.
+- Deterministic cases resolve automatically. Genuine ambiguity fails closed and requests only the smallest human-readable discriminator; never guess to save a click.
+- UI simplicity must come from backend-owned complexity, not from dropping validation, audit, isolation, inventory, or financial truth. This rule applies to Dashboard, Flutter/mobile, imports, automation, and integrations. See `ARCHITECTURE.md` for the canonical rule.
+- Any work touching quality destinations, quarantine, damaged goods, disposal, vendor return, Vehicle→Warehouse reconciliation handoff, or their financial closure must also read and preserve `INVENTORY_DAMAGED_GOODS_RETURNS_AND_REPRESENTATIVE_SETTLEMENT_PLAN.md`.
+
 DASHBOARD UX CONSTITUTION (MANDATORY):
 - Backend complexity must not leak into the operator experience. Preserve all authority, validation, audit, isolation, idempotency, and safety in backend/domain layers while keeping the dashboard path short and obvious.
 - Every page/workspace must have one clear operational responsibility. Do not create intermediary pages whose main purpose is to forward the user to the real action.

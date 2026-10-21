@@ -9,12 +9,20 @@ import { cn } from "@/lib/utils";
 import { parseSupplier } from "./contracts";
 import { useSupplierSearch } from "./useSupplierSearch";
 
-/** Public, bounded Supplier selector; Inventory consumes identity, never page internals. */
-export function SupplierSelector({ value, onChange, disabled = false }: {
+interface SupplierSelectorProps {
   value: number | null;
   onChange: (value: number | null) => void;
   disabled?: boolean;
-}) {
+  searchInControl?: boolean;
+}
+
+/** Public, bounded Supplier selector; Inventory consumes identity, never page internals. */
+export function SupplierSelector({
+  value,
+  onChange,
+  disabled = false,
+  searchInControl = false,
+}: SupplierSelectorProps) {
   const { t, i18n } = useTranslation();
   const id = useId();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -57,6 +65,10 @@ export function SupplierSelector({ value, onChange, disabled = false }: {
     searchRef.current?.focus();
   }, [open]);
 
+  const currentLabel = current
+    ? `${current.name}${current.code ? ` · ${current.code}` : ""}`
+    : "";
+
   return (
     <div
       ref={rootRef}
@@ -72,45 +84,77 @@ export function SupplierSelector({ value, onChange, disabled = false }: {
       <label id={`${id}-label`} className="block text-sm font-semibold">
         {t("suppliers.select")}
       </label>
-      {blocked && !search.access.isPending ? <p role="alert">{t("suppliers.denied")}</p> : null}
+      {blocked && !search.access.isPending ? (
+        <p role="alert">{t("suppliers.denied")}</p>
+      ) : null}
 
-      <button
-        type="button"
-        role="combobox"
-        aria-labelledby={`${id}-label`}
-        aria-expanded={open}
-        aria-controls={`${id}-options`}
-        disabled={controlDisabled}
-        onClick={() => {
-          if (controlDisabled) return;
-          setOpen((currentOpen) => !currentOpen);
-          if (open) search.setInput("");
-        }}
-        className="flex min-h-10 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 text-start text-sm font-bold text-slate-900 outline-none transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        <span className={cn("truncate", !current && "text-slate-400")}>
-          {current
-            ? `${current.name}${current.code ? ` · ${current.code}` : ""}`
-            : t("suppliers.choose")}
-        </span>
-        <ChevronsUpDown className="h-4 w-4 shrink-0 text-slate-400" />
-      </button>
+      {searchInControl ? (
+        <div className="relative">
+          <input
+            ref={searchRef}
+            type="text"
+            role="combobox"
+            aria-labelledby={`${id}-label`}
+            aria-expanded={open}
+            aria-controls={`${id}-options`}
+            aria-autocomplete="list"
+            disabled={controlDisabled}
+            value={open ? search.input : currentLabel}
+            onFocus={() => {
+              if (!controlDisabled) setOpen(true);
+            }}
+            onClick={() => {
+              if (!controlDisabled) setOpen(true);
+            }}
+            onChange={(event) => {
+              if (!open) setOpen(true);
+              search.setInput(event.target.value);
+            }}
+            placeholder={current ? currentLabel : t("suppliers.search")}
+            maxLength={100}
+            className="supplier-selector-search-control min-h-10 w-full rounded-xl border border-slate-200 bg-white px-3 pe-9 text-start text-sm font-bold text-slate-900 outline-none transition placeholder:text-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+          />
+          <ChevronsUpDown className="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        </div>
+      ) : (
+        <button
+          type="button"
+          role="combobox"
+          aria-labelledby={`${id}-label`}
+          aria-expanded={open}
+          aria-controls={`${id}-options`}
+          disabled={controlDisabled}
+          onClick={() => {
+            if (controlDisabled) return;
+            setOpen((currentOpen) => !currentOpen);
+            if (open) search.setInput("");
+          }}
+          className="flex min-h-10 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 text-start text-sm font-bold text-slate-900 outline-none transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <span className={cn("truncate", !current && "text-slate-400")}>
+            {currentLabel || t("suppliers.choose")}
+          </span>
+          <ChevronsUpDown className="h-4 w-4 shrink-0 text-slate-400" />
+        </button>
+      )}
 
       {open && !controlDisabled ? (
         <div className="absolute inset-x-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
-          <div className="flex items-center border-b border-slate-100 px-3">
-            <Search className="me-2 h-4 w-4 shrink-0 text-slate-400" />
-            <input
-              ref={searchRef}
-              id={`${id}-search`}
-              type="search"
-              value={search.input}
-              onChange={(event) => search.setInput(event.target.value)}
-              placeholder={t("suppliers.search")}
-              maxLength={100}
-              className="h-11 w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
-            />
-          </div>
+          {!searchInControl ? (
+            <div className="flex items-center border-b border-slate-100 px-3">
+              <Search className="me-2 h-4 w-4 shrink-0 text-slate-400" />
+              <input
+                ref={searchRef}
+                id={`${id}-search`}
+                type="search"
+                value={search.input}
+                onChange={(event) => search.setInput(event.target.value)}
+                placeholder={t("suppliers.search")}
+                maxLength={100}
+                className="h-11 w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
+              />
+            </div>
+          ) : null}
 
           <div id={`${id}-options`} role="listbox" className="max-h-64 overflow-y-auto p-1">
             {search.query.isFetching ? (
@@ -181,7 +225,9 @@ export function SupplierSelector({ value, onChange, disabled = false }: {
           </button>
         </p>
       ) : null}
-      {current && !current.is_active ? <p role="alert">{t("suppliers.inactiveSelection")}</p> : null}
+      {current && !current.is_active ? (
+        <p role="alert">{t("suppliers.inactiveSelection")}</p>
+      ) : null}
     </div>
   );
 }
