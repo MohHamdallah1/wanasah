@@ -1,0 +1,67 @@
+name: Isolated 50k Product Import purchase cost performance
+
+on:
+  push:
+    branches: [sol/product-import-50k-performance-evidence]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-50k:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [legacy, cost]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: purchase_reference_e2e_admin
+          POSTGRES_DB: wanasah_purchase_reference_e2e
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["55473:5432"]
+        options: >-
+          --health-cmd "pg_isready -U purchase_reference_e2e_admin -d wanasah_purchase_reference_e2e"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: PurchaseReferenceE2EOnlyKeyAbc123456789012345678901
+      DATABASE_URL: postgresql+asyncpg://purchase_reference_e2e_runtime@127.0.0.1:55473/wanasah_purchase_reference_e2e
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://purchase_reference_e2e_admin@127.0.0.1:55473/wanasah_purchase_reference_e2e
+      WANASAH_PURCHASE_REFERENCE_E2E: "1"
+      WANASAH_DISPOSABLE_IMPORT_50K_PERF: "1"
+      WANASAH_IMPORT_PERF_MODE: ${{ matrix.mode }}
+      WANASAH_E2E_EVIDENCE: artifacts/import-50k-evidence-${{ matrix.mode }}.jsonl
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install project and test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Create restricted disposable runtime role
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect("postgresql://purchase_reference_e2e_admin@127.0.0.1:55473/wanasah_purchase_reference_e2e", autocommit=True) as db:
+              db.execute("CREATE ROLE purchase_reference_e2e_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Bootstrap disposable database, not any local owner instance
+        working-directory: wa_backend
+        run: alembic upgrade head && alembic check
+      - name: Measure 50k ${{ matrix.mode }} publication on a fresh disposable PostgreSQL
+        working-directory: wa_backend
+        run: |
+          mkdir -p artifacts
+          python -m pytest -q -s tests/test_purchase_reference_e2e_postgres.py -k test_disposable_5k_real_import_worker_performance_and_parity | tee artifacts/import-50k-pg-profile-${{ matrix.mode }}.log
+      - name: Retain exact timing and error evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: import-50k-pg-${{ matrix.mode }}-${{ github.sha }}
+          path: wa_backend/artifacts/
+          if-no-files-found: warn
