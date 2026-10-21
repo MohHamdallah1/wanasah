@@ -9,7 +9,7 @@ import {
 } from "@/lib/durableOperations";
 import type { SimpleProduct } from "../contracts";
 import {
-  parsePurchaseReference, validateReferenceCommand,
+  assertReferenceSaved, parsePurchaseReference, validateReferenceCommand,
   type PurchaseReference, type PurchaseReferenceCommand,
 } from "./contracts";
 
@@ -94,10 +94,7 @@ export function PurchaseReferenceEditor({
         method: "PUT",
         body: JSON.stringify({ request_id: command.requestId, ...command.payload }),
       });
-      if (!result || typeof result !== "object" ||
-          !("reference" in result) || !(result as { reference?: unknown }).reference) {
-        throw new Error("PURCHASE_REFERENCE_RESPONSE_INVALID");
-      }
+      assertReferenceSaved(result, command.payload, product.id);
       completeDurableOperation(scope, command.requestId);
       setPending(null);
       toast.success(t("products.purchaseReference.saved"));
