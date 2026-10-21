@@ -57,7 +57,7 @@ describe("Purchase cost reference transport", () => {
     }
     expect(() => assertReferenceSaved({ message: "OK" }, command, 18)).toThrow();
   });
-  
+
   it("rejects invalid precision, scale, missing UOM, or unsupported currency", () => {
     for (const amount of ["-1", "3.1234567", "Infinity", "1e2", ""]) {
       expect(() => validateReferenceCommand({
