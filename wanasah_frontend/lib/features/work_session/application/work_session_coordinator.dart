@@ -3,7 +3,6 @@ import 'dart:developer' as developer;
 import 'package:dio/dio.dart';
 
 import '../data/work_session_remote_data_source.dart';
-import '../data/work_session_snapshot.dart';
 import 'work_session_failure.dart';
 import 'work_session_location_source.dart';
 import 'work_session_outcome.dart';
