@@ -144,8 +144,9 @@ describe("Product quick-create optional purchase reference", () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 
-  it("preserves request identity and full reference payload across timeout and retry", async () => {
+  it("preserves request identity through timeout, permission denial and authorized retry", async () => {
     const fetch = vi.fn().mockRejectedValueOnce(Object.assign(new Error(), { code: "REQUEST_TIMEOUT", status: 408 }))
+      .mockRejectedValueOnce(Object.assign(new Error(), { code: "PURCHASE_REFERENCE_ACCESS_DENIED", status: 403 }))
       .mockResolvedValueOnce(response);
     render(<Mutation authFetch={fetch} />);
     fireEvent.click(screen.getByRole("button", { name: "submit" }));
@@ -153,8 +154,12 @@ describe("Product quick-create optional purchase reference", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "submit" })).not.toBeDisabled());
     fireEvent.click(screen.getByRole("button", { name: "submit" }));
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole("button", { name: "submit" })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole("button", { name: "submit" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
     const bodies = fetch.mock.calls.map((call) => JSON.parse(call[1].body));
     expect(bodies[1]).toEqual(bodies[0]);
+    expect(bodies[2]).toEqual(bodies[0]);
     expect(bodies[0].purchase_cost_reference).toEqual(reference);
   });
 

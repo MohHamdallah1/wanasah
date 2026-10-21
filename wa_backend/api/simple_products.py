@@ -22,6 +22,7 @@ from pydantic import (
     Field,
     field_validator,
     model_validator,
+    model_serializer,
 )
 from sqlalchemy import (
     String,
@@ -163,6 +164,14 @@ class SimpleProductCreate(StrictRequest):
         None,
         max_length=20,
     )
+
+    @model_serializer(mode="wrap")
+    def serialize_create(self, handler):
+        # Preserve historical DTO/hash producers when the optional field is absent.
+        body = handler(self)
+        if body.get("purchase_cost_reference") is None:
+            body.pop("purchase_cost_reference", None)
+        return body
 
     @field_validator("name", mode="before")
     @classmethod

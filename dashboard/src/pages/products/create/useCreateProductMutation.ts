@@ -390,6 +390,9 @@ export function useCreateProductMutation({
           companyId !== null &&
           driverId !== null &&
           code !== undefined &&
+          // A later permission denial cannot prove an earlier timed-out create
+          // was rolled back. Preserve the full command for authorized replay.
+          code !== "PURCHASE_REFERENCE_ACCESS_DENIED" &&
           code !==
             "DURABLE_OPERATION_PENDING" &&
           code !==

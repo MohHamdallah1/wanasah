@@ -57,7 +57,7 @@ jobs:
         run: alembic check
       - name: Focused exact-value and committed PostgreSQL acceptance
         working-directory: wa_backend
-        run: python -m pytest -q tests/test_purchase_cost_reference_values.py tests/test_purchase_cost_reference_postgres.py tests/test_purchase_reference_product_create_postgres.py tests/test_simple_products_canonical_cutover.py tests/test_simple_product_family_intent_a2.py
+        run: python -m pytest -q tests/test_purchase_cost_reference_values.py tests/test_purchase_cost_reference_postgres.py tests/test_purchase_reference_product_create_postgres.py tests/test_simple_products_canonical_cutover.py tests/test_simple_product_family_intent_a2.py::FamilyIntentDtoA2Tests tests/test_simple_product_family_intent_a2.py::FamilyCursorA2Tests
 
   dashboard:
     runs-on: ubuntu-24.04
