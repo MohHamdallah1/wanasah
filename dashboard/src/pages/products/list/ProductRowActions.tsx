@@ -29,6 +29,7 @@ import type {
 type Props = {
   item: SimpleProduct;
   canEditPrice: boolean;
+  canEditPurchaseReference: boolean;
   canRenameProduct: boolean;
   canReassignFamily: boolean;
   canEditTracking: boolean;
@@ -44,6 +45,7 @@ type Props = {
   onEditPrice: (
     item: SimpleProduct,
   ) => void;
+  onEditPurchaseReference: (item: SimpleProduct) => void;
   onReassignFamily: (
     item: SimpleProduct,
   ) => void;
@@ -64,6 +66,7 @@ type Props = {
 export function ProductRowActions({
   item,
   canEditPrice,
+  canEditPurchaseReference,
   canRenameProduct,
   canReassignFamily,
   canEditTracking,
@@ -73,6 +76,7 @@ export function ProductRowActions({
   onOpenDetails,
   onRenameProduct,
   onEditPrice,
+  onEditPurchaseReference,
   onReassignFamily,
   onEditTracking,
   onManageBarcodes,
@@ -236,6 +240,7 @@ export function ProductRowActions({
 
         {(canEditPrice &&
           item.simple_compatible) ||
+        canEditPurchaseReference ||
         canEditTracking ||
         canManageBarcodes ||
         canManageLifecycle ? (
@@ -257,6 +262,16 @@ export function ProductRowActions({
             {t(
               "products.editPrice",
             )}
+          </DropdownMenuItem>
+        ) : null}
+
+        {canEditPurchaseReference ? (
+          <DropdownMenuItem
+            onSelect={() => queueAfterMenuClose(() => onEditPurchaseReference(item))}
+            className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
+          >
+            <CircleDollarSign className="h-4 w-4 shrink-0 text-slate-400" />
+            {t("products.purchaseReference.action")}
           </DropdownMenuItem>
         ) : null}
 
