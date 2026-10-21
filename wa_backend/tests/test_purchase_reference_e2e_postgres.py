@@ -46,6 +46,8 @@ from domains.inventory_costing.purchase_reference.public import MANAGE, READ
 from domains.inventory_supplier_evidence import record_supplier_evidence
 from domains.pricing.resolver import resolve_prices_bulk
 from domains.simple_products.imports.application.execution_service import build_product_spec
+from domains.simple_products.imports.application.purchase_reference_import import record_import_reference_batch
+from domains.inventory_costing.purchase_reference.repository import acquire_writer_guard
 from domains.simple_products.imports.domain.localization import CANONICAL_IMPORT_FIELDS
 from domains.simple_products.imports.domain.mapping import suggest_mapping, validate_mapping
 from domains.simple_products.imports.domain.normalization import normalize_raw_row
@@ -482,7 +484,7 @@ async def import_contract(g, original_variant):
         sheet = wb.active
         assert sheet.max_column == 11 and sheet.auto_filter.ref.startswith("A1:K")
         sheet.append(["E2E imported " + locale, None, "CARTON", "12", "60", None,
-                      None, None, "NONE", "NONE"])
+                      None, None, "NONE", "NONE", "1.250000"])
         output = BytesIO()
         wb.save(output)
         wb.close()
@@ -494,20 +496,38 @@ async def import_contract(g, original_variant):
             assert len(rows) == 1
             data = normalize_raw_row(rows[0].raw, mapping,
                 default_lot_control_mode="NONE", default_expiry_control_mode="NONE")
-            assert data["purchase_unit_cost"] is None
+            assert data["purchase_unit_cost"] == "1.250000"
             with pytest.raises(ValueError, match="Unknown mapping field"):
                 validate_mapping(source.headers, {**mapping, "purchase_cost_reference": source.headers[0]})
-        before = await g.snapshot(ACCOUNTING + REFERENCES)
-        # Use the actual import execution spec builder and its canonical Product
-        # authority. Worker orchestration/queues are outside this ten-column gate.
+        before = await g.snapshot(ACCOUNTING)
+        # True Product + reference + audit share one tenant-scoped database commit.
+        # Worker queue orchestration is tested separately from this full DB boundary.
         async with g.session() as db:
             actor = await db.get(Driver, g.t.owner.driver_id)
+            request_id = uuid4()
+            await acquire_writer_guard(db, company_id=g.t.company_id)
             created = await create_products_and_prices(db, actor=actor, company_id=g.t.company_id,
-                request_id=uuid4(), specs=[build_product_spec(data)])
+                request_id=request_id, specs=[build_product_spec(data)])
             imported_id = created[0][0].id
+            await record_import_reference_batch(
+                db, access=g.t.owner.access(db), company_id=g.t.company_id,
+                job_id=uuid4(), request_id=request_id, request_hash=hashlib.sha256(
+                    str(request_id).encode()).hexdigest(),
+                rows=[SimpleNamespace(id=1, normalized_data=data)], created=created,
+            )
             await db.commit()
-        assert await g.snapshot(ACCOUNTING + REFERENCES) == before
-        assert await reference(g, imported_id) is None
+        assert await g.snapshot(ACCOUNTING) == before
+        assert (await reference(g, imported_id))["amount"] == "1.250000"
+        async with g.session() as db:
+            row = (await db.execute(text(
+                "SELECT source,purchase_uom_id,revision FROM purchase_cost_references "
+                "WHERE company_id=:c AND product_variant_id=:v"
+            ), {"c": g.t.company_id, "v": imported_id})).one()
+            assert row.source == "PRODUCT_IMPORT" and row.purchase_uom_id == g.t.each_id and row.revision == 1
+            assert await db.scalar(text(
+                "SELECT count(*) FROM purchase_cost_reference_changes "
+                "WHERE company_id=:c AND product_variant_id=:v"
+            ), {"c": g.t.company_id, "v": imported_id}) == 1
         await price_check(g, imported_id)
         await price_check(g, original_variant)
 
@@ -805,7 +825,8 @@ async def complete_journey(g):
             "SELECT method,is_active,locked_at FROM inventory_cost_policies WHERE company_id=:c"
         ), {"c": t.company_id})).one()
         assert policy.method == g.method and policy.is_active and policy.locked_at is not None
-    g.record(g.stage, locales=["ar", "en"], exact_column_count=10, import_reference_backfill=False,
+    g.record(g.stage, locales=["ar", "en"], old_columns_preserved=10, optional_column_count=11,
+              import_reference_backfill=False,
              company_inventory_value="232.000000", historical_cogs="12.000000",
              old_invoices_cogs_prices_unchanged=True)
     g.record("SCENARIO_COMPLETE", original_variant_id=v, phases_passed=13)
