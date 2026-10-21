@@ -417,8 +417,8 @@ Future implementation workers receive disjoint file ownership only after this au
 
 - [ ] Backend worker report incorporated.
 - [ ] Flutter/UI worker report incorporated.
-- [ ] Current `flutter analyze` baseline recorded.
-- [ ] Current `flutter test` baseline recorded.
+- [x] Current `flutter analyze` baseline recorded: PASS, no issues.
+- [x] Current `flutter test` baseline recorded: 13 offline-owner tests PASS; stale default counter widget test FAILS and is not a valid product gate.
 - [ ] Exact Backend return-Batch resolution capability confirmed or assigned.
 - [ ] Current error-code/correlation-ID coverage mapped.
 - [ ] Final P0/P1/P2 implementation backlog frozen.
