@@ -22,6 +22,7 @@ CANONICAL_IMPORT_FIELDS = (
     "package_barcode",
     "lot_control_mode",
     "expiry_control_mode",
+    "purchase_unit_cost",  # optional column K; legacy A:J keep their original positions
 )
 
 IMPORT_TRACKING_DEFAULT_SENTINEL = "__DEFAULT__"
@@ -57,6 +58,7 @@ class ImportTemplateCopy:
     units_note: str
     package_price_note: str
     unit_price_note: str
+    purchase_unit_cost_note: str
     unit_barcode_note: str
     package_barcode_note: str
     package_validation_title: str
@@ -119,6 +121,7 @@ EN_IMPORT_LOCALE = ImportLocalePack(
             "package_barcode": "Outer Package Barcode",
             "lot_control_mode": "Lot Tracking",
             "expiry_control_mode": "Expiry Tracking",
+            "purchase_unit_cost": "Purchase Cost per Base Unit (optional)",
         },
         required_note="Required.",
         family_note="Optional product family.",
@@ -153,6 +156,11 @@ EN_IMPORT_LOCALE = ImportLocalePack(
         unit_price_note=(
             "Enter a positive number when provided. At least one of "
             "Package Price or Unit Price must be supplied per product."
+        ),
+        purchase_unit_cost_note=(
+            "Optional reference purchase cost for ONE base unit (EACH), in the company currency. "
+            "Enter an exact nonnegative number with up to six decimals. "
+            "Not a sale price, a past invoice cost, or stock valuation."
         ),
         unit_barcode_note=(
             "Optional. Keep the complete unit barcode as text, "
@@ -210,6 +218,12 @@ EN_IMPORT_LOCALE = ImportLocalePack(
             "unit price",
             "piece price",
             "each price",
+        ),
+        "purchase_unit_cost": (
+            "purchase cost per base unit",
+            "purchase cost each",
+            "purchase unit cost",
+            "purchase cost",
         ),
         "unit_barcode": (
             "unit barcode",
@@ -286,6 +300,7 @@ AR_IMPORT_LOCALE = ImportLocalePack(
             "package_barcode": "باركود العبوة الخارجية",
             "lot_control_mode": "تتبع الدفعة",
             "expiry_control_mode": "تتبع الصلاحية",
+            "purchase_unit_cost": "تكلفة شراء الوحدة الأساسية (اختياري)",
         },
         required_note="مطلوب.",
         family_note="عائلة المنتج اختيارية.",
@@ -318,6 +333,10 @@ AR_IMPORT_LOCALE = ImportLocalePack(
         unit_price_note=(
             "أدخل رقماً موجباً عند تعبئته. يجب توفير سعر العبوة أو سعر الوحدة "
             "على الأقل لكل منتج."
+        ),
+        purchase_unit_cost_note=(
+            "تكلفة شراء مرجعية اختيارية للوحدة الأساسية الواحدة (حبة)، بعملة الشركة. "
+            "أدخل رقماً غير سالب حتى ست منازل عشرية. ليست سعر بيع ولا تكلفة فاتورة سابقة أو تقييماً للمخزون."
         ),
         unit_barcode_note=(
             "اختياري. احتفظ بالباركود كاملاً كنص، خصوصاً إذا بدأ بصفر."
@@ -368,6 +387,11 @@ AR_IMPORT_LOCALE = ImportLocalePack(
             "سعر الوحدة",
             "سعر الحبة",
             "سعر القطعة",
+        ),
+        "purchase_unit_cost": (
+            "تكلفة شراء الوحدة الأساسية",
+            "تكلفة شراء الوحدة",
+            "تكلفة الشراء",
         ),
         "unit_barcode": (
             "باركود الوحدة",
