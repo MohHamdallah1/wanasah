@@ -1851,7 +1851,8 @@ class Visit(Base):
             postgresql_where=text("status = 'Pending' AND driver_id IS NOT NULL"),
         ),
     )
-    id              = Column(Integer, primary_key=True)
+    # The revision FK includes id; it must not disable the existing DB sequence.
+    id              = Column(Integer, primary_key=True, autoincrement="ignore_fk")
     company_id      = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     driver_id       = Column(Integer, nullable=True,  index=True)
     shop_id         = Column(Integer, nullable=False, index=True)

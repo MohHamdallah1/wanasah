@@ -194,7 +194,7 @@ class FieldContractPostgresTests(unittest.IsolatedAsyncioTestCase):
             await self.db.commit()
             delivery_id = source_id if iteration == 0 else target_id
             await update_visit(delivery_id, VisitUpdateRequest(request_id=uuid4(), outcome="NoSale",
-                cart_items=[{"product_variant_id": sku_id, "sample_packs_quantity": 2, "sample_reason": "FIELD evidence"}]),
+                cart_items=[{"product_variant_id": sku_id, "sample_packs_quantity": 5, "sample_reason": "FIELD evidence"}]),
                 self.db, self.field.context, self.field.driver)
             target_id = await self.new_visit(source_id)
             request = ReturnResolutionRequest(product_variant_id=sku_id, packs_quantity=1)
@@ -210,3 +210,9 @@ class FieldContractPostgresTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(ambiguity.exception.context, {"required_evidence": ["delivery_date"]})
                 self.assertNotIn("__WANASAH", str(ambiguity.exception.context))
                 self.assertEqual(len(batches), 2)
+                delivered_batches = (await self.db.execute(select(InventoryMovement.batch_id).where(
+                    InventoryMovement.company_id == self.tenant,
+                    InventoryMovement.product_variant_id == sku_id,
+                    InventoryMovement.reference_type == "VISIT_SAMPLE_OUT",
+                ).distinct())).scalars().all()
+                self.assertEqual(set(delivered_batches), {batch.id for batch in batches})

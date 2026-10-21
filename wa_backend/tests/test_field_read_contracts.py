@@ -99,7 +99,7 @@ async def test_preview_calls_existing_calculator_with_server_context_and_exact_r
     assert response["invoice"]["totals"]["gross_amount"] == "10.123456"
     assert response["invoice"]["totals"]["rounding_adjustment"] == "0.001"
     assert response["invoice"]["currency_code"] == "JOD"
-    assert response["invoice"]["rewards"] == [{"product_variant_id": 45, "base_quantity": "0.500000"}]
+    assert response["invoice"]["rewards"] == [{"product_variant_id": 45, "base_quantity": "0.5"}]
     assert response["commit_required"] is True
     assert not any(word in str(response).lower() for word in ("cogs", "profit", "unit_cost"))
 
@@ -239,3 +239,10 @@ def test_added_revalidation_retains_replay_and_original_lock_order():
     assert visit.index("await acquire_product_lifecycle_guards(") < visit.index("await revalidate_return_batch_metadata(")
     assert visit.index("await revalidate_return_batch_metadata(") < visit.index("await allocate_fefo_inventory_batch(")
     assert visit.index('response_payload["invoice"]') < visit.index("complete_idempotent_operation(") < visit.index("await db.commit()")
+
+
+def test_exact_decimal_transport_is_stable_across_persisted_numeric_scale():
+    for amount in ("50", "50.000", "50.000000"):
+        assert invoice._exact(Decimal(amount)) == "50"
+    assert invoice._exact(Decimal("-0.000000")) == "0"
+    assert invoice._exact(Decimal("10.123456")) == "10.123456"

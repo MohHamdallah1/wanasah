@@ -21,7 +21,9 @@ def _exact(value):
     amount = Decimal(str(value))
     if not amount.is_finite():
         raise FieldContractError("FIELD_INVOICE_EVIDENCE_INVALID", "Invoice evidence is invalid.")
-    return format(amount, "f")
+    # Canonical decimal text is independent of calculator versus Numeric scale.
+    encoded = format(amount, "f")
+    return (encoded.rstrip("0").rstrip(".") if "." in encoded else encoded) if amount else "0"
 
 
 def invoice_payload(*, totals, currency, rounding, lines, rewards, status, calculated_at):
