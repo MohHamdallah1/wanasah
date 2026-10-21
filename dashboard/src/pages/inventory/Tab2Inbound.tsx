@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import {
   CalendarDays,
   Eraser,
-  Pencil,
   Search,
   Trash2,
 } from "lucide-react";
@@ -25,6 +24,7 @@ import {
 } from "@/features/catalog/contracts";
 import {
   buildInboundItems,
+  conciseMoney,
   emptyInboundBatch,
   inboundReferenceChoices,
   prefilledInboundRow,
@@ -216,9 +216,6 @@ export function Tab2Inbound({
   const [optionsLoading, setOptionsLoading] = useState(false);
   const [referenceChoices, setReferenceChoices] = useState<Map<number, InboundReferenceSelection[]>>(new Map());
   const [selectedReferences, setSelectedReferences] = useState<Map<number, InboundReferenceSelection>>(new Map());
-  // Cost is read-only until the operator explicitly edits this receipt line.
-  // It is UI-only state: actual costs, saved drafts and reference history are untouched.
-  const [editingCostRows, setEditingCostRows] = useState<Set<string>>(() => new Set());
   const [submitting, setSubmitting] = useState(false);
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [costPolicyOpen, setCostPolicyOpen] = useState(false);
@@ -524,20 +521,6 @@ export function Tab2Inbound({
     else controlRefs.current.delete(key);
   };
 
-  const enableCostEditing = (rowId: string) => {
-    setEditingCostRows((current) => new Set(current).add(rowId));
-    focusControl(rowId, "unit_cost");
-  };
-
-  const stopCostEditing = (rowId: string) => {
-    setEditingCostRows((current) => {
-      if (!current.has(rowId)) return current;
-      const next = new Set(current);
-      next.delete(rowId);
-      return next;
-    });
-  };
-
   const focusControl = (rowId: string, control: InboundRowControl) => {
     window.requestAnimationFrame(() => {
       rowRefs.current.get(rowId)?.scrollIntoView({
@@ -607,7 +590,6 @@ export function Tab2Inbound({
     setValidationError(null);
     setReferenceChoices(new Map());
     setSelectedReferences(new Map());
-    setEditingCostRows(new Set());
     setClearOpen(false);
   };
 
@@ -840,7 +822,7 @@ export function Tab2Inbound({
                   <option value="">{t("inventoryInbound.referenceSelectPlaceholder")}</option>
                   {choices.map((choice, index) => (
                     <option key={choice.uom_id + "|" + choice.unit_cost} value={index}>
-                      {choice.unit_cost} {costPolicy?.currency_code ?? ""} / {
+                      {conciseMoney(choice.unit_cost)} {costPolicy?.currency_code ?? ""} / {
                         uomOptions.get(variantId)?.uoms.find((unit) => unit.id === choice.uom_id)?.code
                         ?? String(choice.uom_id)
                       }
@@ -1013,44 +995,20 @@ export function Tab2Inbound({
                             ref={(node) => setControlRef(row.row_id, "unit_cost", node)}
                             inputMode="decimal"
                             value={row.unit_cost}
-                            readOnly={!editingCostRows.has(row.row_id)}
+                            disabled={submitting || posting.pending !== null}
                             aria-label={t("inventoryInbound.unitCostPlaceholder")}
                             aria-invalid={fieldHasError(row.row_id, "unit_cost")}
                             onFocus={(event) => event.currentTarget.select()}
-                            onKeyDown={(event) => {
-                              // Keep Enter-to-next-field navigation; F2 opens cost
-                              // entry for keyboard-only operators.
-                              if (event.key === "F2") {
-                                event.preventDefault();
-                                enableCostEditing(row.row_id);
-                                return;
-                              }
-                              if (event.key === "Escape" && editingCostRows.has(row.row_id)) {
-                                event.preventDefault();
-                                stopCostEditing(row.row_id);
-                                return;
-                              }
-                              handleRowEnter(event, row.row_id, variant, "unit_cost");
-                            }}
-                            onBlur={() => stopCostEditing(row.row_id)}
+                            onKeyDown={(event) =>
+                              handleRowEnter(event, row.row_id, variant, "unit_cost")
+                            }
                             onChange={(event) => {
-                              if (!editingCostRows.has(row.row_id)) return;
                               update(variant, row.row_id, {
                                 unit_cost: event.target.value.replace(/[^0-9.]/g, ""),
                               });
                             }}
                             className={fieldHasError(row.row_id, "unit_cost") ? "is-error" : ""}
                           />
-                          <button
-                            type="button"
-                            aria-label={t("inventoryInbound.editPurchaseCost")}
-                            title={t("inventoryInbound.editPurchaseCost")}
-                            disabled={submitting || posting.pending !== null}
-                            onClick={() => enableCostEditing(row.row_id)}
-                            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-500 disabled:opacity-50"
-                          >
-                            <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                          </button>
                           <span>
                             {costPolicy?.currency_code ?? ""}
                             {selectedOption
@@ -1062,16 +1020,21 @@ export function Tab2Inbound({
                           <button
                             type="button"
                             disabled={submitting || posting.pending !== null}
-                            onClick={() => update(variant, row.row_id, {
-                              uom_id: String(option.purchase_cost_reference!.purchase_uom_id),
-                              unit_cost: option.purchase_cost_reference!.amount,
-                            })}
-                            className="mt-1 text-xs font-semibold text-emerald-800 underline"
-                          >
-                            {t("inventoryInbound.useReferenceSuggestion", {
-                              cost: option.purchase_cost_reference.amount,
+                            aria-label={t("inventoryInbound.useReferenceSuggestion", {
+                              cost: conciseMoney(option.purchase_cost_reference.amount),
                               currency: option.purchase_cost_reference.currency_code,
                             })}
+                            title={t("inventoryInbound.useReferenceSuggestion", {
+                              cost: conciseMoney(option.purchase_cost_reference.amount),
+                              currency: option.purchase_cost_reference.currency_code,
+                            })}
+                            onClick={() => update(variant, row.row_id, {
+                              uom_id: String(option.purchase_cost_reference!.purchase_uom_id),
+                              unit_cost: conciseMoney(option.purchase_cost_reference!.amount),
+                            })}
+                            className="mt-1 inline-flex min-h-7 items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-black text-emerald-800 transition hover:bg-emerald-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-500 disabled:opacity-50"
+                          >
+                            {t("inventoryInbound.useReferenceShort")}
                           </button>
                         )}
                         {fieldHasError(row.row_id, "unit_cost") && (

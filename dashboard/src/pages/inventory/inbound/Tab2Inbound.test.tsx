@@ -193,10 +193,11 @@ describe("Checkpoint 1 inbound UI", () => {
       costPolicy, [makeVariant(7, "Reference product", "NONE", "NONE")], "4.250000");
     const row = (await screen.findByText("Reference product")).closest("tr")!;
     const cost = within(row).getByLabelText("Actual cost") as HTMLInputElement;
-    await waitFor(() => expect(cost.value).toBe("4.250000"));
-    expect(cost.readOnly).toBe(true);
-    fireEvent.click(within(row).getByRole("button", { name: "Edit actual purchase cost" }));
-    expect(cost.readOnly).toBe(false);
+    await waitFor(() => expect(cost.value).toBe("4.25"));
+    expect(cost.disabled).toBe(false);
+    expect(within(row).queryByRole("button", { name: "Edit actual purchase cost" })).toBeNull();
+    expect(within(row).getByRole("button", { name: "Use reference cost 4.25 JOD" }))
+      .toHaveTextContent("Reference");
     fireEvent.change(cost, { target: { value: "5.100000" } });
     fireEvent.change(within(row).getByLabelText("Quantity"), { target: { value: "2" } });
     expect(cost.value).toBe("5.100000");
@@ -236,25 +237,18 @@ describe("Checkpoint 1 inbound UI", () => {
       .toEqual(["3.000000", "4.000000"]);
   });
 
-  it("focuses the inline purchase-cost editor through the localized pencil", async () => {
-    renderInbound([makeVariant(17, "Pencil product", "NONE", "NONE")]);
-    const row = (await screen.findByText("Pencil product")).closest("tr")!;
+  it("keeps purchase cost directly editable for mouse-free entry", async () => {
+    renderInbound([makeVariant(17, "Direct cost product", "NONE", "NONE")]);
+    const row = (await screen.findByText("Direct cost product")).closest("tr")!;
     const input = within(row).getByLabelText("Actual cost") as HTMLInputElement;
-    const edit = within(row).getByRole("button", { name: "Edit actual purchase cost" });
-    expect(input.readOnly).toBe(true);
-    fireEvent.change(input, { target: { value: "99" } });
-    expect(input.value).toBe("");
-    fireEvent.click(edit);
-    await waitFor(() => expect(document.activeElement).toBe(input));
-    expect(input.readOnly).toBe(false);
-    fireEvent.change(input, { target: { value: "4.250000" } });
-    expect(input.value).toBe("4.250000");
-    fireEvent.blur(input);
-    expect(input.readOnly).toBe(true);
-    fireEvent.keyDown(input, { key: "F2" });
-    expect(input.readOnly).toBe(false);
-    fireEvent.keyDown(input, { key: "Escape" });
-    expect(input.readOnly).toBe(true);
+    expect(input.disabled).toBe(false);
+    expect(within(row).queryByRole("button", { name: "Edit actual purchase cost" })).toBeNull();
+    input.focus();
+    expect(document.activeElement).toBe(input);
+    fireEvent.change(input, { target: { value: "4.25" } });
+    expect(input.value).toBe("4.25");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(input.disabled).toBe(false);
   });
 
   it("renders NONE / OPTIONAL / REQUIRED tracking fields directly", async () => {
@@ -646,7 +640,6 @@ describe("Checkpoint 1 inbound UI", () => {
     const quantity = within(row).getByLabelText("Quantity") as HTMLInputElement;
     const cost = row.querySelector(".inventory-inbound-cost-cell input") as HTMLInputElement;
     fireEvent.change(quantity, { target: { value: "3" } });
-    fireEvent.click(within(row).getByRole("button", { name: "Edit actual purchase cost" }));
     fireEvent.change(cost, { target: { value: "4.500" } });
     fireEvent.click(screen.getByRole("button", { name: "choose-supplier" }));
     const keys = inboundStorageKeys(1, 2, 3);
@@ -669,7 +662,6 @@ describe("Checkpoint 1 inbound UI", () => {
     renderInbound([makeVariant(1, "Clearable product", "NONE", "NONE")]);
     const row = (await screen.findByText("Clearable product")).closest("tr")!;
     fireEvent.change(within(row).getByLabelText("Quantity"), { target: { value: "5" } });
-    fireEvent.click(within(row).getByRole("button", { name: "Edit actual purchase cost" }));
     fireEvent.change(row.querySelector(".inventory-inbound-cost-cell input")!, { target: { value: "8" } });
     fireEvent.change(screen.getByLabelText(i18n.t("inventoryInbound.reference")), { target: { value: "REF-ABC" } });
     fireEvent.change(screen.getByLabelText(i18n.t("inventoryInbound.notes")), { target: { value: "draft notes" } });

@@ -30,7 +30,7 @@ describe("Local Inventory Inbound purchase-reference reconciliation", () => {
       currency_code: "JOD", revision: 3,
     }));
     expect(prefilledInboundRow("r", "1", result.items[0])).toMatchObject({
-      unit_cost: "4.250000", uom_id: "2", quantity: "",
+      unit_cost: "4.25", uom_id: "2", quantity: "",
     });
   });
   it("does not manufacture cost for absent/unauthorized reference", () => {

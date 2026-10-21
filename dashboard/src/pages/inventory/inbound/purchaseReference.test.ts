@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  inboundReferenceChoices, parseInboundOptions, prefilledInboundRow,
+  conciseMoney, inboundReferenceChoices, parseInboundOptions, prefilledInboundRow,
   type InboundItemPayload,
 } from "./contracts";
 
@@ -33,10 +33,16 @@ describe("Inbound purchase cost reference V1", () => {
       amount: "8.500000", purchase_uom_id: 2, currency_code: "JOD", revision: 3,
     })).items[0];
     const row = prefilledInboundRow("r1", "1", option);
-    expect(row.unit_cost).toBe("8.500000");
+    expect(row.unit_cost).toBe("8.5");
     expect(row.uom_id).toBe("2");
     // Latest local draft UX represents untouched quantity as a blank input.
     expect(row.quantity).toBe("");
+  });
+
+  it("renders reference money concisely without changing exact decimal meaning", () => {
+    expect(conciseMoney("7.000000")).toBe("7");
+    expect(conciseMoney("7.500000")).toBe("7.5");
+    expect(conciseMoney("7.050000")).toBe("7.05");
   });
 
   it("leaves a missing or unauthorized suggestion unknown, not 0", () => {
