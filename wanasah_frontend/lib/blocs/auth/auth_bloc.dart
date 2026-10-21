@@ -13,8 +13,11 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../core/db/local_database.dart';
 import '../../core/network/api_client.dart';
 import 'auth_event.dart';
+import 'auth_failure_policy.dart';
+import 'auth_messages.dart';
 import 'auth_state.dart';
 import 'offline_owner_guard.dart';
+import 'stored_auth_identity.dart';
 
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   static const String _offlineOwnerDriverKey =
@@ -137,44 +140,36 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(const AuthLoading());
 
     try {
-      final String? token = await _storage.read(key: 'auth_token');
-      final String? driverIdString = await _storage.read(key: 'driver_id');
-      final String? companyCode = await _storage.read(key: 'company_code');
+      final identity = StoredAuthIdentity.tryParse(
+        token: await _storage.read(key: 'auth_token'),
+        driverId: await _storage.read(key: 'driver_id'),
+        companyCode: await _storage.read(key: 'company_code'),
+      );
 
-      if (token != null &&
-          token.isNotEmpty &&
-          driverIdString != null &&
-          companyCode != null) {
-        final int? driverId = int.tryParse(driverIdString);
-
-        if (driverId != null) {
-          await LocalDatabase.instance.setTenant(companyCode);
-
-          developer.log(
-            '[AuthBloc] CheckAuth → Authenticated (driverId=$driverId, Tenant=$companyCode)',
-          );
-          emit(AuthAuthenticated(driverId: driverId));
-        } else {
-          developer.log(
-            '[AuthBloc] CheckAuth → Failed to parse driver_id: "$driverIdString" is not an integer.',
-          );
-          emit(const AuthUnauthenticated());
-        }
-      } else {
-        developer.log('[AuthBloc] CheckAuth → No valid session found.');
+      if (identity == null) {
+        developer.log(
+          '[AuthBloc] CheckAuth → Stored session identity is incomplete or malformed.',
+        );
         emit(const AuthUnauthenticated());
+        return;
       }
+
+      await LocalDatabase.instance.setTenant(identity.companyCode);
+
+      developer.log(
+        '[AuthBloc] CheckAuth → Authenticated '
+        '(driverId=${identity.driverId}, Tenant=${identity.companyCode})',
+      );
+      emit(AuthAuthenticated(driverId: identity.driverId));
     } catch (e) {
       developer.log('[AuthBloc] CheckAuth → Error reading storage: $e');
       emit(
         AuthError(
-          message:
-              'تعذر قراءة بيانات الجلسة السابقة. يرجى تسجيل الدخول مجدداً.',
+          message: authMessage(AuthMessageKey.sessionReadFailure),
         ),
       );
     }
   }
-
   Future<void> _onLogin(LoginRequested event, Emitter<AuthState> emit) async {
     emit(const AuthLoading());
 
@@ -190,41 +185,62 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
       if (response.data is! Map) {
         developer.log(
-          '[AuthBloc] Login → Invalid response type: ${response.data}',
+          '[AuthBloc] Login → Invalid response type: ${response.data.runtimeType}',
         );
-        emit(AuthError(message: 'استجابة غير صالحة من الخادم.'));
+        emit(
+          AuthError(
+            message: authMessage(AuthMessageKey.invalidServerResponse),
+          ),
+        );
         return;
       }
 
       final Map<String, dynamic> data = Map<String, dynamic>.from(
         response.data as Map,
       );
+      final rawDriverId = data['driver_id'];
+      final driverIdText =
+          rawDriverId is num
+              ? rawDriverId.toInt().toString()
+              : rawDriverId?.toString();
+      final returnedCompanyCodeRaw =
+          data['company_code']?.toString() ?? event.companyCode;
+      final identity = StoredAuthIdentity.tryParse(
+        token: data['token']?.toString(),
+        driverId: driverIdText,
+        companyCode: returnedCompanyCodeRaw,
+      );
 
-      final String? token = data['token']?.toString();
-      final int? driverId = (data['driver_id'] as num?)?.toInt();
-
-      if (token == null || token.isEmpty || driverId == null) {
+      if (identity == null) {
         developer.log(
-          '[AuthBloc] Login → Missing token or driver_id in response.',
+          '[AuthBloc] Login → Missing or malformed identity in server response.',
         );
-        emit(AuthError(message: 'فشل تسجيل الدخول: بيانات الخادم غير مكتملة.'));
+        emit(
+          AuthError(
+            message: authMessage(AuthMessageKey.incompleteServerSession),
+          ),
+        );
         return;
       }
 
-      final String? refreshToken = data['refresh_token']?.toString();
+      final String? refreshTokenRaw = data['refresh_token']?.toString();
+      final String? refreshToken =
+          refreshTokenRaw == null ? null : refreshTokenRaw.trim();
       if (refreshToken == null ||
           refreshToken.isEmpty ||
           refreshToken == 'null') {
-        developer.log('[AuthBloc] Login → Server did not send refresh_token!');
+        developer.log('[AuthBloc] Login → Server did not send refresh_token.');
         emit(
-          AuthError(message: 'استجابة ناقصة من الخادم (رمز التجديد مفقود).'),
+          AuthError(
+            message: authMessage(AuthMessageKey.missingRefreshToken),
+          ),
         );
         return;
       }
 
-      final String returnedCompanyCode =
-          data['company_code']?.toString() ?? event.companyCode;
-
+      final String token = identity.token;
+      final int driverId = identity.driverId;
+      final String returnedCompanyCode = identity.companyCode;
       final String? oldDriverId = await _storage.read(key: 'driver_id');
       final String? oldCompanyCode = await _storage.read(key: 'company_code');
       final String? offlineOwnerDriverId = await _storage.read(
@@ -342,35 +358,25 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       );
       emit(AuthAuthenticated(driverId: driverId));
     } on DioException catch (e) {
+      final failure = AuthLoginFailure.fromDioException(e);
       developer.log(
-        '[AuthBloc] Login API Error: ${e.response?.statusCode} - ${e.message}',
+        '[AuthBloc] Login API failure '
+        '(kind=${failure.kind.name}, status=${failure.status}, '
+        'code=${failure.code}, requestId=${failure.requestId}, '
+        'context=${failure.context}).',
       );
-      String errorMsg;
-
-      switch (e.response?.statusCode) {
-        case 401:
-        case 429:
-        case 403:
-          errorMsg = 'تأكد من اسم المستخدم وكلمة المرور.';
-          if (e.response?.data is Map) {
-            final dynamic msg =
-                (e.response!.data as Map)['message'] ??
-                (e.response!.data as Map)['detail'];
-            if (msg is String && msg.isNotEmpty) {
-              errorMsg = msg;
-            }
-          }
-          break;
-        case null:
-          errorMsg = 'تعذر الاتصال بالخادم. تحقق من اتصالك بالإنترنت.';
-          break;
-        default:
-          errorMsg = 'خطأ في الخادم (${e.response?.statusCode}). حاول لاحقاً.';
-      }
-      emit(AuthError(message: errorMsg));
+      emit(
+        AuthError(
+          message: authLoginFailureMessage(failure),
+        ),
+      );
     } catch (e) {
       developer.log('[AuthBloc] Login Unexpected Error: $e');
-      emit(AuthError(message: 'حدث خطأ غير متوقع أثناء تسجيل الدخول.'));
+      emit(
+        AuthError(
+          message: authMessage(AuthMessageKey.genericLoginFailure),
+        ),
+      );
     }
   }
 
