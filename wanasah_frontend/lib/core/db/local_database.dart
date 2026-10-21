@@ -212,6 +212,7 @@ class LocalDatabase {
         last_error_code    TEXT,
         last_error_message TEXT,
         last_request_id    TEXT,
+        local_effect_applied INTEGER NOT NULL DEFAULT 0,
         updated_at         TEXT
       )
     ''');
@@ -320,6 +321,10 @@ class LocalDatabase {
       await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN last_error_code TEXT');
       await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN last_error_message TEXT');
       await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN last_request_id TEXT');
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE pending_sync ADD COLUMN local_effect_applied INTEGER NOT NULL DEFAULT 0',
+      );
       await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN updated_at TEXT');
 
       await db.rawUpdate(
@@ -563,9 +568,8 @@ class LocalDatabase {
       'pending_sync',
       orderBy: 'created_at DESC',
     );
-    List<int> syncIdsToDelete = []; 
-
-    List<Map<String, dynamic>> matchingPayloads = [];
+    final syncIdsToDelete = <int>[];
+    final matchingPayloadsWithEffects = <Map<String, dynamic>>[];
 
     for (var p in pendingSyncs) {
       final state = DurableCommandState.fromStorage(p['state']);
@@ -574,7 +578,11 @@ class LocalDatabase {
         try {
           final payload = jsonDecode(p['payload'] as String);
           if (payload['visitId'].toString() == visitId.toString()) {
-            matchingPayloads.add(payload);
+            matchingPayloadsWithEffects.add({
+              'payload': payload,
+              'local_effect_applied':
+                  (p['local_effect_applied'] as num?)?.toInt() == 1,
+            });
             syncIdsToDelete.add(p['id'] as int);
           }
         } catch (e) {
@@ -585,7 +593,8 @@ class LocalDatabase {
       }
     }
 
-    if (matchingPayloads.isNotEmpty && syncIdsToDelete.isNotEmpty) {
+    if (matchingPayloadsWithEffects.isNotEmpty &&
+        syncIdsToDelete.isNotEmpty) {
       final batch = db.batch();
       Map<int, Map<String, int>> additions = {};
 
@@ -596,7 +605,12 @@ class LocalDatabase {
         additions[variantId]!['packs'] = (additions[variantId]!['packs'] ?? 0) + packs;
       }
 
-      for (var payload in matchingPayloads) {
+      for (var entryPayload in matchingPayloadsWithEffects) {
+        if (entryPayload['local_effect_applied'] != true) {
+          continue;
+        }
+        final payload =
+            Map<String, dynamic>.from(entryPayload['payload'] as Map);
         final List<dynamic> cartItems = payload['cart_items'] ?? [];
         for (var item in cartItems) {
           if (item['is_cancelled'] == true || item['is_cancelled'] == 1) continue;
@@ -632,6 +646,114 @@ class LocalDatabase {
       }
       await batch.commit(noResult: true);
     }
+  }
+
+  Future<int> stageVisitCommandAtomic({
+    required int visitId,
+    required String payload,
+    required String requestId,
+    int? ownerDriverId,
+  }) async {
+    final db = await database;
+    return db.transaction((txn) async {
+      await revertOfflineVisit(visitId, txn: txn);
+
+      final remaining = await txn.query(
+        'pending_sync',
+        orderBy: 'created_at ASC, id ASC',
+      );
+      for (final row in remaining) {
+        final rawType = row['type']?.toString() ?? '';
+        if (DurableCommandType.normalizeLegacyType(rawType) !=
+            DurableCommandType.submitSale) {
+          continue;
+        }
+        try {
+          final existing = jsonDecode(row['payload'] as String);
+          if (existing['visitId'].toString() == visitId.toString()) {
+            throw StateError(
+              'Visit #$visitId already has unresolved offline evidence.',
+            );
+          }
+        } on FormatException {
+          // Corrupt evidence cannot be proven unrelated to this visit. It is
+          // preserved and the FIFO sync engine will block on it.
+        }
+      }
+
+      return addPendingSync(
+        type: DurableCommandType.submitSale,
+        payload: payload,
+        commandId: requestId,
+        ownerDriverId: ownerDriverId,
+        txn: txn,
+      );
+    });
+  }
+
+  Future<void> finalizeVisitCommandLocalState({
+    required int commandRecordId,
+    required int visitId,
+    required String status,
+    required String outcome,
+    required double cashCollected,
+    required double debtPaid,
+    String? cartItemsJson,
+    String? returnsJson,
+    String? notes,
+    required List<dynamic> cartItems,
+    List<dynamic>? returnItems,
+  }) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      final commandRows = await txn.query(
+        'pending_sync',
+        columns: ['local_effect_applied'],
+        where: 'id = ?',
+        whereArgs: [commandRecordId],
+        limit: 1,
+      );
+      if (commandRows.isEmpty) {
+        throw StateError(
+          'Offline command #$commandRecordId is missing before local finalize.',
+        );
+      }
+
+      final alreadyApplied =
+          (commandRows.first['local_effect_applied'] as num?)?.toInt() == 1;
+      if (alreadyApplied) return;
+
+      await updateVisitStatus(
+        visitId: visitId,
+        status: status,
+        outcome: outcome,
+        cashCollected: cashCollected,
+        debtPaid: debtPaid,
+        cartItemsJson: cartItemsJson,
+        returnsJson: returnsJson,
+        notes: notes,
+        txn: txn,
+      );
+      await deductInventoryLocal(
+        cartItems,
+        returnItems: returnItems,
+        txn: txn,
+      );
+      final updated = await txn.update(
+        'pending_sync',
+        {
+          'local_effect_applied': 1,
+          'updated_at': DateTime.now().toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: [commandRecordId],
+      );
+      if (updated != 1) {
+        throw StateError(
+          'Offline command #$commandRecordId disappeared during local finalize.',
+        );
+      }
+    });
   }
 
   Future<void> updateShopBalanceLocally(int visitId, double newBalance) async {
@@ -769,7 +891,7 @@ class LocalDatabase {
     final db = await database;
     await db.transaction((txn) async {
       await revertOfflineVisit(visitId, txn: txn);
-      await addPendingSync(
+      final commandRecordId = await addPendingSync(
         type: DurableCommandType.submitSale,
         payload: payload,
         commandId: commandId,
@@ -778,6 +900,15 @@ class LocalDatabase {
       );
       await updateVisitStatus(visitId: visitId, status: status, outcome: outcome, cashCollected: cashCollected, debtPaid: debtPaid, cartItemsJson: cartItemsJson, returnsJson: returnsJson, notes: notes, txn: txn);
       await deductInventoryLocal(cartItems, returnItems: returnItems, txn: txn);
+      await txn.update(
+        'pending_sync',
+        {
+          'local_effect_applied': 1,
+          'updated_at': DateTime.now().toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: [commandRecordId],
+      );
     });
   }
 
