@@ -1,0 +1,39 @@
+name: Purchase reference Product UI
+on:
+  push:
+    branches:
+      - sol/purchase-cost-reference-product-ui-v1
+    paths:
+      - "dashboard/src/pages/products/**"
+      - "dashboard/src/test/purchase-reference-contract.test.ts"
+      - "dashboard/src/i18n/resources.ts"
+      - ".github/workflows/purchase-cost-reference-product-ui.yml"
+  pull_request:
+    paths:
+      - "dashboard/src/pages/products/**"
+      - "dashboard/src/test/purchase-reference-contract.test.ts"
+      - "dashboard/src/i18n/resources.ts"
+      - ".github/workflows/purchase-cost-reference-product-ui.yml"
+permissions:
+  contents: read
+jobs:
+  ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Strict TypeScript
+        run: npx tsc --noEmit
+      - name: Focused Product contract / pricing
+        run: npm test -- src/test/purchase-reference-contract.test.ts src/test/products-p9-4-pricing.test.ts
+      - name: Vite production build
+        run: npm run build

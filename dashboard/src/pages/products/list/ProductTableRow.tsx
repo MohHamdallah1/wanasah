@@ -23,6 +23,7 @@ type Props = {
   rowNumber: number;
   pricingVisible: boolean;
   canEditPrice: boolean;
+  canEditPurchaseReference?: boolean;
   canRenameProduct: boolean;
   canReassignFamily: boolean;
   canEditTracking: boolean;
@@ -43,6 +44,7 @@ type Props = {
   onEditPrice: (
     item: SimpleProduct,
   ) => void;
+  onEditPurchaseReference?: (item: SimpleProduct) => void;
   onReassignFamily: (
     item: SimpleProduct,
   ) => void;
@@ -65,6 +67,7 @@ export function ProductTableRow({
   rowNumber,
   pricingVisible,
   canEditPrice,
+  canEditPurchaseReference,
   canRenameProduct,
   canReassignFamily,
   canEditTracking,
@@ -77,6 +80,7 @@ export function ProductTableRow({
   onOpenDetails,
   onRenameProduct,
   onEditPrice,
+  onEditPurchaseReference,
   onReassignFamily,
   onEditTracking,
   onManageBarcodes,
@@ -240,6 +244,7 @@ export function ProductTableRow({
           canEditPrice={
             canEditPrice
           }
+          canEditPurchaseReference={canEditPurchaseReference}
           canRenameProduct={
             canRenameProduct
           }
@@ -267,6 +272,7 @@ export function ProductTableRow({
           onEditPrice={
             onEditPrice
           }
+          onEditPurchaseReference={onEditPurchaseReference}
           onReassignFamily={
             onReassignFamily
           }
