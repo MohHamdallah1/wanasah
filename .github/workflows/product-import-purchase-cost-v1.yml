@@ -19,11 +19,22 @@ permissions:
 jobs:
   import-contract:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 18
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: import_test_admin
+          POSTGRES_DB: product_import_contract_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["55474:5432"]
+        options: >-
+          --health-cmd "pg_isready -U import_test_admin -d product_import_contract_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       ENVIRONMENT: test
       SECRET_KEY: ProductImportPurchaseCostTestOnlyKey01234567890123456789
-      DATABASE_URL: postgresql+asyncpg://import_test_runtime@127.0.0.1:55474/product_import_contract_test
+      DATABASE_URL: postgresql+asyncpg://import_test_admin@127.0.0.1:55474/product_import_contract_test
       DATABASE_URL_MIGRATION: postgresql+asyncpg://import_test_admin@127.0.0.1:55474/product_import_contract_test
     steps:
       - uses: actions/checkout@v4
@@ -32,6 +43,9 @@ jobs:
           python-version: "3.12"
       - name: Install backend and focused tests
         run: python -m pip install -r wa_backend/requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Bootstrap disposable import test database
+        working-directory: wa_backend
+        run: alembic upgrade head
       - name: Canonical old 10 / new optional 11 / source locale / validation / idempotency tests
         working-directory: wa_backend
         run: python -m pytest -q tests/test_product_import_purchase_cost_contract.py tests/test_product_import_multilingual.py tests/test_product_import_phase11_source_semantics.py tests/test_product_import_phase5_validation.py tests/test_product_import_phase8_idempotency_correction.py tests/test_product_import_d6_profile_contract.py
