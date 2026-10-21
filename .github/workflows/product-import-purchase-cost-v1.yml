@@ -38,6 +38,8 @@ jobs:
       DATABASE_URL_MIGRATION: postgresql+asyncpg://import_test_admin@127.0.0.1:55474/product_import_contract_test
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
