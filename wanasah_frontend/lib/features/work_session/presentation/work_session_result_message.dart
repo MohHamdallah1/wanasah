@@ -1,73 +1,94 @@
 import '../application/work_session_failure.dart';
 import '../application/work_session_outcome.dart';
+import 'work_session_strings.dart';
 
-String workSessionResultMessage(WorkSessionOperationResult result) {
+String workSessionResultMessage(
+  WorkSessionOperationResult result, {
+  String localeCode = 'ar',
+}) {
+  String text(WorkSessionStringKey key) =>
+      workSessionString(key, localeCode: localeCode);
+
   if (result.disposition == WorkSessionDisposition.success) {
     switch (result.operation) {
       case WorkSessionOperation.start:
-        return 'تم بدء جلسة العمل.';
+        return text(WorkSessionStringKey.startSuccess);
       case WorkSessionOperation.end:
-        return 'تم إنهاء جلسة العمل.';
+        return text(WorkSessionStringKey.endSuccess);
       case WorkSessionOperation.startBreak:
-        return 'تم بدء الاستراحة (مسجلة على السيرفر).';
+        return text(WorkSessionStringKey.breakStartSuccess);
       case WorkSessionOperation.endBreak:
-        return 'تم إنهاء الاستراحة (مسجلة على السيرفر).';
+        return text(WorkSessionStringKey.breakEndSuccess);
     }
   }
 
   if (result.disposition == WorkSessionDisposition.reconciledSuccess) {
     switch (result.operation) {
       case WorkSessionOperation.start:
-        return 'تم تأكيد أن جلسة العمل نشطة بعد مطابقة حالتها مع السيرفر.';
+        return text(WorkSessionStringKey.startReconciled);
       case WorkSessionOperation.end:
-        return 'تم تأكيد انتهاء جلسة العمل بعد مطابقة حالتها مع السيرفر.';
+        return text(WorkSessionStringKey.endReconciled);
       case WorkSessionOperation.startBreak:
-        return 'تم تأكيد بدء الاستراحة بعد مطابقة حالتها مع السيرفر.';
+        return text(WorkSessionStringKey.breakStartReconciled);
       case WorkSessionOperation.endBreak:
-        return 'تم تأكيد انتهاء الاستراحة بعد مطابقة حالتها مع السيرفر.';
+        return text(WorkSessionStringKey.breakEndReconciled);
     }
   }
 
   final failure = result.failure;
   if (failure == null) {
-    return 'تعذر تأكيد نتيجة العملية. حدّث البيانات قبل المحاولة مجدداً.';
+    return text(WorkSessionStringKey.unresolved);
   }
 
   switch (failure.kind) {
     case WorkSessionFailureKind.authRejected:
       return _withRequestId(
-        'انتهت صلاحية الجلسة أو لا تملك صلاحية تنفيذ العملية.',
+        text(WorkSessionStringKey.authRejected),
         failure.requestId,
+        localeCode,
       );
     case WorkSessionFailureKind.businessRejected:
       return _withRequestId(
-        failure.displayFallback ?? 'رفض السيرفر العملية بسبب حالة العمل الحالية.',
+        failure.displayFallback ?? text(WorkSessionStringKey.businessRejected),
         failure.requestId,
+        localeCode,
       );
     case WorkSessionFailureKind.rateLimited:
       return _withRequestId(
-        'عدد الطلبات مرتفع حالياً. أعد المحاولة بعد قليل.',
+        text(WorkSessionStringKey.rateLimited),
         failure.requestId,
+        localeCode,
       );
     case WorkSessionFailureKind.network:
       return _withRequestId(
-        'تعذر تأكيد نتيجة العملية بسبب الاتصال. تم الحفاظ على حالة السيرفر كمرجع وحيد.',
+        text(WorkSessionStringKey.networkUnresolved),
         failure.requestId,
+        localeCode,
       );
     case WorkSessionFailureKind.server:
       return _withRequestId(
-        'تعذر تأكيد نتيجة العملية بسبب خطأ في السيرفر.',
+        text(WorkSessionStringKey.serverUnresolved),
         failure.requestId,
+        localeCode,
       );
     case WorkSessionFailureKind.unknown:
       return _withRequestId(
-        'تعذر تأكيد نتيجة العملية. حدّث البيانات قبل المحاولة مجدداً.',
+        text(WorkSessionStringKey.unresolved),
         failure.requestId,
+        localeCode,
       );
   }
 }
 
-String _withRequestId(String message, String? requestId) {
+String _withRequestId(
+  String message,
+  String? requestId,
+  String localeCode,
+) {
   if (requestId == null || requestId.isEmpty) return message;
-  return '$message\nرقم التتبع: $requestId';
+  final label = workSessionString(
+    WorkSessionStringKey.requestIdLabel,
+    localeCode: localeCode,
+  );
+  return '$message\n$label: $requestId';
 }

@@ -9,6 +9,7 @@ import 'package:wanasah_frontend/features/work_session/application/work_session_
 import 'package:wanasah_frontend/features/work_session/data/work_session_remote_data_source.dart';
 import 'package:wanasah_frontend/features/work_session/data/work_session_snapshot.dart';
 import 'package:wanasah_frontend/features/work_session/presentation/work_session_result_message.dart';
+import 'package:wanasah_frontend/features/work_session/presentation/work_session_strings.dart';
 
 void main() {
   group('WorkSessionCoordinator', () {
@@ -281,6 +282,23 @@ void main() {
   });
 
   group('error presentation and architecture invariants', () {
+    test('presentation copy resolves through locale resources', () {
+      expect(
+        workSessionString(
+          WorkSessionStringKey.startSuccess,
+          localeCode: 'ar-JO',
+        ),
+        'تم بدء جلسة العمل.',
+      );
+      expect(
+        workSessionString(
+          WorkSessionStringKey.startSuccess,
+          localeCode: 'en-US',
+        ),
+        'Work session started.',
+      );
+    });
+
     test('unexpected 5xx hides server detail while preserving request id', () {
       const failure = WorkSessionFailure(
         kind: WorkSessionFailureKind.server,
