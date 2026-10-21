@@ -10,6 +10,7 @@ class ShopCreationClient implements ShopCreationGateway {
 
   final ApiClient _api;
 
+  @override
   Future<ShopCreateResult> create(ShopCreateCommand command) async {
     try {
       final response = await _api.post('/shops', data: command.toJson());
@@ -28,7 +29,14 @@ class ShopCreationClient implements ShopCreationGateway {
       final ambiguous = failure.kind == ApiFailureKind.connection ||
           failure.kind == ApiFailureKind.timeout ||
           (failure.status != null && failure.status! >= 500);
-      throw ShopCreateFailure(failure: failure, ambiguous: ambiguous);
+      throw ShopCreateFailure(
+        ambiguous: ambiguous,
+        status: failure.status,
+        code: failure.code,
+        context: failure.context,
+        requestId: failure.requestId,
+        displayFallback: failure.displayFallback,
+      );
     }
   }
 }
