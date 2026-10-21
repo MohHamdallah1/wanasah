@@ -20,6 +20,7 @@ import 'dart:convert'; // +++ إضافة مكتبة فك التشفير +++
 import '../../models/product_model.dart';
 import '../../models/visit_model.dart';
 import '../sync/durable_command.dart';
+import '../sync/pending_command_store.dart';
 
 class LocalDatabase {
   // -----------------------------------------------------------------------
@@ -28,6 +29,11 @@ class LocalDatabase {
   LocalDatabase._privateConstructor();
 
   static final LocalDatabase instance = LocalDatabase._privateConstructor();
+
+  late final PendingCommandStore pendingCommands = PendingCommandStore(
+    databaseProvider: () => database,
+    tenantProvider: () => currentTenant,
+  );
 
   // الاتصال الوحيد بقاعدة البيانات — null حتى يتم التهيئة للمرة الأولى
   static Database? _database;
@@ -405,75 +411,41 @@ class LocalDatabase {
     String? lastErrorMessage,
     String? lastRequestId,
     Transaction? txn,
-  }) async {
-    final db = txn ?? await database;
-    final now = DateTime.now().toIso8601String();
-    final id = await db.insert('pending_sync', {
-      'type': type,
-      'payload': payload,
-      'created_at': now,
-      'command_id': commandId,
-      'state': state.storageValue,
-      'owner_company_code': currentTenant,
-      'owner_driver_id': ownerDriverId,
-      'attempt_count': 0,
-      'last_error_code': lastErrorCode,
-      'last_error_message': lastErrorMessage,
-      'last_request_id': lastRequestId,
-      'updated_at': now,
-    });
-    return id;
-  }
-
-  Future<List<Map<String, dynamic>>> getPendingSyncs({int? limit}) async {
-    final db = await database;
-    return db.query('pending_sync', orderBy: 'created_at ASC, id ASC', limit: limit);
-  }
-
-  Future<void> deletePendingSync(int id) async {
-    final db = await database;
-    await db.delete('pending_sync', where: 'id = ?', whereArgs: [id]);
-  }
-
-  Future<void> markPendingSyncInFlight(int id) async {
-    final db = await database;
-    final updated = await db.rawUpdate(
-      'UPDATE pending_sync '
-      'SET state = ?, attempt_count = attempt_count + 1, updated_at = ? '
-      'WHERE id = ?',
-      [
-        DurableCommandState.inFlight.storageValue,
-        DateTime.now().toIso8601String(),
-        id,
-      ],
+  }) {
+    return pendingCommands.add(
+      type: type,
+      payload: payload,
+      commandId: commandId,
+      state: state,
+      ownerDriverId: ownerDriverId,
+      lastErrorCode: lastErrorCode,
+      lastErrorMessage: lastErrorMessage,
+      lastRequestId: lastRequestId,
+      txn: txn,
     );
-    if (updated != 1) {
-      throw StateError('Pending command #$id was not found.');
-    }
   }
+
+  Future<List<Map<String, dynamic>>> getPendingSyncs({int? limit}) =>
+      pendingCommands.all(limit: limit);
+
+  Future<void> deletePendingSync(int id) =>
+      pendingCommands.deleteAfterConfirmedSuccess(id);
+
+  Future<void> markPendingSyncInFlight(int id) =>
+      pendingCommands.markInFlight(id);
 
   Future<void> markPendingSyncPending(
     int id, {
     String? lastErrorCode,
     String? lastErrorMessage,
     String? lastRequestId,
-  }) async {
-    final db = await database;
-    final updated = await db.update(
-      'pending_sync',
-      {
-        'state': DurableCommandState.pending.storageValue,
-        'last_error_code': lastErrorCode,
-        'last_error_message': lastErrorMessage,
-        'last_request_id': lastRequestId,
-        'updated_at': DateTime.now().toIso8601String(),
-      },
-      where: 'id = ?',
-      whereArgs: [id],
+  }) {
+    return pendingCommands.markPending(
+      id,
+      lastErrorCode: lastErrorCode,
+      lastErrorMessage: lastErrorMessage,
+      lastRequestId: lastRequestId,
     );
-    if (updated != 1) {
-      throw StateError('Pending command #$id was not found.');
-    }
   }
 
   Future<void> markPendingSyncBlocked(
@@ -481,63 +453,20 @@ class LocalDatabase {
     required String errorCode,
     String? errorMessage,
     String? requestId,
-  }) async {
-    final db = await database;
-    final updated = await db.update(
-      'pending_sync',
-      {
-        'state': DurableCommandState.blocked.storageValue,
-        'last_error_code': errorCode,
-        'last_error_message': errorMessage,
-        'last_request_id': requestId,
-        'updated_at': DateTime.now().toIso8601String(),
-      },
-      where: 'id = ?',
-      whereArgs: [id],
+  }) {
+    return pendingCommands.markBlocked(
+      id,
+      errorCode: errorCode,
+      errorMessage: errorMessage,
+      requestId: requestId,
     );
-    if (updated != 1) {
-      throw StateError('Pending command #$id was not found.');
-    }
   }
 
-  Future<void> updatePendingSyncPayload(
-    int id,
-    String payload,
-  ) async {
-    final db = await database;
-    final updated = await db.update(
-      'pending_sync',
-      {'payload': payload},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-    if (updated != 1) {
-      throw StateError(
-        'Pending sync payload update failed for record #$id.',
-      );
-    }
-  }
+  Future<void> updatePendingSyncPayload(int id, String payload) =>
+      pendingCommands.updatePayload(id, payload);
 
-  Future<void> updatePendingSyncCommandId(
-    int id,
-    String commandId,
-  ) async {
-    final db = await database;
-    final updated = await db.update(
-      'pending_sync',
-      {
-        'command_id': commandId,
-        'updated_at': DateTime.now().toIso8601String(),
-      },
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-    if (updated != 1) {
-      throw StateError(
-        'Pending sync command identity update failed for record #$id.',
-      );
-    }
-  }
+  Future<void> updatePendingSyncCommandId(int id, String commandId) =>
+      pendingCommands.updateCommandId(id, commandId);
 
   Future<List<Map<String, dynamic>>> getProducts() async {
     final db = await database;
@@ -852,15 +781,8 @@ class LocalDatabase {
     });
   }
 
-  Future<List<Map<String, dynamic>>> getQuarantinedSyncs() async {
-    final db = await database;
-    return db.query(
-      'pending_sync',
-      where: "state = ? OR type LIKE 'quarantined_%'",
-      whereArgs: [DurableCommandState.blocked.storageValue],
-      orderBy: 'created_at DESC, id DESC',
-    );
-  }
+  Future<List<Map<String, dynamic>>> getQuarantinedSyncs() =>
+      pendingCommands.blocked();
 
   @Deprecated('Blocked offline evidence must not be deleted from field UI.')
   Future<void> deleteQuarantinedSync(int id) async {
@@ -876,40 +798,7 @@ class LocalDatabase {
     );
   }
 
-  Future<void> retryQuarantinedSync(int id) async {
-    final db = await database;
-    final record = await db.query(
-      'pending_sync',
-      where: 'id = ?',
-      whereArgs: [id],
-      limit: 1,
-    );
-    if (record.isEmpty) {
-      throw StateError('Blocked command #$id was not found.');
-    }
+  Future<void> retryQuarantinedSync(int id) =>
+      pendingCommands.retryBlocked(id);
 
-    final row = record.first;
-    final rawType = row['type']?.toString() ?? '';
-    final normalizedType = DurableCommandType.normalizeLegacyType(rawType);
-
-    if (!DurableCommandType.isReplayable(normalizedType)) {
-      throw StateError(
-        'Blocked command type "$normalizedType" requires recovery, not generic retry.',
-      );
-    }
-
-    await db.update(
-      'pending_sync',
-      {
-        'type': normalizedType,
-        'state': DurableCommandState.pending.storageValue,
-        'last_error_code': null,
-        'last_error_message': null,
-        'last_request_id': null,
-        'updated_at': DateTime.now().toIso8601String(),
-      },
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-  }
 }
