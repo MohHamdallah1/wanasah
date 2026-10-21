@@ -20,10 +20,6 @@ export interface InboundBatchDraft {
 
 export type InboundDraftMap = Record<string, InboundBatchDraft[]>;
 
-export interface InboundDocumentDefaults {
-  batch_number: string;
-}
-
 export interface InboundUomOption {
   id: number;
   code: string;
@@ -37,12 +33,10 @@ export interface InboundPurchaseCostReference {
   currency_code: string;
   revision: number;
 }
-
 export interface InboundVariantOptions {
   product_variant_id: number;
   base_uom_id: number;
   uoms: InboundUomOption[];
-  // Optional for legacy callers/fixtures; the server's new response includes null when masked.
   purchase_cost_reference?: InboundPurchaseCostReference | null;
 }
 
@@ -155,7 +149,7 @@ export const emptyInboundBatch = (
   uomId = ""
 ): InboundBatchDraft => ({
   row_id: rowId,
-  quantity: "0",
+  quantity: "",
   uom_id: uomId,
   unit_cost: "",
   batch_number: "",
@@ -178,7 +172,6 @@ export const inboundStorageKeys = (
     notes: `${prefix}:notes`,
     requestId: `${prefix}:request-id`,
     fingerprint: `${prefix}:fingerprint`,
-    batchDefault: `${prefix}:batch-default`,
   } as const;
 };
 
@@ -194,35 +187,31 @@ export const parseInboundDrafts = (raw: string | null): InboundDraftMap => {
 
   const result: InboundDraftMap = {};
   let count = 0;
+  // Persistence accepts unfinished input; posting validates complete business values.
+  // A single stale row must never discard another product's legitimate draft.
+  const textField = (value: unknown, max: number): value is string =>
+    typeof value === "string" && value.length <= max;
+  const decimalDraft = (value: unknown): value is string =>
+    textField(value, 64) && /^[0-9.]*$/.test(value);
+  const dateDraft = (value: unknown): value is string =>
+    textField(value, 10) && /^[0-9/-]*$/.test(value);
+
   for (const [key, unknownRows] of Object.entries(parsed)) {
-    if (!positiveId(Number(key)) || !Array.isArray(unknownRows) || !unknownRows.length) {
-      return {};
-    }
+    if (!positiveId(Number(key)) || !Array.isArray(unknownRows)) continue;
     const rows: InboundBatchDraft[] = [];
     for (const item of unknownRows) {
-      if (!item || typeof item !== "object") return {};
+      if (count >= MAX_INBOUND_ITEMS) break;
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
       const row = item as Record<string, unknown>;
       if (
-        typeof row.row_id !== "string" ||
-        !row.row_id ||
-        typeof row.quantity !== "string" ||
-        typeof row.uom_id !== "string" ||
-        typeof row.unit_cost !== "string" ||
-        typeof row.batch_number !== "string" ||
-        typeof row.production_date !== "string" ||
-        typeof row.expiry_date !== "string"
-      ) {
-        return {};
-      }
-      try {
-        parseQuantity(row.quantity, "quantity", { allowZero: true });
-        if (row.unit_cost.trim()) validMoney(row.unit_cost);
-      } catch {
-        return {};
-      }
-      if (!isoDate(row.production_date, true) || !isoDate(row.expiry_date, true)) {
-        return {};
-      }
+        !textField(row.row_id, 128) || !row.row_id ||
+        !decimalDraft(row.quantity) ||
+        !textField(row.uom_id, 24) ||
+        !decimalDraft(row.unit_cost) ||
+        !textField(row.batch_number, 100) ||
+        !dateDraft(row.production_date) ||
+        !dateDraft(row.expiry_date)
+      ) continue;
       rows.push({
         row_id: row.row_id,
         quantity: row.quantity,
@@ -232,9 +221,10 @@ export const parseInboundDrafts = (raw: string | null): InboundDraftMap => {
         production_date: row.production_date,
         expiry_date: row.expiry_date,
       });
-      if (++count > MAX_INBOUND_ITEMS) return {};
+      count += 1;
     }
-    result[key] = rows;
+    if (rows.length) result[key] = rows;
+    if (count >= MAX_INBOUND_ITEMS) break;
   }
   return result;
 };
@@ -260,7 +250,6 @@ export const buildInboundItems = (
   drafts: InboundDraftMap,
   variants: Map<string, CatalogVariant>,
   options: Map<number, InboundVariantOptions>,
-  defaults: InboundDocumentDefaults = { batch_number: "" }
 ): InboundItemPayload[] => {
   const items: InboundItemPayload[] = [];
   const seenBatchMetadata = new Map<
@@ -331,23 +320,21 @@ export const buildInboundItems = (
       const enteredLot = row.batch_number.trim();
       let batch: string | null = null;
       if (variant.lot_control_mode === "REQUIRED") {
-        const requiredLot =
-          enteredLot || defaults.batch_number.trim();
-        if (!requiredLot) {
+        if (!enteredLot) {
           throw inboundRowError(
             "INBOUND_LOT_REQUIRED",
             row.row_id,
             "batch_number"
           );
         }
-        if (requiredLot.length > 100) {
+        if (enteredLot.length > 100) {
           throw inboundRowError(
             "INBOUND_BATCH_INVALID",
             row.row_id,
             "batch_number"
           );
         }
-        batch = requiredLot;
+        batch = enteredLot;
       } else if (variant.lot_control_mode === "OPTIONAL") {
         if (enteredLot.length > 100) {
           throw inboundRowError(
@@ -517,13 +504,11 @@ export const parseInboundOptions = (raw: unknown): InboundOptionsResponse => {
       const ref = rawReference as Record<string, unknown>;
       if (
         typeof ref.amount !== "string" ||
-        !/^\d+(?:\.\d{1,6})?$/.test(ref.amount) ||
         typeof ref.currency_code !== "string" ||
         ref.currency_code !== value.currency_code ||
         !positiveId(ref.purchase_uom_id) ||
         !uoms.some((uom) => uom.id === ref.purchase_uom_id) ||
-        typeof ref.revision !== "number" ||
-        !Number.isSafeInteger(ref.revision) || ref.revision < 1
+        !Number.isSafeInteger(ref.revision) || (ref.revision as number) < 1
       ) {
         throw codedError("INBOUND_OPTIONS_INVALID");
       }
@@ -531,7 +516,7 @@ export const parseInboundOptions = (raw: unknown): InboundOptionsResponse => {
         amount: validMoney(ref.amount),
         currency_code: ref.currency_code,
         purchase_uom_id: ref.purchase_uom_id,
-        revision: ref.revision,
+        revision: ref.revision as number,
       };
     }
     return {
@@ -611,44 +596,46 @@ export const parseInboundResponse = (raw: unknown): void => {
   }
 };
 
+/** V1: select an ACTUAL receipt-line pair; never average costs or guess by row order. */
 export interface InboundReferenceSelection {
   product_variant_id: number;
   uom_id: number;
   unit_cost: string;
 }
 
-/** Explicit selection is only needed when one variant has multiple native cost/UOM pairs. */
-export function inboundReferenceChoices(items: InboundItemPayload[]): Map<number, InboundReferenceSelection[]> {
+export const inboundReferenceChoices = (
+  items: InboundItemPayload[]
+): Map<number, InboundReferenceSelection[]> => {
   const pairs = new Map<number, Map<string, InboundReferenceSelection>>();
   for (const item of items) {
-    const unitCost = validMoney(item.unit_cost);
-    // Canonicalize decimals as strings; never calculate financial values in JS floats.
-    const parts = unitCost.split(".");
-    const canonical = (parts[0].replace(/^0+/, "") || "0") + "." + (parts[1] ?? "").padEnd(6, "0");
-    const pair: InboundReferenceSelection = {
+    const raw = validMoney(item.unit_cost);
+    const [integer, fraction = ""] = raw.split(".");
+    const cost = (integer.replace(/^0+/, "") || "0") + "." + fraction.padEnd(6, "0");
+    const choice: InboundReferenceSelection = {
       product_variant_id: item.product_variant_id,
       uom_id: item.uom_id,
-      unit_cost: canonical,
+      unit_cost: cost,
     };
-    if (!pairs.has(item.product_variant_id)) pairs.set(item.product_variant_id, new Map());
-    pairs.get(item.product_variant_id)!.set(pair.uom_id + "|" + pair.unit_cost, pair);
+    if (!pairs.has(item.product_variant_id)) {
+      pairs.set(item.product_variant_id, new Map());
+    }
+    pairs.get(item.product_variant_id)!.set(choice.uom_id + "|" + cost, choice);
   }
-  return new Map([...pairs]
-    .filter(([, alternatives]) => alternatives.size > 1)
-    .map(([id, alternatives]) => [
-      id,
-      [...alternatives.values()].sort((a, b) => (a.uom_id - b.uom_id) || a.unit_cost.localeCompare(b.unit_cost)),
-    ]));
-}
+  return new Map([...pairs.entries()]
+    .filter(([, choices]) => choices.size > 1)
+    .map(([id, choices]) => [id, [...choices.values()].sort((a, b) =>
+      (a.uom_id - b.uom_id) || a.unit_cost.localeCompare(b.unit_cost)
+    )]));
+};
 
+/** New rows only. Saved drafts always win over advisory reference defaults. */
 export const prefilledInboundRow = (
   rowId: string,
   defaultUomId: string,
-  option: InboundVariantOptions | undefined,
+  options: InboundVariantOptions | undefined,
 ): InboundBatchDraft => {
-  const ref = option?.purchase_cost_reference;
+  const ref = options?.purchase_cost_reference;
   if (!ref) return emptyInboundBatch(rowId, defaultUomId);
-  // Only synthetically untouched rows receive a default. Never overwrite stored drafts.
   return {
     ...emptyInboundBatch(rowId, String(ref.purchase_uom_id)),
     unit_cost: ref.amount,
