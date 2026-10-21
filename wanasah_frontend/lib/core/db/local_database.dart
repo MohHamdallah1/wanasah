@@ -561,91 +561,13 @@ class LocalDatabase {
     await batch.commit(noResult: true);
   }
 
+  @Deprecated(
+    'Unresolved visit commands are immutable until reconciliation; use stageVisitCommandAtomic.',
+  )
   Future<void> revertOfflineVisit(int visitId, {Transaction? txn}) async {
-    final db = txn ?? await database;
-
-    final pendingSyncs = await db.query(
-      'pending_sync',
-      orderBy: 'created_at DESC',
+    throw UnsupportedError(
+      'Visit #$visitId has durable offline evidence and cannot be auto-reverted.',
     );
-    final syncIdsToDelete = <int>[];
-    final matchingPayloadsWithEffects = <Map<String, dynamic>>[];
-
-    for (var p in pendingSyncs) {
-      final state = DurableCommandState.fromStorage(p['state']);
-      if (p['type'] == DurableCommandType.submitSale &&
-          state == DurableCommandState.pending) {
-        try {
-          final payload = jsonDecode(p['payload'] as String);
-          if (payload['visitId'].toString() == visitId.toString()) {
-            matchingPayloadsWithEffects.add({
-              'payload': payload,
-              'local_effect_applied':
-                  (p['local_effect_applied'] as num?)?.toInt() == 1,
-            });
-            syncIdsToDelete.add(p['id'] as int);
-          }
-        } catch (e) {
-          developer.log(
-            '[LocalDatabase] Corrupted pending draft ignored during revert: $e',
-          );
-        }
-      }
-    }
-
-    if (matchingPayloadsWithEffects.isNotEmpty &&
-        syncIdsToDelete.isNotEmpty) {
-      final batch = db.batch();
-      Map<int, Map<String, int>> additions = {};
-
-      void addToReturn(int variantId, int qty, int packs) {
-        if (variantId == 0 || (qty == 0 && packs == 0)) return;
-        additions.putIfAbsent(variantId, () => {'qty': 0, 'packs': 0});
-        additions[variantId]!['qty'] = (additions[variantId]!['qty'] ?? 0) + qty;
-        additions[variantId]!['packs'] = (additions[variantId]!['packs'] ?? 0) + packs;
-      }
-
-      for (var entryPayload in matchingPayloadsWithEffects) {
-        if (entryPayload['local_effect_applied'] != true) {
-          continue;
-        }
-        final payload =
-            Map<String, dynamic>.from(entryPayload['payload'] as Map);
-        final List<dynamic> cartItems = payload['cart_items'] ?? [];
-        for (var item in cartItems) {
-          if (item['is_cancelled'] == true || item['is_cancelled'] == 1) continue;
-          addToReturn((item['product_variant_id'] as num?)?.toInt() ?? 0, ((item['quantity'] as num?)?.toInt() ?? 0) + ((item['sample_quantity'] as num?)?.toInt() ?? (item['sample_cartons'] as num?)?.toInt() ?? 0) + ((item['bonus_quantity'] as num?)?.toInt() ?? 0), ((item['packs_quantity'] as num?)?.toInt() ?? (item['packs'] as num?)?.toInt() ?? 0) + ((item['sample_packs_quantity'] as num?)?.toInt() ?? (item['sample_packs'] as num?)?.toInt() ?? 0));
-        }
-
-        final List<dynamic> returns = payload['returns'] ?? [];
-        for (var ret in returns) {
-          if (ret['is_cancelled'] == true || ret['is_cancelled'] == 1) continue;
-          addToReturn((ret['product_variant_id'] as num?)?.toInt() ?? 0, (ret['quantity'] as num?)?.toInt() ?? (ret['cartons'] as num?)?.toInt() ?? 0, (ret['packs_quantity'] as num?)?.toInt() ?? (ret['packs'] as num?)?.toInt() ?? 0);
-        }
-      }
-
-      for (var entry in additions.entries) {
-        batch.rawUpdate(
-          '''
-          UPDATE products 
-          SET 
-            current_cartons = ((current_cartons * packs_per_carton) + current_packs + (? * packs_per_carton) + ?) / MAX(packs_per_carton, 1),
-            current_packs = ((current_cartons * packs_per_carton) + current_packs + (? * packs_per_carton) + ?) % MAX(packs_per_carton, 1)
-          WHERE id = ?
-          ''',
-          [entry.value['qty']!, entry.value['packs']!, entry.value['qty']!, entry.value['packs']!, entry.key],
-        );
-      }
-
-      for (var id in syncIdsToDelete) {
-        batch.delete(
-          'pending_sync',
-          where: 'id = ?',
-          whereArgs: [id],
-        );
-      }
-      await batch.commit(noResult: true);
-    }
   }
 
   Future<int> stageVisitCommandAtomic({
@@ -656,28 +578,40 @@ class LocalDatabase {
   }) async {
     final db = await database;
     return db.transaction((txn) async {
-      await revertOfflineVisit(visitId, txn: txn);
-
-      final remaining = await txn.query(
+      final unresolved = await txn.query(
         'pending_sync',
         orderBy: 'created_at ASC, id ASC',
       );
-      for (final row in remaining) {
+
+      for (final row in unresolved) {
         final rawType = row['type']?.toString() ?? '';
-        if (DurableCommandType.normalizeLegacyType(rawType) !=
-            DurableCommandType.submitSale) {
+        final normalizedType =
+            DurableCommandType.normalizeLegacyType(rawType);
+
+        if (normalizedType == DurableCommandType.corrupt) {
+          throw StateError(
+            'Corrupt unresolved offline evidence must be recovered before creating another visit command.',
+          );
+        }
+        if (normalizedType != DurableCommandType.submitSale) {
           continue;
         }
+
+        Map<String, dynamic> existing;
         try {
-          final existing = jsonDecode(row['payload'] as String);
-          if (existing['visitId'].toString() == visitId.toString()) {
-            throw StateError(
-              'Visit #$visitId already has unresolved offline evidence.',
-            );
-          }
-        } on FormatException {
-          // Corrupt evidence cannot be proven unrelated to this visit. It is
-          // preserved and the FIFO sync engine will block on it.
+          existing = Map<String, dynamic>.from(
+            jsonDecode(row['payload'] as String) as Map,
+          );
+        } catch (_) {
+          throw StateError(
+            'Unreadable unresolved sale evidence must be recovered before creating another visit command.',
+          );
+        }
+
+        if (existing['visitId'].toString() == visitId.toString()) {
+          throw StateError(
+            'Visit #$visitId already has an unresolved command. Resolve it before creating a correction or replacement command.',
+          );
         }
       }
 
@@ -689,6 +623,12 @@ class LocalDatabase {
         txn: txn,
       );
     });
+  }
+
+  Future<bool> isFirstUnresolvedCommand(int commandRecordId) async {
+    final rows = await getPendingSyncs(limit: 1);
+    if (rows.isEmpty) return false;
+    return (rows.first['id'] as num?)?.toInt() == commandRecordId;
   }
 
   Future<void> finalizeVisitCommandLocalState({
@@ -880,36 +820,48 @@ class LocalDatabase {
     });
   }
 
+  @Deprecated(
+    'Use SyncRepository.saveInvoice; durable identity must be staged before first send.',
+  )
   Future<void> saveOfflineInvoiceAtomic({
-    required int visitId, required String payload, required String status, required String outcome,
-    required double cashCollected, required double debtPaid,
-    String? cartItemsJson, String? returnsJson, String? notes,
-    required List<dynamic> cartItems, List<dynamic>? returnItems,
+    required int visitId,
+    required String payload,
+    required String status,
+    required String outcome,
+    required double cashCollected,
+    required double debtPaid,
+    String? cartItemsJson,
+    String? returnsJson,
+    String? notes,
+    required List<dynamic> cartItems,
+    List<dynamic>? returnItems,
     String? commandId,
     int? ownerDriverId,
   }) async {
-    final db = await database;
-    await db.transaction((txn) async {
-      await revertOfflineVisit(visitId, txn: txn);
-      final commandRecordId = await addPendingSync(
-        type: DurableCommandType.submitSale,
-        payload: payload,
-        commandId: commandId,
-        ownerDriverId: ownerDriverId,
-        txn: txn,
-      );
-      await updateVisitStatus(visitId: visitId, status: status, outcome: outcome, cashCollected: cashCollected, debtPaid: debtPaid, cartItemsJson: cartItemsJson, returnsJson: returnsJson, notes: notes, txn: txn);
-      await deductInventoryLocal(cartItems, returnItems: returnItems, txn: txn);
-      await txn.update(
-        'pending_sync',
-        {
-          'local_effect_applied': 1,
-          'updated_at': DateTime.now().toIso8601String(),
-        },
-        where: 'id = ?',
-        whereArgs: [commandRecordId],
-      );
-    });
+    final requestId = commandId?.trim() ?? '';
+    if (requestId.isEmpty) {
+      throw StateError('Offline visit command requires a durable request ID.');
+    }
+
+    final commandRecordId = await stageVisitCommandAtomic(
+      visitId: visitId,
+      payload: payload,
+      requestId: requestId,
+      ownerDriverId: ownerDriverId,
+    );
+    await finalizeVisitCommandLocalState(
+      commandRecordId: commandRecordId,
+      visitId: visitId,
+      status: status,
+      outcome: outcome,
+      cashCollected: cashCollected,
+      debtPaid: debtPaid,
+      cartItemsJson: cartItemsJson,
+      returnsJson: returnsJson,
+      notes: notes,
+      cartItems: cartItems,
+      returnItems: returnItems,
+    );
   }
 
   Future<List<Map<String, dynamic>>> getQuarantinedSyncs() =>
