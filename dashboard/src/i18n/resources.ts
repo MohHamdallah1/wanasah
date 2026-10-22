@@ -1392,7 +1392,9 @@ export const resources = {
           policyLoad: "تعذر جلب إعداد التكلفة.",
           policySave: "تعذر حفظ طريقة احتساب التكلفة.",
           policyRequired: "اختر طريقة التكلفة واحفظها أولاً قبل توثيق التوريد.",
-          auditLocked: "المستودع مقفل بجرد شامل ولا يمكن التوريد حالياً.",
+          auditLocked: "المستودع مقفل بسبب جلسة جرد مفتوحة.",
+          auditLockTooltip:
+            "المستودع مقفل بسبب جلسة جرد مفتوحة{{reference}}. أنهِ جلسة الجرد أو ألغِها أولًا، ثم أعد توثيق الاستلام.",
           quantityRequired: "أضف كمية لصنف واحد على الأقل.",
           referenceRequired: "رقم الفاتورة أو المرجع إجباري.",
           optionsNotReady: "وحدات الشراء لم تجهز بعد.",
@@ -1967,6 +1969,8 @@ export const resources = {
           INVENTORY_LOCATION_CAPABILITIES_RESPONSE_INVALID: "استجابة صلاحيات المواقع غير صالحة أو غير مكتملة.",
           WAREHOUSE_SETUP_RESPONSE_INVALID: "استجابة حالة إعداد المستودعات غير صالحة أو غير مكتملة.",
           WAREHOUSE_STATUS_RESPONSE_INVALID: "استجابة حالة قفل المستودع غير صالحة أو غير مكتملة.",
+          INBOUND_WAREHOUSE_AUDIT_LOCKED:
+            "لا يمكن توثيق الاستلام لأن المستودع مقفل بسبب جلسة جرد مفتوحة ({{stocktake_reference}}). أنهِ الجرد أو ألغِه أولًا ثم أعد المحاولة.",
           LIVE_STOCK_BATCH_SCOPE_MISMATCH: "تفاصيل الدفعات لا تطابق المستودع أو المنتج المحدد.",
           STOCK_MINIMUM_BULK_RESPONSE_INVALID: "استجابة إدارة الحد الأدنى للمخزون غير صالحة أو غير مكتملة.",
           LIVE_STOCK_BATCH_DETAILS_FAILED: "تعذر تحميل تفاصيل الدفعات.",
@@ -3673,7 +3677,9 @@ export const resources = {
           policyLoad: "Could not load the costing setting.",
           policySave: "Could not save the costing method.",
           policyRequired: "Choose and save the costing method before posting this receipt.",
-          auditLocked: "The warehouse is locked by a full stocktake.",
+          auditLocked: "The warehouse is locked by an active stocktake session.",
+          auditLockTooltip:
+            "The warehouse is locked by an active stocktake session{{reference}}. Finish or cancel the stocktake before posting the receipt.",
           quantityRequired: "Add a quantity for at least one product.",
           referenceRequired: "Invoice or reference number is required.",
           optionsNotReady: "Purchase units are not ready yet.",
@@ -4242,6 +4248,8 @@ export const resources = {
           INVENTORY_LOCATION_CAPABILITIES_RESPONSE_INVALID: "The location-capabilities response is invalid or incomplete.",
           WAREHOUSE_SETUP_RESPONSE_INVALID: "The warehouse-setup response is invalid or incomplete.",
           WAREHOUSE_STATUS_RESPONSE_INVALID: "The warehouse-lock response is invalid or incomplete.",
+          INBOUND_WAREHOUSE_AUDIT_LOCKED:
+            "The receipt cannot be posted because the warehouse is locked by stocktake {{stocktake_reference}}. Finish or cancel the stocktake, then try again.",
           LIVE_STOCK_BATCH_SCOPE_MISMATCH: "Batch details do not match the selected warehouse or product.",
           STOCK_MINIMUM_BULK_RESPONSE_INVALID: "The minimum-stock management response is invalid or incomplete.",
           LIVE_STOCK_BATCH_DETAILS_FAILED: "Batch details could not be loaded.",

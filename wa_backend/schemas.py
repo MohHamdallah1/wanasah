@@ -1728,7 +1728,10 @@ class WarehouseLedgerCursorPage(BaseModel):
 
 
 class WarehouseStatusResponse(BaseModel):
-    status: str
+    status: Literal["ACTIVE", "AUDIT_LOCK"]
+    stocktake_session_id: Optional[int] = None
+    stocktake_reference: Optional[str] = Field(None, max_length=100)
+    stocktake_status: Optional[str] = Field(None, max_length=50)
 
 
 def _warehouse_code_input(v: Any) -> str:
