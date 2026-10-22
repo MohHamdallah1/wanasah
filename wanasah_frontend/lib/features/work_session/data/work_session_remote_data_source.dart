@@ -32,8 +32,8 @@ class ApiWorkSessionRemoteDataSource implements WorkSessionRemoteDataSource {
     await _apiClient.post(
       '/driver/sessions/start',
       data: <String, dynamic>{
-        'latitude': latitude,
-        'longitude': longitude,
+        if (latitude != null) 'latitude': latitude,
+        if (longitude != null) 'longitude': longitude,
       },
       options: Options(
         sendTimeout: const Duration(seconds: 20),
