@@ -517,49 +517,33 @@ class LocalDatabase {
     );
   }
 
-  Future<void> deductInventoryLocal(List<dynamic> cartItems, {List<dynamic>? returnItems, Transaction? txn}) async {
-    final db = txn ?? await database;
-    final batch = db.batch();
-    Map<int, Map<String, int>> deductions = {};
+  Future<void> deductInventoryLocal(
+    List<dynamic> cartItems, {
+    List<dynamic>? returnItems,
+    Transaction? txn,
+  }) async {
+    final projection = visitInventoryProjection(
+      cartItems: cartItems,
+      returns: returnItems ?? const <dynamic>[],
+    );
 
-    void addToDeduction(int variantId, int qty, int packs) {
-      if (variantId == 0 || (qty == 0 && packs == 0)) return;
-      deductions.putIfAbsent(variantId, () => {'qty': 0, 'packs': 0});
-      deductions[variantId]!['qty'] = (deductions[variantId]!['qty'] ?? 0) + qty;
-      deductions[variantId]!['packs'] = (deductions[variantId]!['packs'] ?? 0) + packs;
-    }
-
-    for (var item in cartItems) {
-      if (item['is_cancelled'] == true || item['is_cancelled'] == 1) continue;
-      int variantId = (item['product_variant_id'] as num?)?.toInt() ?? 0;
-      int qtyToDeduct = ((item['quantity'] as num?)?.toInt() ?? 0) + ((item['sample_quantity'] as num?)?.toInt() ?? (item['sample_cartons'] as num?)?.toInt() ?? 0) + ((item['bonus_quantity'] as num?)?.toInt() ?? 0); 
-      int packsToDeduct = ((item['packs_quantity'] as num?)?.toInt() ?? (item['packs'] as num?)?.toInt() ?? 0) + ((item['sample_packs_quantity'] as num?)?.toInt() ?? (item['sample_packs'] as num?)?.toInt() ?? 0);
-      addToDeduction(variantId, qtyToDeduct, packsToDeduct);
-    }
-
-    if (returnItems != null) {
-      for (var ret in returnItems) {
-        if (ret['is_cancelled'] == true || ret['is_cancelled'] == 1) continue;
-        int variantId = (ret['product_variant_id'] as num?)?.toInt() ?? 0;
-        int qtyToDeduct = (ret['quantity'] as num?)?.toInt() ?? (ret['cartons'] as num?)?.toInt() ?? 0;
-        int packsToDeduct = (ret['packs_quantity'] as num?)?.toInt() ?? (ret['packs'] as num?)?.toInt() ?? 0;
-        addToDeduction(variantId, qtyToDeduct, packsToDeduct);
-      }
-    }
-
-    for (var entry in deductions.entries) {
-      batch.rawUpdate(
-        '''
-        UPDATE products 
-        SET 
-          current_cartons = MAX(0, (current_cartons * packs_per_carton) + current_packs - (? * packs_per_carton) - ?) / MAX(packs_per_carton, 1),
-          current_packs   = MAX(0, (current_cartons * packs_per_carton) + current_packs - (? * packs_per_carton) - ?) % MAX(packs_per_carton, 1)
-        WHERE id = ?
-        ''',
-        [entry.value['qty']!, entry.value['packs']!, entry.value['qty']!, entry.value['packs']!, entry.key],
+    if (txn != null) {
+      await _applyVisitProjectionDelta(
+        txn: txn,
+        oldProjection: const <int, VisitInventoryQuantity>{},
+        newProjection: projection,
       );
+      return;
     }
-    await batch.commit(noResult: true);
+
+    final db = await database;
+    await db.transaction((transaction) async {
+      await _applyVisitProjectionDelta(
+        txn: transaction,
+        oldProjection: const <int, VisitInventoryQuantity>{},
+        newProjection: projection,
+      );
+    });
   }
 
   @Deprecated(
@@ -646,78 +630,87 @@ class LocalDatabase {
     List<dynamic>? returnItems,
   }) async {
     final db = await database;
-    await db.transaction((txn) async {
-      final commandRows = await txn.query(
-        'pending_sync',
-        columns: ['local_effect_applied'],
-        where: 'id = ?',
-        whereArgs: [commandRecordId],
-        limit: 1,
-      );
-      if (commandRows.isEmpty) {
-        throw StateError(
-          'Offline command #$commandRecordId is missing before local finalize.',
+    try {
+      await db.transaction((txn) async {
+        final commandRows = await txn.query(
+          'pending_sync',
+          columns: ['local_effect_applied'],
+          where: 'id = ?',
+          whereArgs: [commandRecordId],
+          limit: 1,
         );
-      }
+        if (commandRows.isEmpty) {
+          throw StateError(
+            'Offline command #$commandRecordId is missing before local finalize.',
+          );
+        }
 
-      final alreadyApplied =
-          (commandRows.first['local_effect_applied'] as num?)?.toInt() == 1;
-      if (alreadyApplied) return;
+        final alreadyApplied =
+            (commandRows.first['local_effect_applied'] as num?)?.toInt() == 1;
+        if (alreadyApplied) return;
 
-      final previousVisitRows = await txn.query(
-        'visits',
-        columns: ['cart_items', 'returns'],
-        where: 'visit_id = ?',
-        whereArgs: [visitId],
-        limit: 1,
-      );
-      if (previousVisitRows.isEmpty) {
-        throw StateError(
-          'Visit #$visitId is missing before local command finalization.',
+        final previousVisitRows = await txn.query(
+          'visits',
+          columns: ['cart_items', 'returns'],
+          where: 'visit_id = ?',
+          whereArgs: [visitId],
+          limit: 1,
         );
-      }
+        if (previousVisitRows.isEmpty) {
+          throw StateError(
+            'Visit #$visitId is missing before local command finalization.',
+          );
+        }
 
-      final oldCartItems =
-          _decodeStoredVisitList(previousVisitRows.first['cart_items']);
-      final oldReturns =
-          _decodeStoredVisitList(previousVisitRows.first['returns']);
-      final newReturns = returnItems ?? const <dynamic>[];
+        final oldCartItems =
+            _decodeStoredVisitList(previousVisitRows.first['cart_items']);
+        final oldReturns =
+            _decodeStoredVisitList(previousVisitRows.first['returns']);
+        final newReturns = returnItems ?? const <dynamic>[];
 
-      await _applyVisitInventoryCorrection(
-        txn: txn,
-        oldCartItems: oldCartItems,
-        oldReturns: oldReturns,
-        newCartItems: cartItems,
-        newReturns: newReturns,
-      );
-
-      await updateVisitStatus(
-        visitId: visitId,
-        status: status,
-        outcome: outcome,
-        cashCollected: cashCollected,
-        debtPaid: debtPaid,
-        cartItemsJson: cartItemsJson,
-        returnsJson: returnsJson,
-        notes: notes,
-        txn: txn,
-      );
-
-      final updated = await txn.update(
-        'pending_sync',
-        {
-          'local_effect_applied': 1,
-          'updated_at': DateTime.now().toIso8601String(),
-        },
-        where: 'id = ?',
-        whereArgs: [commandRecordId],
-      );
-      if (updated != 1) {
-        throw StateError(
-          'Offline command #$commandRecordId disappeared during local finalize.',
+        await _applyVisitInventoryCorrection(
+          txn: txn,
+          oldCartItems: oldCartItems,
+          oldReturns: oldReturns,
+          newCartItems: cartItems,
+          newReturns: newReturns,
         );
-      }
-    });
+
+        await updateVisitStatus(
+          visitId: visitId,
+          status: status,
+          outcome: outcome,
+          cashCollected: cashCollected,
+          debtPaid: debtPaid,
+          cartItemsJson: cartItemsJson,
+          returnsJson: returnsJson,
+          notes: notes,
+          txn: txn,
+        );
+
+        final updated = await txn.update(
+          'pending_sync',
+          {
+            'local_effect_applied': 1,
+            'updated_at': DateTime.now().toIso8601String(),
+          },
+          where: 'id = ?',
+          whereArgs: [commandRecordId],
+        );
+        if (updated != 1) {
+          throw StateError(
+            'Offline command #$commandRecordId disappeared during local finalize.',
+          );
+        }
+      });
+    } on LocalInventoryProjectionException catch (error) {
+      await markPendingSyncBlocked(
+        commandRecordId,
+        errorCode: error.code,
+        errorMessage: error.toString(),
+      );
+      rethrow;
+    }
   }
 
   List<dynamic> _decodeStoredVisitList(Object? raw) {
@@ -749,6 +742,19 @@ class LocalDatabase {
       cartItems: newCartItems,
       returns: newReturns,
     );
+
+    await _applyVisitProjectionDelta(
+      txn: txn,
+      oldProjection: oldProjection,
+      newProjection: newProjection,
+    );
+  }
+
+  Future<void> _applyVisitProjectionDelta({
+    required Transaction txn,
+    required Map<int, VisitInventoryQuantity> oldProjection,
+    required Map<int, VisitInventoryQuantity> newProjection,
+  }) async {
     final variantIds = <int>{
       ...oldProjection.keys,
       ...newProjection.keys,
@@ -768,26 +774,30 @@ class LocalDatabase {
         limit: 1,
       );
       if (rows.isEmpty) {
-        throw StateError(
-          'Product variant #$variantId is missing from local vehicle inventory.',
+        throw LocalInventoryProjectionException(
+          code: LocalInventoryProjectionCode.productMissing,
+          variantId: variantId,
         );
       }
 
       final row = rows.first;
       final packsPerCarton =
           (row['packs_per_carton'] as num?)?.toInt() ?? 0;
-      if (packsPerCarton <= 0) {
-        throw StateError(
-          'Product variant #$variantId has invalid packs_per_carton.',
+      final currentCartons =
+          (row['current_cartons'] as num?)?.toInt();
+      final currentPacks =
+          (row['current_packs'] as num?)?.toInt();
+
+      if (currentCartons == null || currentPacks == null) {
+        throw LocalInventoryProjectionException(
+          code: LocalInventoryProjectionCode.invalidCurrentState,
+          variantId: variantId,
+          details: <String, Object?>{
+            'current_cartons': row['current_cartons'],
+            'current_packs': row['current_packs'],
+          },
         );
       }
-
-      final currentCartons =
-          (row['current_cartons'] as num?)?.toInt() ?? 0;
-      final currentPacks =
-          (row['current_packs'] as num?)?.toInt() ?? 0;
-      final currentBasePacks =
-          (currentCartons * packsPerCarton) + currentPacks;
 
       final deltaBasePacks = inventoryCorrectionDeltaBasePacks(
         oldProjection:
@@ -795,27 +805,30 @@ class LocalDatabase {
         newProjection:
             newProjection[variantId] ?? const VisitInventoryQuantity(),
         packsPerCarton: packsPerCarton,
+        variantId: variantId,
       );
-      final correctedBasePacks = currentBasePacks + deltaBasePacks;
 
-      if (correctedBasePacks < 0) {
-        throw StateError(
-          'Visit correction would make local inventory negative for variant #$variantId.',
-        );
-      }
+      final next = applyLocalAvailableInventoryDelta(
+        variantId: variantId,
+        currentCartons: currentCartons,
+        currentPacks: currentPacks,
+        packsPerCarton: packsPerCarton,
+        deltaBasePacks: deltaBasePacks,
+      );
 
       final updated = await txn.update(
         'products',
         {
-          'current_cartons': correctedBasePacks ~/ packsPerCarton,
-          'current_packs': correctedBasePacks % packsPerCarton,
+          'current_cartons': next.cartons,
+          'current_packs': next.packs,
         },
         where: 'id = ?',
         whereArgs: [variantId],
       );
       if (updated != 1) {
-        throw StateError(
-          'Local inventory correction failed for variant #$variantId.',
+        throw LocalInventoryProjectionException(
+          code: LocalInventoryProjectionCode.updateFailed,
+          variantId: variantId,
         );
       }
     }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -88,6 +89,7 @@ Dio _protectedDio({
   required _MemoryTokenStore tokenStore,
   required Dio refreshDio,
   required void Function() onUnauthorized,
+  Future<void> Function()? clearRejectedSessionData,
 }) {
   final dio = Dio(BaseOptions(baseUrl: 'https://example.test'));
   dio.httpClientAdapter = _CallbackAdapter(
@@ -99,6 +101,7 @@ Dio _protectedDio({
       dio: dio,
       tokenStore: tokenStore,
       refreshDioFactory: () => refreshDio,
+      clearRejectedSessionData: clearRejectedSessionData,
     ),
   );
   return dio;
@@ -177,6 +180,81 @@ void main() {
     expect(await tokenStore.readRefreshToken(), 'old-refresh');
   });
 
+  for (final status in [401, 403]) {
+    test('confirmed refresh $status logs out while failed cache cleanup preserves evidence', () async {
+      final tokens = _MemoryTokenStore(accessToken: 'old-access', refreshToken: 'old-refresh');
+      final refresh = Dio(BaseOptions(baseUrl: 'https://example.test'));
+      refresh.httpClientAdapter = _CallbackAdapter(
+        (_) async => jsonResponse(status, canonicalError(status)));
+      var unauthorized = 0;
+      var cleanup = 0;
+      final evidence = [{'type': 'submit_sale', 'state': 'blocked',
+        'owner_driver_id': 303, 'owner_company_code': 'WNS-01'}];
+      final dio = _protectedDio(tokenStore: tokens, refreshDio: refresh,
+        onUnauthorized: () { unauthorized++; },
+        clearRejectedSessionData: () async {
+          cleanup++;
+          throw StateError('cache protected by pending evidence');
+        });
+      await expectLater(dio.get<dynamic>('/protected'), throwsA(isA<DioException>()));
+      expect(tokens.clearCalls, 1);
+      expect(unauthorized, 1);
+      expect(cleanup, 1);
+      expect(evidence.single['owner_driver_id'], 303);
+      expect(await tokens.readAccessToken(), isNull);
+      expect(await tokens.readRefreshToken(), isNull);
+    });
+  }
+
+  test('refresh timeout preserves session and never runs rejected-session cleanup', () async {
+    final tokens = _MemoryTokenStore(accessToken: 'old-access', refreshToken: 'old-refresh');
+    final refresh = Dio(BaseOptions(baseUrl: 'https://example.test'));
+    refresh.httpClientAdapter = _CallbackAdapter((options) async => throw DioException(
+      requestOptions: options, type: DioExceptionType.receiveTimeout, message: '401 logout'));
+    var unauthorized = 0;
+    var cleanup = 0;
+    final dio = _protectedDio(tokenStore: tokens, refreshDio: refresh,
+      onUnauthorized: () { unauthorized++; },
+      clearRejectedSessionData: () async { cleanup++; });
+    await expectLater(dio.get<dynamic>('/protected'), throwsA(isA<DioException>()));
+    expect(unauthorized, 0);
+    expect(cleanup, 0);
+    expect(tokens.clearCalls, 0);
+    expect(await tokens.readAccessToken(), 'old-access');
+    expect(await tokens.readRefreshToken(), 'old-refresh');
+  });
+
+  for (final status in [200, 401, 403]) {
+    test('late refresh $status cannot overwrite or reject a newer session', () async {
+      final tokens = _MemoryTokenStore(accessToken: 'old-access', refreshToken: 'old-refresh');
+      final started = Completer<void>();
+      final finish = Completer<void>();
+      final refresh = Dio(BaseOptions(baseUrl: 'https://example.test'));
+      refresh.httpClientAdapter = _CallbackAdapter((_) async {
+        started.complete();
+        await finish.future;
+        return status == 200
+          ? jsonResponse(200, {'token': 'stale-successor-access', 'refresh_token': 'stale-successor-refresh'})
+          : jsonResponse(status, canonicalError(status));
+      });
+      var unauthorized = 0;
+      var cleanup = 0;
+      final dio = _protectedDio(tokenStore: tokens, refreshDio: refresh,
+        onUnauthorized: () { unauthorized++; },
+        clearRejectedSessionData: () async { cleanup++; });
+      final pending = expectLater(dio.get<dynamic>('/protected'), throwsA(isA<DioException>()));
+      await started.future;
+      await tokens.persistReplacement(accessToken: 'new-owner-access', refreshToken: 'new-owner-refresh');
+      finish.complete();
+      await pending;
+      expect(await tokens.readAccessToken(), 'new-owner-access');
+      expect(await tokens.readRefreshToken(), 'new-owner-refresh');
+      expect(unauthorized, 0);
+      expect(cleanup, 0);
+      expect(tokens.clearCalls, 0);
+    });
+  }
+
   test('network boundary reserves unauthorized logout for confirmed refresh rejection', () async {
     final source = await File(
       'lib/core/network/auth_interceptor.dart',
@@ -201,7 +279,8 @@ void main() {
     expect(end, greaterThan(start));
 
     final checkAuthSource = source.substring(start, end);
-    expect(checkAuthSource, contains('StoredAuthIdentity.tryParse'));
+    expect(checkAuthSource, contains('await _identities.read()'));
+    expect(checkAuthSource, contains('evaluateOfflineOwnerLoginSafety('));
     expect(checkAuthSource, isNot(contains('clearSessionData')));
     expect(checkAuthSource, isNot(contains('_storage.delete')));
   });

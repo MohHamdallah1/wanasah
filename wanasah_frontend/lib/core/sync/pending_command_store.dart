@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
 import 'durable_command.dart';
+import 'durable_command_owner.dart';
 
 typedef OfflineDatabaseProvider = Future<Database> Function();
 typedef OfflineTenantProvider = String Function();
@@ -29,7 +30,18 @@ class PendingCommandStore {
     String? lastRequestId,
     Transaction? txn,
   }) async {
+    final tenant = _tenantProvider();
+    if (DurableCommandType.isReplayable(type) &&
+        (ownerDriverId == null || ownerDriverId <= 0)) {
+      throw const DurableCommandOwnerException('DURABLE_OWNER_REQUIRED');
+    }
+    if (tenant.trim().isEmpty || tenant == 'null') {
+      throw const DurableCommandOwnerException('DURABLE_OWNER_COMPANY_REQUIRED');
+    }
     final db = await _executor(txn);
+    if (_tenantProvider() != tenant) {
+      throw const DurableCommandOwnerException('DURABLE_OWNER_COMPANY_MISMATCH');
+    }
     final now = DateTime.now().toIso8601String();
     return db.insert('pending_sync', {
       'type': type,
@@ -37,7 +49,7 @@ class PendingCommandStore {
       'created_at': now,
       'command_id': commandId,
       'state': state.storageValue,
-      'owner_company_code': _tenantProvider(),
+      'owner_company_code': tenant,
       'owner_driver_id': ownerDriverId,
       'attempt_count': 0,
       'last_error_code': lastErrorCode,

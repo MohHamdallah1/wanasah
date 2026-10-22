@@ -18,6 +18,7 @@ import '../../features/auth/presentation/auth_messages.dart';
 import 'auth_state.dart';
 import 'offline_owner_guard.dart';
 import '../../features/auth/application/stored_auth_identity.dart';
+import '../../features/auth/data/secure_auth_identity_store.dart';
 
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   static const String _offlineOwnerDriverKey =
@@ -26,6 +27,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       'offline_pending_owner_company_code';
 
   final FlutterSecureStorage _storage;
+  late final SecureAuthIdentityStore _identities = SecureAuthIdentityStore(storage: _storage);
 
   AuthBloc({FlutterSecureStorage? storage})
     : _storage = storage ?? const FlutterSecureStorage(),
@@ -92,8 +94,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   }
 
   Future<void> _captureOfflineOwnerBeforeLogout() async {
-    final driverId = await _storage.read(key: 'driver_id');
-    final companyCode = await _storage.read(key: 'company_code');
+    final lastIdentity = await _identities.readLastIdentity();
+    final driverId = lastIdentity?.legacyDriverId.toString() ?? await _storage.read(key: 'driver_id');
+    final companyCode = lastIdentity?.companyCode ?? await _storage.read(key: 'company_code');
     final parsedDriverId = int.tryParse(driverId ?? '');
     if (parsedDriverId == null ||
         parsedDriverId <= 0 ||
@@ -140,12 +143,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(const AuthLoading());
 
     try {
-      final identity = StoredAuthIdentity.tryParse(
-        token: await _storage.read(key: 'auth_token'),
-        refreshToken: await _storage.read(key: 'refresh_token'),
-        driverId: await _storage.read(key: 'driver_id'),
-        companyCode: await _storage.read(key: 'company_code'),
-      );
+      final identity = await _identities.read();
 
       if (identity == null) {
         developer.log(
@@ -161,7 +159,21 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         '[AuthBloc] CheckAuth → Authenticated '
         '(driverId=${identity.driverId}, Tenant=${identity.companyCode})',
       );
-      emit(AuthAuthenticated(driverId: identity.driverId));
+      final guard = await evaluateOfflineOwnerLoginSafety(
+        ownerCompanyCode: await _storage.read(key: _offlineOwnerCompanyKey) ?? identity.companyCode,
+        ownerDriverId: await _storage.read(key: _offlineOwnerDriverKey) ?? identity.legacyDriverId.toString(),
+        returnedCompanyCode: identity.companyCode,
+        returnedDriverId: identity.legacyDriverId,
+        returnedRefreshToken: identity.refreshToken,
+        readPendingSyncs: _readPendingSyncsForCompany,
+        revokeRejectedRefresh: (_) async {},
+      );
+      if (!guard.allowsLogin) {
+        emit(AuthError(message: _offlineOwnerBlockMessage(guard.outcome)));
+        return;
+      }
+      await LocalDatabase.instance.setTenant(identity.companyCode);
+      emit(AuthAuthenticated(identity: identity.field));
     } catch (e) {
       developer.log('[AuthBloc] CheckAuth → Error reading storage: $e');
       emit(
@@ -199,20 +211,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       final Map<String, dynamic> data = Map<String, dynamic>.from(
         response.data as Map,
       );
-      final rawDriverId = data['driver_id'];
-      final driverIdText =
-          rawDriverId is num
-              ? rawDriverId.toInt().toString()
-              : rawDriverId?.toString();
-      final returnedCompanyCodeRaw =
-          data['company_code']?.toString() ?? event.companyCode;
-      final String? refreshTokenRaw = data['refresh_token']?.toString();
-      final identity = StoredAuthIdentity.tryParse(
-        token: data['token']?.toString(),
-        refreshToken: refreshTokenRaw,
-        driverId: driverIdText,
-        companyCode: returnedCompanyCodeRaw,
-      );
+      final String? refreshTokenRaw = data['refresh_token'] is String ? data['refresh_token'] as String : null;
+      final identity = StoredAuthIdentity.fromLogin(data);
 
       if (identity == null) {
         developer.log(
@@ -231,12 +231,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         return;
       }
 
-      final String token = identity.token;
       final String refreshToken = identity.refreshToken;
       final int driverId = identity.driverId;
       final String returnedCompanyCode = identity.companyCode;
-      final String? oldDriverId = await _storage.read(key: 'driver_id');
-      final String? oldCompanyCode = await _storage.read(key: 'company_code');
+      final previousIdentity = await _identities.readLastIdentity();
+      final String? oldDriverId = previousIdentity?.legacyDriverId.toString() ?? await _storage.read(key: 'driver_id');
+      final String? oldCompanyCode = previousIdentity?.companyCode ?? await _storage.read(key: 'company_code');
       final String? offlineOwnerDriverId = await _storage.read(
         key: _offlineOwnerDriverKey,
       );
@@ -339,10 +339,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       // Persist the returned session only after the offline ownership guard has
       // accepted it. A blocked post-auth response therefore never becomes the
       // locally active session.
-      await _storage.write(key: 'company_code', value: returnedCompanyCode);
-      await _storage.write(key: 'auth_token', value: token);
-      await _storage.write(key: 'refresh_token', value: refreshToken);
-      await _storage.write(key: 'driver_id', value: driverId.toString());
+      await _identities.persistLogin(identity);
       if (offlineGuard.shouldClearMarkerAfterAcceptedSession) {
         await _clearOfflineOwnerMarker();
       }
@@ -350,7 +347,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       developer.log(
         '[AuthBloc] Login → Authenticated (driverId=$driverId, Tenant=$returnedCompanyCode)',
       );
-      emit(AuthAuthenticated(driverId: driverId));
+      emit(AuthAuthenticated(identity: identity.field));
     } on DioException catch (e) {
       final failure = AuthLoginFailure.fromDioException(e);
       developer.log(
@@ -395,8 +392,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
     await _storage.delete(key: 'auth_token');
     await _storage.delete(key: 'refresh_token');
-    await _storage.delete(key: 'driver_id');
-    await _storage.delete(key: 'company_code');
+    await _identities.clearIdentity();
 
     final allKeys = await _storage.readAll();
     for (final k in allKeys.keys) {

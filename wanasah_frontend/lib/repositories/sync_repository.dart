@@ -6,6 +6,8 @@ import 'package:uuid/uuid.dart';
 import '../core/network/api_client.dart';
 import '../core/db/local_database.dart';
 import '../core/sync/durable_command.dart';
+import '../core/visit/local_inventory_projection.dart';
+import '../features/auth/data/secure_auth_identity_store.dart';
 import '../models/product_model.dart';
 import '../models/visit_model.dart';
 
@@ -24,6 +26,7 @@ class SyncRepository {
   // -----------------------------------------------------------------------
   final ApiClient _api;
   final LocalDatabase _db;
+  final SecureAuthIdentityStore _identities = SecureAuthIdentityStore();
   static const Uuid _uuid = Uuid();
   
   // الأقفال أصبحت الآن مركزية على مستوى التطبيق كله
@@ -183,6 +186,9 @@ class SyncRepository {
     required int visitId,
     required Map<String, dynamic> payload,
   }) async {
+    final owner = await _identities.requireCommandOwner(_db.currentTenant);
+    owner.requireRows(await _db.getPendingSyncs());
+    owner.requireTenant(_db.currentTenant);
     Map<String, dynamic> safePayload;
     try {
       safePayload = jsonDecode(jsonEncode(payload));
@@ -200,10 +206,12 @@ class SyncRepository {
 
     // Persist identity/body before the first mutation attempt. If the process
     // dies after the server commits, restart replays this exact command.
+    owner.requireSame(await _identities.requireCommandOwner(_db.currentTenant));
     final commandRecordId = await _db.stageVisitCommandAtomic(
       visitId: visitId,
       payload: jsonEncode(commandPayload),
       requestId: requestId,
+      ownerDriverId: owner.driverId,
     );
     final isQueueHead =
         await _db.isFirstUnresolvedCommand(commandRecordId);
@@ -218,6 +226,7 @@ class SyncRepository {
       return;
     }
 
+    owner.requireSame(await _identities.requireCommandOwner(_db.currentTenant));
     await _db.markPendingSyncInFlight(commandRecordId);
 
     try {
@@ -348,6 +357,9 @@ class SyncRepository {
     required String responseStr,
     String? reason,
   }) async {
+    final owner = await _identities.requireCommandOwner(_db.currentTenant);
+    owner.requireRows(await _db.getPendingSyncs());
+    owner.requireTenant(_db.currentTenant);
     final incomingList = await _db.getIncomingTransfers();
     final contextData = incomingList.firstWhere(
       (t) => t['transfer_id'] == transferId || t['id'] == transferId, 
@@ -363,6 +375,7 @@ class SyncRepository {
       'context_delta_packs': contextData['delta_packs'],
     };
 
+    owner.requireSame(await _identities.requireCommandOwner(_db.currentTenant));
     bool dispatchSuccess = false;
     try {
       await _dispatchPendingRecord(type: 'transfer_response', payload: payload);
@@ -383,10 +396,12 @@ class SyncRepository {
         await _db.removeIncomingTransfer(transferId);
         return true; // +++ أرسلت بنجاح +++
       } else {
+        owner.requireSame(await _identities.requireCommandOwner(_db.currentTenant));
         await _db.addPendingSync(
           type: DurableCommandType.transferResponse,
           payload: jsonEncode(payload),
           commandId: _uuid.v4(),
+          ownerDriverId: owner.driverId,
         );
         await _db.removeIncomingTransfer(transferId);
         return false; // +++ دخلت طابور الأوفلاين +++
@@ -420,6 +435,10 @@ class SyncRepository {
     try {
       final pending = await _db.getPendingSyncs();
       if (pending.isEmpty) return 0;
+      final owner = await _identities.requireCommandOwner(_db.currentTenant);
+      // Never attribute, repair UUIDs or dispatch another owner's legacy rows.
+      owner.requireRows(pending);
+      owner.requireTenant(_db.currentTenant);
 
       developer.log(
         '[SyncRepository] Found ${pending.length} unresolved command records.',
@@ -484,6 +503,7 @@ class SyncRepository {
           await _db.updatePendingSyncCommandId(recordId, commandId);
         }
 
+        owner.requireSame(await _identities.requireCommandOwner(_db.currentTenant));
         await _db.markPendingSyncInFlight(recordId);
 
         try {
@@ -535,6 +555,13 @@ class SyncRepository {
             errorCode: _stableErrorCodeFromDio(e),
             errorMessage: _displayErrorFromDio(e),
             requestId: requestId,
+          );
+          break;
+        } on LocalInventoryProjectionException catch (error) {
+          await _db.markPendingSyncBlocked(
+            recordId,
+            errorCode: error.code,
+            errorMessage: error.toString(),
           );
           break;
         } catch (e) {
