@@ -297,6 +297,7 @@ class Gate:
         reference_id: str | None = None,
         items=None,
     ):
+        resolved_request_id = request_id or uuid4()
         if items is None:
             items = [
                 {
@@ -310,10 +311,10 @@ class Gate:
                 }
             ]
         return UpgradedInboundRequest(
-            request_id=request_id or uuid4(),
+            request_id=resolved_request_id,
             supplier_id=self.ids.supplier_a if supplier_id is None else supplier_id,
             location_id=location_id or self.ids.a1,
-            reference_id=reference_id,
+            reference_id=reference_id or f"CP14A3-{resolved_request_id.hex}",
             items=items,
         )
 

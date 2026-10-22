@@ -6,6 +6,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
@@ -40,7 +41,7 @@ import {
   type InboundBatchDraft,
   type InboundDraftMap,
   type InboundField,
-  type InboundRowValidationError,
+  InboundRowValidationError,
   type InboundVariantOptions,
 } from "./inbound/contracts";
 import {
@@ -96,25 +97,54 @@ const normalizeDateEntry = (value: string) => {
   if (!text) return "";
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
 
-  const compact = text.replace(/[^0-9]/g, "");
-  if (compact.length !== 8) return text;
+  const separated = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (separated) {
+    const [, dayText, monthText, yearText] = separated;
+    const day = Number(dayText);
+    const month = Number(monthText);
+    const year = Number(yearText);
+    if (isValidCalendarDate(year, month, day)) {
+      return `${yearText}-${monthText.padStart(2, "0")}-${dayText.padStart(2, "0")}`;
+    }
+    return text;
+  }
 
-  const firstFour = Number(compact.slice(0, 4));
-  if (firstFour >= 1900 && firstFour <= 2200) {
-    const year = firstFour;
-    const month = Number(compact.slice(4, 6));
-    const day = Number(compact.slice(6, 8));
+  const compact = text.replace(/[^0-9]/g, "");
+  if (compact.length === 8) {
+    const firstFour = Number(compact.slice(0, 4));
+    if (firstFour >= 1900 && firstFour <= 2200) {
+      const year = firstFour;
+      const month = Number(compact.slice(4, 6));
+      const day = Number(compact.slice(6, 8));
+      return isValidCalendarDate(year, month, day)
+        ? `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`
+        : text;
+    }
+
+    const day = Number(compact.slice(0, 2));
+    const month = Number(compact.slice(2, 4));
+    const year = Number(compact.slice(4, 8));
     return isValidCalendarDate(year, month, day)
-      ? `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`
+      ? `${compact.slice(4, 8)}-${compact.slice(2, 4)}-${compact.slice(0, 2)}`
       : text;
   }
 
-  const day = Number(compact.slice(0, 2));
-  const month = Number(compact.slice(2, 4));
-  const year = Number(compact.slice(4, 8));
-  if (isValidCalendarDate(year, month, day)) {
-    return `${compact.slice(4, 8)}-${compact.slice(2, 4)}-${compact.slice(0, 2)}`;
+  if (compact.length === 7) {
+    const yearText = compact.slice(-4);
+    const year = Number(yearText);
+    const prefix = compact.slice(0, 3);
+    const candidates = [
+      { dayText: prefix.slice(0, 1), monthText: prefix.slice(1) },
+      { dayText: prefix.slice(0, 2), monthText: prefix.slice(2) },
+    ].filter(({ dayText, monthText }) =>
+      isValidCalendarDate(year, Number(monthText), Number(dayText))
+    );
+    if (candidates.length === 1) {
+      const [{ dayText, monthText }] = candidates;
+      return `${yearText}-${monthText.padStart(2, "0")}-${dayText.padStart(2, "0")}`;
+    }
   }
+
   return text;
 };
 
@@ -232,6 +262,7 @@ export function Tab2Inbound({
   const [clearOpen, setClearOpen] = useState(false);
   const [validationError, setValidationError] =
     useState<InboundRowValidationError | null>(null);
+  const [setupValidation, setSetupValidation] = useState<"supplier" | "reference" | null>(null);
   const [referenceId, setReferenceId] = useState(
     () => localStorage.getItem(keys.reference) || ""
   );
@@ -243,6 +274,8 @@ export function Tab2Inbound({
   const optionsInFlight = useRef(0);
   const rowRefs = useRef(new Map<string, HTMLTableRowElement>());
   const controlRefs = useRef(new Map<string, HTMLElement>());
+  const supplierRef = useRef<HTMLDivElement>(null);
+  const referenceRef = useRef<HTMLInputElement>(null);
   const supplierKey = `${keys.drafts}:supplier`;
   const [supplierId, setSupplierId] = useState<number | null>(() => {
     const saved = Number(localStorage.getItem(supplierKey));
@@ -531,13 +564,38 @@ export function Tab2Inbound({
     else controlRefs.current.delete(key);
   };
 
+  const flashElement = (node: HTMLElement | null | undefined) => {
+    if (!node) return;
+    node.classList.remove("inventory-inbound-error-pulse");
+    void node.offsetWidth;
+    node.classList.add("inventory-inbound-error-pulse");
+    window.setTimeout(() => node.classList.remove("inventory-inbound-error-pulse"), 1000);
+  };
+
   const focusControl = (rowId: string, control: InboundRowControl) => {
     window.requestAnimationFrame(() => {
       rowRefs.current.get(rowId)?.scrollIntoView({
         block: "nearest",
         behavior: "smooth",
       });
-      controlRefs.current.get(controlKey(rowId, control))?.focus();
+      const node = controlRefs.current.get(controlKey(rowId, control));
+      node?.focus();
+      flashElement(node);
+    });
+  };
+
+  const focusSetupValidation = (field: "supplier" | "reference") => {
+    window.requestAnimationFrame(() => {
+      if (field === "supplier") {
+        supplierRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        const node = supplierRef.current?.querySelector<HTMLElement>('[role="combobox"], button, input');
+        node?.focus();
+        flashElement(node ?? supplierRef.current);
+        return;
+      }
+      referenceRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      referenceRef.current?.focus();
+      flashElement(referenceRef.current);
     });
   };
 
@@ -623,8 +681,11 @@ export function Tab2Inbound({
     [visibleCatalog, drafts],
   );
 
-  const focusValidation = (error: InboundRowValidationError) =>
-    focusControl(error.row_id, error.field);
+  const focusValidation = (error: InboundRowValidationError) => {
+    // Let React commit the invalid-state render before moving focus; otherwise
+    // a fast submit immediately after editing can leave focus on the prior cell.
+    window.setTimeout(() => focusControl(error.row_id, error.field), 0);
+  };
 
   const fieldHasError = (rowId: string, field: InboundField) =>
     validationError?.row_id === rowId && validationError.field === field;
@@ -642,6 +703,7 @@ export function Tab2Inbound({
     localStorage.removeItem(keys.requestId);
     localStorage.removeItem(keys.fingerprint);
     setValidationError(null);
+    setSetupValidation(null);
     setReferenceChoices(new Map());
     setSelectedReferences(new Map());
     setClearOpen(false);
@@ -681,17 +743,42 @@ export function Tab2Inbound({
   };
 
   const submit = async () => {
-    if (!posting.online || supplierId === null) return toast.error(t("suppliers.choose"));
+    if (!posting.online) return toast.error(t("suppliers.offline"));
     if (posting.pending || posting.recoveryError || localStorage.getItem(keys.requestId)) return toast.error(t("suppliers.pending"));
     if (isAuditLocked) {
       return toast.error(t("inventoryInbound.errors.auditLocked"));
     }
-    const ids = inboundProductIds(drafts);
-    if (!ids.length) {
-      return toast.error(t("inventoryInbound.errors.quantityRequired"));
+
+    setSetupValidation(null);
+    setValidationError(null);
+
+    if (supplierId === null) {
+      setSetupValidation("supplier");
+      toast.error(t("suppliers.choose"));
+      focusSetupValidation("supplier");
+      return;
     }
     if (!referenceId.trim()) {
-      return toast.error(t("inventoryInbound.errors.referenceRequired"));
+      setSetupValidation("reference");
+      toast.error(t("inventoryInbound.errors.referenceRequired"));
+      focusSetupValidation("reference");
+      return;
+    }
+
+    const ids = inboundProductIds(drafts);
+    if (!ids.length) {
+      const firstRowId = keyboardRowIds[0];
+      if (firstRowId) {
+        const error = new InboundRowValidationError(
+          "INBOUND_QUANTITY_REQUIRED",
+          firstRowId,
+          "quantity",
+        );
+        setValidationError(error);
+        focusValidation(error);
+      }
+      toast.error(t("inventoryInbound.errors.quantityRequired"));
+      return;
     }
     if (ids.some((id) => !uomOptions.has(id))) {
       return toast.error(t("inventoryInbound.errors.optionsNotReady"));
@@ -804,12 +891,20 @@ export function Tab2Inbound({
             </div>
           </label>
 
-          <div className="inventory-inbound-supplier">
+          <div
+            ref={supplierRef}
+            className={`inventory-inbound-supplier ${setupValidation === "supplier" ? "inventory-inbound-setup-error" : ""}`}
+          >
             <SupplierSelector
               value={supplierId}
-              onChange={setSupplierId}
+              onChange={(value) => {
+                setSupplierId(value);
+                if (value !== null && setupValidation === "supplier") setSetupValidation(null);
+              }}
               disabled={submitting || posting.pending !== null}
               searchInControl
+              required
+              invalid={setupValidation === "supplier"}
             />
             {!posting.online ? <p role="status">{t("suppliers.offline")}</p> : null}
             {posting.pending || posting.recoveryError ? <div role="alert" className="inventory-inbound-recovery">
@@ -1020,29 +1115,40 @@ export function Tab2Inbound({
                               : ""}
                           </span>
                           {option?.purchase_cost_reference && (
-                            <span
-                              className="inventory-inbound-reference-wrap"
-                              data-tooltip={t("inventoryInbound.useReferenceSuggestion", {
-                                cost: conciseMoney(option.purchase_cost_reference.amount),
-                                currency: option.purchase_cost_reference.currency_code,
-                              })}
-                            >
-                              <button
-                                type="button"
-                                disabled={submitting || posting.pending !== null}
-                                aria-label={t("inventoryInbound.useReferenceSuggestion", {
-                                  cost: conciseMoney(option.purchase_cost_reference.amount),
-                                  currency: option.purchase_cost_reference.currency_code,
-                                })}
-                                onClick={() => update(variant, row.row_id, {
-                                  uom_id: String(option.purchase_cost_reference!.purchase_uom_id),
-                                  unit_cost: conciseMoney(option.purchase_cost_reference!.amount),
-                                })}
-                                className="inventory-inbound-reference-button"
-                              >
-                                {t("inventoryInbound.useReferenceShort")}
-                              </button>
-                            </span>
+                            <TooltipPrimitive.Provider delayDuration={0} skipDelayDuration={0}>
+                              <TooltipPrimitive.Root>
+                                <TooltipPrimitive.Trigger asChild>
+                                  <button
+                                    type="button"
+                                    disabled={submitting || posting.pending !== null}
+                                    aria-label={t("inventoryInbound.useReferenceSuggestion", {
+                                      cost: conciseMoney(option.purchase_cost_reference.amount),
+                                      currency: option.purchase_cost_reference.currency_code,
+                                    })}
+                                    onClick={() => update(variant, row.row_id, {
+                                      uom_id: String(option.purchase_cost_reference!.purchase_uom_id),
+                                      unit_cost: conciseMoney(option.purchase_cost_reference!.amount),
+                                    })}
+                                    className="inventory-inbound-reference-button"
+                                  >
+                                    {t("inventoryInbound.useReferenceShort")}
+                                  </button>
+                                </TooltipPrimitive.Trigger>
+                                <TooltipPrimitive.Portal>
+                                  <TooltipPrimitive.Content
+                                    side="top"
+                                    sideOffset={4}
+                                    className="z-[100] max-w-64 rounded-md bg-slate-900 px-2.5 py-1.5 text-[11px] font-bold text-white shadow-lg"
+                                  >
+                                    {t("inventoryInbound.useReferenceSuggestion", {
+                                      cost: conciseMoney(option.purchase_cost_reference.amount),
+                                      currency: option.purchase_cost_reference.currency_code,
+                                    })}
+                                    <TooltipPrimitive.Arrow className="fill-slate-900" />
+                                  </TooltipPrimitive.Content>
+                                </TooltipPrimitive.Portal>
+                              </TooltipPrimitive.Root>
+                            </TooltipPrimitive.Provider>
                           )}
                         </div>
                         {fieldHasError(row.row_id, "unit_cost") && (
@@ -1245,13 +1351,22 @@ export function Tab2Inbound({
         </div>
 
         <div className="inventory-inbound-footer">
-          <input
-            value={referenceId}
-            onChange={(event) => setReferenceId(event.target.value)}
-            placeholder={t("inventoryInbound.reference")}
-            aria-label={t("inventoryInbound.reference")}
-            className="inventory-inbound-footer-input inventory-inbound-footer-reference"
-          />
+          <div className="inventory-inbound-footer-required">
+            <input
+              ref={referenceRef}
+              value={referenceId}
+              onChange={(event) => {
+                setReferenceId(event.target.value);
+                if (event.target.value.trim() && setupValidation === "reference") setSetupValidation(null);
+              }}
+              placeholder={t("inventoryInbound.reference")}
+              aria-label={t("inventoryInbound.reference")}
+              aria-required="true"
+              aria-invalid={setupValidation === "reference"}
+              className={`inventory-inbound-footer-input inventory-inbound-footer-reference ${setupValidation === "reference" ? "is-error" : ""}`}
+            />
+            <span aria-hidden="true" className="inventory-inbound-footer-required-marker">*</span>
+          </div>
           <input
             value={notes}
             onChange={(event) => setNotes(event.target.value)}
@@ -1265,9 +1380,9 @@ export function Tab2Inbound({
             disabled={
               submitting ||
               isAuditLocked ||
-              optionsLoading ||
-              !costPolicy ||
-              savingPolicy
+              savingPolicy ||
+              posting.pending !== null ||
+              Boolean(posting.recoveryError)
             }
             className="inventory-inbound-submit disabled:opacity-50"
           >

@@ -3155,39 +3155,6 @@
   text-align: center;
 }
 
-.inventory-inbound-reference-wrap {
-  position: relative;
-  display: inline-flex;
-  flex: 0 0 auto;
-}
-
-.inventory-inbound-reference-wrap::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  inset-inline-start: 0;
-  top: calc(100% + 0.25rem);
-  z-index: 40;
-  width: max-content;
-  max-width: 18rem;
-  padding: 0.38rem 0.5rem;
-  border-radius: 0.45rem;
-  color: #fff;
-  background: #1f2937;
-  font-size: 0.62rem;
-  font-weight: 800;
-  line-height: 1.35;
-  white-space: normal;
-  pointer-events: none;
-  opacity: 0;
-  visibility: hidden;
-}
-
-.inventory-inbound-reference-wrap:hover::after,
-.inventory-inbound-reference-wrap:focus-within::after {
-  opacity: 1;
-  visibility: visible;
-}
-
 .inventory-inbound-reference-button {
   display: inline-flex;
   min-height: 1.7rem;
@@ -3250,9 +3217,20 @@
   box-shadow: 0 0 0 3px rgb(147 197 253 / 0.14);
 }
 
-.inventory-inbound-table .is-error {
+.inventory-inbound-table .is-error,
+.inventory-inbound-footer .is-error {
   border-color: #ef4444;
   box-shadow: 0 0 0 2px rgb(239 68 68 / 0.12);
+}
+
+@keyframes inventory-inbound-error-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(239 68 68 / 0); }
+  35% { box-shadow: 0 0 0 5px rgb(239 68 68 / 0.24); }
+  70% { box-shadow: 0 0 0 2px rgb(239 68 68 / 0.12); }
+}
+
+.inventory-inbound-error-pulse {
+  animation: inventory-inbound-error-pulse 0.9s ease-out 1;
 }
 
 .inventory-inbound-field-error {
@@ -3389,9 +3367,31 @@
   width: 100%;
 }
 
-.inventory-inbound-footer-reference {
+.inventory-inbound-footer-required {
+  position: relative;
   flex: 0 1 18rem;
   max-width: 22rem;
+}
+
+.inventory-inbound-footer-required .inventory-inbound-footer-reference {
+  width: 100%;
+  max-width: none;
+  padding-inline-end: 1.45rem;
+}
+
+.inventory-inbound-footer-required-marker {
+  position: absolute;
+  inset-inline-end: 0.55rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #e11d48;
+  font-size: 0.85rem;
+  font-weight: 950;
+  pointer-events: none;
+}
+
+.inventory-inbound-setup-error .supplier-selector-search-control {
+  border-color: #ef4444;
 }
 
 .inventory-inbound-footer-notes {

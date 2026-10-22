@@ -45,7 +45,9 @@ async def prepare(pg, t, method="FIFO"):
 
 
 def receipt(t, supplier, **changes):
-    body = dict(request_id=uuid4(), supplier_id=supplier, location_id=t.location_id,
+    request_id = uuid4()
+    body = dict(request_id=request_id, supplier_id=supplier, location_id=t.location_id,
+                reference_id=f"PR-INB-{request_id.hex}",
                 items=[dict(product_variant_id=t.variant_id, quantity="1",
                             uom_id=t.carton_id, unit_cost="24")])
     body.update(changes)

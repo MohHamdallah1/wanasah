@@ -96,9 +96,11 @@ class PostgresGate:
 
     def request(self, *, party=0, request_id=None, lot=None, quantity="10", cost="2", production=None, expiry=None):
         tenant = self.tenants[party]
+        resolved_request_id = request_id or uuid4()
         return UpgradedInboundRequest(
-            request_id=request_id or uuid4(), supplier_id=tenant.supplier_id,
-            location_id=tenant.location_id, items=[dict(
+            request_id=resolved_request_id, supplier_id=tenant.supplier_id,
+            location_id=tenant.location_id, reference_id=f"NOLOT-{resolved_request_id.hex}",
+            items=[dict(
                 product_variant_id=tenant.variant_id, uom_id=tenant.uom_id,
                 quantity=quantity, unit_cost=cost, batch_number=lot,
                 production_date=production, expiry_date=expiry)])
