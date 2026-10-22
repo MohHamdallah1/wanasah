@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'dart:developer' as developer;
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../services/location_service.dart';
 import '../features/shops/application/shop_creation_service.dart';
 import '../features/shops/domain/shop_creation.dart'; // +++   استيراد خدمة الموقع المركزية المحصنة +++
@@ -33,25 +32,6 @@ class _AddShopScreenState extends State<AddShopScreen> {
   bool _isGettingLocation = false;
   double? _currentLatitude;
   double? _currentLongitude;
-  bool _isOnBreak = false; // +++ حالة الاستراحة
-
-  @override
-  void initState() {
-    super.initState();
-    _checkBreakStatus();
-  }
-
-  Future<void> _checkBreakStatus() async {
-    final breakStr = await const FlutterSecureStorage().read(
-      key: 'is_on_break',
-    );
-    if (mounted) {
-      setState(() {
-        _isOnBreak = breakStr == 'true';
-      });
-    }
-  }
-
   @override
   void dispose() {
     // التخلص من جميع الـ Controllers
@@ -211,38 +191,13 @@ class _AddShopScreenState extends State<AddShopScreen> {
       ),
       // SingleChildScrollView يمكن أن تكون const إذا كان الـ child والـ padding هما const
       // لكن الـ child (Form) ليس const بسبب المفتاح key
-      body: IgnorePointer(
-        ignoring: _isOnBreak, 
-        child: SingleChildScrollView(
+      body: SingleChildScrollView(
           padding: const EdgeInsets.all(16.0),
           child: Form(
             key: _formKey,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // +++ SHP-1: لافتة تحذيرية واضحة للمندوب بدلاً من الشلل الصامت +++
-                if (_isOnBreak)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.shade100,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.orange.shade300),
-                    ),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.warning_amber_rounded, color: Colors.orange),
-                        SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'أنت في وقت الاستراحة. لا يمكنك إضافة محلات جديدة الآن.',
-                            style: TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                 // --- حقل اسم المحل (إجباري) ---
                 TextFormField(
                   controller: _nameController,
@@ -390,7 +345,6 @@ class _AddShopScreenState extends State<AddShopScreen> {
               ],
             ),
           ),
-        ),
       ),
     );
   }

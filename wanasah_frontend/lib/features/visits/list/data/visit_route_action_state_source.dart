@@ -14,11 +14,12 @@ abstract interface class VisitRouteActionStateSource {
   Future<VisitRouteCompatibilityState> readCompatibilityState();
 }
 
-/// Transitional V1 seam.
+/// Historical last-known compatibility evidence only.
 ///
-/// Dashboard/Work Session currently persists these two compatibility flags.
-/// Missing or malformed values are intentionally handled fail-closed by the
-/// application gate. This source is not an authorization authority.
+/// Retained for compatibility; Visit screens and route navigation no longer
+/// consume this source. Missing/malformed values or read errors cannot decide
+/// whether a Visit or Shop form opens or whether a mutation is authorized.
+/// Dashboard/Work Session owns any writes; Backend owns current eligibility.
 class SecureStorageVisitRouteActionStateSource
     implements VisitRouteActionStateSource {
   SecureStorageVisitRouteActionStateSource({
