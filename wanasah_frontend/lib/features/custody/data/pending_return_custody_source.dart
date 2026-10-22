@@ -35,11 +35,12 @@ class LocalPendingReturnCustodySource implements PendingReturnCustodySource {
   Future<List<PendingReturnCustodyItem>> read() async {
     final rows = await _pendingRows();
     final products = await _productRows();
-    final names = <int, String>{
-      for (final row in products)
-        if (_positiveInt(row['id']) case final id?)
-          id: _nonEmpty(row['name']) ?? 'منتج #$id',
-    };
+    final names = <int, String>{};
+    for (final row in products) {
+      final id = _positiveInt(row['id']);
+      if (id == null) continue;
+      names[id] = _nonEmpty(row['name']) ?? 'منتج #$id';
+    }
 
     final projected = <String, PendingReturnCustodyItem>{};
 
