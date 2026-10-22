@@ -79,7 +79,7 @@ Required closure:
 - [x] Define/verify a Backend-owned Batch-resolution seam for Flutter.
 - [x] Deterministic Batch cases resolve server-side automatically.
 - [x] Ambiguous cases return only minimal human-readable evidence (lot/expiry/etc.).
-- [ ] Flutter stores/sends the resolved opaque resolution token without displaying technical IDs. Backend seam is complete; Flutter wiring remains open.
+- [ ] Flutter stores/sends the resolved opaque resolution token without displaying technical IDs. Typed feature-owned adapter is complete; Visit wiring remains open.
 - [ ] Add Damaged + Expired + Factory_Defect consistently.
 - [ ] Preserve carton/pack quantities.
 - [ ] Preserve one stable idempotency identity across offline retry/replay.
@@ -187,8 +187,8 @@ The independent Backend audit found four genuine field-transport prerequisites. 
 
 ### 3.9 Shop-create retry and session semantics
 
-- [x] Shop creation has no durable operation UUID; duplicate phone is not proof that a lost command succeeded.
-- [ ] Lost/ambiguous shop creation must reconcile assigned visits/shop evidence before retry.
+- [x] Backend shop creation accepts a stable request UUID, and Flutter now generates/preserves one per logical shop-create command.
+- [x] Lost/ambiguous shop creation replays the exact same request UUID/body through the Backend idempotency contract; Flutter never mints a new identity for the unresolved logical command.
 - [x] Session start/end have no durable command identity; reconcile active session/dashboard before retry.
 - [x] Historical offline break replay is unsupported by Backend because server execution time defines break timing.
 - [x] Break start/end are online/reconcile operations for V1; no stale temporal replay queue.
@@ -594,7 +594,8 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] Legacy FIELD transport compatibility coverage: PASS.
 - [x] PR #428 merged to `main`.
 - [x] Backend merge commit: `8aa76c2099024e627da0cae34f15da9310020d7c`.
-- [ ] Flutter typed adapters/wiring for these seams remains open.
+- [x] Feature-owned Flutter typed adapters for Visit/Custody FIELD seams are complete and merged.
+- [ ] Visit/Custody behavioral wiring for those adapters remains open.
 
 ### 10.5 Visit mechanical decomposition stability point — 2026-10-22
 
@@ -625,7 +626,8 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] GitHub run `39688931001`: `flutter analyze` PASS + 14 focused/regression tests PASS.
 - [x] PR #434 merged into `sol/flutter-v1-field-closure`.
 - [x] Merge commit: `19a04e76085db29a265e84fadf33c64ec5088793`.
-- [ ] Current `part of DashboardBloc` coupling is transitional only; Work Session/Custody behavioral waves must move authority behind feature-owned orchestration/data boundaries before those features are considered architecturally closed.
+- [x] Work Session `part of DashboardBloc` coupling removed; Work Session authority now lives behind feature-owned data/application boundaries.
+- [ ] Custody transitional DashboardBloc coupling remains until the Custody behavioral wave.
 - [ ] Recovery/quarantine/sync remains in the Dashboard compatibility shell and is not marked decomposed.
 
 ### 10.7 Visit commercial decomposition stability point — 2026-10-22
@@ -647,6 +649,53 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] Offline durable-command regression: PASS.
 - [ ] New FIELD Return Resolution / Damaged / commercial-readiness / authoritative invoice adapters are not yet wired into this use-case.
 - [ ] Legacy Factory_Defect/Expired mapping remains compatibility behavior until the new feature-owned Return Resolution contracts are integrated.
+
+### 10.8 Feature-owned FIELD adapter stability point — 2026-10-22
+
+- [x] Existing PR #429 architecture correction completed at `e9f42b32ea9f02d8a37eca8b590da1df49e71b0e`.
+- [x] Mixed `core/field/**` production/test buckets removed completely.
+- [x] Visit FIELD contracts live under `features/visits/**`.
+- [x] Custody FIELD contracts live under `features/custody/**`.
+- [x] Shared `core/errors/api_failure_exception.dart` and `core/serialization/json_contract.dart` contain technical cross-cutting concerns only.
+- [x] VisitFieldClient owns return resolution, commercial readiness, invoice preview and committed/frozen invoice read.
+- [x] CustodyClient owns non-sellable custody read only.
+- [x] Exact opaque tokens and decimal strings are preserved.
+- [x] Public business models expose no raw database `batch_id`.
+- [x] GitHub run `39693684776`: analyze PASS; Visits 29 PASS; Custody 15 PASS; Offline regression 23 PASS; ownership gate PASS.
+- [x] PR #429 merged into `sol/flutter-v1-field-closure`.
+- [x] Merge commit: `5f1419edadf4ff2c77c4a5920236f47c1805a05d`.
+- [ ] Visit behavioral wiring remains open and is assigned to Codex.
+- [ ] Custody behavioral wiring remains open.
+
+### 10.9 Shop creation stability point — 2026-10-22
+
+- [x] Feature-first structure added under `features/shops/{domain,data,application}`.
+- [x] AddShopScreen no longer owns direct `ApiClient` transport.
+- [x] One stable `request_id` is generated per logical shop-create command.
+- [x] Ambiguous network/timeout/5xx result replays the exact same command identity/body through Backend idempotency.
+- [x] Same-screen explicit retry preserves the unresolved request identity instead of minting a new UUID.
+- [x] `commercial_readiness` is modeled explicitly; Flutter does not infer tax jurisdiction.
+- [x] Shop domain is independent from Dio/ApiFailure implementation types; network adaptation stays in data layer.
+- [x] GitHub Shop creation gate: analyze PASS + focused Shop tests PASS.
+- [x] Offline durable-command regression: PASS.
+- [x] PR #437 merged into `sol/flutter-v1-field-closure`.
+- [x] Merge commit: `d91aa92aa4d453e66b246b25127926b795c46fd4`.
+
+### 10.10 Work Session behavioral stability point — 2026-10-22
+
+- [x] Implementation branch HEAD: `d887520c09be31a1f6a537b09d1ad11d0ceb0492`.
+- [x] Work Session owns transport, active-session read model, mutation/reconciliation orchestration, typed failures and presentation result mapping.
+- [x] Legacy `work_session_handlers.dart` / Dart `part of DashboardBloc` coupling removed.
+- [x] Start Session uses Backend authority and reconciles ambiguous outcomes via active-session read.
+- [x] Restart recovery uses `GET /driver/sessions/active` as authoritative truth.
+- [x] Break remains online/reconcile-only with no deferred/offline mutation command.
+- [x] End Session never silently closes locally after ambiguous response; it reconciles active-session state.
+- [x] Free/localized text is display fallback only; no Work Session decision branches on it.
+- [x] GitHub run `39694394292`: analyze PASS + 36/36 focused/regression tests PASS.
+- [x] PR #438 merged into `sol/flutter-v1-field-closure`.
+- [x] Merge commit: `b2b71651c43601a38b365fa7d87316a0eef77ada`.
+- [ ] Custody behavioral closure remains separate.
+- [ ] Recovery/sync UX closure remains separate and is assigned to the second conversation.
 
 ## 11. UI / design-system closure
 
@@ -678,7 +727,7 @@ Required focused tests:
 - [x] durable command migration and persistence;
 - [x] visit request serialization;
 - [x] stable request_id replay;
-- [ ] return Batch-resolution transport;
+- [x] return Batch-resolution typed transport/adapters;
 - [ ] Damaged/Expired/Factory_Defect payloads;
 - [ ] exact money transport;
 - [x] break offline policy;
@@ -739,9 +788,10 @@ Final field acceptance:
 ### Day 3 — projection/session/custody + field-first UX
 - [ ] correct AVAILABLE-out vs DAMAGED-custody-in projection.
 - [x] completed-visit AVAILABLE projection correction applies old-to-new delta exactly once.
-- [ ] separate Session / Custody / Recovery responsibilities from DashboardBloc.
+- [x] Work Session behavior/authority separated from DashboardBloc into feature-owned boundaries.
+- [ ] Custody behavioral authority and Recovery/quarantine/sync responsibilities remain to be separated from DashboardBloc.
 - [ ] transfer exact-decision replay and 100-item runtime batch limit.
-- [ ] shop creation typed transport + ambiguous-result reconciliation.
+- [x] shop creation typed transport + stable request UUID + ambiguous-result exact replay reconciliation.
 - [ ] app shell/design tokens and workday-task-first home.
 - [ ] persistent sync/recovery status.
 - [ ] compact visit/quantity/returns field UX.
