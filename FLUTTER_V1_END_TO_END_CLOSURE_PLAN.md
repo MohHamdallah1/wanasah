@@ -79,12 +79,12 @@ Required closure:
 - [x] Define/verify a Backend-owned Batch-resolution seam for Flutter.
 - [x] Deterministic Batch cases resolve server-side automatically.
 - [x] Ambiguous cases return only minimal human-readable evidence (lot/expiry/etc.).
-- [ ] Flutter stores/sends the resolved opaque resolution token without displaying technical IDs. Adapter + application orchestration are complete; Visit UI/submission wiring remains open.
-- [ ] Add Damaged + Expired + Factory_Defect consistently.
-- [ ] Preserve carton/pack quantities.
-- [ ] Preserve one stable idempotency identity across offline retry/replay.
+- [x] Flutter stores/sends the resolved opaque resolution token without displaying technical IDs; current Visit UI/submission wiring preserves the Backend-signed token exactly.
+- [x] Add Damaged + Expired + Factory_Defect consistently.
+- [x] Preserve carton/pack quantities.
+- [x] Preserve one stable idempotency identity across offline retry/replay.
 - [x] Local projection separates AVAILABLE replacement-out from returned non-sellable custody for V1 field UX; unresolved local returns are shown as pending DAMAGED evidence, never merged into authoritative custody totals.
-- [ ] Reopen/correction cannot double-apply replacement or returned custody.
+- [x] Reopen/correction cannot double-apply replacement or returned custody.
 
 This may require one bounded Backend prerequisite on a separately owned worker branch. Do not fake the missing Batch truth in Flutter.
 
@@ -97,11 +97,11 @@ Current Flutter:
 - [x] can therefore reject a transaction based on stale client pricing while Backend pricing/offers/taxes are authoritative.
 
 Required closure:
-- [ ] Remove client calculations as authoritative acceptance/rejection rules.
-- [ ] Use Backend-authoritative preview/read evidence where available.
+- [x] Remove client calculations as authoritative acceptance/rejection rules.
+- [x] Use Backend-authoritative preview/read evidence where available.
 - [ ] Offline UI may display a clearly scoped estimate but must not invent final commercial truth.
-- [ ] Preserve exact monetary strings/values across transport and durable offline command storage.
-- [ ] Eliminate floating-point comparisons from correctness decisions.
+- [x] Preserve exact monetary strings/values across transport and durable offline command storage.
+- [x] Eliminate floating-point comparisons from commercial correctness decisions; legacy double compatibility state is non-authoritative.
 
 ### 3.3 Generic HTTP retry policy
 
@@ -391,10 +391,10 @@ Closure:
 - [ ] Do not duplicate Backend custody/vehicle-operational checks in Flutter as authority.
 - [ ] Show actionable Backend rejection states instead of generic SnackBars.
 - [ ] End session remains online/reconciled where Backend requires pending handshake/custody closure.
-- [ ] Pending transfer acceptance/rejection preserves exact decision and reason.
+- [x] Pending transfer acceptance/rejection preserves exact decision and reason.
 - [x] Backend transfer response is state-idempotent for exact repeated accepted/rejected decisions on current base.
-- [ ] Flutter replay must preserve that exact decision and must surface conflicting prior decisions.
-- [ ] Batch transfer UI and single transfer UI share one command model.
+- [x] Flutter replay preserves the exact decision/reason and fails closed on conflicting prior decisions.
+- [x] Batch transfer UI and single transfer UI share one exact durable command model.
 
 ## 8. Visit workflow / commercial action closure
 
@@ -405,7 +405,7 @@ Closure:
 - [ ] Samples require reason and preserve canonical quantities.
 - [ ] Bonus/reward quantity is never client-authoritative.
 - [ ] Flutter never sends a sale price or chooses FEFO Batch.
-- [ ] Shop debt/cash inputs use exact money transport.
+- [x] Shop debt/cash inputs use exact money transport.
 - [ ] Server response/rejection drives final outcome.
 - [ ] Existing completed/offline visit edit/reopen behavior is audited before preservation.
 
@@ -596,7 +596,7 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] PR #428 merged to `main`.
 - [x] Backend merge commit: `8aa76c2099024e627da0cae34f15da9310020d7c`.
 - [x] Feature-owned Flutter typed adapters for Visit/Custody FIELD seams are complete and merged.
-- [ ] Visit/Custody behavioral wiring for those adapters remains open.
+- [x] Visit/Custody behavioral wiring for the accepted FIELD adapters is complete.
 
 ### 10.5 Visit mechanical decomposition stability point — 2026-10-22
 
@@ -628,7 +628,7 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] PR #434 merged into `sol/flutter-v1-field-closure`.
 - [x] Merge commit: `19a04e76085db29a265e84fadf33c64ec5088793`.
 - [x] Work Session `part of DashboardBloc` coupling removed; Work Session authority now lives behind feature-owned data/application boundaries.
-- [ ] Custody transitional DashboardBloc coupling remains until the Custody behavioral wave.
+- [x] Custody behavioral authority is feature-owned; DashboardBloc retains composition/compatibility wiring only.
 - [x] Recovery/quarantine/sync business classification and presentation are removed from the Dashboard shell; only compatibility count/event wiring remains.
 
 ### 10.7 Visit commercial decomposition stability point — 2026-10-22
@@ -648,8 +648,8 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] Visit decomposition regression: PASS.
 - [x] Visit command-correction regression: PASS.
 - [x] Offline durable-command regression: PASS.
-- [ ] FIELD Return Resolution / Damaged / commercial-readiness / authoritative invoice UI/submission wiring remains open; application orchestration is complete.
-- [ ] Legacy Factory_Defect/Expired mapping remains compatibility behavior until the new feature-owned Return Resolution contracts are integrated.
+- [x] FIELD Return Resolution / Damaged / commercial-readiness / authoritative invoice UI/submission wiring is complete on the accepted application orchestration.
+- [x] Factory_Defect / Expired / Damaged return submission uses the feature-owned Return Resolution contracts.
 
 ### 10.8 Feature-owned FIELD adapter stability point — 2026-10-22
 
@@ -665,8 +665,8 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] GitHub run `39693684776`: analyze PASS; Visits 29 PASS; Custody 15 PASS; Offline regression 23 PASS; ownership gate PASS.
 - [x] PR #429 merged into `sol/flutter-v1-field-closure`.
 - [x] Merge commit: `5f1419edadf4ff2c77c4a5920236f47c1805a05d`.
-- [ ] Visit FIELD UI/submission behavioral wiring remains open and is assigned to Codex; feature-owned FIELD application orchestration is complete.
-- [ ] Custody behavioral wiring remains open.
+- [x] Visit FIELD UI/submission behavioral wiring is complete on the feature-owned FIELD application orchestration.
+- [x] Custody behavioral wiring is complete and integrated.
 
 ### 10.9 Shop creation stability point — 2026-10-22
 
@@ -695,7 +695,7 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] GitHub run `39694394292`: analyze PASS + 36/36 focused/regression tests PASS.
 - [x] PR #438 merged into `sol/flutter-v1-field-closure`.
 - [x] Merge commit: `b2b71651c43601a38b365fa7d87316a0eef77ada`.
-- [ ] Custody behavioral closure remains separate.
+- [x] Custody behavioral closure completed separately and is integrated.
 - [x] Recovery/sync UX behavioral closure completed and integrated.
 
 ### 10.10a Visit FIELD application stability point — 2026-10-22
@@ -712,8 +712,8 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] Exact-head GitHub run `39702349730`: analyze PASS; 25 application/architecture tests PASS; 29 existing Visit adapter tests PASS; 23 Offline regression tests PASS.
 - [x] PR #439 merged into `sol/flutter-v1-field-closure`.
 - [x] Merge commit: `373cc3943c139706d30bdacd632622a9526b93c3`.
-- [ ] Visit FIELD UI/submission wiring remains the next Codex wave.
-- [ ] Local projection / returned non-sellable custody integration remains separate.
+- [x] Visit FIELD UI/submission wiring completed in PR #449.
+- [x] Local projection / returned non-sellable custody integration completed in the accepted custody projection wave.
 
 ### 10.11 Recovery / Sync UX behavioral stability point — 2026-10-22
 
@@ -755,8 +755,8 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] Exact-HEAD GitHub run `39702349730`: analyze PASS; 25 application/architecture PASS; 29 adapter PASS; 23 Offline regression PASS.
 - [x] PR #439 merged into `sol/flutter-v1-field-closure`.
 - [x] Merge commit: `373cc3943c139706d30bdacd632622a9526b93c3`.
-- [ ] Operator-facing Return Resolution / Damaged / invoice / commercial-readiness wiring remains the next Codex slice.
-- [ ] Durable submission integration still must carry the resolved opaque return evidence without changing request-id ownership.
+- [x] Operator-facing Return Resolution / Damaged / invoice / commercial-readiness wiring completed in PR #449.
+- [x] Durable submission carries resolved opaque return evidence without changing request-id ownership.
 
 ### 10.13 Pending local return custody projection stability point — 2026-10-22
 
@@ -828,6 +828,39 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [ ] Broader field design-system adoption by feature screens remains open.
 - [ ] Workday/task-first home remains open; this mechanical foundation does not claim that product/UI closure.
 
+
+### 10.16 Visit FIELD operator wiring stability point — 2026-10-22
+
+- [x] Implementation branch: `codex/flutter-v1-visit-field-wiring`.
+- [x] Exact implementation HEAD: `b1965a2880998e4dfcd0bf8ba857004ebb711f2f`.
+- [x] Sale checks Backend commercial readiness and requires explicit confirmation of Backend-authoritative invoice preview.
+- [x] Damaged / Expired / Factory_Defect returns use Backend-owned Return Resolution; ambiguity has no default choice and asks only for requested human/business evidence.
+- [x] Canonical submission carries the exact opaque signed return token and exact carton/pack quantities; raw `batch_id` is never exposed.
+- [x] Exact cash/debt text is preserved through the current authoritative submission path; cached pricing no longer drives commercial acceptance/rejection.
+- [x] Existing durable Visit UUID/body staging and replay authority remains unchanged; unresolved prior command evidence blocks a new correction.
+- [x] Confirmed Sale reads committed/frozen invoice evidence; invoice-read failure never retries the Visit mutation.
+- [x] All five PR-triggered regression workflows PASS on exact HEAD, including FIELD, correction, mechanical/commercial decomposition and Offline gates.
+- [x] PR #449 merged into `sol/flutter-v1-field-closure`.
+- [x] Merge commit: `c67091d59cf05f51795fce538e8f131ac0e465e4`.
+- [ ] Real-device/current-Backend journey remains a final release acceptance gate.
+
+### 10.17 Transfer handshake exact-replay stability point — 2026-10-22
+
+- [x] Implementation branch: `sol/flutter-v1-transfer-handshake-closure`.
+- [x] Exact implementation HEAD: `d6aea988b79328faba8800f5698dac78a2263bee`.
+- [x] Real `real_transfer_id` is the only decision identity; invalid/missing IDs fail closed and are never reconstructed from product/quantity context.
+- [x] Accepted/rejected decision and normalized rejection reason are staged in the existing durable-command store before first send and replay exactly.
+- [x] Conflicting or blocked prior decision evidence fails closed without overwrite or evidence destruction.
+- [x] Connection/timeout/408/429/5xx ambiguity preserves the exact pending command; deterministic failure becomes blocked evidence without free-text classification.
+- [x] Confirmed server success is separated from local finalization; surviving evidence replays safely against Backend state-idempotency.
+- [x] Batch responses preserve deterministic order and enforce the live Backend runtime maximum of 100; an ambiguous/blocked chunk stops later chunks.
+- [x] Existing SyncRepository durable replay remains the single replay engine; no second table, migration or sync engine was introduced.
+- [x] Exact-head worker run `39713469101`: analyze PASS + 68 focused/regression tests PASS.
+- [x] Post-PR integration gate after Visit FIELD merge: all 8 triggered Flutter regression workflows PASS.
+- [x] PR #450 merged into `sol/flutter-v1-field-closure`.
+- [x] Merge commit: `435c5a0fb5b8bd7bbc47ba4937c6f6632d6e730d`.
+- [ ] Backend batch errors still lack stable per-item failure identity in some deterministic batch failures; V1 safely blocks the current chunk and preserves evidence without parsing text.
+
 ## 11. UI / design-system closure
 
 Current app has one global ad-hoc gradient/theme and no coherent field design system.
@@ -859,10 +892,10 @@ Required focused tests:
 - [x] visit request serialization;
 - [x] stable request_id replay;
 - [x] return Batch-resolution typed transport/adapters;
-- [ ] Damaged/Expired/Factory_Defect payloads;
-- [ ] exact money transport;
+- [x] Damaged/Expired/Factory_Defect payloads;
+- [x] exact money transport;
 - [x] break offline policy;
-- [ ] transfer exact-repeat/state-idempotent replay;
+- [x] transfer exact-repeat/state-idempotent replay;
 - [x] quarantine/recovery preservation;
 - [x] account/company switch with pending/blocked work;
 - [ ] local projection apply/revert exactly once.
@@ -910,18 +943,18 @@ Final field acceptance:
 - [ ] mechanically extract any remaining Visit presentation only when required by the next feature slice.
 - [x] strict VisitUpdateRequest serializer: path ID only; no unknown fields.
 - [x] persist visit UUID/body before first send.
-- [ ] exact-money transport; local figures are estimates, not authority.
-- [ ] sale/collection/sample contract parity.
-- [ ] Damaged / Expired / Factory_Defect + Backend Batch-resolution flow.
+- [x] exact-money transport; local figures are estimates, not authority.
+- [x] sale/collection/sample contract parity at the Flutter contract/wiring gate.
+- [x] Damaged / Expired / Factory_Defect + Backend Batch-resolution flow.
 - [x] durable command store migration preserving old rows.
-- [ ] visit/offline tests.
+- [x] visit/offline focused and regression tests.
 
 ### Day 3 — projection/session/custody + field-first UX
 - [x] correct AVAILABLE-out vs DAMAGED-custody-in V1 projection: replacement-out affects local AVAILABLE projection while returned goods appear separately as pending DAMAGED evidence until Backend custody becomes authoritative.
 - [x] completed-visit AVAILABLE projection correction applies old-to-new delta exactly once.
 - [x] Work Session behavior/authority separated from DashboardBloc into feature-owned boundaries.
-- [ ] Custody behavioral authority remains to be separated from DashboardBloc; Recovery/quarantine/sync responsibility is now feature-owned.
-- [ ] transfer exact-decision replay and 100-item runtime batch limit.
+- [x] Custody behavioral authority is feature-owned; DashboardBloc is compatibility/composition wiring and Recovery/quarantine/sync responsibility is feature-owned.
+- [x] transfer exact-decision replay and 100-item runtime batch limit.
 - [x] shop creation typed transport + stable request UUID + ambiguous-result exact replay reconciliation.
 - [ ] app shell/design tokens and workday-task-first home.
 - [x] persistent sync/recovery status distinguishes pending, blocked/recovery-required, synced, incomplete and unresolved outcomes.
