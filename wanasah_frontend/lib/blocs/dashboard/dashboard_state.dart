@@ -4,6 +4,8 @@ import 'package:equatable/equatable.dart';
 
 import '../../models/product_model.dart';
 import '../../models/visit_model.dart';
+import '../../features/custody/domain/pending_transfer.dart';
+import '../../features/custody/domain/non_sellable_custody.dart';
 
 abstract class DashboardState extends Equatable {
   const DashboardState();
@@ -45,7 +47,8 @@ class DashboardLoaded extends DashboardState {
 
   final bool isOffline;
   // +++ جديد: للتعامل مع المصافحة المعلقة (Transfers Handshake) +++
-  final Map<String, dynamic>? pendingTransfer;
+  final PendingTransferBatch? pendingTransfer;
+  final List<NonSellableCustodyItem> nonSellableCustody;
   // +++  لـ Bug 1: دمج رسالة النجاح كمتغير لحظي لمنع انهيار الشاشة +++
   final String? actionSuccessMessage;
 
@@ -69,6 +72,7 @@ class DashboardLoaded extends DashboardState {
     this.isOnBreak = false,
     this.isOffline = false,
     this.pendingTransfer,
+    this.nonSellableCustody = const <NonSellableCustodyItem>[],
     this.actionSuccessMessage,
   });
 
@@ -93,6 +97,7 @@ class DashboardLoaded extends DashboardState {
     isOnBreak,
     isOffline,
     pendingTransfer,
+    nonSellableCustody,
     actionSuccessMessage,
   ];
 
@@ -116,7 +121,8 @@ class DashboardLoaded extends DashboardState {
     String? activeSessionStartTime,
     bool? isOnBreak,
     bool? isOffline,
-    Map<String, dynamic>? pendingTransfer,
+    PendingTransferBatch? pendingTransfer,
+    List<NonSellableCustodyItem>? nonSellableCustody,
     String? actionSuccessMessage,
     bool clearActionMessage = false, // لتفريغ الرسالة بعد عرضها
     bool clearPendingTransfer =
@@ -147,6 +153,8 @@ class DashboardLoaded extends DashboardState {
           clearPendingTransfer
               ? null
               : (pendingTransfer ?? this.pendingTransfer),
+      nonSellableCustody:
+          nonSellableCustody ?? this.nonSellableCustody,
       actionSuccessMessage: 
           clearActionMessage
               ? null 

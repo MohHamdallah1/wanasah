@@ -3,3 +3,10 @@ library;
 
 export 'data/custody_client.dart';
 export 'domain/non_sellable_custody.dart';
+
+export 'application/custody_coordinator.dart';
+export 'application/custody_outcome.dart';
+export 'data/pending_transfer_source.dart';
+export 'data/transfer_response_gateway.dart';
+export 'domain/pending_transfer.dart';
+export 'domain/transfer_decision.dart';

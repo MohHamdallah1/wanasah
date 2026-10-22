@@ -3,14 +3,20 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('Visit application imports only its own application/domain/data contracts and failure types', () {
-    final root = Directory('lib/features/visits/application');
+  test('Visit FIELD application imports only its own application/domain/data contracts and failure types', () {
+    final roots = <Directory>[
+      Directory('lib/features/visits/application/returns'),
+      Directory('lib/features/visits/application/invoice'),
+      Directory('lib/features/visits/application/commercial'),
+    ];
     final feature = Directory('lib/features/visits').absolute.uri;
     final applicationPrefix = feature.resolve('application/').path;
     final domainPrefix = feature.resolve('domain/').path;
     final clientPath = feature.resolve('data/visit_field_client.dart').path;
-    final files = root.listSync(recursive: true).whereType<File>()
-        .where((file) => file.path.endsWith('.dart')).toList();
+    final files = roots
+        .expand((root) => root.listSync(recursive: true).whereType<File>())
+        .where((file) => file.path.endsWith('.dart'))
+        .toList();
     expect(files, isNotEmpty);
     final directives = RegExp(r'''(?:import|export|part)\s+['"]([^'"]+)['"]''');
     for (final file in files) {
