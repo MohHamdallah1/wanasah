@@ -116,9 +116,9 @@ const normalizeDateEntry = (value: string) => {
       const year = firstFour;
       const month = Number(compact.slice(4, 6));
       const day = Number(compact.slice(6, 8));
-      return isValidCalendarDate(year, month, day)
-        ? `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`
-        : text;
+      if (isValidCalendarDate(year, month, day)) {
+        return `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`;
+      }
     }
 
     const day = Number(compact.slice(0, 2));
@@ -744,7 +744,7 @@ export function Tab2Inbound({
 
   const submit = async () => {
     if (!posting.online) return toast.error(t("suppliers.offline"));
-    if (posting.pending || posting.recoveryError || localStorage.getItem(keys.requestId)) return toast.error(t("suppliers.pending"));
+    if (posting.pending || posting.recoveryError) return toast.error(t("suppliers.pending"));
     if (isAuditLocked) {
       return toast.error(t("inventoryInbound.errors.auditLocked"));
     }
