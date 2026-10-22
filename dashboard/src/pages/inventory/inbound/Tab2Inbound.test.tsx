@@ -109,6 +109,7 @@ const makeFetch = (
     if (url === "/warehouse/inbound/options") {
       return {
         currency_code: "JOD",
+        as_of_date: "2026-10-22",
         items: [...variants, ...resolvedVariants]
           .filter((item) => (JSON.parse(String(opts?.body)).ids as number[]).includes(item.id))
           .map((item) => ({
@@ -158,6 +159,7 @@ const renderInbound = (
   policy: CostPolicy = costPolicy,
   resolvedVariants: CatalogVariant[] = variants,
   suggestedCost: string | null = null,
+  isAuditLocked = false,
 ) => {
   const fetch = makeFetch(variants, nextCursor, policy, resolvedVariants, suggestedCost);
   const view = render(
@@ -166,7 +168,7 @@ const renderInbound = (
         companyId={1}
         actorId={2}
         locationId={3}
-        isAuditLocked={false}
+        isAuditLocked={isAuditLocked}
         authenticatedFetch={fetch}
         onSuccess={vi.fn()}
       />
@@ -263,6 +265,22 @@ describe("Checkpoint 1 inbound UI", () => {
     fireEvent.click(submit);
     await waitFor(() => expect(document.activeElement).toBe(cost));
     expect(cost).toHaveAttribute("aria-invalid", "true");
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+
+  it("keeps the post button actionable during audit lock but never posts", async () => {
+    renderInbound(
+      [makeVariant(1, "Audit locked product", "NONE", "NONE")],
+      null,
+      costPolicy,
+      [makeVariant(1, "Audit locked product", "NONE", "NONE")],
+      null,
+      true,
+    );
+    await screen.findByText("Audit locked product");
+    const submit = screen.getByRole("button", { name: "Post receipt" }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(false);
+    fireEvent.click(submit);
     expect(mocks.post).not.toHaveBeenCalled();
   });
 

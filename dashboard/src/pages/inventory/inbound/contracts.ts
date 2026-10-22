@@ -42,6 +42,7 @@ export interface InboundVariantOptions {
 
 export interface InboundOptionsResponse {
   currency_code: string;
+  as_of_date: string;
   items: InboundVariantOptions[];
 }
 
@@ -258,7 +259,11 @@ export const buildInboundItems = (
   drafts: InboundDraftMap,
   variants: Map<string, CatalogVariant>,
   options: Map<number, InboundVariantOptions>,
+  asOfDate?: string,
 ): InboundItemPayload[] => {
+  if (asOfDate !== undefined && !isoDate(asOfDate, false)) {
+    throw codedError("INBOUND_OPTIONS_INVALID");
+  }
   const items: InboundItemPayload[] = [];
   const seenBatchMetadata = new Map<
     string,
@@ -400,6 +405,20 @@ export const buildInboundItems = (
           "expiry_date"
         );
       }
+      if (expiryDate && asOfDate && expiryDate < asOfDate) {
+        throw inboundRowError(
+          "INBOUND_BATCH_EXPIRED",
+          row.row_id,
+          "expiry_date"
+        );
+      }
+      if (productionDate && asOfDate && productionDate > asOfDate) {
+        throw inboundRowError(
+          "INBOUND_PRODUCTION_DATE_FUTURE",
+          row.row_id,
+          "production_date"
+        );
+      }
 
       if (batch !== null) {
         const batchKey = `${variant.id}|${batch}`;
@@ -468,7 +487,12 @@ export const buildInboundItems = (
 export const parseInboundOptions = (raw: unknown): InboundOptionsResponse => {
   if (!raw || typeof raw !== "object") throw codedError("INBOUND_OPTIONS_INVALID");
   const value = raw as Record<string, unknown>;
-  if (typeof value.currency_code !== "string" || !Array.isArray(value.items)) {
+  if (
+    typeof value.currency_code !== "string" ||
+    typeof value.as_of_date !== "string" ||
+    !isoDate(value.as_of_date, false) ||
+    !Array.isArray(value.items)
+  ) {
     throw codedError("INBOUND_OPTIONS_INVALID");
   }
   const items = value.items.map((unknownItem) => {
@@ -534,7 +558,11 @@ export const parseInboundOptions = (raw: unknown): InboundOptionsResponse => {
       purchase_cost_reference: purchaseCostReference,
     };
   });
-  return { currency_code: value.currency_code, items };
+  return {
+    currency_code: value.currency_code,
+    as_of_date: value.as_of_date,
+    items,
+  };
 };
 
 export const parseCostPolicy = (raw: unknown): CostPolicy => {

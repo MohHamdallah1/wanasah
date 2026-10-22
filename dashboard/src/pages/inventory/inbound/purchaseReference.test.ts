@@ -16,6 +16,7 @@ const defaultPayload = (id: number, unitCost: string, uomId: number): InboundIte
 
 const withOption = (reference: unknown) => ({
   currency_code: "JOD",
+  as_of_date: "2026-10-22",
   items: [{
     product_variant_id: 7,
     base_uom_id: 1,

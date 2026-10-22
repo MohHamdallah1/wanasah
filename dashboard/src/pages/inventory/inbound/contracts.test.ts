@@ -64,11 +64,13 @@ const build = (
   lot: CatalogVariant["lot_control_mode"],
   expiry: CatalogVariant["expiry_control_mode"],
   patch: Partial<ReturnType<typeof emptyInboundBatch>> = {},
+  asOfDate?: string,
 ) =>
   buildInboundItems(
     drafts(patch),
     new Map([["7", variant(lot, expiry)]]),
     options,
+    asOfDate,
   );
 
 const expectRowError = (
@@ -248,6 +250,52 @@ describe("Checkpoint 1 inbound tracking contract", () => {
       "expiry_date",
       "row-2",
     );
+  });
+
+  it("rejects expired stock and future production against the company local date", () => {
+    expectRowError(
+      () => build(
+        "REQUIRED",
+        "REQUIRED",
+        {
+          batch_number: "LOT-PAST",
+          production_date: "2026-10-01",
+          expiry_date: "2026-10-21",
+        },
+        "2026-10-22",
+      ),
+      "INBOUND_BATCH_EXPIRED",
+      "expiry_date",
+    );
+    expectRowError(
+      () => build(
+        "REQUIRED",
+        "REQUIRED",
+        {
+          batch_number: "LOT-FUTURE",
+          production_date: "2026-10-23",
+          expiry_date: "2026-12-01",
+        },
+        "2026-10-22",
+      ),
+      "INBOUND_PRODUCTION_DATE_FUTURE",
+      "production_date",
+    );
+    expect(
+      build(
+        "REQUIRED",
+        "REQUIRED",
+        {
+          batch_number: "LOT-TODAY",
+          production_date: "2026-10-22",
+          expiry_date: "2026-10-22",
+        },
+        "2026-10-22",
+      )[0],
+    ).toMatchObject({
+      production_date: "2026-10-22",
+      expiry_date: "2026-10-22",
+    });
   });
 
   it("preserves exact quantity, UOM and money validation with row identity", () => {

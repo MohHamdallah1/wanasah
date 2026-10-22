@@ -639,6 +639,7 @@ async def warehouse_inbound_options(
     )
     if company is None:
         raise HTTPException(status_code=404, detail="Company was not found.")
+    as_of_date = await get_company_local_date(db, company_id)
 
     tracking_rows = (
         await db.execute(
@@ -706,6 +707,7 @@ async def warehouse_inbound_options(
 
     return {
         "currency_code": str(company.currency_code).upper(),
+        "as_of_date": as_of_date.isoformat(),
         "items": items,
     }
 
