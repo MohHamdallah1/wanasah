@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - "wanasah_frontend/lib/features/visits/**"
+      - "wanasah_frontend/lib/blocs/visit/visit_bloc.dart"
+      - "wanasah_frontend/lib/screens/visit_screen.dart"
+      - "wanasah_frontend/lib/models/cart_item_model.dart"
       - "wanasah_frontend/lib/features/custody/**"
       - "wanasah_frontend/lib/core/errors/api_failure_exception.dart"
       - "wanasah_frontend/lib/core/serialization/json_contract.dart"
@@ -59,3 +62,10 @@ jobs:
         run: flutter test test/features/custody
       - name: Offline durable-command regression
         run: flutter test test/offline_owner_guard_test.dart test/offline_durable_command_test.dart
+      - name: Visit correction and accepted decomposition regressions
+        run: >-
+          flutter test test/core/visit/visit_command_correction_test.dart
+          test/features/visits/visit_decomposition_test.dart
+          test/features/visits/visit_commercial_decomposition_test.dart
+      - name: Pending return custody projection regression
+        run: flutter test test/features/custody/pending_return_custody_projection_test.dart

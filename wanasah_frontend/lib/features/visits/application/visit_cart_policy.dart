@@ -25,7 +25,8 @@ VisitCartMutationResult applyVisitCartItem({
       (item.returnFactoryCartons * packsPerCarton) +
       item.returnFactoryPacks +
       (item.returnExpiredCartons * packsPerCarton) +
-      item.returnExpiredPacks;
+      item.returnExpiredPacks +
+      (item.returnDamagedCartons * packsPerCarton) + item.returnDamagedPacks;
   final availableBasePacks =
       (item.availableCartons * packsPerCarton) + item.availablePacks;
 
@@ -50,7 +51,8 @@ VisitCartMutationResult applyVisitCartItem({
       item.returnFactoryCartons == 0 &&
       item.returnFactoryPacks == 0 &&
       item.returnExpiredCartons == 0 &&
-      item.returnExpiredPacks == 0;
+      item.returnExpiredPacks == 0 &&
+      item.returnDamagedCartons == 0 && item.returnDamagedPacks == 0;
 
   if (hasZeroQuantities) {
     if (index >= 0) updated.removeAt(index);

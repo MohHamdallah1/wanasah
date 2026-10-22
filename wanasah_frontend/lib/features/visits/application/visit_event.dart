@@ -1,4 +1,6 @@
 import 'package:equatable/equatable.dart';
+import 'visit_return_submission.dart';
+import 'visit_sale_confirmation.dart';
 
 import '../../../models/cart_item_model.dart';
 
@@ -84,14 +86,23 @@ class SubmitVisit extends VisitEvent {
   final String outcome;
   final String? notes;
   final double debtPaid;
+  final String? exactCashCollected;
+  final String? exactDebtPaid;
+  final ResolvedVisitReturns? resolvedReturns;
+  final VisitSaleConfirmation? saleConfirmation;
 
   const SubmitVisit({
     required this.visitId,
     required this.outcome,
     required this.debtPaid,
     this.notes,
+    this.exactCashCollected,
+    this.exactDebtPaid,
+    this.resolvedReturns,
+    this.saleConfirmation,
   });
 
   @override
-  List<Object?> get props => [visitId, outcome, debtPaid, notes];
+  List<Object?> get props => [visitId, outcome, debtPaid, notes,
+    exactCashCollected, exactDebtPaid, resolvedReturns, saleConfirmation];
 }

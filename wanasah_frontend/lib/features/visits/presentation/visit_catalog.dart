@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import '../../../blocs/visit/visit_bloc.dart';
 import '../../../models/cart_item_model.dart';
 import '../../../models/product_model.dart';
+import '../domain/returns/return_resolution.dart';
+import 'returns/return_reason_quantities.dart';
 
 // ============================================================================
 // --- كلاسات وحش الـ POS (The 2026 Accordion UI) ---
@@ -154,6 +156,8 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
   final rfPacks = TextEditingController();
   final reCartons = TextEditingController(); // إكسباير
   final rePacks = TextEditingController();
+  final rdCartons = TextEditingController();
+  final rdPacks = TextEditingController();
 
   // عينات
   final smpCartons = TextEditingController();
@@ -172,6 +176,8 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
     rfPacks.dispose();
     reCartons.dispose();
     rePacks.dispose();
+    rdCartons.dispose();
+    rdPacks.dispose();
     smpCartons.dispose();
     smpPacks.dispose();
     smpReason.dispose();
@@ -206,6 +212,8 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
       safeUpdate(rfPacks, item.returnFactoryPacks > 0 ? item.returnFactoryPacks.toString() : '');
       safeUpdate(reCartons, item.returnExpiredCartons > 0 ? item.returnExpiredCartons.toString() : '');
       safeUpdate(rePacks, item.returnExpiredPacks > 0 ? item.returnExpiredPacks.toString() : '');
+      safeUpdate(rdCartons, item.returnDamagedCartons > 0 ? item.returnDamagedCartons.toString() : '');
+      safeUpdate(rdPacks, item.returnDamagedPacks > 0 ? item.returnDamagedPacks.toString() : '');
       safeUpdate(smpCartons, item.sampleCartons > 0 ? item.sampleCartons.toString() : '');
       safeUpdate(smpPacks, item.samplePacks > 0 ? item.samplePacks.toString() : '');
       
@@ -223,6 +231,7 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
       sCartons.clear(); sPacks.clear();
       rfCartons.clear(); rfPacks.clear();
       reCartons.clear(); rePacks.clear();
+      rdCartons.clear(); rdPacks.clear();
       smpCartons.clear(); smpPacks.clear(); smpReason.clear();
       _selectedSampleReason = null;
     }
@@ -255,6 +264,8 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
       returnFactoryPacks: rfp,
       returnExpiredCartons: rec,
       returnExpiredPacks: rep,
+      returnDamagedCartons: int.tryParse(rdCartons.text) ?? 0,
+      returnDamagedPacks: int.tryParse(rdPacks.text) ?? 0,
       sampleCartons: smpC,
       samplePacks: smpP,
       sampleReason: _selectedSampleReason == 'أخرى' ? smpReason.text : (_selectedSampleReason ?? ''),
@@ -355,21 +366,14 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
                         decoration: BoxDecoration(color: Colors.blue.shade50.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.blue.shade100)),
                         child: Column(
                           children: [
-                            // +++ واجهة العدادات الذكية الموحدة (بدون كبسات وهمية) +++
-                            Row(
-                              children: [
-                                Expanded(child: _buildStepper("كراتين تالف مصنع (🔁)", rfCartons, iconColor: Colors.orange)),
-                                const SizedBox(width: 8),
-                                Expanded(child: _buildStepper("حبات تالف مصنع (🔁)", rfPacks, iconColor: Colors.orange)),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(child: _buildStepper("كراتين إكسباير (🔁)", reCartons, iconColor: Colors.deepOrange)),
-                                const SizedBox(width: 8),
-                                Expanded(child: _buildStepper("حبات إكسباير (🔁)", rePacks, iconColor: Colors.deepOrange)),
-                              ],
+                            ReturnReasonQuantities(
+                              controllers: {
+                                FieldReturnType.damaged: (rdCartons, rdPacks),
+                                FieldReturnType.expired: (reCartons, rePacks),
+                                FieldReturnType.factoryDefect: (rfCartons, rfPacks),
+                              },
+                              buildQuantity: (label, controller) => _buildStepper(
+                                label, controller, iconColor: Colors.orange),
                             ),
                             const Divider(height: 24),
                             Row(
