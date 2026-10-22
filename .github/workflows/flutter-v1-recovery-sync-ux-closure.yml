@@ -1,0 +1,51 @@
+name: Flutter V1 Recovery Sync UX Closure
+
+on:
+  push:
+    branches:
+      - sol/flutter-v1-recovery-sync-ux-closure
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "wanasah_frontend/lib/features/recovery/**"
+      - "wanasah_frontend/lib/blocs/dashboard/dashboard_bloc.dart"
+      - "wanasah_frontend/lib/screens/dashboard_screen.dart"
+      - "wanasah_frontend/test/features/recovery/**"
+      - ".github/workflows/flutter-v1-recovery-sync-ux-closure.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  recovery-sync-ux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: wanasah_frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.29.3"
+          channel: stable
+          cache: true
+
+      - name: Prepare CI-only environment asset
+        run: printf 'API_BASE_URL=http://127.0.0.1:8000\n' > .env
+
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+
+      - name: Flutter analyze
+        run: flutter analyze
+
+      - name: Recovery and regression tests
+        run: >-
+          flutter test
+          test/features/recovery/recovery_behavioral_closure_test.dart
+          test/offline_durable_command_test.dart
+          test/features/work_session/work_session_behavioral_closure_test.dart
+          test/features/session_custody_decomposition_test.dart
