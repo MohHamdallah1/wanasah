@@ -1,4 +1,4 @@
-﻿# Wanasah ΓÇö Purchase Cost Reference + Inbound Draft Closure
+# Wanasah — Purchase Cost Reference + Inbound Draft Closure
 
 **Status:** RELEASE MERGED / LOCAL ONE-DASHBOARD RUNNING / Excel import cost extension and authenticated business field acceptance pending.
 **Started:** 2026-10-21
@@ -40,7 +40,7 @@
 
 ## 3. Display / UX
 - [~] Product create, table, display preferences and edit modal labels distinguish Sale Price explicitly (Arabic and English). Excel headers, parsing aliases, ten-column template and import wire contract are unchanged.
-- [x] Product create/edit: optional clearly distinct **╪¬┘â┘ä┘ü╪⌐ ╪º┘ä╪┤╪▒╪º╪í ╪º┘ä┘à╪▒╪¼╪╣┘è╪⌐** field + source/UOM explanation.
+- [x] Product create/edit: optional clearly distinct **تكلفة الشراء المرجعية** field + source/UOM explanation.
 - [x] Inbound: compact price + edit pencil, keyboard accessible, supports source and UOM clarity, no overwriting edits during catalog refresh.
 - [x] No change to the existing hybrid date input, separate LOT/Production/Expiry columns, or keyboard-first single-row workflow.
 
@@ -67,7 +67,7 @@
 ## 6. STOP / escalation
 Stop if new schema/domain ownership/permission semantics conflict with canonical architecture, a migration rewrites historical cost/receipts, implementation requires a new unapproved Excel column, or a branch overlaps uncommitted local work. Surface the exact risk to Owner/Lead before implementation.
 
-## 7. Worker A audit accepted by Lead (2026-10-21) ΓÇö NO COST IMPLEMENTATION YET
+## 7. Worker A audit accepted by Lead (2026-10-21) — NO COST IMPLEMENTATION YET
 
 Audit source: GitHub commit `2be59f6066419ef1de0157c48adaf8c931bfbaf2`, read-only, with a separate lead check against the current local receipt handler, costing ADR and capability catalog. The worker did not examine uncommitted local changes or execute tests.
 
@@ -85,7 +85,7 @@ Audit source: GitHub commit `2be59f6066419ef1de0157c48adaf8c931bfbaf2`, read-onl
 - Future reference suggestions must never replace an operator's already-entered receipt actual cost. Submission sends explicit fixed amount + original purchase UOM to the backend.
 - Manual Product reference entry creates no physical movement, InventoryCostEvent, InventoryCostLayer, change to InventoryCostState, official COGS, or sale-price publication.
 
-### Open contract blockers ΓÇö must close before write-worker assignments
+### Open contract blockers — must close before write-worker assignments
 - [x] Multi-line same-variant receipt with different costs/UOMs: avoid sorted-internal-line "last wins." Freeze deterministic single reference-selection business rule. Preserve all real invoice line costs even when selecting a different one as future reference.
 - [x] Currency: choose company currency for V1 and persist explicit reference currency; verify whether company currency can change and historical provenance if it does. Never infer historical currency from today's setting.
 - [x] UOM: reference display/edit must use exact authoritative unit conversion or require explicit chosen reference UOM; avoid round-trip rounding. Preserve raw receipt UOM/actual input.
@@ -135,7 +135,7 @@ Source: GitHub audited at exact `2be59f6066419ef1de0157c48adaf8c931bfbaf2`, READ
 - Backend risk worker A follow-up remains pending: multi-line same-product selection, currency, UOM, concurrent locking, permissions.
 - Lead contract must freeze before coding; read-only audits alone do not satisfy accounting acceptance.
 
-## 9. Final risk audit reviewed (2026-10-21) ΓÇö move from audits to implementation
+## 9. Final risk audit reviewed (2026-10-21) — move from audits to implementation
 
 Worker A's final read-only GitHub audit is complete. NO need for more open-ended audits.
 Lead check: receipt and Product costs MUST remain independent of financial valuation and Sale Pricing.
@@ -167,7 +167,7 @@ Local working tree changes, no commit/push/merge:
 
 Preserved all unrelated local Product, Backend, Flutter and database work. DO NOT blend these uncommitted local changes into an older GitHub branch without explicit diff reconciliation.
 
-## 11. Purchase Reference implementation status ΓÇö 2026-10-21 (Lead verified GitHub)
+## 11. Purchase Reference implementation status — 2026-10-21 (Lead verified GitHub)
 
 - [x] Foundation PR #406, HEAD 822732366b814beab0a6c1690dfcc2e2e249b4ec: exact-reference GET/PUT, audit, idempotency, independent revision and RLS. PostgreSQL 24 tests and clean bootstrap PASS; NOT MERGED.
 - [x] Product EDIT UI PR #407, HEAD 66f080f99b98c67e60e0cda60e1b96486dd4ad56: separated purchase cost editor, permissions and durable retry. Focused UI tests and build PASS; NOT MERGED.
@@ -181,7 +181,7 @@ Preserved all unrelated local Product, Backend, Flutter and database work. DO NO
 - [x] Main divergence and full-file PR #406 diff must be reconciled from exact-base commits, not blindly merged.
 All new implementation occurred via GitHub branches except this isolated local plan update. The local source code and database were NOT modified in this checkpoint.
 
-## 12. Combined exact-head V1 candidate ΓÇö 2026-10-21 verified (GitHub-only integration)
+## 12. Combined exact-head V1 candidate — 2026-10-21 verified (GitHub-only integration)
 - [x] PR #411 optional Product CREATE purchase reference, exact HEAD 12aa9eee8ff342567c9c2e0da06739b4323d7f69 accepted in combined branch. Create + reference + audit share a single durable DB transaction; Product backend and quick-create UI; no new migration.
 - [x] Combined PR #412, branch sol/purchase-cost-reference-full-integration-v1, exact HEAD ab6307086516483f9615e5b0a7a6c46a6c205110, integrating reference Foundation #406, Product EDIT #407, Supplier Inbound backend #408, Inbound UI #409/combined #410, Product CREATE #411. The overlapping purchase_reference/public.py seam retains BOTH Product CREATE and receipt exports. No main merge.
 - [x] Resolved original combined TypeScript baseline regression: InboundVariantOptions.purchase_cost_reference is optional for legacy callers/fixtures; parser still enforces actual new wire values.
@@ -191,7 +191,7 @@ All new implementation occurred via GitHub branches except this isolated local p
 - [x] Company currency immutability policy and main/wave branch divergence remain merge-readiness checks; main is 98 commits behind V1 candidate base 2be59f60, never blindly merge PR #406 into main.
 Status: GitHub exact-head implementation accepted by automated gates; final local integration and release approval PENDING.
 
-## 13. LOCAL Inbound UX reconciliation actively implemented ΓÇö 2026-10-21
+## 13. LOCAL Inbound UX reconciliation actively implemented — 2026-10-21
 - [x] Preserved latest uncommitted modern Inbound UI and Supplier/warehouse presentation; surgically integrated purchase_cost_reference options parser, currency/UOM validation, optional masked default, safe untouched-row prefill, explicit operator choice for mixed receipt costs/UOMs, no float financial averaging, cost reset on UOM change, selection invalidation on edit/delete/clear.
 - [x] Added Arabic/English Inbound reference labels, and repaired preexisting missing commas in Product sale-price labels that blocked local module parsing.
 - [x] New local reference contract test (5 PASS), existing local Inbound contracts (10 PASS), actual Inbound UI tests (17 PASS, including reference prefills and mixed line choice): total **32/32 PASS** on local dirty worktree.
@@ -200,7 +200,7 @@ Status: GitHub exact-head implementation accepted by automated gates; final loca
 - [x] Product Create/Backend dirty-file reconciliation and same-instance PostgreSQL accounting/retry acceptance are no longer release blockers; current main contains the reconciled source and later PostgreSQL acceptance evidence. Original dirty checkout remains preserved.
 - [x] Reconcile scope with current main/V1 candidate and obtain explicit approval for final merges. KEEP this plan until acceptance actually closes.
 
-## 14. E2E closure and consolidated release candidate ΓÇö 2026-10-21
+## 14. E2E closure and consolidated release candidate — 2026-10-21
 - [x] Codex PR #413 (42ab9c17ab1caa96788336c678616dcf950c916b), two new files only. Same-company real-PostgreSQL E2E: 2 tests PASS (13 stages each) for FIFO/MOVING_AVERAGE, create/edit/receipt/rollback/replay/permissions/tenant/races/UOM and canonical Excel headers. Historical value 232 JOD, COGS 12 JOD per acceptance company.
 - [x] Reconciled CURRENT LOCAL Inbound UX, supplier selector, inventory shell, responsive inventory.css, Product cost and sale-price translations, draft preservation, and local exact Product search into isolated GitHub branch sol/purchase-reference-local-final-integration-v1. User's local branch, uncommitted changes, runtime DB were NOT reset/cleaned/switched/deleted.
 - [x] Integrated release branch exact HEAD fe79792720404e72a51c790543a238ba82d7de4c: all 7 exact-head workflows PASS, including dedicated combined UI/Postgres gate, E2E PostgreSQL, Product create atomic, Supplier V1, Product UI, Inbound UI and overall reference integration.
