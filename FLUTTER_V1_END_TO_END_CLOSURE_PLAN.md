@@ -444,7 +444,7 @@ Closure:
 - [x] Exact-head FIELD run `39774956886` PASS; correction/offline/commercial-decomposition/decomposition exact-head gates PASS.
 - [x] Current-main integration PR #467 gates PASS: FIELD seam adapters + Backend contract readback, Visit commercial decomposition, Visit decomposition, Visit correction and Offline durable.
 - [x] Inventory CP2 historical unchanged-file assertion remains unrelated to this Flutter Visit closure.
-- [ ] Cached route-action compatibility flags (`is_on_break` / `is_authorized`) remain a separate Backend-authority seam and are not claimed closed by this commercial-action wave.
+- [x] Cached route-action compatibility flags (`is_on_break` / `is_authorized`) no longer act as Visit/Shop authorization authority; closed by the accepted route-action authority integration.
 - [ ] Final real-device Visit journey remains part of release acceptance.
 
 ## 9. Local inventory projection
