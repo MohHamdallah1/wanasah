@@ -647,7 +647,7 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] Visit decomposition regression: PASS.
 - [x] Visit command-correction regression: PASS.
 - [x] Offline durable-command regression: PASS.
-- [ ] New FIELD Return Resolution / Damaged / commercial-readiness / authoritative invoice adapters are not yet wired into this use-case.
+- [ ] FIELD Return Resolution / Damaged / commercial-readiness / authoritative invoice UI/submission wiring remains open; application orchestration is complete.
 - [ ] Legacy Factory_Defect/Expired mapping remains compatibility behavior until the new feature-owned Return Resolution contracts are integrated.
 
 ### 10.8 Feature-owned FIELD adapter stability point — 2026-10-22
@@ -664,7 +664,7 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] GitHub run `39693684776`: analyze PASS; Visits 29 PASS; Custody 15 PASS; Offline regression 23 PASS; ownership gate PASS.
 - [x] PR #429 merged into `sol/flutter-v1-field-closure`.
 - [x] Merge commit: `5f1419edadf4ff2c77c4a5920236f47c1805a05d`.
-- [ ] Visit behavioral wiring remains open and is assigned to Codex.
+- [ ] Visit FIELD UI/submission behavioral wiring remains open and is assigned to Codex; feature-owned FIELD application orchestration is complete.
 - [ ] Custody behavioral wiring remains open.
 
 ### 10.9 Shop creation stability point — 2026-10-22
@@ -696,6 +696,23 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] Merge commit: `b2b71651c43601a38b365fa7d87316a0eef77ada`.
 - [ ] Custody behavioral closure remains separate.
 - [x] Recovery/sync UX behavioral closure completed and integrated.
+
+### 10.10a Visit FIELD application stability point — 2026-10-22
+
+- [x] Implementation branch: `codex/flutter-v1-visit-field-application`.
+- [x] Exact implementation HEAD: `78f2aa0b046cd3a03a1d342b21dc7917f727269b`.
+- [x] Return Resolution application flow owns deterministic resolution and explicit ambiguity follow-up.
+- [x] Opaque resolution token and Backend-provided human evidence are preserved without Batch inference.
+- [x] Authoritative invoice preview and committed/frozen invoice reads are separate typed application use-cases.
+- [x] Exact financial strings remain exact through the application layer; no authoritative float conversion was added.
+- [x] Commercial readiness read is typed and preserves canonical code/required action without geographic inference.
+- [x] Capability-specific failure/result types remain separate; no giant FIELD result union.
+- [x] Application boundary imports no Flutter widgets, BLoC, LocalDatabase, SyncRepository or peer feature.
+- [x] Exact-head GitHub run `39702349730`: analyze PASS; 25 application/architecture tests PASS; 29 existing Visit adapter tests PASS; 23 Offline regression tests PASS.
+- [x] PR #439 merged into `sol/flutter-v1-field-closure`.
+- [x] Merge commit: `373cc3943c139706d30bdacd632622a9526b93c3`.
+- [ ] Visit FIELD UI/submission wiring remains the next Codex wave.
+- [ ] Local projection / returned non-sellable custody integration remains separate.
 
 ### 10.11 Recovery / Sync UX behavioral stability point — 2026-10-22
 
