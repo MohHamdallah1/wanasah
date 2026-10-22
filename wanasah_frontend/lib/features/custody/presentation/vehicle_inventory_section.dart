@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 
 import '../../../models/product_model.dart';
+import '../domain/non_sellable_custody.dart';
 
 class VehicleInventorySection extends StatelessWidget {
   const VehicleInventorySection({
     required this.products,
+    required this.nonSellableCustody,
     super.key,
   });
 
   final List<ProductModel> products;
+  final List<NonSellableCustodyItem> nonSellableCustody;
 
   @override
   Widget build(BuildContext context) {
@@ -96,8 +99,69 @@ class VehicleInventorySection extends StatelessWidget {
               ),
             ),
           ),
+        if (nonSellableCustody.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Text(
+            'عهدة غير قابلة للبيع:',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          ...nonSellableCustody.map(
+            (item) => Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange.shade200),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.inventory_2_outlined,
+                    color: Colors.orange,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.productName,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          _statusLabel(item.status),
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    '${item.quantity} ${item.uomCode}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: 20),
       ],
     );
+  }
+
+  String _statusLabel(NonSellableCustodyStatus status) {
+    return switch (status) {
+      NonSellableCustodyStatus.damaged => 'تالف',
+      NonSellableCustodyStatus.quarantined => 'محجور',
+      NonSellableCustodyStatus.blocked => 'محظور',
+      NonSellableCustodyStatus.recalled => 'مستدعى',
+      NonSellableCustodyStatus.disposalPending => 'بانتظار الإتلاف',
+    };
   }
 }
