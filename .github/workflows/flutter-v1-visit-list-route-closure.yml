@@ -1,0 +1,51 @@
+name: Flutter V1 Visit List Route Closure
+
+on:
+  push:
+    branches:
+      - sol/flutter-v1-visit-list-route-closure
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "wanasah_frontend/lib/blocs/visit_list/**"
+      - "wanasah_frontend/lib/screens/visit_list_screen.dart"
+      - "wanasah_frontend/lib/features/visits/list/**"
+      - "wanasah_frontend/test/features/visits/list/**"
+      - ".github/workflows/flutter-v1-visit-list-route-closure.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  visit-list-route:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: wanasah_frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.29.3"
+          channel: stable
+          cache: true
+
+      - name: Prepare CI-only environment asset
+        run: printf 'API_BASE_URL=http://127.0.0.1:8000\n' > .env
+
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+
+      - name: Flutter analyze
+        run: flutter analyze
+
+      - name: Visit List focused and regression tests
+        run: >-
+          flutter test
+          test/features/visits/list/visit_list_route_closure_test.dart
+          test/features/visits/visit_decomposition_test.dart
+          test/core/visit/visit_command_correction_test.dart
+          test/features/work_session/work_session_behavioral_closure_test.dart

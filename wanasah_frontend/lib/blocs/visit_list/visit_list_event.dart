@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
+
+import '../../features/visits/list/application/visit_list_filter.dart';
 
 abstract class VisitListEvent extends Equatable {
   const VisitListEvent();
@@ -12,14 +16,16 @@ class LoadVisitsEvent extends VisitListEvent {
 }
 
 class FilterVisitsEvent extends VisitListEvent {
-  final String status; // 'All', 'Completed', 'Pending'
-  const FilterVisitsEvent(this.status);
+  const FilterVisitsEvent(this.filter);
+
+  final VisitListFilter filter;
 
   @override
-  List<Object?> get props => [status];
+  List<Object?> get props => [filter];
 }
 
-// +++ حدث جديد لتحديث الزيارات من السيرفر +++
 class RefreshVisitsEvent extends VisitListEvent {
-  const RefreshVisitsEvent();
+  const RefreshVisitsEvent({this.completion});
+
+  final Completer<void>? completion;
 }
