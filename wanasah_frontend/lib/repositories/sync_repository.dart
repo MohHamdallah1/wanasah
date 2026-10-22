@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../core/network/api_client.dart';
 import '../core/db/local_database.dart';
 import '../core/sync/durable_command.dart';
+import '../core/visit/local_inventory_projection.dart';
 import '../models/product_model.dart';
 import '../models/visit_model.dart';
 
@@ -535,6 +536,13 @@ class SyncRepository {
             errorCode: _stableErrorCodeFromDio(e),
             errorMessage: _displayErrorFromDio(e),
             requestId: requestId,
+          );
+          break;
+        } on LocalInventoryProjectionException catch (error) {
+          await _db.markPendingSyncBlocked(
+            recordId,
+            errorCode: error.code,
+            errorMessage: error.toString(),
           );
           break;
         } catch (e) {
