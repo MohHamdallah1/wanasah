@@ -15,7 +15,7 @@ void main() {
   group('typed local replay failure classification', () {
     test('real typed DatabaseException maps to transient pending handling', () {
       final failure = SyncLocalFailure.from(
-        DatabaseException('typed sqlite failure'),
+        _TypedDatabaseException(),
       );
 
       expect(
@@ -468,4 +468,39 @@ class _ThrowingExecutor implements RecoverySyncExecutor {
   Future<bool> synchronize() async {
     throw error;
   }
+}
+
+
+class _TypedDatabaseException extends DatabaseException {
+  _TypedDatabaseException() : super('typed sqlite failure');
+
+  @override
+  Object? get result => null;
+
+  @override
+  int? getResultCode() => null;
+
+  @override
+  bool isDatabaseClosedError() => false;
+
+  @override
+  bool isDuplicateColumnError([String? column]) => false;
+
+  @override
+  bool isNoSuchTableError([String? table]) => false;
+
+  @override
+  bool isNotNullConstraintError([String? field]) => false;
+
+  @override
+  bool isOpenFailedError() => false;
+
+  @override
+  bool isReadOnlyError() => false;
+
+  @override
+  bool isSyntaxError() => false;
+
+  @override
+  bool isUniqueConstraintError([String? field]) => false;
 }
