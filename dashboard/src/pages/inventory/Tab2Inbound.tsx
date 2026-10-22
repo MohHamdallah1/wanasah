@@ -248,6 +248,7 @@ export function Tab2Inbound({
   // TODO(V2 Settings): move this company-level policy to the Settings workspace.
   // Inbound only guards first use until that workspace exists.
   const [costPolicy, setCostPolicy] = useState<CostPolicy | null>(null);
+  const [companyAsOfDate, setCompanyAsOfDate] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [cursor, setCursor] = useState<string | null>(null);
@@ -459,6 +460,7 @@ export function Tab2Inbound({
     })
       .then(parseInboundOptions)
       .then((response) => {
+        setCompanyAsOfDate(response.as_of_date);
         setUomOptions((current) => {
           const next = new Map(current);
           for (const item of response.items) {
@@ -780,7 +782,7 @@ export function Tab2Inbound({
       toast.error(t("inventoryInbound.errors.quantityRequired"));
       return;
     }
-    if (ids.some((id) => !uomOptions.has(id))) {
+    if (ids.some((id) => !uomOptions.has(id)) || !companyAsOfDate) {
       return toast.error(t("inventoryInbound.errors.optionsNotReady"));
     }
     if (!costPolicy) {
@@ -812,6 +814,7 @@ export function Tab2Inbound({
         drafts,
         new Map(variants.map((item) => [String(item.id), item])),
         uomOptions,
+        companyAsOfDate,
       );
       const choices = inboundReferenceChoices(items);
       const selections: InboundReferenceSelection[] = [];
@@ -1379,7 +1382,6 @@ export function Tab2Inbound({
             onClick={() => void submit()}
             disabled={
               submitting ||
-              isAuditLocked ||
               savingPolicy ||
               posting.pending !== null ||
               Boolean(posting.recoveryError)

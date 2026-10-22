@@ -6,6 +6,7 @@ import {
 
 const options = (ref: unknown) => ({
   currency_code: "JOD",
+  as_of_date: "2026-10-22",
   items: [{ product_variant_id: 7, base_uom_id: 1,
     uoms: [
       { id: 1, code: "EACH", name: "Each", factor_to_base: "1" },
