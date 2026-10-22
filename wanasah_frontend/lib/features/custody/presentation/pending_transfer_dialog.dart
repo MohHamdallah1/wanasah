@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../domain/pending_transfer.dart';
+import '../domain/transfer_decision.dart';
+
 enum PendingTransferDialogDisposition {
   empty,
   deferred,
@@ -9,328 +12,297 @@ enum PendingTransferDialogDisposition {
 class PendingTransferDialogResult {
   const PendingTransferDialogResult._(
     this.disposition,
-    this.detailedResponses,
+    this.decisions,
   );
 
   const PendingTransferDialogResult.empty()
-    : this._(
-        PendingTransferDialogDisposition.empty,
-        const <Map<String, dynamic>>[],
-      );
+      : this._(
+          PendingTransferDialogDisposition.empty,
+          const <TransferDecision>[],
+        );
 
   const PendingTransferDialogResult.deferred()
-    : this._(
-        PendingTransferDialogDisposition.deferred,
-        const <Map<String, dynamic>>[],
-      );
+      : this._(
+          PendingTransferDialogDisposition.deferred,
+          const <TransferDecision>[],
+        );
 
   PendingTransferDialogResult.submitted(
-    List<Map<String, dynamic>> detailedResponses,
+    List<TransferDecision> decisions,
   ) : this._(
-        PendingTransferDialogDisposition.submitted,
-        detailedResponses,
-      );
+          PendingTransferDialogDisposition.submitted,
+          List<TransferDecision>.unmodifiable(decisions),
+        );
 
   final PendingTransferDialogDisposition disposition;
-  final List<Map<String, dynamic>> detailedResponses;
+  final List<TransferDecision> decisions;
 }
 
 Future<PendingTransferDialogResult> showPendingTransferDialog(
   BuildContext context,
-  Map<String, dynamic> batchData,
+  PendingTransferBatch batch,
 ) async {
-  final List<dynamic> items = batchData['items'] ?? [];
-  final validItemsCount =
-      items.where((item) {
-        final id =
-            int.tryParse(
-              item['real_transfer_id']?.toString() ?? '',
-            ) ??
-            0;
-        return id != 0;
-      }).length;
-
-  if (items.isEmpty || validItemsCount == 0) {
+  if (batch.items.isEmpty) {
     return const PendingTransferDialogResult.empty();
   }
 
-  final Map<int, String> itemResponses = {};
-  bool submitLocked = false;
+  final responses = <int, TransferDecisionStatus>{};
+  final reasonControllers = <int, TextEditingController>{
+    for (final item in batch.items) item.transferId: TextEditingController(),
+  };
+  var submitLocked = false;
 
-  final result = await showDialog<PendingTransferDialogResult>(
-    context: context,
-    barrierDismissible: false,
-    builder: (dialogContext) {
-      return PopScope(
-        canPop: false,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: const Row(
-            children: [
-              Icon(
-                Icons.inventory_2_outlined,
-                color: Colors.blue,
-              ),
-              SizedBox(width: 8),
-              Text(
-                'تحديث عهدة من الإدارة',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
+  try {
+    final result = await showDialog<PendingTransferDialogResult>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return PopScope(
+              canPop: false,
+              child: AlertDialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
                 ),
-              ),
-            ],
-          ),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'قامت الإدارة بإجراء التعديلات التالية على عهدتك. هل توافق؟',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                  ),
+                title: const Row(
+                  children: [
+                    Icon(Icons.inventory_2_outlined, color: Colors.blue),
+                    SizedBox(width: 8),
+                    Text(
+                      'تحديث عهدة من الإدارة',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 10),
-                Flexible(
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: items.length,
-                    itemBuilder: (context, index) {
-                      final item = items[index];
-                      final String productName =
-                          item['product_name'] ?? 'غير معروف';
-
-                      final rawCartons =
-                          int.tryParse(
-                            item['delta_cartons']?.toString() ?? '',
-                          ) ??
-                          0;
-                      final rawPacks =
-                          int.tryParse(
-                            item['delta_packs']?.toString() ?? '',
-                          ) ??
-                          0;
-                      final isAddition =
-                          rawCartons > 0 ||
-                          (rawCartons == 0 && rawPacks > 0);
-
-                      final absCartons = rawCartons.abs();
-                      final absPacks = rawPacks.abs();
-
-                      return Card(
-                        color:
-                            isAddition
-                                ? Colors.green.shade50
-                                : Colors.red.shade50,
-                        elevation: 0,
-                        margin: const EdgeInsets.symmetric(
-                          vertical: 4,
+                content: SizedBox(
+                  width: double.maxFinite,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'راجع كل حركة وحدد قبولها أو رفضها. الرفض يتطلب سبباً واضحاً.',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
                         ),
-                        child: ListTile(
-                          dense: true,
-                          leading: Icon(
-                            isAddition
-                                ? Icons.add_circle
-                                : Icons.remove_circle,
-                            color:
-                                isAddition
-                                    ? Colors.green
-                                    : Colors.red,
-                          ),
-                          title: Text(
-                            productName,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          subtitle: Text(
-                            isAddition
-                                ? 'إضافة للسيارة'
-                                : 'سحب من السيارة',
-                            style: TextStyle(
-                              color:
-                                  isAddition
-                                      ? Colors.green[700]
-                                      : Colors.red[700],
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                            ),
-                          ),
-                          trailing: StatefulBuilder(
-                            builder: (context, setState) {
-                              final itemId =
-                                  int.tryParse(
-                                    item['real_transfer_id']
-                                            ?.toString() ??
-                                        '',
-                                  ) ??
-                                  0;
-                              if (itemId == 0) {
-                                return const SizedBox.shrink();
-                              }
-                              final currentResponse =
-                                  itemResponses[itemId];
+                      ),
+                      const SizedBox(height: 10),
+                      Flexible(
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: batch.items.length,
+                          itemBuilder: (context, index) {
+                            final item = batch.items[index];
+                            final response = responses[item.transferId];
+                            final isAddition = item.deltaCartons > 0 ||
+                                (item.deltaCartons == 0 &&
+                                    item.deltaPacks > 0);
 
-                              return ConstrainedBox(
-                                constraints: const BoxConstraints(
-                                  maxWidth: 150,
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.end,
+                            return Card(
+                              color: isAddition
+                                  ? Colors.green.shade50
+                                  : Colors.red.shade50,
+                              elevation: 0,
+                              margin: const EdgeInsets.symmetric(vertical: 4),
+                              child: Padding(
+                                padding: const EdgeInsets.all(10),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
                                   children: [
-                                    Expanded(
-                                      child: Text(
-                                        '$absCartons كرتونة\n$absPacks حبة',
-                                        textAlign: TextAlign.center,
-                                        softWrap: false,
-                                        overflow:
-                                            TextOverflow.visible,
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          fontWeight:
-                                              FontWeight.bold,
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          isAddition
+                                              ? Icons.add_circle
+                                              : Icons.remove_circle,
+                                          color: isAddition
+                                              ? Colors.green
+                                              : Colors.red,
                                         ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    IconButton(
-                                      padding: EdgeInsets.zero,
-                                      constraints:
-                                          const BoxConstraints(),
-                                      icon: Icon(
-                                        Icons.close,
-                                        color:
-                                            currentResponse ==
-                                                    'rejected'
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                item.productName,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                              Text(
+                                                isAddition
+                                                    ? 'إضافة للسيارة'
+                                                    : 'سحب من السيارة',
+                                                style: TextStyle(
+                                                  color: isAddition
+                                                      ? Colors.green[700]
+                                                      : Colors.red[700],
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                              Text(
+                                                '${item.deltaCartons.abs()} كرتونة، '
+                                                '${item.deltaPacks.abs()} حبة',
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        IconButton(
+                                          tooltip: 'رفض',
+                                          icon: Icon(
+                                            Icons.close,
+                                            color: response ==
+                                                    TransferDecisionStatus.rejected
                                                 ? Colors.red
                                                 : Colors.grey,
-                                      ),
-                                      onPressed:
-                                          () => setState(
-                                            () =>
-                                                itemResponses[itemId] =
-                                                    'rejected',
                                           ),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    IconButton(
-                                      padding: EdgeInsets.zero,
-                                      constraints:
-                                          const BoxConstraints(),
-                                      icon: Icon(
-                                        Icons.check,
-                                        color:
-                                            currentResponse ==
-                                                    'accepted'
+                                          onPressed: () {
+                                            setDialogState(() {
+                                              responses[item.transferId] =
+                                                  TransferDecisionStatus.rejected;
+                                            });
+                                          },
+                                        ),
+                                        IconButton(
+                                          tooltip: 'قبول',
+                                          icon: Icon(
+                                            Icons.check,
+                                            color: response ==
+                                                    TransferDecisionStatus.accepted
                                                 ? Colors.green
                                                 : Colors.grey,
-                                      ),
-                                      onPressed:
-                                          () => setState(
-                                            () =>
-                                                itemResponses[itemId] =
-                                                    'accepted',
                                           ),
+                                          onPressed: () {
+                                            setDialogState(() {
+                                              responses[item.transferId] =
+                                                  TransferDecisionStatus.accepted;
+                                              reasonControllers[item.transferId]
+                                                  ?.clear();
+                                            });
+                                          },
+                                        ),
+                                      ],
                                     ),
+                                    if (response ==
+                                        TransferDecisionStatus.rejected) ...[
+                                      const SizedBox(height: 8),
+                                      TextField(
+                                        controller:
+                                            reasonControllers[item.transferId],
+                                        maxLength: 1000,
+                                        maxLines: 2,
+                                        decoration: const InputDecoration(
+                                          labelText: 'سبب الرفض',
+                                          hintText:
+                                              'مثال: الكمية الفعلية لا تطابق التحويل',
+                                          border: OutlineInputBorder(),
+                                        ),
+                                      ),
+                                    ],
                                   ],
                                 ),
-                              );
-                            },
-                          ),
+                              ),
+                            );
+                          },
                         ),
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(
+                        dialogContext,
+                        const PendingTransferDialogResult.deferred(),
                       );
                     },
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(
-                  dialogContext,
-                  const PendingTransferDialogResult.deferred(),
-                );
-              },
-              child: const Text(
-                'تأجيل (إغلاق)',
-                style: TextStyle(color: Colors.grey),
-              ),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
-              ),
-              onPressed: () {
-                final uniqueValidIds =
-                    items
-                        .map(
-                          (i) =>
-                              int.tryParse(
-                                i['real_transfer_id']
-                                        ?.toString() ??
-                                    '',
-                              ) ??
-                              0,
-                        )
-                        .where((id) => id != 0)
-                        .toSet();
-
-                if (itemResponses.length !=
-                    uniqueValidIds.length) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'يجب الرد على جميع الأصناف بالقبول أو الرفض',
-                      ),
-                      backgroundColor: Colors.red,
+                    child: const Text(
+                      'تأجيل (إغلاق)',
+                      style: TextStyle(color: Colors.grey),
                     ),
-                  );
-                  return;
-                }
-
-                if (submitLocked) return;
-                submitLocked = true;
-
-                final detailedResponses =
-                    itemResponses.entries
-                        .map(
-                          (entry) => <String, dynamic>{
-                            'transfer_id': entry.key,
-                            'status': entry.value,
-                          },
-                        )
-                        .toList();
-
-                Navigator.pop(
-                  dialogContext,
-                  PendingTransferDialogResult.submitted(
-                    detailedResponses,
                   ),
-                );
-              },
-              child: const Text(
-                'إرسال الرد',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    },
-  );
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                    ),
+                    onPressed: () {
+                      if (responses.length != batch.items.length) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'يجب الرد على جميع الحركات بالقبول أو الرفض.',
+                            ),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                        return;
+                      }
 
-  return result ?? const PendingTransferDialogResult.deferred();
+                      final decisions = <TransferDecision>[];
+                      for (final item in batch.items) {
+                        final status = responses[item.transferId]!;
+                        final reason =
+                            reasonControllers[item.transferId]?.text.trim();
+                        if (status == TransferDecisionStatus.rejected &&
+                            (reason == null || reason.isEmpty)) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'سبب الرفض مطلوب لكل حركة مرفوضة.',
+                              ),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          return;
+                        }
+                        decisions.add(
+                          TransferDecision(
+                            transferId: item.transferId,
+                            status: status,
+                            reason: reason,
+                          ),
+                        );
+                      }
+
+                      if (submitLocked) return;
+                      submitLocked = true;
+                      Navigator.pop(
+                        dialogContext,
+                        PendingTransferDialogResult.submitted(decisions),
+                      );
+                    },
+                    child: const Text(
+                      'إرسال الرد',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    return result ?? const PendingTransferDialogResult.deferred();
+  } finally {
+    for (final controller in reasonControllers.values) {
+      controller.dispose();
+    }
+  }
 }
