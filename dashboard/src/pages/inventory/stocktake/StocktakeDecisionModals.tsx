@@ -4,6 +4,7 @@ import type { KeyboardEvent } from "react";
 import { formatPublicBatchNumber } from "../publicBatchNumber";
 import { absoluteQuantity, compareQuantity, formatQuantity } from "../quantity";
 import { useStocktakeCopy } from "./copy";
+import { useStocktakeUiCopy } from "./uiCopy";
 import type { StocktakeReview } from "./types";
 
 const submitOnInputEnter = (
@@ -204,6 +205,7 @@ interface StocktakeVarianceModalProps {
 export function StocktakeVarianceModal({ open, review, onClose }: StocktakeVarianceModalProps) {
   const { t } = useTranslation();
   const { copy, dir } = useStocktakeCopy();
+  const { copy: uiCopy } = useStocktakeUiCopy();
   return (
     <Modal
       isOpen={open}
@@ -218,6 +220,7 @@ export function StocktakeVarianceModal({ open, review, onClose }: StocktakeVaria
             <div className="flex flex-col min-w-0">
               <span className="font-bold text-slate-800 text-sm truncate">{line.product_name}</span>
               <span className="text-[11px] text-slate-400">{formatPublicBatchNumber(line.batch_number, t("inventoryLive.noLotSupplied"))}</span>
+              <span className="text-[11px] font-bold text-slate-500">{uiCopy.review.stockStatus}: {uiCopy.stockStatuses[line.stock_status]}</span>
             </div>
             <span className={`font-black text-sm px-3 py-1 rounded-lg ${compareQuantity(line.variance_quantity, "0") > 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`} dir="ltr">
               {compareQuantity(line.variance_quantity, "0") > 0 ? "+ " : "- "}{formatQuantity(absoluteQuantity(line.variance_quantity), line.base_uom_name)}

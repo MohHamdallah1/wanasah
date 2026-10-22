@@ -51,7 +51,7 @@ export function StocktakeCountingPanel({
       data-stocktake-count-input="true"
       inputMode="decimal"
       autoFocus={autoFocus}
-      aria-label={text.actualFor(row.product_name)}
+      aria-label={`${text.actualFor(row.product_name)} — ${copy.stockStatuses[row.stock_status]}`}
       value={row.actual_quantity}
       onChange={(event) => onUpdateRow(row.row_key, event.target.value)}
       onKeyDown={handleCountEnter}
@@ -71,7 +71,7 @@ export function StocktakeCountingPanel({
       onClick={() => onConfirmZero(row.row_key)}
       className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-200 hover:border-amber-200 rounded-lg text-xs font-black transition-colors"
       title={text.zeroHint}
-      aria-label={text.confirmZeroFor(row.product_name)}
+      aria-label={`${text.confirmZeroFor(row.product_name)} — ${copy.stockStatuses[row.stock_status]}`}
     >
       {text.confirmZero}
     </button>
@@ -95,6 +95,9 @@ export function StocktakeCountingPanel({
               <div className="text-xs text-slate-500 mt-1">
                 {formatPublicBatchNumber(row.batch_number, t("inventoryLive.noLotSupplied"))} · {row.expiry_date || "-"}
               </div>
+              <span className="mt-2 inline-flex rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-700">
+                {text.stockStatus}: {copy.stockStatuses[row.stock_status]}
+              </span>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -114,6 +117,7 @@ export function StocktakeCountingPanel({
             <tr>
               <th className="px-4 py-3.5 text-xs font-bold text-slate-500 text-start">{text.product}</th>
               <th className="px-4 py-3.5 text-xs font-bold text-slate-500 text-start">{text.batchExpiry}</th>
+              <th className="px-4 py-3.5 text-xs font-bold text-slate-500 text-center">{text.stockStatus}</th>
               <th className="px-4 py-3.5 text-xs font-bold text-[#1e87bb] text-center">{text.actualBase}</th>
               <th className="px-4 py-3.5 text-xs font-bold text-slate-500 text-center">{text.countStatus}</th>
             </tr>
@@ -127,6 +131,11 @@ export function StocktakeCountingPanel({
                     <span className="text-xs font-bold text-slate-700">{formatPublicBatchNumber(row.batch_number, t("inventoryLive.noLotSupplied"))}</span>
                     <span className="text-[11px] text-slate-400">{row.expiry_date || "-"}</span>
                   </div>
+                </td>
+                <td className="px-4 py-3 text-center">
+                  <span className="inline-flex rounded-full border border-slate-200 bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-700">
+                    {copy.stockStatuses[row.stock_status]}
+                  </span>
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-center gap-2">
