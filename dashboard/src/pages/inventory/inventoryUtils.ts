@@ -15,7 +15,17 @@ export interface InboundRow {
   loose_packs: number;
 }
 
-export type StocktakeStockStatus = "AVAILABLE" | "DAMAGED";
+export const STOCKTAKE_STOCK_STATUSES = [
+  "AVAILABLE",
+  "QUARANTINED",
+  "BLOCKED",
+  "RECALLED",
+  "DAMAGED",
+  "DISPOSAL_PENDING",
+] as const;
+
+export type StocktakeStockStatus =
+  (typeof STOCKTAKE_STOCK_STATUSES)[number];
 
 export interface StocktakeRow {
   row_key: string;

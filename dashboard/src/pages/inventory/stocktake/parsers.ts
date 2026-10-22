@@ -15,7 +15,7 @@ import type {
   VehicleReconCandidate,
   VehicleReconCandidateCursorPage,
 } from "./types";
-import type { StocktakeStockStatus } from "../inventoryUtils";
+import { STOCKTAKE_STOCK_STATUSES, type StocktakeStockStatus } from "../inventoryUtils";
 import { parsePublicBatchNumber } from "../publicBatchNumber";
 import { parsePublicBatchDate } from "../publicBatchDate";
 import { parseQuantity } from "../quantity";
@@ -91,10 +91,15 @@ const optionalPositiveInt = (value: unknown): number | null =>
 const parseStockStatus = (
   value: unknown
 ): StocktakeStockStatus => {
-  if (value !== "AVAILABLE" && value !== "DAMAGED") {
-    throw new Error("حالة مخزون سطر الجرد غير صالحة.");
+  if (
+    typeof value !== "string" ||
+    !STOCKTAKE_STOCK_STATUSES.includes(
+      value as StocktakeStockStatus
+    )
+  ) {
+    throw new Error("تعذر فتح الجرد لأن حالة أحد أسطر المخزون غير معروفة للنظام. حدّث الصفحة، وإذا استمرت المشكلة تواصل مع الدعم.");
   }
-  return value;
+  return value as StocktakeStockStatus;
 };
 
 const parseStocktakeType = (

@@ -51,6 +51,9 @@ export function StocktakeReviewPanel({
             <article key={line.attempt_line_id} className="rounded-xl border border-slate-200 bg-white p-3">
               <div className="font-bold text-slate-800">{line.product_name}</div>
               <div className="text-xs text-slate-500 mt-1">{formatPublicBatchNumber(line.batch_number, t("inventoryLive.noLotSupplied"))}</div>
+              <span className="mt-2 inline-flex rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-700">
+                {text.stockStatus}: {copy.stockStatuses[line.stock_status]}
+              </span>
               <dl className="grid grid-cols-3 gap-2 mt-3 text-center">
                 <div><dt className="text-[10px] text-slate-400 font-bold">{text.expected}</dt><dd className="text-sm font-black text-slate-700" dir="ltr">{formatQuantity(line.expected_quantity, line.base_uom_name)}</dd></div>
                 <div><dt className="text-[10px] text-slate-400 font-bold">{text.counted}</dt><dd className="text-sm font-black text-blue-700" dir="ltr">{formatQuantity(line.actual_quantity, line.base_uom_name)}</dd></div>
@@ -67,6 +70,7 @@ export function StocktakeReviewPanel({
             <tr>
               <th className="px-4 py-3.5 text-xs font-bold text-slate-500 text-start">{text.product}</th>
               <th className="px-4 py-3.5 text-xs font-bold text-slate-500 text-start">{text.batch}</th>
+              <th className="px-4 py-3.5 text-xs font-bold text-slate-500 text-center">{text.stockStatus}</th>
               <th className="px-4 py-3.5 text-xs font-bold text-slate-500 text-center">{text.expected}</th>
               <th className="px-4 py-3.5 text-xs font-bold text-[#1e87bb] text-center">{text.countedFixed}</th>
               <th className="px-4 py-3.5 text-xs font-bold text-slate-500 text-center">{text.variance}</th>
@@ -79,6 +83,11 @@ export function StocktakeReviewPanel({
                 <tr key={line.attempt_line_id} className="hover:bg-slate-50 transition-colors">
                   <td className="px-4 py-3 font-bold text-slate-800">{line.product_name}</td>
                   <td className="px-4 py-3 text-xs text-slate-500 font-bold">{formatPublicBatchNumber(line.batch_number, t("inventoryLive.noLotSupplied"))}</td>
+                  <td className="px-4 py-3 text-center">
+                    <span className="inline-flex rounded-full border border-slate-200 bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-700">
+                      {copy.stockStatuses[line.stock_status]}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-center font-black text-slate-700" dir="ltr">{formatQuantity(line.expected_quantity, line.base_uom_name)}</td>
                   <td className="px-4 py-3 text-center font-black text-blue-700" dir="ltr">{formatQuantity(line.actual_quantity, line.base_uom_name)}</td>
                   <td className="px-4 py-3 text-center">
