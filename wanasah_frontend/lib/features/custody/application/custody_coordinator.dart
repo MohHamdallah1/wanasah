@@ -15,11 +15,13 @@ class CustodyCoordinator {
     required PendingTransferSource pendingTransfers,
     required CustodyClient custodyClient,
     required CustodyTransferGateway transferGateway,
-    required PendingReturnCustodySource pendingReturnCustody,
+    PendingReturnCustodySource? pendingReturnCustody,
   })  : _pendingTransfers = pendingTransfers,
         _custodyClient = custodyClient,
         _transferGateway = transferGateway,
-        _pendingReturnCustody = pendingReturnCustody;
+        _pendingReturnCustody =
+            pendingReturnCustody ??
+            LocalPendingReturnCustodySource.withDatabase();
 
   factory CustodyCoordinator.defaults() => CustodyCoordinator(
         pendingTransfers: PendingTransferSource.defaults(),
