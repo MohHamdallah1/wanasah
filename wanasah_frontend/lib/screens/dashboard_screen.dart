@@ -9,6 +9,7 @@ import 'visit_list_screen.dart';
 import '../features/work_session/presentation/work_session_controls.dart';
 import '../features/recovery/presentation/recovery_dashboard_scroll.dart';
 import '../features/custody/presentation/pending_transfer_dialog.dart';
+import '../features/custody/domain/pending_transfer.dart';
 import '../features/custody/presentation/vehicle_inventory_section.dart';
 
 
@@ -81,9 +82,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // --- نافذة الحوالات المعلقة: العرض في Custody، والحدث يبقى في Dashboard shell ---
   Future<void> _showTransferDialog(
     BuildContext context,
-    Map<String, dynamic> batchData,
+    PendingTransferBatch batch,
   ) async {
-    final result = await showPendingTransferDialog(context, batchData);
+    final result = await showPendingTransferDialog(context, batch);
     if (!context.mounted) return;
 
     _isShowingDialog = false;
@@ -91,22 +92,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     switch (result.disposition) {
       case PendingTransferDialogDisposition.empty:
         context.read<DashboardBloc>().add(
-          const RespondToBatchTransfer(
-            transferIds: [],
-            responseStatus: 'ignored',
-            detailedTransfers: [],
-          ),
+          const RespondToBatchTransfer(),
         );
         return;
       case PendingTransferDialogDisposition.deferred:
         return;
       case PendingTransferDialogDisposition.submitted:
         context.read<DashboardBloc>().add(
-          RespondToBatchTransfer(
-            transferIds: const [],
-            responseStatus: 'mixed',
-            detailedTransfers: result.detailedResponses,
-          ),
+          RespondToBatchTransfer(decisions: result.decisions),
         );
         return;
     }
@@ -384,7 +377,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
 
-          VehicleInventorySection(products: state.products),
+          VehicleInventorySection(
+            products: state.products,
+            nonSellableCustody: state.nonSellableCustody,
+          ),
         ],
     );
   }
