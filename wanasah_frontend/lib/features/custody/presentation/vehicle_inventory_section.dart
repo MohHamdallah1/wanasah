@@ -2,16 +2,19 @@ import 'package:flutter/material.dart';
 
 import '../../../models/product_model.dart';
 import '../domain/non_sellable_custody.dart';
+import '../domain/pending_return_custody.dart';
 
 class VehicleInventorySection extends StatelessWidget {
   const VehicleInventorySection({
     required this.products,
     required this.nonSellableCustody,
+    this.pendingReturnCustody = const <PendingReturnCustodyItem>[],
     super.key,
   });
 
   final List<ProductModel> products;
   final List<NonSellableCustodyItem> nonSellableCustody;
+  final List<PendingReturnCustodyItem> pendingReturnCustody;
 
   @override
   Widget build(BuildContext context) {
@@ -99,6 +102,68 @@ class VehicleInventorySection extends StatelessWidget {
               ),
             ),
           ),
+        if (pendingReturnCustody.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Text(
+            'مرتجعات محلية بانتظار الحسم:',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'هذه أدلة محلية معلقة وليست رصيد العهدة النهائي من السيرفر.',
+            style: TextStyle(fontSize: 12, color: Colors.deepOrange),
+          ),
+          const SizedBox(height: 8),
+          ...pendingReturnCustody.map(
+            (item) => Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: item.evidenceState == PendingCustodyEvidenceState.blocked
+                    ? Colors.red.shade50
+                    : Colors.amber.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: item.evidenceState == PendingCustodyEvidenceState.blocked
+                      ? Colors.red.shade200
+                      : Colors.amber.shade200,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    item.evidenceState == PendingCustodyEvidenceState.blocked
+                        ? Icons.report_problem_outlined
+                        : Icons.schedule_outlined,
+                    color: item.evidenceState == PendingCustodyEvidenceState.blocked
+                        ? Colors.red
+                        : Colors.amber.shade800,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.productName,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          '${_pendingReasonLabel(item.reason)} · ${_pendingStateLabel(item.evidenceState)}',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    '${item.cartons} كرتونة، ${item.packs} باكيت',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
         if (nonSellableCustody.isNotEmpty) ...[
           const SizedBox(height: 12),
           Text(
@@ -153,6 +218,22 @@ class VehicleInventorySection extends StatelessWidget {
         const SizedBox(height: 20),
       ],
     );
+  }
+
+  String _pendingReasonLabel(PendingReturnReason reason) {
+    return switch (reason) {
+      PendingReturnReason.damaged => 'تالف',
+      PendingReturnReason.expired => 'منتهي الصلاحية',
+      PendingReturnReason.factoryDefect => 'عيب مصنعي',
+    };
+  }
+
+  String _pendingStateLabel(PendingCustodyEvidenceState state) {
+    return switch (state) {
+      PendingCustodyEvidenceState.pending => 'بانتظار المزامنة',
+      PendingCustodyEvidenceState.inFlight => 'قيد الإرسال',
+      PendingCustodyEvidenceState.blocked => 'يحتاج معالجة',
+    };
   }
 
   String _statusLabel(NonSellableCustodyStatus status) {
