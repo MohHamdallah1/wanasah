@@ -387,14 +387,31 @@ Closure:
 
 ## 7. Session / route / custody
 
-- [ ] Start session requires current location and correct route/vehicle/custody prerequisites.
-- [ ] Do not duplicate Backend custody/vehicle-operational checks in Flutter as authority.
-- [ ] Show actionable Backend rejection states instead of generic SnackBars.
-- [ ] End session remains online/reconciled where Backend requires pending handshake/custody closure.
+- [x] Start Session follows the current Backend contract: location evidence is optional/best-effort, while route/vehicle/custody/commercial eligibility remains Backend-authoritative.
+- [x] Flutter does not duplicate Backend custody/vehicle-operational checks as authority; local session UI/state is presentation/recovery only.
+- [x] Work Session surfaces typed actionable Backend rejection state (status/code/context/request ID) without free-text machine classification or replacing the loaded Dashboard state.
+- [x] End Session remains online/reconciled and only completes after Backend confirmation; active break/pending handshake and other Backend refusals preserve active state with no fake offline completion.
 - [x] Pending transfer acceptance/rejection preserves exact decision and reason.
 - [x] Backend transfer response is state-idempotent for exact repeated accepted/rejected decisions on current base.
 - [x] Flutter replay preserves the exact decision/reason and fails closed on conflicting prior decisions.
 - [x] Batch transfer UI and single transfer UI share one exact durable command model.
+
+### 7.1 Session / route / custody authority stability point — 2026-10-23
+
+- [x] Implementation branch: `sol/flutter-v1-session-route-authority-closure`.
+- [x] Exact worker HEAD: `8a17bdf0c6f69888631fe9682a546fbcdf9a0b2d`.
+- [x] PR #465 merged to `main`; merge commit: `3d9a1edd750b02f865c3258349b4148f83b16a95`.
+- [x] Current Backend `SessionStartRequest` accepts nullable latitude/longitude; Flutter sends valid optional coordinates when available and omits unavailable/invalid device evidence.
+- [x] Backend remains sole authority for current route, vehicle, custody location, vehicle operational state, commercial context and active-session eligibility.
+- [x] Active-session restart recovery continues through `GET /driver/sessions/active`.
+- [x] Break remains online/reconcile-only; no durable historical break queue exists.
+- [x] End Session does not invent settlement authority in Flutter; the Backend endpoint closes the workday and separately enforces active-break/pending-handshake blockers.
+- [x] Deterministic Work Session refusals preserve DashboardLoaded and attach typed actionable issue state instead of degrading to SnackBar-only/global DashboardError handling.
+- [x] Work Session machine decisions use operation + HTTP status + stable code + structured context/request ID only; display text remains display-only.
+- [x] Ambiguous Start/End/Break mutations reconcile by re-reading authoritative Backend session/runtime state and never blindly claim success.
+- [x] Exact-head run `39774826354`: `flutter analyze` PASS + 71 focused/regression tests PASS.
+- [x] Current-main PR #465 integration gates PASS: Session Route Authority, Work Session Behavioral, Session/Custody Decomposition, Custody Behavioral, Transfer Handshake, Recovery Sync UX, Offline Durable and Local Custody Projection.
+- [x] Inventory CP2 historical unchanged-file assertion remains unrelated to this Flutter closure.
 
 ## 8. Visit workflow / commercial action closure
 
