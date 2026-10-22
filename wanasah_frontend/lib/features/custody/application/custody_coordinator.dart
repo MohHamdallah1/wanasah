@@ -1,12 +1,13 @@
 import 'package:wanasah_frontend/core/network/api_client.dart';
 
 import '../data/custody_client.dart';
-import '../data/pending_transfer_source.dart';
 import '../data/pending_return_custody_source.dart';
+import '../data/pending_transfer_source.dart';
+import '../data/transfer_response_client.dart';
 import '../data/transfer_response_gateway.dart';
 import '../domain/non_sellable_custody.dart';
-import '../domain/pending_transfer.dart';
 import '../domain/pending_return_custody.dart';
+import '../domain/pending_transfer.dart';
 import '../domain/transfer_decision.dart';
 import 'custody_outcome.dart';
 
@@ -14,14 +15,14 @@ class CustodyCoordinator {
   CustodyCoordinator({
     required PendingTransferSource pendingTransfers,
     required CustodyClient custodyClient,
-    required CustodyTransferGateway transferGateway,
+    required TransferDispatchGateway transferGateway,
     PendingReturnCustodySource? pendingReturnCustody,
-  })  : _pendingTransfers = pendingTransfers,
-        _custodyClient = custodyClient,
-        _transferGateway = transferGateway,
-        _pendingReturnCustody =
-            pendingReturnCustody ??
-            LocalPendingReturnCustodySource.withDatabase();
+  }) : _pendingTransfers = pendingTransfers,
+       _custodyClient = custodyClient,
+       _transferGateway = transferGateway,
+       _pendingReturnCustody =
+           pendingReturnCustody ??
+           LocalPendingReturnCustodySource.withDatabase();
 
   factory CustodyCoordinator.defaults() => CustodyCoordinator(
         pendingTransfers: PendingTransferSource.defaults(),
@@ -30,9 +31,12 @@ class CustodyCoordinator {
         pendingReturnCustody: LocalPendingReturnCustodySource.withDatabase(),
       );
 
+  static const int transferBatchMaximum =
+      ApiTransferResponseClient.runtimeBatchMaximum;
+
   final PendingTransferSource _pendingTransfers;
   final CustodyClient _custodyClient;
-  final CustodyTransferGateway _transferGateway;
+  final TransferDispatchGateway _transferGateway;
   final PendingReturnCustodySource _pendingReturnCustody;
 
   Future<PendingTransferBatch?> loadPendingTransfers() =>
@@ -58,10 +62,41 @@ class CustodyCoordinator {
       throw ArgumentError('Duplicate transfer decision.');
     }
 
-    final results = <TransferDispatchResult>[];
-    for (final decision in decisions) {
-      results.add(await _transferGateway.respond(decision));
+    if (decisions.length == 1) {
+      return CustodyResponseOutcome(
+        <TransferDispatchResult>[
+          await _transferGateway.respond(decisions.single),
+        ],
+      );
     }
+
+    final results = <TransferDispatchResult>[];
+    var offset = 0;
+
+    while (offset < decisions.length) {
+      final end =
+          (offset + transferBatchMaximum < decisions.length)
+              ? offset + transferBatchMaximum
+              : decisions.length;
+      final chunk = decisions.sublist(offset, end);
+      final chunkResults = await _transferGateway.respondBatch(chunk);
+      results.addAll(chunkResults);
+
+      final unresolved = chunkResults.any(
+        (result) =>
+            result.disposition != TransferDispatchDisposition.live,
+      );
+      if (unresolved) {
+        return CustodyResponseOutcome(
+          results,
+          unattemptedDecisions:
+              decisions.sublist(end).toList(growable: false),
+        );
+      }
+
+      offset = end;
+    }
+
     return CustodyResponseOutcome(results);
   }
 }
