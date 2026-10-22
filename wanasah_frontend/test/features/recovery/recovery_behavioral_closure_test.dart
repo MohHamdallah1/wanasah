@@ -385,7 +385,7 @@ RecoveryCommand _command({
 }) {
   return RecoveryCommand(
     recordId: id,
-    commandId: 'command-' + id.toString(),
+    commandId: 'command-$id',
     normalizedType: type,
     state: state,
     legacyQuarantined: false,

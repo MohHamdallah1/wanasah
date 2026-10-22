@@ -139,8 +139,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     final result = await _recoverySyncCoordinator.synchronize();
 
     developer.log(
-      '[DashboardBloc] Recovery sync disposition: ' +
-          result.disposition.name,
+      '[DashboardBloc] Recovery sync disposition: ${result.disposition.name}',
     );
 
     try {

@@ -248,7 +248,7 @@ class _RecoveryCommandCard extends StatelessWidget {
     RecoveryStringKey label,
     String value,
   ) {
-    return recoveryString(label, localeCode: localeCode) + ': ' + value;
+    return '${recoveryString(label, localeCode: localeCode)}: $value';
   }
 
   String _operationLabel(String type) {

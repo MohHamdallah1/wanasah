@@ -135,7 +135,7 @@ String recoveryString(
   final selected = language == 'en' ? _en : _ar;
   var text = selected[key] ?? _ar[key]!;
   for (final entry in values.entries) {
-    text = text.replaceAll('{' + entry.key + '}', entry.value.toString());
+    text = text.replaceAll('{${entry.key}}', entry.value.toString());
   }
   return text;
 }

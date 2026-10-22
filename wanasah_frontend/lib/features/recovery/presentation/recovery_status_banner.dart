@@ -77,12 +77,10 @@ class RecoveryStatusBanner extends StatelessWidget {
         backgroundColor: background,
         foregroundColor: foreground,
         text:
-            summary +
-            ' ' +
-            recoveryString(
+            '$summary ${recoveryString(
               RecoveryStringKey.detailsHint,
               localeCode: locale,
-            ),
+            )}',
       ),
     );
   }
