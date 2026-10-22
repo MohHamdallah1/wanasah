@@ -125,7 +125,7 @@ void main() {
       .setMockMethodCallHandler(channel, (_) async { reads++; throw StateError('stale storage'); });
     addTearDown(() => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(channel, null));
-    dotenv.testLoad(fileInput: 'API_BASE_URL=http://127.0.0.1:8000');
+    await dotenv.load(fileName: '.env');
     ApiClient.init(onUnauthorized: () {});
     await tester.pumpWidget(const MaterialApp(home: AddShopScreen()));
     await tester.pumpAndSettle();
