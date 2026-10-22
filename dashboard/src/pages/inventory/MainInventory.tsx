@@ -71,8 +71,68 @@ interface WarehouseLocationOption {
 }
 
 interface WarehouseStatusPayload {
-  status: string;
+  status: "ACTIVE" | "AUDIT_LOCK";
+  stocktake_session_id: number | null;
+  stocktake_reference: string | null;
+  stocktake_status: string | null;
 }
+
+const parseWarehouseStatusPayload = (value: unknown): WarehouseStatusPayload => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    inventoryContractError("WAREHOUSE_STATUS_RESPONSE_INVALID");
+  }
+  const raw = value as Record<string, unknown>;
+  if (raw.status !== "ACTIVE" && raw.status !== "AUDIT_LOCK") {
+    inventoryContractError("WAREHOUSE_STATUS_RESPONSE_INVALID");
+  }
+  const sessionId = raw.stocktake_session_id;
+  const reference = raw.stocktake_reference;
+  const stocktakeStatus = raw.stocktake_status;
+  if (
+    sessionId !== null && sessionId !== undefined &&
+    (!Number.isInteger(sessionId) || Number(sessionId) <= 0)
+  ) {
+    inventoryContractError("WAREHOUSE_STATUS_RESPONSE_INVALID");
+  }
+  if (
+    reference !== null && reference !== undefined &&
+    (typeof reference !== "string" || !reference.trim() || reference.length > 100)
+  ) {
+    inventoryContractError("WAREHOUSE_STATUS_RESPONSE_INVALID");
+  }
+  if (
+    stocktakeStatus !== null && stocktakeStatus !== undefined &&
+    (typeof stocktakeStatus !== "string" || !stocktakeStatus.trim() || stocktakeStatus.length > 50)
+  ) {
+    inventoryContractError("WAREHOUSE_STATUS_RESPONSE_INVALID");
+  }
+  if (
+    raw.status === "AUDIT_LOCK" &&
+    (
+      typeof sessionId !== "number" ||
+      typeof reference !== "string" ||
+      typeof stocktakeStatus !== "string"
+    )
+  ) {
+    inventoryContractError("WAREHOUSE_STATUS_RESPONSE_INVALID");
+  }
+  if (
+    raw.status === "ACTIVE" &&
+    (
+      sessionId !== null && sessionId !== undefined ||
+      reference !== null && reference !== undefined ||
+      stocktakeStatus !== null && stocktakeStatus !== undefined
+    )
+  ) {
+    inventoryContractError("WAREHOUSE_STATUS_RESPONSE_INVALID");
+  }
+  return {
+    status: raw.status,
+    stocktake_session_id: typeof sessionId === "number" ? sessionId : null,
+    stocktake_reference: typeof reference === "string" ? reference.trim() : null,
+    stocktake_status: typeof stocktakeStatus === "string" ? stocktakeStatus.trim() : null,
+  };
+};
 
 interface WarehouseSetupStatus {
   warehouse_ready: boolean;
@@ -426,6 +486,7 @@ export default function MainInventory() {
       ? initialLiveSnapshot.auditLocked
       : null,
   );
+  const [auditLockReference, setAuditLockReference] = useState<string | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [verifiedStatusLocationId, setVerifiedStatusLocationId] =
     useState<number | null>(null);
@@ -490,6 +551,7 @@ export default function MainInventory() {
           ? snapshot.auditLocked
           : null,
       );
+      setAuditLockReference(null);
       setLoadingStock(
         locationId !== null && snapshot?.hasPage !== true,
       );
@@ -501,6 +563,7 @@ export default function MainInventory() {
     (locationId: number | null) => {
       statusRequestSeq.current += 1;
       setVerifiedStatusLocationId(null);
+      setAuditLockReference(null);
       stockRequestSeq.current += 1;
       stockAbortRef.current?.abort();
       stockAbortRef.current = null;
@@ -1012,6 +1075,7 @@ export default function MainInventory() {
 
     if (selectedLocationId === null) {
       setAuditLockState(false);
+      setAuditLockReference(null);
       setVerifiedStatusLocationId(null);
       setLoadingStatus(false);
       return;
@@ -1022,6 +1086,7 @@ export default function MainInventory() {
     }
     if (!canReadStatus) {
       setAuditLockState(false);
+      setAuditLockReference(null);
       setVerifiedStatusLocationId(null);
       setLoadingStatus(false);
       return;
@@ -1039,13 +1104,10 @@ export default function MainInventory() {
       );
 
       if (requestSeq !== statusRequestSeq.current) return;
-      if (typeof raw !== "object" || raw === null || !("status" in raw)) {
-        inventoryContractError("WAREHOUSE_STATUS_RESPONSE_INVALID");
-      }
-
-      const data = raw as WarehouseStatusPayload;
+      const data = parseWarehouseStatusPayload(raw);
       const locked = data.status === "AUDIT_LOCK";
       setAuditLockState(locked);
+      setAuditLockReference(locked ? data.stocktake_reference : null);
       setVerifiedStatusLocationId(requestLocationId);
       patchLiveStockWarmSnapshot(
         warmScopeKey,
@@ -1065,6 +1127,7 @@ export default function MainInventory() {
         ),
       );
       setAuditLockState(true);
+      setAuditLockReference(null);
     } finally {
       if (requestSeq === statusRequestSeq.current) {
         setLoadingStatus(false);
@@ -1391,7 +1454,8 @@ export default function MainInventory() {
             locationId={selectedLocationId}
             locations={locations}
             onLocationChange={handleLocationChange}
-            isAuditLocked={effectiveAuditLocked}
+            isAuditLocked={displayAuditLocked && auditLockReference !== null}
+            auditLockReference={auditLockReference}
             authenticatedFetch={authFetch}
             onSuccess={async () => {
               refreshStock();

@@ -174,9 +174,10 @@ def test_status_preserves_location_read_or_dispatch_read_exact_location_semantic
 
     route = _function_source(STATUS, STATUS_TREE, "get_warehouse_status")
     assert "await _require_status_access(access, location_id)" in route
-    assert "company_id=access.company_id" in route
-    assert "InventoryLock.company_id == access.company_id" in route
-    assert '"AUDIT_LOCK" if active_lock is not None else "ACTIVE"' in route
+    assert "_active_full_warehouse_audit_lock(" in route
+    assert "company_id=int(access.company_id)" in route
+    assert '"status": "AUDIT_LOCK"' in route
+    assert '"stocktake_reference": active_lock.stocktake_reference' in route
 
 
 def test_status_cross_company_location_is_rejected_without_foreign_lock_scope() -> None:
@@ -184,9 +185,9 @@ def test_status_cross_company_location_is_rejected_without_foreign_lock_scope() 
     route = _function_source(STATUS, STATUS_TREE, "get_warehouse_status")
     assert "InventoryLocation.company_id == access.company_id" in helper
     assert "InventoryLocation.id == location_id" in helper
-    assert "company_id=access.company_id" in route
-    assert "InventoryLock.company_id == access.company_id" in route
-    assert "InventoryLock.location_id == location_id" in route
+    assert "company_id=int(access.company_id)" in route
+    assert "_active_full_warehouse_audit_lock(" in route
+    assert "location_id=location_id" in route
 
 
 def test_identity_ids_and_driver_admin_flags_are_irrelevant_to_these_routes() -> None:

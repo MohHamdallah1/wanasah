@@ -62,6 +62,7 @@ interface Props {
   locations?: InboundWarehouseOption[];
   onLocationChange?: (value: string) => void;
   isAuditLocked: boolean;
+  auditLockReference?: string | null;
   authenticatedFetch: (
     url: string,
     opts?: RequestInit
@@ -224,6 +225,7 @@ export function Tab2Inbound({
   locations = [],
   onLocationChange,
   isAuditLocked,
+  auditLockReference = null,
   authenticatedFetch,
   onSuccess,
 }: Props) {
@@ -747,9 +749,6 @@ export function Tab2Inbound({
   const submit = async () => {
     if (!posting.online) return toast.error(t("suppliers.offline"));
     if (posting.pending || posting.recoveryError) return toast.error(t("suppliers.pending"));
-    if (isAuditLocked) {
-      return toast.error(t("inventoryInbound.errors.auditLocked"));
-    }
 
     setSetupValidation(null);
     setValidationError(null);
@@ -1377,21 +1376,43 @@ export function Tab2Inbound({
             aria-label={t("inventoryInbound.notes")}
             className="inventory-inbound-footer-input inventory-inbound-footer-notes"
           />
-          <button
-            type="button"
-            onClick={() => void submit()}
-            disabled={
-              submitting ||
-              savingPolicy ||
-              posting.pending !== null ||
-              Boolean(posting.recoveryError)
-            }
-            className="inventory-inbound-submit disabled:opacity-50"
-          >
-            {submitting
-              ? t("inventoryInbound.submitting")
-              : t("inventoryInbound.submit")}
-          </button>
+          <TooltipPrimitive.Provider delayDuration={0} skipDelayDuration={0}>
+            <TooltipPrimitive.Root>
+              <TooltipPrimitive.Trigger asChild>
+                <button
+                  type="button"
+                  onClick={() => void submit()}
+                  disabled={
+                    submitting ||
+                    savingPolicy ||
+                    posting.pending !== null ||
+                    Boolean(posting.recoveryError)
+                  }
+                  className="inventory-inbound-submit disabled:opacity-50"
+                >
+                  {submitting
+                    ? t("inventoryInbound.submitting")
+                    : t("inventoryInbound.submit")}
+                </button>
+              </TooltipPrimitive.Trigger>
+              {isAuditLocked && (
+                <TooltipPrimitive.Portal>
+                  <TooltipPrimitive.Content
+                    side="top"
+                    sideOffset={6}
+                    className="z-[100] max-w-80 rounded-md bg-slate-900 px-3 py-2 text-xs font-bold leading-5 text-white shadow-lg"
+                  >
+                    {t("inventoryInbound.errors.auditLockTooltip", {
+                      reference: auditLockReference
+                        ? ` (${auditLockReference})`
+                        : "",
+                    })}
+                    <TooltipPrimitive.Arrow className="fill-slate-900" />
+                  </TooltipPrimitive.Content>
+                </TooltipPrimitive.Portal>
+              )}
+            </TooltipPrimitive.Root>
+          </TooltipPrimitive.Provider>
         </div>
 
         <Modal

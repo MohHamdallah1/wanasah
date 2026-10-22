@@ -160,6 +160,7 @@ const renderInbound = (
   resolvedVariants: CatalogVariant[] = variants,
   suggestedCost: string | null = null,
   isAuditLocked = false,
+  auditLockReference: string | null = null,
 ) => {
   const fetch = makeFetch(variants, nextCursor, policy, resolvedVariants, suggestedCost);
   const view = render(
@@ -169,6 +170,7 @@ const renderInbound = (
         actorId={2}
         locationId={3}
         isAuditLocked={isAuditLocked}
+        auditLockReference={auditLockReference}
         authenticatedFetch={fetch}
         onSuccess={vi.fn()}
       />
@@ -268,7 +270,23 @@ describe("Checkpoint 1 inbound UI", () => {
     expect(mocks.post).not.toHaveBeenCalled();
   });
 
-  it("keeps the post button actionable during audit lock but never posts", async () => {
+  it("keeps audit-lock UX informative but lets the backend own rejection", async () => {
+    const keys = inboundStorageKeys(1, 2, 3);
+    localStorage.setItem(keys.reference, "INV-AUDIT-LOCK");
+    localStorage.setItem(
+      keys.drafts,
+      JSON.stringify({
+        "1": [{
+          row_id: "audit-lock-row",
+          quantity: "2",
+          uom_id: "1",
+          unit_cost: "3.000000",
+          batch_number: "",
+          production_date: "",
+          expiry_date: "",
+        }],
+      }),
+    );
     renderInbound(
       [makeVariant(1, "Audit locked product", "NONE", "NONE")],
       null,
@@ -276,12 +294,22 @@ describe("Checkpoint 1 inbound UI", () => {
       [makeVariant(1, "Audit locked product", "NONE", "NONE")],
       null,
       true,
+      "STK-LOCK-123",
     );
-    await screen.findByText("Audit locked product");
+    const row = (await screen.findByText("Audit locked product")).closest("tr")!;
+    await waitFor(() =>
+      expect((within(row).getByLabelText("Purchase unit") as HTMLSelectElement).disabled).toBe(false)
+    );
     const submit = screen.getByRole("button", { name: "Post receipt" }) as HTMLButtonElement;
     expect(submit.disabled).toBe(false);
+    expect(
+      i18n.t("inventoryInbound.errors.auditLockTooltip", {
+        reference: " (STK-LOCK-123)",
+      }),
+    ).toContain("STK-LOCK-123");
+    fireEvent.click(screen.getByRole("button", { name: "choose-supplier" }));
     fireEvent.click(submit);
-    expect(mocks.post).not.toHaveBeenCalled();
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
   });
 
   it("requires explicit selection when a receipt has two prices for the same product", async () => {
@@ -874,6 +902,7 @@ describe("Checkpoint 1 inbound UI", () => {
         "INBOUND_LOT_NOT_ALLOWED",
         "INBOUND_LOT_RESERVED",
         "INBOUND_ANONYMOUS_BATCH_COLLISION",
+        "INBOUND_WAREHOUSE_AUDIT_LOCKED",
       ]) {
         expect(i18n.exists(`errors.codes.${code}`, { lng: language })).toBe(true);
       }

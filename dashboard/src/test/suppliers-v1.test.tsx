@@ -196,6 +196,35 @@ describe("durable Supplier and Inbound commands", () => {
     await act(async () => { expect(await resumed.result.current.post()).toBe(true); });
     expect(JSON.parse(fake.fetch.mock.calls.at(-1)![1].body)).toEqual(sent);
   });
+  it("clears a recovered Inbound command after an authoritative audit-lock rejection", async () => {
+    const payload = { supplier_id: 3, location_id: 5, reference_id: "INB-LOCK", items: [] };
+    fake.fetch.mockRejectedValue(Object.assign(new Error(), { code: "NETWORK_UNAVAILABLE" }));
+    const first = renderHook(() => useInboundPosting({
+      companyId: 1, actorId: 2, locationId: 5, authenticatedFetch: fake.fetch,
+    }));
+    await act(async () => {
+      await expect(first.result.current.post(payload)).rejects.toBeDefined();
+    });
+    first.unmount();
+
+    const resumed = renderHook(() => useInboundPosting({
+      companyId: 1, actorId: 2, locationId: 5, authenticatedFetch: fake.fetch,
+    }));
+    await waitFor(() => expect(resumed.result.current.pending).not.toBeNull());
+    fake.fetch.mockRejectedValue(
+      Object.assign(new Error(), {
+        code: "INBOUND_WAREHOUSE_AUDIT_LOCKED",
+        status: 409,
+      }),
+    );
+    await act(async () => {
+      await expect(resumed.result.current.post()).rejects.toMatchObject({
+        code: "INBOUND_WAREHOUSE_AUDIT_LOCKED",
+      });
+    });
+    await waitFor(() => expect(resumed.result.current.pending).toBeNull());
+  });
+
   it("recovers previous Inbound storage without creating a new request identity", async () => {
     const requestId = "68c80f9b-041e-450f-92af-d2e4f341dbe8";
     const payload = { location_id: 5, reference_id: "LEGACY", items: [] };

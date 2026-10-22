@@ -42,6 +42,7 @@ from schemas import (
 )
 from services import (
     InventoryMutationError,
+    acquire_inventory_location_guard,
     begin_idempotent_operation,
     complete_idempotent_operation,
     apply_inventory_movements_batch,
@@ -81,7 +82,7 @@ from domains.product_tracking import (
 )
 
 
-from ._shared import _stable_request_hash
+from ._shared import _active_full_warehouse_audit_lock, _stable_request_hash
 
 
 logger = logging.getLogger("wanasah_logger")
@@ -840,6 +841,34 @@ async def warehouse_inbound(
         if replay_response is not None:
             await db.rollback()
             return replay_response
+
+        # Serialize normal warehouse mutations against stocktake lifecycle changes.
+        # Stocktake start/cancel/approval takes the same location guard exclusively;
+        # inbound takes it shared, then checks the authoritative lock row in-transaction.
+        await acquire_inventory_location_guard(
+            db,
+            company_id,
+            payload.location_id,
+            exclusive=False,
+        )
+        active_audit_lock = await _active_full_warehouse_audit_lock(
+            db,
+            company_id=company_id,
+            location_id=payload.location_id,
+        )
+        if active_audit_lock is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=inventory_business_error(
+                    "INBOUND_WAREHOUSE_AUDIT_LOCKED",
+                    "The warehouse is locked by an active stocktake session.",
+                    context={
+                        "stocktake_session_id": active_audit_lock.stocktake_session_id,
+                        "stocktake_reference": active_audit_lock.stocktake_reference,
+                        "stocktake_status": active_audit_lock.stocktake_status,
+                    },
+                ),
+            )
 
         reference_writer = await begin_receipt_reference(
             db, access=access, operation=idempotency_record, location_id=payload.location_id,

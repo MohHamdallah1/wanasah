@@ -10,8 +10,10 @@ from domains.authorization.backoffice_access import (
     BackofficeCapabilityAccess,
     BackofficeCapabilityAccessRejected,
 )
-from models import InventoryLocation, InventoryLock
+from models import InventoryLocation
 from schemas import WarehouseStatusResponse
+
+from ._shared import _active_full_warehouse_audit_lock
 
 
 router = APIRouter()
@@ -64,17 +66,24 @@ async def get_warehouse_status(
             detail="المستودع غير موجود أو لا يتبع شركتك."
         )
 
-    stmt_lock = select(InventoryLock.id).filter(
-        InventoryLock.company_id == access.company_id,
-        InventoryLock.location_id == location_id,
-        InventoryLock.product_variant_id.is_(None),
-        InventoryLock.batch_id.is_(None),
-        InventoryLock.released_at.is_(None)
-    ).limit(1)
+    active_lock = await _active_full_warehouse_audit_lock(
+        db,
+        company_id=int(access.company_id),
+        location_id=location_id,
+    )
 
-    active_lock = (await db.execute(stmt_lock)).scalar_one_or_none()
+    if active_lock is None:
+        return {
+            "status": "ACTIVE",
+            "stocktake_session_id": None,
+            "stocktake_reference": None,
+            "stocktake_status": None,
+        }
 
     return {
-        "status": "AUDIT_LOCK" if active_lock is not None else "ACTIVE"
+        "status": "AUDIT_LOCK",
+        "stocktake_session_id": active_lock.stocktake_session_id,
+        "stocktake_reference": active_lock.stocktake_reference,
+        "stocktake_status": active_lock.stocktake_status,
     }
 

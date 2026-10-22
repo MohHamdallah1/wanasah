@@ -7,6 +7,10 @@ import { abandonDurableOperation, completeDurableOperation, durableScope,
 import { parseInboundResponse } from "./contracts";
 import { isConfirmedSupplierRejection } from "@/features/suppliers/contracts";
 
+const isConfirmedInboundRejection = (code: string | undefined) =>
+  code === "INBOUND_WAREHOUSE_AUDIT_LOCKED" ||
+  isConfirmedSupplierRejection(code);
+
 export function useInboundPosting({ companyId, actorId, locationId, authenticatedFetch, legacyRequestKey, legacyPayloadKey }: {
   companyId: number; actorId: number; locationId: number;
   authenticatedFetch: (url: string, opts?: RequestInit) => Promise<unknown>;
@@ -60,7 +64,7 @@ export function useInboundPosting({ companyId, actorId, locationId, authenticate
       }
       return true;
     } catch (error) {
-      if ((isConfirmedSupplierRejection(apiErrorCode(error)) && !isAmbiguousRequestError(error)) || (!recovering && !isAmbiguousRequestError(error) && !["DURABLE_OPERATION_PENDING", "DURABLE_OPERATION_CORRUPT", "INBOUND_RESPONSE_INVALID"].includes(apiErrorCode(error) ?? ""))) {
+      if ((isConfirmedInboundRejection(apiErrorCode(error)) && !isAmbiguousRequestError(error)) || (!recovering && !isAmbiguousRequestError(error) && !["DURABLE_OPERATION_PENDING", "DURABLE_OPERATION_CORRUPT", "INBOUND_RESPONSE_INVALID"].includes(apiErrorCode(error) ?? ""))) {
         abandonDurableOperation(scope); setPending(null);
         if (legacyRequestKey) localStorage.removeItem(legacyRequestKey);
         if (legacyPayloadKey) localStorage.removeItem(legacyPayloadKey);

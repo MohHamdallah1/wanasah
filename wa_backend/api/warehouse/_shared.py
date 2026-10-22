@@ -1,12 +1,16 @@
 import base64
 import hashlib
 import json
+from dataclasses import dataclass
 from datetime import date
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlalchemy import Integer, any_, bindparam
+from sqlalchemy import Integer, and_, any_, bindparam, select
 from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from models import InventoryLock, StocktakeSession
 
 
 # تهريب المحارف الخاصة في LIKE حتى يبقى البحث الحرفي آمناً وصحيحاً.
@@ -177,6 +181,53 @@ def _decode_batch_cursor(
                 "المستودع والمنتج الحاليين."
             ),
         ) from exc
+
+
+@dataclass(frozen=True)
+class WarehouseAuditLockInfo:
+    stocktake_session_id: int
+    stocktake_reference: str
+    stocktake_status: str
+
+
+async def _active_full_warehouse_audit_lock(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    location_id: int,
+) -> WarehouseAuditLockInfo | None:
+    row = (
+        await db.execute(
+            select(
+                InventoryLock.stocktake_session_id,
+                StocktakeSession.reference_number,
+                StocktakeSession.status,
+            )
+            .join(
+                StocktakeSession,
+                and_(
+                    StocktakeSession.company_id == InventoryLock.company_id,
+                    StocktakeSession.id == InventoryLock.stocktake_session_id,
+                ),
+            )
+            .where(
+                InventoryLock.company_id == company_id,
+                InventoryLock.location_id == location_id,
+                InventoryLock.product_variant_id.is_(None),
+                InventoryLock.batch_id.is_(None),
+                InventoryLock.released_at.is_(None),
+            )
+            .order_by(InventoryLock.id.asc())
+            .limit(1)
+        )
+    ).one_or_none()
+    if row is None:
+        return None
+    return WarehouseAuditLockInfo(
+        stocktake_session_id=int(row.stocktake_session_id),
+        stocktake_reference=str(row.reference_number),
+        stocktake_status=str(row.status),
+    )
 
 
 # ====================================================
