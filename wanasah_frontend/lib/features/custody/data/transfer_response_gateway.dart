@@ -92,17 +92,6 @@ class CustodyTransferGateway implements TransferDispatchGateway {
 
     try {
       await send();
-      final results = <TransferDispatchResult>[];
-      for (final command in commands) {
-        await _store.finalizeConfirmedSuccess(command);
-        results.add(
-          TransferDispatchResult(
-            decision: command.decision,
-            disposition: TransferDispatchDisposition.live,
-          ),
-        );
-      }
-      return results;
     } on DioException catch (error) {
       final failure = TransferDispatchFailure.fromDio(error);
       final disposition =
@@ -154,5 +143,17 @@ class CustodyTransferGateway implements TransferDispatchGateway {
           )
           .toList(growable: false);
     }
+
+    final results = <TransferDispatchResult>[];
+    for (final command in commands) {
+      await _store.finalizeConfirmedSuccess(command);
+      results.add(
+        TransferDispatchResult(
+          decision: command.decision,
+          disposition: TransferDispatchDisposition.live,
+        ),
+      );
+    }
+    return results;
   }
 }
