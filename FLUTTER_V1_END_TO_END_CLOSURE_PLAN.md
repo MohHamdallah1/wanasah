@@ -99,7 +99,7 @@ Current Flutter:
 Required closure:
 - [x] Remove client calculations as authoritative acceptance/rejection rules.
 - [x] Use Backend-authoritative preview/read evidence where available.
-- [ ] Offline UI may display a clearly scoped estimate but must not invent final commercial truth.
+- [x] Offline UI may display a clearly scoped estimate but does not invent final commercial truth; cached prices are display-only and never drive approval/staging.
 - [x] Preserve exact monetary strings/values across transport and durable offline command storage.
 - [x] Eliminate floating-point comparisons from commercial correctness decisions; legacy double compatibility state is non-authoritative.
 
@@ -177,7 +177,7 @@ The independent Backend audit found four genuine field-transport prerequisites. 
 
 3. **Authoritative field invoice result/preview**
    - [x] Reuse the existing Backend sale calculator and expose FIELD preview/frozen invoice transport for payable/final totals, rounding and currency.
-   - [ ] Flutter cached catalog prices remain display/offline estimate evidence only; client authority cleanup remains open.
+   - [x] Flutter cached catalog prices are display/offline estimate evidence only; Visit submission/approval ignores cached price values and Backend preview/frozen invoice remains authority.
    - [x] Backend authoritative invoice seam exists; do not build a second pricing engine in Dart.
 
 4. **Non-sellable vehicle custody read**
@@ -415,16 +415,37 @@ Closure:
 
 ## 8. Visit workflow / commercial action closure
 
-- [ ] Pending / completed / postponed semantics match Backend.
-- [ ] Sale requires real sold quantity.
-- [ ] NoSale supports samples, returns, or prior-debt collection according to Backend.
-- [ ] Postponed contains no financial/inventory actions.
-- [ ] Samples require reason and preserve canonical quantities.
-- [ ] Bonus/reward quantity is never client-authoritative.
-- [ ] Flutter never sends a sale price or chooses FEFO Batch.
+- [x] Pending / completed / postponed semantics match Backend: Sale/NoSale -> Completed; Postponed -> Pending.
+- [x] Sale requires positive sold carton/pack quantity; samples/returns alone cannot constitute Sale.
+- [x] NoSale supports samples, all three return reasons, and prior-debt collection exactly according to the current Backend contract.
+- [x] Postponed contains no financial/inventory actions; conflicting drafts fail before durable staging.
+- [x] Positive samples require a nonblank <=255-character reason and preserve canonical carton/pack quantities.
+- [x] Bonus/reward quantity is never client-authoritative; Backend offer/reward calculation remains authority.
+- [x] Flutter never sends authoritative sale price or chooses FEFO Batch; Backend pricing/FEFO remains authority.
 - [x] Shop debt/cash inputs use exact money transport.
-- [ ] Server response/rejection drives final outcome.
-- [ ] Existing completed/offline visit edit/reopen behavior is audited before preservation.
+- [x] Server confirmation/rejection drives final Visit outcome; ambiguous results preserve the existing durable command/evidence and unresolved prior commands block correction.
+- [x] Existing completed/offline correction behavior is audited and preserved: collection-only Visit money/notes restore correctly, prior unresolved commands block new correction, and old->new projection remains exactly once.
+
+### 8.1 Visit commercial action correctness stability point — 2026-10-23
+
+- [x] Codex implementation branch: `codex/flutter-v1-visit-commercial-action-closure`.
+- [x] Exact Codex HEAD: `c8be50bc1623d8279302a839ba4232531efb5fde`.
+- [x] Original PR #463 independently reviewed by Lead and incorporated as a parent of the current-main integration.
+- [x] Lead integration commit: `5a429ad313b7d2c390adb3945da5cec2b68363d6`.
+- [x] Integration PR #467 merged to `main`; merge commit: `c085e63ddc1a4c64aa73749340d640b6353e6d0a`.
+- [x] All 11 Codex-owned paths were unchanged on current `main` from the worker base before integration, proving no hidden file-level overwrite.
+- [x] Current Backend `VisitUpdateRequest` / `VisitItemInput` contract independently re-read and matched by the feature-owned action policy.
+- [x] Conflicting NoSale cash and Postponed actions fail before staging instead of being silently stripped.
+- [x] Application callers cannot bypass sold-quantity, sample-reason, duplicate-product and action-shape validation.
+- [x] NoSale confirmation never invents a reason; Postponed never invents a shop-closed reason.
+- [x] Completed collection-only Visits restore exact editable money/notes independently of cart JSON.
+- [x] Cached catalog price values do not change staged payload or approval; Backend commercial readiness/preview/frozen invoice remains authority.
+- [x] No client price, FEFO Batch, bonus/reward quantity, cached debt balance or tax engine became authority.
+- [x] Exact-head FIELD run `39774956886` PASS; correction/offline/commercial-decomposition/decomposition exact-head gates PASS.
+- [x] Current-main integration PR #467 gates PASS: FIELD seam adapters + Backend contract readback, Visit commercial decomposition, Visit decomposition, Visit correction and Offline durable.
+- [x] Inventory CP2 historical unchanged-file assertion remains unrelated to this Flutter Visit closure.
+- [ ] Cached route-action compatibility flags (`is_on_break` / `is_authorized`) remain a separate Backend-authority seam and are not claimed closed by this commercial-action wave.
+- [ ] Final real-device Visit journey remains part of release acceptance.
 
 ## 9. Local inventory projection
 
