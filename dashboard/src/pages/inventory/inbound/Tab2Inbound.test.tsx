@@ -401,6 +401,10 @@ describe("Checkpoint 1 inbound UI", () => {
     fireEvent.blur(expiry);
     expect(expiry.value).toBe("2026-07-01");
 
+    fireEvent.change(expiry, { target: { value: "20102026" } });
+    fireEvent.blur(expiry);
+    expect(expiry.value).toBe("2026-10-20");
+
     fireEvent.change(production, { target: { value: "25/08/2026" } });
     fireEvent.blur(production);
     expect(production.value).toBe("2026-08-25");
