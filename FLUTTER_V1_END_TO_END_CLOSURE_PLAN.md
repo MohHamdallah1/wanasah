@@ -866,7 +866,23 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] PR #446 merged into `sol/flutter-v1-field-closure`.
 - [x] Merge commit: `19aefd88129777486fb87ce59eb02964fa32b90a`.
 - [x] No Dashboard web, Backend, Visit FIELD wiring, Recovery, Work Session, Custody, Shops, Auth, LocalDatabase or SyncRepository production files were modified by this slice.
-- [ ] Route-action compatibility still reads cached `is_on_break` / `is_authorized`; Backend remains authorization authority and this seam may be replaced later without changing Visit List UI.
+- [x] Route-action cached `is_on_break` / `is_authorized` authority seam closed: Visit/Shop forms no longer deny navigation or mutation from stale SecureStorage flags; current Backend eligibility remains final authority.
+### 10.14a Visit route-action Backend-authority stability point — 2026-10-23
+
+- [x] Codex branch: `codex/flutter-v1-visit-route-action-authority-closure`.
+- [x] Exact Codex HEAD: `6e9f91163ca137d0424f2ae9a730fa54c9d3da6f`.
+- [x] Lead integration commit: `ee1ee6e29cc07c15cee51bde3e16aee238908c44`.
+- [x] Integration PR #472 merged to `main`; merge commit: `3b29c17609de97299809d035f8d00b306cfdb41c`.
+- [x] All 9 Codex-owned paths were unchanged on current `main` from the worker base before integration.
+- [x] VisitScreen no longer reads cached `is_authorized` / `is_on_break` or cached zone mismatch as final mutation authority.
+- [x] Visit List navigation no longer denies Add Shop/Open Visit because of stale/missing/malformed SecureStorage flags.
+- [x] Add Shop stale break/authorization UI locks were removed only after verifying current Backend `POST /shops` enforces active session, active route, break state and `is_authorized_to_sell`.
+- [x] No live Visit preflight was added; offline Visit staging remains available with the same durable command identity/body and Backend replay decides final eligibility.
+- [x] Current Backend Visit authority still owns active/unsealed session, route/driver assignment, zone/emergency/shortage exceptions, vehicle/custody, inventory locks, break/sell authorization and pending HANDSHAKE checks.
+- [x] No new permission cache, authorization database, replay queue or business-rule engine was introduced.
+- [x] Current-main PR #472 gates PASS: Visit List Route, Shop Reconciliation, Offline Durable, Visit Commercial Decomposition, Visit Decomposition and FIELD client/backend readback.
+- [x] Inventory CP2 historical unchanged-file assertion remains unrelated to this closure.
+
 - [ ] SyncRepository still exposes generic exceptions on some compatibility paths; Visit List fails closed rather than parsing message text.
 
 
