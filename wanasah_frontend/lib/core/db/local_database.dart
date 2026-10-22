@@ -21,7 +21,7 @@ import '../../models/product_model.dart';
 import '../../models/visit_model.dart';
 import '../sync/durable_command.dart';
 import '../sync/pending_command_store.dart';
-import '../visit/local_inventory_projection.dart';
+import 'visit/visit_local_persistence.dart';
 
 class LocalDatabase {
   // -----------------------------------------------------------------------
@@ -34,6 +34,11 @@ class LocalDatabase {
   late final PendingCommandStore pendingCommands = PendingCommandStore(
     databaseProvider: () => database,
     tenantProvider: () => currentTenant,
+  );
+
+  late final VisitLocalPersistence _visitPersistence = VisitLocalPersistence(
+    databaseProvider: () => database,
+    pendingCommands: pendingCommands,
   );
 
   // الاتصال الوحيد بقاعدة البيانات — null حتى يتم التهيئة للمرة الأولى
@@ -488,127 +493,56 @@ class LocalDatabase {
     required int visitId,
     required String status,
     required String outcome,
-    double cashCollected = 0.0, 
-    double debtPaid = 0.0, 
-    double? newShopBalance, 
-    String? cartItemsJson, 
-    String? returnsJson, 
-    String? notes, 
+    double cashCollected = 0.0,
+    double debtPaid = 0.0,
+    double? newShopBalance,
+    String? cartItemsJson,
+    String? returnsJson,
+    String? notes,
     Transaction? txn,
-  }) async {
-    final db = txn ?? await database;
-    final Map<String, dynamic> updateData = {
-      'status': status,
-      'outcome': outcome,
-      'cash_collected': cashCollected,
-      'debt_paid': debtPaid,
-      'cart_items': cartItemsJson,
-      'returns': returnsJson,
-      'notes': notes,
-    };
-    
-    if (newShopBalance != null) updateData['shop_balance'] = newShopBalance; 
-
-    await db.update(
-      'visits',
-      updateData,
-      where: 'visit_id = ?',
-      whereArgs: [visitId],
-    );
-  }
+  }) =>
+      _visitPersistence.updateVisitStatus(
+        visitId: visitId,
+        status: status,
+        outcome: outcome,
+        cashCollected: cashCollected,
+        debtPaid: debtPaid,
+        newShopBalance: newShopBalance,
+        cartItemsJson: cartItemsJson,
+        returnsJson: returnsJson,
+        notes: notes,
+        txn: txn,
+      );
 
   Future<void> deductInventoryLocal(
     List<dynamic> cartItems, {
     List<dynamic>? returnItems,
     Transaction? txn,
-  }) async {
-    final projection = visitInventoryProjection(
-      cartItems: cartItems,
-      returns: returnItems ?? const <dynamic>[],
-    );
-
-    if (txn != null) {
-      await _applyVisitProjectionDelta(
+  }) =>
+      _visitPersistence.deductInventoryLocal(
+        cartItems,
+        returnItems: returnItems,
         txn: txn,
-        oldProjection: const <int, VisitInventoryQuantity>{},
-        newProjection: projection,
       );
-      return;
-    }
-
-    final db = await database;
-    await db.transaction((transaction) async {
-      await _applyVisitProjectionDelta(
-        txn: transaction,
-        oldProjection: const <int, VisitInventoryQuantity>{},
-        newProjection: projection,
-      );
-    });
-  }
 
   @Deprecated(
     'Unresolved visit commands are immutable until reconciliation; use stageVisitCommandAtomic.',
   )
-  Future<void> revertOfflineVisit(int visitId, {Transaction? txn}) async {
-    throw UnsupportedError(
-      'Visit #$visitId has durable offline evidence and cannot be auto-reverted.',
-    );
-  }
+  Future<void> revertOfflineVisit(int visitId, {Transaction? txn}) =>
+      _visitPersistence.revertOfflineVisit(visitId, txn: txn);
 
   Future<int> stageVisitCommandAtomic({
     required int visitId,
     required String payload,
     required String requestId,
     int? ownerDriverId,
-  }) async {
-    final db = await database;
-    return db.transaction((txn) async {
-      final unresolved = await txn.query(
-        'pending_sync',
-        orderBy: 'created_at ASC, id ASC',
-      );
-
-      for (final row in unresolved) {
-        final rawType = row['type']?.toString() ?? '';
-        final normalizedType =
-            DurableCommandType.normalizeLegacyType(rawType);
-
-        if (normalizedType == DurableCommandType.corrupt) {
-          throw StateError(
-            'Corrupt unresolved offline evidence must be recovered before creating another visit command.',
-          );
-        }
-        if (normalizedType != DurableCommandType.submitSale) {
-          continue;
-        }
-
-        Map<String, dynamic> existing;
-        try {
-          existing = Map<String, dynamic>.from(
-            jsonDecode(row['payload'] as String) as Map,
-          );
-        } catch (_) {
-          throw StateError(
-            'Unreadable unresolved sale evidence must be recovered before creating another visit command.',
-          );
-        }
-
-        if (existing['visitId'].toString() == visitId.toString()) {
-          throw StateError(
-            'Visit #$visitId already has an unresolved command. Resolve it before creating a correction or replacement command.',
-          );
-        }
-      }
-
-      return addPendingSync(
-        type: DurableCommandType.submitSale,
+  }) =>
+      _visitPersistence.stageVisitCommandAtomic(
+        visitId: visitId,
         payload: payload,
-        commandId: requestId,
+        requestId: requestId,
         ownerDriverId: ownerDriverId,
-        txn: txn,
       );
-    });
-  }
 
   Future<bool> isFirstUnresolvedCommand(int commandRecordId) async {
     final rows = await getPendingSyncs(limit: 1);
@@ -628,219 +562,28 @@ class LocalDatabase {
     String? notes,
     required List<dynamic> cartItems,
     List<dynamic>? returnItems,
-  }) async {
-    final db = await database;
-    try {
-      await db.transaction((txn) async {
-        final commandRows = await txn.query(
-          'pending_sync',
-          columns: ['local_effect_applied'],
-          where: 'id = ?',
-          whereArgs: [commandRecordId],
-          limit: 1,
-        );
-        if (commandRows.isEmpty) {
-          throw StateError(
-            'Offline command #$commandRecordId is missing before local finalize.',
-          );
-        }
-
-        final alreadyApplied =
-            (commandRows.first['local_effect_applied'] as num?)?.toInt() == 1;
-        if (alreadyApplied) return;
-
-        final previousVisitRows = await txn.query(
-          'visits',
-          columns: ['cart_items', 'returns'],
-          where: 'visit_id = ?',
-          whereArgs: [visitId],
-          limit: 1,
-        );
-        if (previousVisitRows.isEmpty) {
-          throw StateError(
-            'Visit #$visitId is missing before local command finalization.',
-          );
-        }
-
-        final oldCartItems =
-            _decodeStoredVisitList(previousVisitRows.first['cart_items']);
-        final oldReturns =
-            _decodeStoredVisitList(previousVisitRows.first['returns']);
-        final newReturns = returnItems ?? const <dynamic>[];
-
-        await _applyVisitInventoryCorrection(
-          txn: txn,
-          oldCartItems: oldCartItems,
-          oldReturns: oldReturns,
-          newCartItems: cartItems,
-          newReturns: newReturns,
-        );
-
-        await updateVisitStatus(
-          visitId: visitId,
-          status: status,
-          outcome: outcome,
-          cashCollected: cashCollected,
-          debtPaid: debtPaid,
-          cartItemsJson: cartItemsJson,
-          returnsJson: returnsJson,
-          notes: notes,
-          txn: txn,
-        );
-
-        final updated = await txn.update(
-          'pending_sync',
-          {
-            'local_effect_applied': 1,
-            'updated_at': DateTime.now().toIso8601String(),
-          },
-          where: 'id = ?',
-          whereArgs: [commandRecordId],
-        );
-        if (updated != 1) {
-          throw StateError(
-            'Offline command #$commandRecordId disappeared during local finalize.',
-          );
-        }
-      });
-    } on LocalInventoryProjectionException catch (error) {
-      await markPendingSyncBlocked(
-        commandRecordId,
-        errorCode: error.code,
-        errorMessage: error.toString(),
-      );
-      rethrow;
-    }
-  }
-
-  List<dynamic> _decodeStoredVisitList(Object? raw) {
-    if (raw == null) return const <dynamic>[];
-    if (raw is List) return List<dynamic>.from(raw);
-    if (raw is! String || raw.trim().isEmpty || raw == 'null') {
-      return const <dynamic>[];
-    }
-
-    final decoded = jsonDecode(raw);
-    if (decoded is! List) {
-      throw StateError('Stored visit projection is not a list.');
-    }
-    return List<dynamic>.from(decoded);
-  }
-
-  Future<void> _applyVisitInventoryCorrection({
-    required Transaction txn,
-    required List<dynamic> oldCartItems,
-    required List<dynamic> oldReturns,
-    required List<dynamic> newCartItems,
-    required List<dynamic> newReturns,
-  }) async {
-    final oldProjection = visitInventoryProjection(
-      cartItems: oldCartItems,
-      returns: oldReturns,
-    );
-    final newProjection = visitInventoryProjection(
-      cartItems: newCartItems,
-      returns: newReturns,
-    );
-
-    await _applyVisitProjectionDelta(
-      txn: txn,
-      oldProjection: oldProjection,
-      newProjection: newProjection,
-    );
-  }
-
-  Future<void> _applyVisitProjectionDelta({
-    required Transaction txn,
-    required Map<int, VisitInventoryQuantity> oldProjection,
-    required Map<int, VisitInventoryQuantity> newProjection,
-  }) async {
-    final variantIds = <int>{
-      ...oldProjection.keys,
-      ...newProjection.keys,
-    }.toList()
-      ..sort();
-
-    for (final variantId in variantIds) {
-      final rows = await txn.query(
-        'products',
-        columns: [
-          'packs_per_carton',
-          'current_cartons',
-          'current_packs',
-        ],
-        where: 'id = ?',
-        whereArgs: [variantId],
-        limit: 1,
-      );
-      if (rows.isEmpty) {
-        throw LocalInventoryProjectionException(
-          code: LocalInventoryProjectionCode.productMissing,
-          variantId: variantId,
-        );
-      }
-
-      final row = rows.first;
-      final packsPerCarton =
-          (row['packs_per_carton'] as num?)?.toInt() ?? 0;
-      final currentCartons =
-          (row['current_cartons'] as num?)?.toInt();
-      final currentPacks =
-          (row['current_packs'] as num?)?.toInt();
-
-      if (currentCartons == null || currentPacks == null) {
-        throw LocalInventoryProjectionException(
-          code: LocalInventoryProjectionCode.invalidCurrentState,
-          variantId: variantId,
-          details: <String, Object?>{
-            'current_cartons': row['current_cartons'],
-            'current_packs': row['current_packs'],
-          },
-        );
-      }
-
-      final deltaBasePacks = inventoryCorrectionDeltaBasePacks(
-        oldProjection:
-            oldProjection[variantId] ?? const VisitInventoryQuantity(),
-        newProjection:
-            newProjection[variantId] ?? const VisitInventoryQuantity(),
-        packsPerCarton: packsPerCarton,
-        variantId: variantId,
+  }) =>
+      _visitPersistence.finalizeVisitCommandLocalState(
+        commandRecordId: commandRecordId,
+        visitId: visitId,
+        status: status,
+        outcome: outcome,
+        cashCollected: cashCollected,
+        debtPaid: debtPaid,
+        cartItemsJson: cartItemsJson,
+        returnsJson: returnsJson,
+        notes: notes,
+        cartItems: cartItems,
+        returnItems: returnItems,
       );
 
-      final next = applyLocalAvailableInventoryDelta(
-        variantId: variantId,
-        currentCartons: currentCartons,
-        currentPacks: currentPacks,
-        packsPerCarton: packsPerCarton,
-        deltaBasePacks: deltaBasePacks,
-      );
 
-      final updated = await txn.update(
-        'products',
-        {
-          'current_cartons': next.cartons,
-          'current_packs': next.packs,
-        },
-        where: 'id = ?',
-        whereArgs: [variantId],
-      );
-      if (updated != 1) {
-        throw LocalInventoryProjectionException(
-          code: LocalInventoryProjectionCode.updateFailed,
-          variantId: variantId,
-        );
-      }
-    }
-  }
 
-  Future<void> updateShopBalanceLocally(int visitId, double newBalance) async {
-    final db = await database;
-    await db.rawUpdate(
-      'UPDATE visits SET shop_balance = ? WHERE visit_id = ?',
-      [newBalance, visitId],
-    );
-  }
+  Future<void> updateShopBalanceLocally(
+    int visitId,
+    double newBalance,
+  ) =>
+      _visitPersistence.updateShopBalanceLocally(visitId, newBalance);
 
   Future<void> close() async {
     if (_database != null) {
@@ -946,17 +689,29 @@ class LocalDatabase {
   }
 
   Future<void> saveOnlineInvoiceAtomic({
-    required int visitId, required String status, required String outcome,
-    required double cashCollected, required double debtPaid,
-    String? cartItemsJson, String? returnsJson, String? notes,
-    required List<dynamic> cartItems, List<dynamic>? returnItems,
-  }) async {
-    final db = await database;
-    await db.transaction((txn) async {
-      await updateVisitStatus(visitId: visitId, status: status, outcome: outcome, cashCollected: cashCollected, debtPaid: debtPaid, cartItemsJson: cartItemsJson, returnsJson: returnsJson, notes: notes, txn: txn);
-      await deductInventoryLocal(cartItems, returnItems: returnItems, txn: txn);
-    });
-  }
+    required int visitId,
+    required String status,
+    required String outcome,
+    required double cashCollected,
+    required double debtPaid,
+    String? cartItemsJson,
+    String? returnsJson,
+    String? notes,
+    required List<dynamic> cartItems,
+    List<dynamic>? returnItems,
+  }) =>
+      _visitPersistence.saveOnlineInvoiceAtomic(
+        visitId: visitId,
+        status: status,
+        outcome: outcome,
+        cashCollected: cashCollected,
+        debtPaid: debtPaid,
+        cartItemsJson: cartItemsJson,
+        returnsJson: returnsJson,
+        notes: notes,
+        cartItems: cartItems,
+        returnItems: returnItems,
+      );
 
   @Deprecated(
     'Use SyncRepository.saveInvoice; durable identity must be staged before first send.',
@@ -975,32 +730,22 @@ class LocalDatabase {
     List<dynamic>? returnItems,
     String? commandId,
     int? ownerDriverId,
-  }) async {
-    final requestId = commandId?.trim() ?? '';
-    if (requestId.isEmpty) {
-      throw StateError('Offline visit command requires a durable request ID.');
-    }
-
-    final commandRecordId = await stageVisitCommandAtomic(
-      visitId: visitId,
-      payload: payload,
-      requestId: requestId,
-      ownerDriverId: ownerDriverId,
-    );
-    await finalizeVisitCommandLocalState(
-      commandRecordId: commandRecordId,
-      visitId: visitId,
-      status: status,
-      outcome: outcome,
-      cashCollected: cashCollected,
-      debtPaid: debtPaid,
-      cartItemsJson: cartItemsJson,
-      returnsJson: returnsJson,
-      notes: notes,
-      cartItems: cartItems,
-      returnItems: returnItems,
-    );
-  }
+  }) =>
+      _visitPersistence.saveOfflineInvoiceAtomic(
+        visitId: visitId,
+        payload: payload,
+        status: status,
+        outcome: outcome,
+        cashCollected: cashCollected,
+        debtPaid: debtPaid,
+        cartItemsJson: cartItemsJson,
+        returnsJson: returnsJson,
+        notes: notes,
+        cartItems: cartItems,
+        returnItems: returnItems,
+        commandId: commandId,
+        ownerDriverId: ownerDriverId,
+      );
 
   Future<List<Map<String, dynamic>>> getQuarantinedSyncs() =>
       pendingCommands.blocked();

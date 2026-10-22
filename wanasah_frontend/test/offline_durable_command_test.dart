@@ -120,11 +120,14 @@ void main() {
     test('local visit projection is marked exactly once before command deletion', () async {
       final dbSource =
           await File('lib/core/db/local_database.dart').readAsString();
+      final visitPersistence = await File(
+        'lib/core/db/visit/visit_local_persistence.dart',
+      ).readAsString();
       final syncSource =
           await File('lib/repositories/sync_repository.dart').readAsString();
 
       expect(dbSource, contains('local_effect_applied INTEGER NOT NULL DEFAULT 0'));
-      expect(dbSource, contains("'local_effect_applied': 1"));
+      expect(visitPersistence, contains("'local_effect_applied': 1"));
       expect(
         dbSource,
         contains('Unresolved visit commands are immutable until reconciliation'),

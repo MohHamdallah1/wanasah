@@ -250,21 +250,33 @@ void main() {
   });
 
   group('durable command transaction invariants', () {
-    test('database source has no silent clamp and uses one projection engine',
+    test('split persistence has no silent clamp and uses one projection engine',
         () async {
-      final source =
+      final databaseSource =
           await File('lib/core/db/local_database.dart').readAsString();
+      final projectionPersistence = await File(
+        'lib/core/db/visit/visit_inventory_projection_persistence.dart',
+      ).readAsString();
 
-      expect(source, isNot(contains('MAX(0,')));
-      expect(source, contains('_applyVisitProjectionDelta('));
-      expect(source, contains('applyLocalAvailableInventoryDelta('));
-      expect(source, contains('inventoryCorrectionDeltaBasePacks('));
+      expect(databaseSource, isNot(contains('MAX(0,')));
+      expect(databaseSource, isNot(contains('applyLocalAvailableInventoryDelta(')));
+      expect(projectionPersistence, isNot(contains('MAX(0,')));
+      expect(projectionPersistence, contains('Future<void> applyDelta('));
+      expect(
+        projectionPersistence,
+        contains('applyLocalAvailableInventoryDelta('),
+      );
+      expect(
+        projectionPersistence,
+        contains('inventoryCorrectionDeltaBasePacks('),
+      );
     });
 
     test('already-applied durable command exits before projection replay',
         () async {
-      final source =
-          await File('lib/core/db/local_database.dart').readAsString();
+      final source = await File(
+        'lib/core/db/visit/visit_local_persistence.dart',
+      ).readAsString();
       final methodStart =
           source.indexOf('Future<void> finalizeVisitCommandLocalState({');
       final alreadyApplied = source.indexOf(
@@ -272,7 +284,7 @@ void main() {
         methodStart,
       );
       final projectionApply = source.indexOf(
-        'await _applyVisitInventoryCorrection(',
+        'await _inventoryProjection.applyCorrection(',
         methodStart,
       );
 
@@ -283,12 +295,13 @@ void main() {
 
     test('local effect marker is written only after projection and visit update',
         () async {
-      final source =
-          await File('lib/core/db/local_database.dart').readAsString();
+      final source = await File(
+        'lib/core/db/visit/visit_local_persistence.dart',
+      ).readAsString();
       final methodStart =
           source.indexOf('Future<void> finalizeVisitCommandLocalState({');
       final projectionApply = source.indexOf(
-        'await _applyVisitInventoryCorrection(',
+        'await _inventoryProjection.applyCorrection(',
         methodStart,
       );
       final visitUpdate = source.indexOf(
@@ -307,8 +320,9 @@ void main() {
 
     test('failed projection transaction preserves typed unresolved evidence',
         () async {
-      final dbSource =
-          await File('lib/core/db/local_database.dart').readAsString();
+      final dbSource = await File(
+        'lib/core/db/visit/visit_local_persistence.dart',
+      ).readAsString();
       final syncSource =
           await File('lib/repositories/sync_repository.dart').readAsString();
 
@@ -332,7 +346,7 @@ void main() {
       final finalizeStart =
           dbSource.indexOf('Future<void> finalizeVisitCommandLocalState({');
       final finalizeEnd = dbSource.indexOf(
-        'List<dynamic> _decodeStoredVisitList',
+        'Future<void> updateShopBalanceLocally(',
         finalizeStart,
       );
       final finalizeBody = dbSource.substring(finalizeStart, finalizeEnd);
