@@ -7,7 +7,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'dart:developer' as developer;
 import 'dart:async';
 import '../../core/db/local_database.dart';
-import '../../core/sync/durable_command.dart';
 import '../../models/product_model.dart';
 import '../../models/visit_model.dart';
 import '../../repositories/sync_repository.dart';
@@ -23,6 +22,10 @@ import '../../features/work_session/application/work_session_outcome.dart';
 import '../../features/work_session/data/work_session_remote_data_source.dart';
 import '../../features/work_session/data/work_session_snapshot.dart';
 import '../../features/work_session/presentation/work_session_result_message.dart';
+import '../../features/recovery/application/recovery_reader.dart';
+import '../../features/recovery/application/recovery_sync_coordinator.dart';
+import '../../features/recovery/data/recovery_data_source.dart';
+import '../../features/recovery/data/recovery_sync_executor.dart';
 
 part '../../features/custody/application/custody_handlers.dart';
 
@@ -31,6 +34,8 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
   final LocalDatabase _db;
   final DashboardRepository _dashboardRepo;
   final WorkSessionCoordinator _workSessionCoordinator;
+  final RecoveryReader _recoveryReader;
+  final RecoverySyncCoordinator _recoverySyncCoordinator;
   bool _workSessionRecoveryCompleted = false;
 
   // +++ EVT-1: محول تسلسلي (Sequential Transformer) لإجبار البلوك على معالجة الأحداث بالدور ومنع السباق +++
@@ -44,6 +49,8 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     DashboardRepository? dashboardRepo,
     LocationService? locationService,
     WorkSessionCoordinator? workSessionCoordinator,
+    RecoveryReader? recoveryReader,
+    RecoverySyncCoordinator? recoverySyncCoordinator,
   })
     : _syncRepository = syncRepository ?? SyncRepository(),
       _db = db ?? LocalDatabase.instance,
@@ -54,6 +61,27 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
             remote: ApiWorkSessionRemoteDataSource(),
             locationSource: DeviceWorkSessionLocationSource(
               locationService ?? LocationService.instance,
+            ),
+          ),
+      _recoveryReader =
+          recoveryReader ??
+          RecoveryReader(
+            dataSource: LocalRecoveryDataSource(
+              database: db ?? LocalDatabase.instance,
+            ),
+          ),
+      _recoverySyncCoordinator =
+          recoverySyncCoordinator ??
+          RecoverySyncCoordinator(
+            reader:
+                recoveryReader ??
+                RecoveryReader(
+                  dataSource: LocalRecoveryDataSource(
+                    database: db ?? LocalDatabase.instance,
+                  ),
+                ),
+            executor: ExistingSyncRepositoryExecutor(
+              repository: syncRepository ?? SyncRepository(),
             ),
           ),
       super(const DashboardInitial()) {
@@ -100,56 +128,35 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     }
   }
 
-  // ─── ForceSyncData ────────────────────────────────────────────────────────
-  /// يستدعي syncDown() لجلب أحدث بيانات من السيرفر، ثم يُعيد تحميل SQLite.
+  // ─── ForceSyncData compatibility wiring ──────────────────────────────────
+  /// Recovery owns durable sync classification. Dashboard only reloads its
+  /// existing local read model after that feature-owned orchestration.
   Future<void> _onForceSyncData(
     ForceSyncData event,
     Emitter<DashboardState> emit,
   ) async {
-    // +++ DAB-6: منع وميض الشاشة ومسح المحتوى إذا كانت البيانات محملة مسبقاً +++
-    if (state is! DashboardLoaded) emit(const DashboardLoading());
+    final previous = state is DashboardLoaded ? state as DashboardLoaded : null;
+    final result = await _recoverySyncCoordinator.synchronize();
+
+    developer.log(
+      '[DashboardBloc] Recovery sync disposition: ' +
+          result.disposition.name,
+    );
 
     try {
-      // 1. مزامنة من السيرفر (تشمل syncUp داخلياً كضمان)
-      final bool syncRan = await _syncRepository.syncDown();
-      if (!syncRan) {
-        // +++ إبلاغ المندوب بأن الطابور مشغول بدلاً من تجاهل سحبه للشاشة +++
-        emit(DashboardError(message: 'المزامنة جارية بالفعل في الخلفية. يرجى الانتظار قليلاً ⏳'));
-        // نعيد عرض البيانات المحلية فوراً لكي لا تعلق الشاشة في الـ Loading
-        final cached = await _loadFromLocal(isOffline: true);
-        emit(cached);
-        return;
-      }
-      developer.log('[DashboardBloc] syncDown() completed.');
-
-      // 2. قراءة البيانات المحدَّثة من SQLite
-      final loaded = await _loadFromLocal();
+      final loaded = await _loadFromLocal(
+        isOffline:
+            result.disposition == RecoverySyncDisposition.unresolved,
+      );
       emit(loaded);
-    } catch (e) {
-      developer.log('[DashboardBloc] ForceSyncData error: $e');
-      try {
-        // +++ DAB-1b: التمييز الدقيق (خطأ السيرفر الداخلي 500 ليس انقطاعاً في الإنترنت) +++
-        final bool isNetworkError = e is DioException && 
-            (e.response == null || e.type == DioExceptionType.connectionTimeout || e.type == DioExceptionType.receiveTimeout);
-        final String errorMsg = isNetworkError 
-            ? 'فشل التحديث من السيرفر. جاري عرض البيانات المحلية.' 
-            : e.toString().replaceAll('Exception: ', '');
-
-        emit(DashboardError(message: errorMsg));
-        
-        // إذا كان الخطأ برمجي/أعمال (ليس نت)، لا نظهر لافتة "أوفلاين" الحمراء
-        final cached = await _loadFromLocal(isOffline: isNetworkError);
-        // نُصدر البيانات القديمة كـ Loaded لضمان استمرارية العمل Offline
-        emit(cached);
-        developer.log(
-          '[DashboardBloc] Emitting cached data after sync failure.',
-        );
-      } catch (localError) {
-        emit(
-          DashboardError(
-            message: 'لا يوجد اتصال ولا بيانات محلية: $localError',
-          ),
-        );
+    } catch (error) {
+      developer.log(
+        '[DashboardBloc] Local reload after recovery sync failed: $error',
+      );
+      if (previous != null) {
+        emit(previous.copyWith(isOffline: true));
+      } else {
+        emit(const DashboardInitial());
       }
     }
   }
@@ -193,21 +200,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         ? visits.where((v) => v.status == 'Completed' && v.outcome == 'Sale').length
         : (int.tryParse(allData['cached_sales_in_completed'] ?? '0') ?? 0);
 
-    final pendingSyncs = await _db.getPendingSyncs();
-    final int quarantinedCount = pendingSyncs.where((row) {
-      final type = row['type']?.toString() ?? '';
-      return DurableCommandState.fromStorage(row['state']) ==
-              DurableCommandState.blocked ||
-          DurableCommandType.isLegacyQuarantined(type);
-    }).length;
-    final int offlineCount = pendingSyncs.where((row) {
-      final type = row['type']?.toString() ?? '';
-      final isBlocked =
-          DurableCommandState.fromStorage(row['state']) ==
-                  DurableCommandState.blocked ||
-              DurableCommandType.isLegacyQuarantined(type);
-      return !isBlocked;
-    }).length;
+    final recovery = await _recoveryReader.read();
+    final int quarantinedCount = recovery.blockedCount;
+    final int offlineCount = recovery.pendingCount;
 
     // +++ حل فخ "فقدان الذاكرة المالية وهوية المندوب" +++
     final driverName = allData['cached_driver_name'] ?? 'مندوب (أوفلاين)';
