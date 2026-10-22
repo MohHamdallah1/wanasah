@@ -77,7 +77,7 @@ class LocalPendingReturnCustodySource implements PendingReturnCustodySource {
             0;
         if (cartons <= 0 && packs <= 0) continue;
 
-        final key = '$variantId|' + reason.code + '|' + state.name;
+        final key = <String>[variantId.toString(), reason.code, state.name].join('|');
         final existing = projected[key];
         if (existing == null) {
           projected[key] = PendingReturnCustodyItem(
