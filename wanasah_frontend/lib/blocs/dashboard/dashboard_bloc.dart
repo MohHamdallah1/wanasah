@@ -16,6 +16,7 @@ import 'package:dio/dio.dart';
 import '../../services/location_service.dart';
 import '../../repositories/dashboard_repository.dart';
 import '../../features/work_session/application/work_session_coordinator.dart';
+import '../../features/work_session/application/work_session_action_issue.dart';
 import '../../features/work_session/application/work_session_failure.dart';
 import '../../features/work_session/application/work_session_location_source.dart';
 import '../../features/work_session/application/work_session_outcome.dart';
@@ -397,7 +398,14 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
           activeSessionStartTime: startTimeStr,
           isOnBreak: isOnBreak,
           // +++  لـ Bug 5: حفظ رسالة النجاح من الطمس أثناء تحديث البيانات +++
-          actionSuccessMessage: (state is DashboardLoaded) ? (state as DashboardLoaded).actionSuccessMessage : null,
+          actionSuccessMessage:
+              (state is DashboardLoaded)
+                  ? (state as DashboardLoaded).actionSuccessMessage
+                  : null,
+          workSessionIssue:
+              (state is DashboardLoaded)
+                  ? (state as DashboardLoaded).workSessionIssue
+                  : null,
           pendingReturnCustody: localData.pendingReturnCustody,
         ),
       );
@@ -638,9 +646,17 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
 
     if (result.isSuccess) {
       if (state is DashboardLoaded) {
+        var next = state as DashboardLoaded;
+        if (result.reconciledSession != null) {
+          next = _applyRecoveredWorkSession(
+            next,
+            result.reconciledSession!,
+          );
+        }
         emit(
-          (state as DashboardLoaded).copyWith(
+          next.copyWith(
             actionSuccessMessage: message,
+            clearWorkSessionIssue: true,
           ),
         );
       }
@@ -648,7 +664,25 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       return;
     }
 
-    emit(DashboardError(message: message));
+    final issue = WorkSessionActionIssue.fromResult(result);
+    if (state is DashboardLoaded) {
+      var next = state as DashboardLoaded;
+      if (result.reconciledSession != null) {
+        next = _applyRecoveredWorkSession(
+          next,
+          result.reconciledSession!,
+        );
+      }
+
+      emit(
+        next.copyWith(
+          workSessionIssue: issue,
+          clearActionMessage: true,
+        ),
+      );
+    } else {
+      emit(DashboardError(message: message));
+    }
 
     final failure = result.failure;
     final shouldRefreshAuthoritativeState =
@@ -691,6 +725,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       nonSellableCustody: current.nonSellableCustody,
       pendingReturnCustody: current.pendingReturnCustody,
       actionSuccessMessage: current.actionSuccessMessage,
+      workSessionIssue: current.workSessionIssue,
     );
   }
 

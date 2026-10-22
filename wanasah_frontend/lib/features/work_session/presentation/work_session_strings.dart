@@ -14,6 +14,16 @@ enum WorkSessionStringKey {
   networkUnresolved,
   serverUnresolved,
   requestIdLabel,
+  statusCodeLabel,
+  serverDetailLabel,
+  issueAuthentication,
+  issueInvalidStartEvidence,
+  issueVehicleCustody,
+  issueStartPrerequisite,
+  issueEndPrerequisite,
+  issueBreakState,
+  issueRateLimited,
+  issueUnresolved,
 }
 
 const Map<WorkSessionStringKey, String> _ar = {
@@ -44,6 +54,24 @@ const Map<WorkSessionStringKey, String> _ar = {
   WorkSessionStringKey.serverUnresolved:
       'تعذر تأكيد نتيجة العملية بسبب خطأ في السيرفر.',
   WorkSessionStringKey.requestIdLabel: 'رقم التتبع',
+  WorkSessionStringKey.statusCodeLabel: 'رمز الحالة',
+  WorkSessionStringKey.serverDetailLabel: 'تفصيل السيرفر',
+  WorkSessionStringKey.issueAuthentication:
+      'يلزم تأكيد تسجيل الدخول قبل تنفيذ إجراء الجلسة.',
+  WorkSessionStringKey.issueInvalidStartEvidence:
+      'بيانات بدء العمل التي وصلت للسيرفر غير صالحة. حدّث البيانات ثم أعد المحاولة.',
+  WorkSessionStringKey.issueVehicleCustody:
+      'عهدة السيارة التشغيلية غير جاهزة لبدء العمل. راجع مسؤول التوزيع أو العهدة.',
+  WorkSessionStringKey.issueStartPrerequisite:
+      'السيرفر رفض بدء العمل بسبب متطلب تشغيلي في خط السير أو السيارة أو العهدة. راجع مسؤول التوزيع ثم أعد المحاولة.',
+  WorkSessionStringKey.issueEndPrerequisite:
+      'السيرفر رفض إنهاء العمل بسبب متطلب تشغيلي قائم. عالج الاستراحة أو الحوالات المعلقة الظاهرة ثم أعد المحاولة.',
+  WorkSessionStringKey.issueBreakState:
+      'حالة الاستراحة على السيرفر لا تسمح بهذا الإجراء. حدّث حالة الجلسة ثم أعد المحاولة.',
+  WorkSessionStringKey.issueRateLimited:
+      'تم تأجيل إجراء الجلسة بسبب حد الطلبات. أعد المحاولة بعد قليل.',
+  WorkSessionStringKey.issueUnresolved:
+      'لم يتم تأكيد نتيجة إجراء الجلسة. حالة السيرفر هي المرجع؛ حدّث البيانات قبل إعادة المحاولة.',
 };
 
 const Map<WorkSessionStringKey, String> _en = {
@@ -74,6 +102,24 @@ const Map<WorkSessionStringKey, String> _en = {
   WorkSessionStringKey.serverUnresolved:
       'The result could not be confirmed because of a server error.',
   WorkSessionStringKey.requestIdLabel: 'Request ID',
+  WorkSessionStringKey.statusCodeLabel: 'Status code',
+  WorkSessionStringKey.serverDetailLabel: 'Server detail',
+  WorkSessionStringKey.issueAuthentication:
+      'Sign in again before performing this work-session action.',
+  WorkSessionStringKey.issueInvalidStartEvidence:
+      'The start-session request evidence was invalid. Refresh the data and try again.',
+  WorkSessionStringKey.issueVehicleCustody:
+      'The vehicle custody is not operationally ready. Contact dispatch or custody operations.',
+  WorkSessionStringKey.issueStartPrerequisite:
+      'The server refused to start work because a route, vehicle, or custody prerequisite is not ready.',
+  WorkSessionStringKey.issueEndPrerequisite:
+      'The server refused to end work because an operational prerequisite remains unresolved.',
+  WorkSessionStringKey.issueBreakState:
+      'The server break state does not allow this action. Refresh the session state and try again.',
+  WorkSessionStringKey.issueRateLimited:
+      'The work-session action was rate limited. Try again shortly.',
+  WorkSessionStringKey.issueUnresolved:
+      'The work-session result is unresolved. Server state remains authoritative; refresh before retrying.',
 };
 
 String workSessionString(

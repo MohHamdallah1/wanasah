@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../application/work_session_action_issue.dart';
+import 'work_session_issue_panel.dart';
+
 class WorkSessionControls extends StatelessWidget {
   const WorkSessionControls({
     required this.isActiveSession,
@@ -11,6 +14,7 @@ class WorkSessionControls extends StatelessWidget {
     required this.onStart,
     required this.onEnd,
     required this.onToggleBreak,
+    this.issue,
     super.key,
   });
 
@@ -22,6 +26,7 @@ class WorkSessionControls extends StatelessWidget {
   final VoidCallback onStart;
   final VoidCallback onEnd;
   final ValueChanged<String> onToggleBreak;
+  final WorkSessionActionIssue? issue;
 
   String _formattedStartTime() {
     if (!isActiveSession || activeSessionStartTime == null) {
@@ -97,16 +102,6 @@ class WorkSessionControls extends StatelessWidget {
                 isActionInProgress
                     ? null
                     : () async {
-                      if (isActiveSession && isOnBreak) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('يجب إنهاء الاستراحة أولاً!'),
-                            backgroundColor: Colors.orange,
-                          ),
-                        );
-                        return;
-                      }
-
                       final confirmed = await _showConfirmationDialog(
                         context,
                         isActiveSession ? 'إنهاء العمل؟' : 'بدء العمل؟',
@@ -167,6 +162,7 @@ class WorkSessionControls extends StatelessWidget {
             ),
           ),
         ],
+        if (issue != null) WorkSessionIssuePanel(issue: issue!),
       ],
     );
   }

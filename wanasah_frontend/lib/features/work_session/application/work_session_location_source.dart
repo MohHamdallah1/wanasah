@@ -8,6 +8,14 @@ class WorkSessionCoordinates {
 
   final double latitude;
   final double longitude;
+
+  bool get isContractValid =>
+      latitude.isFinite &&
+      longitude.isFinite &&
+      latitude >= -90 &&
+      latitude <= 90 &&
+      longitude >= -180 &&
+      longitude <= 180;
 }
 
 abstract interface class WorkSessionLocationSource {

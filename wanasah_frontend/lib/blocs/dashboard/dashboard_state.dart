@@ -7,6 +7,7 @@ import '../../models/visit_model.dart';
 import '../../features/custody/domain/pending_transfer.dart';
 import '../../features/custody/domain/non_sellable_custody.dart';
 import '../../features/custody/domain/pending_return_custody.dart';
+import '../../features/work_session/application/work_session_action_issue.dart';
 
 abstract class DashboardState extends Equatable {
   const DashboardState();
@@ -53,6 +54,7 @@ class DashboardLoaded extends DashboardState {
   final List<PendingReturnCustodyItem> pendingReturnCustody;
   // +++  لـ Bug 1: دمج رسالة النجاح كمتغير لحظي لمنع انهيار الشاشة +++
   final String? actionSuccessMessage;
+  final WorkSessionActionIssue? workSessionIssue;
 
   const DashboardLoaded({
     required this.visits,
@@ -77,6 +79,7 @@ class DashboardLoaded extends DashboardState {
     this.nonSellableCustody = const <NonSellableCustodyItem>[],
     this.pendingReturnCustody = const <PendingReturnCustodyItem>[],
     this.actionSuccessMessage,
+    this.workSessionIssue,
   });
 
   @override
@@ -103,6 +106,7 @@ class DashboardLoaded extends DashboardState {
     nonSellableCustody,
     pendingReturnCustody,
     actionSuccessMessage,
+    workSessionIssue,
   ];
 
   // +++ النصيحة الذهبية: دالة copyWith لتحديث حقل واحد دون فقدان باقي البيانات +++
@@ -129,7 +133,9 @@ class DashboardLoaded extends DashboardState {
     List<NonSellableCustodyItem>? nonSellableCustody,
     List<PendingReturnCustodyItem>? pendingReturnCustody,
     String? actionSuccessMessage,
+    WorkSessionActionIssue? workSessionIssue,
     bool clearActionMessage = false, // لتفريغ الرسالة بعد عرضها
+    bool clearWorkSessionIssue = false,
     bool clearPendingTransfer =
         false, // خدعة ذكية لتفريغ الحوالة بعد الرد عليها
   }) {
@@ -162,10 +168,14 @@ class DashboardLoaded extends DashboardState {
           nonSellableCustody ?? this.nonSellableCustody,
       pendingReturnCustody:
           pendingReturnCustody ?? this.pendingReturnCustody,
-      actionSuccessMessage: 
+      actionSuccessMessage:
           clearActionMessage
-              ? null 
+              ? null
               : (actionSuccessMessage ?? this.actionSuccessMessage),
+      workSessionIssue:
+          clearWorkSessionIssue
+              ? null
+              : (workSessionIssue ?? this.workSessionIssue),
     );
   }
 }

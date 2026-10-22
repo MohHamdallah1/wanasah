@@ -218,7 +218,15 @@ class WorkSessionCoordinator {
 
   Future<WorkSessionCoordinates?> _optionalCoordinates() async {
     try {
-      return await _locationSource.currentCoordinates();
+      final coordinates = await _locationSource.currentCoordinates();
+      if (coordinates != null && !coordinates.isContractValid) {
+        developer.log(
+          '[WorkSession] Ignoring invalid optional location evidence; '
+          'Backend remains session authority.',
+        );
+        return null;
+      }
+      return coordinates;
     } catch (error) {
       // Backend SessionStartRequest accepts nullable coordinates. Device
       // location evidence is therefore best-effort; it never becomes a

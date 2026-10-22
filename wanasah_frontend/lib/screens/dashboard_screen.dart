@@ -142,7 +142,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           BlocListener<DashboardBloc, DashboardState>(
             listener: (context, state) {
               // +++  (البند 6): تحرير القفل فقط عند صدور نتيجة حقيقية للعملية لمنع السباق +++
-              if (state is DashboardError || (state is DashboardLoaded && state.actionSuccessMessage != null)) {
+              if (state is DashboardError ||
+                  (state is DashboardLoaded &&
+                      (state.actionSuccessMessage != null ||
+                          state.workSessionIssue != null))) {
                 if (_isActionInProgress && mounted) {
                   setState(() => _isActionInProgress = false);
                 }
@@ -269,6 +272,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             activeSessionStartTime: state.activeSessionStartTime,
             isOnBreak: state.isOnBreak,
             isActionInProgress: _isActionInProgress,
+            issue: state.workSessionIssue,
             onActionStarted: () {
               if (mounted) {
                 setState(() => _isActionInProgress = true);

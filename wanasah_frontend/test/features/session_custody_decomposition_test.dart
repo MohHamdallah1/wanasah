@@ -88,7 +88,8 @@ void main() {
       expect(screen, isNot(contains("'مخزون سيارة المندوب:'")));
 
       expect(session, contains("DateFormat('hh:mm a')"));
-      expect(session, contains("'يجب إنهاء الاستراحة أولاً!'"));
+      expect(session, isNot(contains("'يجب إنهاء الاستراحة أولاً!'")));
+      expect(session, contains('WorkSessionIssuePanel'));
       expect(transfer, contains("'تحديث عهدة من الإدارة'"));
       expect(
         transfer,
@@ -138,7 +139,8 @@ void main() {
       expect(ends, 0);
     });
 
-    testWidgets('active break still blocks end-session action',
+    testWidgets(
+        'active break delegates end-session authority to Backend',
         (tester) async {
       var actionStarted = 0;
       var ends = 0;
@@ -161,11 +163,15 @@ void main() {
       );
 
       await tester.tap(find.text('إنهاء العمل'));
-      await tester.pump();
+      await tester.pumpAndSettle();
 
-      expect(find.text('يجب إنهاء الاستراحة أولاً!'), findsOneWidget);
-      expect(actionStarted, 0);
-      expect(ends, 0);
+      expect(find.text('إنهاء العمل؟'), findsOneWidget);
+      await tester.tap(find.text('نعم، تأكيد'));
+      await tester.pumpAndSettle();
+
+      expect(actionStarted, 1);
+      expect(ends, 1);
+      expect(find.text('يجب إنهاء الاستراحة أولاً!'), findsNothing);
     });
   });
 
