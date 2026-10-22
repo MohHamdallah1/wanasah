@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 
 import '../../../core/network/api_failure.dart';
+import '../../../core/sync/sync_reconciliation_failure.dart';
 import '../data/recovery_sync_executor.dart';
 import 'recovery_reader.dart';
 import 'recovery_snapshot.dart';
@@ -99,6 +100,8 @@ class RecoverySyncCoordinator {
           isAmbiguous
               ? RecoverySyncExecution.transportAmbiguous
               : RecoverySyncExecution.failed;
+    } on SyncReconciliationException {
+      execution = RecoverySyncExecution.failed;
     } catch (_) {
       execution = RecoverySyncExecution.failed;
     }
