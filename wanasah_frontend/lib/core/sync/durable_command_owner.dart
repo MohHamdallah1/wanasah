@@ -14,7 +14,7 @@ class DurableCommandOwner {
     final company = row['owner_company_code'];
     final driver = row['owner_driver_id'];
     if (company is! String || company.trim().isEmpty ||
-        company.trim() == 'null' || driver is! int || driver <= 0) return null;
+        company.trim() == 'null' || driver is! int || driver <= 0) { return null; }
     return DurableCommandOwner(companyCode: company.trim(), driverId: driver);
   }
 

@@ -27,7 +27,7 @@ class SecureAuthIdentityStore {
   Future<FieldPrincipalIdentity?> readLastIdentity() async =>
       FieldPrincipalIdentity.fromStorage(await _storage.read(key: identityKey));
 
-  Future<void> persistLogin(StoredAuthIdentity identity) async {
+  Future<void> persistLogin(StoredAuthIdentity identity) => withAuthCredentialWrite(() async {
     final tokens = SecureAuthTokenStore(storage: _storage);
     await tokens.clear();
     await _storage.write(key: identityKey, value: jsonEncode(identity.field.toJson()));
@@ -35,7 +35,7 @@ class SecureAuthIdentityStore {
     await _storage.write(key: 'driver_id', value: identity.legacyDriverId.toString());
     await tokens.persistReplacement(accessToken: identity.token,
       refreshToken: identity.refreshToken);
-  }
+  });
 
   Future<DurableCommandOwner> requireCommandOwner(String tenant) async {
     final identity = await read();

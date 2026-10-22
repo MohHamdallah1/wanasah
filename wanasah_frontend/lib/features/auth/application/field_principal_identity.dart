@@ -17,7 +17,7 @@ class FieldPrincipalIdentity {
 
   static FieldPrincipalIdentity? tryParse(Object? value) {
     if (value is! Map || value['channel'] != 'FIELD' ||
-        value['principal_type'] != 'FIELD_REPRESENTATIVE') return null;
+        value['principal_type'] != 'FIELD_REPRESENTATIVE') { return null; }
     int? id(Object? raw) => raw is int && raw > 0 ? raw : null;
     final principal = id(value['principal_id']);
     final representative = id(value['representative_id']);

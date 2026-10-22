@@ -125,8 +125,10 @@ class AuthInterceptor extends Interceptor {
     final refreshCompleter = Completer<bool>();
     _refreshCompleter = refreshCompleter;
 
+    String? attemptedRefreshToken;
     try {
       final refreshToken = await _tokenStore.readRefreshToken();
+      attemptedRefreshToken = refreshToken;
       if (refreshToken == null || refreshToken.isEmpty) {
         return handler.next(err);
       }
@@ -161,10 +163,12 @@ class AuthInterceptor extends Interceptor {
         return handler.next(err);
       }
 
-      await _tokenStore.persistReplacement(
+      final persisted = await _tokenStore.persistReplacementIfCurrent(
+        expectedRefreshToken: refreshToken,
         accessToken: newAccessToken,
         refreshToken: newRefreshToken,
       );
+      if (!persisted) return handler.next(err);
 
       refreshCompleter.complete(true);
       _retryPolicy.markRetryAttempt(err.requestOptions);
@@ -178,12 +182,16 @@ class AuthInterceptor extends Interceptor {
       if (refreshFailure.kind == ApiFailureKind.serverResponse &&
           (refreshFailure.status == 401 ||
               refreshFailure.status == 403)) {
+        if (attemptedRefreshToken == null ||
+            await _tokenStore.readRefreshToken() != attemptedRefreshToken) {
+          return handler.next(err);
+        }
         developer.log(
           '[AuthInterceptor] Refresh credential rejected → logging out.',
         );
 
         try {
-          final oldRefresh = await _tokenStore.readRefreshToken();
+          final oldRefresh = attemptedRefreshToken;
           if (oldRefresh != null && oldRefresh.isNotEmpty) {
             Dio(
               _dio.options.copyWith(
@@ -202,10 +210,17 @@ class AuthInterceptor extends Interceptor {
 
         // Rejection is confirmed even if local cleanup refuses to clear caches
         // protected by pending evidence. Neither failure permits evidence loss.
-        try { await _tokenStore.clear(); }
-        catch (_) { developer.log('[AuthInterceptor] Rejected credential cleanup failed.'); }
+        try {
+          if (!await _tokenStore.clearIfCurrent(attemptedRefreshToken)) {
+            return handler.next(err);
+          }
+        } catch (_) { developer.log('[AuthInterceptor] Rejected credential cleanup failed.'); }
         try { await _clearRejectedSessionData(); }
         catch (_) { developer.log('[AuthInterceptor] Protected session cache retained.'); }
+        final activeRefresh = await _tokenStore.readRefreshToken();
+        if (activeRefresh != null && activeRefresh != attemptedRefreshToken) {
+          return handler.next(err);
+        }
         onUnauthorized();
       } else {
         developer.log(

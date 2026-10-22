@@ -39,6 +39,25 @@ void main() {
     expect((await SecureAuthIdentityStore().requireCommandOwner('WNS-01')).driverId, 303);
   });
 
+  test('stale refresh cannot write credentials over a newly persisted canonical login', () async {
+    final store = SecureAuthIdentityStore();
+    await store.persistLogin(StoredAuthIdentity.fromLogin(fieldLogin())!);
+    await store.persistLogin(StoredAuthIdentity.fromLogin(fieldLogin(changes: {
+      'principal_id': 111, 'representative_id': 222,
+      'legacy_driver_id': 333, 'driver_id': 333,
+      'token': 'second-access', 'refresh_token': 'second-refresh',
+    }))!);
+    expect(await SecureAuthTokenStore().persistReplacementIfCurrent(
+      expectedRefreshToken: 'refresh-token',
+      accessToken: 'stale-access', refreshToken: 'stale-refresh'), isFalse);
+    final current = await SecureAuthIdentityStore().read();
+    expect(current!.principalId, 111);
+    expect(current.representativeId, 222);
+    expect(current.legacyDriverId, 333);
+    expect(current.token, 'second-access');
+    expect(current.refreshToken, 'second-refresh');
+  });
+
   test('active command owner cannot be fabricated from legacy keys or permission flags', () async {
     FlutterSecureStorage.setMockInitialValues({
       'auth_token': 'a', 'refresh_token': 'r', 'driver_id': '303',

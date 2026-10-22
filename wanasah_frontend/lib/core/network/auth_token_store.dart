@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 abstract interface class AuthTokenStore {
@@ -53,4 +54,39 @@ class SecureAuthTokenStore implements AuthTokenStore {
     await _storage.delete(key: 'auth_token');
     await _storage.delete(key: 'refresh_token');
   }
+}
+
+
+Future<void> _credentialWriteTail = Future<void>.value();
+
+/// Serialize the existing credential keys with login metadata replacement.
+Future<T> withAuthCredentialWrite<T>(Future<T> Function() write) async {
+  final previous = _credentialWriteTail;
+  final done = Completer<void>();
+  _credentialWriteTail = done.future;
+  try {
+    await previous;
+    return await write();
+  } finally {
+    done.complete();
+  }
+}
+
+extension AuthTokenReplacementBinding on AuthTokenStore {
+  Future<bool> persistReplacementIfCurrent({
+    required String expectedRefreshToken,
+    required String accessToken,
+    required String refreshToken,
+  }) => withAuthCredentialWrite(() async {
+    if (await readRefreshToken() != expectedRefreshToken) return false;
+    await persistReplacement(accessToken: accessToken, refreshToken: refreshToken);
+    return true;
+  });
+
+  Future<bool> clearIfCurrent(String expectedRefreshToken) =>
+      withAuthCredentialWrite(() async {
+        if (await readRefreshToken() != expectedRefreshToken) return false;
+        await clear();
+        return true;
+      });
 }

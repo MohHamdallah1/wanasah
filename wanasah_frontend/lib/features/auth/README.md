@@ -26,7 +26,10 @@ continues through SecureAuthTokenStore. Login invalidates the previous pair
 before replacing metadata and writes the new refresh credential before access.
 Refresh returns only token + refresh_token, with canonical principal/company/
 channel revalidated server-side; the stored profile/bridge metadata remains
-unchanged. Restart reads the snapshot and current pair and runs the owner guard.
+unchanged. Login metadata writes and refresh replacements share a credential
+write lock; a late refresh success/rejection is checked against the credential
+that started it and cannot overwrite/reject an already replaced session.
+Restart reads the snapshot and current pair and runs the owner guard.
 Legacy-only storage requires a fresh canonical login; it is not guessed from a
 JWT subject or silently upgraded.
 
