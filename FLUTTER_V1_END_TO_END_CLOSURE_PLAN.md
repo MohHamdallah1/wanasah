@@ -79,7 +79,7 @@ Required closure:
 - [x] Define/verify a Backend-owned Batch-resolution seam for Flutter.
 - [x] Deterministic Batch cases resolve server-side automatically.
 - [x] Ambiguous cases return only minimal human-readable evidence (lot/expiry/etc.).
-- [ ] Flutter stores/sends the resolved opaque resolution token without displaying technical IDs. Typed feature-owned adapter is complete; Visit wiring remains open.
+- [ ] Flutter stores/sends the resolved opaque resolution token without displaying technical IDs. Adapter + application orchestration are complete; Visit UI/submission wiring remains open.
 - [ ] Add Damaged + Expired + Factory_Defect consistently.
 - [ ] Preserve carton/pack quantities.
 - [ ] Preserve one stable idempotency identity across offline retry/replay.
@@ -330,7 +330,7 @@ It will not touch Backend, web Dashboard, pricing/returns UI, or the Network wor
 - [x] Integrated Network + Offline + Visit `flutter analyze`: PASS.
 - [x] Integrated focused Offline + Visit tests: PASS.
 - [ ] Returned-Batch resolution, Damaged reason/UI, and non-sellable vehicle custody remain open.
-- [ ] Backend-authoritative invoice preview/final commercial truth remains open.
+- [ ] Backend-authoritative invoice preview/final commercial truth UI/submission wiring remains open; application use-cases are complete.
 - [x] Auth/session typed-failure adoption completed and merged.
 
 ## 5. Error model / observability
@@ -737,6 +737,25 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] Current-lead Work Session regression: PASS.
 - [x] Current-lead Session/Custody decomposition regression: PASS.
 - [ ] Old DashboardLoaded offline/quarantine count fields and ForceSyncData event remain compatibility wiring only and may be removed post-V1 or when the Dashboard read model is redesigned.
+
+### 10.12 Visit FIELD application orchestration stability point — 2026-10-22
+
+- [x] Implementation branch: `codex/flutter-v1-visit-field-application`.
+- [x] Final implementation HEAD: `78f2aa0b046cd3a03a1d342b21dc7917f727269b`.
+- [x] `ReturnResolutionCoordinator.resolve` provides deterministic/ambiguous/structured-failure outcomes.
+- [x] `ReturnResolutionCoordinator.submitEvidence` submits only Backend-requested human/business evidence and preserves opaque resolution semantics.
+- [x] `PreviewVisitInvoice.execute` preserves authoritative preview values as exact strings.
+- [x] `ReadCommittedVisitInvoice.execute` keeps frozen/committed invoice evidence distinct from preview.
+- [x] `ReadCommercialReadiness.execute` exposes typed ready/action-required outcomes without local tax/geography inference.
+- [x] Application result types remain capability-specific; no generic mega Visit FIELD result.
+- [x] Application layer has no Flutter widget, BLoC, LocalDatabase, SyncRepository or peer-feature authority.
+- [x] Raw database `batch_id` is not exposed by the application API.
+- [x] Exact token/money values and original structured ApiFailure evidence are preserved.
+- [x] Exact-HEAD GitHub run `39702349730`: analyze PASS; 25 application/architecture PASS; 29 adapter PASS; 23 Offline regression PASS.
+- [x] PR #439 merged into `sol/flutter-v1-field-closure`.
+- [x] Merge commit: `373cc3943c139706d30bdacd632622a9526b93c3`.
+- [ ] Operator-facing Return Resolution / Damaged / invoice / commercial-readiness wiring remains the next Codex slice.
+- [ ] Durable submission integration still must carry the resolved opaque return evidence without changing request-id ownership.
 
 ## 11. UI / design-system closure
 
