@@ -8,7 +8,6 @@ import '../blocs/visit_list/visit_list_event.dart';
 import '../blocs/visit_list/visit_list_state.dart';
 import '../features/visits/list/application/visit_list_read_model.dart';
 import '../features/visits/list/application/visit_route_action_gate.dart';
-import '../features/visits/list/data/visit_route_action_state_source.dart';
 import '../features/visits/list/presentation/visit_list_feedback.dart';
 import '../features/visits/list/presentation/visit_list_strings.dart';
 import '../features/visits/list/presentation/visit_map_launcher.dart';
@@ -39,9 +38,7 @@ class _VisitListScreenState extends State<VisitListScreen>
   void initState() {
     super.initState();
     _visitListBloc = VisitListBloc()..add(const LoadVisitsEvent());
-    _actionGate = VisitRouteActionGate(
-      source: SecureStorageVisitRouteActionStateSource(),
-    );
+    _actionGate = const VisitRouteActionGate();
     _tabController = TabController(length: 2, vsync: this)
       ..addListener(_handleTabChanged);
   }

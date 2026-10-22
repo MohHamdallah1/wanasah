@@ -6,6 +6,8 @@ on:
       - "wanasah_frontend/lib/features/visits/**"
       - "wanasah_frontend/lib/blocs/visit/visit_bloc.dart"
       - "wanasah_frontend/lib/screens/visit_screen.dart"
+      - "wanasah_frontend/lib/screens/visit_list_screen.dart"
+      - "wanasah_frontend/lib/screens/add_shop_screen.dart"
       - "wanasah_frontend/lib/models/cart_item_model.dart"
       - "wanasah_frontend/lib/features/custody/**"
       - "wanasah_frontend/lib/core/errors/api_failure_exception.dart"
@@ -72,6 +74,13 @@ jobs:
       - name: Accepted local projection integrity regression
         run: flutter test test/core/visit/local_inventory_projection_integrity_test.dart
 
+      - name: Accepted Session authority and Shop reconciliation regressions
+        run: >-
+          flutter test test/features/work_session/session_route_authority_closure_test.dart
+          test/features/work_session/work_session_behavioral_closure_test.dart
+          test/features/session_custody_decomposition_test.dart
+          test/features/shops/shop_creation_reconciliation_test.dart
+
   backend-contract-readback:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -92,7 +101,7 @@ jobs:
       - name: Install existing Backend test dependencies
         run: python -m pip install -r requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
       - name: Read-only current FIELD authority regressions
-        run: python -m pytest -q tests/test_field_return_resolution.py tests/test_field_read_contracts.py
+        run: python -m pytest -q tests/test_field_return_resolution.py tests/test_field_read_contracts.py tests/test_driver_session_field_context_cutover.py
       - name: Execute current VisitUpdateRequest action matrix without a database
         run: |
           python - <<'PY'
@@ -145,4 +154,88 @@ jobs:
                   raise AssertionError(("Unexpectedly accepted", payload))
           print("VISIT_SCHEMA_ACCEPTED=" + str(len(accepted)))
           print("VISIT_SCHEMA_REJECTED=" + str(len(rejected)))
+          PY
+      - name: Read-only execution of current Visit route eligibility guards
+        run: |
+          python - <<'PY'
+          import asyncio
+          from datetime import datetime
+          from types import SimpleNamespace
+          from unittest.mock import AsyncMock
+          from fastapi import HTTPException
+          from tests.test_driver_session_field_context_cutover import DriverCustodyCutoverTests, result
+
+          async def probe(reason, expected):
+              setup = DriverCustodyCutoverTests().visit_setup()
+              results = list(setup.db.execute.side_effect)
+              session = results[0].scalars().first()
+              visit = results[3].scalars().first()
+              route = results[4].scalars().first()
+              if reason == "missing_session":
+                  results[0] = result()
+              elif reason == "sealed_active_session":
+                  session.inventory_reconciled_at = datetime(2026, 10, 23)
+              elif reason == "sealed_visit_session":
+                  visit.work_session = SimpleNamespace(inventory_reconciled_at=datetime(2026, 10, 23))
+              elif reason == "settled_visit_session":
+                  visit.work_session = SimpleNamespace(inventory_reconciled_at=None, is_settled=True)
+              elif reason == "missing_route":
+                  results[4] = result()
+              elif reason == "missing_vehicle":
+                  route.vehicle_id = None
+              elif reason in ("outside_zone", "emergency", "pending_shortage"):
+                  route.zone_id = 9999
+                  if reason == "emergency":
+                      visit.is_emergency = True
+                  elif reason == "pending_shortage":
+                      results[5] = result(123)
+              elif reason == "active_break":
+                  session.break_start_time = datetime(2026, 10, 23)
+              elif reason == "unauthorized":
+                  session.is_authorized_to_sell = False
+              elif reason == "pending_handshake":
+                  results[7] = result(123)
+              elif reason == "inventory_lock":
+                  setup.namespace["check_inventory_locks_batch"].side_effect = ValueError("synthetic lock")
+              elif reason == "wrong_driver":
+                  visit.driver_id = 404
+              elif reason == "different_session":
+                  visit.work_session_id = 999
+              elif reason == "cancelled_visit":
+                  visit.status = "Cancelled"
+              setup.db.execute.side_effect = results
+              # Stop immediately after current eligibility checks; a passed
+              # precondition is deliberately NOT claimed as business acceptance.
+              setup.namespace["revalidate_return_provenance"] = AsyncMock(
+                  side_effect=HTTPException(status_code=418, detail="probe boundary"))
+              try:
+                  await setup.namespace["update_visit"](**setup.kwargs)
+              except HTTPException as refusal:
+                  assert refusal.status_code == expected, (reason, refusal.status_code, expected)
+              else:
+                  raise AssertionError(("Unexpected mutation success", reason))
+              setup.db.add.assert_not_called()
+              setup.db.commit.assert_not_awaited()
+              setup.db.rollback.assert_awaited_once()
+              if expected == 418:
+                  setup.namespace["revalidate_return_provenance"].assert_awaited_once()
+              else:
+                  setup.namespace["revalidate_return_provenance"].assert_not_awaited()
+
+          async def main():
+              cases = [
+                  ("current_allowed", 418), ("missing_session", 403),
+                  ("sealed_active_session", 409), ("sealed_visit_session", 409),
+                  ("settled_visit_session", 403), ("missing_route", 403),
+                  ("missing_vehicle", 409), ("outside_zone", 403),
+                  ("emergency", 418), ("pending_shortage", 418),
+                  ("active_break", 403), ("unauthorized", 403),
+                  ("pending_handshake", 403), ("inventory_lock", 403),
+                  ("wrong_driver", 403), ("different_session", 409),
+                  ("cancelled_visit", 403),
+              ]
+              for reason, expected in cases:
+                  await probe(reason, expected)
+              print("CURRENT_VISIT_AUTHORITY_PROBES=" + str(len(cases)))
+          asyncio.run(main())
           PY

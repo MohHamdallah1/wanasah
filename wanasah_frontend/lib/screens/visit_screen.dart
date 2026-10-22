@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:map_launcher/map_launcher.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:convert';
 import '../core/db/local_database.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -44,8 +43,6 @@ class _VisitScreenState extends State<VisitScreen> {
   final _notesController = TextEditingController();
 
   // متغيرات الحماية (لن يتم مسحها أبداً)
-  bool _isOnBreak = false;
-  bool _isAuthorizedToSell = false;
   bool _hasChanges = false;
   bool _isLoading = true;
   bool _isSubmitting = false; 
@@ -57,9 +54,6 @@ class _VisitScreenState extends State<VisitScreen> {
   double? _shopLongitude;
   String? _shopLink;
   String? _shopAddr;
-  int? _shopZone;
-  int? _allowedZone;
-  bool _isEmergency = false;
   // +++ الدرع البصري: متغيرات معلومات الاتصال +++
   String? _shopOwner;
   String? _shopPhone;
@@ -123,14 +117,8 @@ class _VisitScreenState extends State<VisitScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // 1. قراءة الحمايات
-      const storage = FlutterSecureStorage();
-      String? authStr = await storage.read(key: 'is_authorized');
-      String? breakStr = await storage.read(key: 'is_on_break');
-      _isAuthorizedToSell = (authStr == 'true');
-      _isOnBreak = (breakStr == 'true');
-
-      // 2. قراءة بيانات المحل المحلية للـ Geofencing وسقف الدين
+      // Cached shop details support display and draft recovery only.
+      // Current route/session eligibility is decided by the mutation Backend.
       final localVisits = await LocalDatabase.instance.getVisits();
       final visitData = localVisits.firstWhere(
         (v) => (v['visit_id'] ?? v['id']) == widget.visitId,
@@ -138,11 +126,6 @@ class _VisitScreenState extends State<VisitScreen> {
       );
 
       if (visitData.isNotEmpty) {
-        _shopZone = visitData['shop_zone_id'];
-        _allowedZone = visitData['allowed_zone_id'];
-        _isEmergency =
-            (visitData['is_emergency'] == 1 ||
-                visitData['is_emergency'] == true);
         // +++ الدرع النوعي (Safe Parse): منع الانهيار إذا كانت القيمة نصية من SQLite +++
         _shopLatitude = double.tryParse((visitData['latitude'] ?? visitData['shop_latitude'])?.toString() ?? '');
         _shopLongitude = double.tryParse((visitData['longitude'] ?? visitData['shop_longitude'])?.toString() ?? '');
@@ -460,7 +443,7 @@ class _VisitScreenState extends State<VisitScreen> {
 
   // --- واجهة السلة الذكية 2026 (الموحدة) ---
   Widget _buildSmartCartUI() {
-    final bool isLocked = _isSubmitting || _isOnBreak || !_isAuthorizedToSell; // +++ تحديد حالة القفل العام +++
+    final bool isLocked = _isSubmitting;
 
     return BlocBuilder<VisitBloc, VisitState>(
       // +++ الدرع البصري (Anti-Flicker): تجاهل حالات الخطأ والنجاح في بناء الواجهة لتبقى الفاتورة مرئية ولا ترمش أبداً +++
@@ -485,7 +468,6 @@ class _VisitScreenState extends State<VisitScreen> {
 
           return Column(
             children: [
-              _buildSafetyBanners(),
               Expanded(
                 child: state.cart.isEmpty 
                   ? _buildEmptyCartPlaceholder(isLocked) 
@@ -566,15 +548,6 @@ class _VisitScreenState extends State<VisitScreen> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildSafetyBanners() {
-    return Column(
-      children: [
-        if (_isOnBreak) Container(width: double.infinity, padding: const EdgeInsets.all(10), color: Colors.red.shade50, child: const Text('⚠️ أنت في استراحة، العمليات مقفلة.', textAlign: TextAlign.center, style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
-        if (!_isAuthorizedToSell) Container(width: double.infinity, padding: const EdgeInsets.all(10), color: Colors.orange.shade50, child: const Text('⏳ بانتظار تفعيل خط السير من الإدارة.', textAlign: TextAlign.center, style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold))),
-      ],
     );
   }
 
@@ -835,7 +808,7 @@ class _VisitScreenState extends State<VisitScreen> {
 
   // --- دالة الحماية والإنهاء الفولاذية (معمارية البلوك) ---
   Future<void> _validateAndSubmitSmart(VisitReady state) async {
-    if (_isSubmitting || _isOnBreak || !_isAuthorizedToSell) return;
+    if (_isSubmitting) return;
     setState(() => _isSubmitting = true);
     var dispatched = false;
     try {
@@ -844,15 +817,10 @@ class _VisitScreenState extends State<VisitScreen> {
         return;
       }
       if (!mounted) return;
-      // Preserve the existing cached route/stock UX gates. Neither determines
-      // tax readiness, pricing, FEFO or final Backend acceptance.
+      // Keep the accepted stock UX guard. Session/route eligibility is checked
+      // by Backend; no live preflight is added to offline Visit staging.
       if (state.cart.any((item) => !item.hasEnoughInventory)) {
         await showVisitFieldFailure(context, issue: 'quantityUnavailable');
-        return;
-      }
-      if (!_isEmergency && _shopZone != null && _allowedZone != null &&
-          _shopZone != _allowedZone) {
-        await showVisitFieldFailure(context, issue: 'outsideRoute');
         return;
       }
       final confirmation = await confirmVisitFieldSubmission(context,

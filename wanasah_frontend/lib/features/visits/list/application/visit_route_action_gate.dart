@@ -1,10 +1,10 @@
-import '../data/visit_route_action_state_source.dart';
-
 enum VisitRouteAction {
   addShop,
   openVisit,
 }
 
+// Retained for existing feedback/composition compatibility. Cached state never
+// produces a denial: opening a form is not Backend acceptance of its mutation.
 enum VisitRouteActionDecision {
   allowed,
   onBreak,
@@ -12,42 +12,12 @@ enum VisitRouteActionDecision {
   unavailable,
 }
 
+/// Navigation policy only. No cached flags, permissions or live preflight.
+/// Visit staging and Shop creation keep their distinct existing contracts;
+/// the respective Backend mutation decides current business eligibility.
 class VisitRouteActionGate {
-  VisitRouteActionGate({
-    required VisitRouteActionStateSource source,
-  }) : _source = source;
+  const VisitRouteActionGate();
 
-  final VisitRouteActionStateSource _source;
-
-  Future<VisitRouteActionDecision> evaluate(
-    VisitRouteAction action,
-  ) async {
-    final VisitRouteCompatibilityState state;
-    try {
-      state = await _source.readCompatibilityState();
-    } catch (_) {
-      return VisitRouteActionDecision.unavailable;
-    }
-
-    final onBreak = _strictBool(state.isOnBreak);
-    final authorized = _strictBool(state.isAuthorized);
-
-    if (onBreak == null || authorized == null) {
-      return VisitRouteActionDecision.unavailable;
-    }
-    if (onBreak) {
-      return VisitRouteActionDecision.onBreak;
-    }
-    if (!authorized) {
-      return VisitRouteActionDecision.unauthorized;
-    }
-    return VisitRouteActionDecision.allowed;
-  }
-
-  bool? _strictBool(String? raw) {
-    final value = raw?.trim().toLowerCase();
-    if (value == 'true') return true;
-    if (value == 'false') return false;
-    return null;
-  }
+  Future<VisitRouteActionDecision> evaluate(VisitRouteAction action) async =>
+      VisitRouteActionDecision.allowed;
 }
