@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wanasah_frontend/features/custody/presentation/vehicle_inventory_section.dart';
+import 'package:wanasah_frontend/features/custody/domain/non_sellable_custody.dart';
 import 'package:wanasah_frontend/features/work_session/presentation/work_session_controls.dart';
 import 'package:wanasah_frontend/models/product_model.dart';
 
@@ -20,7 +21,7 @@ void main() {
         'lib/features/work_session/data/work_session_remote_data_source.dart',
       ).readAsString();
       final custody = await File(
-        'lib/features/custody/application/custody_handlers.dart',
+        'lib/features/custody/application/custody_coordinator.dart',
       ).readAsString();
 
       expect(
@@ -50,25 +51,18 @@ void main() {
 
       expect(
         bloc,
-        contains(
-          "part '../../features/custody/application/custody_handlers.dart';",
+        isNot(
+          contains(
+            "part '../../features/custody/application/custody_handlers.dart';",
+          ),
         ),
       );
-      expect(bloc, isNot(contains('Future<void> _onRespondToTransfer')));
-      expect(
-        bloc,
-        isNot(contains('Future<void> _onRespondToBatchTransfer')),
-      );
-
-      expect(custody, contains('checkPendingTransfersRaw()'));
-      expect(custody, contains('getIncomingTransfers()'));
-      expect(custody, contains('respondToTransfer('));
-      expect(
-        custody,
-        contains(
-          'تم حفظ ردك. سيتم إرساله تلقائياً عند عودة الإنترنت 📡',
-        ),
-      );
+      expect(bloc, contains('CustodyCoordinator'));
+      expect(bloc, contains('_custodyCoordinator.respond('));
+      expect(bloc, contains('_custodyCoordinator.loadPendingTransfers()'));
+      expect(custody, contains('loadPendingTransfers()'));
+      expect(custody, contains('loadNonSellableCustody()'));
+      expect(custody, contains('_transferGateway.respond('));
       expect(custody, isNot(contains('package:flutter/material.dart')));
     });
 
@@ -98,7 +92,7 @@ void main() {
       expect(transfer, contains("'تحديث عهدة من الإدارة'"));
       expect(
         transfer,
-        contains("'يجب الرد على جميع الأصناف بالقبول أو الرفض'"),
+        contains("'يجب الرد على جميع الحركات بالقبول أو الرفض.'"),
       );
       expect(inventory, contains("'مخزون سيارة المندوب:'"));
       expect(inventory, contains("'لا يوجد بضاعة في السيارة حالياً.'"));
@@ -196,6 +190,7 @@ void main() {
         home: Scaffold(
           body: VehicleInventorySection(
             products: <ProductModel>[product],
+            nonSellableCustody: <NonSellableCustodyItem>[],
           ),
         ),
       ),
