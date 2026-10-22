@@ -44,6 +44,7 @@ Future<VisitFieldConfirmation?> confirmVisitFieldSubmission(BuildContext context
   }
   if (cart.any((item) => (item.sampleCartons > 0 || item.samplePacks > 0) &&
       item.sampleReason.trim().isEmpty)) {
+    if (!context.mounted) return null;
     await showVisitFieldFailure(context, issue: 'sampleReason');
     return null;
   }
