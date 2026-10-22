@@ -455,9 +455,31 @@ Closure:
 - [x] Treat local stock as a projection, never inventory SSOT.
 - [x] Keep AVAILABLE sellable quantity distinct from non-sellable returned custody; Backend custody and pending local return evidence are separate presentation/read models.
 - [x] Do not invent Batch allocation locally; pending local custody derives only product/reason/quantity evidence from the durable command and exposes no Batch identity.
-- [ ] Re-sync safely after accepted transfer, visit submission and recovery.
+- [x] Re-sync safely after accepted transfer, Visit submission and Recovery: confirmed Visit finalizes/deletes before authoritative refresh; Transfer/Recovery reuse the accepted single sync path and unresolved evidence blocks unsafe refresh.
 - [x] Offline edits/corrections change only their own local AVAILABLE projection exactly once via durable `local_effect_applied` + old-to-new delta.
 - [x] No clamp-to-zero behavior silently hides a negative/inconsistent projection; typed reconciliation errors fail closed and preserve durable evidence.
+
+### 9.1 Sync / Recovery exact reconciliation stability point — 2026-10-23
+
+- [x] Implementation branch: `sol/flutter-v1-sync-recovery-reconciliation-closure`.
+- [x] Exact worker HEAD: `24f82cd9f40dc363e9b51378d4a7e62800719133`.
+- [x] PR #470 merged to `main`; merge commit: `38e1909be3327e080bb3931e3efd56cd6e539b38`.
+- [x] Confirmed direct Visit ordering is Backend confirmation -> exactly-once local finalize -> durable delete -> authoritative `syncDown()` refresh attempt.
+- [x] Refresh failure after a confirmed/finalized Visit is deferred as read-model recovery and does not recreate evidence or report a false mutation failure.
+- [x] Failed local finalization never deletes durable evidence; later Backend idempotent replay can finish local finalization.
+- [x] Queued Visit/Transfer replay remains FIFO and stops at the first unresolved/blocked/ambiguous/local-failure record.
+- [x] Owner/tenant validation occurs before legacy request/command identity repair; foreign/unattributed rows are never adopted.
+- [x] `LocalInventoryProjectionException` preserves its exact stable projection code.
+- [x] Real typed `DatabaseException` maps to pending `LOCAL_DATABASE_TRANSIENT`; arbitrary local exceptions map to blocked `LOCAL_COMMAND_ERROR`.
+- [x] Sync/Recovery owned machine decisions no longer classify failures using exception/free-text contents.
+- [x] `syncDown()` reconciliation blockers use stable `SYNC_*` codes and re-check durable evidence after the authoritative network fetch before replacing local projections.
+- [x] Recovery blocked evidence has precedence and can never be reported as synced.
+- [x] No second queue, table, migration, replay engine, transfer store or Visit replay engine was introduced.
+- [x] Exact-head run `39871813535`: `flutter analyze` PASS + 119 focused/regression tests PASS.
+- [x] Current-main PR #470 integration gates PASS: Sync/Recovery Reconciliation, Recovery Sync UX, Projection Integrity, Auth Session Recovery and Offline Durable.
+- [x] Inventory CP2 historical unchanged-file assertion remains unrelated to this Flutter closure.
+- [ ] Legacy `SyncRepository.respondToTransfer()` remains compatibility debt outside the accepted Custody production decision path; do not treat it as the current transfer ownership/replay authority.
+- [ ] Global removal of every remaining free-text classification outside Sync/Recovery remains a separate closure item.
 
 ## 10. Flutter target architecture
 
