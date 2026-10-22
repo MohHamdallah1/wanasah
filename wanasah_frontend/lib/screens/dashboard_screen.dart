@@ -21,6 +21,7 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  // Recovery safety invariant: blocked evidence is durable؛ لا يمكن حذفها من تطبيق المندوب.
   // +++ الشاشة الآن "غبية" وتعتمد على الـ BLoC بنسبة 100% +++
   bool _isShowingDialog = false; // لمنع تكرار ظهور نافذة الحوالات
   bool _isActionInProgress = false; // +++ درع منع النقر المتكرر أثناء طلبات الـ API والموقع +++
