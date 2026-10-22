@@ -8,12 +8,16 @@ import 'package:wanasah_frontend/models/product_model.dart';
 
 void main() {
   group('mechanical architecture boundaries', () {
-    test('dashboard bloc delegates session and custody handlers to feature files',
+    test(
+        'dashboard composes feature-owned work session boundary and custody seam',
         () async {
       final bloc =
           await File('lib/blocs/dashboard/dashboard_bloc.dart').readAsString();
-      final session = await File(
-        'lib/features/work_session/application/work_session_handlers.dart',
+      final coordinator = await File(
+        'lib/features/work_session/application/work_session_coordinator.dart',
+      ).readAsString();
+      final remote = await File(
+        'lib/features/work_session/data/work_session_remote_data_source.dart',
       ).readAsString();
       final custody = await File(
         'lib/features/custody/application/custody_handlers.dart',
@@ -21,36 +25,40 @@ void main() {
 
       expect(
         bloc,
-        contains(
-          "part '../../features/work_session/application/work_session_handlers.dart';",
+        isNot(
+          contains(
+            "part '../../features/work_session/application/work_session_handlers.dart';",
+          ),
         ),
       );
+      expect(bloc, contains('WorkSessionCoordinator'));
+      expect(bloc, contains('recoverActiveSession()'));
+      expect(bloc, isNot(contains('_dashboardRepo.startSession(')));
+      expect(bloc, isNot(contains('_dashboardRepo.endSession(')));
+      expect(bloc, isNot(contains('_dashboardRepo.toggleBreak(')));
+
+      expect(coordinator, contains('_remote.startSession('));
+      expect(coordinator, contains('_remote.endSession()'));
+      expect(coordinator, contains('_remote.toggleBreak('));
+      expect(coordinator, contains('recoverActiveSession()'));
+      expect(coordinator, isNot(contains('package:flutter/material.dart')));
+
+      expect(remote, contains("'/driver/sessions/start'"));
+      expect(remote, contains("'/driver/sessions/end'"));
+      expect(remote, contains("'/driver/sessions/break'"));
+      expect(remote, contains("'/driver/sessions/active'"));
+
       expect(
         bloc,
         contains(
           "part '../../features/custody/application/custody_handlers.dart';",
         ),
       );
-      expect(bloc, isNot(contains('Future<void> _onStartSession')));
-      expect(bloc, isNot(contains('Future<void> _onEndSession')));
-      expect(bloc, isNot(contains('Future<void> _onToggleBreak')));
       expect(bloc, isNot(contains('Future<void> _onRespondToTransfer')));
       expect(
         bloc,
         isNot(contains('Future<void> _onRespondToBatchTransfer')),
       );
-
-      expect(session, contains('getCurrentLocation()'));
-      expect(session, contains('startSession('));
-      expect(session, contains('endSession()'));
-      expect(session, contains('toggleBreak('));
-      expect(
-        session,
-        contains(
-          'لا يمكن إنهاء العمل وأنت أوفلاين. يجب الاتصال بالإنترنت لمطابقة العهدة وتسليمها.',
-        ),
-      );
-      expect(session, isNot(contains('package:flutter/material.dart')));
 
       expect(custody, contains('checkPendingTransfersRaw()'));
       expect(custody, contains('getIncomingTransfers()'));
