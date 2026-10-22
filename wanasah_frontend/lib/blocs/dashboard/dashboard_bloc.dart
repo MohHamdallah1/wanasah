@@ -449,6 +449,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
 
     var pendingTransfer = snapshot.pendingTransfer;
     var nonSellableCustody = snapshot.nonSellableCustody;
+    var pendingReturnCustody = snapshot.pendingReturnCustody;
     var pendingReadCompleted = false;
 
     try {
@@ -465,6 +466,13 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       developer.log('[DashboardBloc] Non-sellable custody read failed: $e');
     }
 
+    try {
+      pendingReturnCustody =
+          await _custodyCoordinator.loadPendingReturnCustody();
+    } catch (e) {
+      developer.log('[DashboardBloc] Pending return custody read failed: $e');
+    }
+
     if (state is! DashboardLoaded) return;
     emit(
       (state as DashboardLoaded).copyWith(
@@ -472,6 +480,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         clearPendingTransfer:
             pendingReadCompleted && pendingTransfer == null,
         nonSellableCustody: nonSellableCustody,
+        pendingReturnCustody: pendingReturnCustody,
       ),
     );
   }
@@ -649,6 +658,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       isOffline: current.isOffline,
       pendingTransfer: current.pendingTransfer,
       nonSellableCustody: current.nonSellableCustody,
+      pendingReturnCustody: current.pendingReturnCustody,
       actionSuccessMessage: current.actionSuccessMessage,
     );
   }
