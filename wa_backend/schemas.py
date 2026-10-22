@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, ConfigDict, model_validator, AliasChoices, field_validator
+from pydantic import BaseModel, Field, ConfigDict, model_validator, AliasChoices, field_validator, model_serializer
 from pydantic.functional_validators import BeforeValidator
 from pydantic.functional_serializers import PlainSerializer
 from typing import Optional, List, Any, Literal, Annotated, Dict, Union
@@ -502,6 +502,7 @@ class PendingBatchResponse(BaseModel):
     items: List[PendingTransferItem]
 
 class AddShopRequest(RequestModel):
+    request_id: Optional[UUID] = None
     name: str = Field(..., min_length=2, max_length=150)
     phone_number: str = Field(..., min_length=5, max_length=20)
     address: Optional[str] = Field(None, max_length=2000)
@@ -712,6 +713,27 @@ class VisitReturnInput(RequestModel):
         return self
 
 
+class ResolvedVisitReturnInput(RequestModel):
+    """FIELD transport: a signed resolution replaces operator Batch input."""
+    product_variant_id: PositiveDbInt
+    resolution_token: str = Field(min_length=1, max_length=8192)
+    quantity: NonNegativeDbInt = 0
+    packs_quantity: NonNegativeDbInt = 0
+    return_type: Literal["Expired", "Damaged", "Factory_Defect"] = "Damaged"
+    reason: Optional[str] = Field(None, max_length=2000)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def normalize_reason(cls, value):
+        return _optional_text(value)
+
+    @model_validator(mode="after")
+    def require_nonzero_return(self):
+        if self.quantity + self.packs_quantity == 0:
+            raise ValueError("A positive returned quantity is required.")
+        return self
+
+
 class VisitUpdateRequest(RequestModel):
     request_id: UUID
     outcome: Literal["Sale", "NoSale", "Postponed"]
@@ -722,7 +744,7 @@ class VisitUpdateRequest(RequestModel):
     cash_collected: MoneyInput = Decimal("0.000")
     debt_paid: MoneyInput = Decimal("0.000")
     cart_items: List[VisitItemInput] = Field(default_factory=list, max_length=500)
-    returns: List[VisitReturnInput] = Field(default_factory=list, max_length=500)
+    returns: List[Union[VisitReturnInput, ResolvedVisitReturnInput]] = Field(default_factory=list, max_length=500)
 
     @field_validator("notes", mode="before")
     @classmethod
@@ -738,7 +760,8 @@ class VisitUpdateRequest(RequestModel):
             )
 
         return_keys = [
-            (item.product_variant_id, item.batch_id, item.return_type)
+            (item.product_variant_id, getattr(item, "batch_id", None),
+             getattr(item, "resolution_token", None), item.return_type)
             for item in self.returns
         ]
         if len(return_keys) != len(set(return_keys)):
@@ -1966,6 +1989,13 @@ class InboundBatchItem(RequestModel):
 
 
 
+class InboundPurchaseReferenceSelection(RequestModel):
+    """Select one actual native cost/UOM pair, independent of receipt line order."""
+    product_variant_id: PositiveDbInt
+    uom_id: PositiveDbInt
+    unit_cost: InventoryCostMoneyInput
+
+
 class InboundOptionsRequest(RequestModel):
     ids: List[PositiveDbInt] = Field(..., min_length=1, max_length=200)
 
@@ -1991,6 +2021,18 @@ class UpgradedInboundRequest(RequestModel):
     reference_id: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = Field(None, max_length=4000)
     items: List[InboundBatchItem] = Field(..., min_length=1, max_length=5000)
+
+    purchase_reference_selections: Optional[List[InboundPurchaseReferenceSelection]] = Field(
+        default=None, max_length=5000,
+    )
+
+    @model_serializer(mode="wrap")
+    def serialize_receipt(self, handler):
+        # A newly optional field must not change pre-feature hash producers.
+        body = handler(self)
+        if not body.get("purchase_reference_selections"):
+            body.pop("purchase_reference_selections", None)
+        return body
 
     @field_validator("reference_id", "notes", mode="before")
     @classmethod

@@ -84,7 +84,8 @@ describe("CP13 Warehouse setup final presentation", () => {
     expect(source).not.toContain('data-warehouse-setup-view="quality"');
     expect(source.match(/<QualityHandlingDestinationsCard/g)?.length).toBe(1);
     expect(quality).toContain('data-warehouse-setup="quality-policy"');
-    expect(quality).toContain('data-quality-destination-mode="in-place"');
+    expect(quality).toContain("data-quality-destination-mode={");
+    expect(quality).toContain('!resolved ? "loading" : customConfigured ? "custom" : "in-place"');
     expect(quality).not.toContain("<select");
     expect(quality).not.toContain("<Search");
     expect(policyHook).not.toContain("/warehouse/locations/manage");
@@ -92,7 +93,7 @@ describe("CP13 Warehouse setup final presentation", () => {
     expect(policyHook).toContain("vendor_return_staging_location_id: null");
     expect(policyHook).toContain("disposal_location_id: null");
     expect(policyHook).toContain("customConfigured");
-    expect(quality).toContain('data-quality-destination-mode={customConfigured ? "custom" : "in-place"}');
+    expect(quality).toContain("customConfigured");
     expect(quality).toContain("effectivePayload.quarantine_location_id");
     expect(quality).not.toContain("saveDraft");
     expect(quality).not.toContain("publish()");
@@ -115,7 +116,8 @@ describe("CP13 Warehouse setup final presentation", () => {
     expect(source).toContain('access.can("location.create")');
     expect(source).toContain('canAt(location.id, "location.update")');
     expect(source).toContain('canAt(location.id, "location.state")');
-    expect(source).toContain('access.can("inventory.minimum_stock.manage")');
+    expect(source).toContain('canAt(item.id, "inventory.minimum_stock.manage")');
+    expect(source).toContain('canAt(item.id, "inventory.read")');
     expect(source).not.toMatch(/admin|superuser/i);
   });
 
@@ -138,8 +140,9 @@ describe("CP13 Warehouse setup final presentation", () => {
     expect(source).toContain("autoFocus");
     expect(source).toContain('data-cp13-phone-list="true"');
     expect(source).toContain("md:hidden");
-    expect(source).toContain("overflow-x-auto");
-    expect(source).toContain("md:min-w-[760px]");
+    expect(source).toContain("overflow-auto");
+    expect(source).toContain("loadMoreRef");
+    expect(source).toContain("IntersectionObserver");
     expect(modal).toContain("useDialogFocusTrap");
     expect(focusTrap).toContain('event.key === "Escape"');
     expect(focusTrap).toContain("restore.focus()");
@@ -151,7 +154,7 @@ describe("CP13 Warehouse setup final presentation", () => {
     expect(source).toContain("setLoadIssue(message)");
     expect(source).toContain("presentation.retry");
     expect(source).toContain("setRefreshKey((value) => value + 1)");
-    expect(warehousePresentationCopy("ar").qualityPolicy).toBe("إعداد وسياسة");
-    expect(warehousePresentationCopy("en").qualityPolicy).toBe("Setup / policy");
+    expect(warehousePresentationCopy("ar").qualityPolicy).toBe("معالجة الجودة");
+    expect(warehousePresentationCopy("en").qualityPolicy).toBe("Quality handling");
   });
 });

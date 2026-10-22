@@ -24,6 +24,10 @@ from domains.authorization.backoffice_subject import (
     BackofficeAuthorizationSubjectRejected,
     resolve_backoffice_authorization_subject,
 )
+from domains.simple_products.imports.application.purchase_reference_import import (
+    has_import_cost, record_import_reference_batch,
+)
+from domains.inventory_costing.purchase_reference.repository import acquire_writer_guard
 from domains.simple_products.imports.application.state_machine import (
     JobStatus,
     RowStatus,
@@ -373,6 +377,7 @@ async def _execute_rows_once(
     *,
     company_id: int,
     actor,
+    access: BackofficeCapabilityAccess | None = None,
     job_id: UUID,
     rows: list[Any],
 ) -> None:
@@ -444,6 +449,13 @@ async def _execute_rows_once(
             )
         return
 
+    if has_import_cost(rows):
+        if access is None:
+            raise ProductImportTerminalError("Missing purchase-cost import authorization context")
+        # Only import batches with an explicit cost take this guard.
+        # Acquire before Product/Pricing locks, exactly once per 200-row unit.
+        await acquire_writer_guard(db, company_id=company_id)
+
     created = (
         await create_products_and_prices(
             db,
@@ -453,6 +465,13 @@ async def _execute_rows_once(
             company_id=int(company_id),
         )
     )
+
+    if has_import_cost(rows):
+        await record_import_reference_batch(
+            db, access=access, company_id=company_id,
+            job_id=job_id, request_id=request_id, request_hash=request_hash,
+            rows=rows, created=created,
+        )
 
     with product_phase(db, "row_outcome_python"):
         response_rows: list[
@@ -502,6 +521,7 @@ async def _execute_rows_best_effort(
     *,
     company_id: int,
     actor,
+    access: BackofficeCapabilityAccess,
     job_id: UUID,
     rows: list[Any],
 ) -> tuple[int, int]:
@@ -512,6 +532,7 @@ async def _execute_rows_best_effort(
                     db,
                     company_id=company_id,
                     actor=actor,
+                    access=access,
                     job_id=job_id,
                     rows=rows,
                 )
@@ -552,6 +573,7 @@ async def _execute_rows_best_effort(
                 db,
                 company_id=company_id,
                 actor=actor,
+                access=access,
                 job_id=job_id,
                 rows=rows[
                     :midpoint
@@ -563,6 +585,7 @@ async def _execute_rows_best_effort(
                 db,
                 company_id=company_id,
                 actor=actor,
+                access=access,
                 job_id=job_id,
                 rows=rows[
                     midpoint:
@@ -801,6 +824,14 @@ async def execute_import(
                 await profiled_commit(db, profile)
                 return
 
+            if has_import_cost(rows):
+                try:
+                    await access.require("inventory.purchase_cost_reference.manage")
+                except BackofficeCapabilityAccessRejected as exc:
+                    raise ProductImportTerminalError(
+                        "Purchase-cost import requires company purchase-reference manage permission."
+                    ) from exc
+
             (
                 imported_delta,
                 _failed_delta,
@@ -808,6 +839,7 @@ async def execute_import(
                 db,
                 company_id=company_id,
                 actor=actor,
+                access=access,
                 job_id=job_id,
                 rows=rows,
             )

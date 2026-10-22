@@ -9,6 +9,7 @@ import {
   it,
   vi,
 } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 
 vi.mock(
   "react-i18next",
@@ -77,7 +78,8 @@ describe(
   () => {
     it("renders exact high-precision prices with Latin digits in Arabic UI", () => {
       render(
-        <table>
+        <MemoryRouter>
+          <table>
           <tbody>
             <ProductTableRow
               item={product}
@@ -98,7 +100,8 @@ describe(
               onReassignFamily={vi.fn()}
             />
           </tbody>
-        </table>,
+          </table>
+        </MemoryRouter>,
       );
 
       const row =

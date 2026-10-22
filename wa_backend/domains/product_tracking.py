@@ -34,10 +34,11 @@ PRODUCT_DEFAULT_EXPIRY_CONTROL_MODE_KEY: Final[str] = (
     "product.default_expiry_control_mode"
 )
 
-# Backward-compatible fail-closed platform fallback. A tenant may override
-# either value explicitly through its own SystemSetting rows.
-PLATFORM_DEFAULT_LOT_CONTROL_MODE: Final[str] = "REQUIRED"
-PLATFORM_DEFAULT_EXPIRY_CONTROL_MODE: Final[str] = "REQUIRED"
+# Broad SMB-safe platform fallback. A tenant may override either value
+# explicitly through its own SystemSetting rows, and individual products may
+# still select NONE / OPTIONAL / REQUIRED as needed.
+PLATFORM_DEFAULT_LOT_CONTROL_MODE: Final[str] = "OPTIONAL"
+PLATFORM_DEFAULT_EXPIRY_CONTROL_MODE: Final[str] = "OPTIONAL"
 
 # This namespace is reserved for system-generated ProductBatch identities.
 # User-entered lot numbers must never be allowed to collide with it.

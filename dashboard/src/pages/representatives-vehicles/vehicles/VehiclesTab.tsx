@@ -96,7 +96,7 @@ export function VehiclesTab() {
         target.version,
       );
       replaceVehicleInCachedLists(updated);
-      await queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      await queryClient.invalidateQueries({ queryKey: ["vehicles"], refetchType: "none" });
       toast.success(t("representativesVehicles.vehicles.updateSuccess"));
       setAction(null);
     } catch (error) {
@@ -119,7 +119,7 @@ export function VehiclesTab() {
         target.version,
       );
       replaceVehicleInCachedLists(updated);
-      await queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      await queryClient.invalidateQueries({ queryKey: ["vehicles"], refetchType: "none" });
       toast.success(t("representativesVehicles.vehicles.quickActions.success"));
       setAction(null);
     } catch (error) {

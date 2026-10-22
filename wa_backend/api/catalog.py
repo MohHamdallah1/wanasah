@@ -618,8 +618,26 @@ async def list_products(
     after_id = _cursor(cursor)
     stmt = select(Product).where(Product.company_id == access.company_id, Product.id > after_id)
     if search:
-        pattern = _search_pattern(search)
-        stmt = stmt.where(or_(func.lower(Product.name).like(pattern, escape="\\"), func.lower(Product.code).like(pattern, escape="\\")))
+        normalized = search.strip().lower()
+        exact_clause = or_(
+            func.lower(Product.name) == normalized,
+            func.lower(Product.code) == normalized,
+        )
+        exact_id = await db.scalar(
+            stmt.with_only_columns(Product.id)
+            .where(exact_clause)
+            .limit(1)
+        )
+        if exact_id is not None:
+            stmt = stmt.where(exact_clause)
+        else:
+            pattern = _search_pattern(search)
+            stmt = stmt.where(
+                or_(
+                    func.lower(Product.name).like(pattern, escape="\\"),
+                    func.lower(Product.code).like(pattern, escape="\\"),
+                )
+            )
     rows = list((await db.scalars(stmt.order_by(Product.id.asc()).limit(limit + 1))).all())
     page, has_more = rows[:limit], len(rows) > limit
     return {"items": [_product_row(row) for row in page], "next_cursor": _next_cursor(page[-1].id) if has_more else None, "has_more": has_more}
@@ -708,8 +726,26 @@ async def list_variants(
     if lifecycle_status is not None:
         stmt = stmt.where(ProductVariant.lifecycle_status == lifecycle_status)
     if search:
-        pattern = _search_pattern(search)
-        stmt = stmt.where(or_(func.lower(ProductVariant.name).like(pattern, escape="\\"), func.lower(ProductVariant.sku).like(pattern, escape="\\")))
+        normalized = search.strip().lower()
+        exact_clause = or_(
+            func.lower(ProductVariant.name) == normalized,
+            func.lower(ProductVariant.sku) == normalized,
+        )
+        exact_id = await db.scalar(
+            stmt.with_only_columns(ProductVariant.id)
+            .where(exact_clause)
+            .limit(1)
+        )
+        if exact_id is not None:
+            stmt = stmt.where(exact_clause)
+        else:
+            pattern = _search_pattern(search)
+            stmt = stmt.where(
+                or_(
+                    func.lower(ProductVariant.name).like(pattern, escape="\\"),
+                    func.lower(ProductVariant.sku).like(pattern, escape="\\"),
+                )
+            )
     rows = list((await db.execute(stmt.order_by(ProductVariant.id.asc()).limit(limit + 1))).all())
     page, has_more = rows[:limit], len(rows) > limit
     return {"items": [_variant_row(row, uom) for row, uom in page], "next_cursor": _next_cursor(page[-1][0].id) if has_more else None, "has_more": has_more}

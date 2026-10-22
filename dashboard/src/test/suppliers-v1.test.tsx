@@ -85,6 +85,39 @@ describe("Supplier V1 contract and presentation", () => {
     expect(fake.fetch.mock.calls[0][0]).toContain("active=true"); expect(fake.fetch.mock.calls[0][0]).toContain("limit=30");
     fireEvent.click(option); expect(select).toHaveBeenCalledWith(3);
   });
+  it("can use the selector control itself as the supplier search field", async () => {
+    const select = vi.fn();
+    render(
+      <SupplierSelector value={null} onChange={select} searchInControl />,
+      { wrapper },
+    );
+    const combobox = screen.getByRole("combobox");
+    expect(combobox).toHaveAttribute(
+      "placeholder",
+      "Search name, code or contact details",
+    );
+
+    fireEvent.focus(combobox);
+    expect(
+      screen.getAllByPlaceholderText("Search name, code or contact details"),
+    ).toHaveLength(1);
+
+    fireEvent.change(combobox, { target: { value: "ABC" } });
+    await waitFor(() =>
+      expect(
+        fake.fetch.mock.calls.some(([url]) =>
+          String(url).includes("search=ABC"),
+        ),
+      ).toBe(true),
+    );
+
+    const option = await screen.findByRole("option", {
+      name: "ABC Trading · ABC",
+    });
+    fireEvent.click(option);
+    expect(select).toHaveBeenCalledWith(3);
+  });
+
   it("shows an inactive restored selection without offering it for new selection", async () => {
     fake.fetch.mockImplementation((url: string) => Promise.resolve(url.startsWith("/suppliers?") ? { ...page, items: [] } : { ...row, is_active: false }));
     render(<SupplierSelector value={3} onChange={vi.fn()} />, { wrapper });

@@ -32,6 +32,8 @@ import { useImportProductWorkflow } from "@/pages/products/import/useImportProdu
 import { ProductsListSection } from "@/pages/products/list/ProductsListSection";
 import { useProductsListWorkflow } from "@/pages/products/list/useProductsListWorkflow";
 import { PriceEditModal } from "@/pages/products/pricing/PriceEditModal";
+import { PurchaseReferenceEditor } from "@/pages/products/purchaseReference/PurchaseReferenceEditor";
+import type { SimpleProduct } from "@/pages/products/contracts";
 import { usePriceEditWorkflow } from "@/pages/products/pricing/usePriceEditWorkflow";
 import { ProductLocationsModal } from "@/pages/products/product-locations/ProductLocationsModal";
 import { useProductLocationWorkflow } from "@/pages/products/product-locations/useProductLocationWorkflow";
@@ -54,6 +56,7 @@ export default function ProductsPage() {
     useInventoryAccess();
   const isOnline =
     useNetworkStatus();
+  const [purchaseReferenceProduct, setPurchaseReferenceProduct] = useState<SimpleProduct | null>(null);
   const isNarrowViewport =
     useMediaQuery(
       "(max-width: 767px)"
@@ -89,6 +92,8 @@ export default function ProductsPage() {
     can: access.can,
     canAny: access.canAny,
   });
+
+  const canEditPurchaseReference = access.can("inventory.purchase_cost_reference.manage");
 
   const canReadProductLocations =
     access.canAny(
@@ -396,6 +401,7 @@ export default function ProductsPage() {
           isNarrowViewport,
           canEditPrice:
             canEditSimplePrice,
+          canEditPurchaseReference,
           canRenameProduct:
             canManageCatalog,
           canReassignFamily:
@@ -413,6 +419,7 @@ export default function ProductsPage() {
             renameWorkflow.openRenameProduct,
           onEditPrice:
             priceWorkflow.openPriceEditor,
+          onEditPurchaseReference: setPurchaseReferenceProduct,
           onReassignFamily:
             familyReassignWorkflow.openFamilyReassign,
           onEditTracking:
@@ -476,6 +483,15 @@ export default function ProductsPage() {
 
       <PriceEditModal
         {...priceWorkflow.modalProps}
+      />
+
+      <PurchaseReferenceEditor
+        product={purchaseReferenceProduct}
+        companyId={companyId}
+        actorId={backofficeUserId}
+        online={isOnline}
+        authenticatedFetch={authFetch}
+        onClose={() => setPurchaseReferenceProduct(null)}
       />
 
       <ProductFamiliesManager

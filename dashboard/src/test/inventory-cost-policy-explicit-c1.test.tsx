@@ -128,68 +128,65 @@ describe("cost method selection C1 / no phantom moving-average", () => {
     expect(() => parseCostPolicy(invalid)).toThrow();
   });
 
-  it("shows no default choice and disables first receipt until explicitly saved", async () => {
+  it("keeps an unselected costing policy out of the daily inbound screen", async () => {
     const fetch = makeFetch(unselected);
     page(fetch);
-    const select = screen.getByRole("combobox", {
-      name: "inventoryInbound.costMethod",
-    }) as HTMLSelectElement;
-    await waitFor(() => {
-      expect(screen.getByText("inventoryInbound.costMethodRequired")).toBeTruthy();
-    });
-    expect(select.value).toBe("");
-    expect(
-      (screen.getByRole("button", {
-        name: "inventoryInbound.submit",
-      }) as HTMLButtonElement).disabled,
-    ).toBe(true);
-    expect(fetch.mock.calls.some(([url, opts]) =>
-      url === "/warehouse/costing-policy" && opts?.method === "PUT",
-    )).toBe(false);
-  });
-
-  it("saving the displayed default is an explicit authorized PUT before posting", async () => {
-    const fetch = makeFetch(unselected);
-    page(fetch);
-    const select = screen.getByRole("combobox", {
-      name: "inventoryInbound.costMethod",
-    }) as HTMLSelectElement;
-    await waitFor(() => expect(select.disabled).toBe(false));
-    fireEvent.change(select, { target: { value: "MOVING_AVERAGE" } });
-    await waitFor(() => {
-      expect(select.value).toBe("MOVING_AVERAGE");
+    await waitFor(() =>
       expect(
-        (screen.getByRole("button", {
-          name: "inventoryInbound.submit",
-        }) as HTMLButtonElement).disabled,
-      ).toBe(false);
-    });
-    const writes = fetch.mock.calls.filter(([url, opts]) =>
-      url === "/warehouse/costing-policy" && opts?.method === "PUT",
+        fetch.mock.calls.some(([url]) => url === "/warehouse/costing-policy"),
+      ).toBe(true),
     );
-    expect(writes).toHaveLength(1);
-    const body = JSON.parse(String(writes[0][1]?.body));
-    expect(body).toMatchObject({
-      method: "MOVING_AVERAGE",
-      expected_version: 1,
-    });
-    expect(typeof body.request_id).toBe("string");
+    expect(
+      screen.queryByRole("combobox", {
+        name: "inventoryInbound.costMethod",
+      }),
+    ).toBeNull();
+    expect(
+      screen.queryByText("inventoryInbound.costMethodRequired"),
+    ).toBeNull();
+    expect(
+      fetch.mock.calls.some(
+        ([url, opts]) =>
+          url === "/warehouse/costing-policy" && opts?.method === "PUT",
+      ),
+    ).toBe(false);
   });
 
-  it("keeps unselected receipts disabled when the user cannot manage costing", async () => {
+  it("never auto-saves a costing method merely by opening inbound", async () => {
+    const fetch = makeFetch(unselected);
+    page(fetch);
+    await waitFor(() =>
+      expect(
+        fetch.mock.calls.some(([url]) => url === "/warehouse/costing-policy"),
+      ).toBe(true),
+    );
+    expect(
+      fetch.mock.calls.filter(
+        ([url, opts]) =>
+          url === "/warehouse/costing-policy" && opts?.method === "PUT",
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("keeps an unauthorized unselected policy hidden until first valid posting", async () => {
     const fetch = makeFetch({ ...unselected, can_change: false });
     page(fetch);
-    await waitFor(() => {
-      expect(screen.getByText("inventoryInbound.costMethodNoPermission")).toBeTruthy();
-    });
-    const select = screen.getByRole("combobox", {
-      name: "inventoryInbound.costMethod",
-    }) as HTMLSelectElement;
-    expect(select.disabled).toBe(true);
-    expect(select.value).toBe("");
+    await waitFor(() =>
+      expect(
+        fetch.mock.calls.some(([url]) => url === "/warehouse/costing-policy"),
+      ).toBe(true),
+    );
+    expect(
+      screen.queryByText("inventoryInbound.costMethodNoPermission"),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("combobox", {
+        name: "inventoryInbound.costMethod",
+      }),
+    ).toBeNull();
   });
 
-  it("preserves previously active legacy FIFO and disables policy changes", async () => {
+  it("preserves historical active FIFO without exposing a daily policy control", async () => {
     const fetch = makeFetch({
       ...selected,
       method: "FIFO",
@@ -201,15 +198,21 @@ describe("cost method selection C1 / no phantom moving-average", () => {
       can_change: false,
     });
     page(fetch);
-    const select = screen.getByRole("combobox", {
-      name: "inventoryInbound.costMethod",
-    }) as HTMLSelectElement;
-    await waitFor(() => expect(select.value).toBe("FIFO"));
-    expect(select.disabled).toBe(true);
+    await waitFor(() =>
+      expect(
+        fetch.mock.calls.some(([url]) => url === "/warehouse/costing-policy"),
+      ).toBe(true),
+    );
     expect(
-      (screen.getByRole("button", {
-        name: "inventoryInbound.submit",
-      }) as HTMLButtonElement).disabled,
+      screen.queryByRole("combobox", {
+        name: "inventoryInbound.costMethod",
+      }),
+    ).toBeNull();
+    expect(
+      fetch.mock.calls.some(
+        ([url, opts]) =>
+          url === "/warehouse/costing-policy" && opts?.method === "PUT",
+      ),
     ).toBe(false);
   });
 });

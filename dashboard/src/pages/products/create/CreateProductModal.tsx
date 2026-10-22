@@ -1,3 +1,5 @@
+import { CreateProductPurchaseReferenceSection } from "./CreateProductPurchaseReferenceSection";
+import type { PurchaseReferenceCreateInput, PurchaseReferenceCreateOptions } from "./purchaseReferenceCreateContract";
 import type {
   RefObject,
 } from "react";
@@ -20,6 +22,10 @@ import type {
 } from "@/pages/products/create/types";
 
 type Props = {
+  purchaseReferenceOptions?: PurchaseReferenceCreateOptions;
+  purchaseReferenceOptionsError?: boolean;
+  onRetryPurchaseReferenceOptions?: () => void;
+  onPurchaseReferenceChange?: (value: PurchaseReferenceCreateInput | undefined) => void;
   open: boolean;
   saving: boolean;
   online: boolean;
@@ -79,6 +85,10 @@ type Props = {
 };
 
 export function CreateProductModal({
+  purchaseReferenceOptions,
+  purchaseReferenceOptionsError,
+  onRetryPurchaseReferenceOptions,
+  onPurchaseReferenceChange,
   open,
   saving,
   online,
@@ -263,6 +273,12 @@ export function CreateProductModal({
         onUnitPriceChange={
           onUnitPriceChange
         }
+        purchaseReference={onPurchaseReferenceChange ? <CreateProductPurchaseReferenceSection
+          draft={draft} saving={saving} options={purchaseReferenceOptions}
+          failed={purchaseReferenceOptionsError}
+          onRetry={onRetryPurchaseReferenceOptions ?? (() => undefined)}
+          onChange={onPurchaseReferenceChange}
+        /> : null}
       />
 
       <CreateProductBarcodeSection

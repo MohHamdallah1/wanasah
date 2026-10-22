@@ -222,7 +222,7 @@ it.each(["ar", "en"])(
       language === "ar" ? "وجهات الجودة" : "Quality destinations",
     );
     expect(
-      screen.getAllByText(
+      await screen.findAllByText(
         language === "ar" ? "نفس الموقع الحالي" : "Same current location",
       ),
     ).toHaveLength(3);

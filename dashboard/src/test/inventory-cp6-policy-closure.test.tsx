@@ -148,8 +148,8 @@ describe("CP6.2/6.3 policy closure Dashboard", () => {
     const policyI18n = read("pages/inventory/stock-policy/i18n.ts");
     const contract = read("pages/inventory/stock-policy/contracts.ts");
 
-    expect(manager).toContain('from "./stock-policy/ShelfLifePolicyExplainability"');
-    expect(manager).toContain("<ShelfLifePolicyExplainability");
+    expect(manager).not.toContain('from "./stock-policy/ShelfLifePolicyExplainability"');
+    expect(manager).not.toContain("<ShelfLifePolicyExplainability");
     expect(explain).toContain('import { useShelfLifePolicyCopy } from "./i18n"');
     expect(explain).toContain("useShelfLifePolicyCopy()");
     expect(policyI18n).toContain("ar: {");

@@ -1,3 +1,4 @@
+import { isPurchaseReferenceCreateInput, type PurchaseReferenceCreateInput } from "./purchaseReferenceCreateContract";
 import type {
   ProductTrackingMode,
 } from "@/pages/products/contracts";
@@ -7,6 +8,7 @@ import type {
 } from "@/pages/products/create/types";
 
 export type ProductCreateCommandPayload = {
+  purchase_cost_reference?: PurchaseReferenceCreateInput;
   name: string;
   family_mode: ProductFamilyMode;
   family_id: number | null;
@@ -46,7 +48,9 @@ const hasExactKeys = (
     "unit_barcode",
     "unit_price",
     "units_per_package",
-  ].sort();
+  ];
+  if ("purchase_cost_reference" in row) expected.push("purchase_cost_reference");
+  expected.sort();
   return JSON.stringify(
     Object.keys(row).sort(),
   ) === JSON.stringify(expected);
@@ -78,6 +82,8 @@ export const isProductCreateCommandPayload = (
   if (!hasExactKeys(row)) {
     return false;
   }
+
+  if ("purchase_cost_reference" in row && !isPurchaseReferenceCreateInput(row.purchase_cost_reference)) return false;
 
   const familyMode =
     row.family_mode;
@@ -215,6 +221,7 @@ export const isProductCreateCommandPayload = (
 export const productCreateRequestBody = (
   payload: ProductCreateCommandPayload,
 ) => ({
+  ...(payload.purchase_cost_reference ? { purchase_cost_reference: payload.purchase_cost_reference } : {}),
   name: payload.name,
   family_mode: payload.family_mode,
   family_id: payload.family_id,
@@ -240,6 +247,7 @@ export const productCreateRequestBody = (
 export const productDraftFromCreateCommand = (
   payload: ProductCreateCommandPayload,
 ): ProductDraft => ({
+  ...(payload.purchase_cost_reference ? { purchase_cost_reference: { ...payload.purchase_cost_reference } } : {}),
   name: payload.name,
   family_mode:
     payload.family_mode,

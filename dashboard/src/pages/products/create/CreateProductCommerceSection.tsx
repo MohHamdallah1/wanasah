@@ -1,4 +1,5 @@
 import type {
+  ReactNode,
   RefObject,
 } from "react";
 import { useTranslation } from "react-i18next";
@@ -37,6 +38,7 @@ type Props = {
   onUnitsPerPackageChange: (value: string) => void;
   onPackagePriceChange: (value: string) => void;
   onUnitPriceChange: (value: string) => void;
+  purchaseReference?: ReactNode;
 };
 
 export function CreateProductCommerceSection({
@@ -55,6 +57,7 @@ export function CreateProductCommerceSection({
   onUnitsPerPackageChange,
   onPackagePriceChange,
   onUnitPriceChange,
+  purchaseReference,
 }: Props) {
   const { t, i18n } =
     useTranslation();
@@ -355,6 +358,8 @@ export function CreateProductCommerceSection({
                 )}
         </p>
       ) : null}
+
+      {purchaseReference}
     </section>
   );
 }

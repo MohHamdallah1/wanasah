@@ -1,3 +1,6 @@
+import { useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { parsePurchaseReferenceCreateOptions, type PurchaseReferenceCreateInput } from "./purchaseReferenceCreateContract";
 import type {
   Dispatch,
   SetStateAction,
@@ -78,6 +81,8 @@ export function useCreateProductWorkflow({
   setCursor,
   setHistory,
 }: Params) {
+  const currentCreateIdentity = useRef({ companyId, driverId });
+  currentCreateIdentity.current = { companyId, driverId };
   const {
     createOpen,
     setCreateOpen,
@@ -107,6 +112,10 @@ export function useCreateProductWorkflow({
 
   const openCreateProduct =
     async () => {
+      const openingIdentity = currentCreateIdentity.current;
+      const isCurrentIdentity = () =>
+        openingIdentity.companyId === currentCreateIdentity.current.companyId &&
+        openingIdentity.driverId === currentCreateIdentity.current.driverId;
       if (
         companyId !== null &&
         driverId !== null
@@ -120,6 +129,7 @@ export function useCreateProductWorkflow({
                 "product-create"
               )
             );
+          if (!isCurrentIdentity()) return;
           if (pending) {
             if (
               !isProductCreateCommandPayload(
@@ -155,6 +165,7 @@ export function useCreateProductWorkflow({
             );
           }
         } catch (error) {
+          if (!isCurrentIdentity()) return;
           toast.error(
             apiErrorMessage(
               error,
@@ -181,6 +192,15 @@ export function useCreateProductWorkflow({
     setDraft,
     restoredDraftKey,
     t,
+  });
+
+  const purchaseReferenceOptions = useQuery({
+    queryKey: ["product-create-purchase-reference-options", companyId, driverId],
+    enabled: createOpen && companyId !== null && driverId !== null,
+    retry: false,
+    queryFn: async ({ signal }) => parsePurchaseReferenceCreateOptions(
+      await authFetch("/simple-products/purchase-reference-create-options", { signal }),
+    ),
   });
 
   const familyOptionParams =
@@ -288,6 +308,11 @@ export function useCreateProductWorkflow({
       setFamilyOptionSearch,
     },
     modalProps: {
+      purchaseReferenceOptions: purchaseReferenceOptions.data,
+      purchaseReferenceOptionsError: purchaseReferenceOptions.isError,
+      onRetryPurchaseReferenceOptions: () => { void purchaseReferenceOptions.refetch(); },
+      onPurchaseReferenceChange: (value: PurchaseReferenceCreateInput | undefined) =>
+        setDraft((current) => ({ ...current, purchase_cost_reference: value })),
       open: createOpen,
       saving:
         createMutation.isPending,

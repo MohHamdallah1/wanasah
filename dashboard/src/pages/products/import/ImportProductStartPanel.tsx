@@ -12,6 +12,7 @@ import type {
   ProductTrackingMode,
 } from "@/pages/products/contracts";
 import { ImportProductQuickGuide } from "@/pages/products/import/ImportProductQuickGuide";
+import { ProductExpiryRecommendation } from "@/pages/products/tracking/ProductExpiryRecommendation";
 import { ProductTrackingSimpleControls } from "@/pages/products/tracking/ProductTrackingSimpleControls";
 
 type Props = {
@@ -209,6 +210,10 @@ export function ImportProductStartPanel({
                     "products.importTrackingHint",
                   )}
                 </p>
+
+                <div className="mt-2">
+                  <ProductExpiryRecommendation />
+                </div>
 
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] font-bold text-slate-600">
                   <span className="rounded-md bg-slate-100 px-2 py-1">

@@ -3,6 +3,7 @@ import type {
 } from "@/lib/productDisplayPreferences";
 import { createProductsListActions } from "@/pages/products/list/createProductsListActions";
 import { deriveProductsListViewState } from "@/pages/products/list/deriveProductsListViewState";
+import { rankProductsForSearch } from "@/pages/products/list/rankProductsForSearch";
 import { useProductsInfiniteRows } from "@/pages/products/list/useProductsInfiniteRows";
 import { useProductsListDebounce } from "@/pages/products/list/useProductsListDebounce";
 import { useProductsListParams } from "@/pages/products/list/useProductsListParams";
@@ -148,6 +149,11 @@ export function useProductsListWorkflow({
       pageReady:
         !productsQuery.isPlaceholderData,
     });
+  const rankedItems =
+    rankProductsForSearch(
+      accumulatedItems,
+      search,
+    );
   const familyFilterOptions =
     familyFilterOptionsQuery.data
       ?.items ?? [];
@@ -381,7 +387,7 @@ export function useProductsListWorkflow({
       },
       results: {
         items:
-          accumulatedItems,
+          rankedItems,
         isLoading:
           productsQuery.isLoading,
         isError:

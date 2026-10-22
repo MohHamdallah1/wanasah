@@ -9,6 +9,7 @@ import type {
   ProductTrackingMode,
   SimpleProduct,
 } from "@/pages/products/contracts";
+import { ProductExpiryRecommendation } from "@/pages/products/tracking/ProductExpiryRecommendation";
 import { ProductTrackingSimpleControls } from "@/pages/products/tracking/ProductTrackingSimpleControls";
 
 type Props = {
@@ -104,6 +105,8 @@ export function ProductTrackingEditor({
             )}
           </p>
         </div>
+
+        <ProductExpiryRecommendation />
 
         <ProductTrackingSimpleControls
           lotControlMode={lotControlMode}

@@ -26,6 +26,19 @@ Any proposed implementation that would expand V1 must pass the change-control ru
 - Frontends must not duplicate server business authority to make a workflow appear simpler. The UI should be simple because the backend carries the complexity, not because validation, evidence, or accounting truth was discarded.
 - This rule applies equally to Dashboard, Flutter/mobile, imports, automation, and future integrations. Mobile/offline workflows must preserve the same authority through durable idempotent commands and safe replay rather than moving business logic into the client.
 
+### Supplier inbound operator contract — Owner decision (2026-10-20)
+
+The user-facing authority for supplier inbound is **one receipt/invoice operation**: selected warehouse + supplier + one supplier invoice/reference + the products, quantities, purchase UOMs, actual purchase costs, and any genuinely required tracking evidence. A receipt may contain one product or thousands; the operator should experience it as one business document, not as a collection of technical batch records.
+
+- The supplier invoice/reference identifies the inbound business document and preserves when, from whom, to which warehouse, by which actor, and under which receipt the goods entered Wanasah. It must not be overloaded as Product Batch/Lot identity.
+- Product Batch/Lot is conditional product-tracking evidence, not the primary inbound workflow. Hide it when the product does not need it.
+- For `lot_control_mode = NONE`, the operator must never invent or enter a Lot; backend-owned internal identity is authoritative.
+- For `lot_control_mode = OPTIONAL`, absence of a real Lot must not block normal inbound; the backend resolves a safe internal no-lot identity. If a genuine Lot is supplied from barcode, packaging, ASN/shipping evidence, or another authoritative source, preserve it.
+- For `lot_control_mode = REQUIRED`, Wanasah must preserve a genuine human-readable Lot/production identity. It may be captured automatically from authoritative machine-readable evidence; otherwise ask only for that minimum real-world fact. Never fabricate a Lot, silently substitute the invoice/reference, or expose internal `batch_id`.
+- Production/expiry evidence follows the same principle: capture only when required by the product's tracking policy or when genuine evidence is available; do not force irrelevant date entry merely because the backend supports it.
+- Keyboard-first inbound UX should optimize the common path around **quantity → purchase UOM → actual purchase cost → next product**, inserting Lot/expiry controls only for rows that genuinely require them and supporting safe bulk-fill/repeat shortcuts for repeated real-world values.
+- This design must let a simple trading company operate with near-zero tracking friction while retaining the same backend/data model needed by food, pharmaceutical, or other regulated customers. **Simplicity comes from backend-owned complexity, not from deleting traceability capability.**
+
 ## Codex / AI-assisted development safety workflow — Owner directive (2026-10-08)
 
 The following rules are binding whenever Codex Desktop, Codex CLI, another local coding agent, or any AI tool is allowed to inspect or modify the Wanasah repository. They exist to preserve the project, the host machine, and the GitHub source of truth after the 2026-10-08 local data-loss incident. The incident's exact destructive mechanism is not asserted here; the policy is intentionally fail-safe.

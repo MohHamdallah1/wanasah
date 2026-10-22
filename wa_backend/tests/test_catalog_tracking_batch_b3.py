@@ -10,6 +10,8 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from domains.product_tracking import (
+    PLATFORM_DEFAULT_EXPIRY_CONTROL_MODE,
+    PLATFORM_DEFAULT_LOT_CONTROL_MODE,
     ProductTrackingDefaults,
     ProductTrackingError,
     resolve_product_tracking_modes,
@@ -18,6 +20,10 @@ from domains.product_tracking import (
 
 
 class TrackingBatchB3Tests(unittest.IsolatedAsyncioTestCase):
+    def test_platform_defaults_are_optional_for_new_products(self):
+        self.assertEqual(PLATFORM_DEFAULT_LOT_CONTROL_MODE, "OPTIONAL")
+        self.assertEqual(PLATFORM_DEFAULT_EXPIRY_CONTROL_MODE, "OPTIONAL")
+
     async def test_explicit_and_missing_tracking_override_are_identical(self):
         defaults = ProductTrackingDefaults("REQUIRED", "OPTIONAL")
         variants = (

@@ -5,6 +5,7 @@ import {
   buildInboundItems,
   emptyInboundBatch,
   InboundRowValidationError,
+  parseInboundDrafts,
   type InboundDraftMap,
   type InboundVariantOptions,
 } from "./contracts";
@@ -63,13 +64,11 @@ const build = (
   lot: CatalogVariant["lot_control_mode"],
   expiry: CatalogVariant["expiry_control_mode"],
   patch: Partial<ReturnType<typeof emptyInboundBatch>> = {},
-  defaultLot = "",
 ) =>
   buildInboundItems(
     drafts(patch),
     new Map([["7", variant(lot, expiry)]]),
     options,
-    { batch_number: defaultLot },
   );
 
 const expectRowError = (
@@ -87,21 +86,41 @@ const expectRowError = (
   }
 };
 
-describe("Checkpoint 1 inbound tracking contract", () => {
-  it("applies the document lot default only to REQUIRED rows", () => {
-    expect(build("REQUIRED", "OPTIONAL", {}, " DOC-LOT ")[0]).toMatchObject({
-      batch_number: "DOC-LOT",
+describe("Inbound draft recovery", () => {
+  it("restores an unfinished draft with an empty quantity without discarding other products", () => {
+    const saved = {
+      "7": [{ ...emptyInboundBatch("row-7", "1"), quantity: "", unit_cost: "3.75" }],
+      "8": [{ ...emptyInboundBatch("row-8", "2"), quantity: "2", unit_cost: "5" }],
+    };
+    expect(parseInboundDrafts(JSON.stringify(saved))).toEqual(saved);
+  });
+
+  it("preserves incomplete edits and skips only malformed rows", () => {
+    const saved = {
+      "7": [
+        { ...emptyInboundBatch("row-7", "1"), quantity: "1.", unit_cost: "2.", expiry_date: "2026-0" },
+        { row_id: "broken", quantity: 123 },
+      ],
+      "8": [{ ...emptyInboundBatch("row-8", "1"), quantity: "4", unit_cost: "6" }],
+    };
+    expect(parseInboundDrafts(JSON.stringify(saved))).toEqual({
+      "7": [saved["7"][0]],
+      "8": saved["8"],
     });
-    expect(build("OPTIONAL", "OPTIONAL", {}, "DOC-LOT")[0]).toMatchObject({
+    expect(parseInboundDrafts("{broken")).toEqual({});
+  });
+});
+
+describe("Checkpoint 1 inbound tracking contract", () => {
+  it("keeps lot identity product-specific and never invents one", () => {
+    expect(
+      build("REQUIRED", "OPTIONAL", { batch_number: "LOT-7" })[0],
+    ).toMatchObject({ batch_number: "LOT-7" });
+    expect(build("OPTIONAL", "OPTIONAL")[0]).toMatchObject({
       batch_number: null,
     });
     expect(
-      build(
-        "NONE",
-        "OPTIONAL",
-        { batch_number: "STALE-LOT" },
-        "DOC-LOT",
-      )[0],
+      build("NONE", "OPTIONAL", { batch_number: "STALE-LOT" })[0],
     ).toMatchObject({ batch_number: null });
   });
 
@@ -149,7 +168,6 @@ describe("Checkpoint 1 inbound tracking contract", () => {
           production_date: "2026-10-01",
           expiry_date: "2030-01-01",
         },
-        "DOC-LOT",
       )[0],
     ).toMatchObject({
       batch_number: null,

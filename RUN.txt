@@ -14,9 +14,9 @@ worker - product import
 doctor - windows dev environment check (read-only):
 .\ops\development\wanasah_doctor.ps1
 
-cd C:\Users\admin\AppData\Local\Android\Sdk\platform-tools
+cd C:\Tools\AndroidSdk\platform-tools
+.\adb pair 192.168.1.192:
 .\adb connect 192.168.1.192:
-.\adb pair 192.168.0.192:
 
 الـProduct Import Worker: من جذر المشروع:
 .\ops\development\run_product_import_worker.ps1

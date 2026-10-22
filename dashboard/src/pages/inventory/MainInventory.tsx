@@ -1169,7 +1169,11 @@ export default function MainInventory() {
 
   // ─── UI ─────────────────────────────────────────────────────────────────────
   return (
-    <div data-live-view={activeTab === "live"} className="inventory-workspace flex flex-col gap-4 w-full h-full flex-1 min-h-0">
+    <div
+      data-live-view={activeTab === "live"}
+      data-inbound-view={activeTab === "inbound"}
+      className="inventory-workspace flex flex-col gap-4 w-full h-full flex-1 min-h-0"
+    >
 
       <InventoryTopDock
         items={TABS.filter((tab) => tabAllowed(tab.id)).map(
@@ -1191,7 +1195,7 @@ export default function MainInventory() {
         }}
       />
 
-      {activeTab !== "live" && (
+      {activeTab !== "live" && activeTab !== "warehouses" && activeTab !== "inbound" && (
         <div className="inventory-shared-context-row">
           <div className="inventory-context-bar flex flex-wrap items-center gap-3 px-3 py-2">
             {locations.length > 0 && (
@@ -1384,7 +1388,9 @@ export default function MainInventory() {
             key={`${locationAccess.data.company_id}:${locationAccess.data.backoffice_user_id}:${selectedLocationId}`}
             companyId={locationAccess.data.company_id}
             actorId={locationAccess.data.backoffice_user_id}
-            locationId={selectedLocationId} // +++ تمرير الموقع لعملية الإدخال +++
+            locationId={selectedLocationId}
+            locations={locations}
+            onLocationChange={handleLocationChange}
             isAuditLocked={effectiveAuditLocked}
             authenticatedFetch={authFetch}
             onSuccess={async () => {

@@ -28,6 +28,7 @@ from api import auth, branches, catalog, commercial_policy, driver, dispatch, in
 from config import Config
 from database import engine, get_db, warm_database_pool
 from domains.simple_products.imports.api import router as product_import_router
+from domains.inventory_costing.purchase_reference.api import router as purchase_reference_router
 from ws_manager import dispatch_manager
 from realtime.worker_event_relay import worker_event_relay
 from realtime.auth import WebSocketAuthError, authenticate_websocket_admin
@@ -447,6 +448,7 @@ app.include_router(representatives.router)
 app.include_router(vehicles.router)
 app.include_router(catalog.router)
 app.include_router(simple_products.router)
+app.include_router(purchase_reference_router)
 app.include_router(product_import_router)
 app.include_router(product_tracking.router)
 app.include_router(pricing.router)

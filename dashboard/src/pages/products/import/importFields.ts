@@ -9,6 +9,7 @@ export const IMPORT_MAPPING_FIELDS = [
   "package_barcode",
   "lot_control_mode",
   "expiry_control_mode",
+  "purchase_unit_cost",
 ] as const;
 
 export type ImportMappingField =
@@ -36,6 +37,8 @@ export const importMappingLabelKey = (
       "products.fields.lotControlMode",
     expiry_control_mode:
       "products.fields.expiryControlMode",
+    purchase_unit_cost:
+      "products.fields.purchaseUnitCost",
   } as const;
 
   return keys[field];

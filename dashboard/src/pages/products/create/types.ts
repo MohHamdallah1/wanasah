@@ -1,3 +1,4 @@
+import type { PurchaseReferenceCreateInput } from "./purchaseReferenceCreateContract";
 import type {
   ProductTrackingMode,
 } from "@/pages/products/contracts";
@@ -18,6 +19,7 @@ export type ProductFamilyMode =
   | "new";
 
 export type ProductDraft = {
+  purchase_cost_reference?: PurchaseReferenceCreateInput;
   name: string;
   family_mode: ProductFamilyMode;
   family_id: number | null;

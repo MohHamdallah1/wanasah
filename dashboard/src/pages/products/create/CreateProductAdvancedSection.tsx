@@ -11,6 +11,7 @@ import type {
 import type {
   ProductDraft,
 } from "@/pages/products/create/types";
+import { ProductExpiryRecommendation } from "@/pages/products/tracking/ProductExpiryRecommendation";
 import { ProductTrackingSimpleControls } from "@/pages/products/tracking/ProductTrackingSimpleControls";
 
 type Props = {
@@ -120,6 +121,10 @@ export function CreateProductAdvancedSection({
               </span>
             </p>
           )}
+
+          <div className="mt-2">
+            <ProductExpiryRecommendation />
+          </div>
         </div>
 
         <button
