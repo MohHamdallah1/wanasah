@@ -12,6 +12,10 @@ on:
       - "wanasah_frontend/test/features/auth/**"
       - "wanasah_frontend/test/offline_owner_guard_test.dart"
       - "wanasah_frontend/lib/core/network/**"
+      - "wanasah_frontend/lib/core/sync/**"
+      - "wanasah_frontend/lib/repositories/sync_repository.dart"
+      - "wanasah_frontend/lib/features/custody/data/transfer_decision_store.dart"
+      - "wanasah_frontend/test/core/sync/**"
       - ".github/workflows/flutter-v1-auth-session-recovery.yml"
 
 permissions:
@@ -27,6 +31,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - uses: subosito/flutter-action@v2
         with:
@@ -46,8 +52,14 @@ jobs:
       - name: Focused Auth and session tests
         run: >-
           flutter test
-          test/features/auth/application/auth_failure_policy_test.dart
-          test/features/auth/application/stored_auth_identity_test.dart
-          test/features/auth/application/auth_session_recovery_test.dart
+          test/features/auth
           test/offline_owner_guard_test.dart
           test/core/network/auth_interceptor_test.dart
+          test/core/sync/durable_command_owner_test.dart
+
+      - name: Offline, Visit correction and Transfer handshake regressions
+        run: >-
+          flutter test
+          test/offline_durable_command_test.dart
+          test/core/visit/visit_command_correction_test.dart
+          test/features/custody/transfer_handshake_closure_test.dart

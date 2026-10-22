@@ -24,17 +24,21 @@ class AuthInterceptor extends Interceptor {
     AuthTokenStore? tokenStore,
     Dio Function()? refreshDioFactory,
     RetryPolicy? retryPolicy,
+    Future<void> Function()? clearRejectedSessionData,
   }) : _tokenStore =
            tokenStore ?? SecureAuthTokenStore(storage: storage),
        _dio = dio,
        _refreshDioFactory = refreshDioFactory,
-       _retryPolicy = retryPolicy ?? RetryPolicy();
+       _retryPolicy = retryPolicy ?? RetryPolicy(),
+       _clearRejectedSessionData = clearRejectedSessionData ??
+         (() => LocalDatabase.instance.clearSessionData(clearPendingSyncs: false));
 
   final AuthTokenStore _tokenStore;
   final VoidCallback onUnauthorized;
   final Dio _dio;
   final Dio Function()? _refreshDioFactory;
   final RetryPolicy _retryPolicy;
+  final Future<void> Function() _clearRejectedSessionData;
 
   Completer<bool>? _refreshCompleter;
 
@@ -196,10 +200,12 @@ class AuthInterceptor extends Interceptor {
           }
         } catch (_) {}
 
-        await _tokenStore.clear();
-        await LocalDatabase.instance.clearSessionData(
-          clearPendingSyncs: false,
-        );
+        // Rejection is confirmed even if local cleanup refuses to clear caches
+        // protected by pending evidence. Neither failure permits evidence loss.
+        try { await _tokenStore.clear(); }
+        catch (_) { developer.log('[AuthInterceptor] Rejected credential cleanup failed.'); }
+        try { await _clearRejectedSessionData(); }
+        catch (_) { developer.log('[AuthInterceptor] Protected session cache retained.'); }
         onUnauthorized();
       } else {
         developer.log(
