@@ -6,7 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wanasah_frontend/core/errors/api_failure_exception.dart';
 import 'package:wanasah_frontend/features/custody/data/pending_transfer_source.dart';
 import 'package:wanasah_frontend/features/custody/domain/non_sellable_custody.dart';
-import 'package:wanasah_frontend/features/custody/domain/pending_transfer.dart';
 import 'package:wanasah_frontend/features/custody/domain/transfer_decision.dart';
 import 'package:wanasah_frontend/features/custody/presentation/vehicle_inventory_section.dart';
 
