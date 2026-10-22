@@ -83,7 +83,7 @@ Required closure:
 - [ ] Add Damaged + Expired + Factory_Defect consistently.
 - [ ] Preserve carton/pack quantities.
 - [ ] Preserve one stable idempotency identity across offline retry/replay.
-- [ ] Local projection separates AVAILABLE replacement-out from returned non-sellable custody sufficiently for accurate field UX.
+- [x] Local projection separates AVAILABLE replacement-out from returned non-sellable custody for V1 field UX; unresolved local returns are shown as pending DAMAGED evidence, never merged into authoritative custody totals.
 - [ ] Reopen/correction cannot double-apply replacement or returned custody.
 
 This may require one bounded Backend prerequisite on a separately owned worker branch. Do not fake the missing Batch truth in Flutter.
@@ -415,8 +415,8 @@ Current model aggregates cartons/packs by product only.
 
 Closure:
 - [ ] Treat local stock as a projection, never inventory SSOT.
-- [ ] Keep AVAILABLE sellable quantity distinct from non-sellable returned custody where required for operator UX.
-- [ ] Do not invent Batch allocation locally.
+- [x] Keep AVAILABLE sellable quantity distinct from non-sellable returned custody; Backend custody and pending local return evidence are separate presentation/read models.
+- [x] Do not invent Batch allocation locally; pending local custody derives only product/reason/quantity evidence from the durable command and exposes no Batch identity.
 - [ ] Re-sync safely after accepted transfer, visit submission and recovery.
 - [ ] Offline edits reverse only their own local projection exactly once.
 - [ ] No clamp-to-zero behavior may silently hide a negative/inconsistent projection; surface reconciliation error instead.
@@ -757,6 +757,31 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [ ] Operator-facing Return Resolution / Damaged / invoice / commercial-readiness wiring remains the next Codex slice.
 - [ ] Durable submission integration still must carry the resolved opaque return evidence without changing request-id ownership.
 
+### 10.13 Pending local return custody projection stability point — 2026-10-22
+
+- [x] Lead branch: `sol/flutter-v1-local-custody-projection`.
+- [x] Final implementation HEAD: `5fa445a5d69fbc7e9d3ef093f345dee6916836a0`.
+- [x] Pending return custody is derived from unresolved durable `submit_sale` commands instead of creating a second local inventory authority/table.
+- [x] Only commands with `local_effect_applied=1` contribute pending local custody evidence; strict rejected commands with no local effect do not appear as custody.
+- [x] Pending / in-flight / blocked evidence states remain distinct.
+- [x] Damaged / Expired / Factory_Defect business reasons are preserved; physical local custody status is DAMAGED per the verified Backend Visit return contract.
+- [x] Unknown return reasons fail closed and are not projected as DAMAGED by guesswork.
+- [x] Legacy `quarantined_draft_sale` normalizes through the accepted durable-command type contract without losing blocked evidence.
+- [x] Pending local custody remains visually separate from Backend-authoritative non-sellable custody; quantities are never summed into a false authoritative total.
+- [x] Offline/restart Dashboard reads pending return custody directly from durable evidence.
+- [x] No raw Batch identity is introduced or exposed.
+- [x] PR #445 merged into `sol/flutter-v1-field-closure`.
+- [x] Merge commit: `56360e320b81ca6b6a96353a70194154b4a15dba`.
+- [x] Local custody projection workflow: PASS.
+- [x] Custody behavioral regression: PASS.
+- [x] Offline durable-command regression: PASS.
+- [x] Recovery regression: PASS.
+- [x] Work Session regression: PASS.
+- [x] Session/Custody decomposition regression: PASS.
+- [x] FIELD ownership/adapters regression: PASS.
+- [ ] Completed/corrected return end-to-end acceptance still waits for the Visit FIELD wiring slice and final real-device journey.
+- [ ] Silent clamp-to-zero behavior in AVAILABLE projection remains separate technical debt and is not marked closed by this wave.
+
 ## 11. UI / design-system closure
 
 Current app has one global ad-hoc gradient/theme and no coherent field design system.
@@ -846,7 +871,7 @@ Final field acceptance:
 - [ ] visit/offline tests.
 
 ### Day 3 — projection/session/custody + field-first UX
-- [ ] correct AVAILABLE-out vs DAMAGED-custody-in projection.
+- [x] correct AVAILABLE-out vs DAMAGED-custody-in V1 projection: replacement-out affects local AVAILABLE projection while returned goods appear separately as pending DAMAGED evidence until Backend custody becomes authoritative.
 - [x] completed-visit AVAILABLE projection correction applies old-to-new delta exactly once.
 - [x] Work Session behavior/authority separated from DashboardBloc into feature-owned boundaries.
 - [ ] Custody behavioral authority remains to be separated from DashboardBloc; Recovery/quarantine/sync responsibility is now feature-owned.
