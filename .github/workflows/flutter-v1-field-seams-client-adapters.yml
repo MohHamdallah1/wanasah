@@ -69,3 +69,80 @@ jobs:
           test/features/visits/visit_commercial_decomposition_test.dart
       - name: Pending return custody projection regression
         run: flutter test test/features/custody/pending_return_custody_projection_test.dart
+      - name: Accepted local projection integrity regression
+        run: flutter test test/core/visit/local_inventory_projection_integrity_test.dart
+
+  backend-contract-readback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: VisitActionContractSyntheticKey012345678901234567890123456
+      DATABASE_URL: postgresql+asyncpg://field_unit@127.0.0.1:1/field_unit
+    defaults:
+      run:
+        working-directory: wa_backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install existing Backend test dependencies
+        run: python -m pip install -r requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Read-only current FIELD authority regressions
+        run: python -m pytest -q tests/test_field_return_resolution.py tests/test_field_read_contracts.py
+      - name: Execute current VisitUpdateRequest action matrix without a database
+        run: |
+          python - <<'PY'
+          from uuid import uuid4
+          from pydantic import ValidationError
+          from schemas import VisitUpdateRequest
+          sample = {"product_variant_id": 44, "sample_quantity": 2,
+                    "sample_packs_quantity": 3, "sample_reason": "Promotion"}
+          returned = {"product_variant_id": 44, "quantity": 1,
+                      "packs_quantity": 2, "return_type": "Damaged",
+                      "resolution_token": "opaque-token"}
+          accepted = [
+              {"outcome": "Sale", "cart_items": [{"product_variant_id": 44, "quantity": 1}]},
+              {"outcome": "Sale", "cart_items": [{"product_variant_id": 44, "packs_quantity": 1}]},
+              {"outcome": "NoSale", "notes": "Customer declined"},
+              {"outcome": "NoSale", "notes": "Collection", "debt_paid": "12.340"},
+              {"outcome": "NoSale", "cart_items": [sample]},
+              {"outcome": "Postponed"},
+          ]
+          for reason in ("Damaged", "Expired", "Factory_Defect"):
+              accepted.append({"outcome": "NoSale", "cart_items": [sample],
+                               "returns": [dict(returned, return_type=reason)], "debt_paid": "1"})
+          rejected = [
+              {"outcome": "Sale"},
+              {"outcome": "Sale", "cart_items": [sample]},
+              {"outcome": "Sale", "returns": [returned]},
+              {"outcome": "NoSale"},
+              {"outcome": "NoSale", "debt_paid": "1"},
+              {"outcome": "NoSale", "notes": "Reason", "cash_collected": "0.001"},
+              {"outcome": "NoSale", "cart_items": [{"product_variant_id": 44, "quantity": 1}]},
+              {"outcome": "Postponed", "cash_collected": "0.001"},
+              {"outcome": "Postponed", "debt_paid": "0.001"},
+              {"outcome": "Postponed", "cart_items": [sample]},
+              {"outcome": "Postponed", "returns": [returned]},
+              {"outcome": "NoSale", "cart_items": [dict(sample, sample_reason=" ")]},
+              {"outcome": "NoSale", "cart_items": [dict(sample, sample_reason="x" * 256)]},
+              {"outcome": "NoSale", "cart_items": [dict(sample, sample_quantity=-1)]},
+              {"outcome": "NoSale", "cart_items": [dict(sample, bonus_quantity=1)]},
+              {"outcome": "Sale", "cart_items": [{"product_variant_id": 44, "quantity": 1, "price": "1"}]},
+              {"outcome": "Sale", "cart_items": [{"product_variant_id": 44, "quantity": 1, "batch_id": 1}]},
+          ]
+          for payload in accepted:
+              VisitUpdateRequest(request_id=uuid4(), **payload)
+          for payload in rejected:
+              try:
+                  VisitUpdateRequest(request_id=uuid4(), **payload)
+              except ValidationError:
+                  pass
+              else:
+                  raise AssertionError(("Unexpectedly accepted", payload))
+          print("VISIT_SCHEMA_ACCEPTED=" + str(len(accepted)))
+          print("VISIT_SCHEMA_REJECTED=" + str(len(rejected)))
+          PY

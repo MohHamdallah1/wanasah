@@ -12,6 +12,7 @@ import '../../features/visits/application/invoice/preview_visit_invoice.dart';
 import '../../features/visits/application/invoice/read_committed_visit_invoice.dart';
 import '../../features/visits/application/invoice/committed_invoice_outcome.dart';
 import '../../features/visits/application/visit_command_evidence.dart';
+import '../../features/visits/application/visit_action_policy.dart';
 import '../../core/db/local_database.dart';
 import '../../models/product_model.dart';
 import '../../repositories/sync_repository.dart';
@@ -202,6 +203,7 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
       emit(VisitFieldSubmissionFailure(
         failure: e is DioException ? e.apiFailure : null,
         issue: e is VisitPriorCommandUnresolved ? 'unresolvedCommand' :
+          e is VisitActionViolation ? e.issue.name :
           e is FormatException ? 'contract' : 'persistence',
       ));
       emit(currentState);

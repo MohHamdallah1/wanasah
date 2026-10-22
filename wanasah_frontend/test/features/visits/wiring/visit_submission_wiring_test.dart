@@ -165,9 +165,9 @@ void main() {
     final service = VisitSubmissionService.withPorts(readPending: () async => [],
       save: ({required visitId, required payload}) async { bodies.add(payload); });
     await service.submit(visitId: 11, outcome: 'NoSale', notes: 'Collection',
-      debtPaid: 1, cashCollected: 9, cart: []);
+      debtPaid: 1, cashCollected: 0, cart: []);
     await service.submit(visitId: 11, outcome: 'Postponed', notes: 'Closed',
-      debtPaid: 1, cashCollected: 9, cart: []);
+      debtPaid: 0, cashCollected: 0, cart: []);
     expect(bodies.first['cash_collected'], '0.000');
     expect(bodies.last, {'outcome': 'Postponed', 'notes': 'Closed'});
   });
