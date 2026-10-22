@@ -23,14 +23,15 @@ import '../../features/work_session/application/work_session_outcome.dart';
 import '../../features/work_session/data/work_session_remote_data_source.dart';
 import '../../features/work_session/data/work_session_snapshot.dart';
 import '../../features/work_session/presentation/work_session_result_message.dart';
-
-part '../../features/custody/application/custody_handlers.dart';
+import '../../features/custody/application/custody_coordinator.dart';
+import '../../features/custody/domain/transfer_decision.dart';
 
 class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
   final SyncRepository _syncRepository;
   final LocalDatabase _db;
   final DashboardRepository _dashboardRepo;
   final WorkSessionCoordinator _workSessionCoordinator;
+  final CustodyCoordinator _custodyCoordinator;
   bool _workSessionRecoveryCompleted = false;
 
   // +++ EVT-1: محول تسلسلي (Sequential Transformer) لإجبار البلوك على معالجة الأحداث بالدور ومنع السباق +++
@@ -44,6 +45,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     DashboardRepository? dashboardRepo,
     LocationService? locationService,
     WorkSessionCoordinator? workSessionCoordinator,
+    CustodyCoordinator? custodyCoordinator,
   })
     : _syncRepository = syncRepository ?? SyncRepository(),
       _db = db ?? LocalDatabase.instance,
@@ -56,6 +58,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
               locationService ?? LocationService.instance,
             ),
           ),
+      _custodyCoordinator = custodyCoordinator ?? CustodyCoordinator.defaults(),
       super(const DashboardInitial()) {
       
     // +++ ربط جميع الأحداث بالمحول التسلسلي لمنع الانهيار المعماري +++
@@ -63,14 +66,15 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     on<ForceSyncData>(_onForceSyncData, transformer: _sequential());
     on<FetchDashboardData>(_onFetchDashboardData, transformer: _sequential());
     on<CheckPendingTransfers>(
-      (event, emit) => _handleCheckPendingTransfers(this, event, emit),
-    ); // هذا يمكن تركه لأنه يُستدعى داخلياً بعد Fetch
+      _onCheckPendingTransfers,
+      transformer: _sequential(),
+    );
     on<RespondToTransfer>(
-      (event, emit) => _handleRespondToTransfer(this, event, emit),
+      _onRespondToTransfer,
       transformer: _sequential(),
     );
     on<RespondToBatchTransfer>(
-      (event, emit) => _handleRespondToBatchTransfer(this, event, emit),
+      _onRespondToBatchTransfer,
       transformer: _sequential(),
     );
     on<StartSessionEvent>(_onStartSession, transformer: _sequential());
@@ -441,6 +445,125 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     }
   }
 
+
+  Future<void> _onCheckPendingTransfers(
+    CheckPendingTransfers event,
+    Emitter<DashboardState> emit,
+  ) async {
+    if (state is! DashboardLoaded) return;
+    final snapshot = state as DashboardLoaded;
+
+    var pendingTransfer = snapshot.pendingTransfer;
+    var nonSellableCustody = snapshot.nonSellableCustody;
+    var pendingReadCompleted = false;
+
+    try {
+      pendingTransfer = await _custodyCoordinator.loadPendingTransfers();
+      pendingReadCompleted = true;
+    } catch (e) {
+      developer.log('[DashboardBloc] Custody pending-transfer read failed: $e');
+    }
+
+    try {
+      nonSellableCustody =
+          await _custodyCoordinator.loadNonSellableCustody();
+    } catch (e) {
+      developer.log('[DashboardBloc] Non-sellable custody read failed: $e');
+    }
+
+    if (state is! DashboardLoaded) return;
+    emit(
+      (state as DashboardLoaded).copyWith(
+        pendingTransfer: pendingTransfer,
+        clearPendingTransfer:
+            pendingReadCompleted && pendingTransfer == null,
+        nonSellableCustody: nonSellableCustody,
+      ),
+    );
+  }
+
+  Future<void> _onRespondToTransfer(
+    RespondToTransfer event,
+    Emitter<DashboardState> emit,
+  ) async {
+    if (state is! DashboardLoaded) return;
+    final snapshot = state as DashboardLoaded;
+
+    final status = switch (event.responseStatus) {
+      'accepted' => TransferDecisionStatus.accepted,
+      'rejected' => TransferDecisionStatus.rejected,
+      _ => null,
+    };
+    if (status == null) {
+      emit(DashboardError(message: 'رد الحوالة غير صالح.'));
+      emit(snapshot);
+      return;
+    }
+
+    try {
+      final outcome = await _custodyCoordinator.respond([
+        TransferDecision(
+          transferId: event.transferId,
+          status: status,
+          reason: event.reason,
+        ),
+      ]);
+
+      if (outcome.anyQueued) {
+        emit(
+          snapshot.copyWith(
+            clearPendingTransfer: true,
+            actionSuccessMessage:
+                'تم حفظ رد العهدة وسيُعاد إرساله بنفس القرار عند عودة الاتصال.',
+          ),
+        );
+      } else {
+        emit(snapshot.copyWith(clearPendingTransfer: true));
+        add(FetchDashboardData(
+          driverId: await _dashboardRepo.getDriverId() ?? 0,
+        ));
+      }
+    } catch (e) {
+      developer.log('[DashboardBloc] Custody transfer response failed: $e');
+      emit(DashboardError(message: 'تعذر إكمال رد العهدة. أعد المحاولة.'));
+      emit(snapshot);
+    }
+  }
+
+  Future<void> _onRespondToBatchTransfer(
+    RespondToBatchTransfer event,
+    Emitter<DashboardState> emit,
+  ) async {
+    if (state is! DashboardLoaded) return;
+    final snapshot = state as DashboardLoaded;
+
+    if (event.decisions.isEmpty) {
+      emit(snapshot.copyWith(clearPendingTransfer: true));
+      return;
+    }
+
+    try {
+      final outcome = await _custodyCoordinator.respond(event.decisions);
+      if (outcome.anyQueued) {
+        emit(
+          snapshot.copyWith(
+            clearPendingTransfer: true,
+            actionSuccessMessage:
+                'تم حفظ قرارات العهدة وسيُعاد إرسالها بنفس القيم عند عودة الاتصال.',
+          ),
+        );
+      } else {
+        emit(snapshot.copyWith(clearPendingTransfer: true));
+        add(FetchDashboardData(
+          driverId: await _dashboardRepo.getDriverId() ?? 0,
+        ));
+      }
+    } catch (e) {
+      developer.log('[DashboardBloc] Custody batch response failed: $e');
+      emit(DashboardError(message: 'تعذر إكمال ردود العهدة. أعد المحاولة.'));
+      emit(snapshot);
+    }
+  }
 
   Future<void> _onStartSession(
     StartSessionEvent event,
