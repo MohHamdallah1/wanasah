@@ -559,9 +559,9 @@ Known extraction targets and V1 timing:
 - [x] `visit_screen.dart`: catalog/product-card presentation mechanically extracted before Returns/Batch UI changes; screen reduced from ~1445 to ~1018 lines.
 - [ ] `visit_screen.dart`: residual shell/footer/contact/submit presentation split only when the next owned responsibility requires it.
 - [x] `dashboard_bloc.dart`: Work Session and Custody responsibilities mechanically extracted before behavior work.
-- [ ] `dashboard_bloc.dart`: Recovery/quarantine/sync shell remains and is split only when its next owned behavior wave requires it.
+- [x] `dashboard_bloc.dart`: Recovery/quarantine/sync classification extracted behind feature-owned RecoveryReader/RecoverySyncCoordinator; compatibility counts/events remain only as wiring.
 - [x] `dashboard_screen.dart`: Work Session controls, pending-transfer dialog, and vehicle-inventory presentation extracted into feature-owned presentation files.
-- [ ] `dashboard_screen.dart`: residual recovery/summaries/navigation shell remains until the design/recovery wave.
+- [x] `dashboard_screen.dart`: Recovery/sync presentation extracted to `features/recovery/presentation/**`; residual summaries/navigation shell remains.
 - [ ] `sync_repository.dart` (~480 lines): extract operation-specific Visit/Transfer/Shop adapters as those contracts are wired.
 - [ ] app/bootstrap/theme extraction: perform with the design-system wave, not before P0 contracts close.
 
@@ -575,7 +575,7 @@ This is not a separate refactor project. Each split happens immediately before t
 4. [x] Mechanically extract `VisitCatalog` / product-card presentation and Visit Event/State declarations with zero intended behavior change.
 5. [x] Extract completed-visit restoration, cart policy, sale/sample/return submission mapping, and financial submission use-case before FIELD seam wiring.
 6. [x] Mechanically extract Work Session and Custody application/presentation responsibilities before behavior implementation.
-7. [ ] Split remaining Recovery/quarantine/sync responsibility when its behavior/design wave begins.
+7. [x] Split Recovery/quarantine/sync read, classification, orchestration and presentation into `features/recovery/**`.
 8. [ ] Split app/bootstrap/theme immediately before the field-first UI redesign.
 9. [ ] Post-V1 only: cosmetic renames, broad folder migration, dependency modernization, and non-blocking abstractions.
 
@@ -628,7 +628,7 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] Merge commit: `19a04e76085db29a265e84fadf33c64ec5088793`.
 - [x] Work Session `part of DashboardBloc` coupling removed; Work Session authority now lives behind feature-owned data/application boundaries.
 - [ ] Custody transitional DashboardBloc coupling remains until the Custody behavioral wave.
-- [ ] Recovery/quarantine/sync remains in the Dashboard compatibility shell and is not marked decomposed.
+- [x] Recovery/quarantine/sync business classification and presentation are removed from the Dashboard shell; only compatibility count/event wiring remains.
 
 ### 10.7 Visit commercial decomposition stability point — 2026-10-22
 
@@ -695,7 +695,31 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] PR #438 merged into `sol/flutter-v1-field-closure`.
 - [x] Merge commit: `b2b71651c43601a38b365fa7d87316a0eef77ada`.
 - [ ] Custody behavioral closure remains separate.
-- [ ] Recovery/sync UX closure remains separate and is assigned to the second conversation.
+- [x] Recovery/sync UX behavioral closure completed and integrated.
+
+### 10.11 Recovery / Sync UX behavioral stability point — 2026-10-22
+
+- [x] Worker branch completed at `e9f316689d61c01b108881fc38b6114f08618c65`.
+- [x] Worker branch was intentionally not rebased; current-lead integration used a fresh branch because the historical branch diverged.
+- [x] Current-lead Dashboard files were verified byte-identical to the worker's assigned Work Session base before Recovery changes were ported.
+- [x] Recovery read model lives under `features/recovery/application/**` and preserves command identity, normalized type, state, attempts, stable error code, request ID and safe display evidence.
+- [x] Recovery data access lives behind `features/recovery/data/**`; DashboardScreen no longer reads raw SQLite recovery rows.
+- [x] Pending and blocked/recovery-required work are typed and distinct.
+- [x] Legacy `quarantined_*` normalization reuses the existing durable-command contract.
+- [x] Blocked evidence remains visible and non-destructive; no Clear All/delete-to-hide-error path exists.
+- [x] Sync success requires authoritative re-read with both pending=0 and blocked=0.
+- [x] Pending-after-sync -> incomplete; blocked-after-sync -> recovery required; timeout/ambiguous -> unresolved.
+- [x] Recovery UI exposes no invented generic retry and generates no new command ID/body.
+- [x] Localized/free text is display-only and never drives recovery classification.
+- [x] DashboardScreen reduced from ~632 to ~391 lines in the Recovery wave.
+- [x] PR #442 integrated the accepted Recovery closure onto the latest `sol/flutter-v1-field-closure`.
+- [x] Integration merge commit: `92ab71ae3f65f32421824103176308f92d28ec8b`.
+- [x] Superseded historical PR #440 closed without merge.
+- [x] Current-lead Recovery workflow: PASS.
+- [x] Current-lead Offline durable-command regression: PASS.
+- [x] Current-lead Work Session regression: PASS.
+- [x] Current-lead Session/Custody decomposition regression: PASS.
+- [ ] Old DashboardLoaded offline/quarantine count fields and ForceSyncData event remain compatibility wiring only and may be removed post-V1 or when the Dashboard read model is redesigned.
 
 ## 11. UI / design-system closure
 
@@ -789,11 +813,11 @@ Final field acceptance:
 - [ ] correct AVAILABLE-out vs DAMAGED-custody-in projection.
 - [x] completed-visit AVAILABLE projection correction applies old-to-new delta exactly once.
 - [x] Work Session behavior/authority separated from DashboardBloc into feature-owned boundaries.
-- [ ] Custody behavioral authority and Recovery/quarantine/sync responsibilities remain to be separated from DashboardBloc.
+- [ ] Custody behavioral authority remains to be separated from DashboardBloc; Recovery/quarantine/sync responsibility is now feature-owned.
 - [ ] transfer exact-decision replay and 100-item runtime batch limit.
 - [x] shop creation typed transport + stable request UUID + ambiguous-result exact replay reconciliation.
 - [ ] app shell/design tokens and workday-task-first home.
-- [ ] persistent sync/recovery status.
+- [x] persistent sync/recovery status distinguishes pending, blocked/recovery-required, synced, incomplete and unresolved outcomes.
 - [ ] compact visit/quantity/returns field UX.
 
 ### Day 4 — field acceptance and only blocker fixes
