@@ -11,6 +11,7 @@ import 'dart:developer' as developer;
 import '../core/db/local_database.dart';
 import '../features/work_session/presentation/work_session_controls.dart';
 import '../features/custody/presentation/pending_transfer_dialog.dart';
+import '../features/custody/domain/pending_transfer.dart';
 import '../features/custody/presentation/vehicle_inventory_section.dart';
 import 'dart:convert'; // +++ ضروري لفك تشفير تفاصيل الحجر الصحي +++
 
@@ -623,7 +624,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
 
-          VehicleInventorySection(products: state.products),
+          VehicleInventorySection(
+            products: state.products,
+            nonSellableCustody: state.nonSellableCustody,
+          ),
         ],
       ),
     );
