@@ -35,7 +35,7 @@ class VehicleInventorySection extends StatelessWidget {
             ),
             child: const Center(
               child: Text(
-                'لا يوجد بضاعة في السيارة حالياً.',
+                'لا يوجد مخزون متاح للبيع في السيارة حالياً.',
                 style: TextStyle(
                   fontSize: 16,
                   color: Colors.red,
