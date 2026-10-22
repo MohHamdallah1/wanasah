@@ -95,7 +95,7 @@ void main() {
         contains("'يجب الرد على جميع الحركات بالقبول أو الرفض.'"),
       );
       expect(inventory, contains("'مخزون سيارة المندوب:'"));
-      expect(inventory, contains("'لا يوجد بضاعة في السيارة حالياً.'"));
+      expect(inventory, contains("'لا يوجد مخزون متاح للبيع في السيارة حالياً.'"));
     });
   });
 
