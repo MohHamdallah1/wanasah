@@ -1,4 +1,5 @@
 import '../../core/sync/durable_command.dart';
+import '../../core/sync/durable_command_owner.dart';
 
 enum OfflineOwnerLoginDecision {
   sameOwner,
@@ -35,7 +36,7 @@ class OfflineOwnerLoginGuardResult {
       outcome == OfflineOwnerLoginOutcome.allowStaleOwner;
 
   bool get shouldClearMarkerAfterAcceptedSession =>
-      outcome == OfflineOwnerLoginOutcome.allowSameOwner;
+      false;
 }
 
 OfflineOwnerLoginDecision classifyOfflineOwnerLogin({
@@ -149,6 +150,15 @@ Future<OfflineOwnerLoginGuardResult> evaluateOfflineOwnerLoginSafety({
 
     switch (decision) {
       case OfflineOwnerLoginDecision.sameOwner:
+        try {
+          DurableCommandOwner(companyCode: ownerCompany, driverId: ownerDriver)
+            .requireRows(ownerPending);
+        } on DurableCommandOwnerException {
+          await _bestEffortRevoke(revokeRejectedRefresh, returnedRefreshToken);
+          return const OfflineOwnerLoginGuardResult(
+            OfflineOwnerLoginOutcome.blockUnattributedPending,
+          );
+        }
         return const OfflineOwnerLoginGuardResult(
           OfflineOwnerLoginOutcome.allowSameOwner,
         );
