@@ -234,6 +234,7 @@ async def test_production_after_expiry_reaches_endpoint_stable_business_code():
         request_id=uuid4(),
         supplier_id=1,
         location_id=2,
+        reference_id="DATE-RULE-TEST",
         items=[{
             "product_variant_id": 7,
             "quantity": "1",

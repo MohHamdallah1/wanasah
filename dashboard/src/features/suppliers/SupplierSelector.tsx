@@ -14,6 +14,8 @@ interface SupplierSelectorProps {
   onChange: (value: number | null) => void;
   disabled?: boolean;
   searchInControl?: boolean;
+  required?: boolean;
+  invalid?: boolean;
 }
 
 /** Public, bounded Supplier selector; Inventory consumes identity, never page internals. */
@@ -22,6 +24,8 @@ export function SupplierSelector({
   onChange,
   disabled = false,
   searchInControl = false,
+  required = false,
+  invalid = false,
 }: SupplierSelectorProps) {
   const { t, i18n } = useTranslation();
   const id = useId();
@@ -83,6 +87,7 @@ export function SupplierSelector({
     >
       <label id={`${id}-label`} className="block text-sm font-semibold">
         {t("suppliers.select")}
+        {required ? <span aria-hidden="true" className="ms-1 font-black text-rose-600">*</span> : null}
       </label>
       {blocked && !search.access.isPending ? (
         <p role="alert">{t("suppliers.denied")}</p>
@@ -98,6 +103,8 @@ export function SupplierSelector({
             aria-expanded={open}
             aria-controls={`${id}-options`}
             aria-autocomplete="list"
+            aria-required={required}
+            aria-invalid={invalid}
             disabled={controlDisabled}
             value={open ? search.input : currentLabel}
             onFocus={() => {
@@ -112,7 +119,10 @@ export function SupplierSelector({
             }}
             placeholder={current ? currentLabel : t("suppliers.search")}
             maxLength={100}
-            className="supplier-selector-search-control min-h-10 w-full rounded-xl border border-slate-200 bg-white px-3 pe-9 text-start text-sm font-bold text-slate-900 outline-none transition placeholder:text-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+            className={cn(
+              "supplier-selector-search-control min-h-10 w-full rounded-xl border bg-white px-3 pe-9 text-start text-sm font-bold text-slate-900 outline-none transition placeholder:text-slate-400 disabled:cursor-not-allowed disabled:opacity-50",
+              invalid ? "border-rose-500 ring-2 ring-rose-100" : "border-slate-200",
+            )}
           />
           <ChevronsUpDown className="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         </div>
@@ -123,6 +133,8 @@ export function SupplierSelector({
           aria-labelledby={`${id}-label`}
           aria-expanded={open}
           aria-controls={`${id}-options`}
+          aria-required={required}
+          aria-invalid={invalid}
           disabled={controlDisabled}
           onClick={() => {
             if (controlDisabled) return;

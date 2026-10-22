@@ -32,10 +32,20 @@ vi.mock("./useInboundPosting", () => ({
 }));
 
 vi.mock("@/features/suppliers/SupplierSelector", () => ({
-  SupplierSelector: ({ onChange }: { onChange: (value: number) => void }) => (
+  SupplierSelector: ({
+    onChange,
+    required,
+    invalid,
+  }: {
+    onChange: (value: number) => void;
+    required?: boolean;
+    invalid?: boolean;
+  }) => (
     <button
       type="button"
       aria-label="choose-supplier"
+      aria-required={required}
+      aria-invalid={invalid}
       onClick={() => onChange(55)}
     >
       supplier
@@ -184,6 +194,14 @@ describe("Checkpoint 1 inbound UI", () => {
       configurable: true,
       value: vi.fn(),
     });
+    Object.defineProperty(globalThis, "ResizeObserver", {
+      configurable: true,
+      value: class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    });
   });
 
   it("prefills the default purchase reference but preserves the operator's actual edit", async () => {
@@ -199,8 +217,7 @@ describe("Checkpoint 1 inbound UI", () => {
     const referenceButton = within(row).getByRole("button", { name: "Use reference cost 4.25 JOD" });
     expect(referenceButton).toHaveTextContent("Reference");
     expect(referenceButton).not.toHaveAttribute("title");
-    const referenceWrap = referenceButton.closest(".inventory-inbound-reference-wrap");
-    expect(referenceWrap).toHaveAttribute("data-tooltip", "Use reference cost 4.25 JOD");
+    expect(referenceButton).toHaveAttribute("data-state", "closed");
     expect(referenceButton.closest(".inventory-inbound-cost-control"))
       .toBe(cost.closest(".inventory-inbound-cost-control"));
     fireEvent.change(cost, { target: { value: "5.100000" } });
@@ -210,6 +227,43 @@ describe("Checkpoint 1 inbound UI", () => {
     fireEvent.click(screen.getByRole("button", { name: "Post receipt" }));
     await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
     expect(mocks.post.mock.calls[0][0].items[0].unit_cost).toBe("5.100000");
+  });
+
+  it("keeps post actionable and guides the operator to the first missing required field", async () => {
+    renderInbound([makeVariant(1, "Validation product", "NONE", "NONE")]);
+    const row = (await screen.findByText("Validation product")).closest("tr")!;
+    const submit = screen.getByRole("button", { name: "Post receipt" }) as HTMLButtonElement;
+    const supplier = screen.getByRole("button", { name: "choose-supplier" });
+    const reference = screen.getByLabelText("Invoice / reference number") as HTMLInputElement;
+    const quantity = within(row).getByLabelText("Quantity") as HTMLInputElement;
+    const cost = within(row).getByLabelText("Actual cost") as HTMLInputElement;
+    await waitFor(() =>
+      expect((within(row).getByLabelText("Purchase unit") as HTMLSelectElement).disabled).toBe(false)
+    );
+
+    expect(submit.disabled).toBe(false);
+    expect(supplier).toHaveAttribute("aria-required", "true");
+    expect(reference).toHaveAttribute("aria-required", "true");
+
+    fireEvent.click(submit);
+    await waitFor(() => expect(document.activeElement).toBe(supplier));
+    expect(supplier).toHaveAttribute("aria-invalid", "true");
+
+    fireEvent.click(supplier);
+    fireEvent.click(submit);
+    await waitFor(() => expect(document.activeElement).toBe(reference));
+    expect(reference).toHaveAttribute("aria-invalid", "true");
+
+    fireEvent.change(reference, { target: { value: "INV-VALIDATE-1" } });
+    fireEvent.click(submit);
+    await waitFor(() => expect(document.activeElement).toBe(quantity));
+    expect(quantity).toHaveAttribute("aria-invalid", "true");
+
+    fireEvent.change(quantity, { target: { value: "1" } });
+    fireEvent.click(submit);
+    await waitFor(() => expect(document.activeElement).toBe(cost));
+    expect(cost).toHaveAttribute("aria-invalid", "true");
+    expect(mocks.post).not.toHaveBeenCalled();
   });
 
   it("requires explicit selection when a receipt has two prices for the same product", async () => {
@@ -346,6 +400,14 @@ describe("Checkpoint 1 inbound UI", () => {
     fireEvent.change(production, { target: { value: "25/08/2026" } });
     fireEvent.blur(production);
     expect(production.value).toBe("2026-08-25");
+
+    fireEvent.change(production, { target: { value: "8122026" } });
+    fireEvent.blur(production);
+    expect(production.value).toBe("2026-12-08");
+
+    fireEvent.change(production, { target: { value: "1122026" } });
+    fireEvent.blur(production);
+    expect(production.value).toBe("1122026");
 
     fireEvent.change(expiryCalendar, { target: { value: "2026-12-31" } });
     expect(expiry.value).toBe("2026-12-31");

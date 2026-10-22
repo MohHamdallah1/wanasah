@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { type InfiniteData, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CarFront, Plus, RefreshCw, Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -21,6 +21,7 @@ import { VehicleLifecycleActions } from "./VehicleLifecycleActions";
 import { VehicleTable } from "./VehicleTable";
 import { VehicleQuickUpdateModal, type VehicleQuickActionKind } from "./VehicleQuickUpdateModal";
 import type { VehicleNote } from "./vehiclePresentation";
+import { replaceVehicleInInfiniteData } from "./vehicleCache";
 import { vehicleErrorMessage } from "./vehicleErrorMessage";
 import { useVehicleInfiniteScroll } from "./useVehicleInfiniteScroll";
 import { useVehicles } from "./useVehicles";
@@ -54,18 +55,10 @@ export function VehiclesTab() {
   });
 
   const replaceVehicleInCachedLists = (updated: Vehicle) => {
-    queryClient.setQueriesData<InfiniteData<VehicleListResult>>(
+    queryClient.setQueriesData(
       { queryKey: ["vehicles"] },
-      (cached) => {
-        if (!cached) return cached;
-        return {
-          ...cached,
-          pages: cached.pages.map((page) => ({
-            ...page,
-            items: page.items.map((item) => item.id === updated.id ? updated : item),
-          })),
-        };
-      },
+      (cached: import("@tanstack/react-query").InfiniteData<VehicleListResult> | undefined) =>
+        replaceVehicleInInfiniteData(cached, updated),
     );
   };
 
@@ -96,7 +89,9 @@ export function VehiclesTab() {
         target.version,
       );
       replaceVehicleInCachedLists(updated);
-      await queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      // PATCH already returns the authoritative updated row. Mark list queries stale
+      // without an immediate refetch so an older in-flight page cannot overwrite it.
+      await queryClient.invalidateQueries({ queryKey: ["vehicles"], refetchType: "none" });
       toast.success(t("representativesVehicles.vehicles.updateSuccess"));
       setAction(null);
     } catch (error) {
@@ -119,7 +114,9 @@ export function VehiclesTab() {
         target.version,
       );
       replaceVehicleInCachedLists(updated);
-      await queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      // PATCH already returns the authoritative updated row. Mark list queries stale
+      // without an immediate refetch so an older in-flight page cannot overwrite it.
+      await queryClient.invalidateQueries({ queryKey: ["vehicles"], refetchType: "none" });
       toast.success(t("representativesVehicles.vehicles.quickActions.success"));
       setAction(null);
     } catch (error) {
