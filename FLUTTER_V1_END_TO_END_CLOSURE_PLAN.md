@@ -809,6 +809,25 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [ ] Route-action compatibility still reads cached `is_on_break` / `is_authorized`; Backend remains authorization authority and this seam may be replaced later without changing Visit List UI.
 - [ ] SyncRepository still exposes generic exceptions on some compatibility paths; Visit List fails closed rather than parsing message text.
 
+
+### 10.15 App / Bootstrap / Theme mechanical foundation stability point — 2026-10-22
+
+- [x] Implementation branch: `sol/flutter-v1-app-bootstrap-theme-foundation`.
+- [x] Exact implementation HEAD: `28261966c028e04ac7229d9d88baf4fcb3bf9730`.
+- [x] `main.dart` is reduced to the executable bootstrap entrypoint and preserves the `MyApp` compatibility export.
+- [x] Startup orchestration is mechanically owned by `app/bootstrap/**` with Widgets binding, Arabic date initialization, dotenv policy, ApiClient unauthorized wiring, Sentry initialization and runApp semantics preserved.
+- [x] Release-missing-`.env` remains fatal; Debug-missing-`.env` remains nonfatal with the existing development warning policy.
+- [x] Flutter framework, platform async and ErrorWidget crash handling remain preserved behind one app-level error boundary.
+- [x] Exactly one production AuthBloc lifecycle remains authoritative for ApiClient unauthorized handling, provider composition and unauthenticated navigation.
+- [x] MaterialApp composition, Arabic locale/delegates, Splash startup and DashboardBloc provider were mechanically extracted without router migration.
+- [x] Existing theme, gradient and System UI values were centralized under `app/theme/**` without visual redesign.
+- [x] No Visit, Visit List, Custody, Recovery, SyncRepository, LocalDatabase, Backend or Dashboard-web production ownership was touched.
+- [x] Exact-head GitHub Actions run `39711114163`: `flutter analyze` PASS and focused/regression test gate PASS.
+- [x] PR #447 merged into `sol/flutter-v1-field-closure`.
+- [x] Merge commit: `510d1eab21e5fbaa46c5b05848ffdd2d1cc65212`.
+- [ ] Broader field design-system adoption by feature screens remains open.
+- [ ] Workday/task-first home remains open; this mechanical foundation does not claim that product/UI closure.
+
 ## 11. UI / design-system closure
 
 Current app has one global ad-hoc gradient/theme and no coherent field design system.
