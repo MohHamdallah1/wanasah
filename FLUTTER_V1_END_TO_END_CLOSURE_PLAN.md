@@ -564,7 +564,7 @@ Known extraction targets and V1 timing:
 - [x] `dashboard_screen.dart`: Recovery/sync presentation extracted to `features/recovery/presentation/**`; residual summaries/navigation shell remains.
 - [ ] `sync_repository.dart` (~480 lines): extract operation-specific Visit/Transfer/Shop adapters as those contracts are wired.
 - [x] Visit List / Route Execution responsibility extracted into `features/visits/list/{application,data,presentation}`; `VisitListBloc` remains a thin compatibility shell and `VisitListScreen` a composition/navigation shell.
-- [ ] app/bootstrap/theme extraction: perform with the design-system wave, not before P0 contracts close.
+- [x] app/bootstrap/theme mechanical extraction completed in PR #447; broader visual design-system adoption remains intentionally deferred to the final UI/UX wave.
 
 ### 10.3 Frozen decomposition execution order
 
