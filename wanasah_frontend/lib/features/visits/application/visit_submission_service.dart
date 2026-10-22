@@ -6,6 +6,7 @@ import 'visit_command_evidence.dart';
 import 'visit_return_submission.dart';
 import 'visit_sale_confirmation.dart';
 import 'visit_money_input.dart';
+import 'visit_action_policy.dart';
 
 typedef SaveVisitCommand = Future<void> Function({
   required int visitId, required Map<String, dynamic> payload,
@@ -42,6 +43,11 @@ class VisitSubmissionService {
     if (visitHasUnresolvedCommand(visitId, await _readPending())) {
       throw const VisitPriorCommandUnresolved();
     }
+    final cash = canonicalVisitMoney(
+      exactCashCollected ?? cashCollected.toStringAsFixed(3));
+    final debt = canonicalVisitMoney(exactDebtPaid ?? debtPaid.toStringAsFixed(3));
+    validateVisitActions(outcome: outcome, cart: cart, cash: cash, debt: debt,
+      notes: notes);
     if (outcome == 'Sale') {
       if (saleConfirmation == null) {
         throw const FormatException('Sale requires readiness and preview');
@@ -55,9 +61,8 @@ class VisitSubmissionService {
     final payload = buildCanonicalVisitPayload(
       outcome: outcome,
       notes: notes,
-      cashCollected: canonicalVisitMoney(
-        exactCashCollected ?? cashCollected.toStringAsFixed(3)),
-      debtPaid: canonicalVisitMoney(exactDebtPaid ?? debtPaid.toStringAsFixed(3)),
+      cashCollected: cash,
+      debtPaid: debt,
       cartItems: lines.cartItems,
       returns: returns,
     );

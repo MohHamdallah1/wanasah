@@ -188,40 +188,13 @@ class _VisitScreenState extends State<VisitScreen> {
             );
           }
 
-          // +++  (متوسط 3): إنذار الكاش المزلزل لمنع السرقة أو نسيان إرجاع المال +++
-          final double oldCash = double.tryParse(visitData['cash_collected']?.toString() ?? '0') ?? 0.0;
-          final double oldDebt = double.tryParse(visitData['debt_paid']?.toString() ?? '0') ?? 0.0;
-          final double totalOldMoney = oldCash + oldDebt;
-
-          if (totalOldMoney > 0) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  '🚨 تحذير مالي خطير: هذه الزيارة محصلة مسبقاً بمبلغ (${totalOldMoney.toStringAsFixed(3)} د.أ). إذا قمت بالحفظ، سيقوم النظام بتصفير هذا المبلغ، ويجب عليك إعادته يدوياً لصاحب المحل فوراً!',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                    color: Colors.white,
-                  ),
-                ),
-                backgroundColor: Colors.red.shade800,
-                duration: const Duration(
-                  seconds: 10,
-                ), // وقت طويل ليقرأه غصب عنه
-              ),
-            );
-          } else {
-            // التحذير العادي لفاتورة بدون كاش
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'تنبيه: هذه الزيارة معتمدة مسبقاً. أي حفظ سيلغي القديمة ويعتمد الجديدة.',
-                ),
-                backgroundColor: Colors.orange,
-                duration: Duration(seconds: 4),
-              ),
-            );
-          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(VisitFieldStrings.of(context).t('correctionNotice')),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 4),
+            ),
+          );
         }
       }
 
@@ -303,6 +276,14 @@ class _VisitScreenState extends State<VisitScreen> {
         final double oldCash = double.tryParse(visitData['cash_collected']?.toString() ?? '0') ?? 0.0;
         final double oldDebt = double.tryParse(visitData['debt_paid']?.toString() ?? '0') ?? 0.0;
 
+        // Restore money/notes even for a collection-only completed Visit.
+        // These are editable inputs; frozen invoice evidence stays authoritative.
+        _cashController.text = canonicalVisitMoney(
+            visitData['cash_collected']?.toString() ?? '');
+        _debtPaidController.text = canonicalVisitMoney(
+            visitData['debt_paid']?.toString() ?? '');
+        _notesController.text = visitData['notes']?.toString() ?? '';
+
         if (cartJson != null || returnsJson != null) {
           
           // +++ حماية التزامن: الانتظار حتى يجهز البلوك لاستقبال الفاتورة القديمة +++
@@ -324,10 +305,7 @@ class _VisitScreenState extends State<VisitScreen> {
               notes: visitData['notes'] ?? '',
             ),
           );
-          if (mounted) {
-            _cashController.text = oldCash > 0 ? oldCash.toStringAsFixed(3) : '';
-            _debtPaidController.text = oldDebt > 0 ? oldDebt.toStringAsFixed(3) : '';
-          }
+
         }
       }
     } catch (e) {
