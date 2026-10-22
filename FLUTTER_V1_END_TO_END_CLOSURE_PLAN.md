@@ -312,7 +312,7 @@ It will not touch Backend, web Dashboard, pricing/returns UI, or the Network wor
 - [x] Field quarantine/recovery UI is read-only; no destructive clear action.
 - [x] GitHub `flutter analyze`: PASS.
 - [x] Focused `offline_owner_guard_test.dart` + `offline_durable_command_test.dart`: PASS.
-- [ ] AVAILABLE vs DAMAGED local inventory projection remains a separate V1 projection wave.
+- [x] AVAILABLE vs DAMAGED local inventory projection is closed: AVAILABLE uses typed fail-closed exact projection while returned non-sellable custody remains separate.
 - [x] Completed online visit correction now applies AVAILABLE vehicle inventory by old-to-new delta; returned non-sellable custody remains separate.
 - [ ] Full Flutter suite / Android build / real-device offline acceptance remain final gates.
 
@@ -414,12 +414,12 @@ Closure:
 Current model aggregates cartons/packs by product only.
 
 Closure:
-- [ ] Treat local stock as a projection, never inventory SSOT.
+- [x] Treat local stock as a projection, never inventory SSOT.
 - [x] Keep AVAILABLE sellable quantity distinct from non-sellable returned custody; Backend custody and pending local return evidence are separate presentation/read models.
 - [x] Do not invent Batch allocation locally; pending local custody derives only product/reason/quantity evidence from the durable command and exposes no Batch identity.
 - [ ] Re-sync safely after accepted transfer, visit submission and recovery.
-- [ ] Offline edits reverse only their own local projection exactly once.
-- [ ] No clamp-to-zero behavior may silently hide a negative/inconsistent projection; surface reconciliation error instead.
+- [x] Offline edits/corrections change only their own local AVAILABLE projection exactly once via durable `local_effect_applied` + old-to-new delta.
+- [x] No clamp-to-zero behavior silently hides a negative/inconsistent projection; typed reconciliation errors fail closed and preserve durable evidence.
 
 ## 10. Flutter target architecture
 
@@ -781,7 +781,7 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] Session/Custody decomposition regression: PASS.
 - [x] FIELD ownership/adapters regression: PASS.
 - [ ] Completed/corrected return end-to-end acceptance still waits for the Visit FIELD wiring slice and final real-device journey.
-- [ ] Silent clamp-to-zero behavior in AVAILABLE projection remains separate technical debt and is not marked closed by this wave.
+- [x] Silent clamp-to-zero AVAILABLE projection debt closed in PR #457; invalid pack size/state/underflow now fail closed with stable typed codes.
 
 ### 10.14 Visit List / Route Execution behavioral stability point — 2026-10-22
 
@@ -861,6 +861,21 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] Merge commit: `435c5a0fb5b8bd7bbc47ba4937c6f6632d6e730d`.
 - [ ] Backend batch errors still lack stable per-item failure identity in some deterministic batch failures; V1 safely blocks the current chunk and preserves evidence without parsing text.
 
+### 10.18 Local inventory projection integrity stability point — 2026-10-22
+
+- [x] Implementation branch: `sol/flutter-v1-projection-integrity-closure`.
+- [x] Exact worker HEAD: `b44b558aafefb3a404db59ce6ea37848ca68ede3`.
+- [x] PR #457 merged to `main`; merge commit: `26d2dcb1dc200cba9aa15fed038bb30f92a9e13c`.
+- [x] Initial Visit AVAILABLE application and completed-Visit correction share one typed projection engine.
+- [x] Silent SQLite `MAX(0,...)` stock clamping removed.
+- [x] Invalid `packs_per_carton`, malformed local state, missing product and underflow fail closed with stable `LOCAL_PROJECTION_*` codes.
+- [x] Projection failure rolls back local state, never sets `local_effect_applied=1`, and preserves the existing durable command as unresolved/blocked evidence.
+- [x] Same durable command replay cannot apply inventory twice; correction remains old-to-new delta only.
+- [x] Returned DAMAGED/non-sellable custody remains separate from AVAILABLE projection.
+- [x] Exact-head run `39721422304`: analyze PASS + 48 focused/regression tests PASS.
+- [x] Current-main PR integration: Projection Integrity, Visit Command Correction and Offline Durable gates PASS.
+- [x] Unrelated Inventory CP2 historical unchanged-file gate remains a pre-existing stale assertion and is not caused by this Flutter diff.
+
 ## 11. UI / design-system closure
 
 Current app has one global ad-hoc gradient/theme and no coherent field design system.
@@ -898,7 +913,7 @@ Required focused tests:
 - [x] transfer exact-repeat/state-idempotent replay;
 - [x] quarantine/recovery preservation;
 - [x] account/company switch with pending/blocked work;
-- [ ] local projection apply/revert exactly once.
+- [x] local projection apply/correction exactly once.
 
 Per-wave gates:
 - [ ] `flutter analyze`
