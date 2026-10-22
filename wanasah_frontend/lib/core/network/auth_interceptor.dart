@@ -24,17 +24,21 @@ class AuthInterceptor extends Interceptor {
     AuthTokenStore? tokenStore,
     Dio Function()? refreshDioFactory,
     RetryPolicy? retryPolicy,
+    Future<void> Function()? clearRejectedSessionData,
   }) : _tokenStore =
            tokenStore ?? SecureAuthTokenStore(storage: storage),
        _dio = dio,
        _refreshDioFactory = refreshDioFactory,
-       _retryPolicy = retryPolicy ?? RetryPolicy();
+       _retryPolicy = retryPolicy ?? RetryPolicy(),
+       _clearRejectedSessionData = clearRejectedSessionData ??
+         (() => LocalDatabase.instance.clearSessionData(clearPendingSyncs: false));
 
   final AuthTokenStore _tokenStore;
   final VoidCallback onUnauthorized;
   final Dio _dio;
   final Dio Function()? _refreshDioFactory;
   final RetryPolicy _retryPolicy;
+  final Future<void> Function() _clearRejectedSessionData;
 
   Completer<bool>? _refreshCompleter;
 
@@ -121,8 +125,10 @@ class AuthInterceptor extends Interceptor {
     final refreshCompleter = Completer<bool>();
     _refreshCompleter = refreshCompleter;
 
+    String? attemptedRefreshToken;
     try {
       final refreshToken = await _tokenStore.readRefreshToken();
+      attemptedRefreshToken = refreshToken;
       if (refreshToken == null || refreshToken.isEmpty) {
         return handler.next(err);
       }
@@ -157,10 +163,12 @@ class AuthInterceptor extends Interceptor {
         return handler.next(err);
       }
 
-      await _tokenStore.persistReplacement(
+      final persisted = await _tokenStore.persistReplacementIfCurrent(
+        expectedRefreshToken: refreshToken,
         accessToken: newAccessToken,
         refreshToken: newRefreshToken,
       );
+      if (!persisted) return handler.next(err);
 
       refreshCompleter.complete(true);
       _retryPolicy.markRetryAttempt(err.requestOptions);
@@ -174,13 +182,17 @@ class AuthInterceptor extends Interceptor {
       if (refreshFailure.kind == ApiFailureKind.serverResponse &&
           (refreshFailure.status == 401 ||
               refreshFailure.status == 403)) {
+        if (attemptedRefreshToken == null ||
+            await _tokenStore.readRefreshToken() != attemptedRefreshToken) {
+          return handler.next(err);
+        }
         developer.log(
           '[AuthInterceptor] Refresh credential rejected → logging out.',
         );
 
         try {
-          final oldRefresh = await _tokenStore.readRefreshToken();
-          if (oldRefresh != null && oldRefresh.isNotEmpty) {
+          final oldRefresh = attemptedRefreshToken;
+          if (oldRefresh.isNotEmpty) {
             Dio(
               _dio.options.copyWith(
                 baseUrl: ApiConstants.baseUrl,
@@ -196,10 +208,19 @@ class AuthInterceptor extends Interceptor {
           }
         } catch (_) {}
 
-        await _tokenStore.clear();
-        await LocalDatabase.instance.clearSessionData(
-          clearPendingSyncs: false,
-        );
+        // Rejection is confirmed even if local cleanup refuses to clear caches
+        // protected by pending evidence. Neither failure permits evidence loss.
+        try {
+          if (!await _tokenStore.clearIfCurrent(attemptedRefreshToken)) {
+            return handler.next(err);
+          }
+        } catch (_) { developer.log('[AuthInterceptor] Rejected credential cleanup failed.'); }
+        try { await _clearRejectedSessionData(); }
+        catch (_) { developer.log('[AuthInterceptor] Protected session cache retained.'); }
+        final activeRefresh = await _tokenStore.readRefreshToken();
+        if (activeRefresh != null && activeRefresh != attemptedRefreshToken) {
+          return handler.next(err);
+        }
         onUnauthorized();
       } else {
         developer.log(

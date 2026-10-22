@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:uuid/uuid.dart';
 import 'package:wanasah_frontend/core/db/local_database.dart';
 import 'package:wanasah_frontend/core/sync/durable_command.dart';
+import 'package:wanasah_frontend/features/auth/data/secure_auth_identity_store.dart';
 
 import '../domain/transfer_decision.dart';
 import '../domain/transfer_decision_command.dart';
@@ -56,17 +57,23 @@ class LocalTransferDecisionStore implements TransferDecisionStore {
   LocalTransferDecisionStore({
     LocalDatabase? database,
     Uuid? uuid,
+    SecureAuthIdentityStore? identities,
   }) : _database = database ?? LocalDatabase.instance,
-       _uuid = uuid ?? const Uuid();
+       _uuid = uuid ?? const Uuid(),
+       _identities = identities ?? SecureAuthIdentityStore();
 
   final LocalDatabase _database;
   final Uuid _uuid;
+  final SecureAuthIdentityStore _identities;
 
   @override
   Future<StoredTransferDecision> stageOrReuse(
     TransferDecision decision,
   ) async {
+    final owner = await _identities.requireCommandOwner(_database.currentTenant);
     final unresolved = await _database.getPendingSyncs();
+    owner.requireRows(unresolved);
+    owner.requireTenant(_database.currentTenant);
 
     for (final row in unresolved) {
       final rawType = row['type']?.toString() ?? '';
@@ -137,10 +144,12 @@ class LocalTransferDecisionStore implements TransferDecisionStore {
       deltaCartons: context?['delta_cartons'],
       deltaPacks: context?['delta_packs'],
     );
+    owner.requireSame(await _identities.requireCommandOwner(_database.currentTenant));
     final recordId = await _database.addPendingSync(
       type: DurableCommandType.transferResponse,
       payload: jsonEncode(payload),
       commandId: commandId,
+      ownerDriverId: owner.driverId,
     );
 
     return StoredTransferDecision(

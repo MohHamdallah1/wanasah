@@ -3,7 +3,9 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wanasah_frontend/blocs/auth/offline_owner_guard.dart';
 
-Map<String, dynamic> pendingRow(String type) => <String, dynamic>{'type': type};
+Map<String, dynamic> pendingRow(String type) => <String, dynamic>{
+  'type': type, 'owner_company_code': 'WNS-01', 'owner_driver_id': 10,
+};
 
 void main() {
   group('classifyOfflineOwnerLogin', () {
@@ -88,7 +90,7 @@ void main() {
 
         expect(result.outcome, OfflineOwnerLoginOutcome.allowSameOwner);
         expect(result.allowsLogin, isTrue);
-        expect(result.shouldClearMarkerAfterAcceptedSession, isTrue);
+        expect(result.shouldClearMarkerAfterAcceptedSession, isFalse);
         expect(revokeAttempts, 0);
         expect(pendingRows.map((row) => row['type']).toList(), <String>[
           'sale_create',
@@ -308,6 +310,77 @@ void main() {
     );
   });
 
+  for (final hasMarker in [true, false]) {
+    test('pending inspection failure fails closed without clearing evidence (marker=$hasMarker)', () async {
+      var revocations = 0;
+      final result = await evaluateOfflineOwnerLoginSafety(
+        ownerCompanyCode: hasMarker ? 'WNS-01' : null,
+        ownerDriverId: hasMarker ? '10' : null,
+        returnedCompanyCode: 'WNS-01', returnedDriverId: 10,
+        returnedRefreshToken: 'new-refresh',
+        readPendingSyncs: (_) async => throw StateError('inspection unavailable'),
+        revokeRejectedRefresh: (_) async {
+          revocations++;
+          throw StateError('cleanup unavailable');
+        },
+      );
+      expect(result.outcome, OfflineOwnerLoginOutcome.blockPendingInspectionFailure);
+      expect(result.allowsLogin, isFalse);
+      expect(result.shouldClearStaleMarker, isFalse);
+      expect(result.shouldClearMarkerAfterAcceptedSession, isFalse);
+      expect(revocations, 1);
+    });
+  }
+
+  test('same marker cannot claim unattributed migrated evidence', () async {
+    final rows = [
+      {'type': 'submit_sale', 'owner_company_code': 'WNS-01', 'owner_driver_id': null},
+      {'type': 'quarantined_transfer_response', 'state': 'blocked'},
+    ];
+    final before = rows.map((row) => Map<String, dynamic>.from(row)).toList();
+    final result = await evaluateOfflineOwnerLoginSafety(
+      ownerCompanyCode: 'WNS-01', ownerDriverId: '10',
+      returnedCompanyCode: 'WNS-01', returnedDriverId: 10,
+      returnedRefreshToken: 'refresh',
+      readPendingSyncs: (_) async => rows,
+      revokeRejectedRefresh: (_) async {},
+    );
+    expect(result.outcome, OfflineOwnerLoginOutcome.blockUnattributedPending);
+    expect(rows, before);
+    expect(result.shouldClearStaleMarker, isFalse);
+  });
+
+  test('matching marker cannot override row evidence belonging to another driver/company', () async {
+    for (final row in [
+      {'type': 'submit_sale', 'owner_company_code': 'WNS-01', 'owner_driver_id': 20},
+      {'type': 'transfer_response', 'owner_company_code': 'WNS-02', 'owner_driver_id': 10},
+    ]) {
+      final result = await evaluateOfflineOwnerLoginSafety(
+        ownerCompanyCode: 'WNS-01', ownerDriverId: '10',
+        returnedCompanyCode: 'WNS-01', returnedDriverId: 10,
+        returnedRefreshToken: 'refresh',
+        readPendingSyncs: (_) async => [row],
+        revokeRejectedRefresh: (_) async {},
+      );
+      expect(result.allowsLogin, isFalse);
+    }
+  });
+
+  test('same-owner blocked/quarantined attributed rows resume without clearing their marker', () async {
+    final result = await evaluateOfflineOwnerLoginSafety(
+      ownerCompanyCode: 'WNS-01', ownerDriverId: '10',
+      returnedCompanyCode: 'WNS-01', returnedDriverId: 10,
+      returnedRefreshToken: 'refresh',
+      readPendingSyncs: (_) async => [{
+        ...pendingRow('quarantined_submit_sale'), 'state': 'blocked',
+      }],
+      revokeRejectedRefresh: (_) async {},
+    );
+    expect(result.outcome, OfflineOwnerLoginOutcome.allowSameOwner);
+    expect(result.shouldClearStaleMarker, isFalse);
+    expect(result.shouldClearMarkerAfterAcceptedSession, isFalse);
+  });
+
   group('AuthBloc financial safety source invariants', () {
     test(
       'auth transitions never request automatic pending_sync deletion',
@@ -325,7 +398,7 @@ void main() {
       final source = await File('lib/blocs/auth/auth_bloc.dart').readAsString();
       final guardIndex = source.indexOf('if (!offlineGuard.allowsLogin)');
       final tokenWriteIndex = source.indexOf(
-        "await _storage.write(key: 'auth_token', value: token);",
+        'await _identities.persistLogin(identity);',
       );
 
       expect(guardIndex, greaterThanOrEqualTo(0));

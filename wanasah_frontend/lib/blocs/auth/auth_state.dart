@@ -3,6 +3,7 @@
 // تعريف جميع الحالات (States) التي يمكن أن يكون عليها AuthBloc.
 
 import 'package:equatable/equatable.dart';
+import '../../features/auth/application/field_principal_identity.dart';
 
 abstract class AuthState extends Equatable {
   const AuthState();
@@ -26,12 +27,17 @@ class AuthLoading extends AuthState {
 // ─── مُوثَّق — يوجد توكن وdriverId صالحان ──────────────────────────────────
 /// تنتقل SplashScreen بناءً عليها إلى DashboardScreen.
 class AuthAuthenticated extends AuthState {
-  final int driverId;
-
-  const AuthAuthenticated({required this.driverId});
+  const AuthAuthenticated({required this.identity});
+  final FieldPrincipalIdentity identity;
+  int get principalId => identity.principalId;
+  int get representativeId => identity.representativeId;
+  int get companyId => identity.companyId;
+  String get companyCode => identity.companyCode;
+  // Existing operational consumers keep the explicit Backend Driver bridge.
+  int get driverId => identity.legacyDriverId;
 
   @override
-  List<Object?> get props => [driverId];
+  List<Object?> get props => [principalId, representativeId, companyId, companyCode, driverId];
 }
 
 // ─── غير مُوثَّق — لا يوجد توكن أو انتهت صلاحيته ──────────────────────────
