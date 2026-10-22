@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../models/cart_item_model.dart';
 import '../application/visit_money_input.dart';
+import '../application/visit_action_policy.dart';
 import '../application/visit_return_submission.dart';
 import '../application/visit_sale_confirmation.dart';
 import '../application/commercial/read_commercial_readiness.dart';
@@ -42,15 +43,9 @@ Future<VisitFieldConfirmation?> confirmVisitFieldSubmission(BuildContext context
     await showVisitFieldFailure(context, issue: 'invalidMoney');
     return null;
   }
-  if (cart.any((item) => (item.sampleCartons > 0 || item.samplePacks > 0) &&
-      item.sampleReason.trim().isEmpty)) {
-    if (!context.mounted) return null;
-    await showVisitFieldFailure(context, issue: 'sampleReason');
-    return null;
-  }
   final hasSales = cart.any((item) => item.cartons > 0 || item.packs > 0);
   var outcome = hasSales ? 'Sale' : 'NoSale';
-  var finalNotes = notes;
+  final finalNotes = notes;
   if (cart.isEmpty) {
     if (!context.mounted) return null;
     final selected = await showDialog<String>(context: context,
@@ -69,10 +64,14 @@ Future<VisitFieldConfirmation?> confirmVisitFieldSubmission(BuildContext context
     if (!context.mounted) return null;
     if (selected == null) return null;
     outcome = selected;
-    if (finalNotes.trim().isEmpty) {
-      finalNotes = VisitFieldStrings.of(context).t(
-        selected == 'NoSale' ? 'noSaleNote' : 'postponedNote');
-    }
+  }
+  try {
+    validateVisitActions(outcome: outcome, cart: cart, cash: cash, debt: debt,
+      notes: finalNotes);
+  } on VisitActionViolation catch (error) {
+    if (!context.mounted) return null;
+    await showVisitFieldFailure(context, issue: error.issue.name);
+    return null;
   }
   CommercialReady? commercial;
   if (hasSales) {
