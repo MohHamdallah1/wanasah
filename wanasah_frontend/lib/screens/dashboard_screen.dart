@@ -380,6 +380,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           VehicleInventorySection(
             products: state.products,
             nonSellableCustody: state.nonSellableCustody,
+            pendingReturnCustody: state.pendingReturnCustody,
           ),
         ],
     );
