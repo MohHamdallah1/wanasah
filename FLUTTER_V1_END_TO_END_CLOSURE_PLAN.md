@@ -329,8 +329,8 @@ It will not touch Backend, web Dashboard, pricing/returns UI, or the Network wor
 - [x] Completed visit AVAILABLE projection uses old-to-new delta instead of double-deducting the replacement command.
 - [x] Integrated Network + Offline + Visit `flutter analyze`: PASS.
 - [x] Integrated focused Offline + Visit tests: PASS.
-- [ ] Returned-Batch resolution, Damaged reason/UI, and non-sellable vehicle custody remain open.
-- [ ] Backend-authoritative invoice preview/final commercial truth UI/submission wiring remains open; application use-cases are complete.
+- [x] Returned-Batch resolution, Damaged reason/submission wiring, and non-sellable vehicle custody are closed through the accepted FIELD/Custody integrations.
+- [x] Backend-authoritative invoice preview/final commercial truth submission/operator wiring is closed; committed/frozen invoice evidence remains Backend authority.
 - [x] Auth/session typed-failure adoption completed and merged.
 
 ## 5. Error model / observability
@@ -358,9 +358,9 @@ Already strong and must be preserved:
 - [x] logout preserves pending work.
 
 Closure:
-- [ ] Verify current login/refresh response against canonical field principal/representative mapping.
-- [ ] Bind durable commands to the stable identity required by current Backend field contract.
-- [ ] No legacy `Driver.is_admin` or client role flag becomes authority.
+- [x] Verify current login/refresh response against canonical field principal/representative mapping.
+- [x] Bind durable commands to the stable identity required by current Backend field contract.
+- [x] No legacy `Driver.is_admin` or client role flag becomes authority.
 - [x] Token refresh / unauthorized logout cannot wipe pending work; unresolved offline evidence is preserved.
 - [x] Same-user app restart restores a complete validated stored identity and selects the correct tenant DB without destructive repair guesses.
 - [ ] Final same-user restart acceptance still verifies resumed pending sync state end-to-end on device.
@@ -383,7 +383,7 @@ Closure:
 - [x] GitHub `flutter analyze`: PASS.
 - [x] Focused Auth/session tests: PASS.
 - [x] Offline durable-command regression gate: PASS.
-- [ ] Canonical principal/representative identity mapping remains a separate contract check before final field acceptance.
+- [x] Canonical principal/representative identity mapping contract check completed; operational `owner_driver_id` remains the Backend-mapped legacy Driver locator, not principal/profile identity.
 
 ## 7. Session / route / custody
 
@@ -876,6 +876,26 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] Current-main PR integration: Projection Integrity, Visit Command Correction and Offline Durable gates PASS.
 - [x] Unrelated Inventory CP2 historical unchanged-file gate remains a pre-existing stale assertion and is not caused by this Flutter diff.
 
+### 10.19 Canonical FIELD principal / durable owner stability point — 2026-10-22
+
+- [x] Codex implementation branch: `codex/flutter-v1-principal-owner-identity-closure`.
+- [x] Exact Codex HEAD: `c11f97aa126b32ef5908102ac56292656587606b`.
+- [x] Original draft PR #455 was independently reviewed by Lead; its current-main conflict was limited to shared `SyncRepository` text after Projection PR #457.
+- [x] Lead integration merge commit: `ce7e2af2fdb240cca370665b424986892e1c75bc`, preserving current-main Projection work and Codex identity work with both histories as parents.
+- [x] Integration PR #459 merged to `main`; merge commit: `6e2d7dcb9e7e145ae9aa7c50e22f2693ed570b9f`.
+- [x] Backend FIELD identity is explicitly separated into credential `principal_id`, FIELD `representative_id`, company identity and mapped operational `legacy_driver_id` / public `driver_id`.
+- [x] Existing durable `owner_driver_id` keeps the mapped operational Driver locator semantics; it is not redefined as principal/profile ID.
+- [x] New Visit and Transfer durable commands require authenticated company + mapped Driver ownership before staging.
+- [x] Unattributed/foreign unresolved evidence fails closed and is never opportunistically rewritten or claimed by a matching marker.
+- [x] Same attributed owner may resume pending/blocked evidence; different driver/company and failed inspection remain blocked.
+- [x] Refresh network/timeout/5xx ambiguity preserves the session/evidence; only confirmed 401/403 rejection may trigger unauthorized logout.
+- [x] Late refresh responses cannot overwrite or reject a newer authenticated session.
+- [x] Projection-owned `local_database.dart` and `local_inventory_projection.dart` remained byte-identical to accepted PR #457 main state.
+- [x] 19/19 non-overlap Codex files in the integration tree are byte-identical to Codex HEAD; shared `SyncRepository` preserves both durable-owner enforcement and typed Projection error preservation.
+- [x] Combined PR #459 gates PASS: Auth, Network, Offline Durable, Transfer Handshake, Custody Behavior, Session/Custody Decomposition, Local Custody Projection, FIELD seams and Projection Integrity.
+- [x] Inventory CP2 historical unchanged-file assertion remains an unrelated pre-existing stale gate; `live_stock.py` was unchanged by this closure.
+- [ ] Real-device same-user restart with pending sync remains part of final field acceptance.
+
 ## 11. UI / design-system closure
 
 Current app has one global ad-hoc gradient/theme and no coherent field design system.
@@ -900,7 +920,7 @@ Design principles:
 Current Flutter test coverage is minimal.
 
 Required focused tests:
-- [ ] auth/offline owner guard regressions;
+- [x] auth/offline owner guard regressions;
 - [x] API error parsing;
 - [x] mutation retry classification;
 - [x] durable command migration and persistence;
