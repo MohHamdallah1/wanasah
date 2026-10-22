@@ -1,0 +1,34 @@
+name: Flutter V1 Shop creation reconciliation
+
+on:
+  push:
+    branches:
+      - sol/flutter-v1-shop-create-reconciliation
+  pull_request:
+    paths:
+      - "wanasah_frontend/lib/features/shops/**"
+      - "wanasah_frontend/lib/screens/add_shop_screen.dart"
+      - "wanasah_frontend/test/features/shops/**"
+      - ".github/workflows/flutter-v1-shop-create-reconciliation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  shop-create:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: wanasah_frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.29.3"
+          channel: stable
+          cache: true
+      - run: printf 'API_BASE_URL=http://127.0.0.1:8000\n' > .env
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test test/features/shops/shop_creation_reconciliation_test.dart
