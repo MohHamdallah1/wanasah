@@ -192,7 +192,7 @@ class AuthInterceptor extends Interceptor {
 
         try {
           final oldRefresh = attemptedRefreshToken;
-          if (oldRefresh != null && oldRefresh.isNotEmpty) {
+          if (oldRefresh.isNotEmpty) {
             Dio(
               _dio.options.copyWith(
                 baseUrl: ApiConstants.baseUrl,
