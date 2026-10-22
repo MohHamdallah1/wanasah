@@ -3,6 +3,15 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'dart:developer' as developer;
 import 'package:dio/dio.dart';
+import '../../core/network/api_client.dart';
+import '../../core/network/api_failure.dart';
+import '../../features/visits/data/visit_field_client.dart';
+import '../../features/visits/application/commercial/read_commercial_readiness.dart';
+import '../../features/visits/application/returns/return_resolution_coordinator.dart';
+import '../../features/visits/application/invoice/preview_visit_invoice.dart';
+import '../../features/visits/application/invoice/read_committed_visit_invoice.dart';
+import '../../features/visits/application/invoice/committed_invoice_outcome.dart';
+import '../../features/visits/application/visit_command_evidence.dart';
 import '../../core/db/local_database.dart';
 import '../../models/product_model.dart';
 import '../../repositories/sync_repository.dart';
@@ -22,10 +31,21 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
   final LocalDatabase _db;
   final VisitSubmissionService _submissionService;
 
-  VisitBloc({LocalDatabase? db, SyncRepository? syncRepo})
+  late final ReadCommercialReadiness commercialReadiness;
+  late final ReturnResolutionCoordinator returnResolution;
+  late final PreviewVisitInvoice invoicePreview;
+  late final ReadCommittedVisitInvoice committedInvoice;
+
+  VisitBloc({LocalDatabase? db, SyncRepository? syncRepo, VisitFieldClient? fieldClient})
     : _db = db ?? LocalDatabase.instance,
-      _submissionService = VisitSubmissionService(syncRepo ?? SyncRepository()),
+      _submissionService = VisitSubmissionService(syncRepo ?? SyncRepository(),
+        readPending: () => (db ?? LocalDatabase.instance).getPendingSyncs()),
       super(VisitLoading()) {
+    final client = fieldClient ?? VisitFieldClient.withApiClient(ApiClient.instance);
+    commercialReadiness = ReadCommercialReadiness.fromClient(client);
+    returnResolution = ReturnResolutionCoordinator.fromClient(client);
+    invoicePreview = PreviewVisitInvoice.fromClient(client);
+    committedInvoice = ReadCommittedVisitInvoice.fromClient(client);
     on<LoadVisitCatalog>(_onLoadCatalog);
     on<LoadCompletedVisitData>(
       _onLoadCompletedVisitData,
@@ -143,6 +163,9 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
     emit(currentState.copyWith(debtPaid: event.amount));
   }
 
+  Future<bool> hasUnresolvedVisit(int visitId) =>
+      _submissionService.hasUnresolvedVisit(visitId);
+
   Future<void> _onSubmitVisit(
     SubmitVisit event,
     Emitter<VisitState> emit,
@@ -153,29 +176,34 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
     emit(VisitLoading());
 
     try {
-      await _submissionService.submit(
+      final disposition = await _submissionService.submit(
         visitId: event.visitId,
         outcome: event.outcome,
         notes: event.notes,
         debtPaid: event.debtPaid,
         cashCollected: currentState.cashCollected,
         cart: currentState.cart,
+        exactCashCollected: event.exactCashCollected,
+        exactDebtPaid: event.exactDebtPaid,
+        resolvedReturns: event.resolvedReturns,
+        saleConfirmation: event.saleConfirmation,
       );
-      emit(VisitSubmissionSuccess());
-    } catch (e) {
-      developer.log('[VisitBloc] Error submitting visit: $e');
-      String errorMsg = 'حدث خطأ أثناء حفظ الفاتورة في الخزنة المحلية.';
-
-      if (e is DioException &&
-          e.response?.data != null &&
-          e.response!.data is Map) {
-        errorMsg =
-            e.response!.data['message'] ??
-            e.response!.data['detail'] ??
-            'رفض السيرفر العملية (${e.response!.statusCode})';
+      // A queued/lost-response command is never labeled committed. A failed
+      // invoice read cannot turn a successful mutation into another submission.
+      CommittedInvoiceOutcome? invoice;
+      if (disposition == VisitSubmissionDisposition.confirmed && event.outcome == 'Sale') {
+        try { invoice = await committedInvoice.execute(event.visitId); }
+        catch (_) { invoice = const CommittedInvoiceInvalidResponse(); }
       }
-
-      emit(VisitError(errorMsg));
+      emit(VisitSubmissionSuccess(visitId: event.visitId,
+        disposition: disposition, invoice: invoice));
+    } catch (e) {
+      // Keep structured evidence; never classify or log arbitrary server text.
+      emit(VisitFieldSubmissionFailure(
+        failure: e is DioException ? e.apiFailure : null,
+        issue: e is VisitPriorCommandUnresolved ? 'unresolvedCommand' :
+          e is FormatException ? 'contract' : 'persistence',
+      ));
       emit(currentState);
     }
   }

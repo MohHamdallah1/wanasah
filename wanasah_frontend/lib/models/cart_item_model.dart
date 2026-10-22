@@ -20,6 +20,8 @@ class CartItemModel {
   final int returnFactoryPacks;
   final int returnExpiredCartons;
   final int returnExpiredPacks;
+  final int returnDamagedCartons;
+  final int returnDamagedPacks;
 
   // العينات (تخصم من المخزون مجاناً)
   final int sampleCartons;
@@ -40,6 +42,8 @@ class CartItemModel {
     this.returnFactoryPacks = 0,
     this.returnExpiredCartons = 0,
     this.returnExpiredPacks = 0,
+    this.returnDamagedCartons = 0,
+    this.returnDamagedPacks = 0,
     this.sampleCartons = 0,
     this.samplePacks = 0,
     this.sampleReason = '',
@@ -63,7 +67,8 @@ class CartItemModel {
       totalSoldPacks + 
       (sampleCartons * packsPerCarton) + samplePacks +
       (returnFactoryCartons * packsPerCarton) + returnFactoryPacks +
-      (returnExpiredCartons * packsPerCarton) + returnExpiredPacks;
+      (returnExpiredCartons * packsPerCarton) + returnExpiredPacks +
+      (returnDamagedCartons * packsPerCarton) + returnDamagedPacks;
 
   // إجمالي الحبات المتاحة بالسيارة
   int get totalAvailablePacks =>
@@ -81,6 +86,9 @@ class CartItemModel {
     if (returnExpiredCartons > 0 || returnExpiredPacks > 0) {
       list.add({'type': 'Expired', 'cartons': returnExpiredCartons, 'packs': returnExpiredPacks});
     }
+    if (returnDamagedCartons > 0 || returnDamagedPacks > 0) {
+      list.add({'type': 'Damaged', 'cartons': returnDamagedCartons, 'packs': returnDamagedPacks});
+    }
     return list;
   }
 
@@ -94,6 +102,8 @@ class CartItemModel {
     int? returnFactoryPacks,
     int? returnExpiredCartons,
     int? returnExpiredPacks,
+    int? returnDamagedCartons,
+    int? returnDamagedPacks,
     int? sampleCartons,
     int? samplePacks,
     String? sampleReason,
@@ -112,6 +122,8 @@ class CartItemModel {
       returnFactoryPacks: returnFactoryPacks ?? this.returnFactoryPacks,
       returnExpiredCartons: returnExpiredCartons ?? this.returnExpiredCartons,
       returnExpiredPacks: returnExpiredPacks ?? this.returnExpiredPacks,
+      returnDamagedCartons: returnDamagedCartons ?? this.returnDamagedCartons,
+      returnDamagedPacks: returnDamagedPacks ?? this.returnDamagedPacks,
       sampleCartons: sampleCartons ?? this.sampleCartons,
       samplePacks: samplePacks ?? this.samplePacks,
       sampleReason: sampleReason ?? this.sampleReason,

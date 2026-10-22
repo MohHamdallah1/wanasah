@@ -1,4 +1,7 @@
 import 'package:equatable/equatable.dart';
+import '../../../core/network/api_failure.dart';
+import 'visit_command_evidence.dart';
+import 'invoice/committed_invoice_outcome.dart';
 
 import '../../../models/cart_item_model.dart';
 import '../../../models/product_model.dart';
@@ -21,7 +24,24 @@ class VisitError extends VisitState {
   List<Object?> get props => [message];
 }
 
-class VisitSubmissionSuccess extends VisitState {}
+class VisitSubmissionSuccess extends VisitState {
+  const VisitSubmissionSuccess({required this.visitId, required this.disposition,
+    this.invoice});
+  final int visitId;
+  final VisitSubmissionDisposition disposition;
+  final CommittedInvoiceOutcome? invoice;
+  @override
+  List<Object?> get props => [visitId, disposition, invoice];
+}
+
+class VisitFieldSubmissionFailure extends VisitError {
+  const VisitFieldSubmissionFailure({this.failure, this.issue = 'persistence'})
+    : super('');
+  final ApiFailure? failure;
+  final String issue;
+  @override
+  List<Object?> get props => [failure, issue];
+}
 
 class VisitReady extends VisitState {
   final List<ProductModel> catalog;

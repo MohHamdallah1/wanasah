@@ -84,6 +84,8 @@ List<CartItemModel> restoreCompletedVisitCart({
         final factoryPacks = type == 'Factory_Defect' ? packs : 0;
         final expiredCartons = type == 'Expired' ? cartons : 0;
         final expiredPacks = type == 'Expired' ? packs : 0;
+        final damagedCartons = type == 'Damaged' ? cartons : 0;
+        final damagedPacks = type == 'Damaged' ? packs : 0;
 
         final existingIndex = restoredCart.indexWhere(
           (item) => item.productVariantId == productVariantId,
@@ -94,9 +96,8 @@ List<CartItemModel> restoreCompletedVisitCart({
           final packsPerCarton =
               current.packsPerCarton > 0 ? current.packsPerCarton : 1;
           final returnBasePacks =
-              ((factoryCartons + expiredCartons) * packsPerCarton) +
-                  factoryPacks +
-                  expiredPacks;
+              ((factoryCartons + expiredCartons + damagedCartons) * packsPerCarton) +
+                  factoryPacks + expiredPacks + damagedPacks;
           final currentAvailableBasePacks =
               (current.availableCartons * packsPerCarton) +
                   current.availablePacks;
@@ -112,6 +113,8 @@ List<CartItemModel> restoreCompletedVisitCart({
             returnExpiredCartons:
                 current.returnExpiredCartons + expiredCartons,
             returnExpiredPacks: current.returnExpiredPacks + expiredPacks,
+            returnDamagedCartons: current.returnDamagedCartons + damagedCartons,
+            returnDamagedPacks: current.returnDamagedPacks + damagedPacks,
           );
           continue;
         }
@@ -123,9 +126,8 @@ List<CartItemModel> restoreCompletedVisitCart({
         final packsPerCarton =
             product.packsPerCarton > 0 ? product.packsPerCarton : 1;
         final returnBasePacks =
-            ((factoryCartons + expiredCartons) * packsPerCarton) +
-                factoryPacks +
-                expiredPacks;
+            ((factoryCartons + expiredCartons + damagedCartons) * packsPerCarton) +
+                factoryPacks + expiredPacks + damagedPacks;
         final currentBasePacks =
             (product.currentCartons * packsPerCarton) + product.currentPacks;
         final combinedBasePacks = currentBasePacks + returnBasePacks;
@@ -143,6 +145,8 @@ List<CartItemModel> restoreCompletedVisitCart({
             returnFactoryPacks: factoryPacks,
             returnExpiredCartons: expiredCartons,
             returnExpiredPacks: expiredPacks,
+            returnDamagedCartons: damagedCartons,
+            returnDamagedPacks: damagedPacks,
           ),
         );
       }
