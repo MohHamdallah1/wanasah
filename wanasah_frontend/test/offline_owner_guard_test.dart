@@ -310,6 +310,28 @@ void main() {
     );
   });
 
+  for (final hasMarker in [true, false]) {
+    test('pending inspection failure fails closed without clearing evidence (marker=$hasMarker)', () async {
+      var revocations = 0;
+      final result = await evaluateOfflineOwnerLoginSafety(
+        ownerCompanyCode: hasMarker ? 'WNS-01' : null,
+        ownerDriverId: hasMarker ? '10' : null,
+        returnedCompanyCode: 'WNS-01', returnedDriverId: 10,
+        returnedRefreshToken: 'new-refresh',
+        readPendingSyncs: (_) async => throw StateError('inspection unavailable'),
+        revokeRejectedRefresh: (_) async {
+          revocations++;
+          throw StateError('cleanup unavailable');
+        },
+      );
+      expect(result.outcome, OfflineOwnerLoginOutcome.blockPendingInspectionFailure);
+      expect(result.allowsLogin, isFalse);
+      expect(result.shouldClearStaleMarker, isFalse);
+      expect(result.shouldClearMarkerAfterAcceptedSession, isFalse);
+      expect(revocations, 1);
+    });
+  }
+
   test('same marker cannot claim unattributed migrated evidence', () async {
     final rows = [
       {'type': 'submit_sale', 'owner_company_code': 'WNS-01', 'owner_driver_id': null},
