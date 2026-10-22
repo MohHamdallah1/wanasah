@@ -1,6 +1,7 @@
 // File: lib/blocs/dashboard/dashboard_event.dart
 
 import 'package:equatable/equatable.dart';
+import '../../features/custody/domain/transfer_decision.dart';
 
 abstract class DashboardEvent extends Equatable {
   const DashboardEvent();
@@ -41,33 +42,28 @@ class CheckPendingTransfers extends DashboardEvent {
 /// يُرسَل للرد على الحوالة (موافقة أو رفض)
 class RespondToTransfer extends DashboardEvent {
   final int transferId;
-  final String responseStatus; // 'accepted' or 'rejected'
+  final String responseStatus;
+  final String? reason;
 
   const RespondToTransfer({
     required this.transferId,
     required this.responseStatus,
+    this.reason,
   });
 
   @override
-  List<Object?> get props => [transferId, responseStatus];
+  List<Object?> get props => [transferId, responseStatus, reason];
 }
 
-// +++ الصاروخ الباليستي: حدث الرد الجماعي على الحوالات +++
 class RespondToBatchTransfer extends DashboardEvent {
-  final List<int> transferIds;
-  final String responseStatus;
-  // +++ إضافة المصفوفة التفصيلية للحوالات الفردية +++
-  final List<Map<String, dynamic>> detailedTransfers;
+  final List<TransferDecision> decisions;
 
   const RespondToBatchTransfer({
-    required this.transferIds,
-    required this.responseStatus,
-    this.detailedTransfers = const [],
+    this.decisions = const <TransferDecision>[],
   });
 
-  // +++ درع Equatable: مقارنة الـ Maps كنصوص لمنع تجاوز الأحداث المتشابهة +++
   @override
-  List<Object> get props => [transferIds, responseStatus, detailedTransfers.toString()];
+  List<Object?> get props => [decisions];
 }
 
 // ─── أوامر إدارة جلسة العمل (Session Management) ──────────────────────────
@@ -103,11 +99,4 @@ class ToggleBreakEvent extends DashboardEvent {
 // +++ حدث جديد لتنظيف رسالة النجاح من الـ State بعد عرضها +++
 class ClearActionMessageEvent extends DashboardEvent {
   const ClearActionMessageEvent();
-}
-
-// +++ حدث مسح فواتير الحجر الصحي بعد تسويتها مع المسؤول +++
-class ClearQuarantineEvent extends DashboardEvent {
-  const ClearQuarantineEvent();
-  @override
-  List<Object?> get props => [];
 }

@@ -5,12 +5,12 @@ import '../blocs/dashboard/dashboard_event.dart';
 import '../blocs/dashboard/dashboard_state.dart';
 import '../blocs/auth/auth_bloc.dart';
 import '../blocs/auth/auth_event.dart';
-import 'package:intl/intl.dart';
 import 'visit_list_screen.dart';
-import 'dart:async';
-import 'dart:developer' as developer; 
-import '../core/db/local_database.dart';
-import 'dart:convert'; // +++ ضروري لفك تشفير تفاصيل الحجر الصحي +++
+import '../features/work_session/presentation/work_session_controls.dart';
+import '../features/recovery/presentation/recovery_dashboard_scroll.dart';
+import '../features/custody/presentation/pending_transfer_dialog.dart';
+import '../features/custody/domain/pending_transfer.dart';
+import '../features/custody/presentation/vehicle_inventory_section.dart';
 
 
 class DashboardScreen extends StatefulWidget {
@@ -22,6 +22,7 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  // Recovery safety invariant: blocked evidence is durable؛ لا يمكن حذفها من تطبيق المندوب.
   // +++ الشاشة الآن "غبية" وتعتمد على الـ BLoC بنسبة 100% +++
   bool _isShowingDialog = false; // لمنع تكرار ظهور نافذة الحوالات
   bool _isActionInProgress = false; // +++ درع منع النقر المتكرر أثناء طلبات الـ API والموقع +++
@@ -78,270 +79,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-// --- دوال إدارة العمل (منقولة للـ BLoC للـ Clean Architecture) ---
-  Future<void> _startWork() async {
-    context.read<DashboardBloc>().add(StartSessionEvent(driverId: widget.driverId));
-  }
-
-  Future<void> _endWork() async {
-    context.read<DashboardBloc>().add(EndSessionEvent(driverId: widget.driverId));
-  }
-
-  Future<void> _toggleBreak(String action) async {
-    context.read<DashboardBloc>().add(ToggleBreakEvent(driverId: widget.driverId, action: action));
-  }
-
-  // --- دالة إظهار نافذة الحوالات المعلقة المجمعة (النسخة الديناميكية الفولاذية) ---
-  void _showTransferDialog(
+  // --- نافذة الحوالات المعلقة: العرض في Custody، والحدث يبقى في Dashboard shell ---
+  Future<void> _showTransferDialog(
     BuildContext context,
-    Map<String, dynamic> batchData,
-  ) {
-    final List<dynamic> items = batchData['items'] ?? [];
-    // +++ التحويل الآمن للمعرّف +++
-    final int validItemsCount = items.where((item) {
-      final id = int.tryParse(item['real_transfer_id']?.toString() ?? '') ?? 0;
-      return id != 0;
-    }).length;
+    PendingTransferBatch batch,
+  ) async {
+    final result = await showPendingTransferDialog(context, batch);
+    if (!context.mounted) return;
 
-    if (items.isEmpty || validItemsCount == 0) {
-      _isShowingDialog = false;
-      // +++ البند 9: تنظيف الشبح إذا كانت الدفعة فارغة لتجنب العلوق للأبد +++
-      context.read<DashboardBloc>().add(
-        const RespondToBatchTransfer(transferIds: [], responseStatus: 'ignored', detailedTransfers: []),
-      );
-      return; 
-    }
+    _isShowingDialog = false;
 
-    Map<int, String> itemResponses = {};
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-
-        return PopScope(
-          canPop: false,
-          child: AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            title: const Row(
-              children: [
-                Icon(Icons.inventory_2_outlined, color: Colors.blue),
-                SizedBox(width: 8),
-                Text(
-                  'تحديث عهدة من الإدارة',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                ),
-              ],
-            ),
-            content: SizedBox(
-              width: double.maxFinite,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'قامت الإدارة بإجراء التعديلات التالية على عهدتك. هل توافق؟',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 10),
-                  // +++ قائمة ديناميكية تفصل السحب عن الإضافة لكل صنف +++
-                  Flexible(
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: items.length,
-                      itemBuilder: (context, index) {
-                        final item = items[index];
-                        final String productName =
-                            item['product_name'] ?? 'غير معروف';
-
-                        // +++ البند 3: التحويل الآمن تماماً من String أو Float لمنع الـ TypeError +++
-                        final int rawCartons = int.tryParse(item['delta_cartons']?.toString() ?? '') ?? 0;
-                        final int rawPacks = int.tryParse(item['delta_packs']?.toString() ?? '') ?? 0;
-                        final bool isAddition =
-                            rawCartons > 0 || (rawCartons == 0 && rawPacks > 0);
-
-                        final int absCartons = rawCartons.abs();
-                        final int absPacks = rawPacks.abs();
-
-                        return Card(
-                          color:
-                              isAddition
-                                  ? Colors.green.shade50
-                                  : Colors.red.shade50,
-                          elevation: 0,
-                          margin: const EdgeInsets.symmetric(vertical: 4),
-                          child: ListTile(
-                            dense: true,
-                            leading: Icon(
-                              isAddition
-                                  ? Icons.add_circle
-                                  : Icons.remove_circle,
-                              color: isAddition ? Colors.green : Colors.red,
-                            ),
-                            title: Text(
-                              productName,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            subtitle: Text(
-                              isAddition ? 'إضافة للسيارة' : 'سحب من السيارة',
-                              style: TextStyle(
-                                color:
-                                    isAddition
-                                        ? Colors.green[700]
-                                        : Colors.red[700],
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
-                            ),
-                            trailing: StatefulBuilder(
-                              builder: (context, setState) {
-                                // +++ البند 3: التحويل الآمن 100% للمعرّف +++
-                                final itemId = int.tryParse(item['real_transfer_id']?.toString() ?? '') ?? 0;
-                                if (itemId == 0) return const SizedBox.shrink();
-                                final currentResponse = itemResponses[itemId];
-
-                                // +++  (بسيط 2): ضبط الأبعاد وإغلاق الأقواس بشكل سليم 100% +++
-                                return ConstrainedBox(
-                                  constraints: const BoxConstraints(
-                                    maxWidth: 150,
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    mainAxisAlignment: MainAxisAlignment.end,
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          '$absCartons كرتونة\n$absPacks حبة',
-                                          textAlign: TextAlign.center,
-                                          softWrap: false,
-                                          overflow: TextOverflow.visible,
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      // +++ الدرع الديمقراطي: أزرار الرفض والقبول لكل صنف +++
-                                      IconButton(
-                                        padding: EdgeInsets.zero,
-                                        constraints: const BoxConstraints(),
-                                        icon: Icon(
-                                          Icons.close,
-                                          color:
-                                              currentResponse == 'rejected'
-                                                  ? Colors.red
-                                                  : Colors.grey,
-                                        ),
-                                        onPressed:
-                                            () => setState(
-                                              () =>
-                                                  itemResponses[itemId] =
-                                                      'rejected',
-                                            ),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      IconButton(
-                                        padding: EdgeInsets.zero,
-                                        constraints: const BoxConstraints(),
-                                        icon: Icon(
-                                          Icons.check,
-                                          color:
-                                              currentResponse == 'accepted'
-                                                  ? Colors.green
-                                                  : Colors.grey,
-                                        ),
-                                        onPressed:
-                                            () => setState(
-                                              () =>
-                                                  itemResponses[itemId] =
-                                                      'accepted',
-                                            ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              // +++ البند 5: زر إغلاق لإنقاذ المندوب إذا علقت النافذة +++
-              TextButton(
-                onPressed: () {
-                  _isShowingDialog = false;
-                  Navigator.pop(dialogContext);
-                },
-                child: const Text('تأجيل (إغلاق)', style: TextStyle(color: Colors.grey)),
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-                onPressed: () {
-                  // +++ البند 5: استخدام الـ Set لتجاهل التكرارات القادمة من السيرفر +++
-                  final uniqueValidIds = items.map((i) => int.tryParse(i['real_transfer_id']?.toString() ?? '') ?? 0).where((id) => id != 0).toSet();
-                  
-                  if (itemResponses.length != uniqueValidIds.length) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'يجب الرد على جميع الأصناف بالقبول أو الرفض',
-                        ),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                    return;
-                  }
-
-                  // +++ الدرع الفولاذي ضد النقر المزدوج (True Lock Mechanism) +++
-                  if (!_isShowingDialog) return; // إذا تم الضغط مسبقاً، اقتل النقرة الثانية فوراً
-                  _isShowingDialog = false; // أقفل الباب وراءك
-                  
-                  final dashboardBloc = context.read<DashboardBloc>();
-                  Navigator.pop(dialogContext);
-
-                  // +++ إرسال المصفوفة التفصيلية للسيرفر +++
-                  final List<Map<String, dynamic>> detailedResponses =
-                      itemResponses.entries
-                          .map((e) => {'transfer_id': e.key, 'status': e.value})
-                          .toList();
-
-                  // +++ سيتم تعديل الـ Event لاحقاً ليقبل هذه المصفوفة +++
-                  dashboardBloc.add(
-                    RespondToBatchTransfer(
-                      transferIds: [],
-                      responseStatus: 'mixed',
-                      detailedTransfers: detailedResponses,
-                    ),
-                  );
-                },
-                child: const Text(
-                  'إرسال الرد',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ],
-          ),
+    switch (result.disposition) {
+      case PendingTransferDialogDisposition.empty:
+        context.read<DashboardBloc>().add(
+          const RespondToBatchTransfer(),
         );
-      },
-    ).then((_) {
-      // +++   تحرير القفل عند إغلاق النافذة بأي طريقة (زر أو غيره) لضمان ظهور النوافذ القادمة +++
-      if (mounted) {
-        _isShowingDialog = false;
-      }
-    });
+        return;
+      case PendingTransferDialogDisposition.deferred:
+        return;
+      case PendingTransferDialogDisposition.submitted:
+        context.read<DashboardBloc>().add(
+          RespondToBatchTransfer(decisions: result.decisions),
+        );
+        return;
+    }
   }
 
   @override
@@ -456,227 +217,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
   
-  // +++ الدرع البصري والإداري: شاشة تسوية فواتير الحجر الصحي +++
-  void _showQuarantineBottomSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) {
-        return FutureBuilder<List<Map<String, dynamic>>>(
-          future: LocalDatabase.instance.getQuarantinedSyncs(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) return const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()));
-            final syncs = snapshot.data ?? [];
-            if (syncs.isEmpty) return const Padding(padding: EdgeInsets.all(20), child: Text('لا يوجد فواتير مرفوضة.'));
-
-            return Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.warning_rounded, color: Colors.red, size: 50),
-                  const SizedBox(height: 10),
-                  const Text('الفواتير المرفوضة نهائياً', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 10),
-                  Flexible(
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: syncs.length,
-                      itemBuilder: (context, index) {
-                        final item = syncs[index];
-                        String reason = 'غير معروف';
-                        String visitIdInfo = '';
-                        String type = item['type']?.toString().replaceFirst('quarantined_', '') ?? '';
-                        try {
-                          final payload = jsonDecode(item['payload']);
-                          reason = payload['quarantine_reason'] ?? 'مرفوضة من الإدارة';
-                          visitIdInfo = payload['visitId'] != null ? ' (زيارة #${payload['visitId']})' : '';
-                        } catch (_) {}
-                        return Card(
-                          color: Colors.red.shade50,
-                          child: ListTile(
-                            leading: const Icon(Icons.error_outline, color: Colors.red),
-                            title: Text('عملية: $type$visitIdInfo', style: const TextStyle(fontWeight: FontWeight.bold)),
-                            subtitle: Text('السبب: $reason\nالتاريخ: ${item['created_at']?.toString().split('T').first ?? ''}', style: const TextStyle(color: Colors.red)),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 15),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-                      onPressed: () async {
-                        // +++   إضافة جدار تأكيد أخير قبل إبادة السجلات المالية +++
-                        final bool? confirmed = await _showConfirmationDialog(
-                          context,
-                          'تأكيد المسح النهائي',
-                          'هل أنت متأكد من تسوية هذه الفواتير مع الإدارة؟ سيتم مسح الدليل من جهازك نهائياً ولا يمكن التراجع.',
-                        );
-                        
-                        if (confirmed == true && context.mounted) {
-                          context.read<DashboardBloc>().add(const ClearQuarantineEvent());
-                          Navigator.pop(ctx);
-                        }
-                      },
-                      child: const Text('تمت التسوية مع المسؤول (مسح السجلات)', style: TextStyle(fontWeight: FontWeight.bold)),
-                    ),
-                  )
-                ],
-              ),
-            );
-          }
-        );
-      }
-    );
-  }
-  
-  // --- دالة بناء المحتوى (تعتمد 100% على الـ State) ---
+  // --- دالة بناء المحتوى: Recovery يملك القراءة/المزامنة/العرض، والداشبورد يركّب المحتوى فقط. ---
   Widget _buildDashboardContent(DashboardLoaded state) {
-    String startTimeFormatted = '';
-    if (state.isActiveSession && state.activeSessionStartTime != null) {
-      try {
-        final startTime = DateTime.parse(state.activeSessionStartTime!).toLocal();
-        // +++   استخدام الصيغة القياسية الآمنة لمنع كراش الـ Locale +++
-        startTimeFormatted = DateFormat('hh:mm a').format(startTime);
-      } catch (_) {
-        startTimeFormatted = "غير معروف";
-      }
-    }
-
-    return RefreshIndicator(
-      // +++ الكيّ الجراحي: إشعار المزامنة مع مؤشر التحميل وانتظار البلوك +++
-      onRefresh: () async {
-        // +++ الكيّ الجراحي: فحص الخزنة أولاً. لا نظهر الإشعار إلا إذا كان هناك فواتير معلقة +++
-        // +++  (البند 2): فلترة الجثث (quarantined) حتى لا نخدع المندوب +++
-        final allSyncs = await LocalDatabase.instance.getPendingSyncs();
-        final pendingSyncs = allSyncs.where((p) => !(p['type']?.toString().startsWith('quarantined_') ?? false)).toList();
-
-        // +++ الحارس الأمني: التأكد أن الشاشة لا تزال مفتوحة بعد فجوة الانتظار (Async Gap) +++
+    return RecoveryDashboardScroll(
+      onAfterSync: () {
         if (!mounted) return;
-
-        final bool hasPendingData = pendingSyncs.isNotEmpty;
-
-        ScaffoldFeatureController? loadingSnackBar;
-        if (hasPendingData) {
-          loadingSnackBar = ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Row(
-                children: [
-                  SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
-                  SizedBox(width: 15),
-                  Text('جاري رفع فواتير الأوفلاين... الرجاء الانتظار', style: TextStyle(fontWeight: FontWeight.bold)),
-                ],
-              ),
-              backgroundColor: Colors.orange,
-              duration: Duration(days: 1), 
-            ),
-          );
-        }
-
-        final bloc = context.read<DashboardBloc>();
-        bool isTimeout = false;
-        StreamSubscription? subscription;
-        
-        try {
-          final completer = Completer<void>();
-          subscription = bloc.stream.listen((state) {
-            if (state is DashboardError) {
-              if (!completer.isCompleted) completer.completeError(state.message);
-            } else if (state is! DashboardLoading && state is! DashboardInitial && !completer.isCompleted) {
-              completer.complete();
-            }
-          });
-          
-          bloc.add(const ForceSyncData());
-          await completer.future.timeout(const Duration(seconds: 8));
-          
-        } on TimeoutException catch (_) {
-          isTimeout = true;
-          developer.log('[Dashboard] Refresh timeout reached.');
-        } catch (e) {
-          developer.log('[Dashboard] Refresh error: $e');
-          // +++   إغلاق لافتة التحميل حصراً بدون المساس بلافتات الأخطاء القادمة من الـ BLoC +++
-          loadingSnackBar?.close();
-          await subscription?.cancel();
-          return; 
-        } finally {
-          await subscription?.cancel(); 
-        }
-
-        // إغلاق لافتة التحميل بأمان
-        loadingSnackBar?.close();
-
-        if (mounted && hasPendingData) {
-          // +++  2: التأكد من تفريغ الخزنة فعلياً قبل إعلان النجاح للمندوب +++
-          final allRemaining = await LocalDatabase.instance.getPendingSyncs();
-          final remainingSyncs = allRemaining.where((p) => !(p['type']?.toString().startsWith('quarantined_') ?? false)).toList();
-          
-          // +++   درع الـ Context عبر الفجوة الزمنية (Async Gap) لمنع التحذيرات والكراش +++
-          if (!mounted) return;
-          
-          if (isTimeout) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('انتهى وقت المزامنة. قد تكون الشبكة ضعيفة ⚠️'),
-                backgroundColor: Colors.orange,
-                duration: Duration(seconds: 4),
-              ),
-            );
-          } else if (remainingSyncs.isNotEmpty) {
-             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('تم تحديث البيانات، ولكن فشل رفع بعض الفواتير. يرجى التأكد من الإنترنت ⚠️'),
-                backgroundColor: Colors.orange,
-                duration: Duration(seconds: 4),
-              ),
-            );
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('تم رفع الفواتير وتحديث البيانات بنجاح ✔️'),
-                backgroundColor: Colors.green,
-                duration: Duration(seconds: 3),
-              ),
-            );
-          }
-        }
+        context.read<DashboardBloc>().add(const LoadDashboardData());
       },
-      child: ListView(
-        padding: const EdgeInsets.all(16.0),
-        children: [
-          // +++   لافتة الحجر الصحي الحمراء (تظهر فقط إذا كان هناك فواتير مرفوضة) +++
-          // +++   لافتة الحجر الصحي التفاعلية +++
-          if (state.quarantinedVisits > 0)
-            InkWell(
-              onTap: () => _showQuarantineBottomSheet(context),
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                margin: const EdgeInsets.only(bottom: 10),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade900,
-                  borderRadius: BorderRadius.circular(8),
-                  boxShadow: const [BoxShadow(color: Colors.redAccent, blurRadius: 5)],
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.touch_app, color: Colors.white, size: 30),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'تنبيه خطير: يوجد (${state.quarantinedVisits}) فواتير مرفوضة! اضغط هنا للتفاصيل والتسوية.',
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
+      children: [
           // تنبيه بوضع الأوفلاين
           if (state.isOffline)
             Container(
@@ -716,100 +264,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           const Divider(height: 30, thickness: 1),
 
-          Center(
-            child: Text(
-              state.isActiveSession
-                  ? 'جاري العمـل (بدأ الساعة: $startTimeFormatted)'
-                  : 'اضغط لبدء العمل',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color:
-                    state.isActiveSession ? Colors.green[700] : Colors.red[700],
-              ),
-            ),
+          WorkSessionControls(
+            isActiveSession: state.isActiveSession,
+            activeSessionStartTime: state.activeSessionStartTime,
+            isOnBreak: state.isOnBreak,
+            isActionInProgress: _isActionInProgress,
+            onActionStarted: () {
+              if (mounted) {
+                setState(() => _isActionInProgress = true);
+              }
+            },
+            onStart: () {
+              context.read<DashboardBloc>().add(
+                StartSessionEvent(driverId: widget.driverId),
+              );
+            },
+            onEnd: () {
+              context.read<DashboardBloc>().add(
+                EndSessionEvent(driverId: widget.driverId),
+              );
+            },
+            onToggleBreak: (action) {
+              context.read<DashboardBloc>().add(
+                ToggleBreakEvent(
+                  driverId: widget.driverId,
+                  action: action,
+                ),
+              );
+            },
           ),
-          const SizedBox(height: 15),
-          Center(
-            child: ElevatedButton.icon(
-              icon: Icon(
-                state.isActiveSession
-                    ? Icons.stop_circle_outlined
-                    : Icons.play_arrow,
-              ),
-              label: Text(state.isActiveSession ? 'إنهاء العمل' : 'بدء العمل'),
-              onPressed: (_isActionInProgress || state is DashboardLoading) ? null : () async {
-                if (state.isActiveSession && state.isOnBreak) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('يجب إنهاء الاستراحة أولاً!'),
-                      backgroundColor: Colors.orange,
-                    ),
-                  );
-                  return;
-                }
-                
-                final bool? confirmed = await _showConfirmationDialog(
-                  context,
-                  state.isActiveSession ? 'إنهاء العمل؟' : 'بدء العمل؟',
-                  state.isActiveSession ? 'هل تريد إنهاء جلسة العمل الحالية؟' : 'هل تريد بدء جلسة عمل جديدة؟',
-                );
-                
-                // +++  لـ Bug 1: حماية הـ setState من الـ Unmounted Crash +++
-                if (!mounted) return;
-
-                if (confirmed == true) {
-                  // +++ إقفال الزر ولا نفتحه إلا من خلال הـ BlocListener لمنع التكرار +++
-                  setState(() => _isActionInProgress = true);
-                  if (state.isActiveSession) {
-                    _endWork();
-                  } else {
-                    _startWork();
-                  }
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor:
-                    state.isActiveSession ? Colors.red[600] : Colors.green[600],
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 30,
-                  vertical: 12,
-                ),
-                textStyle: const TextStyle(fontSize: 16),
-              ),
-            ),
-          ),
-
-          if (state.isActiveSession) ...[
-            const SizedBox(height: 10),
-            Center(
-              child: ElevatedButton.icon(
-                onPressed: (_isActionInProgress || state is DashboardLoading) ? null : () {
-                  // +++ إقفال الزر ولا نفتحه إلا من خلال הـ BlocListener +++
-                  setState(() => _isActionInProgress = true);
-                  _toggleBreak(state.isOnBreak ? 'end' : 'start');
-                },
-                icon: Icon(
-                  state.isOnBreak
-                      ? Icons.free_breakfast_outlined
-                      : Icons.free_breakfast,
-                ),
-                label: Text(
-                  state.isOnBreak ? 'إنهاء الاستراحة' : 'بدء الاستراحة',
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor:
-                      state.isOnBreak ? Colors.orange[700] : Colors.blue[600],
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 30,
-                    vertical: 12,
-                  ),
-                  textStyle: const TextStyle(fontSize: 16),
-                ),
-              ),
-            ),
-          ],
-
           const Divider(height: 30, thickness: 1),
           Text('ملخص الجولة:', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 12),
@@ -894,91 +377,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
 
-          const SizedBox(height: 20),
-          const Divider(height: 30, thickness: 1),
-          Text(
-            'مخزون سيارة المندوب:',
-            style: Theme.of(context).textTheme.titleLarge,
+          VehicleInventorySection(
+            products: state.products,
+            nonSellableCustody: state.nonSellableCustody,
+            pendingReturnCustody: state.pendingReturnCustody,
           ),
-          const SizedBox(height: 12),
-
-          if (state.products.isEmpty)
-            Container(
-              padding: const EdgeInsets.all(16.0),
-              decoration: BoxDecoration(
-                color: Colors.red[50],
-                borderRadius: BorderRadius.circular(8.0),
-                border: Border.all(color: Colors.red.shade200),
-              ),
-              child: const Center(
-                child: Text(
-                  'لا يوجد بضاعة في السيارة حالياً.',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.red,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-
-          if (state.products.isNotEmpty)
-            ...state.products.map((item) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12.0),
-                child: Container(
-                  padding: const EdgeInsets.all(12.0),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[100],
-                    borderRadius: BorderRadius.circular(8.0),
-                    border: Border.all(color: Colors.grey.shade300),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item.name,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          // +++ الاعتماد الكلي على السيرفر (Single Source of Truth) لنسف الطعريس +++
-                          Text(
-                            'الاستلام: ${item.startingCartons} كرتونة${item.startingPacks > 0 ? ' و ${item.startingPacks} حبة' : ''}',
-                            style: const TextStyle(fontSize: 14),
-                          ),
-                          Text(
-                            'المباع: ${item.soldCartons} كرتونة، ${item.soldPacks} حبة',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.green[700],
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'المتبقي: ${item.currentCartons} كرتونة، ${item.currentPacks} باكيت',
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blueAccent,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
-          const SizedBox(height: 20),
         ],
-      ),
     );
   }
 }

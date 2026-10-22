@@ -159,9 +159,12 @@ void main() {
       },
     );
 
-    test('stale marker with no active pending can be cleared safely', () async {
+    test('quarantine-only evidence still blocks a different driver', () async {
       final pendingRows = <Map<String, dynamic>>[
-        pendingRow('quarantined_sale_create'),
+        <String, dynamic>{
+          'type': 'quarantined_submit_sale',
+          'state': 'blocked',
+        },
       ];
       var revokeAttempts = 0;
 
@@ -177,11 +180,35 @@ void main() {
         },
       );
 
+      expect(
+        result.outcome,
+        OfflineOwnerLoginOutcome.blockDifferentDriverSameCompany,
+      );
+      expect(result.allowsLogin, isFalse);
+      expect(result.shouldClearStaleMarker, isFalse);
+      expect(revokeAttempts, 1);
+      expect(pendingRows.single['type'], 'quarantined_submit_sale');
+    });
+
+    test('stale marker is clearable only when no unresolved rows exist', () async {
+      var revokeAttempts = 0;
+
+      final result = await evaluateOfflineOwnerLoginSafety(
+        ownerCompanyCode: 'WNS-01',
+        ownerDriverId: '10',
+        returnedCompanyCode: 'WNS-01',
+        returnedDriverId: 20,
+        returnedRefreshToken: 'fresh-refresh',
+        readPendingSyncs: (_) async => <Map<String, dynamic>>[],
+        revokeRejectedRefresh: (_) async {
+          revokeAttempts++;
+        },
+      );
+
       expect(result.outcome, OfflineOwnerLoginOutcome.allowStaleOwner);
       expect(result.allowsLogin, isTrue);
       expect(result.shouldClearStaleMarker, isTrue);
       expect(revokeAttempts, 0);
-      expect(pendingRows.single['type'], 'quarantined_sale_create');
     });
 
     test(

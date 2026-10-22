@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
-import 'package:flutter/services.dart';
 import 'package:map_launcher/map_launcher.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -9,7 +8,12 @@ import '../core/db/local_database.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../blocs/visit/visit_bloc.dart';
 import '../models/cart_item_model.dart';
-import '../models/product_model.dart';
+import '../features/visits/presentation/visit_catalog.dart';
+import '../features/visits/presentation/confirm_visit_field_submission.dart';
+import '../features/visits/presentation/invoice/visit_invoice_receipt.dart';
+import '../features/visits/presentation/visit_field_failure.dart';
+import '../features/visits/presentation/visit_field_strings.dart';
+import '../features/visits/application/visit_money_input.dart';
 import 'dart:developer' as developer;
 
 // --- تعريف الكلاس StatefulWidget ---
@@ -56,7 +60,6 @@ class _VisitScreenState extends State<VisitScreen> {
   int? _shopZone;
   int? _allowedZone;
   bool _isEmergency = false;
-  double _maxDebtLimit = 0.0;
   // +++ الدرع البصري: متغيرات معلومات الاتصال +++
   String? _shopOwner;
   String? _shopPhone;
@@ -141,7 +144,6 @@ class _VisitScreenState extends State<VisitScreen> {
             (visitData['is_emergency'] == 1 ||
                 visitData['is_emergency'] == true);
         // +++ الدرع النوعي (Safe Parse): منع الانهيار إذا كانت القيمة نصية من SQLite +++
-        _maxDebtLimit = double.tryParse(visitData['max_debt_limit']?.toString() ?? '0') ?? 0.0;
         _shopLatitude = double.tryParse((visitData['latitude'] ?? visitData['shop_latitude'])?.toString() ?? '');
         _shopLongitude = double.tryParse((visitData['longitude'] ?? visitData['shop_longitude'])?.toString() ?? '');
         // +++ جلب معلومات الاتصال من الداتابيز المحلية +++
@@ -176,12 +178,12 @@ class _VisitScreenState extends State<VisitScreen> {
           // +++  السماح بتعديل المسودة الأوفلاين (Local Authority) +++
           if (isOfflineDraft) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
+              SnackBar(
                 content: Text(
-                  'تنبيه: أنت تقوم بتعديل فاتورة لم تُرسل للإدارة بعد (أوفلاين).',
+                  VisitFieldStrings.of(context).t('unresolvedCommand'),
                 ),
                 backgroundColor: Colors.blue,
-                duration: Duration(seconds: 3),
+                duration: const Duration(seconds: 3),
               ),
             );
           }
@@ -249,10 +251,10 @@ class _VisitScreenState extends State<VisitScreen> {
 
       if (offlinePayload != null) {
         final cashDouble = double.tryParse(offlinePayload['cash_collected']?.toString() ?? '0') ?? 0.0;
-        _cashController.text = (cashDouble == 0.0) ? '' : cashDouble.toStringAsFixed(3);
+        _cashController.text = canonicalVisitMoney(offlinePayload['cash_collected']?.toString() ?? '');
         final debtDouble = double.tryParse(offlinePayload['debt_paid']?.toString() ?? '0') ?? 0.0;
         _debtPaidController.text =
-            (debtDouble == 0.0) ? '' : debtDouble.toStringAsFixed(3);
+            canonicalVisitMoney(offlinePayload['debt_paid']?.toString() ?? '');
         _notesController.text =
             offlinePayload['notes'] ?? offlinePayload['no_sale_reason'] ?? '';
 
@@ -373,11 +375,14 @@ class _VisitScreenState extends State<VisitScreen> {
       child: BlocProvider.value(
       value: _visitBloc,
       child: BlocListener<VisitBloc, VisitState>(
-          listener: (context, state) {
+          listener: (context, state) async {
             // +++ C1: الدرع الواقي - فحص mounted قبل أي استخدام للـ context +++
             if (!context.mounted) return;
 
-            if (state is VisitError) {
+            if (state is VisitFieldSubmissionFailure) {
+              setState(() => _isSubmitting = false);
+              await showVisitFieldFailure(context, failure: state.failure, issue: state.issue);
+            } else if (state is VisitError) {
               setState(() => _isSubmitting = false);
               ScaffoldMessenger.of(context).clearSnackBars(); // +++   مسح الطابور +++
               ScaffoldMessenger.of(context).showSnackBar(
@@ -385,11 +390,13 @@ class _VisitScreenState extends State<VisitScreen> {
               );
             } else if (state is VisitSubmissionSuccess) {
               setState(() => _isSubmitting = false);
-              ScaffoldMessenger.of(context).clearSnackBars();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('تم حفظ العملية بنجاح.'), backgroundColor: Colors.green),
+              _hasChanges = false;
+              await showDialog<void>(
+                context: context, barrierDismissible: false,
+                builder: (_) => VisitInvoiceReceipt(
+                  visitId: state.visitId, disposition: state.disposition,
+                  initial: state.invoice, read: _visitBloc.committedInvoice),
               );
-              // +++   التأكد أن الشاشة ما زالت في الواجهة قبل إغلاقها لمنع قتل التطبيق +++
               if (context.mounted && ModalRoute.of(context)?.isCurrent == true) {
                 Navigator.pop(context, true);
               }
@@ -475,7 +482,7 @@ class _VisitScreenState extends State<VisitScreen> {
 
   // --- واجهة السلة الذكية 2026 (الموحدة) ---
   Widget _buildSmartCartUI() {
-    final bool isLocked = _isOnBreak || !_isAuthorizedToSell; // +++ تحديد حالة القفل العام +++
+    final bool isLocked = _isSubmitting || _isOnBreak || !_isAuthorizedToSell; // +++ تحديد حالة القفل العام +++
 
     return BlocBuilder<VisitBloc, VisitState>(
       // +++ الدرع البصري (Anti-Flicker): تجاهل حالات الخطأ والنجاح في بناء الواجهة لتبقى الفاتورة مرئية ولا ترمش أبداً +++
@@ -487,7 +494,7 @@ class _VisitScreenState extends State<VisitScreen> {
           if (_isCatalogMode) {
             return Column(
               children: [
-                _SearchableCatalog(
+                VisitCatalog(
                   catalog: state.catalog,
                   cart: state.cart,
                   visitBloc: _visitBloc,
@@ -550,9 +557,11 @@ class _VisitScreenState extends State<VisitScreen> {
           child: ListTile(
             title: Text(item.name, style: TextStyle(fontWeight: FontWeight.bold, color: isLocked ? Colors.grey : Colors.black)),
             // +++  لـ Bug 7: عرض توالف وإكسباير مصنع بدلاً من مصفوفة الـ returns الفارغة +++
-            subtitle: Text('المبيع: ${item.cartons}ك | ${item.packs}ح  -  مرتجع/توالف: ${item.returnFactoryCartons + item.returnExpiredCartons}ك | ${item.returnFactoryPacks + item.returnExpiredPacks}ح'),
+            subtitle: Text(VisitFieldStrings.of(context).quantitySummary(item.cartons, item.packs,
+              item.returnFactoryCartons + item.returnExpiredCartons + item.returnDamagedCartons,
+              item.returnFactoryPacks + item.returnExpiredPacks + item.returnDamagedPacks)),
             trailing: Text(
-              item.totalSalePrice > 0 ? '${item.totalSalePrice.toStringAsFixed(3)} د.أ' : 'مجاني / مرتجع', 
+              '${VisitFieldStrings.of(context).t('estimate')}: ${item.totalSalePrice.toStringAsFixed(3)}', 
               style: TextStyle(color: isLocked ? Colors.grey : (item.totalSalePrice > 0 ? Colors.green : Colors.orange), fontWeight: FontWeight.bold)
             ),
             onTap: isLocked ? null : () => setState(() => _isCatalogMode = true), // العودة للكاتالوج للتعديل
@@ -675,12 +684,12 @@ class _VisitScreenState extends State<VisitScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'إجمالي الفاتورة الصافي:',
-                style: TextStyle(fontWeight: FontWeight.bold),
+              Text(
+                VisitFieldStrings.of(context).t('estimate'),
+                style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               Text(
-                '${state.netInvoice.toStringAsFixed(3)} د.أ',
+                state.netInvoice.toStringAsFixed(3),
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -698,7 +707,7 @@ class _VisitScreenState extends State<VisitScreen> {
                   enabled: !isLocked, 
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   decoration: InputDecoration(
-                    labelText: 'الكاش المستلم',
+                    labelText: VisitFieldStrings.of(context).t('cash'),
                     labelStyle: TextStyle(color: isLocked ? Colors.grey : Colors.black87),
                     filled: true,
                     fillColor: isLocked ? Colors.grey.shade200 : Colors.white,
@@ -719,7 +728,7 @@ class _VisitScreenState extends State<VisitScreen> {
                   enabled: !isLocked, 
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   decoration: InputDecoration(
-                    labelText: 'تحصيل ذمة سابقة',
+                    labelText: VisitFieldStrings.of(context).t('debt'),
                     labelStyle: TextStyle(color: isLocked ? Colors.grey : Colors.black87),
                     filled: true,
                     fillColor: isLocked ? Colors.grey.shade200 : Colors.white,
@@ -740,7 +749,7 @@ class _VisitScreenState extends State<VisitScreen> {
             controller: _notesController,
             enabled: !isLocked, 
             decoration: InputDecoration(
-              labelText: 'ملاحظات',
+              labelText: VisitFieldStrings.of(context).t('notes'),
               labelStyle: TextStyle(color: isLocked ? Colors.grey : Colors.black87),
               filled: true,
               fillColor: isLocked ? Colors.grey.shade200 : Colors.white,
@@ -761,7 +770,7 @@ class _VisitScreenState extends State<VisitScreen> {
               onPressed: (_isSubmitting || isLocked) ? null : () => _validateAndSubmitSmart(state),
               icon: Icon(isLocked ? Icons.lock_outline : Icons.check_circle_outline, size: 24),
               label: Text(
-                widget.visitStatus == 'Completed' ? 'تعديل الفاتورة واعتمادها' : 'إنهاء الزيارة',
+                VisitFieldStrings.of(context).t(widget.visitStatus == 'Completed' ? 'correct' : 'finish'),
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               style: ElevatedButton.styleFrom(
@@ -848,166 +857,45 @@ class _VisitScreenState extends State<VisitScreen> {
 
   // --- دالة الحماية والإنهاء الفولاذية (معمارية البلوك) ---
   Future<void> _validateAndSubmitSmart(VisitReady state) async {
-    // +++ درع الـ Double Tap الصارم: الإغلاق الفوري للمسار +++
-    if (_isSubmitting) return;
-    setState(() => _isSubmitting = true); // قفل الشاشة فوراً لمنع التكرار
-
-    // دالة مساعدة لفك القفل عند الفشل
-    void unlock() { if (mounted) setState(() => _isSubmitting = false); }
-
-    // 1. حماية الاستراحة والصلاحية
-    if (_isOnBreak || !_isAuthorizedToSell) { unlock(); return; }
-
-    // +++ الدرع الميداني: إجبار المندوب على سبب العينة قبل إرهاق السيرفر +++
-    for (var item in state.cart) {
-      if ((item.sampleCartons > 0 || item.samplePacks > 0) && (item.sampleReason.trim().isEmpty)) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('مرفوض: يجب اختيار أو كتابة سبب العينة للمنتج (${item.name}).'), backgroundColor: Colors.red));
-        unlock(); return;
+    if (_isSubmitting || _isOnBreak || !_isAuthorizedToSell) return;
+    setState(() => _isSubmitting = true);
+    var dispatched = false;
+    try {
+      if (await _visitBloc.hasUnresolvedVisit(widget.visitId)) {
+        if (mounted) await showVisitFieldFailure(context, issue: 'unresolvedCommand');
+        return;
       }
-    }
-
-    // +++   درع حماية المخزون من البيع الوهمي (محدث ليشمل المرتجعات كالبلوك) +++
-    for (var item in state.cart) {
-      final int requestedPacks = (item.cartons * item.packsPerCarton) + item.packs + 
-                                 (item.sampleCartons * item.packsPerCarton) + item.samplePacks +
-                                 (item.returnFactoryCartons * item.packsPerCarton) + item.returnFactoryPacks +
-                                 (item.returnExpiredCartons * item.packsPerCarton) + item.returnExpiredPacks;
-      final int availablePacks = (item.availableCartons * item.packsPerCarton) + item.availablePacks;
-      if (requestedPacks > 0 && requestedPacks > availablePacks) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('مرفوض: الكمية المطلوبة من (${item.name}) تتجاوز رصيد سيارتك!'), backgroundColor: Colors.red));
-        unlock(); return;
+      if (!mounted) return;
+      // Preserve the existing cached route/stock UX gates. Neither determines
+      // tax readiness, pricing, FEFO or final Backend acceptance.
+      if (state.cart.any((item) => !item.hasEnoughInventory)) {
+        await showVisitFieldFailure(context, issue: 'quantityUnavailable');
+        return;
       }
-    }
-
-    // 2. H10: حماية المنطقة (Geofence)
-    if (!_isEmergency) {
-      if (_shopZone == null || _allowedZone == null) {
-        developer.log('[VisitScreen] Warning: Zone data missing. Bypassing geofence to prevent dead-end.');
-      } else if (_shopZone != _allowedZone) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مرفوض: المحل خارج منطقتك المسموحة.'), backgroundColor: Colors.red));
-        unlock(); return;
+      if (!_isEmergency && _shopZone != null && _allowedZone != null &&
+          _shopZone != _allowedZone) {
+        await showVisitFieldFailure(context, issue: 'outsideRoute');
+        return;
       }
-    }
-
-    // 3. C9, H17, H18: التحقق المالي الصارم
-    final String rawCashText = _cashController.text.trim();
-    final String rawDebtText = _debtPaidController.text.trim();
-    
-    final double cashEntered = parseSafeMoney(rawCashText);
-    final double debtPaidEntered = parseSafeMoney(rawDebtText);
-
-    if (rawCashText.isNotEmpty && cashEntered.isNaN) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مرفوض: قيمة الكاش المدخلة غير صحيحة.'), backgroundColor: Colors.red));
-        unlock(); return;
-    }
-    if (rawDebtText.isNotEmpty && debtPaidEntered.isNaN) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مرفوض: قيمة الدين المدخلة غير صحيحة.'), backgroundColor: Colors.red));
-        unlock(); return;
-    }
-
-    if (state.netInvoice > 0 && rawCashText.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مرفوض: الفاتورة تحتوي على مبيعات، يجب إدخال قيمة في حقل (الكاش المستلم).'), backgroundColor: Colors.red));
-      unlock(); return;
-    }
-
-    // +++   تم إزالة فحص (مبلغ السداد > ذمة المحل) لأنه يمنع تعديل الفواتير المكتملة بشكل خاطئ +++
-    // النظام سيعتمد على فحص سقف الدين (expectedNewTotalBalance) والباك إند لحماية الأرصدة.
-
-    if (state.netInvoice > 0 && cashEntered > state.netInvoice) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('الكاش المستلم أكبر من قيمة الفاتورة الصافية!'), backgroundColor: Colors.red));
-      unlock(); return;
-    }
-
-    // 4. الحماية الفولاذية اللحظية لسقف الدين (بدون الاعتماد على تأخير البلوك)
-    final double newInvoiceDebt = state.netInvoice - cashEntered; // ما تبقى من الفاتورة كدين
-    final double expectedNewTotalBalance = widget.shopBalance - debtPaidEntered + newInvoiceDebt;
-
-    // +++  لـ Bug 5: استخدام هامش التقريب (Epsilon 0.0001) لمنع رفض الفواتير الصحيحة +++
-    if ((expectedNewTotalBalance - _maxDebtLimit) > 0.0001) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'مرفوض: سقف الدين لا يسمح!\nالمتبقي من الفاتورة (${newInvoiceDebt.toStringAsFixed(3)}) سيرفع ذمة المحل إلى (${expectedNewTotalBalance.toStringAsFixed(3)}) والسقف هو (${_maxDebtLimit.toStringAsFixed(3)}).',
-          ),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 6), // مدة أطول ليقرأ المندوب التفاصيل
-        ),
-      );
-      unlock(); // +++   فك قفل الزر لكي لا يعلق المندوب للأبد ويخسر فاتورته +++
-      return;
-    }
-
-    // 5. استنتاج النتيجة الذكي (Smart Outcome)
-    String finalOutcome = 'NoSale';
-    bool hasSales = state.cart.any((i) => i.cartons > 0 || i.packs > 0);
-    // +++  لـ Bug 7: قراءة القيم الحقيقية للمرتجعات +++
-    bool hasReturns = state.cart.any((i) => i.returnFactoryCartons > 0 || i.returnFactoryPacks > 0 || i.returnExpiredCartons > 0 || i.returnExpiredPacks > 0);
-    bool hasSamples = state.cart.any(
-      (i) => i.sampleCartons > 0 || i.samplePacks > 0,
-    );
-
-    if (hasSales) {
-      finalOutcome = 'Sale';
-    } else if (hasReturns || hasSamples) {
-      // +++ عودة للمنطق التجاري السليم (بيزنس أبو علي): المرتجعات أو العينات بدون مبيعات تعتبر NoSale +++
-      finalOutcome = 'NoSale';
-    } else if (state.cart.isEmpty) {
-      // +++  (متوسط 4): إجبار الندوب على تقديم مبرر دائماً إذا كانت السلة فارغة، حتى لو سدد ذمة (منع التناقض) +++
-      final result = await showDialog<String>(
-        context: context,
-        builder:
-            (context) => AlertDialog(
-              title: const Text('إنهاء بدون عمليات؟'),
-              content: const Text(
-                'لم تقم بإضافة منتجات أو تحصيل كاش. ما السبب؟',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    // +++ الكيّ الجراحي: حقن السبب آلياً في حقل الملاحظات إذا كان فارغاً لكي يصل للإدارة +++
-                    if (_notesController.text.trim().isEmpty) {
-                      _notesController.text = 'تأجيل - المحل مغلق';
-                    }
-                    Navigator.pop(context, 'Postponed');
-                  },
-                  child: const Text('تأجيل (مغلق مثلاً)'),
-                ),
-                TextButton(
-                  onPressed: () {
-                    // +++ حقن سبب عدم البيع آلياً +++
-                    if (_notesController.text.trim().isEmpty) {
-                      _notesController.text = 'لا يحتاج بضاعة حالياً';
-                    }
-                    Navigator.pop(context, 'NoSale');
-                  },
-                  child: const Text('لا يحتاج بضاعة'),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.pop(context, null),
-                  child: const Text(
-                    'إلغاء',
-                    style: TextStyle(color: Colors.red),
-                  ),
-                ),
-              ],
-            ),
-      );
-      if (result == null) {
-        if (mounted) setState(() => _isSubmitting = false); // المستخدم ألغى، نفك القفل
-        return; 
-      }
-      finalOutcome = result;
-    }
-
-    // 6. C3: توجيه الضربة النهائية باستخدام safeAddVisitEvent
-    safeAddVisitEvent(
-      SubmitVisit(
-        visitId: widget.visitId,
-        outcome: finalOutcome,
-        debtPaid: debtPaidEntered.isNaN ? 0.0 : debtPaidEntered,
+      final confirmation = await confirmVisitFieldSubmission(context,
+        visitId: widget.visitId, cart: state.cart,
         notes: _notesController.text.trim(),
-      ),
-    );
+        cashText: _cashController.text, debtText: _debtPaidController.text,
+        readiness: _visitBloc.commercialReadiness,
+        returns: _visitBloc.returnResolution, preview: _visitBloc.invoicePreview);
+      if (confirmation == null || !mounted) return;
+      dispatched = true;
+      safeAddVisitEvent(SubmitVisit(
+        visitId: widget.visitId, outcome: confirmation.outcome,
+        notes: confirmation.notes, debtPaid: state.debtPaid,
+        exactCashCollected: confirmation.cash, exactDebtPaid: confirmation.debt,
+        resolvedReturns: confirmation.returns, saleConfirmation: confirmation.sale,
+      ));
+    } catch (_) {
+      if (mounted) await showVisitFieldFailure(context);
+    } finally {
+      if (mounted && !dispatched) setState(() => _isSubmitting = false);
+    }
   }
 
   // +++ C3: Safe Bloc Event Addition with mounted check +++
@@ -1016,430 +904,3 @@ class _VisitScreenState extends State<VisitScreen> {
     _visitBloc.add(event);
   }
 } // نهاية كلاس _VisitScreenState
-
-// ============================================================================
-// --- كلاسات وحش الـ POS (The 2026 Accordion UI) ---
-// تم عزلها في كلاسات منفصلة لضمان الأداء الصاروخي ومنع تداخل الحالات (Jank)
-// ============================================================================
-
-class _SearchableCatalog extends StatefulWidget {
-  final List<ProductModel> catalog;
-  final List<CartItemModel> cart;
-  final VisitBloc visitBloc;
-  final VoidCallback onCartUpdated;
-  final VoidCallback onClose; // +++ أمر الإغلاق الآمن +++
-
-  const _SearchableCatalog({
-    required this.catalog,
-    required this.cart,
-    required this.visitBloc,
-    required this.onCartUpdated,
-    required this.onClose,
-  });
-
-  @override
-  State<_SearchableCatalog> createState() => _SearchableCatalogState();
-}
-
-class _SearchableCatalogState extends State<_SearchableCatalog> {
-  String _searchQuery = '';
-  final TextEditingController _searchController = TextEditingController(); // +++ متحكم لتفريغ البحث +++
-  // +++ تنظيف الذاكرة: إعدام متغير _drafts الميت +++
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final filteredCatalog = widget.catalog.where((p) => p.name.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
-
-    return Expanded( // غلفنا العمود بـ Expanded ليعمل داخل الـ Column الرئيسي
-      child: Column(
-        children: [
-          // سطر البحث (إزالة الإغلاق المكرر والاعتماد على الزر الكبير بالأسفل)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            decoration: const BoxDecoration(color: Colors.white, border: Border(bottom: BorderSide(color: Colors.black12))),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(12)),
-                    child: TextField(
-                      controller: _searchController,
-                      onChanged: (val) => setState(() => _searchQuery = val),
-                      decoration: InputDecoration(
-                        hintText: 'ابحث عن صنف...',
-                        border: InputBorder.none,
-                        suffixIcon: _searchQuery.isNotEmpty 
-                          ? IconButton(icon: const Icon(Icons.cancel, color: Colors.grey), onPressed: () { _searchController.clear(); setState(() => _searchQuery = ''); }) 
-                          : const Icon(Icons.search, color: Colors.blue),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              itemCount: filteredCatalog.length,
-              itemBuilder: (context, index) {
-                final product = filteredCatalog[index];
-                final cartItemIndex = widget.cart.indexWhere((i) => i.productVariantId == product.id);
-                final cartItem = cartItemIndex != -1 ? widget.cart[cartItemIndex] : null;
-
-                return _AccordionProductCard(
-                  key: ValueKey(product.id), // +++  لـ Bug 6: لمنع انتقال الكميات لمنتج آخر عند البحث +++
-                  product: product,
-                  cartItem: cartItem,
-                  isExpanded: true, 
-                  // +++ تنظيف الذاكرة +++
-                  onToggle: () {}, 
-                  visitBloc: widget.visitBloc,
-                  onCartUpdated: widget.onCartUpdated,
-                );
-              },
-            ),
-          ),
-          _buildMasterConfirmButton(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMasterConfirmButton() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -5))]),
-      child: SizedBox(
-        width: double.infinity,
-        height: 55,
-        child: ElevatedButton(
-          onPressed: () {
-             HapticFeedback.heavyImpact();
-             widget.onClose(); // +++ يغلق الكاتالوج ويعود للفاتورة فقط دون تدمير الزيارة +++
-          },
-          style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade700, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
-          child: const Text('اعتماد الكميات والعودة للفاتورة', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-        ),
-      ),
-    );
-  }
-}
-
-class _AccordionProductCard extends StatefulWidget {
-  final ProductModel product;
-  final CartItemModel? cartItem;
-  final bool isExpanded;
-  final VoidCallback onToggle;
-  final VisitBloc visitBloc;
-  final VoidCallback onCartUpdated;
-
-  const _AccordionProductCard({
-    super.key, // +++   السماح للكلاس باستقبال الـ Key لمنع الخطأ +++
-    required this.product,
-    required this.cartItem,
-    required this.isExpanded,
-    required this.onToggle,
-    required this.visitBloc,
-    required this.onCartUpdated,
-  });
-
-  @override
-  State<_AccordionProductCard> createState() => _AccordionProductCardState();
-}
-
-class _AccordionProductCardState extends State<_AccordionProductCard> {
-  final sCartons = TextEditingController();
-  final sPacks = TextEditingController();
-  
-  // +++ العدادات المباشرة للاستبدال +++
-  final rfCartons = TextEditingController(); // تالف مصنع
-  final rfPacks = TextEditingController();
-  final reCartons = TextEditingController(); // إكسباير
-  final rePacks = TextEditingController();
-
-  // عينات
-  final smpCartons = TextEditingController();
-  final smpPacks = TextEditingController();
-  final smpReason = TextEditingController();
-  
-  String? _selectedSampleReason;
-  final List<String> _reasonOptions = ['ترويج منتج جديد', 'عينة مجانية للزبائن', 'تعويض ودي للمحل', 'أخرى'];
-  bool showExtras = false;
-
-  @override
-  void dispose() {
-    sCartons.dispose();
-    sPacks.dispose();
-    rfCartons.dispose();
-    rfPacks.dispose();
-    reCartons.dispose();
-    rePacks.dispose();
-    smpCartons.dispose();
-    smpPacks.dispose();
-    smpReason.dispose();
-    super.dispose();
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _syncFromProp();
-  }
-
-  @override
-  void didUpdateWidget(covariant _AccordionProductCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.product.id != oldWidget.product.id) {
-      _syncFromProp();
-    }
-  }
-
-  void _syncFromProp() {
-    // +++   إزالة الإغلاق الإجباري للأكورديون (كان ينهار في وجه المندوب مع كل نقرة) +++
-    if (widget.cartItem != null) {
-      final item = widget.cartItem!;
-      // +++   تحديث النص فقط إذا اختلف لمنع طيران المؤشر (Cursor Hijacking) أثناء الطباعة +++
-      void safeUpdate(TextEditingController ctrl, String val) {
-        if (ctrl.text != val) ctrl.text = val;
-      }
-      safeUpdate(sCartons, item.cartons > 0 ? item.cartons.toString() : '');
-      safeUpdate(sPacks, item.packs > 0 ? item.packs.toString() : '');
-      safeUpdate(rfCartons, item.returnFactoryCartons > 0 ? item.returnFactoryCartons.toString() : '');
-      safeUpdate(rfPacks, item.returnFactoryPacks > 0 ? item.returnFactoryPacks.toString() : '');
-      safeUpdate(reCartons, item.returnExpiredCartons > 0 ? item.returnExpiredCartons.toString() : '');
-      safeUpdate(rePacks, item.returnExpiredPacks > 0 ? item.returnExpiredPacks.toString() : '');
-      safeUpdate(smpCartons, item.sampleCartons > 0 ? item.sampleCartons.toString() : '');
-      safeUpdate(smpPacks, item.samplePacks > 0 ? item.samplePacks.toString() : '');
-      
-      if (item.sampleReason.isNotEmpty) {
-        if (_reasonOptions.contains(item.sampleReason)) {
-          _selectedSampleReason = item.sampleReason;
-        } else {
-          _selectedSampleReason = 'أخرى';
-          smpReason.text = item.sampleReason;
-        }
-      } else {
-        _selectedSampleReason = null;
-      }
-    } else {
-      sCartons.clear(); sPacks.clear();
-      rfCartons.clear(); rfPacks.clear();
-      reCartons.clear(); rePacks.clear();
-      smpCartons.clear(); smpPacks.clear(); smpReason.clear();
-      _selectedSampleReason = null;
-    }
-  }
-
-  void _commitToBloc() {
-    int sc = int.tryParse(sCartons.text) ?? 0;
-    int sp = int.tryParse(sPacks.text) ?? 0;
-    int rfc = int.tryParse(rfCartons.text) ?? 0;
-    int rfp = int.tryParse(rfPacks.text) ?? 0;
-    int rec = int.tryParse(reCartons.text) ?? 0;
-    int rep = int.tryParse(rePacks.text) ?? 0;
-    int smpC = int.tryParse(smpCartons.text) ?? 0;
-    int smpP = int.tryParse(smpPacks.text) ?? 0;
-
-    // +++  لـ Bug 3: لا نحذف المنتج فوراً أثناء تصفير الحقل كي لا يضيع تركيز الكيبورد +++
-    // سيتم إرساله للـ BLoC بكميات صفرية، وسيتولى البلوك فلترته عند الحفظ النهائي.
-    final updatedItem = CartItemModel(
-      productVariantId: widget.product.id,
-      name: widget.product.name,
-      pricePerCarton: widget.product.pricePerCarton,
-      pricePerPack: widget.product.pricePerPack,
-      packsPerCarton: widget.product.packsPerCarton,
-      // +++   استخدام الكمية المتاحة في السلة (التي تشمل المحجوز) بدلاً من الخام +++
-      availableCartons: widget.cartItem?.availableCartons ?? widget.product.currentCartons,
-      availablePacks: widget.cartItem?.availablePacks ?? widget.product.currentPacks,
-      cartons: sc,
-      packs: sp,
-      returnFactoryCartons: rfc,
-      returnFactoryPacks: rfp,
-      returnExpiredCartons: rec,
-      returnExpiredPacks: rep,
-      sampleCartons: smpC,
-      samplePacks: smpP,
-      sampleReason: _selectedSampleReason == 'أخرى' ? smpReason.text : (_selectedSampleReason ?? ''),
-    );
-
-    widget.visitBloc.add(AddOrUpdateCartItem(updatedItem));
-    widget.onCartUpdated();
-  }
-
-  Widget _buildStepper(String label, TextEditingController controller, {Color iconColor = Colors.blue}) {
-    return SizedBox(
-      height: 60,
-      child: TextField(
-        controller: controller,
-        onChanged: (_) => _commitToBloc(), 
-        textAlign: TextAlign.center,
-        keyboardType: TextInputType.number,
-        // +++   منع السوالب والفواصل كلياً في حقول الكميات +++
-        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
-        decoration: InputDecoration(
-          labelText: label,
-          labelStyle: TextStyle(color: iconColor, fontWeight: FontWeight.bold, fontSize: 13),
-          floatingLabelBehavior: FloatingLabelBehavior.always,
-          contentPadding: const EdgeInsets.symmetric(vertical: 10),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
-          prefixIcon: IconButton(
-            icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
-            onPressed: () {
-              HapticFeedback.lightImpact();
-              int curr = int.tryParse(controller.text) ?? 0;
-              if (curr > 0) {
-                // +++  لـ Bug 9: إبقاء مؤشر الكيبورد في نهاية النص لمنع طفرات الكتابة +++
-                final newVal = (curr - 1).toString();
-                controller.value = TextEditingValue(text: newVal, selection: TextSelection.collapsed(offset: newVal.length));
-                _commitToBloc(); 
-              }
-            }
-          ),
-          suffixIcon: IconButton(
-            icon: Icon(Icons.add_circle_outline, color: iconColor),
-            onPressed: () {
-              HapticFeedback.lightImpact();
-              int curr = int.tryParse(controller.text) ?? 0;
-              final newVal = (curr + 1).toString();
-              controller.value = TextEditingValue(text: newVal, selection: TextSelection.collapsed(offset: newVal.length));
-              _commitToBloc(); 
-            }
-          ),
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    bool isInCart = widget.cartItem != null;
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 400),
-      curve: Curves.fastOutSlowIn,
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: showExtras ? Colors.yellow.shade50.withValues(alpha: 0.3) : Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: isInCart ? Colors.green.shade400 : Colors.blue.shade100, width: isInCart ? 2.0 : 1.5),
-      ),
-      child: Column(
-        children: [
-          ListTile(
-            onTap: () {
-              HapticFeedback.selectionClick();
-              setState(() => showExtras = !showExtras);
-            },
-            leading: Icon(isInCart ? Icons.check_circle : Icons.inventory_2_outlined, color: isInCart ? Colors.blue : Colors.grey),
-            title: Text(widget.product.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-            subtitle: Text('المتوفر: ${widget.product.currentCartons} ك | ${widget.product.currentPacks} ح', style: const TextStyle(fontSize: 12)),
-            trailing: Icon(showExtras ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: Colors.blue),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(child: _buildStepper("كراتين المبيع", sCartons, iconColor: Colors.green)),
-                    const SizedBox(width: 10),
-                    Expanded(child: _buildStepper("حبات المبيع", sPacks, iconColor: Colors.green)),
-                  ],
-                ),
-                AnimatedCrossFade(
-                  firstChild: const SizedBox.shrink(),
-                  secondChild: Column(
-                    children: [
-                      const SizedBox(height: 12),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(color: Colors.blue.shade50.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.blue.shade100)),
-                        child: Column(
-                          children: [
-                            // +++ واجهة العدادات الذكية الموحدة (بدون كبسات وهمية) +++
-                            Row(
-                              children: [
-                                Expanded(child: _buildStepper("كراتين تالف مصنع (🔁)", rfCartons, iconColor: Colors.orange)),
-                                const SizedBox(width: 8),
-                                Expanded(child: _buildStepper("حبات تالف مصنع (🔁)", rfPacks, iconColor: Colors.orange)),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(child: _buildStepper("كراتين إكسباير (🔁)", reCartons, iconColor: Colors.deepOrange)),
-                                const SizedBox(width: 8),
-                                Expanded(child: _buildStepper("حبات إكسباير (🔁)", rePacks, iconColor: Colors.deepOrange)),
-                              ],
-                            ),
-                            const Divider(height: 24),
-                            Row(
-                              children: [
-                                Expanded(child: _buildStepper("كراتين العينات (🎁)", smpCartons, iconColor: Colors.purple)),
-                                const SizedBox(width: 8),
-                                Expanded(child: _buildStepper("حبات العينات (🎁)", smpPacks, iconColor: Colors.purple)),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            DropdownButtonFormField<String>(
-                              value: _selectedSampleReason,
-                              decoration: InputDecoration(
-                                hintText: 'اختر سبب صرف العينة (إجباري)',
-                                filled: true,
-                                fillColor: Colors.white,
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                              ),
-                              items: _reasonOptions.map((String reason) {
-                                return DropdownMenuItem<String>(
-                                  value: reason,
-                                  child: Text(reason, style: const TextStyle(fontSize: 13)),
-                                );
-                              }).toList(),
-                              onChanged: (String? newValue) {
-                                setState(() {
-                                  _selectedSampleReason = newValue;
-                                  // +++ إضافة الأقواس إجبارياً لإرضاء الـ Linter +++
-                                  if (newValue != 'أخرى') {
-                                    smpReason.text = newValue ?? '';
-                                  } else {
-                                    smpReason.clear();
-                                  }
-                                });
-                                _commitToBloc();
-                              },
-                            ),
-                            if (_selectedSampleReason == 'أخرى') ...[
-                              const SizedBox(height: 8),
-                              TextField(
-                                controller: smpReason,
-                                onChanged: (_) => _commitToBloc(),
-                                decoration: InputDecoration(hintText: 'اكتب السبب بالتفصيل...', filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  crossFadeState: showExtras ? CrossFadeState.showSecond : CrossFadeState.showFirst,
-                  duration: const Duration(milliseconds: 300),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}

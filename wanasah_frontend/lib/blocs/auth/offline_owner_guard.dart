@@ -1,3 +1,5 @@
+import '../../core/sync/durable_command.dart';
+
 enum OfflineOwnerLoginDecision {
   sameOwner,
   differentDriverSameCompany,
@@ -61,9 +63,9 @@ OfflineOwnerLoginDecision classifyOfflineOwnerLogin({
 }
 
 bool hasActivePendingSyncs(Iterable<Map<String, dynamic>> pendingRows) {
-  return pendingRows.any(
-    (row) => !row['type'].toString().startsWith('quarantined_'),
-  );
+  // Blocked/quarantined rows are unresolved financial/stock evidence too.
+  // Their existence must continue protecting the original offline owner.
+  return pendingRows.any(isUnresolvedOfflineCommand);
 }
 
 Future<void> _bestEffortRevoke(

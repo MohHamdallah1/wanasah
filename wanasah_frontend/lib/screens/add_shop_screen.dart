@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'dart:developer' as developer;
-import 'dart:async'; // لاستخدام TimeoutException
-import '../core/network/api_client.dart'; // +++ الملحق المعماري للاتصالات +++
-import 'package:dio/dio.dart'; // +++ لمعالجة أخطاء الشبكة بذكاء +++
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import '../services/location_service.dart'; // +++   استيراد خدمة الموقع المركزية المحصنة +++
+import '../services/location_service.dart';
+import '../features/shops/application/shop_creation_service.dart';
+import '../features/shops/domain/shop_creation.dart'; // +++   استيراد خدمة الموقع المركزية المحصنة +++
 
 class AddShopScreen extends StatefulWidget {
   const AddShopScreen({super.key});
@@ -15,6 +14,8 @@ class AddShopScreen extends StatefulWidget {
 
 class _AddShopScreenState extends State<AddShopScreen> {
   final _formKey = GlobalKey<FormState>();
+  final ShopCreationService _shopCreationService = ShopCreationService();
+  ShopCreateCommand? _pendingShopCommand;
 
   // --- Controllers للحقول (تم تعديل الأسماء والوظائف) ---
   final _nameController = TextEditingController(); // اسم المحل (إجباري)
@@ -121,20 +122,20 @@ class _AddShopScreenState extends State<AddShopScreen> {
 
   // --- دالة حفظ المحل (تم تعديلها لتناسب الحقول الجديدة ومعمارية ApiClient) ---
   Future<void> _saveShop() async {
-    // 1. التحقق من صحة الفورم
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+    if (!_formKey.currentState!.validate()) return;
 
-    final String locationText = _locationFieldController.text.trim();
-    // 1. تقييم الشروط أولاً بناءً على نية المندوب الحقيقية (الموجود في الشاشة)
-    final bool isGpsValid = _currentLatitude != null && _currentLongitude != null && locationText.startsWith('Lat:');
-    final bool isLinkValid = !isGpsValid && locationText.isNotEmpty;
+    final locationText = _locationFieldController.text.trim();
+    final isGpsValid = _currentLatitude != null &&
+        _currentLongitude != null &&
+        locationText.startsWith('Lat:');
+    final isLinkValid = !isGpsValid && locationText.isNotEmpty;
 
-    // +++  (SHP-2): التحقق الموحد لمنع ثغرة الـ Ghost GPS تماماً +++
     if (!isGpsValid && !isLinkValid) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('الرجاء تحديد الموقع عبر الـ GPS أو وضع رابط صحيح للموقع!'), backgroundColor: Colors.red),
+        const SnackBar(
+          content: Text('الرجاء تحديد الموقع عبر GPS أو إدخال رابط الموقع.'),
+          backgroundColor: Colors.red,
+        ),
       );
       return;
     }
@@ -142,87 +143,56 @@ class _AddShopScreenState extends State<AddShopScreen> {
     if (_isSaving) return;
     setState(() => _isSaving = true);
 
+    final command = _pendingShopCommand ??= _shopCreationService.prepare(
+      name: _nameController.text.trim(),
+      phoneNumber: _phoneController.text.trim(),
+      address: _governorateAreaController.text.trim(),
+      contactPerson: _contactPersonController.text.trim(),
+      notes: _notesController.text.trim(),
+      locationLink: isLinkValid ? locationText : null,
+      latitude: isGpsValid ? _currentLatitude : null,
+      longitude: isGpsValid ? _currentLongitude : null,
+    );
+
     try {
-      Map<String, dynamic> requestBody = {
-        'name': _nameController.text.trim(),
-        'contact_person': _contactPersonController.text.trim(),
-      };
-
-      if (_governorateAreaController.text.trim().isNotEmpty) requestBody['address'] = _governorateAreaController.text.trim();
-      if (_phoneController.text.trim().isNotEmpty) requestBody['phone_number'] = _phoneController.text.trim();
-      if (_notesController.text.trim().isNotEmpty) requestBody['notes'] = _notesController.text.trim();
-
-      // إرفاق الموقع بناءً على الشرط الذي نجح
-      if (isGpsValid) {
-        requestBody['latitude'] = _currentLatitude;
-        requestBody['longitude'] = _currentLongitude;
-      } else if (isLinkValid) {
-        requestBody['location_link'] = locationText;
-      }
-
-      developer.log('Request Body: $requestBody');
-
-      // --- إرسال طلب POST باستخدام ApiClient المعماري ---
-      final response = await ApiClient.instance.post(
-        '/shops', // +++ المسار الحقيقي من routes.py +++
-        data: requestBody,
-      );
-
+      final result = await _shopCreationService.execute(command);
       if (!mounted) return;
 
-      // +++   حماية الشاشة من التجميد في حال تغير كود النجاح من الباك إند +++
-      if (response.statusCode == 201 || response.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تم حفظ المحل بنجاح!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        Navigator.pop(context, true);
-      }
-    } on DioException catch (e) {
-      developer.log('DioException saving shop: ${e.message}');
-      if (!mounted) return;
-
-      String errorMessage = 'فشل حفظ المحل. الرجاء المحاولة مرة أخرى.';
-      if (e.response?.data != null && e.response?.data is Map) {
-        // +++ الدرع النخبوي (Elite Shield) لالتقاط أخطاء FastAPI و Pydantic بصيغتها المعقدة ومنع الـ Type Crash +++
-        final Map<dynamic, dynamic> errorData = e.response!.data as Map;
-        
-        if (errorData['message'] != null && errorData['message'] is String) {
-          errorMessage = 'فشل الحفظ: ${errorData['message']}';
-        } else if (errorData['detail'] != null) {
-          final dynamic detail = errorData['detail'];
-          if (detail is List && detail.isNotEmpty) {
-            // التقاط خطأ التحقق (Validation Error) من Pydantic
-            final firstError = detail[0] as Map;
-            errorMessage = 'خطأ في البيانات: ${firstError['msg']}';
-          } else if (detail is String) {
-            errorMessage = 'فشل الحفظ: $detail';
-          }
-        }
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
-      );
-    } catch (e) {
-      developer.log('Error saving shop: $e');
-      if (!mounted) return;
+      _pendingShopCommand = null;
+      final readiness = result.commercialReadiness;
+      final message = readiness.saleReady
+          ? 'تم حفظ المحل بنجاح.'
+          : 'تم حفظ المحل، لكنه يحتاج إكمال الإعداد التجاري من الإدارة قبل البيع.';
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('حدث خطأ في الاتصال: ${e.toString()}'),
+          content: Text(message),
+          backgroundColor: readiness.saleReady ? Colors.green : Colors.orange,
+        ),
+      );
+      Navigator.pop(context, true);
+    } on ShopCreateFailure catch (failure) {
+      if (!mounted) return;
+      if (!failure.ambiguous) {
+        _pendingShopCommand = null;
+      }
+      final message = failure.ambiguous
+          ? 'تعذر تأكيد نتيجة إضافة المحل. أعد المحاولة من نفس الشاشة ليُعاد إرسال نفس الطلب بأمان.'
+          : (failure.displayFallback ?? 'رفض الخادم طلب إضافة المحل.');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
+      );
+    } catch (e) {
+      developer.log('Unexpected shop creation failure: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('حدث خطأ غير متوقع أثناء إضافة المحل.'),
           backgroundColor: Colors.red,
         ),
       );
     } finally {
-      developer.log('Executing finally block...');
-      if (mounted) {
-        setState(() {
-          _isSaving = false;
-        });
-      }
+      if (mounted) setState(() => _isSaving = false);
     }
   }
   // --- نهاية دالة حفظ المحل ---
