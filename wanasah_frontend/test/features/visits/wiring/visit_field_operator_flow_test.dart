@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wanasah_frontend/core/errors/api_failure_exception.dart';
 import 'package:wanasah_frontend/core/network/api_failure.dart';
 import 'package:wanasah_frontend/features/visits/application/commercial/read_commercial_readiness.dart';
-import 'package:wanasah_frontend/features/visits/application/commercial/commercial_readiness_outcome.dart';
 import 'package:wanasah_frontend/features/visits/application/invoice/preview_visit_invoice.dart';
 import 'package:wanasah_frontend/features/visits/application/invoice/read_committed_visit_invoice.dart';
 import 'package:wanasah_frontend/features/visits/application/invoice/committed_invoice_outcome.dart';

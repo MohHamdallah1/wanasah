@@ -15,7 +15,8 @@ Future<ResolvedVisitReturns?> resolveVisitReturns(BuildContext context, {
   final resolved = <FieldReturnResolution>[];
   for (final request in visitReturnRequests(cart)) {
     var outcome = await coordinator.resolve(visitId, request);
-    while (context.mounted) {
+    while (true) {
+      if (!context.mounted) return null;
       switch (outcome) {
         case ReturnResolved():
           resolved.add(outcome.resolution);
@@ -27,7 +28,8 @@ Future<ResolvedVisitReturns?> resolveVisitReturns(BuildContext context, {
             builder: (_) => ReturnAmbiguityChooser(pending: pending,
               productName: cart.firstWhere((item) => item.productVariantId == request.productVariantId).name),
           );
-          if (evidence == null || !context.mounted) return null;
+          if (!context.mounted) return null;
+          if (evidence == null) return null;
           outcome = await coordinator.submitEvidence(pending, evidence);
           continue; // Another prompt requires another explicit operator action.
         case ReturnResolutionFailed():

@@ -51,6 +51,7 @@ Future<VisitFieldConfirmation?> confirmVisitFieldSubmission(BuildContext context
   var outcome = hasSales ? 'Sale' : 'NoSale';
   var finalNotes = notes;
   if (cart.isEmpty) {
+    if (!context.mounted) return null;
     final selected = await showDialog<String>(context: context,
       builder: (context) => AlertDialog(
         title: Text(VisitFieldStrings.of(context).t('emptyOutcome')),
@@ -64,7 +65,8 @@ Future<VisitFieldConfirmation?> confirmVisitFieldSubmission(BuildContext context
             child: Text(VisitFieldStrings.of(context).t('cancel'))),
         ],
       ));
-    if (selected == null || !context.mounted) return null;
+    if (!context.mounted) return null;
+    if (selected == null) return null;
     outcome = selected;
     if (finalNotes.trim().isEmpty) {
       finalNotes = VisitFieldStrings.of(context).t(
@@ -73,20 +75,26 @@ Future<VisitFieldConfirmation?> confirmVisitFieldSubmission(BuildContext context
   }
   CommercialReady? commercial;
   if (hasSales) {
+    if (!context.mounted) return null;
     if (cashText.trim().isEmpty) {
       await showVisitFieldFailure(context, issue: 'cashRequired');
       return null;
     }
+    if (!context.mounted) return null;
     commercial = await checkVisitCommercialReadiness(context,
       visitId: visitId, read: readiness);
-    if (commercial == null || !context.mounted) return null;
+    if (!context.mounted) return null;
+    if (commercial == null) return null;
   }
+  if (!context.mounted) return null;
   final resolved = await resolveVisitReturns(context,
     visitId: visitId, cart: cart, coordinator: returns);
-  if (resolved == null || !context.mounted) return null;
+  if (!context.mounted) return null;
+  if (resolved == null) return null;
   VisitSaleConfirmation? sale;
   if (commercial != null) {
     final request = visitInvoiceRequest(cart);
+    if (!context.mounted) return null;
     final invoice = await confirmVisitInvoice(context, visitId: visitId,
       request: request, preview: preview);
     if (invoice == null || !context.mounted) return null;
