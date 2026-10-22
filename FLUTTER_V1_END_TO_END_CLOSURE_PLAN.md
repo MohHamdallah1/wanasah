@@ -563,6 +563,7 @@ Known extraction targets and V1 timing:
 - [x] `dashboard_screen.dart`: Work Session controls, pending-transfer dialog, and vehicle-inventory presentation extracted into feature-owned presentation files.
 - [x] `dashboard_screen.dart`: Recovery/sync presentation extracted to `features/recovery/presentation/**`; residual summaries/navigation shell remains.
 - [ ] `sync_repository.dart` (~480 lines): extract operation-specific Visit/Transfer/Shop adapters as those contracts are wired.
+- [x] Visit List / Route Execution responsibility extracted into `features/visits/list/{application,data,presentation}`; `VisitListBloc` remains a thin compatibility shell and `VisitListScreen` a composition/navigation shell.
 - [ ] app/bootstrap/theme extraction: perform with the design-system wave, not before P0 contracts close.
 
 ### 10.3 Frozen decomposition execution order
@@ -781,6 +782,32 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] FIELD ownership/adapters regression: PASS.
 - [ ] Completed/corrected return end-to-end acceptance still waits for the Visit FIELD wiring slice and final real-device journey.
 - [ ] Silent clamp-to-zero behavior in AVAILABLE projection remains separate technical debt and is not marked closed by this wave.
+
+### 10.14 Visit List / Route Execution behavioral stability point — 2026-10-22
+
+- [x] Worker branch: `sol/flutter-v1-visit-list-route-closure`.
+- [x] Worker implementation HEAD: `160d1697b4d4d9ec62a8ec29b4be8b3487e8173b`.
+- [x] Feature tree organized under `features/visits/list/application/**`, `data/**`, and `presentation/**`.
+- [x] `VisitListScreen` reduced from 518 to 258 lines and no longer owns filtering/counting/raw DB parsing/refresh classification/direct SecureStorage gating/map implementation.
+- [x] `VisitListBloc` delegates to feature-owned reader and refresh coordinator and no longer owns LocalDatabase/SyncRepository/raw SQLite parsing.
+- [x] Deterministic ordering is sequence ASC then Visit ID ASC.
+- [x] Normal vs emergency route classification uses canonical `isEmergency`, never translated labels.
+- [x] Completed/Pending filters and counts use Backend status as authority.
+- [x] Canonical Backend semantics preserved: Sale/NoSale remain Completed; Postponed remains Pending. Legacy/noncanonical Pending+outcome rows are presentation-only and never rewrite Backend status.
+- [x] Active filter survives local reload/return from Visit screen.
+- [x] Refresh outcomes are typed; free/localized text never drives retry/business classification.
+- [x] Existing SyncRepository remains the transport; no second sync engine was introduced.
+- [x] Add Shop/Open Visit action gating is centralized behind one fail-closed compatibility boundary.
+- [x] Map coordinates/link handling moved behind typed map target/launcher boundaries with unsafe schemes rejected.
+- [x] New/touched Visit List copy lives behind feature-owned strings; translated text does not drive machine state.
+- [x] Worker exact-head run `39704281436`: analyze PASS; 56 focused/regression tests PASS.
+- [x] Current-lead PR #446 had zero ownership overlap with the 58 newer lead commits.
+- [x] PR #446 merge-result gates PASS: Visit List, Visit decomposition, Visit commercial decomposition, FIELD adapters/ownership, Offline durable-command regression.
+- [x] PR #446 merged into `sol/flutter-v1-field-closure`.
+- [x] Merge commit: `19aefd88129777486fb87ce59eb02964fa32b90a`.
+- [x] No Dashboard web, Backend, Visit FIELD wiring, Recovery, Work Session, Custody, Shops, Auth, LocalDatabase or SyncRepository production files were modified by this slice.
+- [ ] Route-action compatibility still reads cached `is_on_break` / `is_authorized`; Backend remains authorization authority and this seam may be replaced later without changing Visit List UI.
+- [ ] SyncRepository still exposes generic exceptions on some compatibility paths; Visit List fails closed rather than parsing message text.
 
 ## 11. UI / design-system closure
 
