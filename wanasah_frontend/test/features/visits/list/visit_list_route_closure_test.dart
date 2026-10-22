@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter/services.dart';
 import 'package:wanasah_frontend/blocs/visit_list/visit_list_bloc.dart';
 import 'package:wanasah_frontend/blocs/visit_list/visit_list_event.dart';
 import 'package:wanasah_frontend/blocs/visit_list/visit_list_state.dart';
@@ -14,10 +16,10 @@ import 'package:wanasah_frontend/features/visits/list/application/visit_map_targ
 import 'package:wanasah_frontend/features/visits/list/application/visit_route_action_gate.dart';
 import 'package:wanasah_frontend/features/visits/list/data/visit_list_data_source.dart';
 import 'package:wanasah_frontend/features/visits/list/data/visit_list_refresh_source.dart';
-import 'package:wanasah_frontend/features/visits/list/data/visit_route_action_state_source.dart';
 import 'package:wanasah_frontend/models/visit_model.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   group('Visit List read model', () {
     test('orders deterministically by sequence then visit id', () async {
       final model = await _reader(<VisitModel>[
@@ -298,64 +300,54 @@ void main() {
     });
   });
 
-  group('Route action compatibility gate', () {
-    test('active break blocks add and open actions', () async {
+  group('Route action navigation is not authorization', () {
+    test('stale cached active break does not block either form', () async {
       final gate = _gate(onBreak: 'true', authorized: 'true');
-
-      expect(
-        await gate.evaluate(VisitRouteAction.addShop),
-        VisitRouteActionDecision.onBreak,
-      );
-      expect(
-        await gate.evaluate(VisitRouteAction.openVisit),
-        VisitRouteActionDecision.onBreak,
-      );
+      for (final action in VisitRouteAction.values) {
+        expect(await gate.evaluate(action), VisitRouteActionDecision.allowed);
+      }
     });
 
-    test('unauthorized state blocks Add Shop', () async {
+    test('stale cached unauthorized does not block either form', () async {
       final gate = _gate(onBreak: 'false', authorized: 'false');
-
-      expect(
-        await gate.evaluate(VisitRouteAction.addShop),
-        VisitRouteActionDecision.unauthorized,
-      );
+      for (final action in VisitRouteAction.values) {
+        expect(await gate.evaluate(action), VisitRouteActionDecision.allowed);
+      }
     });
 
-    test('valid compatibility state allows both route actions', () async {
+    test('allowed cache opens forms without claiming mutation acceptance', () async {
       final gate = _gate(onBreak: 'false', authorized: 'true');
-
-      expect(
-        await gate.evaluate(VisitRouteAction.addShop),
-        VisitRouteActionDecision.allowed,
-      );
-      expect(
-        await gate.evaluate(VisitRouteAction.openVisit),
-        VisitRouteActionDecision.allowed,
-      );
+      for (final action in VisitRouteAction.values) {
+        expect(await gate.evaluate(action), VisitRouteActionDecision.allowed);
+      }
     });
 
-    test('missing or malformed compatibility state fails closed', () async {
-      expect(
-        await _gate(onBreak: null, authorized: 'true')
-            .evaluate(VisitRouteAction.openVisit),
-        VisitRouteActionDecision.unavailable,
-      );
-      expect(
-        await _gate(onBreak: 'false', authorized: 'yes')
-            .evaluate(VisitRouteAction.addShop),
-        VisitRouteActionDecision.unavailable,
-      );
+    test('missing or malformed compatibility values do not deny navigation', () async {
+      for (final gate in [
+        _gate(onBreak: null, authorized: null),
+        _gate(onBreak: 'invalid', authorized: 'yes'),
+      ]) {
+        for (final action in VisitRouteAction.values) {
+          expect(await gate.evaluate(action), VisitRouteActionDecision.allowed);
+        }
+      }
     });
 
-    test('storage read failure fails closed', () async {
-      final gate = VisitRouteActionGate(
-        source: _ThrowingActionStateSource(),
-      );
-
-      expect(
-        await gate.evaluate(VisitRouteAction.openVisit),
-        VisitRouteActionDecision.unavailable,
-      );
+    test('storage failure cannot affect navigation because it is never read', () async {
+      var reads = 0;
+      const channel = MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (_) async {
+        reads++;
+        throw StateError('storage unavailable');
+      });
+      addTearDown(() => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null));
+      for (final action in VisitRouteAction.values) {
+        expect(await const VisitRouteActionGate().evaluate(action),
+          VisitRouteActionDecision.allowed);
+      }
+      expect(reads, 0);
     });
   });
 
@@ -559,14 +551,11 @@ VisitRouteActionGate _gate({
   required String? onBreak,
   required String? authorized,
 }) {
-  return VisitRouteActionGate(
-    source: _FakeActionStateSource(
-      VisitRouteCompatibilityState(
-        isOnBreak: onBreak,
-        isAuthorized: authorized,
-      ),
-    ),
-  );
+  FlutterSecureStorage.setMockInitialValues({
+    if (onBreak != null) 'is_on_break': onBreak,
+    if (authorized != null) 'is_authorized': authorized,
+  });
+  return const VisitRouteActionGate();
 }
 
 DioException _dioResponse({
@@ -637,20 +626,3 @@ class _HangingRefreshSource implements VisitListRefreshSource {
   }
 }
 
-class _FakeActionStateSource implements VisitRouteActionStateSource {
-  _FakeActionStateSource(this.state);
-
-  final VisitRouteCompatibilityState state;
-
-  @override
-  Future<VisitRouteCompatibilityState> readCompatibilityState() async {
-    return state;
-  }
-}
-
-class _ThrowingActionStateSource implements VisitRouteActionStateSource {
-  @override
-  Future<VisitRouteCompatibilityState> readCompatibilityState() async {
-    throw StateError('storage unavailable');
-  }
-}
