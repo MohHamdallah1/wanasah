@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
-import '../../models/visit_model.dart';
+
+import '../../features/visits/list/application/visit_list_read_model.dart';
+import '../../features/visits/list/application/visit_list_refresh.dart';
 
 abstract class VisitListState extends Equatable {
   const VisitListState();
@@ -13,26 +15,28 @@ class VisitListLoading extends VisitListState {
 }
 
 class VisitListLoaded extends VisitListState {
-  final List<VisitModel> allVisits;
-  final List<VisitModel> filteredVisits;
-  final String currentFilter; // 'All', 'Completed', 'Pending'
-
   const VisitListLoaded({
-    required this.allVisits,
-    required this.filteredVisits,
-    required this.currentFilter,
+    required this.model,
+    this.refreshResult,
   });
 
+  final VisitListReadModel model;
+  final VisitListRefreshResult? refreshResult;
+
   @override
-  List<Object?> get props => [allVisits, filteredVisits, currentFilter];
+  List<Object?> get props => [model, refreshResult];
+}
+
+enum VisitListLoadFailure {
+  localRead,
 }
 
 class VisitListError extends VisitListState {
-  final String message;
-  final DateTime timestamp; // +++   ختم زمني لإجبار الواجهة على إظهار الأخطاء المتكررة +++
+  VisitListError(this.failure) : timestamp = DateTime.now();
 
-  VisitListError(this.message) : timestamp = DateTime.now();
+  final VisitListLoadFailure failure;
+  final DateTime timestamp;
 
   @override
-  List<Object?> get props => [message, timestamp];
+  List<Object?> get props => [failure, timestamp];
 }
