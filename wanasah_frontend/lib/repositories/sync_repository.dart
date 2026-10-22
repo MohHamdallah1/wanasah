@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../core/network/api_client.dart';
 import '../core/db/local_database.dart';
 import '../core/sync/durable_command.dart';
+import '../core/sync/sync_reconciliation_failure.dart';
 import '../core/visit/local_inventory_projection.dart';
 import '../features/auth/data/secure_auth_identity_store.dart';
 import '../models/product_model.dart';
@@ -74,8 +75,8 @@ class SyncRepository {
         developer.log(
           '[SyncRepository] Aborting syncDown: blocked recovery evidence exists.',
         );
-        throw Exception(
-          'يوجد عمليات أوفلاين تحتاج معالجة قبل تحديث البيانات المحلية.',
+        throw const SyncReconciliationException(
+          SyncReconciliationCode.blockedEvidence,
         );
       }
 
@@ -90,8 +91,8 @@ class SyncRepository {
         developer.log(
           '[SyncRepository] Aborting syncDown: unresolved non-sale commands exist.',
         );
-        throw Exception(
-          'يوجد عمليات أوفلاين حساسة معلقة. يجب تسويتها أولاً لحماية بياناتك.',
+        throw const SyncReconciliationException(
+          SyncReconciliationCode.pendingSensitiveEvidence,
         );
       }
 
@@ -105,8 +106,8 @@ class SyncRepository {
         developer.log(
           '[SyncRepository] Aborting local DB refresh: unresolved offline sales exist.',
         );
-        throw Exception(
-          'يرجى الانتظار، جاري رفع بعض فواتير الأوفلاين للسيرفر أولاً.',
+        throw const SyncReconciliationException(
+          SyncReconciliationCode.pendingVisitEvidence,
         );
       }
 
@@ -140,7 +141,9 @@ class SyncRepository {
       }
 
       if (!hasValidStructure) {
-        throw Exception('استجابة الخادم غير مفهومة أو لا تحتوي على الهيكل الصحيح للبيانات.');
+        throw const SyncReconciliationException(
+          SyncReconciliationCode.invalidAuthoritativeProjection,
+        );
       }
 
       final List<VisitModel> visitModels = await compute(_parseVisits, visitsData);
@@ -155,8 +158,8 @@ class SyncRepository {
         developer.log(
           '[SyncRepository] Aborting local DB refresh: unresolved command appeared during fetch.',
         );
-        throw Exception(
-          'تم تسجيل عملية أوفلاين أثناء التحديث. عالج المزامنة أولاً ثم أعد المحاولة.',
+        throw const SyncReconciliationException(
+          SyncReconciliationCode.commandAppearedDuringRefresh,
         );
       }
 
@@ -216,7 +219,7 @@ class SyncRepository {
     final isQueueHead =
         await _db.isFirstUnresolvedCommand(commandRecordId);
     if (!isQueueHead) {
-      await _finalizeVisitCommandLocalState(
+      await _finalizeDirectVisitLocalState(
         commandRecordId: commandRecordId,
         payload: commandPayload,
       );
@@ -272,7 +275,7 @@ class SyncRepository {
 
       // The representative may continue offline. The local projection is
       // applied exactly once and is tied to the still-unresolved command.
-      await _finalizeVisitCommandLocalState(
+      await _finalizeDirectVisitLocalState(
         commandRecordId: commandRecordId,
         payload: commandPayload,
       );
@@ -280,17 +283,13 @@ class SyncRepository {
         '[SyncRepository] Visit #$visitId preserved offline with durable request $requestId.',
       );
       return;
-    } catch (e) {
-      await _db.markPendingSyncBlocked(
-        commandRecordId,
-        errorCode: 'LOCAL_COMMAND_ERROR',
-        errorMessage: e.toString(),
-      );
+    } catch (error) {
+      await _recordLocalReplayFailure(commandRecordId, error);
       rethrow;
     }
 
     try {
-      await _finalizeVisitCommandLocalState(
+      await _finalizeDirectVisitLocalState(
         commandRecordId: commandRecordId,
         payload: commandPayload,
       );
@@ -298,6 +297,7 @@ class SyncRepository {
       developer.log(
         '[SyncRepository] Visit #$visitId committed and locally finalized with durable request $requestId.',
       );
+      await _refreshAuthoritativeProjectionAfterConfirmedMutation();
     } catch (localDbError) {
       // Do not delete the command. A later replay returns the Backend's stored
       // idempotent response and completes local finalization exactly once.
@@ -306,6 +306,68 @@ class SyncRepository {
       );
       rethrow;
     }
+  }
+
+  Future<void> _finalizeDirectVisitLocalState({
+    required int commandRecordId,
+    required Map<String, dynamic> payload,
+  }) async {
+    try {
+      await _finalizeVisitCommandLocalState(
+        commandRecordId: commandRecordId,
+        payload: payload,
+      );
+    } on LocalInventoryProjectionException catch (error) {
+      await _db.markPendingSyncBlocked(
+        commandRecordId,
+        errorCode: error.code,
+        errorMessage: error.toString(),
+      );
+      rethrow;
+    } catch (error) {
+      await _recordLocalReplayFailure(commandRecordId, error);
+      rethrow;
+    }
+  }
+
+  Future<void> _refreshAuthoritativeProjectionAfterConfirmedMutation() async {
+    try {
+      final refreshed = await syncDown();
+      if (!refreshed) {
+        developer.log(
+          '[SyncRepository] Authoritative refresh already owned by another syncDown.',
+        );
+      }
+    } catch (error) {
+      // The mutation is already confirmed, locally finalized and its durable
+      // evidence safely removed. Refresh failure must not turn that confirmed
+      // mutation into a false submission failure; a later Recovery/Dashboard
+      // refresh will retry the read-model projection.
+      developer.log(
+        '[SyncRepository] Post-confirmation authoritative refresh deferred: $error',
+      );
+    }
+  }
+
+  Future<void> _recordLocalReplayFailure(
+    int recordId,
+    Object error,
+  ) async {
+    final failure = SyncLocalFailure.from(error);
+    if (failure.disposition == SyncLocalFailureDisposition.pending) {
+      await _db.markPendingSyncPending(
+        recordId,
+        lastErrorCode: failure.code,
+        lastErrorMessage: failure.displayFallback,
+      );
+      return;
+    }
+
+    await _db.markPendingSyncBlocked(
+      recordId,
+      errorCode: failure.code,
+      errorMessage: failure.displayFallback,
+    );
   }
 
   Future<void> _finalizeVisitCommandLocalState({
@@ -564,21 +626,8 @@ class SyncRepository {
             errorMessage: error.toString(),
           );
           break;
-        } catch (e) {
-          if (e.toString().contains('DatabaseException')) {
-            await _db.markPendingSyncPending(
-              recordId,
-              lastErrorCode: 'LOCAL_DATABASE_TRANSIENT',
-              lastErrorMessage: e.toString(),
-            );
-            break;
-          }
-
-          await _db.markPendingSyncBlocked(
-            recordId,
-            errorCode: 'LOCAL_COMMAND_ERROR',
-            errorMessage: e.toString(),
-          );
+        } catch (error) {
+          await _recordLocalReplayFailure(recordId, error);
           break;
         }
       }
