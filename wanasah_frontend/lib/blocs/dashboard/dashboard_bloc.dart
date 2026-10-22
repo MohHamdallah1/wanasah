@@ -525,14 +525,23 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         ),
       ]);
 
-      if (outcome.anyQueued) {
+      if (outcome.anyBlocked) {
         emit(
-          snapshot.copyWith(
-            clearPendingTransfer: true,
-            actionSuccessMessage:
-                'تم حفظ رد العهدة وسيُعاد إرساله بنفس القرار عند عودة الاتصال.',
+          DashboardError(
+            message:
+                'تعذر اعتماد رد العهدة بسبب تعارض مؤكد. بقي القرار محفوظاً للاسترداد.',
           ),
         );
+        emit(snapshot);
+        add(const CheckPendingTransfers());
+      } else if (outcome.anyQueued || outcome.hasUnattempted) {
+        emit(
+          snapshot.copyWith(
+            actionSuccessMessage:
+                'تم حفظ رد العهدة بنفس القرار وسيُعاد التحقق منه عند عودة الاتصال.',
+          ),
+        );
+        add(const CheckPendingTransfers());
       } else {
         emit(snapshot.copyWith(clearPendingTransfer: true));
         add(
@@ -562,14 +571,23 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
 
     try {
       final outcome = await _custodyCoordinator.respond(event.decisions);
-      if (outcome.anyQueued) {
+      if (outcome.anyBlocked) {
         emit(
-          snapshot.copyWith(
-            clearPendingTransfer: true,
-            actionSuccessMessage:
-                'تم حفظ قرارات العهدة وسيُعاد إرسالها بنفس القيم عند عودة الاتصال.',
+          DashboardError(
+            message:
+                'تعذر اعتماد بعض قرارات العهدة بسبب تعارض مؤكد. بقيت الأدلة محفوظة للاسترداد.',
           ),
         );
+        emit(snapshot);
+        add(const CheckPendingTransfers());
+      } else if (outcome.anyQueued || outcome.hasUnattempted) {
+        emit(
+          snapshot.copyWith(
+            actionSuccessMessage:
+                'تم حفظ قرارات العهدة غير المحسومة بنفس القيم دون اعتبارها مكتملة.',
+          ),
+        );
+        add(const CheckPendingTransfers());
       } else {
         emit(snapshot.copyWith(clearPendingTransfer: true));
         add(
