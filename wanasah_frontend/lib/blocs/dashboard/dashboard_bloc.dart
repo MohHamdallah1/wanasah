@@ -28,6 +28,7 @@ import '../../features/recovery/data/recovery_data_source.dart';
 import '../../features/recovery/data/recovery_sync_executor.dart';
 import '../../features/custody/application/custody_coordinator.dart';
 import '../../features/custody/domain/transfer_decision.dart';
+import '../../features/custody/domain/pending_return_custody.dart';
 
 class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
   final SyncRepository _syncRepository;
@@ -229,6 +230,16 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       '[DashboardBloc] Local Stats: Total($total), Done($completed), Sales($salesInCompleted), Offline($offlineCount)',
     );
 
+    var pendingReturnCustody = const <PendingReturnCustodyItem>[];
+    try {
+      pendingReturnCustody =
+          await _custodyCoordinator.loadPendingReturnCustody();
+    } catch (e) {
+      developer.log(
+        '[DashboardBloc] Local pending return custody read failed: $e',
+      );
+    }
+
     return DashboardLoaded(
       visits: visits,
       products: products,
@@ -250,6 +261,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
           activeSessionStartTime != '' ? activeSessionStartTime : null,
       isOnBreak:
           isOnBreak, // +++ إرجاع حالة الاستراحة ليقلب الزر لـ "إنهاء الاستراحة" +++
+      pendingReturnCustody: pendingReturnCustody,
     );
   }
   
@@ -386,6 +398,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
           isOnBreak: isOnBreak,
           // +++  لـ Bug 5: حفظ رسالة النجاح من الطمس أثناء تحديث البيانات +++
           actionSuccessMessage: (state is DashboardLoaded) ? (state as DashboardLoaded).actionSuccessMessage : null,
+          pendingReturnCustody: localData.pendingReturnCustody,
         ),
       );
 
