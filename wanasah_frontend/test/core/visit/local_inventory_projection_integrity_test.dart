@@ -361,7 +361,7 @@ void main() {
         'await _dispatchPendingRecord(type: type, payload: payload);',
       );
       final replayFinalize = source.indexOf(
-        '_finalizeVisitCommandLocalState(',
+        '_visitReplay.finalizeLocalState(',
         replayDispatch,
       );
       final replayDelete = source.indexOf(

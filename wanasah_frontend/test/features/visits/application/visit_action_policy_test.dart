@@ -211,7 +211,11 @@ void main() {
 
   test('status finalization preserves the Backend mapping without legacy status rewrite', () {
     final source = File('lib/repositories/sync_repository.dart').readAsStringSync();
-    expect(source, contains("outcome == 'Postponed' ? 'Pending' : 'Completed'"));
+    final replay = File(
+      'lib/features/visits/data/local_visit_replay_adapter.dart',
+    ).readAsStringSync();
+    expect(source, contains('_visitReplay.finalizeLocalState('));
+    expect(replay, contains("outcome == 'Postponed' ? 'Pending' : 'Completed'"));
     final bloc = File('lib/blocs/visit/visit_bloc.dart').readAsStringSync();
     expect(bloc, contains('emit(currentState)'));
     expect(bloc, contains('VisitFieldSubmissionFailure('));

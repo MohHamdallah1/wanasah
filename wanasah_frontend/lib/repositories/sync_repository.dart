@@ -9,6 +9,8 @@ import '../core/sync/durable_command.dart';
 import '../core/sync/sync_reconciliation_failure.dart';
 import '../core/visit/local_inventory_projection.dart';
 import '../features/auth/data/secure_auth_identity_store.dart';
+import '../features/visits/application/visit_replay_adapter.dart';
+import '../features/visits/data/local_visit_replay_adapter.dart';
 import '../models/product_model.dart';
 import '../models/visit_model.dart';
 
@@ -27,6 +29,7 @@ class SyncRepository {
   // -----------------------------------------------------------------------
   final ApiClient _api;
   final LocalDatabase _db;
+  final VisitReplayAdapter _visitReplay;
   final SecureAuthIdentityStore _identities = SecureAuthIdentityStore();
   static const Uuid _uuid = Uuid();
   
@@ -37,7 +40,11 @@ class SyncRepository {
   // البناء الداخلي المخفي
   SyncRepository._internal({ApiClient? api, LocalDatabase? db})
     : _api = api ?? ApiClient.instance,
-      _db = db ?? LocalDatabase.instance;
+      _db = db ?? LocalDatabase.instance,
+      _visitReplay = LocalVisitReplayAdapter.withDependencies(
+        api: api ?? ApiClient.instance,
+        database: db ?? LocalDatabase.instance,
+      );
 
   // +++ خدعة معمارية: أي BLoC يحاول كتابة SyncRepository() سيحصل على النسخة الموحدة إجبارياً +++
   factory SyncRepository() {
@@ -313,7 +320,7 @@ class SyncRepository {
     required Map<String, dynamic> payload,
   }) async {
     try {
-      await _finalizeVisitCommandLocalState(
+      await _visitReplay.finalizeLocalState(
         commandRecordId: commandRecordId,
         payload: payload,
       );
@@ -367,46 +374,6 @@ class SyncRepository {
       recordId,
       errorCode: failure.code,
       errorMessage: failure.displayFallback,
-    );
-  }
-
-  Future<void> _finalizeVisitCommandLocalState({
-    required int commandRecordId,
-    required Map<String, dynamic> payload,
-  }) async {
-    final visitId =
-        int.tryParse(payload['visitId']?.toString() ?? '') ?? 0;
-    if (visitId <= 0) {
-      throw StateError('Visit command is missing a valid visitId.');
-    }
-
-    final outcome = payload['outcome']?.toString() ?? 'Sale';
-    final finalStatus = outcome == 'Postponed' ? 'Pending' : 'Completed';
-    final cashCollected =
-        double.tryParse(payload['cash_collected']?.toString() ?? '') ?? 0.0;
-    final debtPaid =
-        double.tryParse(payload['debt_paid']?.toString() ?? '') ?? 0.0;
-    final cartItems = payload['cart_items'] is List
-        ? List<dynamic>.from(payload['cart_items'] as List)
-        : <dynamic>[];
-    final returnItems = payload['returns'] is List
-        ? List<dynamic>.from(payload['returns'] as List)
-        : null;
-
-    await _db.finalizeVisitCommandLocalState(
-      commandRecordId: commandRecordId,
-      visitId: visitId,
-      status: finalStatus,
-      outcome: outcome,
-      cashCollected: cashCollected,
-      debtPaid: debtPaid,
-      cartItemsJson:
-          payload['cart_items'] != null ? jsonEncode(payload['cart_items']) : null,
-      returnsJson:
-          payload['returns'] != null ? jsonEncode(payload['returns']) : null,
-      notes: payload['notes']?.toString(),
-      cartItems: cartItems,
-      returnItems: returnItems,
     );
   }
 
@@ -573,7 +540,7 @@ class SyncRepository {
         try {
           await _dispatchPendingRecord(type: type, payload: payload);
           if (type == DurableCommandType.submitSale) {
-            await _finalizeVisitCommandLocalState(
+            await _visitReplay.finalizeLocalState(
               commandRecordId: recordId,
               payload: payload,
             );
@@ -694,40 +661,7 @@ class SyncRepository {
   }) async {
     switch (type) {
       case DurableCommandType.submitSale:
-        final int visitId = int.tryParse(payload['visitId']?.toString() ?? '') ?? 0;
-        final body = Map<String, dynamic>.from(payload)
-          ..remove('visitId')
-          ..remove('idempotency_key')
-          ..remove('quarantine_reason');
-
-        final requestId = body['request_id']?.toString().trim() ?? '';
-        if (requestId.isEmpty) {
-          throw StateError(
-            'submit_sale is missing its durable request_id.',
-          );
-        }
-
-        final response = await _api.put(
-          '/visits/$visitId',
-          data: body,
-        );
-
-        if (response.statusCode == null || response.statusCode! < 200 || response.statusCode! >= 300) {
-          throw DioException(
-            requestOptions: response.requestOptions,
-            response: response,
-            type: DioExceptionType.badResponse,
-          );
-        }
-
-        try {
-          if (response.data is Map && response.data['new_balance'] != null) {
-            final double newBalance = double.tryParse(response.data['new_balance'].toString()) ?? 0.0;
-            await _db.updateShopBalanceLocally(visitId, newBalance);
-          }
-        } catch (dbError) {
-          developer.log('[SyncRepository] Warning: Local DB update failed after successful sync: $dbError');
-        }
+        await _visitReplay.dispatch(payload);
         break;
 
       case DurableCommandType.legacyToggleBreak:

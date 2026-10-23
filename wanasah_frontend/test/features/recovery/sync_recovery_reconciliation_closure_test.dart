@@ -105,7 +105,7 @@ void main() {
         syncUpStart,
       );
       final finalize = source.indexOf(
-        'await _finalizeVisitCommandLocalState(',
+        'await _visitReplay.finalizeLocalState(',
         dispatch,
       );
       final delete = source.indexOf(

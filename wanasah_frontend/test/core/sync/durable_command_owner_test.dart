@@ -83,7 +83,7 @@ void main() {
   test('runtime staging and replay bind owner before mutation or legacy UUID repair', () {
     final sync = File('lib/repositories/sync_repository.dart').readAsStringSync();
     final visitStart = sync.indexOf('Future<void> saveInvoice(');
-    final visitEnd = sync.indexOf('Future<void> _finalizeVisitCommandLocalState(', visitStart);
+    final visitEnd = sync.indexOf('Future<bool> respondToTransfer(', visitStart);
     final visit = sync.substring(visitStart, visitEnd);
     expect(visit, contains('ownerDriverId: owner.driverId'));
     expect(visit.indexOf('requireCommandOwner'), lessThan(visit.indexOf('stageVisitCommandAtomic(')));
