@@ -1,0 +1,143 @@
+name: FIELD Authorization Phase 1 PostgreSQL Acceptance
+
+on:
+  pull_request:
+    paths:
+      - "wa_backend/domains/authorization/**"
+      - "wa_backend/models.py"
+      - "wa_backend/alembic/**"
+      - "wa_backend/tests/test_field_authorization_phase1_postgres.py"
+      - ".github/workflows/field-authorization-phase1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  persisted-field-authorization:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: wa_backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: field_auth_admin
+          POSTGRES_DB: field_auth_phase1_gate
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["55479:5432"]
+        options: >-
+          --health-cmd "pg_isready -U field_auth_admin -d field_auth_phase1_gate"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: FieldAuthPhase1SyntheticOnlyKey012345678901234567890123456
+      DATABASE_URL: postgresql+asyncpg://field_auth_runtime@127.0.0.1:55479/field_auth_phase1_gate
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://field_auth_admin@127.0.0.1:55479/field_auth_phase1_gate
+      WANASAH_FIELD_AUTH_PHASE1_GATE: "1"
+      PYTHONPATH: ".:tests"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Backend and pinned test dependencies
+        run: python -m pip install -r requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Provision restricted disposable PostgreSQL runtime role
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect("postgresql://field_auth_admin@127.0.0.1:55479/field_auth_phase1_gate", autocommit=True) as db:
+              db.execute("CREATE ROLE field_auth_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+              db.execute("CREATE DATABASE representatives_role_gate")
+          PY
+      - name: Real previous-head upgrade, backfill, FK, RLS, revocation and DUAL_SPLIT acceptance
+        run: python -m pytest -q -s tests/test_field_authorization_phase1_postgres.py --junitxml=field-auth-phase1.xml
+      - name: Reject skipped or empty Phase 1 acceptance
+        if: always()
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse("field-auth-phase1.xml").getroot()
+          cases = list(root.iter("testcase"))
+          assert cases, "No real PostgreSQL acceptance executed"
+          assert not list(root.iter("skipped")), "No skipped PostgreSQL acceptance allowed"
+          assert not list(root.iter("failure")) and not list(root.iter("error")), "FIELD acceptance failed"
+          print("FIELD_PHASE1_POSTGRES_EXECUTED=" + str(len(cases)))
+          PY
+      - name: Canonical regressions and exact approved-base historical failure parity
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/field-phase1-approved-base" 9dd3dbed089f8d41f775f599ddf366a417ea6a16
+          python - <<'PY'
+          import os, subprocess, sys
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          targets = [
+              "tests/test_authorization_core_compatibility.py",
+              "tests/test_canonical_backoffice_authorization_subject.py",
+              "tests/test_canonical_backoffice_authorization_dependency.py",
+              "tests/test_canonical_field_authorization_subject.py",
+              "tests/test_identity_schema_expand.py",
+              "tests/test_inventory_access_canonical_boundary.py",
+              "tests/test_inventory_access_canonical_cutover.py",
+              "tests/test_representatives_form_identity_contract.py",
+          ]
+          roots = [
+              ("approved-base", Path(os.environ["RUNNER_TEMP"]) / "field-phase1-approved-base" / "wa_backend"),
+              ("head", Path.cwd()),
+          ]
+          results = []
+          for label, root in roots:
+              report = Path(os.environ["RUNNER_TEMP"]) / ("field-phase1-" + label + ".xml")
+              env = dict(os.environ, PYTHONPATH=str(root) + os.pathsep + str(root / "tests"))
+              run = subprocess.run([sys.executable,"-m","pytest","-q",*targets,"--junitxml="+str(report)],
+                                   cwd=root,env=env,capture_output=True,text=True)
+              print(label + " pytest exit=" + str(run.returncode))
+              print(run.stdout[-10000:])
+              assert run.returncode in (0,1), run.stderr
+              tree = ET.parse(report).getroot()
+              assert not list(tree.iter("skipped")), "No regression skips allowed"
+              assert not list(tree.iter("error")), "No collection/fixture errors allowed"
+              cases = list(tree.iter("testcase"))
+              assert cases, "No regression cases ran"
+              failures = {(case.get("classname"),case.get("name")) for case in cases
+                          if case.find("failure") is not None}
+              print(label + " failures=" + repr(sorted(failures)))
+              results.append((len(cases),failures))
+          assert results[0] == results[1], "New regression or changed test execution vs approved base"
+          print("APPROVED_BASE_FAILURE_PARITY=PASS; historical failing tests are NOT claimed passing")
+          PY
+      - name: Fresh migrated Backoffice HTTP permissions regression
+        env:
+          DATABASE_URL: postgresql+asyncpg://field_auth_runtime@127.0.0.1:55479/representatives_role_gate
+          DATABASE_URL_MIGRATION: postgresql+asyncpg://field_auth_admin@127.0.0.1:55479/representatives_role_gate
+          WANASAH_REPRESENTATIVES_ROLE_DB_GATE: "1"
+        run: |
+          alembic upgrade head
+          alembic check
+          python -m pytest -q -s tests/test_representatives_role_provisioning_runtime_db.py
+      - name: Exact ownership and whitespace
+        run: |
+          git diff --check 9dd3dbed089f8d41f775f599ddf366a417ea6a16 HEAD
+          python - <<'PY'
+          import subprocess
+          allowed = {
+              "wa_backend/domains/authorization/capabilities.py",
+              "wa_backend/domains/authorization/field_models.py",
+              "wa_backend/models.py",
+              "wa_backend/alembic/env.py",
+              "wa_backend/alembic/versions/fa6c1e8d2b73_field_authorization_foundation.py",
+              "wa_backend/tests/test_field_authorization_phase1_postgres.py",
+              ".github/workflows/field-authorization-phase1.yml",
+          }
+          paths = set(subprocess.check_output(
+              ["git","diff","--name-only","9dd3dbed089f8d41f775f599ddf366a417ea6a16","HEAD"], text=True
+          ).splitlines())
+          assert paths == allowed, paths ^ allowed
+          print("PHASE1_EXACT_OWNERSHIP=PASS")
+          PY
