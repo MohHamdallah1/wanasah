@@ -542,6 +542,47 @@ describe("Checkpoint 1 inbound UI", () => {
     await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
   });
 
+  it("opens opening valuation on the backend guard and preserves the receipt draft", async () => {
+    const keys = inboundStorageKeys(1, 2, 3);
+    const savedDraft = {
+      "1": [
+        {
+          row_id: "opening-valuation-row",
+          quantity: "2",
+          uom_id: "1",
+          unit_cost: "3.000000",
+          batch_number: "",
+          production_date: "",
+          expiry_date: "",
+        },
+      ],
+    };
+    localStorage.setItem(keys.drafts, JSON.stringify(savedDraft));
+    localStorage.setItem(keys.reference, "INV-OPENING");
+    mocks.post.mockRejectedValueOnce(
+      Object.assign(new Error("opening valuation required"), {
+        code: "COST_OPENING_BALANCE_REQUIRED",
+        status: 409,
+      }),
+    );
+
+    renderInbound([
+      makeVariant(1, "Existing stock product", "NONE", "NONE"),
+    ]);
+    await screen.findByText("Existing stock product");
+    fireEvent.click(screen.getByRole("button", { name: "choose-supplier" }));
+    fireEvent.click(screen.getByRole("button", { name: "Post receipt" }));
+
+    expect(
+      await screen.findByText("Opening inventory valuation"),
+    ).toBeTruthy();
+    expect(mocks.post).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(keys.reference)).toBe("INV-OPENING");
+    expect(JSON.parse(localStorage.getItem(keys.drafts) ?? "{}")).toEqual(
+      savedDraft,
+    );
+  });
+
   it("clears restored hidden tracking values and submits nulls", async () => {
     const keys = inboundStorageKeys(1, 2, 3);
     localStorage.setItem(

@@ -11,9 +11,10 @@ import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
 import { currentLocale } from "@/i18n";
-import { apiErrorMessage } from "@/lib/apiErrors";
+import { apiErrorCode, apiErrorMessage } from "@/lib/apiErrors";
 import { SupplierSelector } from "@/features/suppliers/SupplierSelector";
 import { useInboundPosting } from "./inbound/useInboundPosting";
+import { OpeningValuationModal } from "./inbound/OpeningValuationModal";
 import {
   completeDurableOperation,
   durableScope,
@@ -262,6 +263,7 @@ export function Tab2Inbound({
   const [submitting, setSubmitting] = useState(false);
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [costPolicyOpen, setCostPolicyOpen] = useState(false);
+  const [openingValuationOpen, setOpeningValuationOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
   const [validationError, setValidationError] =
     useState<InboundRowValidationError | null>(null);
@@ -850,6 +852,13 @@ export function Tab2Inbound({
         setValidationError(error);
         focusValidation(error);
       }
+      if (apiErrorCode(error) === "COST_OPENING_BALANCE_REQUIRED") {
+        setOpeningValuationOpen(true);
+        toast.info(
+          t("errors.codes.COST_OPENING_BALANCE_REQUIRED")
+        );
+        return;
+      }
       toast.error(
         apiErrorMessage(error, t("inventoryInbound.errors.submit"))
       );
@@ -1414,6 +1423,23 @@ export function Tab2Inbound({
             </TooltipPrimitive.Root>
           </TooltipPrimitive.Provider>
         </div>
+
+        <OpeningValuationModal
+          isOpen={openingValuationOpen}
+          onClose={() => setOpeningValuationOpen(false)}
+          companyId={companyId}
+          actorId={actorId}
+          authenticatedFetch={authenticatedFetch}
+          onFinalized={async () => {
+            const next = parseCostPolicy(
+              await authenticatedFetch("/warehouse/costing-policy")
+            );
+            setCostPolicy(next);
+            toast.success(
+              t("inventoryInbound.openingValuation.afterFinalized")
+            );
+          }}
+        />
 
         <Modal
           isOpen={costPolicyOpen}

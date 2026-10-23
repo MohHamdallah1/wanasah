@@ -2015,6 +2015,45 @@ class InventoryCostPolicyUpdateRequest(RequestModel):
     expected_version: NonNegativeDbInt
 
 
+class InventoryOpeningValuationLineInput(RequestModel):
+    sku: str = Field(..., min_length=1, max_length=100)
+    unit_cost: InventoryCostMoneyInput
+
+    @field_validator("sku", mode="before")
+    @classmethod
+    def normalize_sku(cls, v: Any) -> str:
+        return _required_text(v)
+
+
+class InventoryOpeningValuationPreviewRequest(RequestModel):
+    lines: List[InventoryOpeningValuationLineInput] = Field(
+        ..., min_length=1, max_length=10000,
+    )
+
+    @model_validator(mode="after")
+    def unique_skus(self) -> "InventoryOpeningValuationPreviewRequest":
+        skus = [line.sku for line in self.lines]
+        if len(skus) != len(set(skus)):
+            raise ValueError("duplicate SKUs are not allowed")
+        return self
+
+
+class InventoryOpeningValuationFinalizeRequest(
+    InventoryOpeningValuationPreviewRequest
+):
+    request_id: UUID
+    snapshot_hash: str = Field(..., min_length=64, max_length=64)
+    confirm_zero_costs: bool = False
+
+    @field_validator("snapshot_hash", mode="before")
+    @classmethod
+    def normalize_snapshot_hash(cls, v: Any) -> str:
+        value = _required_text(v).lower()
+        if len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value):
+            raise ValueError("snapshot_hash is invalid")
+        return value
+
+
 class UpgradedInboundRequest(RequestModel):
     request_id: UUID
     # Optional only to reconcile already-committed pre-Supplier commands.

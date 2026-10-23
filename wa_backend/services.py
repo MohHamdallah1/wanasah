@@ -48,6 +48,7 @@ from product_lifecycle import (
 from domains.pricing.core import PricingError
 from domains.inventory_costing.service import (
     CostingError,
+    acquire_inventory_cost_bootstrap_guard,
     apply_inventory_costing_for_movements,
     validate_inventory_costing_replays,
 )
@@ -3926,6 +3927,16 @@ async def apply_inventory_movements_batch(
         for spec in new_specs
     })
 
+    # Every new physical mutation participates in the company-wide costing
+    # bootstrap barrier. Normal movements share the lock; the one-time opening
+    # valuation takes it exclusively while it freezes the authoritative
+    # quantity snapshot and activates costing.
+    await acquire_inventory_cost_bootstrap_guard(
+        db_session,
+        company_id=company_id,
+        exclusive=False,
+    )
+
     # Lifecycle mutations use the exclusive form of the same guard. Taking the
     # shared guard here closes the archive-vs-new-movement race without blocking
     # independent products.
@@ -3996,7 +4007,8 @@ async def apply_inventory_movements_batch(
     except QuantityError as exc:
         raise InventoryMutationError(str(exc)) from exc
 
-    # ترتيب القفل ثابت: idempotency -> product lifecycle -> locations -> rows -> balances.
+    # ترتيب القفل ثابت: idempotency -> costing bootstrap -> product lifecycle
+    # -> locations -> rows -> balances.
     await acquire_inventory_location_guards(
         db_session,
         company_id,
