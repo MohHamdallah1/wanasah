@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -375,7 +377,7 @@ void main() {
             },
           ),
         ],
-        user: const SentryUser(
+        user: SentryUser(
           id: 'driver-42',
           username: 'customer-name',
           email: 'customer@example.com',
@@ -411,7 +413,7 @@ void main() {
 
       expect(sanitized.request, isNull);
       expect(sanitized.user, isNull);
-      expect(sanitized.extra, isEmpty);
+      expect(sanitized.toJson()['extra'], anyOf(isNull, isEmpty));
       expect(sanitized.breadcrumbs, isEmpty);
       expect(sanitized.contexts, isEmpty);
       expect(sanitized.transaction, isNull);

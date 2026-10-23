@@ -24,6 +24,9 @@ class SentryPrivacyPolicy {
   static SentryEvent sanitizeEvent(SentryEvent event) {
     event.request = null;
     event.user = null;
+    // Sentry still supports legacy "extra" on incoming events. Clear it even
+    // though the SDK deprecates adding new extra data.
+    // ignore: deprecated_member_use
     event.extra = <String, dynamic>{};
     event.breadcrumbs = <Breadcrumb>[];
     event.message = null;
@@ -58,7 +61,7 @@ class SentryPrivacyPolicy {
 
   static bool _isSafeTagValue(String value) {
     if (value.isEmpty || value.length > 128) return false;
-    return RegExp(r'^[A-Za-z0-9._:-]+
-).hasMatch(value);
+    final match = RegExp(r'[A-Za-z0-9._:-]+').firstMatch(value);
+    return match != null && match.start == 0 && match.end == value.length;
   }
 }
