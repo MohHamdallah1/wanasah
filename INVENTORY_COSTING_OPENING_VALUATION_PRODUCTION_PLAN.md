@@ -77,35 +77,35 @@ No synthetic physical inventory movement is created.
 - [x] Focused Supplier/Inbound tests pass.
 
 ### P1 — opening valuation financial model
-- [ ] Add one-time opening-valuation header + lines with tenant-safe FKs, actor, company currency, request identity, snapshot fingerprint, totals and timestamps.
-- [ ] Extend authoritative cost-event model for `OPENING_BALANCE` / `OPENING_VALUATION` without inventing a physical inventory movement.
-- [ ] Preserve existing movement-backed event invariants with explicit XOR/source constraints.
-- [ ] Migration upgrade/downgrade and clean-bootstrap tests.
+- [x] Add one-time opening-valuation header + lines with tenant-safe FKs, actor, company currency, request identity, snapshot fingerprint, totals and timestamps.
+- [x] Extend authoritative cost-event model for `OPENING_BALANCE` / `OPENING_VALUATION` without inventing a physical inventory movement.
+- [x] Preserve existing movement-backed event invariants with explicit XOR/source constraints.
+- [x] Migration upgrade/downgrade and clean-bootstrap tests.
 
 ### P2 — backend preview/template/finalize
-- [ ] Company-wide authorized status/preview endpoint with bounded pagination.
-- [ ] XLSX template download generated from authoritative positive inventory.
-- [ ] XLSX upload/preview validates exact SKU/product/base UOM, money scale, duplicates and full positive-stock coverage.
-- [ ] Store/compare deterministic inventory snapshot fingerprint.
-- [ ] Finalize command is idempotent and atomic.
-- [ ] Concurrency contract prevents stock mutations/cost activation race.
-- [ ] Initialize Moving Average or FIFO exactly once and activate/lock the selected policy in the same transaction.
-- [ ] Append audit evidence and return stable localized error codes/context.
+- [x] Company-wide authorized template/preview contracts with bounded file and row limits.
+- [x] XLSX template download generated from authoritative positive inventory.
+- [x] XLSX upload/preview validates exact SKU coverage and money scale, rejects duplicates, and re-resolves current product/base-UOM identity server-side instead of trusting spreadsheet text.
+- [x] Store/compare deterministic inventory snapshot fingerprint.
+- [x] Finalize command is idempotent and atomic.
+- [x] Concurrency contract prevents stock mutations/cost activation race.
+- [x] Initialize Moving Average or FIFO exactly once and activate/lock the selected policy in the same transaction.
+- [x] Append audit evidence and return stable localized error codes/context.
 
 ### P3 — Dashboard workflow
-- [ ] Replace dead-end `COST_OPENING_BALANCE_REQUIRED` copy with plain business explanation.
-- [ ] One-time opening valuation modal/workspace from Inbound costing setup.
-- [ ] Download template, upload, preview missing/invalid items, show total opening value, explicit confirmation.
-- [ ] Keyboard-first, AR/EN, Western digits, accessible progress/errors.
-- [ ] No internal IDs or editable physical quantities.
+- [x] Replace dead-end `COST_OPENING_BALANCE_REQUIRED` copy with plain business explanation.
+- [x] One-time opening valuation modal/workspace from Inbound costing setup.
+- [x] Download template, upload, preview missing/invalid items, show total opening value, explicit confirmation.
+- [x] Keyboard-first, AR/EN, Western digits, accessible progress/errors.
+- [x] No internal IDs or editable physical quantities.
 
 ### P4 — acceptance
-- [ ] Unit/contract tests for invalid/partial/stale/cross-company/permission/idempotency cases.
-- [ ] Real PostgreSQL FIFO acceptance: opening state + layers + first receipt + outbound COGS + replay/rollback.
-- [ ] Real PostgreSQL Moving Average acceptance.
-- [ ] Concurrent movement/finalization race proves no uncosted gap.
-- [ ] XLSX 500-row reference acceptance.
-- [ ] Production build + TypeScript + relevant Inventory regression suites.
+- [x] Unit/contract tests for invalid/partial/stale/cross-company/permission/idempotency cases.
+- [x] Real PostgreSQL FIFO acceptance: opening state + layers + first receipt + outbound COGS + replay/rollback.
+- [x] Real PostgreSQL Moving Average opening-valuation acceptance.
+- [x] Concurrent movement/finalization race proves no uncosted gap.
+- [x] XLSX 500-row reference acceptance.
+- [x] Production build + TypeScript + relevant Inventory regression suites.
 - [ ] Local development acceptance is performed only after a DB backup; no guessed costs are written to the user's current data.
 
 ## 6. Stop / completion rule

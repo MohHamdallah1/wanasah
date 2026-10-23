@@ -484,6 +484,86 @@ class InventoryCostPolicy(Base):
     updated_at = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
 
+class InventoryOpeningValuation(Base):
+    """One-time company financial bootstrap for stock that predates costing."""
+    __tablename__ = 'inventory_opening_valuations'
+    __table_args__ = (
+        UniqueConstraint('company_id', name='uq_inventory_opening_valuation_company'),
+        UniqueConstraint('company_id', 'id', name='uq_inventory_opening_valuations_company_id'),
+        UniqueConstraint('company_id', 'request_id', name='uq_inventory_opening_valuation_request'),
+        ForeignKeyConstraint(
+            ['company_id', 'posted_by'],
+            ['drivers.company_id', 'drivers.id'],
+            ondelete='RESTRICT',
+            name='fk_inventory_opening_valuation_tenant_actor',
+        ),
+        CheckConstraint(
+            "method IN ('MOVING_AVERAGE','FIFO')",
+            name='chk_inventory_opening_valuation_method',
+        ),
+        CheckConstraint(
+            "length(trim(currency_code)) BETWEEN 3 AND 10",
+            name='chk_inventory_opening_valuation_currency',
+        ),
+        CheckConstraint(
+            "length(inventory_snapshot_hash) = 64",
+            name='chk_inventory_opening_valuation_snapshot_hash',
+        ),
+        CheckConstraint('line_count > 0', name='chk_inventory_opening_valuation_line_count'),
+        CheckConstraint('total_quantity > 0', name='chk_inventory_opening_valuation_total_quantity'),
+        CheckConstraint('total_value >= 0', name='chk_inventory_opening_valuation_total_value'),
+    )
+
+    id                      = Column(BigInteger, primary_key=True, autoincrement=True)
+    company_id              = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    request_id              = Column(Uuid(as_uuid=True), nullable=False)
+    method                  = Column(String(30), nullable=False)
+    currency_code           = Column(String(10), nullable=False)
+    inventory_snapshot_hash = Column(String(64), nullable=False)
+    line_count              = Column(Integer, nullable=False)
+    total_quantity          = Column(Numeric(20, 6), nullable=False)
+    total_value             = Column(Numeric(20, 6), nullable=False)
+    posted_by               = Column(Integer, nullable=False, index=True)
+    posted_at               = Column(DateTime, nullable=False, default=utc_now, index=True)
+    created_at              = Column(DateTime, nullable=False, default=utc_now)
+
+
+class InventoryOpeningValuationLine(Base):
+    """Explicit base-UOM opening cost for one positive-stock variant."""
+    __tablename__ = 'inventory_opening_valuation_lines'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_inventory_opening_valuation_lines_company_id'),
+        UniqueConstraint(
+            'company_id', 'opening_valuation_id', 'product_variant_id',
+            name='uq_inventory_opening_valuation_variant',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'opening_valuation_id'],
+            ['inventory_opening_valuations.company_id', 'inventory_opening_valuations.id'],
+            ondelete='RESTRICT',
+            name='fk_inventory_opening_line_tenant_header',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'product_variant_id'],
+            ['product_variants.company_id', 'product_variants.id'],
+            ondelete='RESTRICT',
+            name='fk_inventory_opening_line_tenant_variant',
+        ),
+        CheckConstraint('quantity > 0', name='chk_inventory_opening_line_quantity'),
+        CheckConstraint('unit_cost >= 0', name='chk_inventory_opening_line_unit_cost'),
+        CheckConstraint('total_value >= 0', name='chk_inventory_opening_line_total_value'),
+    )
+
+    id                   = Column(BigInteger, primary_key=True, autoincrement=True)
+    company_id           = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    opening_valuation_id = Column(BigInteger, nullable=False, index=True)
+    product_variant_id   = Column(Integer, nullable=False, index=True)
+    quantity             = Column(Numeric(20, 6), nullable=False)
+    unit_cost            = Column(Numeric(20, 6), nullable=False)
+    total_value          = Column(Numeric(20, 6), nullable=False)
+    created_at           = Column(DateTime, nullable=False, default=utc_now)
+
+
 class InventoryCostState(Base):
     """Company-wide live financial valuation per product variant."""
     __tablename__ = 'inventory_cost_states'
@@ -524,11 +604,21 @@ class InventoryCostEvent(Base):
     __table_args__ = (
         UniqueConstraint('company_id', 'id', name='uq_inventory_cost_events_company_id'),
         UniqueConstraint('company_id', 'inventory_movement_id', name='uq_inventory_cost_event_movement'),
+        UniqueConstraint(
+            'company_id', 'opening_valuation_line_id', 'batch_id',
+            name='uq_inventory_cost_event_opening_batch',
+        ),
         ForeignKeyConstraint(
             ['company_id', 'inventory_movement_id'],
             ['inventory_movements.company_id', 'inventory_movements.id'],
             ondelete='RESTRICT',
             name='fk_inventory_cost_event_tenant_movement',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'opening_valuation_line_id'],
+            ['inventory_opening_valuation_lines.company_id', 'inventory_opening_valuation_lines.id'],
+            ondelete='RESTRICT',
+            name='fk_inventory_cost_event_tenant_opening_line',
         ),
         ForeignKeyConstraint(
             ['company_id', 'product_variant_id'],
@@ -553,11 +643,11 @@ class InventoryCostEvent(Base):
             name='chk_inventory_cost_event_method',
         ),
         CheckConstraint(
-            "event_type IN ('PURCHASE_IN','OUTBOUND','REVERSAL_IN','REVERSAL_OUT','ADJUSTMENT_IN')",
+            "event_type IN ('OPENING_BALANCE','PURCHASE_IN','OUTBOUND','REVERSAL_IN','REVERSAL_OUT','ADJUSTMENT_IN')",
             name='chk_inventory_cost_event_type',
         ),
         CheckConstraint(
-            "cost_basis IN ('PURCHASE_ACTUAL','MOVING_AVERAGE','FIFO_LAYER',"
+            "cost_basis IN ('OPENING_VALUATION','PURCHASE_ACTUAL','MOVING_AVERAGE','FIFO_LAYER',"
             "'ORIGINAL_REVERSAL','CURRENT_AVERAGE_ESTIMATE','LEGACY_FIFO_STATE_BRIDGE')",
             name='chk_inventory_cost_event_basis',
         ),
@@ -581,6 +671,13 @@ class InventoryCostEvent(Base):
             "AND reversal_of_cost_event_id IS NULL))",
             name='chk_inventory_cost_event_reversal_scope',
         ),
+        CheckConstraint(
+            "((inventory_movement_id IS NOT NULL AND opening_valuation_line_id IS NULL "
+            "AND event_type <> 'OPENING_BALANCE') OR "
+            "(inventory_movement_id IS NULL AND opening_valuation_line_id IS NOT NULL "
+            "AND event_type = 'OPENING_BALANCE' AND cost_basis = 'OPENING_VALUATION'))",
+            name='chk_inventory_cost_event_source_scope',
+        ),
         Index('ix_inventory_cost_event_variant_time', 'company_id', 'product_variant_id', 'created_at', 'id'),
         Index(
             'ix_inventory_cost_event_purchase_latest',
@@ -592,7 +689,8 @@ class InventoryCostEvent(Base):
 
     id                        = Column(BigInteger, primary_key=True, autoincrement=True)
     company_id                = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
-    inventory_movement_id     = Column(Integer, nullable=False, index=True)
+    inventory_movement_id     = Column(Integer, nullable=True, index=True)
+    opening_valuation_line_id = Column(BigInteger, nullable=True, index=True)
     product_variant_id        = Column(Integer, nullable=False, index=True)
     batch_id                  = Column(Integer, nullable=False, index=True)
     method                    = Column(String(30), nullable=False)

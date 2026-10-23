@@ -266,6 +266,28 @@ async def _policy_guard(db: AsyncSession, company_id: int) -> None:
     )
 
 
+async def acquire_inventory_cost_bootstrap_guard(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    exclusive: bool,
+) -> None:
+    """Serialize one-time costing activation against physical stock mutation."""
+    function_name = (
+        "pg_advisory_xact_lock"
+        if exclusive
+        else "pg_advisory_xact_lock_shared"
+    )
+    await db.execute(
+        text(
+            f"SELECT {function_name}("
+            "CAST(:company_id AS integer), "
+            "hashtext('inventory-cost-bootstrap'))"
+        ),
+        {"company_id": int(company_id)},
+    )
+
+
 async def get_cost_policy(
     db: AsyncSession,
     *,

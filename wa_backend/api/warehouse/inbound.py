@@ -1,11 +1,12 @@
 from datetime import date
 from decimal import Decimal
+import base64
 import hashlib
 import logging
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import and_, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,6 +38,8 @@ from quantity import QuantityError, canonical_quantity, validate_variant_quantit
 from schemas import (
     InboundOptionsRequest,
     InventoryCostPolicyUpdateRequest,
+    InventoryOpeningValuationFinalizeRequest,
+    InventoryOpeningValuationPreviewRequest,
     MessageResponse,
     UpgradedInboundRequest,
 )
@@ -49,6 +52,14 @@ from services import (
     get_company_local_date,
     inventory_business_error,
     warehouse_setup_required_detail,
+)
+from domains.inventory_costing.opening_valuation import (
+    OPENING_TEMPLATE_MAX_BYTES,
+    build_opening_valuation_template,
+    finalize_opening_valuation,
+    load_opening_valuation_context,
+    parse_opening_valuation_template,
+    preview_opening_valuation,
 )
 from domains.inventory_costing.service import (
     CostingError,
@@ -780,6 +791,171 @@ async def update_warehouse_costing_policy(
             db,
             company_id=company_id,
             can_change=True,
+        )
+        complete_idempotent_operation(idempotency_record, response_payload)
+        await db.commit()
+        return response_payload
+    except CostingError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.as_detail(),
+        ) from exc
+    except InventoryMutationError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+
+
+
+
+
+# ====================================================
+# 1.7 قالب تقييم المخزون الافتتاحي من الرصيد الحالي
+# ====================================================
+@router.get("/warehouse/costing/opening-valuation/template", status_code=200)
+async def download_warehouse_opening_valuation_template(
+    locale: str = Query(
+        "ar",
+        min_length=2,
+        max_length=35,
+        pattern="^[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*$",
+    ),
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+):
+    await _require_inbound_access(access, 'inventory.costing.manage')
+    try:
+        company, policy, snapshot = await load_opening_valuation_context(
+            db,
+            company_id=int(access.company_id),
+        )
+        payload = build_opening_valuation_template(
+            snapshot=snapshot,
+            currency_code=str(company.currency_code),
+            locale=locale,
+        )
+        return {
+            "file_name": "inventory-opening-valuation.xlsx",
+            "content_type": (
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            ),
+            "content_base64": base64.b64encode(payload).decode("ascii"),
+            "row_count": len(snapshot.variants),
+            "snapshot_hash": snapshot.hash,
+            "currency_code": str(company.currency_code).upper(),
+            "method": str(policy.method).upper(),
+            "total_quantity": format(snapshot.total_quantity, "f"),
+        }
+    except CostingError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.as_detail(),
+        ) from exc
+
+
+# ====================================================
+# 1.8 رفع قالب الافتتاحية ومعاينته بدون كتابة مالية
+# ====================================================
+@router.post("/warehouse/costing/opening-valuation/preview-file", status_code=200)
+async def preview_warehouse_opening_valuation_file(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+):
+    await _require_inbound_access(access, 'inventory.costing.manage')
+    try:
+        payload = await file.read(OPENING_TEMPLATE_MAX_BYTES + 1)
+        template_snapshot_hash, lines = parse_opening_valuation_template(payload)
+        return await preview_opening_valuation(
+            db,
+            company_id=int(access.company_id),
+            raw_lines=lines,
+            expected_snapshot_hash=template_snapshot_hash,
+        )
+    except CostingError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.as_detail(),
+        ) from exc
+    finally:
+        await file.close()
+
+
+# ====================================================
+# 1.9 معاينة تقييم المخزون الافتتاحي (JSON contract)
+# ====================================================
+@router.post("/warehouse/costing/opening-valuation/preview", status_code=200)
+async def preview_warehouse_opening_valuation(
+    payload: InventoryOpeningValuationPreviewRequest,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+):
+    await _require_inbound_access(access, 'inventory.costing.manage')
+    try:
+        return await preview_opening_valuation(
+            db,
+            company_id=int(access.company_id),
+            raw_lines=[
+                {"sku": line.sku, "unit_cost": line.unit_cost}
+                for line in payload.lines
+            ],
+        )
+    except CostingError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.as_detail(),
+        ) from exc
+
+
+# ====================================================
+# 1.8 تثبيت تقييم المخزون الافتتاحي مرة واحدة
+# ====================================================
+@router.post("/warehouse/costing/opening-valuation/finalize", status_code=200)
+async def finalize_warehouse_opening_valuation(
+    payload: InventoryOpeningValuationFinalizeRequest,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    await _require_inbound_access(access, 'inventory.costing.manage')
+    company_id = int(access.company_id)
+    actor_id = int(legacy_actor.id)
+    try:
+        request_hash = _stable_request_hash(payload)
+        idempotency_record, replay_response = await begin_idempotent_operation(
+            db,
+            company_id=company_id,
+            actor_id=actor_id,
+            operation="INVENTORY_OPENING_VALUATION_FINALIZE",
+            request_id=str(payload.request_id),
+            request_hash=request_hash,
+        )
+        if replay_response is not None:
+            await db.rollback()
+            return replay_response
+
+        response_payload = await finalize_opening_valuation(
+            db,
+            company_id=company_id,
+            actor_id=actor_id,
+            request_id=payload.request_id,
+            expected_snapshot_hash=payload.snapshot_hash,
+            raw_lines=[
+                {"sku": line.sku, "unit_cost": line.unit_cost}
+                for line in payload.lines
+            ],
+            confirm_zero_costs=payload.confirm_zero_costs,
         )
         complete_idempotent_operation(idempotency_record, response_payload)
         await db.commit()
