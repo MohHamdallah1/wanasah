@@ -60,7 +60,7 @@ EXCLUSION_DESCRIPTIONS = {
     "alembic_history": "immutable Alembic migration history",
     "backend_tests": "Backend tests and historical sentinels",
     "archived_perf_evidence": "archived backend performance evidence",
-    "dashboard_tests": "Dashboard tests/fixtures",
+    "dashboard_tests": "Dashboard test directories and .test/.spec files",
 }
 
 
