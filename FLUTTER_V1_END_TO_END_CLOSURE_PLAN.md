@@ -425,9 +425,22 @@ Closure:
 - [ ] **V1 required — Visit read-only durable evidence:** remove raw pending-command/JSON interpretation from `visit_screen.dart` by a typed feature-owned read model; keep the existing durable queue, public APIs and retry behavior unchanged.
 - [ ] **V1 required — SyncRepository Visit adapter:** extract only Visit-specific replay dispatch/finalization while preserving shared FIFO, owner guards, exact replay and `saveInvoice()` compatibility.
 - [ ] **V1 required — global `is_admin` reintroduction gate:** first prove zero actual runtime authority dependence; then add source CI test with explicit migration/history exclusions. Do not add a premature gate.
-- [ ] **Release acceptance:** full Flutter tests, Android debug build and real Android device/current-Backend offline/restart/replay/reconciliation evidence remain open. CI-only build is not real-device acceptance.
+- [x] **CI acceptance:** complete Flutter suite and Android debug build passed together on current-main-integrated PR #486 with synthetic CI environment; details and exact evidence below.
+- [ ] **Device/release acceptance:** real Android device/current-Backend journeys, offline/restart/replay/reconciliation and FIELD capability authority still remain open; a CI APK is not device acceptance.
 - [x] No newly evidenced blocker in FIFO/exact replay, tenant/assignment checks, stock/commercial authority, or public API compatibility; do not restart closed audits or refactor `driver.py`/other facades solely because of file length.
-- [x] Active Codex final CI/Android branch `codex/flutter-v1-final-ci-android-acceptance` is independent; do not edit its workflow or claim completion before its exact-head result.
+- [x] Codex final CI/Android workflow was independently reviewed, integrated, green-gated and merged in PR #486; only its new workflow was added to production `main`.
+
+### 6.3 Full Flutter test / Android debug build CI stability point — 2026-10-23
+
+- [x] Codex original workflow-only PR #486 at `b0291147248063ae0a7a3a8f1540d5883fa063bd` exposed one genuine stale counter-template test; no Flutter production defect or environment blocker was asserted.
+- [x] Lead replaced only `wanasah_frontend/test/widget_test.dart` with a behavioral Wanasah SplashScreen/Arabic startup smoke test (PR #489), rather than skipping any test or weakening the full suite.
+- [x] Current-main and test integration with unchanged Codex workflow at exact HEAD `8b05ef3fed0e896c1042bb6cc979116f0b34b0c7` preserved all Git history without rebase/reset/force push; integrated diff was the new workflow plus test-only correction.
+- [x] GitHub Actions full Flutter/Android run [39893263065](https://github.com/MohHamdallah1/wanasah/actions/runs/39893263065) PASS on exact integrated HEAD: `flutter pub get`, `flutter analyze` with no issues, 473/473 `flutter test` with no exclusions, and `flutter build apk --debug`.
+- [x] Debug APK Artifact [12475876539](https://github.com/MohHamdallah1/wanasah/actions/runs/39893263065/artifacts/12475876539) retained until 2026-11-06, built against disposable CI-only `.env` (`127.0.0.1:8000`, empty Sentry DSN). Build proof only; not a configured on-device production/release binary.
+- [x] PR #489 merged to `main` at `3a74ad2fd820f6ba03cd8b2a8f196ec0aba30c89`; PR #486 merged to `main` at `df9afd0877ac6c25e4cf7abed4103885a611c2b2`. Both feature branches deleted automatically.
+- [x] The final PR #486 adds only `.github/workflows/flutter-v1-final-ci-android-acceptance.yml`; no Runtime/Backend/API/DB or existing test changes in that PR after PR #489 merged.
+- [ ] Real-device Android end-to-end, network disconnect/app kill/restart/exact replay, current Backend/Dashboard parity, FIELD capability security blocker, and final V1 acceptance remain open.
+- [x] Historical unrelated repository CI failures are not marked green; success is claimed only for the dedicated final Flutter/Android workflow.
 
 ## 7. Session / route / custody
 
@@ -1150,7 +1163,7 @@ Final field acceptance:
 - [ ] real Android device end-to-end journey;
 - [ ] network-loss/restart/retry scenarios;
 - [ ] Backend/Dashboard evidence verification;
-- [ ] analyze/tests/build;
+- [x] CI Flutter analyze, full 473 tests and Android debug APK build (synthetic configuration, not on-device acceptance);
 - [ ] no broad polish or scope expansion after acceptance starts;
 - [ ] merge only after lead review and clean handoff.
 
