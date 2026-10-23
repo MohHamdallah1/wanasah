@@ -115,7 +115,7 @@ def _exclusion_reason(rel: Path) -> str | None:
         return "archived_perf_evidence"
 
     if posix.startswith("dashboard/src/"):
-        if any(part in {"test", "tests", "__tests__", "fixtures"} for part in parts):
+        if any(part in {"test", "tests", "__tests__"} for part in parts):
             return "dashboard_tests"
         lowered = rel.name.lower()
         if ".test." in lowered or ".spec." in lowered:
