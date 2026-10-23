@@ -10,18 +10,16 @@ Target: field-ready V1 in four days without weakening Backend authority.
 
 **Checklist accounting rule (owner decision, 2026-10-23):** `[x]` means an executable task or acceptance gate actually completed with traceable evidence (usually merged source and passing tests). `[ ]` means unimplemented, unverified, or pending acceptance. Approved architecture/requirements and standing policies are recorded as **plain notes without checkbox markers**; approval alone MUST NEVER turn implementation checkboxes into `[x]`. The §6.4 FIELD decisions are binding requirements, but phases 1–4, safety gates P1–P9, Flutter UI/release acceptance and device checks remain open until proved.
 
-
-
 - [x] Read `.rules`, `AGENTS.md`, `ARCHITECTURE.md`, `V1_SCOPE_FREEZE.md`, and `PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md`.
 - [x] Read the damaged-goods / returns / representative-settlement plan before touching field return logic.
 - [x] Backend source + current tests, not future modularization documents, define current runtime contracts.
 - [x] Keep Flutter work isolated from the parallel Dashboard conversation.
 - [x] Flutter branch owns `wanasah_frontend/**` and this plan unless a separately assigned Backend prerequisite is explicitly delegated.
-- [ ] Re-read latest `main` before every implementation wave and resolve contract drift before coding.
-- [ ] No broad refactor, dependency upgrade, generated-file cleanup, or local destructive command.
-- [ ] Backend remains authority for pricing, offers, taxes, FEFO, Batch resolution, inventory status, costing, debt limits, idempotency and reconciliation.
-- [ ] Never expose technical IDs such as database `batch_id` to the representative.
-- [ ] Every write wave must have focused tests before broader gates.
+- Re-read latest `main` before every implementation wave and resolve contract drift before coding.
+- No broad refactor, dependency upgrade, generated-file cleanup, or local destructive command.
+- Backend remains authority for pricing, offers, taxes, FEFO, Batch resolution, inventory status, costing, debt limits, idempotency and reconciliation.
+- Never expose technical IDs such as database `batch_id` to the representative.
+- Every write wave must have focused tests before broader gates.
 
 ## 1. V1 field journey that must close
 
@@ -507,6 +505,10 @@ Proposed twelve-capability FIELD V1 default bundle (nine existing, three NEW):
 2. [ ] Phase 2 — Backend `FieldCapabilityAccess` + Field HTTP dependency + owner-only representative role grant/revoke + new-representative provisioning + role-update anti-escalation; focused unit and PostgreSQL tests.
 3. [ ] Phase 3 — Backend FIELD dependencies at session/visit/shop/transfer/custody/reconciliation endpoints with preserved assigned scopes. No Flutter or runtime workflow refactor; negative tests.
 4. [ ] Phase 4 — focused cross-channel, current Backend + Flutter acceptance, then independent review/merge and updated `[x]` evidence.
+
+**Mandatory worker/lead protocol (2026-10-23):** Each new worker, including Codex, must read **`AGENTS.md` first**, then `.rules`, `ARCHITECTURE.md` §12, `V1_SCOPE_FREEZE.md`, `PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md` and this live Flutter plan before code. Use exact `main` SHA per wave, fresh GitHub-only branch, isolated file ownership, no local-machine modification, no rebase/force-push/destructive cleanup, no overlapping writes, no autonomous merges. The **Lead** independently reviews exact diff, current-main overlap, architecture, tenant/RLS authorization, migration/backfill safety, focused tests and CI; merge to `main` only after proof. Delete merged feature branches. After a proved stability checkpoint, sync an authorized local checkout **only after verifying local `git status` is clean**, via non-destructive fast-forward; do not run automatic pulls or modify local data without explicit user approval.
+
+**Parallel wave ownership (approved coordination, not implementation completion):** Codex takes **FIELD Phase 1 only**: `wa_backend/domains/authorization/capabilities.py`, `wa_backend/models.py` (only Role metadata), new authorization FIELD assignment model, Alembic migration/registration and isolated Phase 1 DB tests. Other Flutter worker independently takes only **Visit read-only typed durable evidence** in `wanasah_frontend/lib/screens/visit_screen.dart`, a new Visit-feature-owned adapter/read-model and tightly scoped Flutter tests; no SyncRepository replay extraction in this first slice. Both workers must leave this plan, `.rules`, `AGENTS.md`, `ARCHITECTURE.md`, Dashboard UI and each other's code untouched. Lead owns checklist marking and subsequent Phase 2→3→4 handoff, and may postpone a merge on failed acceptance.
 
 #### Owner-confirmed user model / boundary / login (2026-10-23)
 
