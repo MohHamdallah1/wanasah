@@ -133,6 +133,16 @@ void main() {
     expect(store.states.values.every((value) => value == 'blocked'), isTrue);
   });
 
+  for (final status in [200,302]) {
+    test('non-error HTTP $status cannot grant per-item failure authority', () async {
+      final store = Store(), client = Client()..error = failure(status: status);
+      await CustodyTransferGateway(store: store, client: client)
+        .respondBatch([decision(1), decision(2), decision(3)]);
+      expect(store.states.values.every((value) => value == 'blocked'), isTrue);
+      expect(TransferDispatchFailure.fromDio(failure(status: status)).failedTransferId, isNull);
+    });
+  }
+
   test('message IDs never override structured identity or invent missing identity', () async {
     expect(TransferDispatchFailure.fromDio(failure(message: 'transfer_id=1; الحوالة 3'))
       .failedTransferId, 2);
