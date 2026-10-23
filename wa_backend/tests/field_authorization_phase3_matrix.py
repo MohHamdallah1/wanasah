@@ -201,7 +201,8 @@ def request_case(g, case):
     elif name=="update_visit":
         body={"request_id":str(uuid4()),"outcome":"NoSale","notes":"Synthetic no sale"}
     elif name=="add_new_shop":
-        body={"request_id":str(uuid4()),"name":"Synthetic shop","phone_number":uuid4().hex[:15]}
+        body={"request_id":str(uuid4()),"name":"Synthetic shop","phone_number":uuid4().hex[:15],
+              "latitude":31.9,"longitude":35.9}
     elif name=="resolve_visit_return":
         body={"product_variant_id":g.variant["id"],"packs_quantity":1,"return_type":"Damaged"}
     elif name=="preview_visit_invoice":

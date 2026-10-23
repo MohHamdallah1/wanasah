@@ -222,7 +222,8 @@ async def test_default_grants_real_visit_invoice_returns_custody_shop_and_replay
     custody=await call(g,"GET","/driver/custody")
     assert custody.status_code==200,custody.text
     assert sum(Decimal(i["quantity"]) for i in custody.json()["items"])==Decimal("3")
-    command={"request_id":str(uuid4()),"name":"New field shop","phone_number":uuid4().hex[:15]}
+    command={"request_id":str(uuid4()),"name":"New field shop","phone_number":uuid4().hex[:15],
+             "latitude":31.9,"longitude":35.9}
     created=await call(g,"POST","/shops",command)
     assert created.status_code==201,created.text
     before=await evidence(g)

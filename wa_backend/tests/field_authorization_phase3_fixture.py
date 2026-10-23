@@ -170,6 +170,11 @@ async def seed_business(admin):
                 return context_id
             g.visit,g.location,g.batch = await customer_fixture.RealCustomerReturnC2DatabaseTests._create_business_fixture(
                 g,"FIFO",commercial_context_factory=commercial)
+            # Normal dispatch supplies an integer sequence. The older direct
+            # calculator fixture intentionally omitted fields outside its DTO tests.
+            assigned=await db.get(Visit,g.visit)
+            assigned.sequence=1
+            await db.flush()
             route = await db.scalar(select(DispatchRoute).where(DispatchRoute.company_id==g.tenant))
             g.route,g.session,g.zone,g.vehicle = route.id,route.work_session_id,route.zone_id,route.vehicle_id
             g.default_role = await db.scalar(select(Role.id).where(
