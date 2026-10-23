@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import tempfile
+import sys
 import unittest
 
 
@@ -10,6 +11,7 @@ GUARD_PATH = Path(__file__).resolve().parents[1] / "legacy_admin_authorization_g
 SPEC = importlib.util.spec_from_file_location("legacy_admin_authorization_guard", GUARD_PATH)
 assert SPEC is not None and SPEC.loader is not None
 guard = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = guard
 SPEC.loader.exec_module(guard)
 
 
