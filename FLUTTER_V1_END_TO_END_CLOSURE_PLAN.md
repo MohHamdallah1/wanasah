@@ -417,6 +417,18 @@ Closure:
 - [x] Offline durable-command regression gate: PASS.
 - [x] Canonical principal/representative identity mapping contract check completed; operational `owner_driver_id` remains the Backend-mapped legacy Driver locator, not principal/profile identity.
 
+### 6.2 Final architecture audit — open gates (2026-10-23)
+
+- [x] Read-only audit on frozen baseline `00588fcb13a2344d6bd901dd4ae190b10d04f70f` identified one FIELD authorization enforcement blocker and one release-acceptance blocker; latest main was reviewed for the same identity/capability seam before recording these findings.
+- [ ] **V1 security blocker — FIELD capability authority:** current FIELD context validates the canonical principal/channel and operational assignment, but actual FIELD endpoints do not yet require persisted per-operation capability grants. This is **not** evidence of a cross-tenant/assignment leak. Preserve existing owner/route/visit/vehicle scope checks.
+- [ ] **Decision prerequisite — field grant/provisioning contract:** currently reviewed owner-managed grant endpoints target Backoffice users. Freeze explicitly how FIELD grants are provisioned/revoked and which existing/new capability codes guard each V1 operation, with no implicit unrestricted grant, no JWT authority, and no legacy `Driver` persona authorization. Per `PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md`, any new capability/scope semantics require owner decision before implementation.
+- [ ] **V1 required — Visit read-only durable evidence:** remove raw pending-command/JSON interpretation from `visit_screen.dart` by a typed feature-owned read model; keep the existing durable queue, public APIs and retry behavior unchanged.
+- [ ] **V1 required — SyncRepository Visit adapter:** extract only Visit-specific replay dispatch/finalization while preserving shared FIFO, owner guards, exact replay and `saveInvoice()` compatibility.
+- [ ] **V1 required — global `is_admin` reintroduction gate:** first prove zero actual runtime authority dependence; then add source CI test with explicit migration/history exclusions. Do not add a premature gate.
+- [ ] **Release acceptance:** full Flutter tests, Android debug build and real Android device/current-Backend offline/restart/replay/reconciliation evidence remain open. CI-only build is not real-device acceptance.
+- [x] No newly evidenced blocker in FIFO/exact replay, tenant/assignment checks, stock/commercial authority, or public API compatibility; do not restart closed audits or refactor `driver.py`/other facades solely because of file length.
+- [x] Active Codex final CI/Android branch `codex/flutter-v1-final-ci-android-acceptance` is independent; do not edit its workflow or claim completion before its exact-head result.
+
 ## 7. Session / route / custody
 
 - [x] Start Session follows the current Backend contract: location evidence is optional/best-effort, while route/vehicle/custody/commercial eligibility remains Backend-authoritative.
