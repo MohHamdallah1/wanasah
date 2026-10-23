@@ -50,7 +50,7 @@ class TransferDispatchFailure {
         status >= 500;
 
     final rawId = failure.context['transfer_id'];
-    final itemId = !ambiguous && status != null && status >= 400 && status < 500 &&
+    final itemId = !ambiguous && status >= 400 && status < 500 &&
         failure.hasStructuredCode &&
         rawId is int && rawId > 0 && rawId <= 2147483647 ? rawId : null;
 
