@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field, ConfigDict, model_validator, AliasChoices, field_validator, model_serializer
+from pydantic_core import PydanticCustomError
 from pydantic.functional_validators import BeforeValidator
 from pydantic.functional_serializers import PlainSerializer
 from typing import Optional, List, Any, Literal, Annotated, Dict, Union
@@ -475,7 +476,10 @@ class BatchTransferItem(RequestModel):
     @model_validator(mode="after")
     def require_rejection_reason(self) -> "BatchTransferItem":
         if self.status == "rejected" and not self.reason:
-            raise ValueError("رفض الحوالة ضمن الدفعة يتطلب سبباً واضحاً.")
+            raise PydanticCustomError(
+                "FIELD_TRANSFER_REJECTION_REASON_REQUIRED", "A rejection reason is required.",
+                {"transfer_id": self.transfer_id},
+            )
         return self
 
 
@@ -486,7 +490,11 @@ class BatchTransferResponseRequest(RequestModel):
     def reject_duplicate_transfers(self) -> "BatchTransferResponseRequest":
         ids = [item.transfer_id for item in self.transfers]
         if len(ids) != len(set(ids)):
-            raise ValueError("لا يجوز إرسال نفس الحوالة أكثر من مرة في نفس الطلب.")
+            duplicate_ids = sorted({value for value in ids if ids.count(value) > 1})
+            raise PydanticCustomError(
+                "FIELD_TRANSFER_DUPLICATE_ID", "Duplicate transfer decision.",
+                {"transfer_id": duplicate_ids[0]} if len(duplicate_ids) == 1 else {},
+            )
         return self
 
 

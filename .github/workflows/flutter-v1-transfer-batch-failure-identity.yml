@@ -1,0 +1,40 @@
+name: Flutter V1 Transfer Batch Failure Identity
+on:
+  pull_request:
+    paths:
+      - "wa_backend/api/field_transfer_contracts.py"
+      - "wa_backend/api/driver.py"
+      - "wa_backend/schemas.py"
+      - "wanasah_frontend/lib/features/custody/application/transfer_dispatch_failure.dart"
+      - "wanasah_frontend/lib/features/custody/data/transfer_response_gateway.dart"
+      - "wanasah_frontend/test/features/custody/transfer_batch_failure_identity_test.dart"
+      - ".github/workflows/flutter-v1-transfer-batch-failure-identity.yml"
+permissions:
+  contents: read
+jobs:
+  transfer-batch-identity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: wanasah_frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.29.3"
+          channel: stable
+          cache: true
+      - run: printf 'API_BASE_URL=http://127.0.0.1:8000\n' > .env
+      - run: flutter pub get
+      - run: flutter analyze
+      - name: Custody batch identity and accepted handshake regression
+        run: flutter test test/features/custody
+      - name: FIELD Visit adapter regressions
+        run: flutter test test/features/visits/domain test/features/visits/data test/features/visits/application
+      - name: Offline durable owner and Sync Recovery regressions
+        run: >-
+          flutter test test/offline_durable_command_test.dart test/offline_owner_guard_test.dart
+          test/core/sync/durable_command_owner_test.dart test/features/recovery
