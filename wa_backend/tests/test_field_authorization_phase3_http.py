@@ -170,6 +170,12 @@ async def test_wrong_vehicle_and_atomic_batch_scope_denial(gate):
         finally:
             own.is_active=True
             await db.commit()
+    # Close the deliberately wrong-destination fixture via the real rejection
+    # path; otherwise later composite reads correctly reject its pending evidence.
+    for transfer in ids:
+        response=await call(g,"PUT",f"/driver/transfers/{transfer}/respond",
+                           {"response":"rejected","reason":"Synthetic wrong destination"})
+        assert response.status_code==200,response.text
 
 
 async def test_default_grants_real_visit_invoice_returns_custody_shop_and_replay(gate):

@@ -3923,11 +3923,12 @@ async def get_visit_details(
 # =========================================
 # 13. التحقق من وجود جلسة نشطة للمندوب (عند فتح التطبيق)
 # =========================================
-@router.get("/driver/sessions/active", response_model=ActiveSessionResponse, status_code=200, dependencies=[Depends(require_field_capability("work_session.read"))])
+@router.get("/driver/sessions/active", response_model=ActiveSessionResponse, status_code=200)
 async def get_active_session(
     db: AsyncSession = Depends(get_db),
     field_context: FieldRequestContext = Depends(get_current_field_context),
-    legacy_actor: Driver = Depends(get_current_field_legacy_driver)
+    legacy_actor: Driver = Depends(get_current_field_legacy_driver),
+    _capability_access = Depends(require_field_capability("work_session.read")),
 ):
     driver_id = legacy_actor.id
         

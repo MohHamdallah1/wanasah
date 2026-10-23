@@ -79,6 +79,11 @@ FIELD_ROUTE_CAPABILITIES = {
 def without_capability_decorator(node):
     """Normalize only the exact approved D7 dependency; keep URL/status/model frozen."""
     node=copy.deepcopy(node)
+    if node.name=="get_active_session":
+        assert node.args.args[-1].arg=="_capability_access"
+        assert ast.dump(node.args.defaults[-1])==ast.dump(ast.parse(
+            'Depends(require_field_capability("work_session.read"))',mode="eval").body)
+        return node
     for decorator in node.decorator_list:
         dependencies=[k for k in decorator.keywords if k.arg=="dependencies"]
         if node.name in FIELD_ROUTE_CAPABILITIES:
