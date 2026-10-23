@@ -94,11 +94,10 @@ void main() {
     );
 
     final readModel = await source.readForVisit(11);
-    final draft = readModel.latestDraft;
-
     expect(readModel.hasUnresolvedDraft, isTrue);
-    expect(draft, isNotNull);
-    expect(draft!.cashCollected, '9.125000');
+    final draft = readModel.latestDraft!;
+
+    expect(draft.cashCollected, '9.125000');
     expect(draft.debtPaid, '0.001');
     expect(draft.notes, 'newest');
     expect(draft.cartItemsJson, isNull);
