@@ -2,6 +2,7 @@
 import hashlib
 import json
 from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
 
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
@@ -9,8 +10,6 @@ from sqlalchemy.exc import DBAPIError
 
 from models import Role, SystemAuditLog
 from services import InventoryMutationError, begin_idempotent_operation, complete_idempotent_operation
-from domains.representatives.repository import guard_representative_request_identity
-from domains.representatives.contracts import RepresentativeError
 from .field_models import FieldRepresentativeRole
 from .field_role_policy import FieldRoleError, require_field_safe, role_codes
 from .field_role_targets import require_owner, require_representative, require_role
@@ -38,7 +37,8 @@ async def list_field_roles(db, access, representative_id: int, after_id: int, li
             "next_id": page[-1].id if len(rows) > limit else None}
 
 
-async def change_field_role(db, access, actor_id: int, command: FieldRoleCommand):
+async def change_field_role(db, access, actor_id: int, command: FieldRoleCommand, *,
+                            request_identity_guard: Callable[..., Awaitable[str]]):
     company_id = access.company_id
     operation = "REPRESENTATIVE_FIELD_ROLE_" + ("GRANT" if command.grant else "REVOKE")
     body = {"representative_id":command.representative_id,"role_id":command.role_id,"grant":command.grant}
@@ -47,7 +47,7 @@ async def change_field_role(db, access, actor_id: int, command: FieldRoleCommand
         await require_owner(db, access)
         await require_representative(db, company_id, command.representative_id)
         await require_role(db, company_id, command.role_id)
-        request_id = await guard_representative_request_identity(db, company_id=company_id,
+        request_id = await request_identity_guard(db, company_id=company_id,
             request_id=command.request_id, operation=operation)
         idem, replay = await begin_idempotent_operation(db, company_id=company_id, actor_id=actor_id,
             operation=operation, request_id=request_id, request_hash=fingerprint)
@@ -79,7 +79,7 @@ async def change_field_role(db, access, actor_id: int, command: FieldRoleCommand
         complete_idempotent_operation(idem, result)
         await db.commit()
         return result
-    except (InventoryMutationError, RepresentativeError):
+    except InventoryMutationError:
         await db.rollback()
         raise FieldRoleError("FIELD_ROLE_REQUEST_CONFLICT") from None
     except DBAPIError as exc:

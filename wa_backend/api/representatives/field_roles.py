@@ -12,6 +12,8 @@ from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from domains.authorization.field_role_management import FieldRoleCommand, change_field_role, list_field_roles
 from domains.authorization.field_role_policy import FieldRoleError
 from models import Driver
+from domains.representatives.repository import guard_representative_request_identity
+from domains.representatives.contracts import RepresentativeError
 
 router = APIRouter()
 
@@ -44,6 +46,8 @@ async def roles(
         return await list_field_roles(db, access, representative_id, after_id, limit)
     except FieldRoleError as exc:
         raise http_error(exc) from None
+    except RepresentativeError:
+        raise http_error(FieldRoleError("FIELD_ROLE_REQUEST_CONFLICT")) from None
 
 
 @router.post("/{representative_id}/field-roles")
@@ -56,9 +60,12 @@ async def grant(
 ):
     try:
         return await change_field_role(db, access, legacy_actor.id, FieldRoleCommand(
-            str(payload.request_id), representative_id, payload.role_id, True))
+            str(payload.request_id), representative_id, payload.role_id, True),
+            request_identity_guard=guard_representative_request_identity)
     except FieldRoleError as exc:
         raise http_error(exc) from None
+    except RepresentativeError:
+        raise http_error(FieldRoleError("FIELD_ROLE_REQUEST_CONFLICT")) from None
 
 
 @router.post("/{representative_id}/field-roles/{role_id}/revoke")
@@ -72,6 +79,9 @@ async def revoke(
 ):
     try:
         return await change_field_role(db, access, legacy_actor.id, FieldRoleCommand(
-            str(payload.request_id), representative_id, role_id, False))
+            str(payload.request_id), representative_id, role_id, False),
+            request_identity_guard=guard_representative_request_identity)
     except FieldRoleError as exc:
         raise http_error(exc) from None
+    except RepresentativeError:
+        raise http_error(FieldRoleError("FIELD_ROLE_REQUEST_CONFLICT")) from None
