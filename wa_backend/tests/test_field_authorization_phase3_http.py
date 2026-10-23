@@ -191,6 +191,15 @@ async def test_default_grants_real_visit_invoice_returns_custody_shop_and_replay
     assert Decimal(preview.json()["invoice"]["totals"]["final_amount"])==Decimal("50")
     command={"request_id":str(uuid4()),"outcome":"Sale","cash_collected":"50",
              "cart_items":[{"product_variant_id":g.variant["id"],"packs_quantity":10}]}
+    before=await evidence(g)
+    denied(await call(g,"PUT",f"/visits/{g.visit}",command),403,"HTTP_403")
+    assert await evidence(g)==before
+    # Capability cannot bypass the existing pending-handshake business guard.
+    # Finish those actual decisions first, then use the SAME Visit request ID.
+    handshake=await call(g,"PUT","/driver/transfers/batch_respond",{"transfers":[
+        {"transfer_id":i,"status":"rejected","reason":"Synthetic pre-sale decision"}
+        for i in g.transfers]})
+    assert handshake.status_code==200,handshake.text
     posted=await call(g,"PUT",f"/visits/{g.visit}",command)
     assert posted.status_code==200,posted.text
     frozen=await call(g,"GET",f"/visits/{g.visit}/invoice")
