@@ -11,6 +11,8 @@ import sys
 import psycopg
 import pytest
 from alembic.migration import MigrationContext
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from alembic.operations import Operations
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.engine import make_url
@@ -134,7 +136,9 @@ def gate():
         alembic("upgrade", "head")
         alembic("upgrade", "head")
         alembic("check")
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == REVISION
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == (
+            ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini"))).get_current_head()
+        )
         after = backoffice_snapshot(db)
         for old, new in zip(before, after):
             assert set(old) <= set(new), (old, new)

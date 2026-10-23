@@ -13,6 +13,8 @@ from domains.identity.types import PrincipalType
 from models import Driver, OperationIdempotency, SystemAuditLog
 
 from .contracts import RepresentativeError
+from domains.authorization.field_provisioning import assign_new_representative_default
+from domains.authorization.field_role_policy import FieldRoleError
 
 
 MONEY_MAX = Decimal("999999999.999")
@@ -24,6 +26,8 @@ _REPRESENTATIVE_IDEMPOTENT_OPERATIONS = frozenset(
         "REPRESENTATIVE_DEACTIVATE",
         "REPRESENTATIVE_REACTIVATE",
         "REPRESENTATIVE_CREDENTIAL_RESET",
+        "REPRESENTATIVE_FIELD_ROLE_GRANT",
+        "REPRESENTATIVE_FIELD_ROLE_REVOKE",
     }
 )
 
@@ -198,6 +202,11 @@ async def create_representative_persistence(
     )
     db.add(bridge)
     await db.flush()
+    try:
+        await assign_new_representative_default(db, company_id, int(profile.id))
+    except FieldRoleError as exc:
+        raise RepresentativeError(exc.code, "The default FIELD role is unavailable.",
+                                  status_code=exc.status) from None
     return profile, principal, bridge, legacy_driver
 
 

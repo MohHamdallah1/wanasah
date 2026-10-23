@@ -20,6 +20,7 @@ from domains.inventory_access import (
     permission_ids_for_codes,
     target_legacy_grant_driver_id as resolve_target_legacy_grant_driver_id,
 )
+from domains.authorization.field_role_policy import guard_field_assigned_role_edit, FieldRoleError
 from models import (
     Driver,
     Role,
@@ -180,6 +181,11 @@ async def save_role(payload, db, access, legacy_actor, role_id=None):
             raise HTTPException(404, 'Role not found.')
         if role.is_system_role:
             raise HTTPException(409, 'System roles cannot be edited here.')
+        try:
+            await guard_field_assigned_role_edit(db, access.company_id, role.id, codes)
+        except FieldRoleError as exc:
+            raise HTTPException(exc.status, detail={"code": exc.code,
+                "message": "This role cannot contain non-FIELD capabilities.", "context": {}}) from None
         old_codes = list((await db.scalars(select(Permission.code).join(
             role_permissions,
             role_permissions.c.permission_id == Permission.id,
