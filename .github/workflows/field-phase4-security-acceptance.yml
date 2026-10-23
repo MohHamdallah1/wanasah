@@ -1,0 +1,148 @@
+name: FIELD Phase 4 Cross-channel Security Acceptance
+on:
+  pull_request:
+    paths:
+      - "wa_backend/tests/*field_phase4*"
+      - ".github/workflows/field-phase4-security-acceptance.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  postgres-http:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: field_phase4_admin
+          POSTGRES_DB: field_auth_phase4_gate
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["55482:5432"]
+        options: >-
+          --health-cmd "pg_isready -U field_phase4_admin -d field_auth_phase4_gate"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: FieldPhase4SyntheticOnlySecret012345678901234567890123456
+      DATABASE_URL: postgresql+asyncpg://field_auth_runtime@127.0.0.1:55482/field_auth_phase4_gate
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://field_phase4_admin@127.0.0.1:55482/field_auth_phase4_gate
+      PYTHONPATH: ".:tests"
+      WANASAH_FIELD_AUTH_PHASE4_GATE: "1"
+    defaults:
+      run:
+        working-directory: wa_backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pinned Backend and acceptance dependencies
+        run: python -m pip install -r requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Record exact HEAD and prove isolated file ownership
+        run: |
+          git rev-parse HEAD | tee field-phase4-head.txt
+          git merge-base --is-ancestor 8acb54ea2c79041ec439b9aac3a29d01700a26d4 HEAD
+          git diff --check 8acb54ea2c79041ec439b9aac3a29d01700a26d4 HEAD
+          python - <<'PY'
+          import subprocess
+          base="8acb54ea2c79041ec439b9aac3a29d01700a26d4"
+          expected={"wa_backend/tests/field_phase4_fixture.py","wa_backend/tests/test_field_phase4_channels.py",
+              "wa_backend/tests/test_field_phase4_journeys.py",".github/workflows/field-phase4-security-acceptance.yml"}
+          changed=set(subprocess.check_output(["git","diff","--name-only",base,"HEAD"],text=True).splitlines())
+          assert changed==expected,changed
+          assert not subprocess.check_output(["git","diff","--diff-filter=D","--name-only",base,"HEAD"],text=True).strip()
+          for path in ("wanasah_frontend","dashboard","wa_backend/api","wa_backend/domains","wa_backend/alembic",
+                       "AGENTS.md",".rules","ARCHITECTURE.md","V1_SCOPE_FREEZE.md","FLUTTER_V1_END_TO_END_CLOSURE_PLAN.md"):
+              old=subprocess.check_output(["git","rev-parse",base+":"+path],text=True).strip()
+              new=subprocess.check_output(["git","rev-parse","HEAD:"+path],text=True).strip()
+              assert old==new,path
+              print("UNCHANGED "+path+" "+new)
+          print("PHASE4_OWNERSHIP=PASS")
+          PY
+      - name: Prepare disposable databases and real restricted runtime role
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect("postgresql://field_phase4_admin@127.0.0.1:55482/field_auth_phase4_gate",autocommit=True) as db:
+              db.execute("CREATE ROLE field_auth_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+              for name in ("field_auth_phase1_gate","field_auth_phase2_gate","field_auth_phase3_gate","representatives_role_gate"):
+                  db.execute("CREATE DATABASE "+name)
+          PY
+      - name: Current canonical migrations and schema parity
+        run: |
+          alembic upgrade head
+          alembic check
+      - name: Phase 4 real HTTP cross-channel scope replay and cross-surface acceptance
+        run: >-
+          python -m pytest -q -s
+          tests/test_field_phase4_channels.py tests/test_field_phase4_journeys.py
+          --junitxml=field-phase4.xml
+      - name: Unchanged Phase 1 real migrated PostgreSQL RLS privileges and backfill
+        if: ${{ !cancelled() }}
+        env:
+          DATABASE_URL: postgresql+asyncpg://field_auth_runtime@127.0.0.1:55482/field_auth_phase1_gate
+          DATABASE_URL_MIGRATION: postgresql+asyncpg://field_phase4_admin@127.0.0.1:55482/field_auth_phase1_gate
+          WANASAH_FIELD_AUTH_PHASE1_GATE: "1"
+        run: python -m pytest -q -s tests/test_field_authorization_phase1_postgres.py --junitxml=field-phase1.xml
+      - name: Unchanged Phase 2 real HTTP default provisioning and concurrent grant policy
+        if: ${{ !cancelled() }}
+        env:
+          DATABASE_URL: postgresql+asyncpg://field_auth_runtime@127.0.0.1:55482/field_auth_phase2_gate
+          DATABASE_URL_MIGRATION: postgresql+asyncpg://field_phase4_admin@127.0.0.1:55482/field_auth_phase2_gate
+          WANASAH_FIELD_AUTH_PHASE2_GATE: "1"
+        run: |
+          alembic upgrade head
+          alembic check
+          python -m pytest -q -s tests/test_field_authorization_phase2_http.py tests/test_field_authorization_phase2_races.py --junitxml=field-phase2.xml
+      - name: Unchanged Phase 3 full D7 19-route HTTP enforcement and scope acceptance
+        if: ${{ !cancelled() }}
+        env:
+          DATABASE_URL: postgresql+asyncpg://field_auth_runtime@127.0.0.1:55482/field_auth_phase3_gate
+          DATABASE_URL_MIGRATION: postgresql+asyncpg://field_phase4_admin@127.0.0.1:55482/field_auth_phase3_gate
+        run: |
+          alembic upgrade head
+          alembic check
+          python -m pytest -q -s tests/test_field_authorization_phase3_routes.py tests/test_field_authorization_phase3_http.py --junitxml=field-phase3.xml
+      - name: Existing Backoffice real HTTP compatibility acceptance
+        if: ${{ !cancelled() }}
+        env:
+          DATABASE_URL: postgresql+asyncpg://field_auth_runtime@127.0.0.1:55482/representatives_role_gate
+          DATABASE_URL_MIGRATION: postgresql+asyncpg://field_phase4_admin@127.0.0.1:55482/representatives_role_gate
+          WANASAH_REPRESENTATIVES_ROLE_DB_GATE: "1"
+        run: |
+          alembic upgrade head
+          alembic check
+          python -m pytest -q -s tests/test_representatives_role_provisioning_runtime_db.py --junitxml=backoffice-phase4.xml
+      - name: Require nonempty passing Phases 1 through 4 with zero skips
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          results={}
+          for name in ("field-phase1.xml","field-phase2.xml","field-phase3.xml","field-phase4.xml","backoffice-phase4.xml"):
+              root=ET.parse(name).getroot()
+              cases=list(root.iter("testcase"))
+              results[name]={"executed":len(cases),"failures":len(list(root.iter("failure"))),
+                  "errors":len(list(root.iter("error"))),"skips":len(list(root.iter("skipped")))}
+          Path("field-phase4-counts.json").write_text(json.dumps(results,indent=2))
+          print(json.dumps(results,indent=2))
+          assert all(r["executed"]>0 and r["failures"]==r["errors"]==r["skips"]==0 for r in results.values())
+          PY
+      - name: Retain exact HEAD and PostgreSQL HTTP acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: field-phase4-security-postgresql-http-evidence
+          path: |
+            wa_backend/field-phase*.xml
+            wa_backend/backoffice-phase4.xml
+            wa_backend/field-phase4-head.txt
+            wa_backend/field-phase4-counts.json
+          if-no-files-found: error
+          retention-days: 14
