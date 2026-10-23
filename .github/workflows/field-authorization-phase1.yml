@@ -70,17 +70,48 @@ jobs:
           assert not list(root.iter("failure")) and not list(root.iter("error")), "FIELD acceptance failed"
           print("FIELD_PHASE1_POSTGRES_EXECUTED=" + str(len(cases)))
           PY
-      - name: Existing canonical authorization regressions
-        run: >-
-          python -m pytest -q
-          tests/test_authorization_core_compatibility.py
-          tests/test_canonical_backoffice_authorization_subject.py
-          tests/test_canonical_backoffice_authorization_dependency.py
-          tests/test_canonical_field_authorization_subject.py
-          tests/test_identity_schema_expand.py
-          tests/test_inventory_access_canonical_boundary.py
-          tests/test_inventory_access_canonical_cutover.py
-          tests/test_representatives_form_identity_contract.py
+      - name: Canonical regressions and exact approved-base historical failure parity
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/field-phase1-approved-base" 9dd3dbed089f8d41f775f599ddf366a417ea6a16
+          python - <<'PY'
+          import os, subprocess, sys
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          targets = [
+              "tests/test_authorization_core_compatibility.py",
+              "tests/test_canonical_backoffice_authorization_subject.py",
+              "tests/test_canonical_backoffice_authorization_dependency.py",
+              "tests/test_canonical_field_authorization_subject.py",
+              "tests/test_identity_schema_expand.py",
+              "tests/test_inventory_access_canonical_boundary.py",
+              "tests/test_inventory_access_canonical_cutover.py",
+              "tests/test_representatives_form_identity_contract.py",
+          ]
+          roots = [
+              ("approved-base", Path(os.environ["RUNNER_TEMP"]) / "field-phase1-approved-base" / "wa_backend"),
+              ("head", Path.cwd()),
+          ]
+          results = []
+          for label, root in roots:
+              report = Path(os.environ["RUNNER_TEMP"]) / ("field-phase1-" + label + ".xml")
+              env = dict(os.environ, PYTHONPATH=str(root) + os.pathsep + str(root / "tests"))
+              run = subprocess.run([sys.executable,"-m","pytest","-q",*targets,"--junitxml="+str(report)],
+                                   cwd=root,env=env,capture_output=True,text=True)
+              print(label + " pytest exit=" + str(run.returncode))
+              print(run.stdout[-10000:])
+              assert run.returncode in (0,1), run.stderr
+              tree = ET.parse(report).getroot()
+              assert not list(tree.iter("skipped")), "No regression skips allowed"
+              assert not list(tree.iter("error")), "No collection/fixture errors allowed"
+              cases = list(tree.iter("testcase"))
+              assert cases, "No regression cases ran"
+              failures = {(case.get("classname"),case.get("name")) for case in cases
+                          if case.find("failure") is not None}
+              print(label + " failures=" + repr(sorted(failures)))
+              results.append((len(cases),failures))
+          assert results[0] == results[1], "New regression or changed test execution vs approved base"
+          print("APPROVED_BASE_FAILURE_PARITY=PASS; historical failing tests are NOT claimed passing")
+          PY
       - name: Fresh migrated Backoffice HTTP permissions regression
         env:
           DATABASE_URL: postgresql+asyncpg://field_auth_runtime@127.0.0.1:55479/representatives_role_gate

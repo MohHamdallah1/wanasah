@@ -52,37 +52,37 @@ def _provision_and_backfill():
     """
     bind = op.get_bind()
     previous = bind.scalar(sa.text("SELECT current_setting('app.current_tenant', true)"))
-    try:
-        missing = set(FIELD_CODES) - set(bind.scalars(sa.text(
-            "SELECT code FROM permissions WHERE code IN :codes"
-        ).bindparams(sa.bindparam("codes", expanding=True)), {"codes": FIELD_CODES}))
-        if missing:
-            raise RuntimeError("FIELD permission catalog is incomplete.")
-        companies = bind.scalars(sa.text("SELECT id FROM companies ORDER BY id")).all()
-        for company_id in companies:
-            bind.execute(sa.text("SELECT set_config('app.current_tenant', :tenant, true)"),
-                         {"tenant": str(company_id)})
-            role_id = bind.scalar(sa.text("""
-                INSERT INTO roles(company_id, name, is_system_role, system_key)
-                VALUES (:company, 'FIELD_REPRESENTATIVE_V1', true, :key)
-                ON CONFLICT (company_id, system_key) DO NOTHING RETURNING id
-            """), {"company": company_id, "key": SYSTEM_KEY})
-            if role_id is None:
-                continue
-            bind.execute(sa.text("""
-                INSERT INTO role_permissions(company_id, role_id, permission_id)
-                SELECT :company, :role, id FROM permissions WHERE code IN :codes
-            """).bindparams(sa.bindparam("codes", expanding=True)),
-                         {"company": company_id, "role": role_id, "codes": FIELD_CODES})
-            bind.execute(sa.text("""
-                INSERT INTO field_representative_roles(company_id, field_representative_id, role_id)
-                SELECT company_id, id, :role FROM field_representatives
-                WHERE company_id=:company
-                ON CONFLICT DO NOTHING
-            """), {"company": company_id, "role": role_id})
-    finally:
+    missing = set(FIELD_CODES) - set(bind.scalars(sa.text(
+        "SELECT code FROM permissions WHERE code IN :codes"
+    ).bindparams(sa.bindparam("codes", expanding=True)), {"codes": FIELD_CODES}))
+    if missing:
+        raise RuntimeError("FIELD permission catalog is incomplete.")
+    companies = bind.scalars(sa.text("SELECT id FROM companies ORDER BY id")).all()
+    for company_id in companies:
         bind.execute(sa.text("SELECT set_config('app.current_tenant', :tenant, true)"),
-                     {"tenant": previous or ""})
+                     {"tenant": str(company_id)})
+        role_id = bind.scalar(sa.text("""
+            INSERT INTO roles(company_id, name, is_system_role, system_key)
+            VALUES (:company, 'FIELD_REPRESENTATIVE_V1', true, :key)
+            ON CONFLICT (company_id, system_key) DO NOTHING RETURNING id
+        """), {"company": company_id, "key": SYSTEM_KEY})
+        if role_id is None:
+            continue
+        bind.execute(sa.text("""
+            INSERT INTO role_permissions(company_id, role_id, permission_id)
+            SELECT :company, :role, id FROM permissions WHERE code IN :codes
+        """).bindparams(sa.bindparam("codes", expanding=True)),
+                     {"company": company_id, "role": role_id, "codes": FIELD_CODES})
+        bind.execute(sa.text("""
+            INSERT INTO field_representative_roles(company_id, field_representative_id, role_id)
+            SELECT company_id, id, :role FROM field_representatives
+            WHERE company_id=:company
+            ON CONFLICT DO NOTHING
+        """), {"company": company_id, "role": role_id})
+    # Restore only after success; on failure the caller must roll back the whole
+    # migration transaction (including tenant context), preserving the SQL cause.
+    bind.execute(sa.text("SELECT set_config('app.current_tenant', :tenant, true)"),
+                 {"tenant": previous or ""})
 
 
 def _install_system_role_guards():

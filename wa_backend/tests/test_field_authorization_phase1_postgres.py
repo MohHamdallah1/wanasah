@@ -16,6 +16,7 @@ from sqlalchemy import create_engine, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
+from sqlalchemy.exc import IntegrityError
 
 from domains.authorization.capabilities import FIELD_ASSIGNABLE_PERMISSIONS, PERMISSIONS
 from domains.authorization.field_models import FieldRepresentativeRole
@@ -328,8 +329,9 @@ def test_backfill_name_collision_fails_without_adopting_or_partial_grants(gate):
         role = db.execute("""
             INSERT INTO roles(company_id,name,is_system_role) VALUES (%s,%s,false) RETURNING id
         """, (tenant,KEY)).fetchone()[0]
-        with pytest.raises(Exception):
+        with pytest.raises(IntegrityError) as caught:
             rerun_data()
+        assert caught.value.orig.sqlstate == "23505"
         assert db.execute("SELECT system_key,is_system_role FROM roles WHERE id=%s", (role,)).fetchone() == (None,False)
         assert db.execute("SELECT count(*) FROM role_permissions WHERE role_id=%s", (role,)).fetchone()[0] == 0
 
@@ -354,11 +356,13 @@ def test_dual_split_backoffice_and_field_grants_remain_independent(gate, db):
         finally:
             await engine.dispose()
     asyncio.run(check())
-    db.execute("DELETE FROM user_roles WHERE company_id=%s AND driver_id=11001", (gate["a"],))
-    assert field_codes(db,gate["a"],21001) == EXPECTED
+    with db.transaction(force_rollback=True):
+        db.execute("DELETE FROM user_roles WHERE company_id=%s AND driver_id=11001", (gate["a"],))
+        assert field_codes(db,gate["a"],21001) == EXPECTED
     db.execute("DELETE FROM field_representative_roles WHERE company_id=%s AND field_representative_id=21001", (gate["a"],))
-    assert db.execute("SELECT count(*) FROM role_permissions WHERE company_id=%s AND role_id=%s",
-                      (gate["a"],gate["office_role"])).fetchone()[0] == 2
+    assert db.execute("SELECT count(*) FROM user_roles WHERE company_id=%s AND driver_id=11001",
+                      (gate["a"],)).fetchone()[0] == 1
+    asyncio.run(check())  # Removing FIELD grants cannot remove or add Backoffice grants.
 
 
 def test_forward_only_preserves_revocation_marker():
@@ -373,3 +377,15 @@ def test_force_rls_applies_even_to_restricted_table_owner(gate, db):
     db.execute("SELECT set_config('app.current_tenant',%s,true)", (str(gate["a"]),))
     assert {row[0] for row in db.execute("SELECT DISTINCT company_id FROM field_representative_roles")} == {gate["a"]}
     db.execute("RESET ROLE")
+
+def test_catalog_adds_exactly_three_codes_and_retains_existing_nine():
+    import ast
+    source = subprocess.check_output(["git","show",
+        "9dd3dbed089f8d41f775f599ddf366a417ea6a16:wa_backend/domains/authorization/capabilities.py"], text=True)
+    assignment = next(node for node in ast.parse(source).body
+        if isinstance(node,ast.Assign) and any(isinstance(t,ast.Name) and t.id=="PERMISSIONS" for t in node.targets))
+    previous = set(ast.literal_eval(assignment.value.args[0]))
+    new = {"work_session.execute","visit.execute","shop.create"}
+    assert PERMISSIONS - previous == new
+    assert previous <= PERMISSIONS
+    assert EXPECTED - new <= previous
