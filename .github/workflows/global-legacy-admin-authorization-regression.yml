@@ -1,0 +1,57 @@
+name: Global Legacy Admin Authorization Regression Gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "wa_backend/**/*.py"
+      - "dashboard/src/**"
+      - "wanasah_frontend/lib/**"
+      - "ci/legacy_admin_authorization_guard.py"
+      - "ci/tests/test_legacy_admin_authorization_guard.py"
+      - ".github/workflows/global-legacy-admin-authorization-regression.yml"
+  pull_request:
+    paths:
+      - "wa_backend/**/*.py"
+      - "dashboard/src/**"
+      - "wanasah_frontend/lib/**"
+      - "ci/legacy_admin_authorization_guard.py"
+      - "ci/tests/test_legacy_admin_authorization_guard.py"
+      - ".github/workflows/global-legacy-admin-authorization-regression.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  legacy-admin-authorization-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Exact Runtime architecture scan
+        run: python ci/legacy_admin_authorization_guard.py --root .
+
+      - name: Guard mutation and exclusion tests
+        run: python ci/tests/test_legacy_admin_authorization_guard.py -v
+
+      - name: Install identity migration test dependency
+        run: python -m pip install "psycopg[binary]>=3.1,<4"
+
+      - name: Existing Backend identity retirement source checks
+        env:
+          PYTHONPATH: wa_backend
+        run: |
+          python wa_backend/tests/test_login_is_admin_retirement_contract.py -v
+          python wa_backend/tests/test_identity_migration_tooling_is_admin_retirement.py -v
+          python wa_backend/tests/test_driver_fixture_retirement.py -v
+
+      - name: Existing Dashboard canonical login retirement check
+        run: node --test dashboard/src/pages/Login.contract.test.mjs
