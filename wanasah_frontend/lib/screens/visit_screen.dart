@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:map_launcher/map_launcher.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'dart:convert';
 import '../core/db/local_database.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../blocs/visit/visit_bloc.dart';
@@ -13,6 +12,7 @@ import '../features/visits/presentation/invoice/visit_invoice_receipt.dart';
 import '../features/visits/presentation/visit_field_failure.dart';
 import '../features/visits/presentation/visit_field_strings.dart';
 import '../features/visits/application/visit_money_input.dart';
+import '../features/visits/data/visit_durable_evidence_source.dart';
 import 'dart:developer' as developer;
 
 // --- تعريف الكلاس StatefulWidget ---
@@ -38,6 +38,8 @@ class VisitScreen extends StatefulWidget {
 class _VisitScreenState extends State<VisitScreen> {
   // --- متغيرات الحالة للحقول والـ BLoC ---
   late VisitBloc _visitBloc;
+  final VisitDurableEvidenceSource _durableEvidenceSource =
+      LocalVisitDurableEvidenceSource.withDatabase();
   final _cashController = TextEditingController();
   final _debtPaidController = TextEditingController();
   final _notesController = TextEditingController();
@@ -124,6 +126,8 @@ class _VisitScreenState extends State<VisitScreen> {
         (v) => (v['visit_id'] ?? v['id']) == widget.visitId,
         orElse: () => {},
       );
+      final durableEvidence =
+          await _durableEvidenceSource.readForVisit(widget.visitId);
 
       if (visitData.isNotEmpty) {
         // +++ الدرع النوعي (Safe Parse): منع الانهيار إذا كانت القيمة نصية من SQLite +++
@@ -141,25 +145,10 @@ class _VisitScreenState extends State<VisitScreen> {
             visitData['status'] ?? visitData['visit_status'];
 
         if (currentStatus == 'Completed') {
-            final pendingSyncs = await LocalDatabase.instance.getPendingSyncs();
-            bool isOfflineDraft = pendingSyncs.any((p) {
-              if (p['type'] == 'submit_sale') {
-                try {
-                  final payload = jsonDecode(p['payload'] as String);
-                  // +++ توحيد المقارنة كنصوص لتفادي الانهيار مع الـ IDs الغريبة +++
-                  return payload['visitId']?.toString() == widget.visitId.toString() || 
-                         payload['visit_id']?.toString() == widget.visitId.toString();
-                } catch (_) {
-                  return false; // تجاهل السجل التالف بصمت
-                }
-              }
-              return false;
-            });
-
           if (!mounted) return;
 
           // +++  السماح بتعديل المسودة الأوفلاين (Local Authority) +++
-          if (isOfflineDraft) {
+          if (durableEvidence.hasUnresolvedDraft) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
@@ -182,41 +171,25 @@ class _VisitScreenState extends State<VisitScreen> {
       }
 
       // 3. محاولة استرجاع المسودة المالية (Draft) من الخزنة
-      final pendingSyncs = await LocalDatabase.instance.getPendingSyncs();
-      Map<String, dynamic>? offlinePayload;
-      for (var p in pendingSyncs.reversed) {
-        if (p['type'] == 'submit_sale') {
-          try {
-            final payload = jsonDecode(p['payload'] as String);
-            // +++ استخدام toString() لتوحيد المقارنة ومنع كراش الـ Types +++
-            if (payload['visitId']?.toString() == widget.visitId.toString() || 
-                payload['visit_id']?.toString() == widget.visitId.toString()) {
-              offlinePayload = payload;
-              break;
-            }
-          } catch (e) {
-            developer.log('[VisitScreen] Ignored corrupted pending sync payload: $e');
-            // استمر في الحلقة ولا تدمر الشاشة
-          }
-        }
-      }
+      final offlineDraft = durableEvidence.latestDraft;
 
       // +++  استخراج الحالة للتحقق من المزامنة العكسية بأمان +++
       final String? currentStatus =
           visitData['status'] ?? visitData['visit_status'];
 
-      if (offlinePayload != null) {
-        final cashDouble = double.tryParse(offlinePayload['cash_collected']?.toString() ?? '0') ?? 0.0;
-        _cashController.text = canonicalVisitMoney(offlinePayload['cash_collected']?.toString() ?? '');
-        final debtDouble = double.tryParse(offlinePayload['debt_paid']?.toString() ?? '0') ?? 0.0;
+      if (offlineDraft != null) {
+        final cashDouble =
+            double.tryParse(offlineDraft.cashCollected) ?? 0.0;
+        _cashController.text =
+            canonicalVisitMoney(offlineDraft.cashCollected);
+        final debtDouble =
+            double.tryParse(offlineDraft.debtPaid) ?? 0.0;
         _debtPaidController.text =
-            canonicalVisitMoney(offlinePayload['debt_paid']?.toString() ?? '');
-        _notesController.text =
-            offlinePayload['notes'] ?? offlinePayload['no_sale_reason'] ?? '';
+            canonicalVisitMoney(offlineDraft.debtPaid);
+        _notesController.text = offlineDraft.notes;
 
         // +++  (حرج 5): استرجاع السلة والتوالف من الخزنة السرية إذا كانت الزيارة أوفلاين +++
-        if (offlinePayload['cart_items'] != null ||
-            offlinePayload['returns'] != null) {
+        if (offlineDraft.hasCartOrReturnEvidence) {
           
           // +++  الأضخم: إجبار الكود على الانتظار حتى يجهز البلوك (VisitReady) قبل حقن الفاتورة +++
           // +++ درع التعليق اللانهائي: الخروج من الانتظار إذا نجح التحميل أو فشل لمنع تجميد التطبيق +++
@@ -230,14 +203,8 @@ class _VisitScreenState extends State<VisitScreen> {
 
           _visitBloc.add(
             LoadCompletedVisitData(
-              cartItemsJson:
-                  offlinePayload['cart_items'] != null
-                      ? jsonEncode(offlinePayload['cart_items'])
-                      : null,
-              returnsJson:
-                  offlinePayload['returns'] != null
-                      ? jsonEncode(offlinePayload['returns'])
-                      : null,
+              cartItemsJson: offlineDraft.cartItemsJson,
+              returnsJson: offlineDraft.returnsJson,
               cashCollected: cashDouble,
               debtPaid: debtDouble,
               notes: _notesController.text,
