@@ -446,21 +446,21 @@ Closure:
 
 This register preserves the independent FIELD capability contract audit. It is a proposal, **not** owner-approved architecture and **not** implemented. Do not freeze schema, change V1 business scope or start a write wave until the owner approves the seven decisions. The existing canonical Backoffice/Field identity cutover is already done and MUST NOT be reimplemented.
 
-**Purpose / invariant:** \`authenticated principal + access channel + persisted capability + applicable scope -> Backend decision\`. FIELD is identity/channel only; it does not grant business permission. Never infer authority from UI visibility, JWT capability claims, Role name, \`Driver.is_admin\`, legacy Driver ID or Driver/Principal/Profile ID equality.
+**Purpose / invariant:** `authenticated principal + access channel + persisted capability + applicable scope -> Backend decision`. FIELD is identity/channel only; it does not grant business permission. Never infer authority from UI visibility, JWT capability claims, Role name, `Driver.is_admin`, legacy Driver ID or Driver/Principal/Profile ID equality.
 
 #### Seven decisions awaiting owner approval
 
-- [ ] **D1 — Three NEW codes:** add only \`work_session.execute\`, \`visit.execute\`, \`shop.create\` to the shared canonical catalog. The other nine codes below already exist; FIELD V1 default bundle contains twelve total permissions, not three.
-- [ ] **D2 — Canonical FIELD assignment:** add \`field_representative_roles\` keyed by company + canonical \`FieldRepresentative.id\` + role ID. Reuse current Role/Permission/role_permissions. Do **not** reuse Driver-based \`UserRole\` / \`UserLocationAccess\` for FIELD: \`DUAL_SPLIT\` can map independent FIELD and Backoffice principals to the same legacy Driver.
+- [ ] **D1 — Three NEW codes:** add only `work_session.execute`, `visit.execute`, `shop.create` to the shared canonical catalog. The other nine codes below already exist; FIELD V1 default bundle contains twelve total permissions, not three.
+- [ ] **D2 — Canonical FIELD assignment:** add `field_representative_roles` keyed by company + canonical `FieldRepresentative.id` + role ID. Reuse current Role/Permission/role_permissions. Do **not** reuse Driver-based `UserRole` / `UserLocationAccess` for FIELD: `DUAL_SPLIT` can map independent FIELD and Backoffice principals to the same legacy Driver.
 - [ ] **D3 — Scope:** assign capabilities company-wide as *operation-type grants*, then AND with existing dynamic WorkSession / DispatchRoute / assigned Visit / assigned VEHICLE location / expected-receiver / tenant / business-state guards. No static Field warehouse/location grants in V1, and no scope bypass.
-- [ ] **D4 — Existing/new representative provisioning:** create one limited FIELD V1 system role per company, grant it once to existing representatives through a migrated idempotent backfill before endpoint enforcement, and assign it atomically on creation of a new representative. Never auto-regrant after deliberate revocation. No unrestricted \`PERMISSIONS\` default.
-- [ ] **D5 — Stable system role key:** add nullable \`Role.system_key\` with a tenant-unique reserved \`FIELD_REPRESENTATIVE_V1\` identity for provisioning. This is lookup metadata, **not** permission authority. Keep system-role membership and capabilities immutable except through separately controlled migration; never infer grants from role name.
+- [ ] **D4 — Existing/new representative provisioning:** create one limited FIELD V1 system role per company, grant it once to existing representatives through a migrated idempotent backfill before endpoint enforcement, and assign it atomically on creation of a new representative. Never auto-regrant after deliberate revocation. No unrestricted `PERMISSIONS` default.
+- [ ] **D5 — Stable system role key:** add nullable `Role.system_key` with a tenant-unique reserved `FIELD_REPRESENTATIVE_V1` identity for provisioning. This is lookup metadata, **not** permission authority. Keep system-role membership and capabilities immutable except through separately controlled migration; never infer grants from role name.
 - [ ] **D6 — Grant/revoke API:** owner-only FIELD role assignment management under representatives, independently of existing Backoffice grant APIs. Server loads canonical same-company representative and role; rejects roles not restricted to FIELD-assignable codes. Persist audit, idempotent add, immediate revocation without relogin.
 - [ ] **D7 — Endpoint/capability matrix:** approve the exact mapping below, including composite reads and per-decision transfer requirements. Preserve existing endpoint URLs, status/error contract, command idempotency and Flutter payloads.
 
 Proposed twelve-capability FIELD V1 default bundle (nine existing, three NEW):
 
-\`work_session.read\`, \`work_session.execute\` (NEW), \`visit.read\`, \`visit.execute\` (NEW), \`inventory.read\`, \`transfer.read\`, \`transfer.receive\`, \`transfer.reject\`, \`catalog.read\`, \`pricing.view\`, \`reconciliation.execute\`, \`shop.create\` (NEW).
+`work_session.read`, `work_session.execute` (NEW), `visit.read`, `visit.execute` (NEW), `inventory.read`, `transfer.read`, `transfer.receive`, `transfer.reject`, `catalog.read`, `pricing.view`, `reconciliation.execute`, `shop.create` (NEW).
 
 **Endpoint matrix to freeze at D7:**
 
@@ -486,25 +486,25 @@ Proposed twelve-capability FIELD V1 default bundle (nine existing, three NEW):
 
 #### Safety / rollout gates — all remain OPEN until proved
 
-- [ ] **P1 Grant leakage:** test \`DUAL_SPLIT\`: one legacy Driver mapped to distinct Backoffice and FIELD canonical subjects must NEVER cause roles/grants to cross channels.
+- [ ] **P1 Grant leakage:** test `DUAL_SPLIT`: one legacy Driver mapped to distinct Backoffice and FIELD canonical subjects must NEVER cause roles/grants to cross channels.
 - [ ] **P2 No capability alone bypasses scope:** preserve tenant, route/zone, active WorkSession, Visit ownership, vehicle/location, expected receiver, stock/financial invariants. Capability AND scope, never OR.
 - [ ] **P3 No client-side/JWT authorization:** resolve grants from persisted server Role/Permission/field assignment every request; immediate revocation with unchanged token.
 - [ ] **P4 No accidental lockout:** install exact limited default grants to already-existing representatives BEFORE enforcement; new-representative assignment must be part of the same transaction. Backfill only once; revoked grants stay revoked.
-- [ ] **P5 No role-escalation loophole:** define \`FIELD_ASSIGNABLE_PERMISSIONS\` allowlist; reject assignment if any role permission lies outside it. Critically, also reject later editing/addition of permissions to **any role already assigned to FIELD** if it would exceed this allowlist; otherwise a safe role becomes privileged after assignment. Prevent unauthorized edit/delete of the default system role, including via other role APIs and migrations.
+- [ ] **P5 No role-escalation loophole:** define `FIELD_ASSIGNABLE_PERMISSIONS` allowlist; reject assignment if any role permission lies outside it. Critically, also reject later editing/addition of permissions to **any role already assigned to FIELD** if it would exceed this allowlist; otherwise a safe role becomes privileged after assignment. Prevent unauthorized edit/delete of the default system role, including via other role APIs and migrations.
 - [ ] **P6 Schema + company isolation:** composite tenant FKs, stable uniqueness, migration against current Alembic head, FORCE RLS where applicable, indexes, and idempotent backfill. Validate active/revoked principal, exact FieldRepresentative and same-company Role.
-- [ ] **P7 Denial matrix:** no grant, revoked grant with same token, foreign company, wrong vehicle/location, wrong assigned visit, unauthorized direct HTTP mutation, \`DUAL_SPLIT\`, no reliance on role names or \`is_admin\`, mixed accepted/rejected batch needing both distinct grants. Verify 403/404 as appropriate and **zero mutation/idempotency/stock side effects** on denial.
+- [ ] **P7 Denial matrix:** no grant, revoked grant with same token, foreign company, wrong vehicle/location, wrong assigned visit, unauthorized direct HTTP mutation, `DUAL_SPLIT`, no reliance on role names or `is_admin`, mixed accepted/rejected batch needing both distinct grants. Verify 403/404 as appropriate and **zero mutation/idempotency/stock side effects** on denial.
 - [ ] **P8 Business-compatibility:** keep prior login/refresh/logout, Flutter request/response, structured errors, audit, exact replay, transfer batch atomicity and 100-item cap; do not rewrite god-file business logic just to insert dependencies.
 - [ ] **P9 Backend scope separation:** backend FIELD authorization is a strict Flutter V1 dependency; do not touch concurrent Dashboard Reports/Settings/other owner surfaces or client visual redesign.
 
 #### Implementation order after owner approval (no overlap)
 
 1. [ ] Contract approval and documentation first; freeze exact capability/scope semantics and one-file-owner-per-wave plan.
-2. [ ] Phase 1 — Backend persisted contract: capability catalog / proposed \`Role.system_key\` / new FIELD assignment ORM / Alembic+RLS+backfill; migration tests and \`DUAL_SPLIT\` isolation. No endpoint enforcement yet.
-3. [ ] Phase 2 — Backend \`FieldCapabilityAccess\` + Field HTTP dependency + owner-only representative role grant/revoke + new-representative provisioning + role-update anti-escalation; focused unit and PostgreSQL tests.
+2. [ ] Phase 1 — Backend persisted contract: capability catalog / proposed `Role.system_key` / new FIELD assignment ORM / Alembic+RLS+backfill; migration tests and `DUAL_SPLIT` isolation. No endpoint enforcement yet.
+3. [ ] Phase 2 — Backend `FieldCapabilityAccess` + Field HTTP dependency + owner-only representative role grant/revoke + new-representative provisioning + role-update anti-escalation; focused unit and PostgreSQL tests.
 4. [ ] Phase 3 — Backend FIELD dependencies at session/visit/shop/transfer/custody/reconciliation endpoints with preserved assigned scopes. No Flutter or runtime workflow refactor; negative tests.
-5. [ ] Phase 4 — focused cross-channel, current Backend + Flutter acceptance, then independent review/merge and updated \`[x]\` evidence.
+5. [ ] Phase 4 — focused cross-channel, current Backend + Flutter acceptance, then independent review/merge and updated `[x]` evidence.
 
-**Separate prior \`is_admin\` history (do not repeat):** Canonical Identity + persisted Backoffice capabilities/scopes already replaced Driver-flag authority. \`Driver.is_admin\` was physically dropped by migration \`f2c7a9d4e611\`, and the current ORM Driver has no such field. The only still-open task in this Flutter plan is a *repository-wide automated reintroduction-prevention source/architecture CI gate*, after confirming present runtime has zero authority dependence. Existing targeted login, driver, and physical-drop tests are not a replacement for that global future-regression gate. No new identity migration and no second replacement of \`is_admin\` are authorized.
+**Separate prior `is_admin` history (do not repeat):** Canonical Identity + persisted Backoffice capabilities/scopes already replaced Driver-flag authority. `Driver.is_admin` was physically dropped by migration `f2c7a9d4e611`, and the current ORM Driver has no such field. The only still-open task in this Flutter plan is a *repository-wide automated reintroduction-prevention source/architecture CI gate*, after confirming present runtime has zero authority dependence. Existing targeted login, driver, and physical-drop tests are not a replacement for that global future-regression gate. No new identity migration and no second replacement of `is_admin` are authorized.
 
 
 ## 7. Session / route / custody
