@@ -8,6 +8,7 @@ import 'package:wanasah_frontend/app/bootstrap/app_error_handlers.dart';
 import 'package:wanasah_frontend/app/theme/app_system_ui.dart';
 import 'package:wanasah_frontend/app/theme/app_theme.dart';
 import 'package:wanasah_frontend/app/theme/app_tokens.dart';
+import 'package:wanasah_frontend/core/observability/safe_sentry_context.dart';
 
 void main() {
   group('App bootstrap environment policy', () {
@@ -93,21 +94,67 @@ void main() {
       expect(widget, isA<MaterialApp>());
     });
 
-    test('error owner preserves Sentry capture and debug presentation', () async {
+    test('error owner preserves single reporting route and debug presentation',
+        () async {
       final source = await File(
         'lib/app/bootstrap/app_error_handlers.dart',
       ).readAsString();
 
-      expect(
-        RegExp(r'Sentry\.captureException').allMatches(source).length,
-        2,
-      );
+      expect(source, isNot(contains('Sentry.captureException')));
+      expect(source, contains('_reporter('));
       expect(source, contains('FlutterError.presentError(details)'));
       expect(
         source,
         contains('PlatformDispatcher.instance.onError'),
       );
       expect(source, contains('return true;'));
+    });
+
+    test('Flutter and platform uncaught errors each report exactly once', () async {
+      final previousFlutterHandler = FlutterError.onError;
+      final previousPlatformHandler = ui.PlatformDispatcher.instance.onError;
+      final previousErrorWidgetBuilder = ErrorWidget.builder;
+      final reports = <SafeSentryMetadata>[];
+
+      addTearDown(() {
+        FlutterError.onError = previousFlutterHandler;
+        ui.PlatformDispatcher.instance.onError = previousPlatformHandler;
+        ErrorWidget.builder = previousErrorWidgetBuilder;
+      });
+
+      AppErrorHandlers.install(
+        reporter: (error, stack, metadata) async {
+          reports.add(metadata);
+        },
+      );
+
+      FlutterError.onError!(
+        FlutterErrorDetails(
+          exception: StateError('framework secret payload'),
+          stack: StackTrace.current,
+        ),
+      );
+
+      final handled = ui.PlatformDispatcher.instance.onError!(
+        StateError('platform secret payload'),
+        StackTrace.current,
+      );
+
+      expect(handled, isTrue);
+      expect(reports, hasLength(2));
+      expect(
+        reports.map((metadata) => metadata.operation).toList(),
+        <ObservabilityOperation>[
+          ObservabilityOperation.flutterFramework,
+          ObservabilityOperation.platformAsync,
+        ],
+      );
+      expect(
+        reports.every(
+          (metadata) => metadata.failureKind == ObservabilityFailureKind.crash,
+        ),
+        isTrue,
+      );
     });
   });
 
@@ -178,7 +225,10 @@ void main() {
       expect(source, contains('options.dsn = sentryDsn'));
       expect(source, contains('options.tracesSampleRate = 0.1'));
       expect(source, contains('SentryFlutter.init'));
-      expect(source, contains('appRunner: () => runApp(const MyApp())'));
+      expect(source, contains('SentryPrivacyPolicy.configure(options)'));
+      expect(source, contains('appRunner: () {'));
+      expect(source, contains('AppErrorHandlers.install();'));
+      expect(source, contains('runApp(const MyApp())'));
       expect(
         source,
         contains("initializeDateFormatting('ar', null)"),

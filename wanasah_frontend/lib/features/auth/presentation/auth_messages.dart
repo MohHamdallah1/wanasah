@@ -8,6 +8,7 @@ enum AuthMessageKey {
   authRejected,
   rateLimited,
   connectivityFailure,
+  timeoutFailure,
   serverFailure,
   requestRejected,
   genericLoginFailure,
@@ -28,6 +29,8 @@ const Map<String, Map<AuthMessageKey, String>> _authMessages = {
         'تم تجاوز حد محاولات تسجيل الدخول. انتظر قليلاً ثم حاول مجدداً.',
     AuthMessageKey.connectivityFailure:
         'تعذر الاتصال بالخادم. تحقق من اتصالك بالإنترنت ثم حاول مجدداً.',
+    AuthMessageKey.timeoutFailure:
+        'انتهت مهلة الاتصال بالخادم. تحقق من الشبكة ثم حاول مجدداً.',
     AuthMessageKey.serverFailure:
         'تعذر إكمال تسجيل الدخول بسبب خطأ في الخادم. حاول لاحقاً. المرجع: {requestId}',
     AuthMessageKey.requestRejected:
@@ -49,6 +52,8 @@ const Map<String, Map<AuthMessageKey, String>> _authMessages = {
         'Too many sign-in attempts. Wait briefly and try again.',
     AuthMessageKey.connectivityFailure:
         'The server could not be reached. Check your connection and try again.',
+    AuthMessageKey.timeoutFailure:
+        'The server request timed out. Check the network and try again.',
     AuthMessageKey.serverFailure:
         'Sign-in could not be completed because of a server error. Try again later. Reference: {requestId}',
     AuthMessageKey.requestRejected:
@@ -92,6 +97,11 @@ String authLoginFailureMessage(
     case AuthLoginFailureKind.connectivity:
       return authMessage(
         AuthMessageKey.connectivityFailure,
+        localeCode: localeCode,
+      );
+    case AuthLoginFailureKind.timeout:
+      return authMessage(
+        AuthMessageKey.timeoutFailure,
         localeCode: localeCode,
       );
     case AuthLoginFailureKind.serverFailure:

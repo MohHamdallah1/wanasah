@@ -2,17 +2,36 @@ import 'package:flutter/material.dart';
 import '../../../core/network/api_failure.dart';
 import 'visit_field_strings.dart';
 
-enum VisitFailureCategory { connectivity, authorization, business }
+enum VisitFailureCategory {
+  connectivity,
+  timeout,
+  temporary,
+  authorization,
+  business,
+}
 
 VisitFailureCategory visitFailureCategory(ApiFailure failure) {
-  if (failure.kind != ApiFailureKind.serverResponse ||
-      failure.status == null || failure.status! >= 500 ||
-      failure.status == 408 || failure.status == 429) {
+  final status = failure.status;
+
+  if (failure.kind == ApiFailureKind.timeout || status == 408) {
+    return VisitFailureCategory.timeout;
+  }
+
+  if (failure.kind == ApiFailureKind.connection ||
+      failure.kind == ApiFailureKind.cancelled ||
+      failure.kind == ApiFailureKind.unknown ||
+      status == null) {
     return VisitFailureCategory.connectivity;
   }
-  if (failure.status == 401 || failure.status == 403) {
+
+  if (status == 401 || status == 403) {
     return VisitFailureCategory.authorization;
   }
+
+  if (status == 429 || status >= 500) {
+    return VisitFailureCategory.temporary;
+  }
+
   return VisitFailureCategory.business;
 }
 

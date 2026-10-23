@@ -107,7 +107,7 @@ void main() {
 
       expect(result.disposition, WorkSessionDisposition.reconciledSuccess);
       expect(result.reconciledSession!.sessionId, 602);
-      expect(result.failure!.kind, WorkSessionFailureKind.network);
+      expect(result.failure!.kind, WorkSessionFailureKind.connectivity);
       expect(remote.startCalls, 1);
       expect(remote.readActiveCalls, 1);
     });
@@ -128,7 +128,7 @@ void main() {
 
       expect(result.disposition, WorkSessionDisposition.unresolved);
       expect(result.isSuccess, isFalse);
-      expect(result.failure!.kind, WorkSessionFailureKind.network);
+      expect(result.failure!.kind, WorkSessionFailureKind.connectivity);
       expect(remote.breakCalls, 1);
       expect(remote.readRuntimeCalls, 1);
     });
@@ -147,6 +147,7 @@ void main() {
 
       final result = await coordinator.toggleBreak(start: true);
 
+      expect(result.failure!.kind, WorkSessionFailureKind.timeout);
       expect(result.disposition, WorkSessionDisposition.reconciledSuccess);
       expect(result.reconciledSession!.isOnBreak, isTrue);
     });

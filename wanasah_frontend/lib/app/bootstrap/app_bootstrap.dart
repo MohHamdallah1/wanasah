@@ -5,6 +5,7 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 
 import '../../blocs/auth/auth_event.dart';
 import '../../core/network/api_client.dart';
+import '../../core/observability/sentry_privacy_policy.dart';
 import '../app.dart';
 import 'app_environment.dart';
 import 'app_error_handlers.dart';
@@ -19,8 +20,6 @@ class AppBootstrap {
 
   Future<void> run() async {
     WidgetsFlutterBinding.ensureInitialized();
-    AppErrorHandlers.install();
-
     await initializeDateFormatting('ar', null);
     await _environmentLoader.load();
 
@@ -42,8 +41,14 @@ class AppBootstrap {
       (options) {
         options.dsn = sentryDsn;
         options.tracesSampleRate = 0.1;
+        SentryPrivacyPolicy.configure(options);
       },
-      appRunner: () => runApp(const MyApp()),
+      appRunner: () {
+        // Install after Sentry initializes so Flutter/platform errors have one
+        // application-owned capture route instead of duplicate SDK + app paths.
+        AppErrorHandlers.install();
+        runApp(const MyApp());
+      },
     );
   }
 }

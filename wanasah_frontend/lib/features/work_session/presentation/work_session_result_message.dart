@@ -59,6 +59,18 @@ String workSessionResultMessage(
         failure.requestId,
         localeCode,
       );
+    case WorkSessionFailureKind.connectivity:
+      return _withRequestId(
+        text(WorkSessionStringKey.networkUnresolved),
+        failure.requestId,
+        localeCode,
+      );
+    case WorkSessionFailureKind.timeout:
+      return _withRequestId(
+        text(WorkSessionStringKey.timeoutUnresolved),
+        failure.requestId,
+        localeCode,
+      );
     case WorkSessionFailureKind.network:
       return _withRequestId(
         text(WorkSessionStringKey.networkUnresolved),

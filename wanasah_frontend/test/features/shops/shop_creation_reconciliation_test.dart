@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wanasah_frontend/features/shops/application/shop_creation_service.dart';
 import 'package:wanasah_frontend/features/shops/domain/shop_creation.dart';
+import 'package:wanasah_frontend/features/shops/presentation/shop_creation_failure_message.dart';
 
 class _FakeGateway implements ShopCreationGateway {
   _FakeGateway(this.responses);
@@ -77,6 +78,32 @@ void main() {
     );
   });
 
+  test('typed shop failure presentation does not branch on display text', () {
+    const connectivity = ShopCreateFailure(
+      kind: ShopCreateFailureKind.connectivity,
+      ambiguous: true,
+      status: null,
+      code: null,
+      context: <String, dynamic>{},
+      requestId: null,
+      displayFallback: 'timeout انتهاء المهلة',
+    );
+    const timeout = ShopCreateFailure(
+      kind: ShopCreateFailureKind.timeout,
+      ambiguous: true,
+      status: null,
+      code: null,
+      context: <String, dynamic>{},
+      requestId: null,
+      displayFallback: 'connection اتصال',
+    );
+
+    expect(
+      shopCreationFailureMessage(connectivity),
+      isNot(shopCreationFailureMessage(timeout)),
+    );
+  });
+
   test('AddShopScreen delegates transport to feature-owned service', () async {
     final source = await File('lib/screens/add_shop_screen.dart').readAsString();
 
@@ -84,5 +111,6 @@ void main() {
     expect(source, contains('_pendingShopCommand ??='));
     expect(source, isNot(contains('ApiClient.instance.post')));
     expect(source, isNot(contains("'/shops'")));
+    expect(source, contains('shopCreationFailureMessage('));
   });
 }
