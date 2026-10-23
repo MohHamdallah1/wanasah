@@ -339,14 +339,14 @@ It will not touch Backend, web Dashboard, pricing/returns UI, or the Network wor
 - [x] Parse stable `code`, structured `context`, status and correlation/request ID.
 - [x] Keep localized server text for display only inside Network classification.
 - [x] Remove business branching on Arabic/free-text messages: current Flutter business/runtime decisions use typed/status/code evidence; the remaining SQLite duplicate-column string check is migration compatibility only, not business authority.
-- [ ] User-facing errors must distinguish:
+- [x] User-facing errors must distinguish:
   - connectivity,
   - authorization/session expiry,
   - business rejection,
   - retryable transient failure,
   - ambiguous committed-state failure,
   - local persistence/recovery failure.
-- [ ] Attach Sentry context without logging secrets/tokens/full sensitive payloads.
+- [x] Attach Sentry context without logging secrets/tokens/full sensitive payloads.
 
 ### 5.1 Typed location / free-text failure stability point — 2026-10-23
 
@@ -365,7 +365,20 @@ It will not touch Backend, web Dashboard, pricing/returns UI, or the Network wor
 - [x] Current-main PR #478 gates PASS: Typed Location, FIELD, Shop, Auth/Session, Offline, Sync/Recovery and Projection.
 - [x] Inventory CP2 historical unchanged-file assertion remains unrelated.
 - [ ] `LocalDatabase._safeAlterTable()` still uses SQLite duplicate-column text only for low-level migration compatibility; it is not a business/runtime classification seam.
-- [ ] Broader Sentry typed context/redaction remains a dedicated observability closure item.
+- [x] Broader Sentry typed context/redaction closed through PR #482; transaction telemetry deliberately disabled pending a proven safe allowlist.
+
+### 5.2 Error Model / Sentry observability stability point — 2026-10-23
+
+- [x] Worker branch `sol/flutter-v1-error-observability-closure`; accepted worker HEAD `7ff821069ab4148e9c9beccec272680a24e88598`.
+- [x] Lead reviewed the 27-file production/tests scope against latest `main` and Codex transfer ownership; no changed-file overlap.
+- [x] Lead privacy-hardening commit `a6552e7c1af4b9c589d31ef2fcd5c28ab79696fb` closes unsanitized transaction/fingerprint telemetry: native/Dart trace sampling disabled (0.0), transaction sends dropped, event fingerprints/threads stripped; uncaught error reporting and exception stacks retained.
+- [x] Sentry application metadata is allowlisted; tokens, arbitrary `ApiFailure.context`, payloads, names, addresses and coordinates are not copied into event metadata.
+- [x] Typed connectivity/timeout, authorization, deterministic business, temporary server and local recovery presentation covered without classifying on translated exception text.
+- [x] Auth identity, Visit mutation, offline replay/FIFO, LocalDatabase, projection and Custody batch execution semantics unchanged.
+- [x] PR #482 merged into `main` at `da4628514b1de7a2924632548d5c193bbc1bfe25`; worker branch auto-deleted.
+- [x] Exact current-main PR merge tree `21ee8d1ee06d2f2c418170e997016af5b6407731`: Flutter analyze PASS, 159 focused/regression tests PASS, 14 relevant GitHub workflows PASS.
+- [x] Unrelated historical CP2 unchanged-file assertion on `wa_backend/api/warehouse/live_stock.py` remains FAIL; this branch did not change that file.
+- [x] No claim of full Flutter suite, Android build, real-device E2E or production readiness. Privacy-safe performance tracing remains disabled until separately specified and validated.
 
 ## 6. Authentication / identity / tenant safety
 
