@@ -24,6 +24,7 @@ from domains.identity.migration.models import IdentityLegacyDriverMap
 from models import (
     Company, UOM, Product, ProductVariant, InventoryLocation, Permission, Role, role_permissions,
     UserRole, Visit, WorkSession, DispatchRoute, InventoryTransferHeader, InventoryTransferLine,
+    PriceBookEntry,
 )
 from tests.canonical_actor_fixtures import seed_company_owner_fixture, seed_field_fixture
 from tests.supplier_fixtures import seed_receipt_supplier
@@ -123,7 +124,7 @@ async def seed_business(admin):
     token = None
     try:
         async with AsyncSession(admin, expire_on_commit=False) as db:
-            company = Company(name="Phase3 Synthetic", company_code="P3-" + uuid4().hex[:16])
+            company = Company(name="Phase3 Synthetic", company_code="P3-" + uuid4().hex[:16], timezone="UTC")
             db.add(company)
             await db.flush()
             token = tenant_context.set(company.id)
@@ -154,7 +155,19 @@ async def seed_business(admin):
             checker = unittest.TestCase()
             g.assertEqual, g.assertIsNotNone = checker.assertEqual, checker.assertIsNotNone
             async def commercial(visit):
-                return await sale_fixture.RealDriverSaleCorrectionC2DatabaseTests._create_real_commercial_context(g,visit)
+                context_id=await sale_fixture.RealDriverSaleCorrectionC2DatabaseTests._create_real_commercial_context(g,visit)
+                # The older sale fixture publishes EACH only. FIELD read models
+                # require an explicit published CARTON price as well; never derive it in the client.
+                base_price=await db.scalar(select(PriceBookEntry).where(
+                    PriceBookEntry.company_id==g.tenant,
+                    PriceBookEntry.product_variant_id==g.variant["id"]))
+                carton=await db.scalar(select(UOM.id).where(UOM.code=="CARTON"))
+                db.add(PriceBookEntry(company_id=g.tenant,price_book_id=base_price.price_book_id,
+                    publication_id=base_price.publication_id,product_variant_id=g.variant["id"],
+                    uom_id=carton,amount=Decimal("250.000000"),effectivity=base_price.effectivity,
+                    is_published=True,priority=0,entry_metadata={}))
+                await db.flush()
+                return context_id
             g.visit,g.location,g.batch = await customer_fixture.RealCustomerReturnC2DatabaseTests._create_business_fixture(
                 g,"FIFO",commercial_context_factory=commercial)
             route = await db.scalar(select(DispatchRoute).where(DispatchRoute.company_id==g.tenant))
