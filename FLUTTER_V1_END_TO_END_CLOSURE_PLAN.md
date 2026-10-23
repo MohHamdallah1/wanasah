@@ -421,7 +421,7 @@ Closure:
 
 - [x] Read-only audit on frozen baseline `00588fcb13a2344d6bd901dd4ae190b10d04f70f` identified one FIELD authorization enforcement blocker and one release-acceptance blocker; latest main was reviewed for the same identity/capability seam before recording these findings.
 - [ ] **V1 security blocker — FIELD capability authority:** current FIELD context validates the canonical principal/channel and operational assignment, but actual FIELD endpoints do not yet require persisted per-operation capability grants. This is **not** evidence of a cross-tenant/assignment leak. Preserve existing owner/route/visit/vehicle scope checks.
-- [ ] **Decision prerequisite — field grant/provisioning contract:** currently reviewed owner-managed grant endpoints target Backoffice users. Freeze explicitly how FIELD grants are provisioned/revoked and which existing/new capability codes guard each V1 operation, with no implicit unrestricted grant, no JWT authority, and no legacy `Driver` persona authorization. Per `PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md`, any new capability/scope semantics require owner decision before implementation.
+- [x] **FIELD grant/provisioning contract approved (design only):** owner approved the seven FIELD grant/capability/scope decisions in §6.4 and `ARCHITECTURE.md` §12, with no legacy Driver or JWT authority and strong later-role-edit protection. Implementation + tests remain `[ ]` under §6.4.
 - [ ] **V1 required — Visit read-only durable evidence:** remove raw pending-command/JSON interpretation from `visit_screen.dart` by a typed feature-owned read model; keep the existing durable queue, public APIs and retry behavior unchanged.
 - [ ] **V1 required — SyncRepository Visit adapter:** extract only Visit-specific replay dispatch/finalization while preserving shared FIFO, owner guards, exact replay and `saveInvoice()` compatibility.
 - [ ] **V1 required — global `is_admin` reintroduction gate:** first prove zero actual runtime authority dependence; then add source CI test with explicit migration/history exclusions. Do not add a premature gate.
@@ -442,27 +442,27 @@ Closure:
 - [ ] Real-device Android end-to-end, network disconnect/app kill/restart/exact replay, current Backend/Dashboard parity, FIELD capability security blocker, and final V1 acceptance remain open.
 - [x] Historical unrelated repository CI failures are not marked green; success is claimed only for the dedicated final Flutter/Android workflow.
 
-### 6.4 FIELD capability decision register — PROPOSAL, owner approval OPEN (2026-10-23)
+### 6.4 FIELD capability decision register — OWNER APPROVED, IMPLEMENTATION OPEN (2026-10-23)
 
-This register preserves the independent FIELD capability contract audit. It is a proposal, **not** owner-approved architecture and **not** implemented. Do not freeze schema, change V1 business scope or start a write wave until the owner approves the seven decisions. The existing canonical Backoffice/Field identity cutover is already done and MUST NOT be reimplemented.
+**Project owner explicitly APPROVED all seven FIELD V1 authorization decisions on 2026-10-23, including the anti-escalation protection for later Role edits.** This is now a frozen architecture contract, ratified in `ARCHITECTURE.md` §12 and repeated in `.rules` and `AGENTS.md` for all future workers. **Approval is NOT implementation:** new FIELD capabilities/assignment schema, grant APIs, endpoint enforcement, migration, tests and real-device release gates stay OPEN until validated and merged. This is a security/authorization completion within the already-frozen Flutter V1 business workflow, not approval to expand unrelated Dashboard product scope. The existing canonical identity cutover is DONE and MUST NOT be reimplemented.
 
 **Purpose / invariant:** `authenticated principal + access channel + persisted capability + applicable scope -> Backend decision`. FIELD is identity/channel only; it does not grant business permission. Never infer authority from UI visibility, JWT capability claims, Role name, `Driver.is_admin`, legacy Driver ID or Driver/Principal/Profile ID equality.
 
-#### Seven decisions awaiting owner approval
+#### Seven decisions — explicitly approved and contract-frozen; implementation outstanding
 
-- [ ] **D1 — Three NEW codes:** add only `work_session.execute`, `visit.execute`, `shop.create` to the shared canonical catalog. The other nine codes below already exist; FIELD V1 default bundle contains twelve total permissions, not three.
-- [ ] **D2 — Canonical FIELD assignment:** add `field_representative_roles` keyed by company + canonical `FieldRepresentative.id` + role ID. Reuse current Role/Permission/role_permissions. Do **not** reuse Driver-based `UserRole` / `UserLocationAccess` for FIELD: `DUAL_SPLIT` can map independent FIELD and Backoffice principals to the same legacy Driver.
-- [ ] **D3 — Scope:** assign capabilities company-wide as *operation-type grants*, then AND with existing dynamic WorkSession / DispatchRoute / assigned Visit / assigned VEHICLE location / expected-receiver / tenant / business-state guards. No static Field warehouse/location grants in V1, and no scope bypass.
-- [ ] **D4 — Existing/new representative provisioning:** create one limited FIELD V1 system role per company, grant it once to existing representatives through a migrated idempotent backfill before endpoint enforcement, and assign it atomically on creation of a new representative. Never auto-regrant after deliberate revocation. No unrestricted `PERMISSIONS` default.
-- [ ] **D5 — Stable system role key:** add nullable `Role.system_key` with a tenant-unique reserved `FIELD_REPRESENTATIVE_V1` identity for provisioning. This is lookup metadata, **not** permission authority. Keep system-role membership and capabilities immutable except through separately controlled migration; never infer grants from role name.
-- [ ] **D6 — Grant/revoke API:** owner-only FIELD role assignment management under representatives, independently of existing Backoffice grant APIs. Server loads canonical same-company representative and role; rejects roles not restricted to FIELD-assignable codes. Persist audit, idempotent add, immediate revocation without relogin.
-- [ ] **D7 — Endpoint/capability matrix:** approve the exact mapping below, including composite reads and per-decision transfer requirements. Preserve existing endpoint URLs, status/error contract, command idempotency and Flutter payloads.
+- [x] **D1 — Three NEW codes:** add only `work_session.execute`, `visit.execute`, `shop.create` to the shared canonical catalog. The other nine codes below already exist; FIELD V1 default bundle contains twelve total permissions, not three.
+- [x] **D2 — Canonical FIELD assignment:** add `field_representative_roles` keyed by company + canonical `FieldRepresentative.id` + role ID. Reuse current Role/Permission/role_permissions. Do **not** reuse Driver-based `UserRole` / `UserLocationAccess` for FIELD: `DUAL_SPLIT` can map independent FIELD and Backoffice principals to the same legacy Driver.
+- [x] **D3 — Scope:** assign capabilities company-wide as *operation-type grants*, then AND with existing dynamic WorkSession / DispatchRoute / assigned Visit / assigned VEHICLE location / expected-receiver / tenant / business-state guards. No static Field warehouse/location grants in V1, and no scope bypass.
+- [x] **D4 — Existing/new representative provisioning:** create one limited FIELD V1 system role per company, grant it once to existing representatives through a migrated idempotent backfill before endpoint enforcement, and assign it atomically on creation of a new representative. Never auto-regrant after deliberate revocation. No unrestricted `PERMISSIONS` default.
+- [x] **D5 — Stable system role key:** add nullable `Role.system_key` with a tenant-unique reserved `FIELD_REPRESENTATIVE_V1` identity for provisioning. This is lookup metadata, **not** permission authority. Keep system-role membership and capabilities immutable except through separately controlled migration; never infer grants from role name.
+- [x] **D6 — Grant/revoke API:** owner-only FIELD role assignment management under representatives, independently of existing Backoffice grant APIs. Server loads canonical same-company representative and role; rejects roles not restricted to FIELD-assignable codes. Persist audit, idempotent add, immediate revocation without relogin.
+- [x] **D7 — Endpoint/capability matrix:** approve the exact mapping below, including composite reads and per-decision transfer requirements. Preserve existing endpoint URLs, status/error contract, command idempotency and Flutter payloads.
 
 Proposed twelve-capability FIELD V1 default bundle (nine existing, three NEW):
 
 `work_session.read`, `work_session.execute` (NEW), `visit.read`, `visit.execute` (NEW), `inventory.read`, `transfer.read`, `transfer.receive`, `transfer.reject`, `catalog.read`, `pricing.view`, `reconciliation.execute`, `shop.create` (NEW).
 
-**Endpoint matrix to freeze at D7:**
+**Approved D7 endpoint matrix (per-endpoint enforcement and its acceptance tests are STILL OPEN):**
 
 | FIELD endpoint/action | Required persisted capability | Additional runtime authority (never removed) |
 | --- | --- | --- |
@@ -484,7 +484,7 @@ Proposed twelve-capability FIELD V1 default bundle (nine existing, three NEW):
 | POST shops | shop.create (NEW) | Own active session/route/zone and authorized-to-sell business state |
 | POST driver session reconcile | reconciliation.execute | Own ended WorkSession and assigned vehicle location |
 
-#### Safety / rollout gates — all remain OPEN until proved
+#### Mandatory safety / rollout gates — owner-approved constraints; all remain OPEN until proved
 
 - [ ] **P1 Grant leakage:** test `DUAL_SPLIT`: one legacy Driver mapped to distinct Backoffice and FIELD canonical subjects must NEVER cause roles/grants to cross channels.
 - [ ] **P2 No capability alone bypasses scope:** preserve tenant, route/zone, active WorkSession, Visit ownership, vehicle/location, expected receiver, stock/financial invariants. Capability AND scope, never OR.
@@ -496,13 +496,23 @@ Proposed twelve-capability FIELD V1 default bundle (nine existing, three NEW):
 - [ ] **P8 Business-compatibility:** keep prior login/refresh/logout, Flutter request/response, structured errors, audit, exact replay, transfer batch atomicity and 100-item cap; do not rewrite god-file business logic just to insert dependencies.
 - [ ] **P9 Backend scope separation:** backend FIELD authorization is a strict Flutter V1 dependency; do not touch concurrent Dashboard Reports/Settings/other owner surfaces or client visual redesign.
 
-#### Implementation order after owner approval (no overlap)
+#### Approved execution order (implementation remains OPEN; no overlap)
 
-1. [ ] Contract approval and documentation first; freeze exact capability/scope semantics and one-file-owner-per-wave plan.
+1. [x] Owner explicitly approved seven decisions, company/channel separation and later-role-edit anti-escalation; `ARCHITECTURE.md` §12, `.rules`, `AGENTS.md` and this plan record the frozen contract. No Backend implementation or test completion claimed.
 2. [ ] Phase 1 — Backend persisted contract: capability catalog / proposed `Role.system_key` / new FIELD assignment ORM / Alembic+RLS+backfill; migration tests and `DUAL_SPLIT` isolation. No endpoint enforcement yet.
 3. [ ] Phase 2 — Backend `FieldCapabilityAccess` + Field HTTP dependency + owner-only representative role grant/revoke + new-representative provisioning + role-update anti-escalation; focused unit and PostgreSQL tests.
 4. [ ] Phase 3 — Backend FIELD dependencies at session/visit/shop/transfer/custody/reconciliation endpoints with preserved assigned scopes. No Flutter or runtime workflow refactor; negative tests.
 5. [ ] Phase 4 — focused cross-channel, current Backend + Flutter acceptance, then independent review/merge and updated `[x]` evidence.
+
+#### Owner-confirmed user model / boundary / login (2026-10-23)
+
+- [x] **Three company actor groups are distinct:** (1) protected canonical CompanyOwner: Dashboard, full company capabilities within all structural/tenant/business invariants; (2) Backoffice officials, administrators and warehouse employees: Dashboard roles/capabilities and exact warehouse/location/branch scope; (3) FieldRepresentative: Flutter/FIELD only, with field role grants AND own WorkSession/route/territory/shop/visit/vehicle custody/transfer assignment. No cross-company/channel/employee/warehouse/representative leakage.
+- [x] **Flutter task ownership:** Flutter app plus its necessary FIELD Backend seams only. Separate conversations own Dashboard Reports, Settings, employee/user-management UI and other administrative workflows. Reusing the single central capability catalog does NOT authorize changing another worker's staff/warehouse pages.
+- [x] **Retired admin flag:** `Driver.is_admin` was already removed from active ORM and Alembic `f2c7a9d4e611` drops the column. Never redo identity cutover. Global non-reintroduction CI gate remains OPEN, with immutable historical migrations/test-only evidence and operational Driver FKs not interpreted as authority.
+- [x] **Company code is mandatory tenant selection in FIELD login:** `POST /driver/login` requires `company_code` alongside username/password, establishes the company/RLS context before authenticating a FIELD principal. Keep this server-side check for V1; optional UX convenience is remembering only the last successfully used company code, not auto-authorizing a company or relaxing offline identity protection.
+- [ ] **Login release-security gate:** current Flutter LoginScreen pre-fills a synthetic company code, username and password in `kDebugMode`. Audit and remove hardcoded credentials from any user-distributed/debug release candidate and ensure no password persistence for the company-code UX. The company-code requirement remains.
+- [x] **Database test-data note:** owner confirms present DB data is disposable testing only, but tenant-safe schema/migrations, correct company FKs, permission/RLS validation, negatives and future production safety are mandatory. This permission does not authorize modifying/deleting the user's local databases, repo, folders or other local data.
+- [ ] **Pending acceptance:** scoped default field roles/backfill before enforcement, instant revocation, wrong principal/company/route/location/visit/warehouse/shop rejection with no mutation side effects, DUAL_SPLIT isolation, system-role/edit anti-escalation, offline exact replay, current Backend/Dashboard parity and real Android device end-to-end. Never mark implementation checkboxes based only on contract approval.
 
 **Separate prior `is_admin` history (do not repeat):** Canonical Identity + persisted Backoffice capabilities/scopes already replaced Driver-flag authority. `Driver.is_admin` was physically dropped by migration `f2c7a9d4e611`, and the current ORM Driver has no such field. The only still-open task in this Flutter plan is a *repository-wide automated reintroduction-prevention source/architecture CI gate*, after confirming present runtime has zero authority dependence. Existing targeted login, driver, and physical-drop tests are not a replacement for that global future-regression gate. No new identity migration and no second replacement of `is_admin` are authorized.
 
