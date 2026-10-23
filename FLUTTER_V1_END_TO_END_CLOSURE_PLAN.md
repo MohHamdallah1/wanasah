@@ -612,11 +612,28 @@ Known extraction targets and V1 timing:
 - [x] Network core: `ApiClient` auth/retry/error responsibilities extracted into focused files.
 - [x] Auth typed-failure and stored-identity helpers placed under `features/auth/application/**`; user-facing auth messages under `features/auth/presentation/**`.
 - [x] `local_database.dart`: durable command lifecycle extracted to `PendingCommandStore`; compatibility facade retained.
-- [ ] `local_database.dart`: remaining visit/inventory projection persistence split when Returns/Custody wiring lands.
+- [x] `local_database.dart`: remaining Visit/inventory projection persistence split completed with compatibility facade retained and transaction/exactly-once behavior preserved.
 - [x] `visit_bloc.dart`: canonical payload serializer and local projection helpers extracted before further Visit behavior work.
 - [x] `visit_bloc.dart`: Event/State declarations extracted behind compatibility exports.
 - [x] `visit_bloc.dart`: completed-visit restoration, cart policy, submission mapping, and submission use-case extracted before FIELD seam wiring; Bloc reduced to orchestration shell.
 - [x] `visit_screen.dart`: catalog/product-card presentation mechanically extracted before Returns/Batch UI changes; screen reduced from ~1445 to ~1018 lines.
+### 10.2a Local Visit / inventory projection persistence split stability point — 2026-10-23
+
+- [x] Worker branch: `sol/flutter-v1-local-visit-projection-persistence-split`.
+- [x] Exact worker HEAD: `0abfdc46523cdfa747782147e68380c42915ce34`.
+- [x] PR #475 merged to `main`; merge commit: `a00ae5cb5f4e46d88dbb922518ab4d60c1e92e0a`.
+- [x] Lead performed two manual review passes plus an automated public-method inventory check before merge.
+- [x] No public `LocalDatabase` Visit API was removed; only the two intended private projection orchestration helpers left the facade.
+- [x] `LocalDatabase` reduced from 1025 to 770 lines while preserving all existing public Visit persistence signatures as delegates.
+- [x] Visit-specific persistence moved to `core/db/visit/visit_local_persistence.dart` and `visit_inventory_projection_persistence.dart`; no `core -> features` dependency inversion was introduced.
+- [x] Finalization order remains one SQLite transaction: command read -> `local_effect_applied` guard -> OLD evidence -> OLD->NEW projection -> Visit update -> marker=1.
+- [x] Same-command replay remains a no-op before any second projection effect.
+- [x] Projection failure codes and `LocalInventoryProjectionException` propagation remain unchanged.
+- [x] Schema version, migrations, tables, columns, owner semantics, FIFO, request IDs, SyncRepository ordering and returned-custody separation were unchanged.
+- [x] Exact-head run `39874737886`: `flutter analyze` PASS + 76 tests PASS.
+- [x] Current-main PR #475 gates PASS: Persistence Split, Projection Integrity, Visit Correction, Offline Durable and Sync/Recovery.
+- [x] Inventory CP2 historical unchanged-file assertion remains unrelated to this Flutter closure.
+
 - [ ] `visit_screen.dart`: residual shell/footer/contact/submit presentation split only when the next owned responsibility requires it.
 - [x] `dashboard_bloc.dart`: Work Session and Custody responsibilities mechanically extracted before behavior work.
 - [x] `dashboard_bloc.dart`: Recovery/quarantine/sync classification extracted behind feature-owned RecoveryReader/RecoverySyncCoordinator; compatibility counts/events remain only as wiring.
