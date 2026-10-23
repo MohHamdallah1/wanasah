@@ -57,8 +57,11 @@ class LocalVisitDurableEvidenceSource implements VisitDurableEvidenceSource {
   }
 
   static bool _belongsToVisit(Map<String, dynamic> payload, int visitId) {
-    final id = payload['visitId'] ?? payload['visit_id'];
-    return id != null && id.toString() == visitId.toString();
+    // Preserve the previous VisitScreen contract: either legacy identifier
+    // may independently match. Do not silently prioritize one when both exist.
+    final target = visitId.toString();
+    return payload['visitId']?.toString() == target ||
+        payload['visit_id']?.toString() == target;
   }
 
   static Map<String, dynamic>? _payload(Object? raw) {
