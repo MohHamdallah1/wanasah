@@ -117,6 +117,25 @@ def can_edit(driver):
         details = {item.detail for item in report.violations}
         self.assertTrue({"is_manager", "isOwner", "is_superuser"}.issubset(details))
 
+    def test_rejects_bare_generic_persona_booleans(self):
+        samples = {
+            "wa_backend/api/example.py": "admin: bool = False\n",
+            "dashboard/src/example.ts": "const manager = true;\n",
+            "wanasah_frontend/lib/example.dart": "final owner = false;\n",
+        }
+        for path, source in samples.items():
+            self.write(path, source)
+
+        report = guard.scan_repository(self.root)
+        matches = [
+            item for item in report.violations
+            if item.code == "GENERIC_PERSONA_BOOLEAN"
+        ]
+        self.assertEqual(
+            {item.detail for item in matches},
+            {"admin", "manager", "owner"},
+        )
+
     def test_rejects_generic_role_name_as_permission_authority(self):
         self.write(
             "wa_backend/api/example.py",
