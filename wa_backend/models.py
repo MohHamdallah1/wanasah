@@ -92,11 +92,17 @@ class Role(Base):
     __table_args__ = (
         UniqueConstraint('company_id', 'name', name='uq_company_role_name'),
         UniqueConstraint('company_id', 'id', name='uq_roles_company_id'), # +++ Parent Guard +++
+        UniqueConstraint('company_id', 'system_key', name='uq_roles_company_system_key'),
+        CheckConstraint(
+            "system_key IS NULL OR (system_key = 'FIELD_REPRESENTATIVE_V1' AND is_system_role IS TRUE)",
+            name='role_system_key',
+        ),
     )
     id         = Column(Integer, primary_key=True)
     company_id = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     name       = Column(String(100), nullable=False)
     is_system_role = Column(Boolean, nullable=False, default=False)
+    system_key = Column(String(64), nullable=True)
 
 class Permission(Base):
     __tablename__ = 'permissions'

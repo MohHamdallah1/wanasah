@@ -10,6 +10,7 @@ PERMISSIONS = frozenset({
     'settlement.read', 'settlement.execute',
     'shortage.read', 'shortage.create', 'shortage.cancel',
     'visit.read', 'reconciliation.execute',
+    'work_session.execute', 'visit.execute', 'shop.create',
     'inventory.read', 'inbound.create', 'ledger.read', 'ledger.adjust',
     'batch.disposition', 'inventory.status_change',
     'inventory.transfer_policy.manage', 'inventory.costing.manage',
@@ -42,6 +43,7 @@ COMPANY_ONLY = frozenset({
     'work_session.read', 'work_session.authorize_sale', 'work_session.reopen',
     'settlement.read', 'settlement.execute',
     'shortage.read', 'shortage.create', 'shortage.cancel', 'visit.read',
+    'work_session.execute', 'visit.execute', 'shop.create',
     'catalog.manage', 'catalog.publish', 'catalog.retire',
     'catalog.restore', 'catalog.archive', 'catalog.hold',
     'batch.disposition', 'inventory.transfer_policy.manage', 'inventory.costing.manage',
@@ -55,4 +57,11 @@ COMPANY_ONLY = frozenset({
     'tax.view', 'tax.manage', 'tax.approve',
 })
 
-__all__ = ["COMPANY_ONLY", "PERMISSIONS"]
+# FIELD operation grants remain separate from dynamic operational assignment scope.
+FIELD_ASSIGNABLE_PERMISSIONS = frozenset({
+    'work_session.read', 'work_session.execute', 'visit.read', 'visit.execute',
+    'inventory.read', 'transfer.read', 'transfer.receive', 'transfer.reject',
+    'catalog.read', 'pricing.view', 'reconciliation.execute', 'shop.create',
+})
+
+__all__ = ["COMPANY_ONLY", "PERMISSIONS", "FIELD_ASSIGNABLE_PERMISSIONS"]
