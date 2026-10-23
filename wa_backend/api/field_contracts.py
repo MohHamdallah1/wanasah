@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.authentication.dependencies import get_current_field_context
+from api.authentication.field_authorization import require_field_capabilities
 from api.authentication.field_compatibility import get_current_field_legacy_driver
 from api.field_visit_contracts import run_field_query
 from database import get_db
@@ -17,7 +18,7 @@ from models import Driver
 router = APIRouter(tags=["Field contracts"])
 
 
-@router.post("/visits/{visit_id}/return-resolution")
+@router.post("/visits/{visit_id}/return-resolution", dependencies=[Depends(require_field_capabilities(("visit.execute",)))])
 async def resolve_visit_return(
     visit_id: int, payload: ReturnResolutionRequest,
     db: AsyncSession = Depends(get_db),
@@ -30,7 +31,7 @@ async def resolve_visit_return(
     )
 
 
-@router.get("/visits/{visit_id}/commercial-state")
+@router.get("/visits/{visit_id}/commercial-state", dependencies=[Depends(require_field_capabilities(("visit.read",)))])
 async def get_visit_commercial_state(
     visit_id: int, db: AsyncSession = Depends(get_db),
     field_context: FieldRequestContext = Depends(get_current_field_context),
@@ -44,7 +45,7 @@ async def get_visit_commercial_state(
     )}
 
 
-@router.post("/visits/{visit_id}/invoice-preview")
+@router.post("/visits/{visit_id}/invoice-preview", dependencies=[Depends(require_field_capabilities(("visit.execute", "pricing.view",)))])
 async def preview_visit_invoice(
     visit_id: int, payload: InvoicePreviewRequest,
     db: AsyncSession = Depends(get_db),
@@ -57,7 +58,7 @@ async def preview_visit_invoice(
     )
 
 
-@router.get("/visits/{visit_id}/invoice")
+@router.get("/visits/{visit_id}/invoice", dependencies=[Depends(require_field_capabilities(("visit.read", "pricing.view",)))])
 async def get_visit_invoice(
     visit_id: int, db: AsyncSession = Depends(get_db),
     field_context: FieldRequestContext = Depends(get_current_field_context),
@@ -68,7 +69,7 @@ async def get_visit_invoice(
     )
 
 
-@router.get("/driver/custody")
+@router.get("/driver/custody", dependencies=[Depends(require_field_capabilities(("inventory.read",)))])
 async def get_field_custody(
     limit: int = Query(default=100, ge=1, le=200), cursor: str | None = Query(default=None, max_length=8192),
     db: AsyncSession = Depends(get_db),

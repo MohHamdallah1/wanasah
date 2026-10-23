@@ -1,0 +1,165 @@
+name: FIELD Phase 3 Endpoint Authorization Acceptance
+on:
+  pull_request:
+    paths:
+      - "wa_backend/api/driver.py"
+      - "wa_backend/api/field_contracts.py"
+      - "wa_backend/api/reconciliation.py"
+      - "wa_backend/api/authentication/field_transfer_authorization.py"
+      - "wa_backend/tests/*field_authorization*"
+      - ".github/workflows/field-authorization-phase3.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  postgres-http:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: field_phase3_admin
+          POSTGRES_DB: field_auth_phase3_gate
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["55481:5432"]
+        options: >-
+          --health-cmd "pg_isready -U field_phase3_admin -d field_auth_phase3_gate"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: FieldPhase3SyntheticOnlySecret012345678901234567890123456
+      DATABASE_URL: postgresql+asyncpg://field_auth_runtime@127.0.0.1:55481/field_auth_phase3_gate
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://field_phase3_admin@127.0.0.1:55481/field_auth_phase3_gate
+      PYTHONPATH: ".:tests"
+    defaults:
+      run:
+        working-directory: wa_backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pinned Backend and test dependencies
+        run: python -m pip install -r requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Prepare isolated restricted runtime role and acceptance databases
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect("postgresql://field_phase3_admin@127.0.0.1:55481/field_auth_phase3_gate",autocommit=True) as db:
+              db.execute("CREATE ROLE field_auth_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+              for name in ("field_auth_phase1_gate","field_auth_phase2_gate","representatives_role_gate"):
+                  db.execute("CREATE DATABASE " + name)
+          PY
+      - name: Fresh canonical migrations and metadata parity
+        run: |
+          alembic upgrade head
+          alembic check
+      - name: Phase 3 actual registry and real PostgreSQL HTTP denial and positive paths
+        run: >-
+          python -m pytest -q -s
+          tests/test_field_authorization_phase3_routes.py
+          tests/test_field_authorization_phase3_http.py
+          --junitxml=field-auth-phase3.xml
+      - name: Phase 1 unchanged migrated PostgreSQL acceptance
+        if: ${{ !cancelled() }}
+        env:
+          DATABASE_URL: postgresql+asyncpg://field_auth_runtime@127.0.0.1:55481/field_auth_phase1_gate
+          DATABASE_URL_MIGRATION: postgresql+asyncpg://field_phase3_admin@127.0.0.1:55481/field_auth_phase1_gate
+          WANASAH_FIELD_AUTH_PHASE1_GATE: "1"
+        run: python -m pytest -q -s tests/test_field_authorization_phase1_postgres.py --junitxml=field-auth-phase1.xml
+      - name: Phase 2 unchanged real HTTP and concurrent grant-policy acceptance
+        if: ${{ !cancelled() }}
+        env:
+          DATABASE_URL: postgresql+asyncpg://field_auth_runtime@127.0.0.1:55481/field_auth_phase2_gate
+          DATABASE_URL_MIGRATION: postgresql+asyncpg://field_phase3_admin@127.0.0.1:55481/field_auth_phase2_gate
+          WANASAH_FIELD_AUTH_PHASE2_GATE: "1"
+        run: |
+          alembic upgrade head
+          alembic check
+          python -m pytest -q -s tests/test_field_authorization_phase2_http.py tests/test_field_authorization_phase2_races.py --junitxml=field-auth-phase2.xml
+      - name: Existing Backoffice real HTTP acceptance
+        if: ${{ !cancelled() }}
+        env:
+          DATABASE_URL: postgresql+asyncpg://field_auth_runtime@127.0.0.1:55481/representatives_role_gate
+          DATABASE_URL_MIGRATION: postgresql+asyncpg://field_phase3_admin@127.0.0.1:55481/representatives_role_gate
+          WANASAH_REPRESENTATIVES_ROLE_DB_GATE: "1"
+        run: |
+          alembic upgrade head
+          alembic check
+          python -m pytest -q -s tests/test_representatives_role_provisioning_runtime_db.py --junitxml=backoffice-http.xml
+      - name: Require nonempty passing acceptance with zero skipped tests
+        if: always()
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          for name in ("field-auth-phase3.xml","field-auth-phase1.xml","field-auth-phase2.xml","backoffice-http.xml"):
+              root=ET.parse(name).getroot()
+              cases=list(root.iter("testcase"))
+              assert cases and not list(root.iter("skipped")),name
+              assert not list(root.iter("failure")) and not list(root.iter("error")),name
+              print(name+" EXECUTED="+str(len(cases))+" SKIPPED=0")
+          PY
+      - name: Changed-surface historical regressions compared with exact base
+        if: ${{ !cancelled() }}
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/field-phase3-base" 8892eff045d79a76b10aacdba0e511391967082a
+          python - <<'PY'
+          import os,subprocess,sys
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          targets=[
+              "tests/test_legacy_field_transport_boundary.py","tests/test_legacy_field_transport.py",
+              "tests/test_driver_session_field_context_boundary.py","tests/test_driver_session_field_context_cutover.py",
+              "tests/test_driver_mixed_visit_authorization_cutover.py","tests/test_canonical_field_runtime_compatibility.py",
+              "tests/test_reconciliation_field_canonical_auth.py","tests/test_vehicle_reconciliation_strict_custody.py",
+              "tests/test_field_return_resolution.py","tests/test_field_read_contracts.py",
+              "tests/test_field_transfer_batch_identity.py","tests/test_canonical_field_authorization_subject.py",
+              "tests/test_representatives_architecture.py","tests/test_representatives_management_idempotency_symmetry.py",
+              "tests/test_representatives_form_identity_contract.py","tests/test_authorization_core_compatibility.py",
+              "tests/test_canonical_backoffice_authorization_dependency.py",
+          ]
+          results=[]
+          for label,root in (("base",Path(os.environ["RUNNER_TEMP"])/"field-phase3-base"/"wa_backend"),("head",Path.cwd())):
+              report=Path.cwd()/("phase3-historical-"+label+".xml")
+              env=dict(os.environ,PYTHONPATH=str(root)+os.pathsep+str(root/"tests"))
+              run=subprocess.run([sys.executable,"-m","pytest","-q",*targets,"--junitxml="+str(report)],
+                  cwd=root,env=env,capture_output=True,text=True)
+              Path("phase3-historical-"+label+".log").write_text(run.stdout+run.stderr)
+              print(label+" exit="+str(run.returncode)+"\n"+run.stdout[-10000:])
+              assert run.returncode in (0,1),run.stderr
+              tree=ET.parse(report).getroot()
+              cases=list(tree.iter("testcase"))
+              assert cases and not list(tree.iter("skipped")) and not list(tree.iter("error"))
+              failed={(c.get("classname"),c.get("name")) for c in cases if c.find("failure") is not None}
+              print(label+" historical failures="+repr(sorted(failed)))
+              results.append((len(cases),failed))
+          assert results[0]==results[1],"New regression differs from exact approved base"
+          print("PHASE3_EXACT_BASE_PARITY=PASS; historical failures are NOT claimed green")
+          PY
+      - name: Exact ownership and whitespace
+        if: ${{ !cancelled() }}
+        run: |
+          git diff --check 8892eff045d79a76b10aacdba0e511391967082a HEAD
+          python - <<'PY'
+          import subprocess
+          expected=["wa_backend/api/driver.py","wa_backend/api/field_contracts.py","wa_backend/api/reconciliation.py","wa_backend/api/authentication/field_transfer_authorization.py","wa_backend/tests/field_authorization_phase3_fixture.py","wa_backend/tests/field_authorization_phase3_matrix.py","wa_backend/tests/test_field_authorization_phase3_http.py","wa_backend/tests/test_field_authorization_phase3_routes.py",".github/workflows/field-authorization-phase3.yml"]
+          changed=subprocess.check_output(["git","diff","--name-only","8892eff045d79a76b10aacdba0e511391967082a","HEAD"],text=True).splitlines()
+          assert set(changed)==set(expected),(changed,expected)
+          assert not subprocess.check_output(["git","diff","--diff-filter=D","--name-only","8892eff045d79a76b10aacdba0e511391967082a","HEAD"],text=True).strip()
+          print("PHASE3_OWNERSHIP=PASS")
+          PY
+      - name: Retain exact acceptance evidence and historical failure logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: field-phase3-postgresql-http-evidence
+          path: |
+            wa_backend/field-auth-*.xml
+            wa_backend/backoffice-http.xml
+            wa_backend/phase3-historical-*
+          if-no-files-found: error
+          retention-days: 14
