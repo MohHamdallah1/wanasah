@@ -423,9 +423,9 @@ Closure:
 
 - [x] Read-only audit on frozen baseline `00588fcb13a2344d6bd901dd4ae190b10d04f70f` identified one FIELD authorization enforcement blocker and one release-acceptance blocker; latest main was reviewed for the same identity/capability seam before recording these findings.
 - [ ] **V1 security blocker — FIELD capability authority:** current FIELD context validates the canonical principal/channel and operational assignment, but actual FIELD endpoints do not yet require persisted per-operation capability grants. This is **not** evidence of a cross-tenant/assignment leak. Preserve existing owner/route/visit/vehicle scope checks.
-- **Approved architecture note (not implementation):** Owner approved all seven FIELD grant/capability/scope decisions in §6.4 and `ARCHITECTURE.md` §12; there is no legacy Driver/JWT authority and later-role edits cannot bypass the field allowlist. Phases 1–4 and their safety proof remain `[ ]`.
+- **Approved architecture note (not implementation):** Owner approved all seven FIELD grant/capability/scope decisions in §6.4 and `ARCHITECTURE.md` §12; there is no legacy Driver/JWT authority and later-role edits cannot bypass the field allowlist. Phase 1 is completed/verified in §6.4a; Phases 2–4 and overall security/release proof remain `[ ]`.
 - [x] **V1 required — Visit read-only durable evidence:** `visit_screen.dart` now consumes a typed feature-owned read model and read-only pending command adapter; preserves existing durable storage, FIFO, owner/company guards, exact replay, public contracts, financial/stock authority and return/draft recovery. Independently reviewed, corrected legacy Visit ID alias parity and merged PR #494; exact evidence below.
-- [ ] **V1 required — SyncRepository Visit adapter:** extract only Visit-specific replay dispatch/finalization while preserving shared FIFO, owner guards, exact replay and `saveInvoice()` compatibility.
+- [x] **V1 required — SyncRepository Visit adapter:** moved Visit-specific PUT replay dispatch and local atomic finalization into small Visit-owned adapter modules, leaving global FIFO, owner/company guards, UUID repair, exact replay, retry/error classification, finalization/delete order and `saveInvoice()` API in the shared scheduler. Independently reviewed and merged PR #497; exact CI evidence below.
 
 ### 6.2a Visit durable read-model architecture stability point — 2026-10-23
 
@@ -435,7 +435,7 @@ Closure:
 - [x] PR [#494](https://github.com/MohHamdallah1/wanasah/pull/494) independently reviewed and merged at `93c3ce4b5f547d7f971ded057ceacee3a954a2e7`; final reviewed branch HEAD `0cebf21eeecf0b177469365f3779a221da291c7d`. Four Flutter files only; branch deleted after merge.
 - [x] Exact-head full Flutter/Android CI [39980865954](https://github.com/MohHamdallah1/wanasah/actions/runs/39980865954) PASS: `flutter analyze` no issues; `flutter test` **477/477 PASS** (no skips); debug Android APK built and artifact retained. Focused Visit decomposition, Visit commercial, Offline durable and FIELD client-adapter checks also PASS.
 - [x] The independent historical Inventory CP2 CI failure `test_old_product_batch_drill_down_file_is_unchanged_from_checkpoint_2_base` compares an unrelated Backend file against the old `947d4c9...` checkpoint; PR #494 does not touch that file. Do not claim historical repository-wide CI green or silently modify this unrelated test.
-- [ ] Separate **SyncRepository Visit replay adapter** remains open; no replay dispatch/finalization extraction was performed here.
+- [x] Subsequent **SyncRepository Visit replay adapter** closed separately in PR #497 after this earlier Visit read-model checkpoint; see §6.2b for evidence. This §6.2a checkpoint itself did not modify replay.
 - [ ] Real-device/current-Backend field/offline/recovery acceptance and the owner-approved FIELD capability Phase 1–4 work remain open.
 
 - [ ] **V1 required — global `is_admin` reintroduction gate:** first prove zero actual runtime authority dependence; then add source CI test with explicit migration/history exclusions. Do not add a premature gate.
@@ -443,6 +443,16 @@ Closure:
 - [ ] **Device/release acceptance:** real Android device/current-Backend journeys, offline/restart/replay/reconciliation and FIELD capability authority still remain open; a CI APK is not device acceptance.
 - [x] No newly evidenced blocker in FIFO/exact replay, tenant/assignment checks, stock/commercial authority, or public API compatibility; do not restart closed audits or refactor `driver.py`/other facades solely because of file length.
 - [x] Codex final CI/Android workflow was independently reviewed, integrated, green-gated and merged in PR #486; only its new workflow was added to production `main`.
+
+### 6.2b Visit-owned durable replay adapter stability point — 2026-10-23
+
+- [x] Independently reviewed [PR #497](https://github.com/MohHamdallah1/wanasah/pull/497) on exact feature HEAD `8e41690d80c16cffd6860157e3e6a6543c19be26`, base `d8a65d56ddf87775fc5748a333bd601af7f3b60c`; nine Flutter-only files, no overlapping modifications against latest `main`, merged at `fc38c0ee67281113129e492592b450ea34172e77`.
+- [x] New Visit-owned `features/visits/application/visit_replay_adapter.dart` and `features/visits/data/local_visit_replay_adapter.dart` own only `PUT /visits/{visitId}` dispatch / response balance cache and delegation to existing atomic `LocalDatabase.finalizeVisitCommandLocalState`; no second queue, engine or Backend/DB schema change.
+- [x] `SyncRepository` still owns global FIFO and blocked/quarantined handling, secure owner/company guard, legacy `request_id`/`command_id` repair, transport failure classification (401/403/408/429/5xx/network), in-flight lifecycle, local success-before-delete, transfer dispatch and unchanged public `saveInvoice()` API. Existing monetary text strings stay verbatim in the PUT body; local numeric finalizer behavior unchanged.
+- [x] Full Flutter [CI run 39983584638](https://github.com/MohHamdallah1/wanasah/actions/runs/39983584638) on exact final HEAD PASS: `flutter analyze` clean, **484/484 `flutter test`** without skips, Android debug APK built and retained as artifact [12515315997](https://github.com/MohHamdallah1/wanasah/actions/runs/39983584638/artifacts/12515315997). [Sync/Recovery 39983584585](https://github.com/MohHamdallah1/wanasah/actions/runs/39983584585) and [Offline durable 39983584694](https://github.com/MohHamdallah1/wanasah/actions/runs/39983584694) PASS; Visit/Projection/Commercial regressions also PASS.
+- [x] Five pre-existing tests were adjusted only to follow moved source invariants/delegation, not to skip cases or weaken FIFO/owner/success-delete checks. New focused Visit replay adapter tests cover exact durable payload/request ID, non-2xx, missing ID, local balance best effort, finalizer mapping and invalid Visit identity.
+- [x] Unrelated Inventory CP2 historical source-check failure remains documented as **red**; no CP2 Backend file change or claim that repository-wide historical CI is all green.
+- [ ] Real-device/current Backend offline/auth/financial replay acceptance remains open; FIELD authorization Phase 2–4 and global `is_admin` non-reintroduction source/architecture CI gate remain separate work.
 
 ### 6.3 Full Flutter test / Android debug build CI stability point — 2026-10-23
 
