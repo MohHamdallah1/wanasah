@@ -984,7 +984,21 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] Post-PR integration gate after Visit FIELD merge: all 8 triggered Flutter regression workflows PASS.
 - [x] PR #450 merged into `sol/flutter-v1-field-closure`.
 - [x] Merge commit: `435c5a0fb5b8bd7bbc47ba4937c6f6632d6e730d`.
-- [ ] Backend batch errors still lack stable per-item failure identity in some deterministic batch failures; V1 safely blocks the current chunk and preserves evidence without parsing text.
+- [x] Backend batch now returns stable public per-item `error.context.transfer_id` for deterministically attributable failures; Flutter blocks only the identified decision and preserves the sibling pending evidence without parsing messages.
+
+### 10.17a Transfer batch per-item failure identity stability point — 2026-10-23
+
+- [x] Codex branch `codex/flutter-v1-transfer-batch-failure-identity-closure` completed at HEAD `5486b7827b296e227b8fc09fb1deb4b3d07a319f`; no worker merge.
+- [x] Lead independently inspected 14 changed files and verified public transfer ID attribution, full Backend atomicity/rollback, duplicate and max-100 guards, exact replay and fail-closed identity handling.
+- [x] Current-main integration commit `4ca4daf32aa9219e0657c96f90eba9d6b6f458d1` preserves both opening inventory valuation additions in `wa_backend/schemas.py` and Codex's transfer validators, with main and worker as parents; no reset, rebase or force-push.
+- [x] Real PostgreSQL migrated acceptance against integrated HEAD: 14 PASS, no skipped cases; proves rollback after real movement writes and no second effect for exact accepted/rejected replay.
+- [x] Integrated-head Flutter analyze PASS, Custody 77 PASS, FIELD adapter 67 PASS, Offline/Recovery 72 PASS; Backend focused 45 PASS, authority/transport 100 PASS + 224 subtests.
+- [x] All 9 transfer/Flutter/FIELD/custody/recovery relevant GitHub Actions workflows PASS on integrated HEAD.
+- [x] Deterministic structured 4xx with one in-chunk public `transfer_id`: matching durable command blocked, siblings pending as `TRANSFER_BATCH_NOT_COMMITTED`; malformed/out-of-chunk identity blocks whole chunk, transport/408/429/5xx stays pending, 401 preserves auth recovery.
+- [x] Existing LocalDatabase, SyncRepository, TransferDecisionStore, Visit, Shop and Sentry surfaces unchanged by Codex; no second replay engine, speculative live finalization or discarded evidence.
+- [x] PR #481 merged into `main` at `9d7b72b47c8e8adeafa0ce8864d35d6ca1a6f0ea`; Codex branch auto-deleted.
+- [x] Six unrelated CI failures remain red: CP1/CP2 legacy assertions, Purchase reference/currency stale Alembic fixture versions, Supplier Dashboard lint; these are not represented as PASS and require separate ownership.
+- [x] Final full Flutter suite, Android debug build, real-device E2E and network-loss/restart/replay acceptance remain OPEN.
 
 ### 10.18 Local inventory projection integrity stability point — 2026-10-22
 
