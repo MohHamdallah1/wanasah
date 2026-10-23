@@ -909,7 +909,7 @@ export function Tab2Inbound({
               invalid={setupValidation === "supplier"}
             />
             {!posting.online ? <p role="status">{t("suppliers.offline")}</p> : null}
-            {posting.pending || posting.recoveryError ? <div role="alert" className="inventory-inbound-recovery">
+            {posting.recoveryRequired || posting.recoveryError ? <div role="alert" className="inventory-inbound-recovery">
               <p>{posting.recoveryError ?? t("suppliers.pending")}</p>
               <button type="button" disabled={submitting || !posting.online || !!posting.recoveryError} onClick={async () => {
                 setSubmitting(true);

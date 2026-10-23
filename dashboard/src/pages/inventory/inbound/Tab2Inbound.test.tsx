@@ -26,6 +26,7 @@ vi.mock("./useInboundPosting", () => ({
   useInboundPosting: () => ({
     post: mocks.post,
     pending: null,
+    recoveryRequired: false,
     recoveryError: null,
     online: true,
   }),

@@ -184,6 +184,38 @@ describe("durable Supplier and Inbound commands", () => {
     await act(async () => { expect(await hook.result.current.execute({ endpoint: "/suppliers", method: "POST", body: { name: "Draft" } })).toBe(false); });
     expect(fake.fetch).not.toHaveBeenCalled();
   });
+  it("does not classify a normal in-flight Inbound request as an uncertain recovery", async () => {
+    const payload = { supplier_id: 3, location_id: 5, reference_id: "INB-LIVE", items: [] };
+    let rejectRequest!: (reason: unknown) => void;
+    fake.fetch.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectRequest = reject;
+        }),
+    );
+    const hook = renderHook(() =>
+      useInboundPosting({
+        companyId: 1,
+        actorId: 2,
+        locationId: 5,
+        authenticatedFetch: fake.fetch,
+      }),
+    );
+
+    let request!: Promise<boolean>;
+    act(() => {
+      request = hook.result.current.post(payload);
+    });
+    await waitFor(() => expect(hook.result.current.pending).not.toBeNull());
+    expect(hook.result.current.recoveryRequired).toBe(false);
+
+    await act(async () => {
+      rejectRequest(Object.assign(new Error(), { code: "NETWORK_UNAVAILABLE" }));
+      await expect(request).rejects.toMatchObject({ code: "NETWORK_UNAVAILABLE" });
+    });
+    await waitFor(() => expect(hook.result.current.recoveryRequired).toBe(true));
+  });
+
   it("replays an Inbound full payload after refresh with the same supplier and request ID", async () => {
     const payload = { supplier_id: 3, location_id: 5, reference_id: "INB", items: [] };
     fake.fetch.mockRejectedValue(Object.assign(new Error(), { code: "NETWORK_UNAVAILABLE" }));
