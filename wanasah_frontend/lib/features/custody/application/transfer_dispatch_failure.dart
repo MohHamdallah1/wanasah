@@ -13,11 +13,15 @@ class TransferDispatchFailure {
     required this.code,
     required this.requestId,
     required this.displayFallback,
+    this.failedTransferId,
   });
 
   final TransferDispatchFailureKind kind;
   final String code;
   final String? requestId;
+
+  /// Only structured public transfer identity; validated again against the chunk.
+  final int? failedTransferId;
 
   /// Human-readable fallback only. Never drives machine classification.
   final String? displayFallback;
@@ -45,7 +49,13 @@ class TransferDispatchFailure {
         status == 429 ||
         status >= 500;
 
+    final rawId = failure.context['transfer_id'];
+    final itemId = !ambiguous && status >= 400 && status < 500 &&
+        failure.hasStructuredCode &&
+        rawId is int && rawId > 0 && rawId <= 2147483647 ? rawId : null;
+
     return TransferDispatchFailure(
+      failedTransferId: itemId,
       kind:
           ambiguous
               ? TransferDispatchFailureKind.unresolved

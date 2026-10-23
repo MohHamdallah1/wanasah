@@ -13,6 +13,8 @@ SOURCE = BACKEND / "api" / "driver.py"
 # Freeze CURRENT main source, rather than stale hashes from an older identity
 # cutover. CI fetches this immutable Git object; no network or runtime DB lookup.
 BASELINE_SHA = "1f69d2d8946e027aeea64d518152c4c7bf7bcc13"
+# Approved narrow batch error-identity wave; all other workflows stay frozen.
+BATCH_ERROR_SHA = "5d36daf3f096937e8af045fc62452c63408e6419"
 FROZEN_FUNCTIONS = (
     "start_work_session", "end_work_session", "toggle_break", "update_visit",
     "get_driver_dashboard", "respond_to_transfer", "batch_respond_to_transfers",
@@ -40,7 +42,7 @@ ROUTES = {
         "router.put('/driver/transfers/{transfer_id}/respond', status_code=200)"
     ],
     "batch_respond_to_transfers": [
-        "router.put('/driver/transfers/batch_respond', status_code=200)"
+        "field_transfer_batch_route(router)"
     ],
     "get_pending_transfers": [
         "router.get('/driver/transfers/pending', response_model=List[PendingBatchResponse], status_code=200)"
@@ -170,6 +172,14 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
             ["git", "show", BASELINE_SHA + ":wa_backend/api/driver.py"],
             cwd=BACKEND.parent, text=True, encoding="utf-8",
         )
+        approved = subprocess.check_output(
+            ["git", "show", BATCH_ERROR_SHA + ":wa_backend/api/driver.py"],
+            cwd=BACKEND.parent, text=True, encoding="utf-8",
+        )
+        self.approved_functions = {
+            node.name: node for node in ast.parse(approved).body
+            if isinstance(node, ast.AsyncFunctionDef)
+        }
         self.baseline_tree = ast.parse(baseline)
         self.baseline_functions = {
             node.name: node for node in self.baseline_tree.body
@@ -256,9 +266,11 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
 
     def test_entire_workflows_locks_transactions_idempotency_and_responses_preserved(self):
         for name in FROZEN_FUNCTIONS:
-            expected = digest(self.baseline_functions[name].body)
+            approved_batch = name == "batch_respond_to_transfers"
+            expected = digest((self.approved_functions if approved_batch else self.baseline_functions)[name].body)
             with self.subTest(endpoint=name):
-                self.assertEqual(digest(without_field_additions(self.functions[name])), expected)
+                actual = self.functions[name].body if approved_batch else without_field_additions(self.functions[name])
+                self.assertEqual(digest(actual), expected)
                 self.assertEqual([ast.unparse(item) for item in self.functions[name].decorator_list],
                                  ROUTES[name])
 
@@ -267,13 +279,21 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
         for node in self.tree.body:
             if isinstance(node, ast.AsyncFunctionDef) and node.name in FROZEN_FUNCTIONS:
                 continue
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "_load_handshake_lines_for_update":
+                self.assertEqual(digest([node]), digest([self.approved_functions[node.name]]))
+                continue
+            if isinstance(node, ast.ImportFrom) and node.module == "api.field_transfer_contracts":
+                self.assertEqual([alias.name for alias in node.names],
+                    ["field_transfer_batch_route", "transfer_batch_error", "attributed_transfer_error"])
+                continue
             if isinstance(node, ast.ImportFrom) and node.module == "api.field_visit_contracts":
                 self.assertEqual([alias.name for alias in node.names], FIELD_IMPORTS)
                 continue
             remainder.append(node)
         baseline = [
             node for node in self.baseline_tree.body
-            if not (isinstance(node, ast.AsyncFunctionDef) and node.name in FROZEN_FUNCTIONS)
+            if not (isinstance(node, ast.AsyncFunctionDef) and
+                    (node.name in FROZEN_FUNCTIONS or node.name == "_load_handshake_lines_for_update"))
         ]
         self.assertEqual(digest(remainder), digest(baseline))
 

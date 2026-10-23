@@ -28,7 +28,7 @@ void main() {
       );
       expect(
         backend,
-        contains('status_code=413'),
+        contains('transfer_batch_error(413, "FIELD_TRANSFER_BATCH_TOO_LARGE"'),
       );
       expect(
         schemas,
