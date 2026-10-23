@@ -106,7 +106,7 @@ No synthetic physical inventory movement is created.
 - [x] Concurrent movement/finalization race proves no uncosted gap.
 - [x] XLSX 500-row reference acceptance.
 - [x] Production build + TypeScript + relevant Inventory regression suites.
-- [ ] Local development acceptance is performed only after a DB backup; no guessed costs are written to the user's current data.
+- [x] Local development acceptance completed only after a verified DB backup; no guessed costs were written to the user's current data. Evidence: backup `wanasah-local-pre-opening-valuation-20261023-053559.dump` (SHA256 `0b13f12d576645ee51da28949d7ada815e3b65d9d3fee81cf6525722bab9807c`); local DB upgraded to Alembic `9c4f8a2d7e31`; real company snapshot produced a protected 500-row XLSX for 620,291 base units; empty-cost workbook was rejected with `OPENING_VALUATION_COST_REQUIRED`; opening valuation/cost state/event/layer tables remained empty and FIFO remained selected but inactive.
 
 ## 6. Stop / completion rule
 
