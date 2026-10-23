@@ -1,0 +1,93 @@
+name: Flutter V1 Final CI and Android Acceptance
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flutter-validation:
+    name: Analyze and full Flutter tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: wanasah_frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.29.3"
+          channel: stable
+          cache: true
+      - name: Record tested revision and Flutter toolchain
+        run: |
+          git rev-parse HEAD
+          flutter --version
+      - name: Prepare synthetic CI-only environment asset
+        run: |
+          printf 'API_BASE_URL=http://127.0.0.1:8000\nSENTRY_DSN=\n' > .env
+      - name: Resolve Flutter dependencies
+        id: dependencies
+        run: flutter pub get
+      - name: Flutter analyze
+        run: flutter analyze
+      # Analyze failure stays red, but must not hide the full test result.
+      - name: Full Flutter test suite (no exclusions)
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: flutter test
+
+  android-debug:
+    name: Build and retain debug APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: wanasah_frontend
+    # Independent of validation so a red test cannot conceal Android build evidence.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-36 ndk;27.0.12077973"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.29.3"
+          channel: stable
+          cache: true
+      - name: Record built revision and Android toolchain
+        run: |
+          git rev-parse HEAD
+          flutter --version
+          java -version
+          flutter doctor -v
+      - name: Prepare synthetic CI-only environment asset
+        run: |
+          printf 'API_BASE_URL=http://127.0.0.1:8000\nSENTRY_DSN=\n' > .env
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+      - name: Build debug Android APK
+        id: apk
+        run: flutter build apk --debug
+      - name: Retain synthetic-environment debug APK
+        if: ${{ !cancelled() && steps.apk.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: wanasah-ci-debug-apk-${{ github.event.pull_request.head.sha || github.sha }}
+          path: wanasah_frontend/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
