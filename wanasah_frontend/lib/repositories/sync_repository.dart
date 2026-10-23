@@ -447,7 +447,9 @@ class SyncRepository {
         final statusCode = e.response!.statusCode!;
         // +++  للثغرة: إحباط التخزين الأوفلاين الكاذب وإبلاغ البلوك بالرفض النهائي +++
         if (statusCode >= 400 && statusCode < 500 && statusCode != 429 && statusCode != 408) {
-           throw Exception('تم رفض الرد من السيرفر (خطأ $statusCode). يرجى المحاولة مجدداً.');
+          // Preserve the original Dio/ApiFailure status, code, context and
+          // correlation ID. A deterministic refusal must never enter fallback.
+          rethrow;
         }
       }
       developer.log('[SyncRepository] Offline mode triggered for transfer #$transferId.');
