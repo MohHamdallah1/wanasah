@@ -27,6 +27,8 @@ enum RecoveryStringKey {
   syncSuccess,
   syncIncomplete,
   syncRecoveryRequired,
+  syncConnectivityUnresolved,
+  syncTimedOut,
   syncUnresolved,
   submitSale,
   transferResponse,
@@ -70,6 +72,10 @@ const Map<RecoveryStringKey, String> _ar = {
       'المزامنة غير مكتملة؛ ما زالت هناك عمليات معلقة.',
   RecoveryStringKey.syncRecoveryRequired:
       'توجد عمليات محجوبة تحتاج استرداداً قبل اعتبار المزامنة مكتملة.',
+  RecoveryStringKey.syncConnectivityUnresolved:
+      'تعذر الاتصال أثناء المزامنة. السجلات المحلية ما زالت محفوظة.',
+  RecoveryStringKey.syncTimedOut:
+      'انتهت مهلة المزامنة قبل تأكيد النتيجة. السجلات المحلية ما زالت محفوظة.',
   RecoveryStringKey.syncUnresolved:
       'تعذر تأكيد نتيجة المزامنة. حالة السجلات المحلية ما زالت محفوظة.',
   RecoveryStringKey.submitSale: 'زيارة / فاتورة',
@@ -115,6 +121,10 @@ const Map<RecoveryStringKey, String> _en = {
       'Sync is incomplete; pending operations remain.',
   RecoveryStringKey.syncRecoveryRequired:
       'Blocked operations require recovery before sync can be considered complete.',
+  RecoveryStringKey.syncConnectivityUnresolved:
+      'Connectivity was lost during sync. Local evidence remains preserved.',
+  RecoveryStringKey.syncTimedOut:
+      'Sync timed out before the result was confirmed. Local evidence remains preserved.',
   RecoveryStringKey.syncUnresolved:
       'The sync result could not be confirmed. Local evidence remains preserved.',
   RecoveryStringKey.submitSale: 'Visit / invoice',

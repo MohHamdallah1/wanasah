@@ -6,6 +6,7 @@ enum AuthLoginFailureKind {
   authRejected,
   rateLimited,
   connectivity,
+  timeout,
   serverFailure,
   requestRejected,
   cancelled,
@@ -34,9 +35,10 @@ class AuthLoginFailure {
     final status = failure.status;
 
     AuthLoginFailureKind kind;
-    if (failure.kind == ApiFailureKind.connection ||
-        failure.kind == ApiFailureKind.timeout) {
+    if (failure.kind == ApiFailureKind.connection) {
       kind = AuthLoginFailureKind.connectivity;
+    } else if (failure.kind == ApiFailureKind.timeout) {
+      kind = AuthLoginFailureKind.timeout;
     } else if (failure.kind == ApiFailureKind.cancelled) {
       kind = AuthLoginFailureKind.cancelled;
     } else if (failure.kind == ApiFailureKind.serverResponse) {

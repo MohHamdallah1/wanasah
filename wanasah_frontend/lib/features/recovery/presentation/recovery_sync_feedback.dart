@@ -8,7 +8,12 @@ void showRecoverySyncFeedback(
   RecoverySyncResult result,
 ) {
   final locale = Localizations.localeOf(context).toLanguageTag();
-  final (key, color) = switch (result.disposition) {
+  final (key, color) =
+      result.execution == RecoverySyncExecution.timedOut
+          ? (RecoveryStringKey.syncTimedOut, Colors.orange)
+          : result.execution == RecoverySyncExecution.transportAmbiguous
+          ? (RecoveryStringKey.syncConnectivityUnresolved, Colors.orange)
+          : switch (result.disposition) {
     RecoverySyncDisposition.synced => (
       RecoveryStringKey.syncSuccess,
       Colors.green,

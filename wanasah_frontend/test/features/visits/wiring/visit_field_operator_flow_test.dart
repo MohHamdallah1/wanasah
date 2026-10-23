@@ -187,7 +187,13 @@ void main() {
     expect(visitFailureCategory(responseError(status: 403).apiFailure), VisitFailureCategory.authorization);
     const offline = ApiFailure(kind: ApiFailureKind.timeout, status: null, code: null,
       message: 'ready', context: {}, requestId: 'timeout-id', displayFallback: null);
-    expect(visitFailureCategory(offline), VisitFailureCategory.connectivity);
+    expect(visitFailureCategory(offline), VisitFailureCategory.timeout);
+    const connection = ApiFailure(kind: ApiFailureKind.connection, status: null, code: null,
+      message: 'timeout translated text', context: {}, requestId: 'conn-id', displayFallback: null);
+    expect(visitFailureCategory(connection), VisitFailureCategory.connectivity);
+    const temporary = ApiFailure(kind: ApiFailureKind.serverResponse, status: 503, code: 'HTTP_503',
+      message: 'business-looking text', context: {}, requestId: 'server-id', displayFallback: null);
+    expect(visitFailureCategory(temporary), VisitFailureCategory.temporary);
   });
 
   testWidgets('confirmed frozen invoice is separate from preview; queued result never reads old invoice', (tester) async {

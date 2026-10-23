@@ -4,6 +4,7 @@ import '../services/location_service.dart';
 import '../features/shops/presentation/shop_location_feedback.dart';
 import '../features/shops/application/shop_creation_service.dart';
 import '../features/shops/domain/shop_creation.dart'; // +++   استيراد خدمة الموقع المركزية المحصنة +++
+import '../features/shops/presentation/shop_creation_failure_message.dart';
 
 class AddShopScreen extends StatefulWidget {
   const AddShopScreen({super.key});
@@ -147,9 +148,10 @@ class _AddShopScreenState extends State<AddShopScreen> {
       if (!failure.ambiguous) {
         _pendingShopCommand = null;
       }
-      final message = failure.ambiguous
-          ? 'تعذر تأكيد نتيجة إضافة المحل. أعد المحاولة من نفس الشاشة ليُعاد إرسال نفس الطلب بأمان.'
-          : (failure.displayFallback ?? 'رفض الخادم طلب إضافة المحل.');
+      final message = shopCreationFailureMessage(
+        failure,
+        languageCode: Localizations.localeOf(context).languageCode,
+      );
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
