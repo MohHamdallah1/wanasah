@@ -20,6 +20,7 @@ export function useInboundPosting({ companyId, actorId, locationId, authenticate
   const online = useNetworkStatus();
   const scope = durableScope(companyId, actorId, "supplier-inbound-v1", locationId);
   const [pending, setPending] = useState<DurableCommand<Record<string, unknown>> | null>(null);
+  const [recoveryRequired, setRecoveryRequired] = useState(false);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
   const running = useRef(false);
   const readLegacy = useCallback(() => {
@@ -37,9 +38,17 @@ export function useInboundPosting({ companyId, actorId, locationId, authenticate
   }, [legacyRequestKey, legacyPayloadKey, locationId]);
   useEffect(() => {
     let live = true;
-    setPending(null); setRecoveryError(null);
-    void readDurableCommand<Record<string, unknown>>(scope).then(command => { if (live) setPending(command ?? readLegacy()); })
-      .catch(() => { if (live) setRecoveryError(t("suppliers.pending")); });
+    setPending(null); setRecoveryRequired(false); setRecoveryError(null);
+    void readDurableCommand<Record<string, unknown>>(scope).then(command => {
+      if (!live) return;
+      const recovered = command ?? readLegacy();
+      setPending(recovered);
+      setRecoveryRequired(recovered !== null);
+    }).catch(() => {
+      if (!live) return;
+      setRecoveryRequired(true);
+      setRecoveryError(t("suppliers.pending"));
+    });
     return () => { live = false; };
   }, [scope, readLegacy, t]);
   const post = async (payload?: Record<string, unknown>) => {
@@ -54,23 +63,35 @@ export function useInboundPosting({ companyId, actorId, locationId, authenticate
       const command = payload ? await getOrCreateDurableCommand(scope, payload) : previous ?? legacy;
       if (!command) return false;
       setPending(command);
+      setRecoveryRequired(false);
       parseInboundResponse(await authenticatedFetch("/warehouse/inbound", {
         method: "POST", body: JSON.stringify({ request_id: command.requestId, ...command.payload }),
       }));
-      completeDurableOperation(scope, command.requestId); setPending(null);
+      completeDurableOperation(scope, command.requestId);
+      setPending(null);
+      setRecoveryRequired(false);
       if (legacyRequestKey && legacy?.requestId === command.requestId) {
         localStorage.removeItem(legacyRequestKey);
         if (legacyPayloadKey) localStorage.removeItem(legacyPayloadKey);
       }
       return true;
     } catch (error) {
-      if ((isConfirmedInboundRejection(apiErrorCode(error)) && !isAmbiguousRequestError(error)) || (!recovering && !isAmbiguousRequestError(error) && !["DURABLE_OPERATION_PENDING", "DURABLE_OPERATION_CORRUPT", "INBOUND_RESPONSE_INVALID"].includes(apiErrorCode(error) ?? ""))) {
-        abandonDurableOperation(scope); setPending(null);
+      const abandon =
+        (isConfirmedInboundRejection(apiErrorCode(error)) && !isAmbiguousRequestError(error)) ||
+        (!recovering &&
+          !isAmbiguousRequestError(error) &&
+          !["DURABLE_OPERATION_PENDING", "DURABLE_OPERATION_CORRUPT", "INBOUND_RESPONSE_INVALID"].includes(apiErrorCode(error) ?? ""));
+      if (abandon) {
+        abandonDurableOperation(scope);
+        setPending(null);
+        setRecoveryRequired(false);
         if (legacyRequestKey) localStorage.removeItem(legacyRequestKey);
         if (legacyPayloadKey) localStorage.removeItem(legacyPayloadKey);
+      } else {
+        setRecoveryRequired(true);
       }
       throw error;
     } finally { running.current = false; }
   };
-  return { post, pending, recoveryError, online };
+  return { post, pending, recoveryRequired, recoveryError, online };
 }
