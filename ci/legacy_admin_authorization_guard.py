@@ -52,6 +52,14 @@ GENERIC_PERSONA_VALUES = frozenset({
     "supervisor",
 })
 
+BARE_PERSONA_BOOLEAN_NAMES = frozenset({
+    "admin",
+    "manager",
+    "owner",
+    "superuser",
+    "supervisor",
+})
+
 BACKEND_EXTENSIONS = frozenset({".py"})
 DASHBOARD_EXTENSIONS = frozenset({".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"})
 FLUTTER_EXTENSIONS = frozenset({".dart"})
@@ -218,6 +226,22 @@ def _persona_literals(node: ast.AST) -> set[str]:
     return values
 
 
+def _bool_annotation(node: ast.AST | None) -> bool:
+    if node is None:
+        return False
+    try:
+        rendered = ast.unparse(node).replace(" ", "").lower()
+    except Exception:
+        return False
+    return rendered in {
+        "bool",
+        "bool|none",
+        "none|bool",
+        "optional[bool]",
+        "typing.optional[bool]",
+    }
+
+
 def _python_violations(rel: Path, text: str) -> list[Violation]:
     path = rel.as_posix()
     try:
@@ -238,7 +262,36 @@ def _python_violations(rel: Path, text: str) -> list[Violation]:
         hits.add((int(getattr(node, "lineno", 1)), code, detail))
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and node.id in FORBIDDEN_IDENTIFIERS:
+        if (
+            isinstance(node, ast.arg)
+            and node.arg in BARE_PERSONA_BOOLEAN_NAMES
+            and _bool_annotation(node.annotation)
+        ):
+            add(node, "GENERIC_PERSONA_BOOLEAN", node.arg)
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, (ast.Name, ast.Attribute))
+        ):
+            name = node.target.id if isinstance(node.target, ast.Name) else node.target.attr
+            if name in BARE_PERSONA_BOOLEAN_NAMES and _bool_annotation(node.annotation):
+                add(node, "GENERIC_PERSONA_BOOLEAN", name)
+        elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, bool):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id in BARE_PERSONA_BOOLEAN_NAMES:
+                    add(node, "GENERIC_PERSONA_BOOLEAN", target.id)
+                elif isinstance(target, ast.Attribute) and target.attr in BARE_PERSONA_BOOLEAN_NAMES:
+                    add(node, "GENERIC_PERSONA_BOOLEAN", target.attr)
+        elif isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values):
+                if (
+                    isinstance(key, ast.Constant)
+                    and isinstance(key.value, str)
+                    and key.value in BARE_PERSONA_BOOLEAN_NAMES
+                    and isinstance(value, ast.Constant)
+                    and isinstance(value.value, bool)
+                ):
+                    add(node, "GENERIC_PERSONA_BOOLEAN", key.value)
+        elif isinstance(node, ast.Name) and node.id in FORBIDDEN_IDENTIFIERS:
             add(node, "LEGACY_FLAG_IDENTIFIER", node.id)
         elif isinstance(node, ast.Attribute) and node.attr in FORBIDDEN_IDENTIFIERS:
             add(node, "LEGACY_FLAG_ATTRIBUTE", node.attr)
@@ -274,6 +327,23 @@ _IDENTIFIER_PATTERN = re.compile(
     + r")(?![A-Za-z0-9_])"
 )
 
+_BARE_BOOLEAN_PATTERNS = (
+    re.compile(
+        r"(?i)\b(admin|manager|owner|superuser|supervisor)\s*:\s*boolean\b"
+    ),
+    re.compile(
+        r"(?i)\bbool\s+(admin|manager|owner|superuser|supervisor)\b"
+    ),
+    re.compile(
+        r"(?i)\b(?:const|let|var|final)\s+"
+        r"(admin|manager|owner|superuser|supervisor)\s*=\s*(?:true|false)\b"
+    ),
+    re.compile(
+        r"(?i)(?:['\"])?(admin|manager|owner|superuser|supervisor)(?:['\"])?"
+        r"\s*:\s*(?:true|false)\b"
+    ),
+)
+
 _ROLE_COMPARE_PATTERNS = (
     re.compile(
         r"(?is)\b(?:role|userRole|user_role|actorRole|actor_role|principalRole|principal_role|persona)\b"
@@ -301,6 +371,16 @@ def _c_style_violations(rel: Path, text: str) -> list[Violation]:
                 match.group(1),
             )
         )
+
+    for pattern in _BARE_BOOLEAN_PATTERNS:
+        for match in pattern.finditer(source):
+            hits.add(
+                (
+                    _line(source, match.start()),
+                    "GENERIC_PERSONA_BOOLEAN",
+                    match.group(1),
+                )
+            )
 
     for pattern in _ROLE_COMPARE_PATTERNS:
         for match in pattern.finditer(source):
