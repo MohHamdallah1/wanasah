@@ -88,6 +88,10 @@ from domains.sales_calculation.driver_sale import (
 from domains.sales_evidence.core import SalesEvidenceError
 from domains.sales_evidence.service import freeze_sales_evidence
 
+from api.field_transfer_contracts import (
+    field_transfer_batch_route, transfer_batch_error, attributed_transfer_error,
+)
+
 from api.field_visit_contracts import (
     begin_field_shop_command, complete_field_shop_command,
     canonicalize_visit_returns, revalidate_return_provenance,
@@ -2451,6 +2455,7 @@ async def _load_handshake_lines_for_update(
     *,
     company_id: int,
     header_ids: list[int],
+    field_batch_errors: bool = False,
 ):
     if not header_ids:
         return {}
@@ -2479,12 +2484,18 @@ async def _load_handshake_lines_for_update(
     for header_id in header_ids:
         lines = by_header.get(int(header_id), [])
         if not lines:
+            if field_batch_errors:
+                raise transfer_batch_error(409, "FIELD_TRANSFER_LINES_INVALID",
+                    "The transfer has no inventory lines.", int(header_id))
             raise HTTPException(
                 status_code=409,
                 detail=f"الحوالة ({header_id}) لا تحتوي أي سطر مخزني.",
             )
         variant_ids = {int(line.product_variant_id) for line in lines}
         if len(variant_ids) != 1:
+            if field_batch_errors:
+                raise transfer_batch_error(409, "FIELD_TRANSFER_LINES_INVALID",
+                    "The transfer has incompatible inventory lines.", int(header_id))
             raise HTTPException(
                 status_code=409,
                 detail=(
@@ -2995,7 +3006,7 @@ async def respond_to_transfer(
 # =========================================
 # 7. معالجة الحوالات بالجملة (Batch Response)
 # =========================================
-@router.put("/driver/transfers/batch_respond", status_code=200)
+@field_transfer_batch_route(router)
 async def batch_respond_to_transfers(
     payload: BatchTransferResponseRequest,
     db: AsyncSession = Depends(get_db),
@@ -3006,10 +3017,15 @@ async def batch_respond_to_transfers(
     driver_id = legacy_actor.id
 
     if not payload.transfers:
-        raise HTTPException(status_code=400, detail="بيانات الطلب غير مكتملة.")
+        raise transfer_batch_error(400, "FIELD_TRANSFER_BATCH_EMPTY", "No transfer decisions supplied.")
     if len(payload.transfers) > 100:
-        raise HTTPException(status_code=413, detail="الدفعة كبيرة جداً. الحد الأقصى 100 حوالة في الطلب الواحد.")
+        raise transfer_batch_error(413, "FIELD_TRANSFER_BATCH_TOO_LARGE", "At most 100 transfer decisions are allowed.")
 
+    requested_ids = [int(item.transfer_id) for item in payload.transfers]
+    if len(requested_ids) != len(set(requested_ids)):
+        duplicates = sorted({value for value in requested_ids if requested_ids.count(value) > 1})
+        raise transfer_batch_error(422, "FIELD_TRANSFER_DUPLICATE_ID",
+            "Duplicate transfer decision.", duplicates[0] if len(duplicates) == 1 else None)
     request_map = {int(item.transfer_id): item for item in payload.transfers}
     transfer_ids = sorted(request_map)
 
@@ -3030,7 +3046,10 @@ async def batch_respond_to_transfers(
         header_map = {int(header.id): header for header in headers}
 
         if set(header_map) != set(transfer_ids):
-            raise HTTPException(status_code=404, detail="إحدى الحوالات غير موجودة أو لا تخصك.")
+            missing_ids = sorted(set(transfer_ids) - set(header_map))
+            raise transfer_batch_error(404, "FIELD_TRANSFER_NOT_FOUND",
+                "A transfer is missing or unavailable to this representative.",
+                missing_ids[0] if len(missing_ids) == 1 else None)
 
         pending_headers = []
         for transfer_id in transfer_ids:
@@ -3043,26 +3062,21 @@ async def batch_respond_to_transfers(
             if request_item.status == "rejected" and header.status == "REJECTED" and header.received_by == driver_id:
                 if reason == (header.decision_reason or "").strip():
                     continue
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"الحوالة ({transfer_id}) رُفضت مسبقاً بسبب مختلف.",
-                )
+                raise transfer_batch_error(409, "FIELD_TRANSFER_DECISION_CONFLICT",
+                    "A different rejection reason was already confirmed.", transfer_id)
             if header.status != "PENDING":
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"الحوالة ({transfer_id}) تمت معالجتها مسبقاً بحالة {header.status}.",
-                )
+                raise transfer_batch_error(409, "FIELD_TRANSFER_ALREADY_PROCESSED",
+                    "The transfer was already processed incompatibly.", transfer_id)
             if request_item.status == "rejected" and not reason:
-                raise HTTPException(status_code=400, detail=f"رفض الحوالة ({transfer_id}) يتطلب سبباً واضحاً.")
+                raise transfer_batch_error(400, "FIELD_TRANSFER_REJECTION_REASON_REQUIRED",
+                    "A rejection reason is required.", transfer_id)
             pending_headers.append(header)
 
         if pending_headers:
             session_ids = {int(header.work_session_id) for header in pending_headers}
             if len(session_ids) != 1:
-                raise HTTPException(
-                    status_code=409,
-                    detail="لا يجوز معالجة مصافحات من أكثر من جلسة عمل في دفعة واحدة.",
-                )
+                raise transfer_batch_error(409, "FIELD_TRANSFER_BATCH_MIXED_SESSIONS",
+                    "A batch must belong to one work session.")
             work_session_id = next(iter(session_ids))
 
             work_session = (
@@ -3077,7 +3091,8 @@ async def batch_respond_to_transfers(
                 )
             ).scalar_one_or_none()
             if work_session is None or work_session.end_time is not None or work_session.is_settled:
-                raise HTTPException(status_code=400, detail="جلسة العمل المرتبطة بالمصافحات مغلقة أو غير صالحة.")
+                raise transfer_batch_error(400, "FIELD_TRANSFER_BATCH_SESSION_INVALID",
+                    "The batch work session is closed or invalid.")
 
             accepted_headers = [
                 header
@@ -3093,12 +3108,14 @@ async def batch_respond_to_transfers(
                     work_session_id=work_session_id,
                 )
                 for header in accepted_headers:
-                    await _validate_handshake_locations(
-                        db,
-                        company_id=company_id,
-                        header=header,
-                        vehicle_location_id=vehicle_location_id,
-                    )
+                    try:
+                        await _validate_handshake_locations(
+                            db, company_id=company_id, header=header,
+                            vehicle_location_id=vehicle_location_id,
+                        )
+                    except HTTPException as error:
+                        raise attributed_transfer_error(error, int(header.id),
+                            "FIELD_TRANSFER_DESTINATION_INVALID") from None
             # المصافحات المرفوضة لا تعتمد على استمرار Route/الوجهة؛ الرفض يحرر الحجز فقط.
 
             pending_ids = [int(header.id) for header in pending_headers]
@@ -3106,6 +3123,7 @@ async def batch_respond_to_transfers(
                 db,
                 company_id=company_id,
                 header_ids=pending_ids,
+                field_batch_errors=True,
             )
 
             variant_ids = sorted({
@@ -3125,7 +3143,10 @@ async def batch_respond_to_transfers(
             ).scalars().all()
             variant_map = {int(variant.id): variant for variant in variants}
             if set(variant_map) != set(variant_ids):
-                raise HTTPException(status_code=409, detail="إحدى المصافحات مرتبطة بصنف مفقود داخل الشركة.")
+                missing_headers = [header for header in pending_headers
+                    if int(lines_by_header[int(header.id)][0].product_variant_id) not in variant_map]
+                raise transfer_batch_error(409, "FIELD_TRANSFER_PRODUCT_MISSING",
+                    "A transfer product is unavailable.", int(missing_headers[0].id))
 
             if accepted_headers:
                 await acquire_inventory_location_guards(
@@ -3162,18 +3183,23 @@ async def batch_respond_to_transfers(
                             status_code=409,
                             detail={
                                 "code": receipt_capability.code,
-                                "message": f"لا يمكن إنهاء استلام المنتج ({variant.variant_name}) في الحوالة ({header.id}).",
+                                "message": "The transfer product cannot be received.",
+                                "context": {"transfer_id": int(header.id)},
                             },
                         )
 
                 destination_status_by_line = {}
                 if accepted:
-                    destination_status_by_line = await _resolve_handshake_destination_statuses(
-                        db,
-                        company_id=company_id,
-                        header=header,
-                        lines=lines,
-                    )
+                    try:
+                        destination_status_by_line = await _resolve_handshake_destination_statuses(
+                            db, company_id=company_id, header=header, lines=lines,
+                        )
+                    except HTTPException as error:
+                        raise attributed_transfer_error(error, int(header.id),
+                            "FIELD_TRANSFER_DESTINATION_INVALID") from None
+                    except InventoryMutationError:
+                        raise transfer_batch_error(409, "FIELD_TRANSFER_DESTINATION_INVALID",
+                            "The transfer has no safe destination state.", int(header.id)) from None
 
                 movement_specs.extend(
                     _build_handshake_movement_specs(
@@ -3229,15 +3255,18 @@ async def batch_respond_to_transfers(
         raise
     except InventoryMutationError as exc:
         await db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise transfer_batch_error(409, "FIELD_TRANSFER_BATCH_INVENTORY_CONFLICT",
+            "The batch inventory mutation could not complete.") from None
     except IntegrityError as exc:
         await db.rollback()
         logger.error(f"تعارض أثناء معالجة المصافحات الجماعية: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=409, detail="فشل العملية بسبب تعارض متزامن في قاعدة البيانات.") from exc
+        raise transfer_batch_error(409, "FIELD_TRANSFER_BATCH_CONFLICT",
+            "The batch encountered a concurrent change.") from None
     except Exception as exc:
         await db.rollback()
         logger.error(f"خطأ في المعالجة الجماعية للمصافحات: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="خطأ داخلي في المعالجة الجماعية.") from exc
+        raise transfer_batch_error(500, "FIELD_TRANSFER_BATCH_INTERNAL",
+            "The batch could not complete.") from None
 
 
 # =========================================

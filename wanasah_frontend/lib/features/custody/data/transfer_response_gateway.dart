@@ -71,6 +71,11 @@ class CustodyTransferGateway implements TransferDispatchGateway {
       );
     }
 
+    final ids = decisions.map((decision) => decision.transferId).toSet();
+    if (ids.length != decisions.length) {
+      throw ArgumentError('Duplicate transfer decision.');
+    }
+
     final commands = <StoredTransferDecision>[];
     for (final decision in decisions) {
       commands.add(await _store.stageOrReuse(decision));
@@ -79,13 +84,15 @@ class CustodyTransferGateway implements TransferDispatchGateway {
     return _dispatch(
       commands,
       () => _client.respondBatch(decisions),
+      atomicBatch: true,
     );
   }
 
   Future<List<TransferDispatchResult>> _dispatch(
     List<StoredTransferDecision> commands,
-    Future<void> Function() send,
-  ) async {
+    Future<void> Function() send, {
+    bool atomicBatch = false,
+  }) async {
     for (final command in commands) {
       await _store.markInFlight(command);
     }
@@ -94,39 +101,39 @@ class CustodyTransferGateway implements TransferDispatchGateway {
       await send();
     } on DioException catch (error) {
       final failure = TransferDispatchFailure.fromDio(error);
-      final disposition =
-          failure.kind == TransferDispatchFailureKind.unresolved
-              ? TransferDispatchDisposition.queued
-              : TransferDispatchDisposition.blocked;
-
+      final failedId = failure.failedTransferId;
+      final attributed = atomicBatch &&
+          failure.kind == TransferDispatchFailureKind.blocked &&
+          failedId != null &&
+          commands.where((command) => command.decision.transferId == failedId).length == 1;
+      final results = <TransferDispatchResult>[];
       for (final command in commands) {
-        if (failure.kind == TransferDispatchFailureKind.unresolved) {
+        final notCommitted = attributed && command.decision.transferId != failedId;
+        final pending = failure.kind == TransferDispatchFailureKind.unresolved || notCommitted;
+        final code = notCommitted ? 'TRANSFER_BATCH_NOT_COMMITTED' : failure.code;
+        if (pending) {
           await _store.markPending(
             command,
-            code: failure.code,
-            displayFallback: failure.displayFallback,
+            code: code,
+            displayFallback: notCommitted ? null : failure.displayFallback,
             requestId: failure.requestId,
           );
         } else {
           await _store.markBlocked(
             command,
-            code: failure.code,
+            code: code,
             displayFallback: failure.displayFallback,
             requestId: failure.requestId,
           );
         }
+        results.add(TransferDispatchResult(
+          decision: command.decision,
+          disposition: pending ? TransferDispatchDisposition.queued : TransferDispatchDisposition.blocked,
+          failureCode: code,
+          requestId: failure.requestId,
+        ));
       }
-
-      return commands
-          .map(
-            (command) => TransferDispatchResult(
-              decision: command.decision,
-              disposition: disposition,
-              failureCode: failure.code,
-              requestId: failure.requestId,
-            ),
-          )
-          .toList(growable: false);
+      return results;
     } catch (_) {
       const code = 'TRANSFER_DISPATCH_UNRESOLVED';
       for (final command in commands) {

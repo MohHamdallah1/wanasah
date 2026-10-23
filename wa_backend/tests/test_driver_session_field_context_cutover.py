@@ -53,6 +53,7 @@ from services import InventoryMutationError, InventoryReversalError
 from domains.sales_calculation.core import CalculationError
 from domains.sales_evidence.core import SalesEvidenceError
 from schemas import BreakToggleRequest, SessionStartRequest
+from api.field_transfer_contracts import transfer_batch_error, attributed_transfer_error
 from api.field_visit_contracts import (
     canonicalize_visit_returns, revalidate_return_provenance,
     revalidate_return_batch_metadata, invoice_from_calculation,

@@ -7,6 +7,7 @@ on:
     paths:
       - "wa_backend/api/field_contracts.py"
       - "wa_backend/api/field_visit_contracts.py"
+      - "wa_backend/api/field_transfer_contracts.py"
       - "wa_backend/api/driver.py"
       - "wa_backend/domains/field_operations/**"
       - "wa_backend/schemas.py"
@@ -38,7 +39,7 @@ jobs:
       - name: Install pinned Backend and test dependencies
         run: python -m pip install -r requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
       - name: FIELD resolution, financial and custody contracts
-        run: python -m pytest -q tests/test_field_return_resolution.py tests/test_field_read_contracts.py
+        run: python -m pytest -q tests/test_field_return_resolution.py tests/test_field_read_contracts.py tests/test_field_transfer_batch_identity.py
       - name: Existing field identity, session, visit, custody and durable transport regressions
         run: >-
           python -m pytest -q
@@ -139,6 +140,7 @@ jobs:
         run: >-
           python -m pytest -q -s
           tests/test_field_contracts_postgres.py
+          tests/test_field_transfer_batch_identity_postgres.py
           tests/test_costed_driver_customer_return_c2_db.py
           tests/test_costed_driver_sale_correction_real_c2_db.py
           --junitxml=field-contract-postgres.xml
