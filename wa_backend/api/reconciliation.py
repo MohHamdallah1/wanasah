@@ -11,6 +11,7 @@ import logging
 
 from database import get_db
 from api.authentication.dependencies import get_current_field_context
+from api.authentication.field_authorization import require_field_capabilities
 from api.authentication.field_compatibility import get_current_field_legacy_driver
 from domains.auth_sessions.context import FieldRequestContext
 from domains.vehicles import VehicleError, resolve_vehicle_custody_location_id
@@ -73,7 +74,7 @@ class VehicleReconciliationRequest(BaseModel):
         return self
 
 
-@router.post("/driver/session/{session_id}/reconcile", status_code=200)
+@router.post("/driver/session/{session_id}/reconcile", status_code=200, dependencies=[Depends(require_field_capabilities(("reconciliation.execute",)))])
 async def reconcile_driver_end_of_day(
     session_id: int,
     payload: VehicleReconciliationRequest,

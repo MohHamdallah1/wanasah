@@ -14,6 +14,12 @@ from api.authentication.dependencies import (
     get_current_principal_context,
 )
 from api.authentication.field_compatibility import get_current_field_legacy_driver
+from api.authentication.field_authorization import (
+    get_current_field_capability_access, require_field_capability, require_field_capabilities,
+)
+from api.authentication.field_transfer_authorization import (
+    require_transfer_decision_capability, require_transfer_batch_capabilities,
+)
 from domains.auth_sessions.context import (
     AuthenticatedRequestContext,
     DashboardRequestContext,
@@ -201,7 +207,7 @@ router = APIRouter(tags=["Driver Operations"])
 # =========================================
 # 1. بدء جلسة العمل (مربوطة بالتوزيع والجرد)
 # =========================================
-@router.post("/driver/sessions/start", status_code=201)
+@router.post("/driver/sessions/start", status_code=201, dependencies=[Depends(require_field_capability("work_session.execute"))])
 async def start_work_session(
     payload: SessionStartRequest,
     db: AsyncSession = Depends(get_db),
@@ -514,7 +520,7 @@ async def start_work_session(
 # =========================================
 # 2. إنهاء جلسة العمل
 # =========================================
-@router.put("/driver/sessions/end", status_code=200)
+@router.put("/driver/sessions/end", status_code=200, dependencies=[Depends(require_field_capability("work_session.execute"))])
 async def end_work_session(
     db: AsyncSession = Depends(get_db),
     field_context: FieldRequestContext = Depends(get_current_field_context),
@@ -585,7 +591,7 @@ async def end_work_session(
 # 3. تسجيل وقت الاستراحة
 # =========================================
 
-@router.put("/driver/sessions/break", status_code=200)
+@router.put("/driver/sessions/break", status_code=200, dependencies=[Depends(require_field_capability("work_session.execute"))])
 async def toggle_break(
     payload: BreakToggleRequest,
     db: AsyncSession = Depends(get_db),
@@ -661,7 +667,7 @@ async def toggle_break(
 # =========================================
 # 4. تحديث نتيجة الزيارة (Update Visit) - النسخة الفولاذية المعدلة
 # =========================================
-@router.put("/visits/{visit_id}", status_code=200)
+@router.put("/visits/{visit_id}", status_code=200, dependencies=[Depends(require_field_capability("visit.execute"))])
 async def update_visit(
     visit_id: int,
     payload: VisitUpdateRequest,
@@ -2591,7 +2597,7 @@ def _build_handshake_movement_specs(
 # =========================================
 # 5. جلب بيانات الداشبورد للمندوب
 # =========================================
-@router.get("/driver/dashboard", status_code=200)
+@router.get("/driver/dashboard", status_code=200, dependencies=[Depends(require_field_capabilities(("work_session.read", "visit.read", "inventory.read",)))])
 async def get_driver_dashboard(
     db: AsyncSession = Depends(get_db),
     field_context: FieldRequestContext = Depends(get_current_field_context),
@@ -2800,7 +2806,7 @@ async def get_driver_dashboard(
 # =========================================
 # 6. تأكيد استلام/رفض حوالة منتصف اليوم (HANDSHAKE)
 # =========================================
-@router.put("/driver/transfers/{transfer_id}/respond", status_code=200)
+@router.put("/driver/transfers/{transfer_id}/respond", status_code=200, dependencies=[Depends(require_transfer_decision_capability)])
 async def respond_to_transfer(
     transfer_id: int,
     payload: TransferResponseRequest,
@@ -3011,7 +3017,8 @@ async def batch_respond_to_transfers(
     payload: BatchTransferResponseRequest,
     db: AsyncSession = Depends(get_db),
     field_context: FieldRequestContext = Depends(get_current_field_context),
-    legacy_actor: Driver = Depends(get_current_field_legacy_driver)
+    legacy_actor: Driver = Depends(get_current_field_legacy_driver),
+    _capability_access = Depends(require_transfer_batch_capabilities),
 ):
     company_id = field_context.company_id
     driver_id = legacy_actor.id
@@ -3272,7 +3279,7 @@ async def batch_respond_to_transfers(
 # =========================================
 # 8. التحقق من وجود حوالات معلقة (Polling)
 # =========================================
-@router.get("/driver/transfers/pending", response_model=List[PendingBatchResponse], status_code=200)
+@router.get("/driver/transfers/pending", response_model=List[PendingBatchResponse], status_code=200, dependencies=[Depends(require_field_capability("transfer.read"))])
 async def get_pending_transfers(
     db: AsyncSession = Depends(get_db),
     field_context: FieldRequestContext = Depends(get_current_field_context),
@@ -3374,7 +3381,7 @@ async def get_pending_transfers(
 # =========================================
 # 9. إضافة محل جديد (من الميدان)
 # =========================================
-@router.post("/shops", status_code=201)
+@router.post("/shops", status_code=201, dependencies=[Depends(require_field_capability("shop.create"))])
 async def add_new_shop(
     payload: AddShopRequest,
     db: AsyncSession = Depends(get_db),
@@ -3578,7 +3585,7 @@ async def _load_driver_pricing_route(
 # =========================================
 # 10. قائمة المنتجات والأسعار (Product Catalog - Legacy URL Match)
 # =========================================
-@router.get("/product_variants", response_model=List[ProductVariantResponse], status_code=200)
+@router.get("/product_variants", response_model=List[ProductVariantResponse], status_code=200, dependencies=[Depends(require_field_capabilities(("catalog.read", "pricing.view",)))])
 async def get_products(
     db: AsyncSession = Depends(get_db),
     field_context: FieldRequestContext = Depends(get_current_field_context),
@@ -3641,7 +3648,7 @@ async def get_products(
 # =========================================
 # 11. استعراض زيارات اليوم والجرد
 # =========================================
-@router.get("/driver/visits", response_model=GetVisitsContract, status_code=200)
+@router.get("/driver/visits", response_model=GetVisitsContract, status_code=200, dependencies=[Depends(require_field_capabilities(("visit.read", "inventory.read", "transfer.read", "pricing.view",)))])
 async def get_driver_visits(
     db: AsyncSession = Depends(get_db),
     field_context: FieldRequestContext = Depends(get_current_field_context),
@@ -3875,6 +3882,8 @@ async def get_visit_details(
     field_driver_id: Optional[int] = None
 
     if isinstance(current, FieldRequestContext):
+        access = await get_current_field_capability_access(current=current, db=db)
+        await require_field_capability("visit.read")(access=access)
         legacy_actor = await get_current_field_legacy_driver(current=current, db=db)
         company_id = current.company_id
         field_driver_id = legacy_actor.id
@@ -3918,7 +3927,8 @@ async def get_visit_details(
 async def get_active_session(
     db: AsyncSession = Depends(get_db),
     field_context: FieldRequestContext = Depends(get_current_field_context),
-    legacy_actor: Driver = Depends(get_current_field_legacy_driver)
+    legacy_actor: Driver = Depends(get_current_field_legacy_driver),
+    _capability_access = Depends(require_field_capability("work_session.read")),
 ):
     driver_id = legacy_actor.id
         

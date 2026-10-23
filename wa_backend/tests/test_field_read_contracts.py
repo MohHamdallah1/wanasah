@@ -17,6 +17,7 @@ from api.authentication.dependencies import (
     get_current_field_context, get_current_principal_context,
 )
 from api.authentication.field_compatibility import get_current_field_legacy_driver
+from api.authentication.field_authorization import get_current_field_capability_access
 from api.field_visit_contracts import begin_field_shop_command, complete_field_shop_command
 from database import get_db
 from domains.auth_sessions.context import DashboardRequestContext, FieldRequestContext
@@ -218,12 +219,15 @@ async def test_actionable_error_preserves_canonical_code_context_and_correlation
     app.dependency_overrides[get_current_field_context] = lambda: CTX
     app.dependency_overrides[get_current_field_legacy_driver] = lambda: NS(id=303)
     app.dependency_overrides[get_db] = lambda: NS()
+    granted = NS(require_all=AsyncMock())
+    app.dependency_overrides[get_current_field_capability_access] = lambda: granted
     with patch.object(field_contracts, "resolve_return", AsyncMock(side_effect=FieldContractError(
             "FIELD_RETURN_EVIDENCE_REQUIRED", "Printed evidence required.",
             context={"required_evidence": ["expiry_date"]}))):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post("/visits/11/return-resolution", json={
                 "product_variant_id": 44, "packs_quantity": 1})
+    granted.require_all.assert_awaited_once_with(("visit.execute",))
     assert response.status_code == 409
     body = response.json()
     assert body["error"]["code"] == "FIELD_RETURN_EVIDENCE_REQUIRED"

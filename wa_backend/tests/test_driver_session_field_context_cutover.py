@@ -36,6 +36,7 @@ with patch.dict(os.environ, {
     from api.authentication import field_compatibility as compatibility
 
 from database import get_db
+from api.authentication.field_authorization import require_field_capability, get_current_field_capability_access
 from domains.auth_sessions.codec import issue_access_token
 from domains.auth_sessions.context import FieldRequestContext
 from domains.pricing.core import PricingError
@@ -486,6 +487,8 @@ class DriverSessionFieldContextCutoverTests(unittest.IsolatedAsyncioTestCase):
                     app = FastAPI()
                     app.include_router(self.namespace["router"])
                     app.dependency_overrides[get_db] = override_db
+                    granted = SimpleNamespace(require_all=AsyncMock())
+                    app.dependency_overrides[get_current_field_capability_access] = lambda: granted
                     token = issue_access_token(principal_id=101, company_id=7, channel="FIELD",
                                                principal_type="FIELD_REPRESENTATIVE", auth_revision=13,
                                                secret=SECRET)
@@ -503,6 +506,7 @@ class DriverSessionFieldContextCutoverTests(unittest.IsolatedAsyncioTestCase):
                         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                             response = await client.request(method, path, **kwargs)
                     self.assertEqual(response.status_code, status, response.text)
+                    granted.require_all.assert_awaited_once_with(("work_session.execute",))
                     decode.assert_called_once_with(token, secret=SECRET, expected_type="access")
                     context.assert_awaited_once()
                     self.assertEqual(context.await_args.args[1].principal_id, 101)
