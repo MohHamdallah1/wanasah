@@ -104,6 +104,43 @@ jobs:
           tests/test_authorization_core_compatibility.py
           tests/test_canonical_field_authorization_subject.py
           tests/test_canonical_backoffice_authorization_dependency.py
+      - name: Historical authorization failures compared with exact approved base
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/field-phase2-approved-base" 28e09891cf1c7051310d1446b29b725337a486f1
+          python - <<'PY'
+          import os, subprocess, sys
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          targets = [
+              "tests/test_authorization_core_compatibility.py",
+              "tests/test_canonical_backoffice_authorization_subject.py",
+              "tests/test_canonical_backoffice_authorization_dependency.py",
+              "tests/test_canonical_field_authorization_subject.py",
+              "tests/test_identity_schema_expand.py",
+              "tests/test_inventory_access_canonical_boundary.py",
+              "tests/test_inventory_access_canonical_cutover.py",
+              "tests/test_representatives_form_identity_contract.py",
+          ]
+          roots = [("approved-base",Path(os.environ["RUNNER_TEMP"])/"field-phase2-approved-base"/"wa_backend"),
+                   ("head",Path.cwd())]
+          results=[]
+          for label,root in roots:
+              report=Path(os.environ["RUNNER_TEMP"])/("field-phase2-historical-"+label+".xml")
+              env=dict(os.environ,PYTHONPATH=str(root)+os.pathsep+str(root/"tests"))
+              run=subprocess.run([sys.executable,"-m","pytest","-q",*targets,"--junitxml="+str(report)],
+                                 cwd=root,env=env,capture_output=True,text=True)
+              print(label+" exit="+str(run.returncode))
+              print(run.stdout[-10000:])
+              assert run.returncode in (0,1),run.stderr
+              tree=ET.parse(report).getroot()
+              cases=list(tree.iter("testcase"))
+              assert cases and not list(tree.iter("skipped")) and not list(tree.iter("error"))
+              failed={(c.get("classname"),c.get("name")) for c in cases if c.find("failure") is not None}
+              print(label+" historical failures="+repr(sorted(failed)))
+              results.append((len(cases),failed))
+          assert results[0]==results[1], "Regression differs from exact approved base"
+          print("PHASE2_EXACT_BASE_HISTORICAL_PARITY=PASS; old failures are NOT claimed passing")
+          PY
       - name: Exact authorized diff and whitespace
         run: |
           git diff --check 28e09891cf1c7051310d1446b29b725337a486f1 HEAD
