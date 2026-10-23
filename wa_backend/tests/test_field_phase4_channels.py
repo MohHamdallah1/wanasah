@@ -241,8 +241,15 @@ async def test_mixed_batch_scope_failure_is_atomic_even_after_valid_first_item(s
         {"transfer_id": ids[0], "status": "accepted"},
         {"transfer_id": ids[1], "status": second, "reason": "Synthetic mixed decision"},
     ]}
-    await no_effect(g, "PUT", "/driver/transfers/batch_respond", body,
-                    statuses=(400,) if invalid == "session" else (403, 404, 409))
+    status, code = {
+        "receiver": (404, "FIELD_TRANSFER_NOT_FOUND"),
+        "session": (409, "FIELD_TRANSFER_BATCH_MIXED_SESSIONS"),
+        "destination": (403, "FIELD_TRANSFER_DESTINATION_INVALID"),
+    }[invalid]
+    response = await no_effect(g, "PUT", "/driver/transfers/batch_respond", body,
+                               statuses=(status,), code=code)
+    if invalid != "session":
+        assert response.json()["error"]["context"]["transfer_id"] == ids[1]
 
 
 async def test_dual_split_field_inventory_grant_cannot_expand_backoffice_location_scope(scene):
