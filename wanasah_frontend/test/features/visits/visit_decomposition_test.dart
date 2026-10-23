@@ -104,6 +104,26 @@ void main() {
     expect(jsonDecode(draft.returnsJson!), isA<List<dynamic>>());
   });
 
+  test('Visit durable adapter retains both legacy visit ID alias matches',
+      () async {
+    final source = LocalVisitDurableEvidenceSource(
+      pendingRows: () async => <Map<String, dynamic>>[
+        <String, dynamic>{
+          'type': 'submit_sale',
+          'payload': jsonEncode(<String, dynamic>{
+            'visitId': 999,
+            'visit_id': 11,
+            'cash_collected': '5.250',
+          }),
+        },
+      ],
+    );
+
+    final draft = (await source.readForVisit(11)).latestDraft;
+    expect(draft, isNotNull);
+    expect(draft!.cashCollected, '5.250');
+  });
+
   test('Visit durable adapter ignores unrelated and malformed raw rows',
       () async {
     final source = LocalVisitDurableEvidenceSource(
