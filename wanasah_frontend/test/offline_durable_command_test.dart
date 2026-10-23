@@ -113,7 +113,7 @@ void main() {
       expect(source, contains('markPendingSyncInFlight'));
       expect(
         source,
-        contains('finalizeVisitCommandLocalState'),
+        contains('_visitReplay.finalizeLocalState'),
       );
     });
 
@@ -136,7 +136,7 @@ void main() {
       final replayDispatch =
           syncSource.indexOf('await _dispatchPendingRecord(type: type, payload: payload);');
       final replayFinalize =
-          syncSource.indexOf('_finalizeVisitCommandLocalState(', replayDispatch);
+          syncSource.indexOf('_visitReplay.finalizeLocalState(', replayDispatch);
       final replayDelete =
           syncSource.indexOf('await _db.deletePendingSync(recordId);', replayFinalize);
       expect(replayDispatch, greaterThanOrEqualTo(0));
