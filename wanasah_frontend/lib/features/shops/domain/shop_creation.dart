@@ -71,8 +71,20 @@ class ShopCreateResult {
   final ShopCommercialReadiness commercialReadiness;
 }
 
+enum ShopCreateFailureKind {
+  connectivity,
+  timeout,
+  authorization,
+  businessRejected,
+  rateLimited,
+  server,
+  cancelled,
+  unexpected,
+}
+
 class ShopCreateFailure implements Exception {
   const ShopCreateFailure({
+    this.kind = ShopCreateFailureKind.unexpected,
     required this.ambiguous,
     required this.status,
     required this.code,
@@ -81,6 +93,7 @@ class ShopCreateFailure implements Exception {
     required this.displayFallback,
   });
 
+  final ShopCreateFailureKind kind;
   final bool ambiguous;
   final int? status;
   final String? code;

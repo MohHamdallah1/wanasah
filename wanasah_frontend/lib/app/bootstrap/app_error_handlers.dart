@@ -1,15 +1,19 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:sentry_flutter/sentry_flutter.dart';
-
+import '../../core/observability/app_observability.dart';
+import '../../core/observability/safe_sentry_context.dart';
 import 'app_error_strings.dart';
 
 class AppErrorHandlers {
   const AppErrorHandlers._();
 
-  static void install() {
+  static AppExceptionReporter _reporter = AppObservability.captureException;
+
+  static void install({AppExceptionReporter? reporter}) {
+    _reporter = reporter ?? AppObservability.captureException;
     ErrorWidget.builder = _buildErrorWidget;
     FlutterError.onError = _onFlutterError;
     ui.PlatformDispatcher.instance.onError = (error, stack) {
@@ -41,7 +45,15 @@ class AppErrorHandlers {
     debugPrint('ERROR: $error');
     debugPrint('STACK: $stack');
     debugPrint('═══════════════════════════════════════════════════');
-    Sentry.captureException(error, stackTrace: stack);
+    unawaited(
+      _reporter(
+        error,
+        stack,
+        SafeSentryMetadata.uncaught(
+          ObservabilityOperation.platformAsync,
+        ),
+      ),
+    );
   }
 
   static void _onFlutterError(FlutterErrorDetails details) {
@@ -52,9 +64,14 @@ class AppErrorHandlers {
       debugPrint('LIBRARY: ${details.library}');
     }
     debugPrint('════════════════════════════════════════════════════════');
-    Sentry.captureException(
-      details.exception,
-      stackTrace: details.stack,
+    unawaited(
+      _reporter(
+        details.exception,
+        details.stack,
+        SafeSentryMetadata.uncaught(
+          ObservabilityOperation.flutterFramework,
+        ),
+      ),
     );
     if (kDebugMode) {
       FlutterError.presentError(details);

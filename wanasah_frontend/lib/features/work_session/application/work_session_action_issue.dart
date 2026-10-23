@@ -9,6 +9,8 @@ enum WorkSessionActionIssueKind {
   endPrerequisite,
   breakStateConflict,
   rateLimited,
+  connectivity,
+  timeout,
   unresolved,
 }
 
@@ -76,6 +78,10 @@ class WorkSessionActionIssue {
         return WorkSessionActionIssueKind.rateLimited;
       case WorkSessionFailureKind.businessRejected:
         return _businessKindFor(operation, failure);
+      case WorkSessionFailureKind.connectivity:
+        return WorkSessionActionIssueKind.connectivity;
+      case WorkSessionFailureKind.timeout:
+        return WorkSessionActionIssueKind.timeout;
       case WorkSessionFailureKind.network:
       case WorkSessionFailureKind.server:
       case WorkSessionFailureKind.unknown:

@@ -12,6 +12,7 @@ enum WorkSessionStringKey {
   businessRejected,
   rateLimited,
   networkUnresolved,
+  timeoutUnresolved,
   serverUnresolved,
   requestIdLabel,
   statusCodeLabel,
@@ -23,6 +24,8 @@ enum WorkSessionStringKey {
   issueEndPrerequisite,
   issueBreakState,
   issueRateLimited,
+  issueConnectivity,
+  issueTimeout,
   issueUnresolved,
 }
 
@@ -51,6 +54,8 @@ const Map<WorkSessionStringKey, String> _ar = {
       'عدد الطلبات مرتفع حالياً. أعد المحاولة بعد قليل.',
   WorkSessionStringKey.networkUnresolved:
       'تعذر تأكيد نتيجة العملية بسبب الاتصال. تم الحفاظ على حالة السيرفر كمرجع وحيد.',
+  WorkSessionStringKey.timeoutUnresolved:
+      'انتهت مهلة الاتصال قبل تأكيد نتيجة العملية. حالة السيرفر ما زالت المرجع الوحيد.',
   WorkSessionStringKey.serverUnresolved:
       'تعذر تأكيد نتيجة العملية بسبب خطأ في السيرفر.',
   WorkSessionStringKey.requestIdLabel: 'رقم التتبع',
@@ -70,6 +75,10 @@ const Map<WorkSessionStringKey, String> _ar = {
       'حالة الاستراحة على السيرفر لا تسمح بهذا الإجراء. حدّث حالة الجلسة ثم أعد المحاولة.',
   WorkSessionStringKey.issueRateLimited:
       'تم تأجيل إجراء الجلسة بسبب حد الطلبات. أعد المحاولة بعد قليل.',
+  WorkSessionStringKey.issueConnectivity:
+      'تعذر الاتصال بالسيرفر. تحقق من الشبكة وحدّث حالة الجلسة قبل إعادة المحاولة.',
+  WorkSessionStringKey.issueTimeout:
+      'انتهت مهلة الاتصال قبل تأكيد النتيجة. حدّث حالة الجلسة قبل إعادة المحاولة.',
   WorkSessionStringKey.issueUnresolved:
       'لم يتم تأكيد نتيجة إجراء الجلسة. حالة السيرفر هي المرجع؛ حدّث البيانات قبل إعادة المحاولة.',
 };
@@ -99,6 +108,8 @@ const Map<WorkSessionStringKey, String> _en = {
       'Too many requests. Try again shortly.',
   WorkSessionStringKey.networkUnresolved:
       'The result could not be confirmed because of connectivity. Server state remains authoritative.',
+  WorkSessionStringKey.timeoutUnresolved:
+      'The request timed out before the result was confirmed. Server state remains authoritative.',
   WorkSessionStringKey.serverUnresolved:
       'The result could not be confirmed because of a server error.',
   WorkSessionStringKey.requestIdLabel: 'Request ID',
@@ -118,6 +129,10 @@ const Map<WorkSessionStringKey, String> _en = {
       'The server break state does not allow this action. Refresh the session state and try again.',
   WorkSessionStringKey.issueRateLimited:
       'The work-session action was rate limited. Try again shortly.',
+  WorkSessionStringKey.issueConnectivity:
+      'The server could not be reached. Check the connection and refresh session state before retrying.',
+  WorkSessionStringKey.issueTimeout:
+      'The request timed out before the result was confirmed. Refresh session state before retrying.',
   WorkSessionStringKey.issueUnresolved:
       'The work-session result is unresolved. Server state remains authoritative; refresh before retrying.',
 };

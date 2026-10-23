@@ -23,6 +23,10 @@ String workSessionIssueMessage(
       WorkSessionStringKey.issueBreakState,
     WorkSessionActionIssueKind.rateLimited =>
       WorkSessionStringKey.issueRateLimited,
+    WorkSessionActionIssueKind.connectivity =>
+      WorkSessionStringKey.issueConnectivity,
+    WorkSessionActionIssueKind.timeout =>
+      WorkSessionStringKey.issueTimeout,
     WorkSessionActionIssueKind.unresolved =>
       WorkSessionStringKey.issueUnresolved,
   };

@@ -68,19 +68,35 @@ void main() {
       );
     });
 
-    test('network and timeout failures are connectivity failures', () {
+    test('connection and timeout remain visibly distinct', () {
       final request = RequestOptions(path: '/driver/login', method: 'POST');
 
+      final connection = AuthLoginFailure.fromDioException(
+        DioException(
+          requestOptions: request,
+          type: DioExceptionType.connectionError,
+          message: 'timeout fake text',
+        ),
+      );
+      expect(connection.kind, AuthLoginFailureKind.connectivity);
+
       for (final type in <DioExceptionType>[
-        DioExceptionType.connectionError,
         DioExceptionType.connectionTimeout,
         DioExceptionType.sendTimeout,
         DioExceptionType.receiveTimeout,
       ]) {
-        final failure = AuthLoginFailure.fromDioException(
-          DioException(requestOptions: request, type: type),
+        final timeout = AuthLoginFailure.fromDioException(
+          DioException(
+            requestOptions: request,
+            type: type,
+            message: 'connection fake text',
+          ),
         );
-        expect(failure.kind, AuthLoginFailureKind.connectivity);
+        expect(timeout.kind, AuthLoginFailureKind.timeout);
+        expect(
+          authLoginFailureMessage(timeout),
+          contains('مهلة'),
+        );
       }
     });
 

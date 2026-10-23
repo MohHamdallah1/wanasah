@@ -6,6 +6,8 @@ enum WorkSessionFailureKind {
   authRejected,
   businessRejected,
   rateLimited,
+  connectivity,
+  timeout,
   network,
   server,
   unknown,
@@ -31,6 +33,8 @@ class WorkSessionFailure {
   final String? displayFallback;
 
   bool get isAmbiguousMutation =>
+      kind == WorkSessionFailureKind.connectivity ||
+      kind == WorkSessionFailureKind.timeout ||
       kind == WorkSessionFailureKind.network ||
       kind == WorkSessionFailureKind.server ||
       kind == WorkSessionFailureKind.unknown;
@@ -56,9 +60,11 @@ class WorkSessionFailure {
         status != null &&
         status >= 500) {
       kind = WorkSessionFailureKind.server;
-    } else if (failure.kind == ApiFailureKind.connection ||
-        failure.kind == ApiFailureKind.timeout ||
-        failure.kind == ApiFailureKind.cancelled) {
+    } else if (failure.kind == ApiFailureKind.connection) {
+      kind = WorkSessionFailureKind.connectivity;
+    } else if (failure.kind == ApiFailureKind.timeout) {
+      kind = WorkSessionFailureKind.timeout;
+    } else if (failure.kind == ApiFailureKind.cancelled) {
       kind = WorkSessionFailureKind.network;
     } else {
       kind = WorkSessionFailureKind.unknown;
