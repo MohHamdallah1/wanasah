@@ -1,11 +1,10 @@
 """Cross-channel authority and object scope against real HTTP/PostgreSQL."""
-import os
 from datetime import datetime, timezone
 from uuid import uuid4
 
 import jwt
 import pytest
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import Config
@@ -16,7 +15,7 @@ from models import (
     Vehicle, Visit, WorkSession, Zone,
 )
 from tests.field_phase4_fixture import (
-    scene, call, evidence, grant_default, new_transfers, no_effect, posted, revoke_default,
+    scene, call, new_transfers, no_effect, revoke_default,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -137,7 +136,7 @@ async def test_owner_cannot_assign_arbitrary_backoffice_capability_to_field(scen
                     token=g.owner_token, statuses=(409,), code="FIELD_ROLE_FORBIDDEN_CAPABILITY")
 
 
-async def test_safe_assigned_custom_role_edit_cannot_escalate_but_office_role_still_can(scene):
+async def test_safe_assigned_custom_role_cannot_escalate_and_system_role_is_protected(scene):
     g = scene
     role = await call(g, "POST", "/inventory/access/roles",
                       {"name": "P4-safe-" + uuid4().hex, "permissions": ["visit.read"]},
@@ -177,7 +176,9 @@ async def test_full_capability_never_bypasses_visit_operational_scope(scene, sco
         elif scope == "location":
             (await db.get(InventoryLocation, g.location)).is_active = False
         else:
-            (await db.get(Visit, g.visit)).driver_id = g.other.driver.id
+            visit = await db.get(Visit, g.visit)
+            visit.work_session_id = None
+            visit.driver_id = g.other.driver.id
         await db.commit()
     await no_effect(g, "PUT", f"/visits/{g.visit}",
                     {"request_id": str(uuid4()), "outcome": "NoSale", "notes": "Synthetic scope proof"},
@@ -209,17 +210,29 @@ async def test_mixed_batch_scope_failure_is_atomic_even_after_valid_first_item(s
     ids = await new_transfers(g)
     async with AsyncSession(g.admin) as db:
         header = await db.get(InventoryTransferHeader, ids[1])
-        if invalid == "receiver":
-            header.expected_receiver_id = g.other.driver.id
-        elif invalid == "session":
-            # A same-tenant session belongs to a different representative.
-            session = WorkSession(company_id=g.tenant, driver_id=g.other.driver.id,
-                                  start_time=datetime.now(timezone.utc).replace(tzinfo=None))
+        if invalid in ("receiver", "session"):
+            # Keep composite session/receiver FKs valid: foreign receiver has
+            # their own session; wrong session is this receiver's closed session.
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            session = WorkSession(company_id=g.tenant,
+                driver_id=g.other.driver.id if invalid == "receiver" else g.field.driver.id,
+                start_time=now, end_time=None if invalid == "receiver" else now)
             db.add(session)
             await db.flush()
             header.work_session_id = session.id
+            if invalid == "receiver":
+                header.expected_receiver_id = g.other.driver.id
         else:
-            header.destination_location_id = g.warehouse_id
+            vehicle = Vehicle(company_id=g.tenant, plate_number="P4-" + uuid4().hex[:10],
+                              maintenance_status="Active", is_active=True)
+            db.add(vehicle)
+            await db.flush()
+            location = InventoryLocation(company_id=g.tenant, code="P4-" + uuid4().hex[:16],
+                name="Other vehicle", location_type="VEHICLE", vehicle_id=vehicle.id,
+                is_active=True, is_system_managed=False)
+            db.add(location)
+            await db.flush()
+            header.destination_location_id = location.id
         await db.commit()
     # accepted first + rejected second uses both capabilities. A rejected decision
     # intentionally need not have an operational destination, so destination uses accepted.
@@ -228,7 +241,8 @@ async def test_mixed_batch_scope_failure_is_atomic_even_after_valid_first_item(s
         {"transfer_id": ids[0], "status": "accepted"},
         {"transfer_id": ids[1], "status": second, "reason": "Synthetic mixed decision"},
     ]}
-    await no_effect(g, "PUT", "/driver/transfers/batch_respond", body, statuses=(403, 404, 409))
+    await no_effect(g, "PUT", "/driver/transfers/batch_respond", body,
+                    statuses=(400,) if invalid == "session" else (403, 404, 409))
 
 
 async def test_dual_split_field_inventory_grant_cannot_expand_backoffice_location_scope(scene):

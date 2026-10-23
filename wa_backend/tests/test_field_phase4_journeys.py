@@ -7,10 +7,10 @@ from decimal import Decimal
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import InventoryBalance, Visit
+from models import Visit
 from tests.field_phase4_fixture import (
     scene, call, completed_replay_revocation, evidence, new_transfers,
     no_effect, posted, sale,
