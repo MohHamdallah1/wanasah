@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import httpx
 import pytest_asyncio
-from sqlalchemy import select, text, delete
+from sqlalchemy import select, text, delete, event
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -91,6 +91,7 @@ async def set_codes(g, codes):
 async def new_transfers(g, count=2, destination=None):
     ids = []
     async with AsyncSession(g.admin, expire_on_commit=False) as db:
+        await db.execute(text("SELECT set_config('app.current_tenant',:c,true)"),{"c":str(g.tenant)})
         for _ in range(count):
             header = InventoryTransferHeader(
                 company_id=g.tenant, reference_number="P3-" + uuid4().hex,
@@ -126,6 +127,7 @@ async def seed_business(admin):
             db.add(company)
             await db.flush()
             token = tenant_context.set(company.id)
+            await db.execute(text("SELECT set_config('app.current_tenant',:c,true)"),{"c":str(company.id)})
             owner = await seed_company_owner_fixture(db,company.id,password=PASSWORD)
             field = await seed_field_fixture(db,company.id,password=PASSWORD)
             other = await seed_field_fixture(db,company.id,password=PASSWORD)
@@ -198,6 +200,10 @@ async def gate():
         url=make_url(os.environ[key])
         assert url.database=="field_auth_phase3_gate" and url.host in ("127.0.0.1","localhost")
     admin=create_async_engine(os.environ["DATABASE_URL_MIGRATION"],poolclass=NullPool)
+    @event.listens_for(admin.sync_engine,"begin")
+    def seed_tenant(connection):
+        connection.execute(text("SELECT set_config('app.current_tenant',:c,true)"),
+                           {"c":str(tenant_context.get() or "")})
     g=await seed_business(admin)
     foreign=await seed_business(admin)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app,raise_app_exceptions=False),

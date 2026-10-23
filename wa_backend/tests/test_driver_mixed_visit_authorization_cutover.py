@@ -175,6 +175,8 @@ def _load_route():
         "get_current_principal_context": get_current_principal_context,
         "get_current_field_legacy_driver": AsyncMock(),
         "get_current_backoffice_capability_access": AsyncMock(),
+        "get_current_field_capability_access": AsyncMock(),
+        "require_field_capability": lambda code: AsyncMock(),
         "select": select,
         "joinedload": joinedload,
         "selectinload": selectinload,

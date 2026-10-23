@@ -146,7 +146,7 @@ jobs:
           git diff --check 8892eff045d79a76b10aacdba0e511391967082a HEAD
           python - <<'PY'
           import subprocess
-          expected=["wa_backend/api/driver.py","wa_backend/api/field_contracts.py","wa_backend/api/reconciliation.py","wa_backend/api/authentication/field_transfer_authorization.py","wa_backend/tests/field_authorization_phase3_fixture.py","wa_backend/tests/field_authorization_phase3_matrix.py","wa_backend/tests/test_field_authorization_phase3_http.py","wa_backend/tests/test_field_authorization_phase3_routes.py",".github/workflows/field-authorization-phase3.yml"]
+          expected=["wa_backend/tests/test_field_read_contracts.py","wa_backend/tests/test_driver_session_field_context_cutover.py","wa_backend/tests/test_driver_mixed_visit_authorization_cutover.py","wa_backend/tests/test_legacy_field_transport_boundary.py","wa_backend/api/driver.py","wa_backend/api/field_contracts.py","wa_backend/api/reconciliation.py","wa_backend/api/authentication/field_transfer_authorization.py","wa_backend/tests/field_authorization_phase3_fixture.py","wa_backend/tests/field_authorization_phase3_matrix.py","wa_backend/tests/test_field_authorization_phase3_http.py","wa_backend/tests/test_field_authorization_phase3_routes.py",".github/workflows/field-authorization-phase3.yml"]
           changed=subprocess.check_output(["git","diff","--name-only","8892eff045d79a76b10aacdba0e511391967082a","HEAD"],text=True).splitlines()
           assert set(changed)==set(expected),(changed,expected)
           assert not subprocess.check_output(["git","diff","--diff-filter=D","--name-only","8892eff045d79a76b10aacdba0e511391967082a","HEAD"],text=True).strip()

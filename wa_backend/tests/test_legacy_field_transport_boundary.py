@@ -62,6 +62,40 @@ ROUTES = {
 }
 
 
+FIELD_ROUTE_CAPABILITIES = {
+    "start_work_session": ("work_session.execute",),
+    "end_work_session": ("work_session.execute",),
+    "toggle_break": ("work_session.execute",),
+    "update_visit": ("visit.execute",),
+    "get_driver_dashboard": ("work_session.read","visit.read","inventory.read"),
+    "get_pending_transfers": ("transfer.read",),
+    "add_new_shop": ("shop.create",),
+    "get_products": ("catalog.read","pricing.view"),
+    "get_driver_visits": ("visit.read","inventory.read","transfer.read","pricing.view"),
+    "get_active_session": ("work_session.read",),
+}
+
+
+def without_capability_decorator(node):
+    """Normalize only the exact approved D7 dependency; keep URL/status/model frozen."""
+    node=copy.deepcopy(node)
+    for decorator in node.decorator_list:
+        dependencies=[k for k in decorator.keywords if k.arg=="dependencies"]
+        if node.name in FIELD_ROUTE_CAPABILITIES:
+            codes=FIELD_ROUTE_CAPABILITIES[node.name]
+            call=("require_field_capability("+repr(codes[0])+")" if len(codes)==1
+                  else "require_field_capabilities("+repr(codes)+")")
+        elif node.name=="respond_to_transfer":
+            call="require_transfer_decision_capability"
+        else:
+            assert not dependencies
+            continue
+        assert len(dependencies)==1
+        assert ast.dump(dependencies[0].value)==ast.dump(ast.parse("[Depends("+call+")]",mode="eval").body)
+        decorator.keywords=[k for k in decorator.keywords if k.arg!="dependencies"]
+    return node
+
+
 def digest(nodes):
     # Python 3.12 adds type_params=[] to declarations that Python 3.11 represents
     # without that field. Remove only the empty field on a copy. Nonempty type
@@ -271,12 +305,32 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
             with self.subTest(endpoint=name):
                 actual = self.functions[name].body if approved_batch else without_field_additions(self.functions[name])
                 self.assertEqual(digest(actual), expected)
-                self.assertEqual([ast.unparse(item) for item in self.functions[name].decorator_list],
+                self.assertEqual([ast.unparse(item) for item in without_capability_decorator(self.functions[name]).decorator_list],
                                  ROUTES[name])
 
     def test_helpers_mixed_visit_details_and_all_unrelated_module_code_are_unchanged(self):
         remainder = []
         for node in self.tree.body:
+            if isinstance(node, ast.ImportFrom) and node.module in {
+                "api.authentication.field_authorization",
+                "api.authentication.field_transfer_authorization",
+            }:
+                expected = (
+                    ["get_current_field_capability_access","require_field_capability","require_field_capabilities"]
+                    if node.module.endswith(".field_authorization") else
+                    ["require_transfer_decision_capability","require_transfer_batch_capabilities"]
+                )
+                self.assertEqual([alias.name for alias in node.names],expected)
+                continue
+            if isinstance(node, ast.AsyncFunctionDef) and node.name=="get_visit_details":
+                node=copy.deepcopy(node)
+                branch=next(p for p in node.body if isinstance(p,ast.If))
+                approved=ast.parse(
+                    'access = await get_current_field_capability_access(current=current, db=db)\n'
+                    'await require_field_capability("visit.read")(access=access)'
+                ).body
+                self.assertEqual(digest(branch.body[:2]),digest(approved))
+                branch.body=branch.body[2:]
             if isinstance(node, ast.AsyncFunctionDef) and node.name in FROZEN_FUNCTIONS:
                 continue
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "_load_handshake_lines_for_update":
