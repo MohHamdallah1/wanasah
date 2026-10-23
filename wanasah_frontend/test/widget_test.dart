@@ -1,29 +1,23 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wanasah_frontend/main.dart';
+import 'package:wanasah_frontend/screens/splash_screen.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
+  testWidgets('Wanasah app opens with Arabic-branded SplashScreen', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(const MyApp());
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    // The real entry screen is the field app splash, not Flutter's counter
+    // template. Do not pumpAndSettle: the loader is intentionally animated.
+    expect(find.byType(MaterialApp), findsOneWidget);
+    expect(find.byType(SplashScreen), findsOneWidget);
+    expect(find.text('وناسة'), findsOneWidget);
+    expect(find.byIcon(Icons.directions_car_filled_rounded), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    final splashContext = tester.element(find.byType(SplashScreen));
+    expect(Localizations.localeOf(splashContext).languageCode, 'ar');
   });
 }
