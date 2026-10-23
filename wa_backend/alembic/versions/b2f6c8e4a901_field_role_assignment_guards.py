@@ -37,6 +37,12 @@ def upgrade():
         CREATE FUNCTION public.lock_field_role_policy(c integer, r integer) RETURNS void
         LANGUAGE plpgsql AS $$
         BEGIN
+            -- BEFORE triggers run before the table WITH CHECK policy. Preserve
+            -- its permission denial for restricted roles before looking up a key.
+            IF row_security_active('public.roles'::regclass)
+               AND c IS DISTINCT FROM NULLIF(current_setting('app.current_tenant', true), '')::integer THEN
+                RAISE EXCEPTION 'Tenant context does not permit this role' USING ERRCODE='42501';
+            END IF;
             -- A real row version serializes even REPEATABLE READ snapshots:
             -- a stale competing transaction must abort rather than miss a grant.
             -- Phase 1 immutable default-role identity is never updated.

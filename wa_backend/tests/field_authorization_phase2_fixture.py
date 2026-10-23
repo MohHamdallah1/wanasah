@@ -86,6 +86,7 @@ async def gate():
         a,b = [c.id for c in companies]
         owners = [await seed_company_owner_fixture(db,c.id,password=PASSWORD) for c in companies]
         ordinary = await seed_ordinary_backoffice_fixture(db,a,password=PASSWORD)
+        privileged_user = await seed_ordinary_backoffice_fixture(db,a,password=PASSWORD)
         # Two independent principals/profiles sharing one old operational locator.
         driver = await db.get(__import__("models").Driver,ordinary.driver_id)
         identity_suffix = uuid4().int % 100000000
@@ -103,6 +104,7 @@ async def gate():
         await db.commit()
         names = [await db.scalar(select(CompanyPrincipal.username).where(CompanyPrincipal.id==o.context.principal_id)) for o in owners]
         ordinary_name = await db.scalar(select(CompanyPrincipal.username).where(CompanyPrincipal.id==ordinary.context.principal_id))
+        privileged_name = await db.scalar(select(CompanyPrincipal.username).where(CompanyPrincipal.id==privileged_user.context.principal_id))
     app = FastAPI()
     app.include_router(auth_router)
     app.include_router(representative_router)
@@ -122,8 +124,10 @@ async def gate():
         g = SimpleNamespace(admin=admin,client=client,a=a,b=b,rep=rep.id,principal=principal.id,
             owners=owners,ordinary=ordinary,companies=companies)
         privileged = await role(g,a,sorted(PERMISSIONS))
+        dual_role = await role(g,a,["representative.read","visit.execute","catalog.manage"])
         async with AsyncSession(admin) as db:
-            db.add(UserRole(company_id=a,driver_id=ordinary.driver_id,role_id=privileged))
+            db.add(UserRole(company_id=a,driver_id=ordinary.driver_id,role_id=dual_role))
+            db.add(UserRole(company_id=a,driver_id=privileged_user.driver_id,role_id=privileged))
             await db.commit()
         owner_tokens=[]
         for company,name in zip(companies,names):
@@ -134,6 +138,9 @@ async def gate():
         response=await client.post("/login",json={"company_code":companies[0].company_code,"username":ordinary_name,"password":PASSWORD})
         assert response.status_code==200,response.text
         g.ordinary_token=response.json()["token"]
+        response=await client.post("/login",json={"company_code":companies[0].company_code,"username":privileged_name,"password":PASSWORD})
+        assert response.status_code==200,response.text
+        g.privileged_token=response.json()["token"]
         response=await client.post("/driver/login",json={"company_code":companies[0].company_code,"username":"field-dual","password":PASSWORD})
         assert response.status_code==200,response.text
         g.field_login=response.json()

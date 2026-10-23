@@ -24,7 +24,9 @@ async def test_owner_grant_list_revoke_same_token_and_replay_never_regrants(gate
     g=gate
     denied=await g.client.get("/__test/field-probe",headers=auth(g.field_token))
     error(denied,403,"FIELD_CAPABILITY_DENIED") # Backoffice ALL grants cannot leak through DUAL_SPLIT.
-    safe=await role(g,g.a,["visit.execute"])
+    before_office=await g.client.get("/inventory/access/me",headers=auth(g.ordinary_token))
+    assert set(before_office.json()["permissions"])=={"representative.read","visit.execute","catalog.manage"}
+    safe=await role(g,g.a,["visit.execute","inventory.read"])
     command=str(uuid4())
     initial=await grant(g,g.rep,safe,request_id=command)
     assert initial.status_code==200,initial.text
@@ -32,6 +34,8 @@ async def test_owner_grant_list_revoke_same_token_and_replay_never_regrants(gate
     replay=await grant(g,g.rep,safe,request_id=command)
     assert replay.json()==initial.json()
     assert (await g.client.get("/__test/field-probe",headers=auth(g.field_token))).status_code==200
+    after_office=await g.client.get("/inventory/access/me",headers=auth(g.ordinary_token))
+    assert after_office.json()["permissions"]==before_office.json()["permissions"]
     listing=await g.client.get(f"/representatives/{g.rep}/field-roles?limit=1",headers=auth(g.owner_token))
     assert listing.status_code==200
     assert listing.json()["items"][0]["role_id"]==safe
@@ -59,7 +63,7 @@ async def test_management_owner_only_company_and_principal_negative_matrix(gate)
     g=gate
     safe=await role(g,g.a,["visit.execute"])
     foreign=await role(g,g.b,["visit.execute"])
-    for token,status in [(g.ordinary_token,403),(g.field_token,401)]:
+    for token,status in [(g.ordinary_token,403),(g.privileged_token,403),(g.field_token,401)]:
         before=await snapshot(g)
         assert (await grant(g,g.rep,safe,token=token)).status_code==status
         assert (await revoke(g,g.rep,safe,token=token)).status_code==status
