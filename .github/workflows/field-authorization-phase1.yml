@@ -121,11 +121,23 @@ jobs:
           alembic upgrade head
           alembic check
           python -m pytest -q -s tests/test_representatives_role_provisioning_runtime_db.py
-      - name: Exact ownership and whitespace
+      - name: Exact historical Phase 1 ownership, reachability and whitespace
+        env:
+          PHASE1_BASE: 9dd3dbed089f8d41f775f599ddf366a417ea6a16
+          PHASE1_ACCEPTED: 5f5f252b7712f19cb72c6793e67d6c3973a95a8e
         run: |
-          git diff --check 9dd3dbed089f8d41f775f599ddf366a417ea6a16 HEAD
+          git cat-file -e "${PHASE1_BASE}^{commit}"
+          git cat-file -e "${PHASE1_ACCEPTED}^{commit}"
+          git merge-base --is-ancestor "$PHASE1_BASE" "$PHASE1_ACCEPTED"
+          git merge-base --is-ancestor "$PHASE1_ACCEPTED" HEAD
+          git diff --check "$PHASE1_BASE" "$PHASE1_ACCEPTED"
           python - <<'PY'
+          import os
           import subprocess
+
+          phase1_base = os.environ["PHASE1_BASE"]
+          phase1_accepted = os.environ["PHASE1_ACCEPTED"]
+
           allowed = {
               "wa_backend/domains/authorization/capabilities.py",
               "wa_backend/domains/authorization/field_models.py",
@@ -136,8 +148,25 @@ jobs:
               ".github/workflows/field-authorization-phase1.yml",
           }
           paths = set(subprocess.check_output(
-              ["git","diff","--name-only","9dd3dbed089f8d41f775f599ddf366a417ea6a16","HEAD"], text=True
+              ["git", "diff", "--name-only", phase1_base, phase1_accepted],
+              text=True,
           ).splitlines())
           assert paths == allowed, paths ^ allowed
-          print("PHASE1_EXACT_OWNERSHIP=PASS")
+
+          frozen_core = (
+              "wa_backend/domains/authorization/capabilities.py",
+              "wa_backend/domains/authorization/field_models.py",
+              "wa_backend/models.py",
+              "wa_backend/alembic/env.py",
+              "wa_backend/alembic/versions/fa6c1e8d2b73_field_authorization_foundation.py",
+          )
+          changed_core = subprocess.check_output(
+              ["git", "diff", "--name-only", phase1_accepted, "HEAD", "--", *frozen_core],
+              text=True,
+          ).splitlines()
+          assert changed_core == [], changed_core
+
+          print("PHASE1_ACCEPTED_HISTORY_REACHABLE=PASS")
+          print("PHASE1_EXACT_HISTORICAL_OWNERSHIP=PASS")
+          print("PHASE1_FROZEN_CORE_UNCHANGED=PASS")
           PY
