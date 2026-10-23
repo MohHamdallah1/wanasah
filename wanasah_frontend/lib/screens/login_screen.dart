@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 // --- تم إعدام مكتبة http و api_constants بشكل نهائي من هنا ---
 import '../blocs/auth/auth_bloc.dart';
@@ -15,16 +14,9 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  // +++ الدرع الأمني (Production Shield): حقن بيانات الدخول الافتراضية في بيئة التطوير فقط لمنع تسريبها في الإنتاج +++
-  final _companyCodeController = TextEditingController(
-    text: kDebugMode ? 'WNS-01' : '', // +++ حقن رمز الشركة الافتراضي للتطوير +++
-  );
-  final _usernameController = TextEditingController(
-    text: kDebugMode ? 'testdriver' : '',
-  );
-  final _passwordController = TextEditingController(
-    text: kDebugMode ? 'password' : '',
-  );
+  final _companyCodeController = TextEditingController();
+  final _usernameController = TextEditingController();
+  final _passwordController = TextEditingController();
   
   bool _obscurePassword = true; // +++   متغير التحكم برؤية كلمة المرور +++
 
