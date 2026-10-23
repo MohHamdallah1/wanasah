@@ -141,14 +141,170 @@ jobs:
           assert results[0]==results[1], "Regression differs from exact approved base"
           print("PHASE2_EXACT_BASE_HISTORICAL_PARITY=PASS; old failures are NOT claimed passing")
           PY
-      - name: Exact authorized diff and whitespace
+      - name: Exact historical Phase 2 ownership, reachability and security invariants
+        env:
+          PHASE2_BASE: 28e09891cf1c7051310d1446b29b725337a486f1
+          PHASE2_ACCEPTED: 9fee5aab8a14fe0409c1a0f5dfbee244c8eee921
+          PHASE2_CURRENT_BASE: ${{ github.event.pull_request.base.sha || github.sha }}
         run: |
-          git diff --check 28e09891cf1c7051310d1446b29b725337a486f1 HEAD
+          git cat-file -e "${PHASE2_BASE}^{commit}"
+          git cat-file -e "${PHASE2_ACCEPTED}^{commit}"
+          git cat-file -e "${PHASE2_CURRENT_BASE}^{commit}"
+          git merge-base --is-ancestor "$PHASE2_BASE" "$PHASE2_ACCEPTED"
+          git merge-base --is-ancestor "$PHASE2_ACCEPTED" "$PHASE2_CURRENT_BASE"
+          git merge-base --is-ancestor "$PHASE2_ACCEPTED" HEAD
+          git diff --check "$PHASE2_BASE" "$PHASE2_ACCEPTED"
           python - <<'PY'
+          import ast
+          import os
+          from pathlib import Path
           import subprocess
-          allowed=set(["wa_backend/domains/authorization/field_access.py","wa_backend/api/authentication/field_authorization.py","wa_backend/domains/authorization/field_role_policy.py","wa_backend/domains/authorization/field_provisioning.py","wa_backend/domains/representatives/repository.py","wa_backend/api/inventory_permissions.py","wa_backend/domains/authorization/field_role_targets.py","wa_backend/domains/authorization/field_role_management.py","wa_backend/api/representatives/field_roles.py","wa_backend/api/representatives/__init__.py","wa_backend/alembic/versions/b2f6c8e4a901_field_role_assignment_guards.py","wa_backend/tests/test_field_authorization_phase1_postgres.py","wa_backend/tests/field_authorization_phase2_fixture.py","wa_backend/tests/test_field_authorization_phase2_http.py","wa_backend/tests/test_field_authorization_phase2_races.py",".github/workflows/field-authorization-phase2.yml"])
-          changed=set(subprocess.check_output(["git","diff","--name-only","28e09891cf1c7051310d1446b29b725337a486f1","HEAD"],text=True).splitlines())
+
+          phase2_base = os.environ["PHASE2_BASE"]
+          phase2_accepted = os.environ["PHASE2_ACCEPTED"]
+
+          allowed = {
+              "wa_backend/domains/authorization/field_access.py",
+              "wa_backend/api/authentication/field_authorization.py",
+              "wa_backend/domains/authorization/field_role_policy.py",
+              "wa_backend/domains/authorization/field_provisioning.py",
+              "wa_backend/domains/representatives/repository.py",
+              "wa_backend/api/inventory_permissions.py",
+              "wa_backend/domains/authorization/field_role_targets.py",
+              "wa_backend/domains/authorization/field_role_management.py",
+              "wa_backend/api/representatives/field_roles.py",
+              "wa_backend/api/representatives/__init__.py",
+              "wa_backend/alembic/versions/b2f6c8e4a901_field_role_assignment_guards.py",
+              "wa_backend/tests/test_field_authorization_phase1_postgres.py",
+              "wa_backend/tests/field_authorization_phase2_fixture.py",
+              "wa_backend/tests/test_field_authorization_phase2_http.py",
+              "wa_backend/tests/test_field_authorization_phase2_races.py",
+              ".github/workflows/field-authorization-phase2.yml",
+          }
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only", phase2_base, phase2_accepted],
+              text=True,
+          ).splitlines())
           assert changed == allowed, changed ^ allowed
-          assert not subprocess.check_output(["git","diff","--diff-filter=D","--name-only","28e09891cf1c7051310d1446b29b725337a486f1","HEAD"],text=True).strip()
-          print("FIELD_PHASE2_EXACT_OWNERSHIP=PASS")
+          deleted = subprocess.check_output(
+              ["git", "diff", "--diff-filter=D", "--name-only", phase2_base, phase2_accepted],
+              text=True,
+          ).strip()
+          assert not deleted, deleted
+
+          # Dedicated Phase 2 security implementation, migration, fixture and
+          # acceptance tests stay byte-frozen. Shared integration files below
+          # are intentionally validated structurally instead of being frozen.
+          protected_phase2_core = (
+              "wa_backend/domains/authorization/field_access.py",
+              "wa_backend/api/authentication/field_authorization.py",
+              "wa_backend/domains/authorization/field_role_policy.py",
+              "wa_backend/domains/authorization/field_provisioning.py",
+              "wa_backend/domains/authorization/field_role_targets.py",
+              "wa_backend/domains/authorization/field_role_management.py",
+              "wa_backend/api/representatives/field_roles.py",
+              "wa_backend/alembic/versions/b2f6c8e4a901_field_role_assignment_guards.py",
+              "wa_backend/tests/field_authorization_phase2_fixture.py",
+              "wa_backend/tests/test_field_authorization_phase2_http.py",
+              "wa_backend/tests/test_field_authorization_phase2_races.py",
+          )
+          changed_core = subprocess.check_output(
+              ["git", "diff", "--name-only", phase2_accepted, "HEAD", "--", *protected_phase2_core],
+              text=True,
+          ).splitlines()
+          assert changed_core == [], changed_core
+
+          def tree(path):
+              return ast.parse(Path(path).read_text(encoding="utf-8"), filename=path)
+
+          def imported(node, module, name, *, level=0, asname=None):
+              return any(
+                  isinstance(item, ast.ImportFrom)
+                  and item.module == module
+                  and item.level == level
+                  and any(
+                      alias.name == name and (asname is None or alias.asname == asname)
+                      for alias in item.names
+                  )
+                  for item in ast.walk(node)
+              )
+
+          def calls(node, name):
+              return [
+                  item for item in ast.walk(node)
+                  if isinstance(item, ast.Call)
+                  and (
+                      isinstance(item.func, ast.Name) and item.func.id == name
+                      or isinstance(item.func, ast.Attribute) and item.func.attr == name
+                  )
+              ]
+
+          def handles(node, name):
+              return any(
+                  isinstance(item, ast.ExceptHandler)
+                  and isinstance(item.type, ast.Name)
+                  and item.type.id == name
+                  for item in ast.walk(node)
+              )
+
+          repository = tree("domains/representatives/repository.py")
+          assert imported(
+              repository,
+              "domains.authorization.field_provisioning",
+              "assign_new_representative_default",
+          )
+          assert imported(
+              repository,
+              "domains.authorization.field_role_policy",
+              "FieldRoleError",
+          )
+          assert any(
+              [ast.unparse(arg) for arg in call.args]
+              == ["db", "company_id", "int(profile.id)"]
+              for call in calls(repository, "assign_new_representative_default")
+          )
+          assert handles(repository, "FieldRoleError")
+
+          inventory = tree("api/inventory_permissions.py")
+          assert imported(
+              inventory,
+              "domains.authorization.field_role_policy",
+              "guard_field_assigned_role_edit",
+          )
+          assert imported(
+              inventory,
+              "domains.authorization.field_role_policy",
+              "FieldRoleError",
+          )
+          assert any(
+              [ast.unparse(arg) for arg in call.args]
+              == ["db", "access.company_id", "role.id", "codes"]
+              for call in calls(inventory, "guard_field_assigned_role_edit")
+          )
+          assert handles(inventory, "FieldRoleError")
+
+          representatives_api = tree("api/representatives/__init__.py")
+          assert imported(
+              representatives_api,
+              "field_roles",
+              "router",
+              level=1,
+              asname="field_roles_router",
+          )
+          assert any(
+              call.args
+              and ast.unparse(call.args[0]) == "field_roles_router"
+              and any(
+                  keyword.arg == "prefix"
+                  and isinstance(keyword.value, ast.Constant)
+                  and keyword.value.value == "/representatives"
+                  for keyword in call.keywords
+              )
+              for call in calls(representatives_api, "include_router")
+          )
+
+          print("PHASE2_ACCEPTED_HISTORY_REACHABLE=PASS")
+          print("PHASE2_EXACT_HISTORICAL_OWNERSHIP=PASS")
+          print("PHASE2_DEDICATED_SECURITY_CORE_UNCHANGED=PASS")
+          print("PHASE2_SHARED_SECURITY_SEAMS_PRESENT=PASS")
           PY
