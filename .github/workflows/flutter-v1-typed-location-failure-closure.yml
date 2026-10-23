@@ -1,0 +1,85 @@
+name: Flutter V1 Typed Location Failure Closure
+
+on:
+  pull_request:
+    paths:
+      - "wanasah_frontend/lib/services/location_service.dart"
+      - "wanasah_frontend/lib/services/location_failure.dart"
+      - "wanasah_frontend/lib/screens/add_shop_screen.dart"
+      - "wanasah_frontend/lib/features/shops/presentation/shop_location_feedback.dart"
+      - "wanasah_frontend/lib/repositories/sync_repository.dart"
+      - "wanasah_frontend/test/services/**"
+      - "wanasah_frontend/test/repositories/**"
+      - "wanasah_frontend/test/features/shops/shop_location_feedback_test.dart"
+      - ".github/workflows/flutter-v1-typed-location-failure-closure.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  typed-location-failures:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    defaults:
+      run:
+        working-directory: wanasah_frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.29.3"
+          channel: stable
+          cache: true
+      - name: Prepare CI environment asset
+        run: printf 'API_BASE_URL=http://127.0.0.1:8000\n' > .env
+      - run: flutter pub get
+      - name: Build harness from exact production compatibility method
+        run: python3 test/repositories/generate_legacy_transfer_test.py
+      - name: Flutter analyze
+        run: flutter analyze
+      - name: Typed location, Shop feedback and legacy compatibility tests
+        run: >-
+          flutter test test/services/location_service_test.dart
+          test/features/shops/shop_location_feedback_test.dart
+          test/repositories/legacy_transfer_compatibility_generated_test.dart
+      - name: Shop and Visit route-authority regressions
+        run: >-
+          flutter test test/features/shops/shop_creation_reconciliation_test.dart
+          test/features/visits/list/visit_route_authority_test.dart
+          test/features/visits/list/visit_list_route_closure_test.dart
+      - name: Accepted Session authority regressions
+        run: >-
+          flutter test test/features/work_session/session_route_authority_closure_test.dart
+          test/features/work_session/work_session_behavioral_closure_test.dart
+          test/features/session_custody_decomposition_test.dart
+      - name: Offline durable owner and correction regressions
+        run: >-
+          flutter test test/offline_durable_command_test.dart test/offline_owner_guard_test.dart
+          test/core/visit/visit_command_correction_test.dart
+      - name: Transfer handshake and Sync Recovery regressions
+        run: >-
+          flutter test test/features/custody/transfer_handshake_closure_test.dart
+          test/features/recovery
+      - name: Reject exception-text classification in owned runtime paths
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          location = Path("lib/services/location_service.dart").read_text()
+          shop = Path("lib/screens/add_shop_screen.dart").read_text()
+          assert "toString()" not in location
+          assert ".contains(" not in location
+          assert "throw Exception(" not in location
+          assert "errStr" not in shop and ".contains(" not in shop
+          assert "error is LocationFailure" in shop
+          source = Path("lib/repositories/sync_repository.dart").read_text()
+          start = source.index("  Future<bool> respondToTransfer({")
+          method = source[start:source.index("\n  // ---", start)]
+          assert "throw Exception(" not in method
+          assert not re.search(r"toString\s*\(\s*\)\s*\.\s*contains", method)
+          assert "rethrow;" in method
+          print("OWNED_TYPED_FAILURE_BOUNDARIES=PASS")
+          PY

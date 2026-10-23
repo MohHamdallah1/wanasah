@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:developer' as developer;
 import '../services/location_service.dart';
+import '../features/shops/presentation/shop_location_feedback.dart';
 import '../features/shops/application/shop_creation_service.dart';
 import '../features/shops/domain/shop_creation.dart'; // +++   استيراد خدمة الموقع المركزية المحصنة +++
 
@@ -70,24 +71,14 @@ class _AddShopScreenState extends State<AddShopScreen> {
           const SnackBar(content: Text('تم تحديد الموقع بنجاح!'), backgroundColor: Colors.green),
         );
       }
-    } catch (e) {
-      developer.log('Error getting location in AddShop: $e');
+    } catch (error, stack) {
+      final failure = error is LocationFailure ? error :
+        LocationFailure(LocationFailureKind.unexpected,
+          cause: error, causeStackTrace: stack);
+      developer.log('AddShop location failure: ${failure.code}');
       if (mounted) {
-        String errorMsg = 'حدث خطأ غير متوقع في تحديد الموقع.';
-        final errStr = e.toString();
-        
-        // ترجمة رموز الأخطاء القادمة من LocationService
-        if (errStr.contains('GPS_DISABLED')) {
-          errorMsg = 'الرجاء تفعيل خدمات الموقع (GPS) في جهازك.';
-        } else if (errStr.contains('GPS_DENIED_FOREVER')) {
-          errorMsg = 'صلاحية الموقع مرفوضة نهائياً. يرجى تفعيلها من إعدادات التطبيق.';
-        } else if (errStr.contains('GPS_DENIED')) {
-          errorMsg = 'تم رفض إذن الوصول للموقع.';
-        } else if (errStr.contains('GPS_TIMEOUT')) {
-          errorMsg = 'فشل الاتصال بالـ GPS (Timeout). حاول في مكان مفتوح.';
-        } else if (errStr.contains('FAKE_GPS_DETECTED')) {
-          errorMsg = 'تحذير أمني: يرجى إيقاف تطبيقات تزوير الموقع (Fake GPS).';
-        }
+        final errorMsg = shopLocationFailureMessage(failure.kind,
+          languageCode: Localizations.localeOf(context).languageCode);
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),

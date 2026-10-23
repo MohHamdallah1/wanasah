@@ -1,70 +1,88 @@
-import 'package:geolocator/geolocator.dart';
-import 'dart:developer' as developer;
 import 'dart:async';
+import 'package:geolocator/geolocator.dart';
+import 'location_failure.dart';
+
+export 'location_failure.dart';
+
+/// Narrow device boundary; no permission cache or domain eligibility policy.
+abstract interface class LocationDeviceSource {
+  Future<bool> isServiceEnabled();
+  Future<LocationPermission> checkPermission();
+  Future<LocationPermission> requestPermission();
+  Future<Position?> lastKnownPosition();
+  Future<Position> currentPosition();
+}
+
+class _GeolocatorSource implements LocationDeviceSource {
+  const _GeolocatorSource();
+  @override
+  Future<bool> isServiceEnabled() => Geolocator.isLocationServiceEnabled();
+  @override
+  Future<LocationPermission> checkPermission() => Geolocator.checkPermission();
+  @override
+  Future<LocationPermission> requestPermission() => Geolocator.requestPermission();
+  @override
+  Future<Position?> lastKnownPosition() => Geolocator.getLastKnownPosition();
+  @override
+  Future<Position> currentPosition() =>
+      Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+}
 
 class LocationService {
-  // تطبيق نمط الـ Singleton لمنع استهلاك الذاكرة
-  static final LocationService instance = LocationService._internal();
-  LocationService._internal();
+  static final LocationService instance =
+      LocationService.withSource(const _GeolocatorSource());
+
+  LocationService.withSource(LocationDeviceSource source, {DateTime Function()? now})
+      : _source = source, _now = now ?? DateTime.now;
+
+  final LocationDeviceSource _source;
+  final DateTime Function() _now;
 
   Future<Position?> getCurrentLocation() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) throw Exception('GPS_DISABLED'); // +++  لـ Bug 5: إجبار المندوب +++
-    
-    LocationPermission permission = await Geolocator.checkPermission();
-    
-    // +++ LOC-1: إيقاف الفحص مبكراً لمنع تضليل المندوب برسالة "GPS_TIMEOUT" الخاطئة +++
-    if (permission == LocationPermission.deniedForever) {
-      throw Exception('GPS_DENIED_FOREVER'); 
-    }
-    
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        throw Exception('GPS_DENIED');
-      }
-      if (permission == LocationPermission.deniedForever) {
-        throw Exception('GPS_DENIED_FOREVER');
-      }
-    }
-    
     try {
-      Position? lastPosition = await Geolocator.getLastKnownPosition();
-      
-      // +++ الدرع الأمني: فضح تطبيقات تزوير الموقع (Fake GPS) لحماية النظام +++
-      if (lastPosition != null && lastPosition.isMocked) {
-        throw Exception('FAKE_GPS_DETECTED');
+      if (!await _source.isServiceEnabled()) {
+        throw const LocationFailure(LocationFailureKind.serviceDisabled);
       }
-
-      if (lastPosition != null && DateTime.now().difference(lastPosition.timestamp).abs().inSeconds < 60) {
-        return lastPosition;
+      var permission = await _source.checkPermission();
+      if (permission == LocationPermission.deniedForever) {
+        throw const LocationFailure(LocationFailureKind.permissionDeniedForever);
       }
-      
-      Position currentPosition = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high)
+      if (permission == LocationPermission.denied) {
+        permission = await _source.requestPermission();
+        if (permission == LocationPermission.denied) {
+          throw const LocationFailure(LocationFailureKind.permissionDenied);
+        }
+        if (permission == LocationPermission.deniedForever) {
+          throw const LocationFailure(LocationFailureKind.permissionDeniedForever);
+        }
+      }
+      final last = await _source.lastKnownPosition();
+      if (last != null && last.isMocked) {
+        throw const LocationFailure(LocationFailureKind.mockedLocation);
+      }
+      if (last != null && _now().difference(last.timestamp).abs().inSeconds < 60) {
+        return last;
+      }
+      final current = await _source.currentPosition()
           .timeout(const Duration(seconds: 8));
-          
-      // +++ الدرع الأمني: التحقق من الموقع الجديد +++
-      if (currentPosition.isMocked) {
-        throw Exception('FAKE_GPS_DETECTED');
+      if (current.isMocked) {
+        throw const LocationFailure(LocationFailureKind.mockedLocation);
       }
-      return currentPosition;
-    } on TimeoutException {
-      developer.log('[LocationService] Location request timed out.');
-      throw Exception('GPS_TIMEOUT');
-    } on LocationServiceDisabledException {
-      developer.log('[LocationService] GPS turned off during request.');
-      throw Exception('GPS_DISABLED');
-    } on PermissionDeniedException {
-      developer.log('[LocationService] Permission revoked during request.');
-      throw Exception('GPS_DENIED');
-    } catch (e) {
-      developer.log('[LocationService] Error getting location: $e');
-      if (e.toString().contains('FAKE_GPS_DETECTED')) {
-        // +++   رمي الرمز الخام ليتم ترجمته في الـ BLoC أو الشاشة (GPS-P1) +++
-        throw Exception('FAKE_GPS_DETECTED');
-      }
-      // رمي الخطأ الفعلي كما هو للواجهة إذا كان غير معروف، بدلاً من طمسه كـ TIMEOUT
-      throw Exception(e.toString());
+      return current;
+    } on LocationFailure {
+      rethrow;
+    } on TimeoutException catch (error, stack) {
+      Error.throwWithStackTrace(LocationFailure(LocationFailureKind.timeout,
+        cause: error, causeStackTrace: stack), stack);
+    } on LocationServiceDisabledException catch (error, stack) {
+      Error.throwWithStackTrace(LocationFailure(LocationFailureKind.serviceDisabled,
+        cause: error, causeStackTrace: stack), stack);
+    } on PermissionDeniedException catch (error, stack) {
+      Error.throwWithStackTrace(LocationFailure(LocationFailureKind.permissionDenied,
+        cause: error, causeStackTrace: stack), stack);
+    } catch (error, stack) {
+      Error.throwWithStackTrace(LocationFailure(LocationFailureKind.unexpected,
+        cause: error, causeStackTrace: stack), stack);
     }
   }
 }

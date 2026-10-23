@@ -1,0 +1,118 @@
+import 'dart:convert';
+import 'dart:developer' as developer;
+import 'package:dio/dio.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:uuid/uuid.dart';
+import 'package:wanasah_frontend/core/network/api_failure.dart';
+import 'package:wanasah_frontend/core/sync/durable_command.dart';
+
+class _Owner {
+  int get driverId => 303;
+  void requireRows(List<Map<String, dynamic>> rows) {}
+  void requireTenant(String? tenant) {}
+  void requireSame(_Owner owner) {}
+}
+class _Identities {
+  Future<_Owner> requireCommandOwner(String? tenant) async => _Owner();
+}
+class _Database {
+  String get currentTenant => 'ACME';
+  int removals = 0;
+  final queued = <Map<String, dynamic>>[];
+  Future<List<Map<String, dynamic>>> getPendingSyncs() async => [];
+  Future<List<Map<String, dynamic>>> getIncomingTransfers() async => [
+    {'transfer_id': 7, 'product_name': 'Fixture', 'delta_cartons': 2, 'delta_packs': 3},
+  ];
+  Future<void> removeIncomingTransfer(int id) async { removals++; }
+  Future<void> addPendingSync({required String type, required String payload,
+    String? commandId, int? ownerDriverId}) async {
+    queued.add({'type': type, 'payload': payload, 'command_id': commandId,
+      'owner_driver_id': ownerDriverId});
+  }
+}
+class _RepositoryHarness {
+  final _identities = _Identities();
+  final _db = _Database();
+  static const _uuid = Uuid();
+  Object? dispatchError;
+  int dispatches = 0;
+  Map<String, dynamic>? sent;
+  Future<void> _dispatchPendingRecord({required String type, required Map<String, dynamic> payload}) async {
+    dispatches++;
+    sent = Map.of(payload);
+    if (dispatchError != null) { throw dispatchError!; }
+  }
+@@PRODUCTION_METHOD@@
+}
+
+DioException refusal(int status) {
+  final options = RequestOptions(path: '/driver/transfers/7/respond', method: 'PUT');
+  return DioException(requestOptions: options, type: DioExceptionType.badResponse,
+    response: Response(requestOptions: options, statusCode: status,
+      headers: Headers.fromMap({'x-request-id': ['header-correlation']}),
+      data: {'error': {'code': 'TRANSFER_REFUSED', 'message': 'success offline retry',
+        'context': {'reason_required': true}, 'request_id': 'canonical-request-id'}}));
+}
+
+void main() {
+  for (final status in [400, 401, 403, 404, 409, 422]) {
+    test('legacy deterministic $status rethrows identical structured evidence and never queues', () async {
+      final error = refusal(status);
+      final repository = _RepositoryHarness()..dispatchError = error;
+      await expectLater(repository.respondToTransfer(transferId: 7,
+        responseStr: 'rejected', reason: '  exact reason  '), throwsA(same(error)));
+      expect(repository.dispatches, 1);
+      expect(repository._db.queued, isEmpty);
+      expect(repository._db.removals, 0);
+      final failure = error.apiFailure;
+      expect(failure.status, status);
+      expect(failure.code, 'TRANSFER_REFUSED');
+      expect(failure.context, {'reason_required': true});
+      expect(failure.requestId, 'canonical-request-id');
+      expect(repository.sent!['response'], 'rejected');
+      expect(repository.sent!['reason'], '  exact reason  ');
+    });
+  }
+  for (final status in [408, 429, 500, 503]) {
+    test('legacy ambiguous HTTP $status retains one fallback and exact decision/reason', () async {
+      final repository = _RepositoryHarness()..dispatchError = refusal(status);
+      expect(await repository.respondToTransfer(transferId: 7,
+        responseStr: 'rejected', reason: '  exact reason  '), isFalse);
+      expect(repository.dispatches, 1);
+      expect(repository._db.queued, hasLength(1));
+      expect(repository._db.removals, 1);
+      final row = repository._db.queued.single;
+      expect(row['type'], DurableCommandType.transferResponse);
+      expect(row['owner_driver_id'], 303);
+      expect(row['command_id'], isNotEmpty);
+      expect(jsonDecode(row['payload'] as String), repository.sent);
+      expect(repository.sent!['reason'], '  exact reason  ');
+    });
+  }
+  for (final type in [DioExceptionType.connectionError, DioExceptionType.receiveTimeout]) {
+    test('legacy $type still queues once without claiming live success', () async {
+      final repository = _RepositoryHarness()..dispatchError = DioException(
+        requestOptions: RequestOptions(path: '/driver/transfers/7/respond'), type: type);
+      expect(await repository.respondToTransfer(transferId: 7, responseStr: 'accepted'), isFalse);
+      expect(repository.dispatches, 1);
+      expect(repository._db.queued, hasLength(1));
+      expect(jsonDecode(repository._db.queued.single['payload'] as String), repository.sent);
+      expect(repository.sent!['reason'], isNull);
+    });
+  }
+  test('arbitrary error text cannot spoof a deterministic server rejection', () async {
+    final repository = _RepositoryHarness()..dispatchError = StateError('HTTP_403 TRANSFER_REFUSED');
+    expect(await repository.respondToTransfer(transferId: 7, responseStr: 'accepted'), isFalse);
+    expect(repository._db.queued, hasLength(1));
+    expect(repository.dispatches, 1);
+  });
+  test('legacy confirmed success returns true and does not queue', () async {
+    final repository = _RepositoryHarness();
+    expect(await repository.respondToTransfer(transferId: 7, responseStr: 'accepted'), isTrue);
+    expect(repository.dispatches, 1);
+    expect(repository._db.queued, isEmpty);
+    expect(repository._db.removals, 1);
+    expect(repository.sent!['response'], 'accepted');
+    expect(repository.sent!['reason'], isNull);
+  });
+}
