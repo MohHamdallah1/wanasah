@@ -338,7 +338,7 @@ It will not touch Backend, web Dashboard, pricing/returns UI, or the Network wor
 - [x] Introduce a typed Flutter API failure model.
 - [x] Parse stable `code`, structured `context`, status and correlation/request ID.
 - [x] Keep localized server text for display only inside Network classification.
-- [ ] Remove business branching on Arabic/free-text messages.
+- [x] Remove business branching on Arabic/free-text messages: current Flutter business/runtime decisions use typed/status/code evidence; the remaining SQLite duplicate-column string check is migration compatibility only, not business authority.
 - [ ] User-facing errors must distinguish:
   - connectivity,
   - authorization/session expiry,
@@ -347,6 +347,25 @@ It will not touch Backend, web Dashboard, pricing/returns UI, or the Network wor
   - ambiguous committed-state failure,
   - local persistence/recovery failure.
 - [ ] Attach Sentry context without logging secrets/tokens/full sensitive payloads.
+
+### 5.1 Typed location / free-text failure stability point — 2026-10-23
+
+- [x] Codex branch: `codex/flutter-v1-typed-error-free-text-closure`.
+- [x] Exact Codex HEAD: `6a9733f613a33497a5518aac4f74024bd88eba42`.
+- [x] Lead integration commit: `886fe952d548f712f22d4a0833d7703af247f00b`.
+- [x] Integration PR #478 merged to `main`; merge commit: `741bcb7e7e9054134849916adfec81af419e138d`.
+- [x] Global audit covered all 150 Flutter runtime Dart files.
+- [x] Device location failures are typed as serviceDisabled, permissionDenied, permissionDeniedForever, timeout, mockedLocation and unexpected with stable codes.
+- [x] Arbitrary exception text cannot spoof mocked-location or timeout classification.
+- [x] Add Shop GPS feedback branches on typed location kind only; no substring parsing remains.
+- [x] Work Session retains optional/best-effort location semantics; location failure never becomes client-side session authorization authority.
+- [x] Legacy `respondToTransfer()` deterministic 4xx rethrows original DioException, preserving status/code/context/request ID and preventing false offline fallback.
+- [x] Network/timeout/408/429/5xx transfer ambiguity behavior remains unchanged.
+- [x] Current `SyncRepository` has no `throw Exception(...)`, `toString().contains(...)` or `message.contains(...)` machine classification.
+- [x] Current-main PR #478 gates PASS: Typed Location, FIELD, Shop, Auth/Session, Offline, Sync/Recovery and Projection.
+- [x] Inventory CP2 historical unchanged-file assertion remains unrelated.
+- [ ] `LocalDatabase._safeAlterTable()` still uses SQLite duplicate-column text only for low-level migration compatibility; it is not a business/runtime classification seam.
+- [ ] Broader Sentry typed context/redaction remains a dedicated observability closure item.
 
 ## 6. Authentication / identity / tenant safety
 
@@ -478,8 +497,8 @@ Closure:
 - [x] Exact-head run `39871813535`: `flutter analyze` PASS + 119 focused/regression tests PASS.
 - [x] Current-main PR #470 integration gates PASS: Sync/Recovery Reconciliation, Recovery Sync UX, Projection Integrity, Auth Session Recovery and Offline Durable.
 - [x] Inventory CP2 historical unchanged-file assertion remains unrelated to this Flutter closure.
-- [ ] Legacy `SyncRepository.respondToTransfer()` remains compatibility debt outside the accepted Custody production decision path; do not treat it as the current transfer ownership/replay authority.
-- [ ] Global removal of every remaining free-text classification outside Sync/Recovery remains a separate closure item.
+- [x] Legacy `SyncRepository.respondToTransfer()` compatibility debt bounded and hardened: it remains outside the accepted Custody production authority path, preserves deterministic 4xx structured evidence, and retains existing ambiguous fallback behavior without text parsing.
+- [x] Global Flutter business/runtime free-text classification audit completed across 150 runtime Dart files; no remaining Arabic/English exception-message branching was found outside low-level SQLite migration compatibility.
 
 ## 10. Flutter target architecture
 
@@ -900,7 +919,7 @@ Rule: a decomposition checkbox becomes `[x]` only after focused characterization
 - [x] Current-main PR #472 gates PASS: Visit List Route, Shop Reconciliation, Offline Durable, Visit Commercial Decomposition, Visit Decomposition and FIELD client/backend readback.
 - [x] Inventory CP2 historical unchanged-file assertion remains unrelated to this closure.
 
-- [ ] SyncRepository still exposes generic exceptions on some compatibility paths; Visit List fails closed rather than parsing message text.
+- [x] SyncRepository compatibility failure seam closed: deterministic transfer rejection preserves original Dio/ApiFailure evidence, and current SyncRepository contains no generic `throw Exception(...)` or exception-text classification.
 
 
 ### 10.15 App / Bootstrap / Theme mechanical foundation stability point — 2026-10-22
