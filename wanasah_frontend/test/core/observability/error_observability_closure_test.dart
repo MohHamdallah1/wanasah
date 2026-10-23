@@ -347,6 +347,7 @@ void main() {
       expect(options.enableLogs, isFalse);
       expect(options.beforeBreadcrumb, isNotNull);
       expect(options.beforeSend, isNotNull);
+      expect(options.beforeSendTransaction, isNotNull);
     });
 
     test('sanitizer strips deliberately attached sensitive application data', () {
@@ -396,6 +397,7 @@ void main() {
           },
         ),
         transaction: '/shops/Alice',
+        fingerprint: <String>['customer@example.com'],
         exceptions: <SentryException>[
           SentryException(
             type: 'StateError',
@@ -417,6 +419,7 @@ void main() {
       expect(sanitized.breadcrumbs, isEmpty);
       expect(sanitized.contexts, isEmpty);
       expect(sanitized.transaction, isNull);
+      expect(sanitized.fingerprint, isNull);
       expect(
         sanitized.tags,
         <String, String>{

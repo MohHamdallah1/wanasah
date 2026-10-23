@@ -17,6 +17,11 @@ class SentryPrivacyPolicy {
     options.enableAutoNativeBreadcrumbs = false;
     options.enableLogs = false;
 
+    // Performance transactions may carry dynamic route/span identity. Until
+    // there is an explicit transaction/span allowlist, fail closed instead of
+    // relying on error-event beforeSend, which does not sanitize tracing.
+    options.beforeSendTransaction = (_, _) => null;
+
     options.beforeBreadcrumb = (_, _) => null;
     options.beforeSend = (event, _) => sanitizeEvent(event);
   }
@@ -31,6 +36,10 @@ class SentryPrivacyPolicy {
     event.breadcrumbs = <Breadcrumb>[];
     event.message = null;
     event.transaction = null;
+    // Fingerprints may contain caller-provided user/shop values.
+    event.fingerprint = null;
+    // Thread metadata is not part of the approved exception stack allowlist.
+    event.threads = null;
 
     final safeTags = <String, String>{};
     for (final entry in (event.tags ?? const <String, String>{}).entries) {

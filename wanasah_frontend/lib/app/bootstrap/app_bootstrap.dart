@@ -40,7 +40,10 @@ class AppBootstrap {
     await SentryFlutter.init(
       (options) {
         options.dsn = sentryDsn;
-        options.tracesSampleRate = 0.1;
+        // Disable native and Dart performance telemetry until its independent
+        // payload surfaces receive a proven privacy-safe allowlist.
+        // Uncaught exception capture remains enabled.
+        options.tracesSampleRate = 0.0;
         SentryPrivacyPolicy.configure(options);
       },
       appRunner: () {

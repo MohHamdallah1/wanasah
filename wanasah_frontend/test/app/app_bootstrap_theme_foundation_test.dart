@@ -216,14 +216,14 @@ void main() {
       expect(app, contains('authBloc: resolvedAuthBloc'));
     });
 
-    test('Sentry DSN and sampling semantics remain unchanged', () async {
+    test('Sentry DSN remains and unsafe performance telemetry is disabled', () async {
       final source = await File(
         'lib/app/bootstrap/app_bootstrap.dart',
       ).readAsString();
 
       expect(source, contains("dotenv.env['SENTRY_DSN'] ?? ''"));
       expect(source, contains('options.dsn = sentryDsn'));
-      expect(source, contains('options.tracesSampleRate = 0.1'));
+      expect(source, contains('options.tracesSampleRate = 0.0'));
       expect(source, contains('SentryFlutter.init'));
       expect(source, contains('SentryPrivacyPolicy.configure(options)'));
       expect(source, contains('appRunner: () {'));
