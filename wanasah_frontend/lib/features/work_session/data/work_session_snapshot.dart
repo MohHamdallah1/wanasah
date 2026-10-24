@@ -60,12 +60,15 @@ class WorkSessionSnapshot {
     final rawSessionId = session['session_id'];
     if (rawSessionId == null) {
       final startTime = _nonEmptyString(session['start_time']);
-      final authorizedToSell = session['is_authorized_to_sell'];
+      final hasRouteInventory = session['inventory'] is List;
+      final hasBreakEvidence =
+          session.containsKey('break_start_time') ||
+          session.containsKey('break_end_time');
 
       // Dashboard intentionally reuses the active_session envelope before a
       // Work Session starts so Route vehicle inventory can remain visible.
-      // This exact shape means "route assigned, session inactive".
-      if (startTime == null && authorizedToSell == false) {
+      // Inventory + no start/break evidence is the pre-session Route shape.
+      if (startTime == null && hasRouteInventory && !hasBreakEvidence) {
         return const WorkSessionSnapshot.inactive();
       }
 
