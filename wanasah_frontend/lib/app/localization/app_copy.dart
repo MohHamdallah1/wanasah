@@ -109,7 +109,7 @@ class AppCopy {
     final languageCode = Localizations.localeOf(context).languageCode;
     var text = (languageCode == 'en' ? _en : _ar)[key]!;
     for (final entry in values.entries) {
-      text = text.replaceAll('{' + entry.key + '}', entry.value);
+      text = text.replaceAll('{${entry.key}}', entry.value);
     }
     return text;
   }

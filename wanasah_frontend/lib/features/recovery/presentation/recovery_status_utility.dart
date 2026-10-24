@@ -61,6 +61,12 @@ class RecoveryStatusUtility extends StatelessWidget {
     });
   }
 
+  bool get _degraded =>
+      serviceState == RecoveryServiceState.unreachable ||
+      serviceState == RecoveryServiceState.serviceFailure ||
+      (controller.lastExecution != null &&
+       controller.lastExecution != RecoverySyncExecution.completed);
+
   IconData get _icon => switch (statusKey) {
     RecoveryStringKey.blockedCompact => Icons.error_outline_rounded,
     RecoveryStringKey.pendingCompact => Icons.schedule_rounded,
@@ -93,8 +99,7 @@ class RecoveryStatusUtility extends StatelessWidget {
                 Icon(_icon, size: 20),
                 const SizedBox(width: 8),
                 Expanded(child: Text(_text(context, statusKey))),
-                if (serviceState == RecoveryServiceState.unreachable ||
-                    serviceState == RecoveryServiceState.serviceFailure)
+                if (_degraded)
                   const Padding(
                     padding: EdgeInsetsDirectional.only(start: 4),
                     child: Icon(Icons.cloud_off_outlined, size: 16),
@@ -139,6 +144,9 @@ class RecoveryStatusUtility extends StatelessWidget {
                       RecoveryServiceState.serviceFailure => RecoveryStringKey.serviceCompact,
                       _ => RecoveryStringKey.cachedCompact,
                     })),
+                  if (controller.lastExecution != null &&
+                      controller.lastExecution != RecoverySyncExecution.completed)
+                    Text(_text(context, RecoveryStringKey.syncUnresolved)),
                   const SizedBox(height: 16),
                   if (snapshot != null && !snapshot.isEmpty)
                     OutlinedButton(

@@ -117,13 +117,16 @@ void main() {
 Future<void> _capture(WidgetTester tester, GlobalKey key, String name) async {
   if (Platform.environment['FIELD_SHELL_CAPTURE'] != '1') return;
   final boundary = key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
-  final image = await boundary.toImage(pixelRatio: 1.5);
-  final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
   await tester.runAsync(() async {
-    final directory = Directory('build/shell-review')..createSync(recursive: true);
-    File('${directory.path}/$name.png').writeAsBytesSync(bytes!.buffer.asUint8List());
+    final image = await boundary.toImage(pixelRatio: 1.5);
+    try {
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+      final directory = Directory('build/shell-review')..createSync(recursive: true);
+      File('${directory.path}/$name.png').writeAsBytesSync(bytes!.buffer.asUint8List());
+    } finally {
+      image.dispose();
+    }
   });
-  image.dispose();
 }
 
 DashboardLoaded _loaded() => DashboardLoaded(

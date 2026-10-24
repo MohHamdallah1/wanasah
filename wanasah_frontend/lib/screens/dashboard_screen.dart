@@ -174,6 +174,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                   ),
                 );
               } else if (state is DashboardLoaded) {
+                _recovery.reload();
                 // +++   اصطياد رسائل النجاح المدمجة بالـ State بدون تدمير الشجرة +++
                 if (state.actionSuccessMessage != null) {
                   ScaffoldMessenger.of(context).showSnackBar(
