@@ -1,0 +1,138 @@
+name: Flutter V1 Polish Shell Acceptance
+
+on:
+  push:
+    branches: [codex/flutter-v1-polish-shell-navigation]
+  pull_request:
+    paths:
+      - "wanasah_frontend/**"
+      - ".github/workflows/flutter-v1-polish-shell.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flutter-validation:
+    name: Analyze and full Flutter tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: wanasah_frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.29.3"
+          channel: stable
+          cache: true
+      - name: Record tested revision and Flutter toolchain
+        run: |
+          git rev-parse HEAD
+          flutter --version
+      - name: Prepare synthetic CI-only environment asset
+        run: |
+          printf 'API_BASE_URL=http://127.0.0.1:8000\nSENTRY_DSN=\n' > .env
+      - name: Resolve Flutter dependencies
+        id: dependencies
+        run: flutter pub get
+      - name: Source formatting on the GitHub runner
+        run: |
+          dart format lib/app/theme/field_theme.dart lib/app/localization/app_copy.dart lib/app/shell/field_app_shell.dart lib/features/recovery/presentation/recovery_view_controller.dart lib/features/recovery/presentation/recovery_dashboard_scroll.dart lib/features/recovery/presentation/recovery_sync_feedback.dart lib/features/recovery/presentation/recovery_status_utility.dart lib/features/recovery/presentation/recovery_strings.dart lib/features/home/presentation/home_overview.dart lib/screens/dashboard_screen.dart lib/screens/visit_list_screen.dart test/app/field_app_shell_test.dart test/app/field_shell_composition_test.dart test/features/recovery/recovery_shell_status_test.dart
+          python - <<'PY'
+          import json, pathlib
+          paths = ["lib/app/theme/field_theme.dart","lib/app/localization/app_copy.dart","lib/app/shell/field_app_shell.dart","lib/features/recovery/presentation/recovery_view_controller.dart","lib/features/recovery/presentation/recovery_dashboard_scroll.dart","lib/features/recovery/presentation/recovery_sync_feedback.dart","lib/features/recovery/presentation/recovery_status_utility.dart","lib/features/recovery/presentation/recovery_strings.dart","lib/features/home/presentation/home_overview.dart","lib/screens/dashboard_screen.dart","lib/screens/visit_list_screen.dart","test/app/field_app_shell_test.dart","test/app/field_shell_composition_test.dart","test/features/recovery/recovery_shell_status_test.dart"]
+          print("FIELD_FORMATTED_JSON=" + json.dumps({p: pathlib.Path(p).read_text() for p in paths}))
+          PY
+          git diff --exit-code -- lib/app/theme/field_theme.dart lib/app/localization/app_copy.dart lib/app/shell/field_app_shell.dart lib/features/recovery/presentation/recovery_view_controller.dart lib/features/recovery/presentation/recovery_dashboard_scroll.dart lib/features/recovery/presentation/recovery_sync_feedback.dart lib/features/recovery/presentation/recovery_status_utility.dart lib/features/recovery/presentation/recovery_strings.dart lib/features/home/presentation/home_overview.dart lib/screens/dashboard_screen.dart lib/screens/visit_list_screen.dart test/app/field_app_shell_test.dart test/app/field_shell_composition_test.dart test/features/recovery/recovery_shell_status_test.dart
+      - name: Flutter analyze
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: flutter analyze
+      - name: Install Arabic font for synthetic shell review renders
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y fonts-noto-core
+      - name: Focused shell, navigation, composition and recovery tests
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        env:
+          FIELD_SHELL_CAPTURE: "1"
+        run: |
+          set -o pipefail
+          mkdir -p build
+          flutter test --reporter expanded test/app/field_app_shell_test.dart test/app/field_shell_composition_test.dart test/features/recovery/recovery_shell_status_test.dart | tee build/shell-tests.log
+      - name: Retain shell review images and focused test evidence
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: field-shell-review-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            wanasah_frontend/build/shell-review
+            wanasah_frontend/build/shell-tests.log
+          if-no-files-found: error
+      - name: Make synthetic render evidence readable by GitHub-only review
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: |
+          python - <<'PY'
+          import pathlib, base64
+          for path in sorted(pathlib.Path("build/shell-review").glob("*.png")):
+              print("FIELD_SHELL_PNG=" + path.name + ":" + base64.b64encode(path.read_bytes()).decode())
+          PY
+      # Analyze failure stays red, but must not hide the full test result.
+      - name: Full Flutter test suite (no exclusions)
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: flutter test --reporter expanded
+
+  android-debug:
+    name: Build and retain debug APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: wanasah_frontend
+    # Independent of validation so a red test cannot conceal Android build evidence.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-36 ndk;27.0.12077973"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.29.3"
+          channel: stable
+          cache: true
+      - name: Record built revision and Android toolchain
+        run: |
+          git rev-parse HEAD
+          flutter --version
+          java -version
+          flutter doctor -v
+      - name: Prepare synthetic CI-only environment asset
+        run: |
+          printf 'API_BASE_URL=http://127.0.0.1:8000\nSENTRY_DSN=\n' > .env
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+      - name: Build debug Android APK
+        id: apk
+        run: flutter build apk --debug
+      - name: Retain synthetic-environment debug APK
+        if: ${{ !cancelled() && steps.apk.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: wanasah-polish-shell-debug-apk-${{ github.event.pull_request.head.sha || github.sha }}
+          path: wanasah_frontend/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

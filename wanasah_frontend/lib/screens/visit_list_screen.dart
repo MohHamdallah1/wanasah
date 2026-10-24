@@ -18,10 +18,14 @@ import 'visit_screen.dart';
 class VisitListScreen extends StatefulWidget {
   const VisitListScreen({
     required this.driverId,
+    this.embedded = false,
+    this.onReturnFromAction,
     super.key,
   });
 
   final int driverId;
+  final bool embedded;
+  final VoidCallback? onReturnFromAction;
 
   @override
   State<VisitListScreen> createState() => _VisitListScreenState();
@@ -94,6 +98,7 @@ class _VisitListScreenState extends State<VisitListScreen>
     if (result == true) {
       await _forceSync();
     }
+    if (mounted) widget.onReturnFromAction?.call();
   }
 
   Future<void> _openVisit(VisitListRow row) async {
@@ -115,6 +120,7 @@ class _VisitListScreenState extends State<VisitListScreen>
 
     if (mounted) {
       _visitListBloc.add(const LoadVisitsEvent());
+      widget.onReturnFromAction?.call();
     }
   }
 
@@ -150,12 +156,19 @@ class _VisitListScreenState extends State<VisitListScreen>
                 Localizations.localeOf(context).toLanguageTag();
 
             return Scaffold(
-              backgroundColor: Colors.grey.shade50,
+              backgroundColor: widget.embedded
+                  ? Theme.of(context).colorScheme.surface : Colors.grey.shade50,
               appBar: AppBar(
-                backgroundColor: Colors.grey.shade50,
+                automaticallyImplyLeading: !widget.embedded,
+                primary: !widget.embedded,
+                backgroundColor: widget.embedded
+                    ? Theme.of(context).colorScheme.surface : Colors.grey.shade50,
                 elevation: 0,
                 surfaceTintColor: Colors.transparent,
-                title: Text(
+                title: widget.embedded ? VisitRouteTabBar(
+                  controller: _tabController,
+                  emergencyCount: model?.emergencyCount ?? 0,
+                ) : Text(
                   visitListString(
                     VisitListStringKey.title,
                     localeCode: locale,
@@ -172,7 +185,7 @@ class _VisitListScreenState extends State<VisitListScreen>
                     ),
                   ),
                 ],
-                bottom: VisitRouteTabBar(
+                bottom: widget.embedded ? null : VisitRouteTabBar(
                   controller: _tabController,
                   emergencyCount: model?.emergencyCount ?? 0,
                 ),

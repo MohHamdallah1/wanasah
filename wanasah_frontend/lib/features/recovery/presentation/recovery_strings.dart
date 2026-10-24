@@ -1,4 +1,16 @@
 enum RecoveryStringKey {
+  checking,
+  noPending,
+  pendingCompact,
+  blockedCompact,
+  unavailableCompact,
+  unreachableCompact,
+  serviceCompact,
+  cachedCompact,
+  syncingCompact,
+  refreshAction,
+  inspectAction,
+  detailsAction,
   pendingBanner,
   blockedBanner,
   combinedBanner,
@@ -39,6 +51,18 @@ enum RecoveryStringKey {
 }
 
 const Map<RecoveryStringKey, String> _ar = {
+  RecoveryStringKey.checking: 'جارٍ التحقق',
+  RecoveryStringKey.noPending: 'لا عمليات معلّقة',
+  RecoveryStringKey.pendingCompact: 'معلّقة: {count}',
+  RecoveryStringKey.blockedCompact: 'تحتاج انتباهًا: {count}',
+  RecoveryStringKey.unavailableCompact: 'الحالة غير مؤكدة',
+  RecoveryStringKey.unreachableCompact: 'تعذر الوصول للخدمة',
+  RecoveryStringKey.serviceCompact: 'تعذر تحديث الخدمة',
+  RecoveryStringKey.cachedCompact: 'البيانات المحفوظة',
+  RecoveryStringKey.syncingCompact: 'جارٍ المزامنة',
+  RecoveryStringKey.refreshAction: 'مزامنة وتحديث',
+  RecoveryStringKey.inspectAction: 'إعادة قراءة الحالة',
+  RecoveryStringKey.detailsAction: 'عرض الأدلة المحفوظة',
   RecoveryStringKey.pendingBanner: 'عمليات بانتظار المزامنة: {count}',
   RecoveryStringKey.blockedBanner: 'عمليات تحتاج استرداداً: {count}',
   RecoveryStringKey.combinedBanner:
@@ -88,6 +112,18 @@ const Map<RecoveryStringKey, String> _ar = {
 };
 
 const Map<RecoveryStringKey, String> _en = {
+  RecoveryStringKey.checking: 'Checking',
+  RecoveryStringKey.noPending: 'No pending work',
+  RecoveryStringKey.pendingCompact: 'Pending: {count}',
+  RecoveryStringKey.blockedCompact: 'Attention: {count}',
+  RecoveryStringKey.unavailableCompact: 'Status unconfirmed',
+  RecoveryStringKey.unreachableCompact: 'Service unreachable',
+  RecoveryStringKey.serviceCompact: 'Service refresh failed',
+  RecoveryStringKey.cachedCompact: 'Saved data',
+  RecoveryStringKey.syncingCompact: 'Syncing',
+  RecoveryStringKey.refreshAction: 'Sync and refresh',
+  RecoveryStringKey.inspectAction: 'Recheck status',
+  RecoveryStringKey.detailsAction: 'View saved evidence',
   RecoveryStringKey.pendingBanner: 'Waiting to sync: {count}',
   RecoveryStringKey.blockedBanner: 'Recovery required: {count}',
   RecoveryStringKey.combinedBanner:

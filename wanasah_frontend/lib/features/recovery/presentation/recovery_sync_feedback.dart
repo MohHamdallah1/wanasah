@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../application/recovery_sync_coordinator.dart';
 import 'recovery_strings.dart';
+import 'recovery_view_controller.dart';
 
 void showRecoverySyncFeedback(
   BuildContext context,
@@ -39,4 +40,27 @@ void showRecoverySyncFeedback(
       duration: const Duration(seconds: 4),
     ),
   );
+}
+
+Future<void> refreshRecoveryWithFeedback(
+  BuildContext context,
+  RecoveryViewController controller,
+  VoidCallback onAfterSync,
+) async {
+  if (controller.syncing) return;
+  final messenger = ScaffoldMessenger.of(context);
+  final locale = Localizations.localeOf(context).toLanguageTag();
+  final loading = messenger.showSnackBar(
+    SnackBar(
+      content: Text(recoveryString(
+        RecoveryStringKey.syncInProgress, localeCode: locale,
+      )),
+      duration: const Duration(days: 1),
+    ),
+  );
+  final result = await controller.synchronize();
+  loading.close();
+  if (!context.mounted || result == null) return;
+  showRecoverySyncFeedback(context, result);
+  onAfterSync();
 }
