@@ -2,6 +2,37 @@ name: FIELD Phase 4 Cross-channel Security Acceptance
 on:
   pull_request:
     paths:
+      - "wa_backend/api/driver.py"
+      - "wa_backend/api/field_contracts.py"
+      - "wa_backend/api/field_transfer_contracts.py"
+      - "wa_backend/api/reconciliation.py"
+      - "wa_backend/api/authentication/**"
+      - "wa_backend/api/representatives/**"
+      - "wa_backend/api/inventory_permissions.py"
+      - "wa_backend/domains/**"
+      - "wa_backend/alembic/**"
+      - "wa_backend/models.py"
+      - "wa_backend/schemas.py"
+      - "wa_backend/main.py"
+      - "wa_backend/tests/*field_authorization_phase*"
+      - "wa_backend/tests/*field_phase4*"
+      - ".github/workflows/field-phase4-security-acceptance.yml"
+  push:
+    branches: [main]
+    paths:
+      - "wa_backend/api/driver.py"
+      - "wa_backend/api/field_contracts.py"
+      - "wa_backend/api/field_transfer_contracts.py"
+      - "wa_backend/api/reconciliation.py"
+      - "wa_backend/api/authentication/**"
+      - "wa_backend/api/representatives/**"
+      - "wa_backend/api/inventory_permissions.py"
+      - "wa_backend/domains/**"
+      - "wa_backend/alembic/**"
+      - "wa_backend/models.py"
+      - "wa_backend/schemas.py"
+      - "wa_backend/main.py"
+      - "wa_backend/tests/*field_authorization_phase*"
       - "wa_backend/tests/*field_phase4*"
       - ".github/workflows/field-phase4-security-acceptance.yml"
   workflow_dispatch:
@@ -45,23 +76,33 @@ jobs:
       - name: Record exact HEAD and prove isolated file ownership
         run: |
           git rev-parse HEAD | tee field-phase4-head.txt
-          git merge-base --is-ancestor 8acb54ea2c79041ec439b9aac3a29d01700a26d4 HEAD
-          git diff --check 8acb54ea2c79041ec439b9aac3a29d01700a26d4 HEAD
+          # Freeze ONLY the originally accepted test-only contribution. Current
+          # HEAD may legitimately contain later Flutter/Backend integrations.
+          PHASE4_BASE=8acb54ea2c79041ec439b9aac3a29d01700a26d4
+          PHASE4_ACCEPTED=6bca8cb3b001bdaeeda0129cb32a0918d594bfe2
+          git cat-file -e "${PHASE4_BASE}^{commit}"
+          git cat-file -e "${PHASE4_ACCEPTED}^{commit}"
+          git merge-base --is-ancestor "$PHASE4_BASE" "$PHASE4_ACCEPTED"
+          git merge-base --is-ancestor "$PHASE4_ACCEPTED" HEAD
+          git diff --check "$PHASE4_BASE" "$PHASE4_ACCEPTED"
           python - <<'PY'
           import subprocess
           base="8acb54ea2c79041ec439b9aac3a29d01700a26d4"
+          accepted="6bca8cb3b001bdaeeda0129cb32a0918d594bfe2"
           expected={"wa_backend/tests/field_phase4_fixture.py","wa_backend/tests/test_field_phase4_channels.py",
               "wa_backend/tests/test_field_phase4_journeys.py",".github/workflows/field-phase4-security-acceptance.yml"}
-          changed=set(subprocess.check_output(["git","diff","--name-only",base,"HEAD"],text=True).splitlines())
+          changed=set(subprocess.check_output(["git","diff","--name-only",base,accepted],text=True).splitlines())
           assert changed==expected,changed
-          assert not subprocess.check_output(["git","diff","--diff-filter=D","--name-only",base,"HEAD"],text=True).strip()
+          assert not subprocess.check_output(["git","diff","--diff-filter=D","--name-only",base,accepted],text=True).strip()
           for path in ("wanasah_frontend","dashboard","wa_backend/api","wa_backend/domains","wa_backend/alembic",
                        "AGENTS.md",".rules","ARCHITECTURE.md","V1_SCOPE_FREEZE.md","FLUTTER_V1_END_TO_END_CLOSURE_PLAN.md"):
               old=subprocess.check_output(["git","rev-parse",base+":"+path],text=True).strip()
-              new=subprocess.check_output(["git","rev-parse","HEAD:"+path],text=True).strip()
+              new=subprocess.check_output(["git","rev-parse",accepted+":"+path],text=True).strip()
               assert old==new,path
               print("UNCHANGED "+path+" "+new)
-          print("PHASE4_OWNERSHIP=PASS")
+          print("PHASE4_ACCEPTED_HISTORY_REACHABLE=PASS")
+          print("PHASE4_EXACT_ORIGINAL_OWNERSHIP=PASS")
+          print("PHASE4_ORIGINAL_PROTECTED_SURFACES_UNCHANGED=PASS")
           PY
       - name: Prepare disposable databases and real restricted runtime role
         run: |
