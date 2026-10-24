@@ -18,7 +18,6 @@ import 'package:wanasah_frontend/features/visits/list/application/visit_route_ac
 import 'package:wanasah_frontend/features/visits/list/data/visit_list_data_source.dart';
 import 'package:wanasah_frontend/features/visits/list/data/visit_list_refresh_source.dart';
 import 'package:wanasah_frontend/l10n/generated/app_localizations.dart';
-import 'package:wanasah_frontend/features/visits/list/presentation/visit_list_strings.dart';
 import 'package:wanasah_frontend/features/visits/list/presentation/visit_list_summary.dart';
 import 'package:wanasah_frontend/features/visits/list/presentation/visit_card.dart';
 import 'package:wanasah_frontend/models/visit_model.dart';
