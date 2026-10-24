@@ -144,16 +144,16 @@ void main() {
           final custody = find.byKey(const ValueKey('shell-tab-custody'));
           expect(tester.getSize(home).height, greaterThanOrEqualTo(48));
           expect(tester.getSize(home).width, greaterThanOrEqualTo(48));
+          final route = find.byKey(const ValueKey('shell-tab-route'));
+          final homeX = tester.getCenter(home).dx;
+          final routeX = tester.getCenter(route).dx;
+          final custodyX = tester.getCenter(custody).dx;
           if (locale.languageCode == 'ar') {
-            expect(
-              tester.getCenter(home).dx,
-              greaterThan(tester.getCenter(custody).dx),
-            );
+            expect(routeX, greaterThan(homeX));
+            expect(homeX, greaterThan(custodyX));
           } else {
-            expect(
-              tester.getCenter(home).dx,
-              lessThan(tester.getCenter(custody).dx),
-            );
+            expect(routeX, lessThan(homeX));
+            expect(homeX, lessThan(custodyX));
           }
           await tester.tap(custody);
           await tester.pumpAndSettle();
@@ -212,6 +212,16 @@ void main() {
     final route = File('lib/screens/visit_list_screen.dart').readAsStringSync();
     expect(route, contains('_allowAction(VisitRouteAction.openVisit)'));
     expect(route, contains('_allowAction(VisitRouteAction.addShop)'));
+  });
+
+  testWidgets('Home does not duplicate primary bottom destinations', (
+    tester,
+  ) async {
+    await tester.pumpWidget(app());
+    expect(find.byKey(const ValueKey('shell-tab-route')), findsOneWidget);
+    expect(find.byKey(const ValueKey('shell-tab-custody')), findsOneWidget);
+    expect(find.text('عرض قائمة زيارات اليوم'), findsNothing);
+    expect(find.text('عرض العهدة'), findsNothing);
   });
 
   testWidgets('shell labels are locale resources', (tester) async {
