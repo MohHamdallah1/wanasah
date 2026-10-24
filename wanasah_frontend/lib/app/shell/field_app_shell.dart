@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 import '../localization/app_copy.dart';
@@ -22,7 +24,7 @@ class FieldAppShell extends StatefulWidget {
     super.key,
   });
 
-  final Widget Function(BuildContext, VoidCallback, VoidCallback) homeBuilder;
+  final WidgetBuilder homeBuilder;
   final WidgetBuilder routeBuilder;
   final Widget custody;
   final Widget statusUtility;
@@ -64,6 +66,7 @@ class _FieldAppShellState extends State<FieldAppShell> {
               if (!didPop) _select(FieldDestination.home);
             },
             child: Scaffold(
+              extendBody: true,
               body: SafeArea(
                 bottom: false,
                 child: Column(
@@ -139,11 +142,7 @@ class _FieldAppShellState extends State<FieldAppShell> {
                         children: [
                           TickerMode(
                             enabled: _selected == FieldDestination.home,
-                            child: widget.homeBuilder(
-                              context,
-                              () => _select(FieldDestination.route),
-                              () => _select(FieldDestination.custody),
-                            ),
+                            child: widget.homeBuilder(context),
                           ),
                           TickerMode(
                             enabled: _selected == FieldDestination.route,
@@ -162,41 +161,62 @@ class _FieldAppShellState extends State<FieldAppShell> {
                   ],
                 ),
               ),
-              bottomNavigationBar: Material(
-                color: colors.surface,
-                child: SafeArea(
-                  top: false,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Divider(height: 1),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _destination(
-                            context,
-                            FieldDestination.home,
-                            AppCopyKey.home,
-                            Icons.home_outlined,
-                            Icons.home_rounded,
-                          ),
-                          _destination(
-                            context,
-                            FieldDestination.route,
-                            AppCopyKey.route,
-                            Icons.route_outlined,
-                            Icons.route_rounded,
-                          ),
-                          _destination(
-                            context,
-                            FieldDestination.custody,
-                            AppCopyKey.custody,
-                            Icons.inventory_2_outlined,
-                            Icons.inventory_2_rounded,
+              bottomNavigationBar: SafeArea(
+                top: false,
+                minimum: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(30),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: colors.surface.withValues(alpha: 0.82),
+                        borderRadius: BorderRadius.circular(30),
+                        border: Border.all(
+                          color: colors.outlineVariant.withValues(alpha: 0.65),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: colors.shadow.withValues(alpha: 0.10),
+                            blurRadius: 24,
+                            offset: const Offset(0, 10),
                           ),
                         ],
                       ),
-                    ],
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 6,
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            _destination(
+                              context,
+                              FieldDestination.route,
+                              AppCopyKey.route,
+                              Icons.route_outlined,
+                              Icons.route_rounded,
+                            ),
+                            _destination(
+                              context,
+                              FieldDestination.home,
+                              AppCopyKey.home,
+                              Icons.home_outlined,
+                              Icons.home_rounded,
+                              emphasized: true,
+                            ),
+                            _destination(
+                              context,
+                              FieldDestination.custody,
+                              AppCopyKey.custody,
+                              Icons.inventory_2_outlined,
+                              Icons.inventory_2_rounded,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -212,11 +232,25 @@ class _FieldAppShellState extends State<FieldAppShell> {
     FieldDestination destination,
     AppCopyKey key,
     IconData icon,
-    IconData selectedIcon,
-  ) {
+    IconData selectedIcon, {
+    bool emphasized = false,
+  }) {
     final selected = _selected == destination;
     final colors = Theme.of(context).colorScheme;
     final label = AppCopy.of(context, key);
+    final background =
+        selected
+            ? colors.primary.withValues(alpha: emphasized ? 1 : 0.11)
+            : emphasized
+            ? colors.surfaceContainerHighest.withValues(alpha: 0.72)
+            : Colors.transparent;
+    final foreground =
+        selected && emphasized
+            ? colors.onPrimary
+            : selected
+            ? colors.primary
+            : colors.onSurfaceVariant;
+
     return Expanded(
       child: Semantics(
         selected: selected,
@@ -224,40 +258,58 @@ class _FieldAppShellState extends State<FieldAppShell> {
         label: label,
         onTap: () => _select(destination),
         child: ExcludeSemantics(
-          child: InkWell(
-            key: ValueKey('shell-tab-${destination.name}'),
-            onTap: () => _select(destination),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 76),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: emphasized ? 4 : 2,
+              vertical: emphasized ? 0 : 4,
+            ),
+            child: InkWell(
+              key: ValueKey('shell-tab-${destination.name}'),
+              borderRadius: BorderRadius.circular(emphasized ? 24 : 20),
+              onTap: () => _select(destination),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                constraints: const BoxConstraints(minHeight: 60),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: background,
+                  borderRadius: BorderRadius.circular(emphasized ? 24 : 20),
+                  border:
+                      emphasized && !selected
+                          ? Border.all(
+                            color: colors.outlineVariant.withValues(alpha: 0.55),
+                          )
+                          : null,
+                ),
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Container(
-                      width: 36,
-                      height: 3,
-                      decoration: BoxDecoration(
-                        color: selected ? colors.primary : Colors.transparent,
-                        borderRadius: const BorderRadius.vertical(
-                          bottom: Radius.circular(3),
-                        ),
+                    AnimatedScale(
+                      duration: const Duration(milliseconds: 180),
+                      scale: selected ? 1.08 : 1,
+                      child: Icon(
+                        selected ? selectedIcon : icon,
+                        color: foreground,
+                        size: emphasized ? 27 : 24,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Icon(
-                      selected ? selectedIcon : icon,
-                      color:
-                          selected ? colors.primary : colors.onSurfaceVariant,
-                    ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     Text(
                       label,
+                      maxLines: 1,
+                      overflow: TextOverflow.fade,
+                      softWrap: false,
                       textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        fontSize: emphasized ? 13 : 12.5,
                         fontWeight:
-                            selected ? FontWeight.w800 : FontWeight.w500,
-                        color:
-                            selected ? colors.primary : colors.onSurfaceVariant,
+                            selected ? FontWeight.w800 : FontWeight.w600,
+                        color: foreground,
                       ),
                     ),
                   ],

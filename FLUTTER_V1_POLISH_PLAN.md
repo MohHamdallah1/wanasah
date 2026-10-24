@@ -39,6 +39,8 @@ The current production Flutter app is still Arabic-only at runtime, even though 
 - [x] Arabic remains the current V1 default/fallback language.
 - [x] The architecture must allow adding another language without editing every screen/widget.
 - [x] User-visible copy must not be hard-coded inside new polished widgets.
+- [x] **All Flutter screens and all user-visible states are in scope for localization**, not only the shared shell or newly redesigned screens. Existing hard-coded Arabic is migrated as each screen enters its polish slice, and no screen is considered polish-complete while touched user-facing copy remains outside the canonical localization system.
+- [x] Dialogs, validation messages, empty/loading/error states, tooltips, accessibility/semantics labels, sync/recovery copy and action confirmations are part of localization coverage just like visible page text.
 - [x] Use one canonical Flutter localization system for production UI copy. Prefer Flutter generated localization (`gen_l10n` + ARB resources) or an equivalently centralized typed solution; do not keep growing parallel ad-hoc maps per feature.
 - [x] Existing `AppCopy`, Visit string helpers and Recovery string maps are migration inputs, not justification for permanent competing localization systems.
 - [x] RTL/LTR is part of the foundation:
@@ -66,6 +68,10 @@ The representative shell uses **three persistent primary tabs**:
 - [x] These three tabs are the V1 primary navigation.
 - [x] Do not add a fourth bottom-tab merely to expose every secondary function.
 - [x] The bottom navigation is persistent on the three top-level sections.
+- [x] Physical order is intentional and direction-aware: **Route on the leading side, Home in the center, Custody on the trailing side**. In Arabic RTL this renders **خط السير يمين — الرئيسية وسط — العهدة يسار**.
+- [x] The primary navigation uses a **floating translucent/glass-inspired dock** with restrained blur, depth and rounded grouping; it must remain highly legible and field-usable rather than decorative glass for its own sake.
+- [x] Home is the visually emphasized center destination. Route/Custody use quieter active surfaces; active state must be recognizable by icon/shape/weight, not color alone.
+- [x] Because Route and Custody are persistent bottom destinations, Home must not repeat generic **"open Route"** or **"open Custody"** buttons. Home only keeps contextual next-action shortcuts when they add information beyond navigation.
 - [x] Deep task flows such as Visit execution, Add Shop, confirmation dialogs and other mutation-heavy screens may hide the bottom navigation when doing so protects focus/unsaved work.
 - [ ] Implement the shared shell and preserve existing navigation/back-safety behavior.
 
@@ -240,6 +246,43 @@ Execute in this order unless a proven dependency requires a narrow adjustment:
 8. [ ] Login and startup surfaces.
 9. [ ] Cross-screen empty/loading/error/degraded/recovery consistency pass.
 10. [ ] Final visual/interaction consistency pass.
+
+## 9A. Proportional test gates — APPROVED
+
+Testing depth follows **behavioral risk**, not visual file count.
+
+### Tier A — visual-only polish
+
+Examples: spacing, typography, color, shape, hierarchy, icon placement, non-behavioral responsive layout.
+
+Required before merge:
+- [ ] `flutter analyze`
+- [ ] focused widget/golden/layout tests for the touched surface
+- [ ] RTL/LTR coverage when localized layout is touched
+
+A full 500+ test suite and Android APK rebuild are **not automatically required for every visual-only iteration** unless CI policy or a discovered regression justifies them.
+
+### Tier B — interaction / navigation / state wiring
+
+Examples: bottom navigation, tab persistence, dialogs, Work Session controls, Recovery/Sync state wiring, route transitions, state-preservation behavior.
+
+Required:
+- [ ] `flutter analyze`
+- [ ] focused behavioral tests
+- [ ] relevant regression suites
+- [ ] broader/full Flutter suite before integration when the changed shared boundary can affect multiple flows
+
+### Tier C — business/offline/authority/release boundary
+
+Examples: durable commands, replay, authorization, Visit mutation, Custody/transfer business behavior, Backend contract changes, final release checkpoint.
+
+Required:
+- [ ] focused domain tests
+- [ ] full Flutter regression suite
+- [ ] Android debug build when applicable
+- [ ] Backend/integration evidence where applicable
+
+**Model usage is separate from CI testing.** Expensive reasoning models are reserved for genuinely difficult architecture/design review, not routine implementation or repetitive visual iteration.
 
 ## 10. Per-slice execution contract
 
