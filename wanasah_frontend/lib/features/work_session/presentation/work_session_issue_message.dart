@@ -31,8 +31,7 @@ String workSessionIssueMessage(
       WorkSessionStringKey.issueRateLimited,
     WorkSessionActionIssueKind.connectivity =>
       WorkSessionStringKey.issueConnectivity,
-    WorkSessionActionIssueKind.timeout =>
-      WorkSessionStringKey.issueTimeout,
+    WorkSessionActionIssueKind.timeout => WorkSessionStringKey.issueTimeout,
     WorkSessionActionIssueKind.unresolved =>
       WorkSessionStringKey.issueUnresolved,
   };

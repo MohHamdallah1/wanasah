@@ -40,10 +40,7 @@ class HomeOverview extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _DayIdentity(
-          region: state.assignedRegion,
-          date: date,
-        ),
+        _DayIdentity(region: state.assignedRegion, date: date),
         const SizedBox(height: 14),
         workSession,
         const SizedBox(height: 18),
@@ -78,10 +75,7 @@ class HomeOverview extends StatelessWidget {
 }
 
 class _DayIdentity extends StatelessWidget {
-  const _DayIdentity({
-    required this.region,
-    required this.date,
-  });
+  const _DayIdentity({required this.region, required this.date});
 
   final String region;
   final String date;

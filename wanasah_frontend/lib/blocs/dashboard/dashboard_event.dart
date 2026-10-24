@@ -58,9 +58,7 @@ class RespondToTransfer extends DashboardEvent {
 class RespondToBatchTransfer extends DashboardEvent {
   final List<TransferDecision> decisions;
 
-  const RespondToBatchTransfer({
-    this.decisions = const <TransferDecision>[],
-  });
+  const RespondToBatchTransfer({this.decisions = const <TransferDecision>[]});
 
   @override
   List<Object?> get props => [decisions];
@@ -71,7 +69,7 @@ class RespondToBatchTransfer extends DashboardEvent {
 class StartSessionEvent extends DashboardEvent {
   final int driverId;
   const StartSessionEvent({required this.driverId});
-  
+
   @override
   List<Object?> get props => [driverId];
 }
@@ -80,7 +78,7 @@ class StartSessionEvent extends DashboardEvent {
 class EndSessionEvent extends DashboardEvent {
   final int driverId;
   const EndSessionEvent({required this.driverId});
-  
+
   @override
   List<Object?> get props => [driverId];
 }
@@ -89,9 +87,9 @@ class EndSessionEvent extends DashboardEvent {
 class ToggleBreakEvent extends DashboardEvent {
   final int driverId;
   final String action; // 'start' or 'end'
-  
+
   const ToggleBreakEvent({required this.driverId, required this.action});
-  
+
   @override
   List<Object?> get props => [driverId, action];
 }
