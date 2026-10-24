@@ -1190,11 +1190,11 @@ async def dispatch_init(
         access.location_filter('dispatch.execute'),
     ))).all())
     products = (await db.execute(
-        select(ProductVariant).where(
+        select(ProductVariant.id, ProductVariant.name).where(
             ProductVariant.company_id == company_id,
             product_capability_predicate(ProductVariant, ROUTE_LOAD_NEW),
         ).order_by(ProductVariant.id.asc())
-    )).scalars().all()
+    )).all()
 
     shop_counts = (await db.execute(
         select(Shop.zone_id, func.count(Shop.id)).filter(
@@ -1236,7 +1236,7 @@ async def dispatch_init(
                       "can_execute": v.id in executable_vehicles} for v in vehicles],
         "warehouses": [{"id": str(w.id), "label": f"{w.name} ({w.code})",
                         "can_execute": w.id in executable_warehouses} for w in warehouses],
-        "products": [{"id": str(p.id), "name": p.variant_name} for p in products],
+        "products": [{"id": str(product_id), "name": product_name} for product_id, product_name in products],
     }
 
 

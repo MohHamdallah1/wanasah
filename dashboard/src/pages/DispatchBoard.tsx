@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { resolveI18nLocale } from "@/lib/locale";
 import { useDispatchOwnerNavigation } from "@/features/dispatch/useOwnerNavigation";
 import type { DispatchNavigationIntent } from "@/features/dispatch/navigation";
-import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback, useDeferredValue } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Truck, LayoutGrid, ClipboardList, Calendar, Search, Pencil, Trash2, Plus, RotateCcw, X, Upload, Eye, Eraser, Save, XCircle, Loader2, AlertCircle, Archive, Rocket } from "lucide-react";
@@ -27,6 +27,12 @@ import { ShopBulkImportModal } from "@/components/dispatch/ShopBulkImportModal";
 import { AdjustInventoryModal } from "@/components/dispatch/AdjustInventoryModal";
 import { TransfersRadarModal } from "@/components/dispatch/TransfersRadarModal";
 import { parseDispatchNavigationState } from "@/features/dispatch/navigation";
+import {
+  DISPATCH_PRODUCT_WINDOW_LIMIT,
+  boundedDispatchProductSearch,
+  mergeDispatchProductWindow,
+  selectedDispatchProducts,
+} from "@/features/dispatch/productWindow";
 // Types
 import { TabId, Zone, PendingRoute, Shortage, Shop } from "@/types/dispatch";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
@@ -369,6 +375,23 @@ export default function DispatchBoard() {
 
   // C-03: React-state product search filter (replaces DOM manipulation)
   const [productSearch, setProductSearch] = useState("");
+  const deferredProductSearch = useDeferredValue(productSearch);
+  const productsById = useMemo(
+    () => new Map(products.map((product) => [product.id, product] as const)),
+    [products],
+  );
+  const searchedLaunchProducts = useMemo(
+    () => boundedDispatchProductSearch(products, deferredProductSearch),
+    [products, deferredProductSearch],
+  );
+  const selectedLaunchProducts = useMemo(
+    () => selectedDispatchProducts(productsById, preloadQuantities),
+    [productsById, preloadQuantities],
+  );
+  const visibleLaunchProducts = useMemo(
+    () => mergeDispatchProductWindow(selectedLaunchProducts, searchedLaunchProducts),
+    [selectedLaunchProducts, searchedLaunchProducts],
+  );
 
   // CS-WH-03: Warehouse audit lock status for dispatch warning banner
   const [isWarehouseLocked, setIsWarehouseLocked] = useState(false);
@@ -1592,6 +1615,9 @@ export default function DispatchBoard() {
                                 onChange={(e) => setProductSearch(e.target.value)}
                                 className="w-full pl-4 pr-9 py-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-[#1e87bb] bg-white transition-all shadow-sm"
                               />
+                              <span className="mt-1 block text-[10px] font-semibold text-slate-400">
+                                يعرض حتى {DISPATCH_PRODUCT_WINDOW_LIMIT} نتيجة فقط للحفاظ على سرعة الصفحة. ابحث بالاسم للوصول لأي منتج.
+                              </span>
                             </div>
                           </div>
                         </th>
@@ -1606,19 +1632,22 @@ export default function DispatchBoard() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {products
-                        .filter(prod => {
-                          // +++ خوارزمية البحث المرن (Tokenized Search) +++
-                          if (!productSearch.trim()) return true;
-                          const searchTokens = productSearch.toLowerCase().trim().split(/\s+/);
-                          return searchTokens.every(token => prod.name.toLowerCase().includes(token));
-                        })
-                        .map(prod => (
+                      {visibleLaunchProducts.map((prod) => (
                         <tr key={prod.id} className="hover:bg-slate-50 transition-colors">
                           <td className="py-3 px-6 font-bold text-slate-800 text-base">{prod.name}</td>
                           <td className="py-3 px-6">
                             <div className="flex justify-center">
-                              <QuantityInput value={preloadQuantities[prod.id] ?? 0} onChange={n => setPreloadQuantities(p => ({ ...p, [prod.id]: n }))} />
+                              <QuantityInput
+                                value={preloadQuantities[prod.id] ?? 0}
+                                onChange={(quantity) =>
+                                  setPreloadQuantities((current) => {
+                                    const next = { ...current };
+                                    if (quantity > 0) next[prod.id] = quantity;
+                                    else delete next[prod.id];
+                                    return next;
+                                  })
+                                }
+                              />
                             </div>
                           </td>
                         </tr>
@@ -1749,6 +1778,7 @@ export default function DispatchBoard() {
         </>
       </div>
 
+      {isShortageModalOpen && (
       <ShortageModal
         focusShortageId={archiveShortageFocus}
         isOpen={isShortageModalOpen}
@@ -1778,7 +1808,9 @@ export default function DispatchBoard() {
         onDeleteShortageGroup={handleDeleteShortageGroup}
         onEditShortageGroup={handleEditShortageGroup}
       />
+      )}
       <ScheduleModal isOpen={isSchedulingModalOpen} onClose={() => { setIsSchedulingModalOpen(false); setBulkZoneSearch(""); }} schedulingType={schedulingType} zones={zones} selectedZoneIdForZones={selectedZoneIdForZones} bulkZoneSearch={bulkZoneSearch} onBulkZoneSearchChange={setBulkZoneSearch} selectedBulkZoneIds={selectedBulkZoneIds} onToggleBulkZoneSelection={id => setSelectedBulkZoneIds(prev => prev.includes(id) ? prev.filter(bid => bid !== id) : [...prev, id])} onToggleAllBulkZones={() => { const filtered = zones.filter(z => z.name.toLowerCase().includes(bulkZoneSearch.toLowerCase())).map(z => z.id); setSelectedBulkZoneIds(prev => filtered.every(id => prev.includes(id)) ? prev.filter(id => !filtered.includes(id)) : Array.from(new Set([...prev, ...filtered]))); }} schedulingForm={schedulingForm} onSchedulingFormChange={setSchedulingForm} customDays={customDays} onCustomDaysChange={setCustomDays} onUpdateScheduling={handleUpdateScheduling} />
+      {isRouteModalOpen && (
       <RouteManagementModal
         isOpen={isRouteModalOpen}
         onClose={() => setIsRouteModalOpen(false)}
@@ -1806,6 +1838,7 @@ export default function DispatchBoard() {
         })}
         onConfirmAction={handleConfirmRouteAction}
       />
+      )}
       <ShopFormModal isOpen={isShopModalOpen} onClose={() => setIsShopModalOpen(false)} editingShopId={editingShopId} shopForm={shopForm} onShopFormChange={setShopForm} zones={zones} onSave={handleSaveShop} />
       <RecycleBinModal
         isOpen={showRecycleBin}
