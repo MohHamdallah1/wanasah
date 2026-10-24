@@ -5,110 +5,129 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wanasah_frontend/features/custody/presentation/vehicle_inventory_section.dart';
 import 'package:wanasah_frontend/features/custody/domain/non_sellable_custody.dart';
 import 'package:wanasah_frontend/features/work_session/presentation/work_session_controls.dart';
+import 'package:wanasah_frontend/l10n/generated/app_localizations.dart';
 import 'package:wanasah_frontend/models/product_model.dart';
 
 void main() {
   group('mechanical architecture boundaries', () {
     test(
-        'dashboard composes feature-owned work session boundary and custody seam',
-        () async {
-      final bloc =
-          await File('lib/blocs/dashboard/dashboard_bloc.dart').readAsString();
-      final coordinator = await File(
-        'lib/features/work_session/application/work_session_coordinator.dart',
-      ).readAsString();
-      final remote = await File(
-        'lib/features/work_session/data/work_session_remote_data_source.dart',
-      ).readAsString();
-      final custody = await File(
-        'lib/features/custody/application/custody_coordinator.dart',
-      ).readAsString();
+      'dashboard composes feature-owned work session boundary and custody seam',
+      () async {
+        final bloc =
+            await File(
+              'lib/blocs/dashboard/dashboard_bloc.dart',
+            ).readAsString();
+        final coordinator =
+            await File(
+              'lib/features/work_session/application/work_session_coordinator.dart',
+            ).readAsString();
+        final remote =
+            await File(
+              'lib/features/work_session/data/work_session_remote_data_source.dart',
+            ).readAsString();
+        final custody =
+            await File(
+              'lib/features/custody/application/custody_coordinator.dart',
+            ).readAsString();
 
-      expect(
-        bloc,
-        isNot(
-          contains(
-            "part '../../features/work_session/application/work_session_handlers.dart';",
+        expect(
+          bloc,
+          isNot(
+            contains(
+              "part '../../features/work_session/application/work_session_handlers.dart';",
+            ),
           ),
-        ),
-      );
-      expect(bloc, contains('WorkSessionCoordinator'));
-      expect(bloc, contains('recoverActiveSession()'));
-      expect(bloc, isNot(contains('_dashboardRepo.startSession(')));
-      expect(bloc, isNot(contains('_dashboardRepo.endSession(')));
-      expect(bloc, isNot(contains('_dashboardRepo.toggleBreak(')));
+        );
+        expect(bloc, contains('WorkSessionCoordinator'));
+        expect(bloc, contains('recoverActiveSession()'));
+        expect(bloc, isNot(contains('_dashboardRepo.startSession(')));
+        expect(bloc, isNot(contains('_dashboardRepo.endSession(')));
+        expect(bloc, isNot(contains('_dashboardRepo.toggleBreak(')));
 
-      expect(coordinator, contains('_remote.startSession('));
-      expect(coordinator, contains('_remote.endSession()'));
-      expect(coordinator, contains('_remote.toggleBreak('));
-      expect(coordinator, contains('recoverActiveSession()'));
-      expect(coordinator, isNot(contains('package:flutter/material.dart')));
+        expect(coordinator, contains('_remote.startSession('));
+        expect(coordinator, contains('_remote.endSession()'));
+        expect(coordinator, contains('_remote.toggleBreak('));
+        expect(coordinator, contains('recoverActiveSession()'));
+        expect(coordinator, isNot(contains('package:flutter/material.dart')));
 
-      expect(remote, contains("'/driver/sessions/start'"));
-      expect(remote, contains("'/driver/sessions/end'"));
-      expect(remote, contains("'/driver/sessions/break'"));
-      expect(remote, contains("'/driver/sessions/active'"));
+        expect(remote, contains("'/driver/sessions/start'"));
+        expect(remote, contains("'/driver/sessions/end'"));
+        expect(remote, contains("'/driver/sessions/break'"));
+        expect(remote, contains("'/driver/sessions/active'"));
 
-      expect(
-        bloc,
-        isNot(
-          contains(
-            "part '../../features/custody/application/custody_handlers.dart';",
+        expect(
+          bloc,
+          isNot(
+            contains(
+              "part '../../features/custody/application/custody_handlers.dart';",
+            ),
           ),
-        ),
-      );
-      expect(bloc, contains('CustodyCoordinator'));
-      expect(bloc, contains('_custodyCoordinator.respond('));
-      expect(bloc, contains('_custodyCoordinator.loadPendingTransfers()'));
-      expect(custody, contains('loadPendingTransfers()'));
-      expect(custody, contains('loadNonSellableCustody()'));
-      expect(custody, contains('_transferGateway.respond('));
-      expect(custody, isNot(contains('package:flutter/material.dart')));
-    });
+        );
+        expect(bloc, contains('CustodyCoordinator'));
+        expect(bloc, contains('_custodyCoordinator.respond('));
+        expect(bloc, contains('_custodyCoordinator.loadPendingTransfers()'));
+        expect(custody, contains('loadPendingTransfers()'));
+        expect(custody, contains('loadNonSellableCustody()'));
+        expect(custody, contains('_transferGateway.respond('));
+        expect(custody, isNot(contains('package:flutter/material.dart')));
+      },
+    );
 
-    test('dashboard screen is a shell over extracted feature presentation',
-        () async {
-      final screen =
-          await File('lib/screens/dashboard_screen.dart').readAsString();
-      final session = await File(
-        'lib/features/work_session/presentation/work_session_controls.dart',
-      ).readAsString();
-      final transfer = await File(
-        'lib/features/custody/presentation/pending_transfer_dialog.dart',
-      ).readAsString();
-      final inventory = await File(
-        'lib/features/custody/presentation/vehicle_inventory_section.dart',
-      ).readAsString();
+    test(
+      'dashboard screen is a shell over extracted feature presentation',
+      () async {
+        final screen =
+            await File('lib/screens/dashboard_screen.dart').readAsString();
+        final session =
+            await File(
+              'lib/features/work_session/presentation/work_session_controls.dart',
+            ).readAsString();
+        final transfer =
+            await File(
+              'lib/features/custody/presentation/pending_transfer_dialog.dart',
+            ).readAsString();
+        final inventory =
+            await File(
+              'lib/features/custody/presentation/vehicle_inventory_section.dart',
+            ).readAsString();
 
-      expect(screen, contains('WorkSessionControls('));
-      expect(screen, contains('showPendingTransferDialog('));
-      expect(screen, contains('VehicleInventorySection('));
-      expect(screen, isNot(contains("DateFormat('hh:mm a')")));
-      expect(screen, isNot(contains("'تحديث عهدة من الإدارة'")));
-      expect(screen, isNot(contains("'مخزون سيارة المندوب:'")));
+        expect(screen, contains('WorkSessionControls('));
+        expect(screen, contains('showPendingTransferDialog('));
+        expect(screen, contains('VehicleInventorySection('));
+        expect(screen, isNot(contains("DateFormat('hh:mm a')")));
+        expect(screen, isNot(contains("'تحديث عهدة من الإدارة'")));
+        expect(screen, isNot(contains("'مخزون سيارة المندوب:'")));
 
-      expect(session, contains("DateFormat('hh:mm a')"));
-      expect(session, isNot(contains("'يجب إنهاء الاستراحة أولاً!'")));
-      expect(session, contains('WorkSessionIssuePanel'));
-      expect(transfer, contains("'تحديث عهدة من الإدارة'"));
-      expect(
-        transfer,
-        contains("'يجب الرد على جميع الحركات بالقبول أو الرفض.'"),
-      );
-      expect(inventory, contains("'مخزون سيارة المندوب:'"));
-      expect(inventory, contains("'لا يوجد مخزون متاح للبيع في السيارة حالياً.'"));
-    });
+        expect(session, contains('DateFormat.Hm(locale)'));
+        expect(session, isNot(contains("'يجب إنهاء الاستراحة أولاً!'")));
+        expect(session, contains('WorkSessionIssuePanel'));
+        expect(transfer, contains("'تحديث عهدة من الإدارة'"));
+        expect(
+          transfer,
+          contains("'يجب الرد على جميع الحركات بالقبول أو الرفض.'"),
+        );
+        expect(inventory, contains("'مخزون سيارة المندوب:'"));
+        expect(
+          inventory,
+          contains("'لا يوجد مخزون متاح للبيع في السيارة حالياً.'"),
+        );
+      },
+    );
   });
 
   group('work session presentation characterization', () {
-    testWidgets('inactive session preserves start confirmation flow',
-        (tester) async {
+    testWidgets('inactive session preserves start confirmation flow', (
+      tester,
+    ) async {
       var actionStarted = 0;
       var starts = 0;
       var ends = 0;
 
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('ar'),
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
           home: Scaffold(
             body: WorkSessionControls(
               isActiveSession: false,
@@ -124,7 +143,7 @@ void main() {
         ),
       );
 
-      expect(find.text('اضغط لبدء العمل'), findsOneWidget);
+      expect(find.text('ابدأ يومك'), findsOneWidget);
       await tester.tap(find.text('بدء العمل'));
       await tester.pumpAndSettle();
 
@@ -139,14 +158,17 @@ void main() {
       expect(ends, 0);
     });
 
-    testWidgets(
-        'active break delegates end-session authority to Backend',
-        (tester) async {
+    testWidgets('active break delegates end-session authority to Backend', (
+      tester,
+    ) async {
       var actionStarted = 0;
       var ends = 0;
 
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('ar'),
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
           home: Scaffold(
             body: WorkSessionControls(
               isActiveSession: true,
@@ -175,8 +197,9 @@ void main() {
     });
   });
 
-  testWidgets('vehicle inventory keeps existing field quantities and labels',
-      (tester) async {
+  testWidgets('vehicle inventory keeps existing field quantities and labels', (
+    tester,
+  ) async {
     const product = ProductModel(
       id: 7,
       name: 'منتج اختبار',

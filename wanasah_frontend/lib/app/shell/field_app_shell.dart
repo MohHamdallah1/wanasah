@@ -270,17 +270,16 @@ class _FieldAppShellState extends State<FieldAppShell> {
                 duration: const Duration(milliseconds: 180),
                 curve: Curves.easeOutCubic,
                 constraints: const BoxConstraints(minHeight: 60),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 7,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
                 decoration: BoxDecoration(
                   color: background,
                   borderRadius: BorderRadius.circular(emphasized ? 24 : 20),
                   border:
                       emphasized && !selected
                           ? Border.all(
-                            color: colors.outlineVariant.withValues(alpha: 0.55),
+                            color: colors.outlineVariant.withValues(
+                              alpha: 0.55,
+                            ),
                           )
                           : null,
                 ),

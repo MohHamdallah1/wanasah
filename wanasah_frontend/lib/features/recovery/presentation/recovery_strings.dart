@@ -66,8 +66,12 @@ String recoveryString(
   return switch (key) {
     RecoveryStringKey.checking => l10n.recoveryChecking,
     RecoveryStringKey.noPending => l10n.recoveryNoPending,
-    RecoveryStringKey.pendingCompact => l10n.recoveryPendingCompact(value('count')),
-    RecoveryStringKey.blockedCompact => l10n.recoveryBlockedCompact(value('count')),
+    RecoveryStringKey.pendingCompact => l10n.recoveryPendingCompact(
+      value('count'),
+    ),
+    RecoveryStringKey.blockedCompact => l10n.recoveryBlockedCompact(
+      value('count'),
+    ),
     RecoveryStringKey.unavailableCompact => l10n.recoveryUnavailableCompact,
     RecoveryStringKey.unreachableCompact => l10n.recoveryUnreachableCompact,
     RecoveryStringKey.serviceCompact => l10n.recoveryServiceCompact,
@@ -76,8 +80,12 @@ String recoveryString(
     RecoveryStringKey.refreshAction => l10n.recoveryRefreshAction,
     RecoveryStringKey.inspectAction => l10n.recoveryInspectAction,
     RecoveryStringKey.detailsAction => l10n.recoveryDetailsAction,
-    RecoveryStringKey.pendingBanner => l10n.recoveryPendingBanner(value('count')),
-    RecoveryStringKey.blockedBanner => l10n.recoveryBlockedBanner(value('count')),
+    RecoveryStringKey.pendingBanner => l10n.recoveryPendingBanner(
+      value('count'),
+    ),
+    RecoveryStringKey.blockedBanner => l10n.recoveryBlockedBanner(
+      value('count'),
+    ),
     RecoveryStringKey.combinedBanner => l10n.recoveryCombinedBanner(
       value('pending'),
       value('blocked'),

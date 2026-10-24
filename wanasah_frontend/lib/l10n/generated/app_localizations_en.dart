@@ -271,4 +271,183 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get recoveryReadOnlyNotice => 'Blocked records are read-only here and there is no bulk-delete action.';
+
+  @override
+  String get homeTodayRoute => 'Today\'s route';
+
+  @override
+  String get homeCompletedLabel => 'Completed';
+
+  @override
+  String get homeRemainingLabel => 'Remaining';
+
+  @override
+  String get homeSalesLabel => 'With sales';
+
+  @override
+  String homeAwaitingSync(String count) {
+    return '$count visits awaiting sync';
+  }
+
+  @override
+  String get homeCashReceived => 'Total cash received';
+
+  @override
+  String get homeCashSales => 'Cash sales';
+
+  @override
+  String get homeDebtCollections => 'Debt collections';
+
+  @override
+  String homeDebtOperations(String count) {
+    return '$count operations';
+  }
+
+  @override
+  String get workSessionReadyStatus => 'Ready to start';
+
+  @override
+  String get workSessionActiveStatus => 'Work in progress';
+
+  @override
+  String get workSessionBreakStatus => 'On break';
+
+  @override
+  String get workSessionReadyTitle => 'Start your day';
+
+  @override
+  String get workSessionActiveTitle => 'Route in progress';
+
+  @override
+  String get workSessionBreakTitle => 'You are on a break';
+
+  @override
+  String get workSessionReadyHint => 'Start the work session when you are ready to head out.';
+
+  @override
+  String get workSessionActiveHint => 'The current work session is active and today\'s work continues.';
+
+  @override
+  String get workSessionBreakHint => 'The session is preserved. End the break when you are ready to continue.';
+
+  @override
+  String get workSessionStartUnknown => 'Session start time is unavailable.';
+
+  @override
+  String workSessionStartedAt(String time) {
+    return 'Started $time';
+  }
+
+  @override
+  String workSessionElapsed(String duration) {
+    return 'Elapsed $duration';
+  }
+
+  @override
+  String get workSessionStartAction => 'Start work';
+
+  @override
+  String get workSessionEndAction => 'End work';
+
+  @override
+  String get workSessionStartBreakAction => 'Start break';
+
+  @override
+  String get workSessionEndBreakAction => 'End break';
+
+  @override
+  String get workSessionConfirmStartTitle => 'Start work?';
+
+  @override
+  String get workSessionConfirmStartBody => 'Do you want to start a new work session?';
+
+  @override
+  String get workSessionConfirmEndTitle => 'End work?';
+
+  @override
+  String get workSessionConfirmEndBody => 'Do you want to end the current work session?';
+
+  @override
+  String get workSessionStartSuccess => 'Work session started.';
+
+  @override
+  String get workSessionEndSuccess => 'Work session ended.';
+
+  @override
+  String get workSessionBreakStartSuccess => 'Break started and recorded by the server.';
+
+  @override
+  String get workSessionBreakEndSuccess => 'Break ended and recorded by the server.';
+
+  @override
+  String get workSessionStartReconciled => 'The active work session was confirmed with the server.';
+
+  @override
+  String get workSessionEndReconciled => 'The ended work session was confirmed with the server.';
+
+  @override
+  String get workSessionBreakStartReconciled => 'The break start was confirmed with the server.';
+
+  @override
+  String get workSessionBreakEndReconciled => 'The break end was confirmed with the server.';
+
+  @override
+  String get workSessionUnresolved => 'The operation result could not be confirmed. Refresh before retrying.';
+
+  @override
+  String get workSessionAuthRejected => 'The session expired or this action is not authorized.';
+
+  @override
+  String get workSessionBusinessRejected => 'The server rejected the action because of the current work state.';
+
+  @override
+  String get workSessionRateLimited => 'Too many requests. Try again shortly.';
+
+  @override
+  String get workSessionNetworkUnresolved => 'The result could not be confirmed because of connectivity. Server state remains authoritative.';
+
+  @override
+  String get workSessionTimeoutUnresolved => 'The request timed out before the result was confirmed. Server state remains authoritative.';
+
+  @override
+  String get workSessionServerUnresolved => 'The result could not be confirmed because of a server error.';
+
+  @override
+  String get workSessionRequestIdLabel => 'Request ID';
+
+  @override
+  String get workSessionStatusCodeLabel => 'Status code';
+
+  @override
+  String get workSessionServerDetailLabel => 'Server detail';
+
+  @override
+  String get workSessionIssueAuthentication => 'Sign in again before performing this work-session action.';
+
+  @override
+  String get workSessionIssueInvalidStartEvidence => 'The start-session request evidence was invalid. Refresh the data and try again.';
+
+  @override
+  String get workSessionIssueVehicleCustody => 'The vehicle custody is not operationally ready. Contact dispatch or custody operations.';
+
+  @override
+  String get workSessionIssueStartPrerequisite => 'The server refused to start work because a route, vehicle, or custody prerequisite is not ready.';
+
+  @override
+  String get workSessionIssueEndPrerequisite => 'The server refused to end work because an operational prerequisite remains unresolved.';
+
+  @override
+  String get workSessionIssueBreakState => 'The server break state does not allow this action. Refresh the session state and try again.';
+
+  @override
+  String get workSessionIssueRateLimited => 'The work-session action was rate limited. Try again shortly.';
+
+  @override
+  String get workSessionIssueConnectivity => 'The server could not be reached. Check the connection and refresh session state before retrying.';
+
+  @override
+  String get workSessionIssueTimeout => 'The request timed out before the result was confirmed. Refresh session state before retrying.';
+
+  @override
+  String get workSessionIssueUnresolved => 'The work-session result is unresolved. Server state remains authoritative; refresh before retrying.';
 }
