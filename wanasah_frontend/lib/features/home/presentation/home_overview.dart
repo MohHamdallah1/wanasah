@@ -11,16 +11,12 @@ class HomeOverview extends StatelessWidget {
     required this.state,
     required this.workSession,
     required this.pendingTransfers,
-    required this.openRoute,
-    required this.openCustody,
     super.key,
   });
 
   final DashboardLoaded state;
   final Widget workSession;
   final Widget pendingTransfers;
-  final VoidCallback openRoute;
-  final VoidCallback openCustody;
 
   @override
   Widget build(BuildContext context) {
@@ -143,24 +139,7 @@ class HomeOverview extends StatelessWidget {
         ),
 
         const SizedBox(height: 10),
-        Center(
-          child: ElevatedButton.icon(
-            icon: const Icon(Icons.list_alt_rounded),
-            label: Text(copy(AppCopyKey.openRoute)),
-            onPressed: openRoute,
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
-              textStyle: const TextStyle(fontSize: 16),
-            ),
-          ),
-        ),
-
         pendingTransfers,
-        OutlinedButton.icon(
-          onPressed: openCustody,
-          icon: const Icon(Icons.inventory_2_outlined),
-          label: Text(copy(AppCopyKey.openCustody)),
-        ),
       ],
     );
   }
