@@ -329,6 +329,21 @@ void main() {
       },
     );
 
+    test(
+      'dashboard null session id without Route inventory still fails closed',
+      () {
+        expect(
+          () => WorkSessionSnapshot.fromDashboardResponse(<String, dynamic>{
+            'active_session': <String, dynamic>{
+              'session_id': null,
+              'start_time': null,
+            },
+          }),
+          throwsFormatException,
+        );
+      },
+    );
+
     test('dashboard runtime parser keeps break state server-authoritative', () {
       final snapshot = WorkSessionSnapshot.fromDashboardResponse(
         <String, dynamic>{
