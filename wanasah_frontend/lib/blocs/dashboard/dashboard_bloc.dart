@@ -417,49 +417,90 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     } on DioException catch (e) {
       if (e.response?.statusCode == 401) return;
 
-      developer.log('[DashboardBloc] Dio Error: ${e.type} - ${e.message}');
-
-      // +++ التفريق الهندسي: هل النت مقطوع فعلاً؟ أم أن السيرفر فيه خلل (404/500)؟ +++
-      final bool isOfflineError =
+      final status = e.response?.statusCode;
+      final isConnectivityFailure =
           e.type == DioExceptionType.connectionTimeout ||
           e.type == DioExceptionType.receiveTimeout ||
           e.type == DioExceptionType.sendTimeout ||
           e.type == DioExceptionType.connectionError ||
           e.type == DioExceptionType.unknown;
+      final isServiceFailure = status != null && status >= 500;
+      final requestId = _requestIdFromDio(e);
 
-      if (isOfflineError) {
+      developer.log(
+        '[DashboardBloc] Dashboard refresh failed: '
+        'type=${e.type.name}, status=$status, requestId=$requestId',
+      );
+
+      if (isConnectivityFailure || isServiceFailure) {
         try {
-          // النت مقطوع -> نعرض بيانات الخزنة
-          var localData = await _loadFromLocal(isOffline: true);
+          var localData = await _loadFromLocal(
+            isOffline: isConnectivityFailure,
+          );
           if (restartRecovery?.succeeded == true) {
             localData = _applyRecoveredWorkSession(
               localData,
               restartRecovery!.session!,
             );
           }
-          emit(localData);
-        } catch (localErr) {
           emit(
-             DashboardError(
-              message: 'انقطع الإنترنت ولا توجد بيانات محلية.',
+            localData.copyWith(
+              refreshIssue: DashboardRefreshIssue(
+                kind:
+                    isConnectivityFailure
+                        ? DashboardRefreshIssueKind.connectivity
+                        : DashboardRefreshIssueKind.service,
+                statusCode: status,
+                requestId: requestId,
+              ),
             ),
           );
+          return;
+        } catch (localErr) {
+          developer.log(
+            '[DashboardBloc] Cached dashboard fallback failed: $localErr',
+          );
         }
-      } else {
-        // النت شغال ممتاز، لكن المسار في السيرفر غير موجود (404) أو معطل (500)
-        emit(
-          DashboardError(
-            message:
-                'أنت متصل بالإنترنت، لكن هناك خطأ في السيرفر: ${e.response?.statusCode}',
-          ),
-        );
       }
+
+      emit(
+        DashboardError(
+          message:
+              isServiceFailure
+                  ? 'dashboard_service_unavailable'
+                  : 'dashboard_request_failed',
+        ),
+      );
     } catch (e) {
       developer.log('[DashboardBloc] Parsing Error: $e');
-      emit(DashboardError(message: 'حدث خطأ في معالجة بيانات لوحة التحكم: $e'));
+      emit(DashboardError(message: 'dashboard_processing_failure'));
     }
   }
 
+
+  String? _requestIdFromDio(DioException error) {
+    final headers = error.response?.headers;
+    final headerRequestId =
+        headers?.value('x-request-id') ??
+        headers?.value('x-correlation-id');
+    if (headerRequestId != null && headerRequestId.trim().isNotEmpty) {
+      return headerRequestId.trim();
+    }
+
+    final body = error.response?.data;
+    if (body is Map) {
+      final dynamic requestId =
+          body['request_id'] ??
+          body['requestId'] ??
+          body['correlation_id'] ??
+          body['correlationId'];
+      final normalized = requestId?.toString().trim();
+      if (normalized != null && normalized.isNotEmpty) {
+        return normalized;
+      }
+    }
+    return null;
+  }
 
   Future<void> _onCheckPendingTransfers(
     CheckPendingTransfers event,
@@ -721,6 +762,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
               ? (session.isOnBreak ?? current.isOnBreak)
               : false,
       isOffline: current.isOffline,
+      refreshIssue: current.refreshIssue,
       pendingTransfer: current.pendingTransfer,
       nonSellableCustody: current.nonSellableCustody,
       pendingReturnCustody: current.pendingReturnCustody,
