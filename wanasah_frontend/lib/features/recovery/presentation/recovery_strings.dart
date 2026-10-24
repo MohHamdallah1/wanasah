@@ -1,3 +1,7 @@
+import 'package:flutter/widgets.dart';
+
+import '../../../l10n/generated/app_localizations.dart';
+
 enum RecoveryStringKey {
   checking,
   noPending,
@@ -50,138 +54,68 @@ enum RecoveryStringKey {
   readOnlyNotice,
 }
 
-const Map<RecoveryStringKey, String> _ar = {
-  RecoveryStringKey.checking: 'جارٍ التحقق',
-  RecoveryStringKey.noPending: 'لا عمليات معلّقة',
-  RecoveryStringKey.pendingCompact: 'معلّقة: {count}',
-  RecoveryStringKey.blockedCompact: 'تحتاج انتباهًا: {count}',
-  RecoveryStringKey.unavailableCompact: 'الحالة غير مؤكدة',
-  RecoveryStringKey.unreachableCompact: 'تعذر الوصول للخدمة',
-  RecoveryStringKey.serviceCompact: 'تعذر تحديث الخدمة',
-  RecoveryStringKey.cachedCompact: 'البيانات المحفوظة',
-  RecoveryStringKey.syncingCompact: 'جارٍ المزامنة',
-  RecoveryStringKey.refreshAction: 'مزامنة وتحديث',
-  RecoveryStringKey.inspectAction: 'إعادة قراءة الحالة',
-  RecoveryStringKey.detailsAction: 'عرض الأدلة المحفوظة',
-  RecoveryStringKey.pendingBanner: 'عمليات بانتظار المزامنة: {count}',
-  RecoveryStringKey.blockedBanner: 'عمليات تحتاج استرداداً: {count}',
-  RecoveryStringKey.combinedBanner:
-      'بانتظار المزامنة: {pending} • تحتاج استرداداً: {blocked}',
-  RecoveryStringKey.detailsHint: 'اضغط لعرض التفاصيل.',
-  RecoveryStringKey.panelTitle: 'حالة المزامنة والاسترداد',
-  RecoveryStringKey.panelDescription:
-      'السجلات المعلقة والمحجوبة دليل محفوظ. لا تُحذف لمجرد إخفاء الخطأ.',
-  RecoveryStringKey.pendingSection: 'بانتظار المزامنة',
-  RecoveryStringKey.blockedSection: 'تحتاج استرداداً',
-  RecoveryStringKey.pendingState: 'معلّقة',
-  RecoveryStringKey.blockedState: 'محجوبة',
-  RecoveryStringKey.operationLabel: 'العملية',
-  RecoveryStringKey.commandIdLabel: 'معرّف الأمر',
-  RecoveryStringKey.localRecordLabel: 'السجل المحلي',
-  RecoveryStringKey.attemptsLabel: 'عدد المحاولات',
-  RecoveryStringKey.errorCodeLabel: 'رمز الخطأ',
-  RecoveryStringKey.requestIdLabel: 'رقم التتبع',
-  RecoveryStringKey.createdAtLabel: 'التاريخ',
-  RecoveryStringKey.visitLabel: 'الزيارة',
-  RecoveryStringKey.transferLabel: 'الحوالة',
-  RecoveryStringKey.referenceLabel: 'مرجع',
-  RecoveryStringKey.reasonLabel: 'التفصيل',
-  RecoveryStringKey.missingValue: 'غير متوفر',
-  RecoveryStringKey.noRecoveryItems: 'لا توجد عمليات معلقة أو محجوبة.',
-  RecoveryStringKey.readUnavailable:
-      'تعذر قراءة حالة المزامنة المحلية. لم يتم افتراض أنها فارغة.',
-  RecoveryStringKey.syncInProgress: 'جاري مزامنة العمليات المحفوظة…',
-  RecoveryStringKey.syncSuccess: 'تمت المزامنة بالكامل.',
-  RecoveryStringKey.syncIncomplete:
-      'المزامنة غير مكتملة؛ ما زالت هناك عمليات معلقة.',
-  RecoveryStringKey.syncRecoveryRequired:
-      'توجد عمليات محجوبة تحتاج استرداداً قبل اعتبار المزامنة مكتملة.',
-  RecoveryStringKey.syncConnectivityUnresolved:
-      'تعذر الاتصال أثناء المزامنة. السجلات المحلية ما زالت محفوظة.',
-  RecoveryStringKey.syncTimedOut:
-      'انتهت مهلة المزامنة قبل تأكيد النتيجة. السجلات المحلية ما زالت محفوظة.',
-  RecoveryStringKey.syncUnresolved:
-      'تعذر تأكيد نتيجة المزامنة. حالة السجلات المحلية ما زالت محفوظة.',
-  RecoveryStringKey.submitSale: 'زيارة / فاتورة',
-  RecoveryStringKey.transferResponse: 'رد حوالة',
-  RecoveryStringKey.legacyBreak: 'استراحة قديمة',
-  RecoveryStringKey.corrupt: 'سجل غير صالح',
-  RecoveryStringKey.unknownOperation: 'عملية غير معروفة',
-  RecoveryStringKey.readOnlyNotice:
-      'السجلات المحجوبة للقراءة فقط في هذه المرحلة ولا يوجد حذف شامل.',
-};
-
-const Map<RecoveryStringKey, String> _en = {
-  RecoveryStringKey.checking: 'Checking',
-  RecoveryStringKey.noPending: 'No pending work',
-  RecoveryStringKey.pendingCompact: 'Pending: {count}',
-  RecoveryStringKey.blockedCompact: 'Attention: {count}',
-  RecoveryStringKey.unavailableCompact: 'Status unconfirmed',
-  RecoveryStringKey.unreachableCompact: 'Service unreachable',
-  RecoveryStringKey.serviceCompact: 'Service refresh failed',
-  RecoveryStringKey.cachedCompact: 'Saved data',
-  RecoveryStringKey.syncingCompact: 'Syncing',
-  RecoveryStringKey.refreshAction: 'Sync and refresh',
-  RecoveryStringKey.inspectAction: 'Recheck status',
-  RecoveryStringKey.detailsAction: 'View saved evidence',
-  RecoveryStringKey.pendingBanner: 'Waiting to sync: {count}',
-  RecoveryStringKey.blockedBanner: 'Recovery required: {count}',
-  RecoveryStringKey.combinedBanner:
-      'Waiting to sync: {pending} • Recovery required: {blocked}',
-  RecoveryStringKey.detailsHint: 'Tap for details.',
-  RecoveryStringKey.panelTitle: 'Sync and recovery status',
-  RecoveryStringKey.panelDescription:
-      'Pending and blocked records are durable evidence. They are not deleted to hide errors.',
-  RecoveryStringKey.pendingSection: 'Waiting to sync',
-  RecoveryStringKey.blockedSection: 'Recovery required',
-  RecoveryStringKey.pendingState: 'Pending',
-  RecoveryStringKey.blockedState: 'Blocked',
-  RecoveryStringKey.operationLabel: 'Operation',
-  RecoveryStringKey.commandIdLabel: 'Command ID',
-  RecoveryStringKey.localRecordLabel: 'Local record',
-  RecoveryStringKey.attemptsLabel: 'Attempts',
-  RecoveryStringKey.errorCodeLabel: 'Error code',
-  RecoveryStringKey.requestIdLabel: 'Request ID',
-  RecoveryStringKey.createdAtLabel: 'Created',
-  RecoveryStringKey.visitLabel: 'Visit',
-  RecoveryStringKey.transferLabel: 'Transfer',
-  RecoveryStringKey.referenceLabel: 'Reference',
-  RecoveryStringKey.reasonLabel: 'Detail',
-  RecoveryStringKey.missingValue: 'Unavailable',
-  RecoveryStringKey.noRecoveryItems: 'No pending or blocked operations.',
-  RecoveryStringKey.readUnavailable:
-      'Local sync state could not be read. It was not assumed to be empty.',
-  RecoveryStringKey.syncInProgress: 'Syncing durable offline work…',
-  RecoveryStringKey.syncSuccess: 'Sync completed.',
-  RecoveryStringKey.syncIncomplete:
-      'Sync is incomplete; pending operations remain.',
-  RecoveryStringKey.syncRecoveryRequired:
-      'Blocked operations require recovery before sync can be considered complete.',
-  RecoveryStringKey.syncConnectivityUnresolved:
-      'Connectivity was lost during sync. Local evidence remains preserved.',
-  RecoveryStringKey.syncTimedOut:
-      'Sync timed out before the result was confirmed. Local evidence remains preserved.',
-  RecoveryStringKey.syncUnresolved:
-      'The sync result could not be confirmed. Local evidence remains preserved.',
-  RecoveryStringKey.submitSale: 'Visit / invoice',
-  RecoveryStringKey.transferResponse: 'Transfer response',
-  RecoveryStringKey.legacyBreak: 'Legacy break',
-  RecoveryStringKey.corrupt: 'Invalid record',
-  RecoveryStringKey.unknownOperation: 'Unknown operation',
-  RecoveryStringKey.readOnlyNotice:
-      'Blocked records are read-only here and there is no bulk-delete action.',
-};
-
 String recoveryString(
   RecoveryStringKey key, {
   String localeCode = 'ar',
   Map<String, Object> values = const <String, Object>{},
 }) {
-  final language = localeCode.split(RegExp('[-_]')).first.toLowerCase();
-  final selected = language == 'en' ? _en : _ar;
-  var text = selected[key] ?? _ar[key]!;
-  for (final entry in values.entries) {
-    text = text.replaceAll('{${entry.key}}', entry.value.toString());
-  }
-  return text;
+  final languageCode = localeCode.split(RegExp('[-_]')).first.toLowerCase();
+  final l10n = lookupAppLocalizations(Locale(languageCode));
+  String value(String name) => values[name]?.toString() ?? '';
+
+  return switch (key) {
+    RecoveryStringKey.checking => l10n.recoveryChecking,
+    RecoveryStringKey.noPending => l10n.recoveryNoPending,
+    RecoveryStringKey.pendingCompact => l10n.recoveryPendingCompact(value('count')),
+    RecoveryStringKey.blockedCompact => l10n.recoveryBlockedCompact(value('count')),
+    RecoveryStringKey.unavailableCompact => l10n.recoveryUnavailableCompact,
+    RecoveryStringKey.unreachableCompact => l10n.recoveryUnreachableCompact,
+    RecoveryStringKey.serviceCompact => l10n.recoveryServiceCompact,
+    RecoveryStringKey.cachedCompact => l10n.recoveryCachedCompact,
+    RecoveryStringKey.syncingCompact => l10n.recoverySyncingCompact,
+    RecoveryStringKey.refreshAction => l10n.recoveryRefreshAction,
+    RecoveryStringKey.inspectAction => l10n.recoveryInspectAction,
+    RecoveryStringKey.detailsAction => l10n.recoveryDetailsAction,
+    RecoveryStringKey.pendingBanner => l10n.recoveryPendingBanner(value('count')),
+    RecoveryStringKey.blockedBanner => l10n.recoveryBlockedBanner(value('count')),
+    RecoveryStringKey.combinedBanner => l10n.recoveryCombinedBanner(
+      value('pending'),
+      value('blocked'),
+    ),
+    RecoveryStringKey.detailsHint => l10n.recoveryDetailsHint,
+    RecoveryStringKey.panelTitle => l10n.recoveryPanelTitle,
+    RecoveryStringKey.panelDescription => l10n.recoveryPanelDescription,
+    RecoveryStringKey.pendingSection => l10n.recoveryPendingSection,
+    RecoveryStringKey.blockedSection => l10n.recoveryBlockedSection,
+    RecoveryStringKey.pendingState => l10n.recoveryPendingState,
+    RecoveryStringKey.blockedState => l10n.recoveryBlockedState,
+    RecoveryStringKey.operationLabel => l10n.recoveryOperationLabel,
+    RecoveryStringKey.commandIdLabel => l10n.recoveryCommandIdLabel,
+    RecoveryStringKey.localRecordLabel => l10n.recoveryLocalRecordLabel,
+    RecoveryStringKey.attemptsLabel => l10n.recoveryAttemptsLabel,
+    RecoveryStringKey.errorCodeLabel => l10n.recoveryErrorCodeLabel,
+    RecoveryStringKey.requestIdLabel => l10n.recoveryRequestIdLabel,
+    RecoveryStringKey.createdAtLabel => l10n.recoveryCreatedAtLabel,
+    RecoveryStringKey.visitLabel => l10n.recoveryVisitLabel,
+    RecoveryStringKey.transferLabel => l10n.recoveryTransferLabel,
+    RecoveryStringKey.referenceLabel => l10n.recoveryReferenceLabel,
+    RecoveryStringKey.reasonLabel => l10n.recoveryReasonLabel,
+    RecoveryStringKey.missingValue => l10n.recoveryMissingValue,
+    RecoveryStringKey.noRecoveryItems => l10n.recoveryNoRecoveryItems,
+    RecoveryStringKey.readUnavailable => l10n.recoveryReadUnavailable,
+    RecoveryStringKey.syncInProgress => l10n.recoverySyncInProgress,
+    RecoveryStringKey.syncSuccess => l10n.recoverySyncSuccess,
+    RecoveryStringKey.syncIncomplete => l10n.recoverySyncIncomplete,
+    RecoveryStringKey.syncRecoveryRequired => l10n.recoverySyncRecoveryRequired,
+    RecoveryStringKey.syncConnectivityUnresolved =>
+      l10n.recoverySyncConnectivityUnresolved,
+    RecoveryStringKey.syncTimedOut => l10n.recoverySyncTimedOut,
+    RecoveryStringKey.syncUnresolved => l10n.recoverySyncUnresolved,
+    RecoveryStringKey.submitSale => l10n.recoverySubmitSale,
+    RecoveryStringKey.transferResponse => l10n.recoveryTransferResponse,
+    RecoveryStringKey.legacyBreak => l10n.recoveryLegacyBreak,
+    RecoveryStringKey.corrupt => l10n.recoveryCorrupt,
+    RecoveryStringKey.unknownOperation => l10n.recoveryUnknownOperation,
+    RecoveryStringKey.readOnlyNotice => l10n.recoveryReadOnlyNotice,
+  };
 }

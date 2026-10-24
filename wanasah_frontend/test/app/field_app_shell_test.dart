@@ -1,9 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:wanasah_frontend/app/localization/app_copy.dart';
+import 'package:wanasah_frontend/l10n/generated/app_localizations.dart';
 import 'package:wanasah_frontend/app/shell/field_app_shell.dart';
 import 'package:wanasah_frontend/app/theme/field_theme.dart';
 
@@ -15,12 +14,8 @@ void main() {
     VoidCallback? refresh,
   }) => MaterialApp(
     locale: locale,
-    supportedLocales: const [Locale('ar'), Locale('en')],
-    localizationsDelegates: const [
-      GlobalMaterialLocalizations.delegate,
-      GlobalWidgetsLocalizations.delegate,
-      GlobalCupertinoLocalizations.delegate,
-    ],
+    supportedLocales: AppLocalizations.supportedLocales,
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
     builder:
         (context, child) => MediaQuery(
           data: MediaQuery.of(
@@ -226,8 +221,7 @@ void main() {
 
   testWidgets('shell labels are locale resources', (tester) async {
     await tester.pumpWidget(app(locale: const Locale('en')));
-    final context = tester.element(find.byType(FieldAppShell));
-    expect(AppCopy.of(context, AppCopyKey.route), 'Route');
+    expect(find.text('Route'), findsOneWidget);
     expect(find.text('Home'), findsOneWidget);
     expect(find.text('Custody'), findsOneWidget);
   });

@@ -1,0 +1,192 @@
+{
+  "@@locale": "ar",
+  "appTitle": "وناسة",
+  "dashboardConnectivityCached": "تعذر الوصول إلى النظام مؤقتًا. نعرض آخر بيانات محفوظة ويمكنك المحاولة مجددًا.",
+  "dashboardServiceCached": "تعذر تحديث البيانات بسبب مشكلة مؤقتة في الخدمة. بياناتك المحفوظة ما زالت متاحة.",
+  "dashboardGenericError": "تعذر تحميل هذه البيانات الآن. حاول مرة أخرى، وإذا استمرت المشكلة تواصل مع الدعم.",
+  "retry": "إعادة المحاولة",
+  "home": "الرئيسية",
+  "route": "خط السير",
+  "custody": "العهدة",
+  "brand": "وناسة",
+  "account": "الحساب",
+  "refresh": "تحديث البيانات",
+  "logout": "تسجيل الخروج",
+  "logoutTitle": "تأكيد الخروج",
+  "logoutPrompt": "هل تريد تسجيل الخروج؟",
+  "cancel": "إلغاء",
+  "confirm": "نعم، تأكيد",
+  "greeting": "أهلاً بك، {name}!",
+  "@greeting": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "region": "المنطقة المخصصة: {region}",
+  "@region": {
+    "placeholders": {
+      "region": {
+        "type": "String"
+      }
+    }
+  },
+  "today": "تاريخ اليوم: {date}",
+  "@today": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "routeSummary": "ملخص الجولة",
+  "completedVisits": "الزيارات المكتملة: {count}",
+  "@completedVisits": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "salesVisits": "الزيارات الناجحة (مبيعات): {count}",
+  "@salesVisits": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "pendingVisits": "الزيارات المعلقة: {count}",
+  "@pendingVisits": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "offlineVisits": "بانتظار المزامنة: {count}",
+  "@offlineVisits": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "financialSummary": "الملخص المالي",
+  "salesCash": "إجمالي كاش المبيعات: {amount}",
+  "@salesCash": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "debtCash": "إجمالي الذمم المحصلة: ({count}) {amount}",
+  "@debtCash": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      },
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "totalCash": "إجمالي الكاش المستلم: {amount}",
+  "@totalCash": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "pendingTransfers": "مراجعة الحوالات المعلقة",
+  "recoveryChecking": "جارٍ التحقق",
+  "recoveryNoPending": "لا عمليات معلّقة",
+  "recoveryPendingCompact": "معلّقة: {count}",
+  "@recoveryPendingCompact": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "recoveryBlockedCompact": "تحتاج انتباهًا: {count}",
+  "@recoveryBlockedCompact": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "recoveryUnavailableCompact": "الحالة غير مؤكدة",
+  "recoveryUnreachableCompact": "تعذر الوصول للخدمة",
+  "recoveryServiceCompact": "تعذر تحديث الخدمة",
+  "recoveryCachedCompact": "البيانات المحفوظة",
+  "recoverySyncingCompact": "جارٍ المزامنة",
+  "recoveryRefreshAction": "مزامنة وتحديث",
+  "recoveryInspectAction": "إعادة قراءة الحالة",
+  "recoveryDetailsAction": "عرض الأدلة المحفوظة",
+  "recoveryPendingBanner": "عمليات بانتظار المزامنة: {count}",
+  "@recoveryPendingBanner": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "recoveryBlockedBanner": "عمليات تحتاج استرداداً: {count}",
+  "@recoveryBlockedBanner": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "recoveryCombinedBanner": "بانتظار المزامنة: {pending} • تحتاج استرداداً: {blocked}",
+  "@recoveryCombinedBanner": {
+    "placeholders": {
+      "pending": {
+        "type": "String"
+      },
+      "blocked": {
+        "type": "String"
+      }
+    }
+  },
+  "recoveryDetailsHint": "اضغط لعرض التفاصيل.",
+  "recoveryPanelTitle": "حالة المزامنة والاسترداد",
+  "recoveryPanelDescription": "السجلات المعلقة والمحجوبة دليل محفوظ. لا تُحذف لمجرد إخفاء الخطأ.",
+  "recoveryPendingSection": "بانتظار المزامنة",
+  "recoveryBlockedSection": "تحتاج استرداداً",
+  "recoveryPendingState": "معلّقة",
+  "recoveryBlockedState": "محجوبة",
+  "recoveryOperationLabel": "العملية",
+  "recoveryCommandIdLabel": "معرّف الأمر",
+  "recoveryLocalRecordLabel": "السجل المحلي",
+  "recoveryAttemptsLabel": "عدد المحاولات",
+  "recoveryErrorCodeLabel": "رمز الخطأ",
+  "recoveryRequestIdLabel": "رقم التتبع",
+  "recoveryCreatedAtLabel": "التاريخ",
+  "recoveryVisitLabel": "الزيارة",
+  "recoveryTransferLabel": "الحوالة",
+  "recoveryReferenceLabel": "مرجع",
+  "recoveryReasonLabel": "التفصيل",
+  "recoveryMissingValue": "غير متوفر",
+  "recoveryNoRecoveryItems": "لا توجد عمليات معلقة أو محجوبة.",
+  "recoveryReadUnavailable": "تعذر قراءة حالة المزامنة المحلية. لم يتم افتراض أنها فارغة.",
+  "recoverySyncInProgress": "جاري مزامنة العمليات المحفوظة…",
+  "recoverySyncSuccess": "تمت المزامنة بالكامل.",
+  "recoverySyncIncomplete": "المزامنة غير مكتملة؛ ما زالت هناك عمليات معلقة.",
+  "recoverySyncRecoveryRequired": "توجد عمليات محجوبة تحتاج استرداداً قبل اعتبار المزامنة مكتملة.",
+  "recoverySyncConnectivityUnresolved": "تعذر الاتصال أثناء المزامنة. السجلات المحلية ما زالت محفوظة.",
+  "recoverySyncTimedOut": "انتهت مهلة المزامنة قبل تأكيد النتيجة. السجلات المحلية ما زالت محفوظة.",
+  "recoverySyncUnresolved": "تعذر تأكيد نتيجة المزامنة. حالة السجلات المحلية ما زالت محفوظة.",
+  "recoverySubmitSale": "زيارة / فاتورة",
+  "recoveryTransferResponse": "رد حوالة",
+  "recoveryLegacyBreak": "استراحة قديمة",
+  "recoveryCorrupt": "سجل غير صالح",
+  "recoveryUnknownOperation": "عملية غير معروفة",
+  "recoveryReadOnlyNotice": "السجلات المحجوبة للقراءة فقط في هذه المرحلة ولا يوجد حذف شامل."
+}

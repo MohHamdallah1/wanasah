@@ -17,7 +17,7 @@ import '../features/recovery/presentation/recovery_dashboard_scroll.dart';
 import '../features/custody/presentation/pending_transfer_dialog.dart';
 import '../features/custody/domain/pending_transfer.dart';
 import '../features/custody/presentation/vehicle_inventory_section.dart';
-import '../app/localization/app_copy.dart';
+import '../l10n/generated/app_localizations.dart';
 
 class DashboardScreen extends StatefulWidget {
   final int driverId;
@@ -102,11 +102,11 @@ class _DashboardScreenState extends State<DashboardScreen>
           content: Text(content),
           actions: <Widget>[
             TextButton(
-              child: Text(AppCopy.of(context, AppCopyKey.cancel)),
+              child: Text(AppLocalizations.of(context).cancel),
               onPressed: () => Navigator.of(dialogContext).pop(false),
             ),
             TextButton(
-              child: Text(AppCopy.of(context, AppCopyKey.confirm)),
+              child: Text(AppLocalizations.of(context).confirm),
               onPressed: () => Navigator.of(dialogContext).pop(true),
             ),
           ],
@@ -119,8 +119,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   Future<void> _logout() async {
     final bool? confirmed = await _showConfirmationDialog(
       context,
-      AppCopy.of(context, AppCopyKey.logoutTitle),
-      AppCopy.of(context, AppCopyKey.logoutPrompt),
+      AppLocalizations.of(context).logoutTitle,
+      AppLocalizations.of(context).logoutPrompt,
     );
     if (confirmed == true) {
       if (!mounted) return; // +++ الدرع الواقي للـ BuildContext +++
@@ -172,7 +172,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
-                    AppCopy.of(context, AppCopyKey.dashboardGenericError),
+                    AppLocalizations.of(context).dashboardGenericError,
                   ),
                   backgroundColor: Theme.of(context).colorScheme.error,
                 ),
@@ -257,7 +257,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                AppCopy.of(context, AppCopyKey.dashboardGenericError),
+                AppLocalizations.of(context).dashboardGenericError,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
                 textAlign: TextAlign.center,
               ),
@@ -267,7 +267,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     () => context.read<DashboardBloc>().add(
                       FetchDashboardData(driverId: widget.driverId),
                     ),
-                child: Text(AppCopy.of(context, AppCopyKey.retry)),
+                child: Text(AppLocalizations.of(context).retry),
               ),
             ],
           ),
@@ -288,7 +288,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 _showTransferDialog(context, state.pendingTransfer!);
               },
       icon: const Icon(Icons.move_to_inbox_outlined),
-      label: Text(AppCopy.of(context, AppCopyKey.pendingTransfers)),
+      label: Text(AppLocalizations.of(context).pendingTransfers),
     );
   }
 
@@ -319,10 +319,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     DashboardRefreshIssue issue,
   ) {
     final isConnectivity = issue.kind == DashboardRefreshIssueKind.connectivity;
-    final messageKey =
+    final l10n = AppLocalizations.of(context);
+    final message =
         isConnectivity
-            ? AppCopyKey.dashboardConnectivityCached
-            : AppCopyKey.dashboardServiceCached;
+            ? l10n.dashboardConnectivityCached
+            : l10n.dashboardServiceCached;
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -342,7 +343,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              AppCopy.of(context, messageKey),
+              message,
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onSurface,
                 fontWeight: FontWeight.w600,

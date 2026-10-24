@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import '../../../app/localization/app_copy.dart';
+import '../../../l10n/generated/app_localizations.dart';
 import '../../../blocs/dashboard/dashboard_state.dart';
 
 /// Existing Home evidence, kept separate from navigation and action ownership.
@@ -34,19 +34,18 @@ class HomeOverview extends StatelessWidget {
       name: 'JOD',
       decimalDigits: 3,
     );
-    String copy(AppCopyKey key, [Map<String, String> values = const {}]) =>
-        AppCopy.of(context, key, values: values);
+    final l10n = AppLocalizations.of(context);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          copy(AppCopyKey.greeting, {'name': state.driverName}),
+          l10n.greeting(state.driverName),
           style: Theme.of(context).textTheme.headlineSmall,
         ),
         const SizedBox(height: 8),
         Text(
-          copy(AppCopyKey.region, {'region': state.assignedRegion}),
+          l10n.region(state.assignedRegion),
           style: TextStyle(
             fontSize: 17,
             color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -54,7 +53,7 @@ class HomeOverview extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          copy(AppCopyKey.today, {'date': date}),
+          l10n.today(date),
           style: TextStyle(
             fontSize: 15,
             color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -65,33 +64,25 @@ class HomeOverview extends StatelessWidget {
         workSession,
         const Divider(height: 30, thickness: 1),
         Text(
-          copy(AppCopyKey.routeSummary),
+          l10n.routeSummary,
           style: Theme.of(context).textTheme.titleLarge,
         ),
         const SizedBox(height: 12),
         Text(
-          copy(AppCopyKey.completedVisits, {
-            'count': numbers.format(state.completedVisits),
-          }),
+          l10n.completedVisits(numbers.format(state.completedVisits)),
           style: const TextStyle(fontSize: 16),
         ),
         Text(
-          copy(AppCopyKey.salesVisits, {
-            'count': numbers.format(state.salesInCompleted),
-          }),
+          l10n.salesVisits(numbers.format(state.salesInCompleted)),
           style: const TextStyle(fontSize: 16),
         ),
         Text(
-          copy(AppCopyKey.pendingVisits, {
-            'count': numbers.format(state.pendingVisits),
-          }),
+          l10n.pendingVisits(numbers.format(state.pendingVisits)),
           style: const TextStyle(fontSize: 16),
         ),
         if (state.offlineVisits > 0)
           Text(
-            copy(AppCopyKey.offlineVisits, {
-              'count': numbers.format(state.offlineVisits),
-            }),
+            l10n.offlineVisits(numbers.format(state.offlineVisits)),
             style: TextStyle(
               fontSize: 16,
               color: Theme.of(context).colorScheme.error,
@@ -101,7 +92,7 @@ class HomeOverview extends StatelessWidget {
 
         const SizedBox(height: 15),
         Text(
-          copy(AppCopyKey.financialSummary),
+          l10n.financialSummary,
           style: Theme.of(context).textTheme.titleLarge,
         ),
         const SizedBox(height: 12),
@@ -111,24 +102,20 @@ class HomeOverview extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                copy(AppCopyKey.salesCash, {
-                  'amount': money.format(state.totalSalesCash),
-                }),
+                l10n.salesCash(money.format(state.totalSalesCash)),
                 style: const TextStyle(fontSize: 16),
               ),
               const SizedBox(height: 4),
               Text(
-                copy(AppCopyKey.debtCash, {
-                  'count': numbers.format(state.debtPaymentsCount),
-                  'amount': money.format(state.totalDebtPaid),
-                }),
+                l10n.debtCash(
+                  numbers.format(state.debtPaymentsCount),
+                  money.format(state.totalDebtPaid),
+                ),
                 style: const TextStyle(fontSize: 16),
               ),
               const SizedBox(height: 4),
               Text(
-                copy(AppCopyKey.totalCash, {
-                  'amount': money.format(state.totalCashOverall),
-                }),
+                l10n.totalCash(money.format(state.totalCashOverall)),
                 style: const TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 16,

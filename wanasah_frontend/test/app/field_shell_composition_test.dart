@@ -5,9 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:wanasah_frontend/l10n/generated/app_localizations.dart';
 import 'package:wanasah_frontend/blocs/dashboard/dashboard_bloc.dart';
 import 'package:wanasah_frontend/blocs/dashboard/dashboard_event.dart';
 import 'package:wanasah_frontend/blocs/dashboard/dashboard_state.dart';
@@ -62,12 +62,8 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           locale: const Locale('ar'),
-          supportedLocales: const [Locale('ar')],
-          localizationsDelegates: const [
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
           home: BlocProvider<DashboardBloc>.value(
             value: bloc,
             child: RepaintBoundary(
@@ -122,6 +118,9 @@ void main() {
       addTearDown(bloc.close);
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('en'),
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
           home: BlocProvider<DashboardBloc>.value(
             value: bloc,
             child: DashboardScreen(

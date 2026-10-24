@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
-
 import '../blocs/auth/auth_bloc.dart';
 import '../blocs/dashboard/dashboard_bloc.dart';
 import '../screens/splash_screen.dart';
+import '../l10n/generated/app_localizations.dart';
 import 'app_auth_navigation.dart';
 import 'theme/app_system_ui.dart';
 import 'theme/app_theme.dart';
@@ -36,19 +35,15 @@ class MyApp extends StatelessWidget {
         ),
       ],
       child: MaterialApp(
-        title: 'Wanasah App',
+        onGenerateTitle: (context) => AppLocalizations.of(context).appTitle,
         navigatorKey: navigatorKey,
         debugShowCheckedModeBanner: false,
         theme: AppTheme.data,
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        supportedLocales: const [
-          Locale('ar', ''),
-        ],
-        locale: const Locale('ar', ''),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        // Keep runtime Arabic until the remaining V1 screens migrate.
+        // Future locale selection can change this without rewriting widgets.
+        locale: const Locale('ar'),
         builder: (context, child) {
           return AppSystemUi(
             child: AppAuthNavigationListener(

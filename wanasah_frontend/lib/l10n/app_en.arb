@@ -1,0 +1,192 @@
+{
+  "@@locale": "en",
+  "appTitle": "Wanasah",
+  "dashboardConnectivityCached": "The service is temporarily unreachable. Saved data remains available.",
+  "dashboardServiceCached": "The service could not refresh your data. Saved data remains available.",
+  "dashboardGenericError": "Unable to load this data. Try again or contact support.",
+  "retry": "Try again",
+  "home": "Home",
+  "route": "Route",
+  "custody": "Custody",
+  "brand": "Wanasah",
+  "account": "Account",
+  "refresh": "Refresh data",
+  "logout": "Sign out",
+  "logoutTitle": "Confirm sign out",
+  "logoutPrompt": "Do you want to sign out?",
+  "cancel": "Cancel",
+  "confirm": "Confirm",
+  "greeting": "Welcome, {name}!",
+  "@greeting": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "region": "Assigned region: {region}",
+  "@region": {
+    "placeholders": {
+      "region": {
+        "type": "String"
+      }
+    }
+  },
+  "today": "Today: {date}",
+  "@today": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "routeSummary": "Route summary",
+  "completedVisits": "Completed visits: {count}",
+  "@completedVisits": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "salesVisits": "Visits with sales: {count}",
+  "@salesVisits": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "pendingVisits": "Pending visits: {count}",
+  "@pendingVisits": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "offlineVisits": "Awaiting sync: {count}",
+  "@offlineVisits": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "financialSummary": "Financial summary",
+  "salesCash": "Sales cash: {amount}",
+  "@salesCash": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "debtCash": "Debt collections: ({count}) {amount}",
+  "@debtCash": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      },
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "totalCash": "Total cash received: {amount}",
+  "@totalCash": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "pendingTransfers": "Review pending transfers",
+  "recoveryChecking": "Checking",
+  "recoveryNoPending": "No pending work",
+  "recoveryPendingCompact": "Pending: {count}",
+  "@recoveryPendingCompact": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "recoveryBlockedCompact": "Attention: {count}",
+  "@recoveryBlockedCompact": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "recoveryUnavailableCompact": "Status unconfirmed",
+  "recoveryUnreachableCompact": "Service unreachable",
+  "recoveryServiceCompact": "Service refresh failed",
+  "recoveryCachedCompact": "Saved data",
+  "recoverySyncingCompact": "Syncing",
+  "recoveryRefreshAction": "Sync and refresh",
+  "recoveryInspectAction": "Recheck status",
+  "recoveryDetailsAction": "View saved evidence",
+  "recoveryPendingBanner": "Waiting to sync: {count}",
+  "@recoveryPendingBanner": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "recoveryBlockedBanner": "Recovery required: {count}",
+  "@recoveryBlockedBanner": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "recoveryCombinedBanner": "Waiting to sync: {pending} • Recovery required: {blocked}",
+  "@recoveryCombinedBanner": {
+    "placeholders": {
+      "pending": {
+        "type": "String"
+      },
+      "blocked": {
+        "type": "String"
+      }
+    }
+  },
+  "recoveryDetailsHint": "Tap for details.",
+  "recoveryPanelTitle": "Sync and recovery status",
+  "recoveryPanelDescription": "Pending and blocked records are durable evidence. They are not deleted to hide errors.",
+  "recoveryPendingSection": "Waiting to sync",
+  "recoveryBlockedSection": "Recovery required",
+  "recoveryPendingState": "Pending",
+  "recoveryBlockedState": "Blocked",
+  "recoveryOperationLabel": "Operation",
+  "recoveryCommandIdLabel": "Command ID",
+  "recoveryLocalRecordLabel": "Local record",
+  "recoveryAttemptsLabel": "Attempts",
+  "recoveryErrorCodeLabel": "Error code",
+  "recoveryRequestIdLabel": "Request ID",
+  "recoveryCreatedAtLabel": "Created",
+  "recoveryVisitLabel": "Visit",
+  "recoveryTransferLabel": "Transfer",
+  "recoveryReferenceLabel": "Reference",
+  "recoveryReasonLabel": "Detail",
+  "recoveryMissingValue": "Unavailable",
+  "recoveryNoRecoveryItems": "No pending or blocked operations.",
+  "recoveryReadUnavailable": "Local sync state could not be read. It was not assumed to be empty.",
+  "recoverySyncInProgress": "Syncing durable offline work…",
+  "recoverySyncSuccess": "Sync completed.",
+  "recoverySyncIncomplete": "Sync is incomplete; pending operations remain.",
+  "recoverySyncRecoveryRequired": "Blocked operations require recovery before sync can be considered complete.",
+  "recoverySyncConnectivityUnresolved": "Connectivity was lost during sync. Local evidence remains preserved.",
+  "recoverySyncTimedOut": "Sync timed out before the result was confirmed. Local evidence remains preserved.",
+  "recoverySyncUnresolved": "The sync result could not be confirmed. Local evidence remains preserved.",
+  "recoverySubmitSale": "Visit / invoice",
+  "recoveryTransferResponse": "Transfer response",
+  "recoveryLegacyBreak": "Legacy break",
+  "recoveryCorrupt": "Invalid record",
+  "recoveryUnknownOperation": "Unknown operation",
+  "recoveryReadOnlyNotice": "Blocked records are read-only here and there is no bulk-delete action."
+}
