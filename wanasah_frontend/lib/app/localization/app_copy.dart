@@ -28,8 +28,6 @@ enum AppCopyKey {
   salesCash,
   debtCash,
   totalCash,
-  openRoute,
-  openCustody,
   pendingTransfers,
 }
 
@@ -65,8 +63,6 @@ class AppCopy {
     AppCopyKey.salesCash: 'إجمالي كاش المبيعات: {amount}',
     AppCopyKey.debtCash: 'إجمالي الذمم المحصلة: ({count}) {amount}',
     AppCopyKey.totalCash: 'إجمالي الكاش المستلم: {amount}',
-    AppCopyKey.openRoute: 'عرض قائمة زيارات اليوم',
-    AppCopyKey.openCustody: 'عرض العهدة',
     AppCopyKey.pendingTransfers: 'مراجعة الحوالات المعلقة',
   };
 
@@ -101,8 +97,6 @@ class AppCopy {
     AppCopyKey.salesCash: 'Sales cash: {amount}',
     AppCopyKey.debtCash: 'Debt collections: ({count}) {amount}',
     AppCopyKey.totalCash: 'Total cash received: {amount}',
-    AppCopyKey.openRoute: "View today's visits",
-    AppCopyKey.openCustody: 'View custody',
     AppCopyKey.pendingTransfers: 'Review pending transfers',
   };
 
