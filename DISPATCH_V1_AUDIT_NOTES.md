@@ -197,6 +197,33 @@ This increases rerender blast radius and makes performance regressions easy.
 
 Do **not** rewrite Dispatch from zero. During the full Dispatch V1 pass, split by existing business surfaces/read models while preserving the accepted backend authority.
 
+### 2.15 Route-launch errors are currently masked by a generic frontend message
+
+`useAuthFetch` preserves the backend business reason in `serverMessage` / normalized error data, but `DispatchBoard` historically called its local `getErrorMessage(error)` helper for route launch.
+
+For every non-2xx HTTP response, the visible `Error.message` created by `useAuthFetch` is the generic localized network text (Arabic: `تعذر إكمال الطلب.`). Therefore a precise 409/422 business rejection can be reduced to:
+
+`خطأ في إطلاق خط السير: تعذر إكمال الطلب.`
+
+This is a confirmed UX/debuggability defect. Route launch must use the canonical `apiErrorMessage(...)` path so safe 4xx business messages remain actionable while unknown 5xx errors stay redacted.
+
+### 2.16 Route launch depends on commercial setup that is not yet initialized in the current V1 test tenant
+
+The current tenant has valid pricing publication/assignment data, but the audit found:
+
+- no published Tax rule-set/version;
+- no published `COMMERCIAL_ROUNDING` tenant operational policy.
+
+`lock_route_commercial_context()` requires a complete commercial snapshot at route launch. It checks Tax before rounding, so the current first blocker is:
+
+`TAX_CONFIGURATION_REQUIRED`
+
+with the backend rule that even a genuinely non-taxed business must publish an explicit 0% tax component rather than having no Tax configuration.
+
+After Tax is configured, the same tenant would next fail with `COMMERCIAL_ROUNDING_NOT_CONFIGURED` until a rounding policy is published.
+
+This commercial fail-closed behavior is intentional and must not be bypassed just to make Dispatch launch succeed. The UI/setup flow, however, must make the prerequisite obvious before the operator reaches the Launch button.
+
 ## 3. Confirmed items that are NOT the main cause
 
 - Product data is mostly text/IDs, not images or video. Individual records are light, but **45,000 records multiplied across DB objects, JSON, React elements, DOM nodes and input components is not light**.
@@ -252,6 +279,8 @@ When Inventory closure is complete and Dispatch becomes the active workstream, a
 - [ ] Modal lazy mounting.
 - [ ] `QuantityInput` keyboard navigation scope.
 - [ ] Local Storage keys scoped by company/user where required.
+- [ ] Route-launch commercial prerequisites (Pricing Assignment/Publication, Tax, rounding policy) are visible and actionable before submit.
+- [ ] Dispatch business errors use canonical `apiErrorMessage` and focus/identify the affected setup or product where possible.
 - [ ] Permissions/capabilities and organizational scope.
 - [ ] Source warehouse / vehicle custody invariants.
 - [ ] Route load / unload / adjustment semantics.
