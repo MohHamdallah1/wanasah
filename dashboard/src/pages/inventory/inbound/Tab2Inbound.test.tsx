@@ -1044,6 +1044,91 @@ describe("Checkpoint 1 inbound UI", () => {
     ]);
   });
 
+
+  it("surfaces stale saved products and removes them explicitly instead of hiding them", async () => {
+    const keys = inboundStorageKeys(1, 2, 3);
+    localStorage.setItem(keys.reference, "INV-STALE-DRAFT");
+    localStorage.setItem(keys.drafts, JSON.stringify({
+      "99": [{
+        row_id: "stale-draft-row",
+        quantity: "7",
+        uom_id: "1",
+        unit_cost: "4.25",
+        batch_number: "",
+        production_date: "",
+        expiry_date: "",
+      }],
+    }));
+
+    renderInbound(
+      [makeVariant(1, "Current product", "NONE", "NONE")],
+      null,
+      costPolicy,
+      [],
+    );
+
+    const title = await screen.findByText("Receipt issues to fix (1)");
+    const issuePanel = title.closest('[role="alert"]') as HTMLElement;
+    expect(issuePanel).toHaveTextContent(
+      "Saved draft line 1 belongs to a product that no longer exists in the catalog.",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "choose-supplier" }));
+    fireEvent.click(screen.getByRole("button", { name: "Post receipt" }));
+
+    await waitFor(() => expect(document.activeElement).toBe(issuePanel));
+    expect(mocks.post).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      within(issuePanel).getByRole("button", {
+        name: "Remove unavailable products from draft",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByText("Receipt issues to fix (1)")).toBeNull(),
+    );
+    await waitFor(() => {
+      const saved = JSON.parse(localStorage.getItem(keys.drafts) ?? "{}");
+      expect(saved["99"]).toBeUndefined();
+    });
+  });
+
+  it("focuses the affected product when the backend returns product context", async () => {
+    const keys = inboundStorageKeys(1, 2, 3);
+    localStorage.setItem(keys.reference, "INV-PRODUCT-CONTEXT");
+    localStorage.setItem(keys.drafts, JSON.stringify({
+      "1": [{
+        row_id: "context-product-row",
+        quantity: "2",
+        uom_id: "1",
+        unit_cost: "3",
+        batch_number: "",
+        production_date: "",
+        expiry_date: "",
+      }],
+    }));
+    mocks.post.mockRejectedValueOnce(
+      Object.assign(new Error("inbound disabled"), {
+        code: "PRODUCT_LOCATION_INBOUND_DISABLED",
+        context: { product_variant_id: 1 },
+      }),
+    );
+
+    renderInbound([makeVariant(1, "Context product", "NONE", "NONE")]);
+    const row = (await screen.findByText("Context product")).closest("tr")!;
+    const quantity = within(row).getByLabelText("Quantity") as HTMLInputElement;
+    await waitFor(() =>
+      expect((within(row).getByLabelText("Purchase unit") as HTMLSelectElement).disabled).toBe(false),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "choose-supplier" }));
+    fireEvent.click(screen.getByRole("button", { name: "Post receipt" }));
+
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(document.activeElement).toBe(quantity));
+  });
+
   it("does not report a posted receipt if durable posting has not completed", async () => {
     const keys = inboundStorageKeys(1, 2, 3);
     localStorage.setItem(keys.drafts, JSON.stringify({

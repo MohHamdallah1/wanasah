@@ -11,7 +11,7 @@ import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
 import { currentLocale } from "@/i18n";
-import { apiErrorCode, apiErrorMessage } from "@/lib/apiErrors";
+import { apiErrorCode, apiErrorContext, apiErrorMessage } from "@/lib/apiErrors";
 import { SupplierSelector } from "@/features/suppliers/SupplierSelector";
 import { useInboundPosting } from "./inbound/useInboundPosting";
 import { useInboundOptions } from "./inbound/useInboundOptions";
@@ -74,6 +74,58 @@ type InboundRowControl = InboundField;
 
 const controlKey = (rowId: string, control: InboundRowControl) =>
   `${rowId}:${control}`;
+
+const positiveVariantId = (value: unknown): number | null =>
+  typeof value === "number" &&
+  Number.isSafeInteger(value) &&
+  value > 0
+    ? value
+    : null;
+
+const apiErrorVariantIds = (error: unknown): number[] => {
+  const context = apiErrorContext(error);
+  if (!context) return [];
+
+  const result = new Set<number>();
+  const direct = positiveVariantId(context.product_variant_id);
+  if (direct !== null) result.add(direct);
+
+  if (Array.isArray(context.missing_product_variant_ids)) {
+    for (const value of context.missing_product_variant_ids) {
+      const id = positiveVariantId(value);
+      if (id !== null) result.add(id);
+    }
+  }
+
+  return [...result];
+};
+
+const controlForInboundError = (
+  code: string | undefined,
+): InboundRowControl | null => {
+  switch (code) {
+    case "INBOUND_UOM_REQUIRED":
+    case "INBOUND_UOM_UNSUPPORTED":
+      return "uom_id";
+    case "INBOUND_UNIT_COST_INVALID":
+      return "unit_cost";
+    case "INBOUND_QUANTITY_CONVERSION_INVALID":
+      return "quantity";
+    case "INBOUND_LOT_REQUIRED":
+    case "INBOUND_LOT_NOT_ALLOWED":
+    case "INBOUND_LOT_RESERVED":
+    case "INBOUND_BATCH_INVALID":
+      return "batch_number";
+    case "INBOUND_BATCH_EXPIRED":
+    case "INBOUND_EXPIRY_REQUIRED":
+    case "INBOUND_EXPIRY_NOT_ALLOWED":
+      return "expiry_date";
+    case "INBOUND_PRODUCTION_DATE_FUTURE":
+      return "production_date";
+    default:
+      return null;
+  }
+};
 
 const cleanQuantityEntry = (value: string) => {
   const cleaned = value.replace(/[^0-9.]/g, "");
@@ -243,6 +295,9 @@ export function Tab2Inbound({
   const [restoredCatalog, setRestoredCatalog] = useState<Map<number, CatalogVariant>>(
     () => new Map()
   );
+  const [unavailableDraftVariantIds, setUnavailableDraftVariantIds] = useState<Set<number>>(
+    () => new Set()
+  );
   const requestedDraftVariantIds = useRef(new Set<number>());
   const {
     options: uomOptions,
@@ -280,6 +335,7 @@ export function Tab2Inbound({
   const controlRefs = useRef(new Map<string, HTMLElement>());
   const supplierRef = useRef<HTMLDivElement>(null);
   const referenceRef = useRef<HTMLInputElement>(null);
+  const draftIssuesRef = useRef<HTMLDivElement>(null);
   const supplierKey = `${keys.drafts}:supplier`;
   const [supplierId, setSupplierId] = useState<number | null>(() => {
     const saved = Number(localStorage.getItem(supplierKey));
@@ -299,6 +355,14 @@ export function Tab2Inbound({
     return [...saved, ...catalog];
   }, [catalog, drafts, restoredCatalog]);
 
+  const blockingUnavailableDraftIds = useMemo(
+    () =>
+      inboundProductIds(drafts).filter((id) =>
+        unavailableDraftVariantIds.has(id)
+      ),
+    [drafts, unavailableDraftVariantIds],
+  );
+
   useEffect(() => {
     const pagedIds = new Set(catalog.map((variant) => variant.id));
     const ids = Object.keys(drafts)
@@ -310,7 +374,8 @@ export function Tab2Inbound({
       )
       .slice(0, 200);
     if (!ids.length) return;
-    ids.forEach((id) => requestedDraftVariantIds.current.add(id));
+    const requestedIds = requestedDraftVariantIds.current;
+    ids.forEach((id) => requestedIds.add(id));
     const controller = new AbortController();
     let active = true;
     let finished = false;
@@ -321,7 +386,11 @@ export function Tab2Inbound({
     })
       .then(parseVariants)
       .then((page) => {
+        finished = true;
         if (!active) return;
+        const resolved = new Map(
+          page.items.map((variant) => [variant.id, variant] as const)
+        );
         setRestoredCatalog((current) => {
           const next = new Map(current);
           for (const variant of page.items) {
@@ -329,19 +398,32 @@ export function Tab2Inbound({
           }
           return next;
         });
+        setUnavailableDraftVariantIds((current) => {
+          const next = new Set(current);
+          for (const id of ids) {
+            const variant = resolved.get(id);
+            if (!variant || variant.lifecycle_status !== "ACTIVE") {
+              next.add(id);
+            } else {
+              next.delete(id);
+            }
+          }
+          return next;
+        });
       })
       .catch((error) => {
+        finished = true;
         if (active && !(error instanceof Error && error.name === "AbortError")) {
+          ids.forEach((id) => requestedIds.delete(id));
           toast.error(apiErrorMessage(error, t("inventoryInbound.errors.catalogLoad")));
         }
-      })
-      .finally(() => { finished = true; });
+      });
     return () => {
       active = false;
       controller.abort();
       // Cancelled requests may be safely retried. Missing/inactive IDs must
       // not cause an endless resolve loop.
-      if (!finished) ids.forEach((id) => requestedDraftVariantIds.current.delete(id));
+      if (!finished) ids.forEach((id) => requestedIds.delete(id));
     };
   }, [authenticatedFetch, catalog, drafts, restoredCatalog, t]);
   useEffect(() => {
@@ -576,6 +658,107 @@ export function Tab2Inbound({
     });
   };
 
+  const focusDraftIssues = () => {
+    window.requestAnimationFrame(() => {
+      draftIssuesRef.current?.scrollIntoView({
+        block: "nearest",
+        behavior: "smooth",
+      });
+      draftIssuesRef.current?.focus();
+      flashElement(draftIssuesRef.current);
+    });
+  };
+
+  const markUnavailableDraftProducts = (
+    ids: number[],
+    resolvedVariants: CatalogVariant[] = [],
+  ) => {
+    if (!ids.length) return;
+
+    if (resolvedVariants.length) {
+      setRestoredCatalog((current) => {
+        const next = new Map(current);
+        for (const variant of resolvedVariants) {
+          next.set(variant.id, variant);
+        }
+        return next;
+      });
+    }
+
+    setUnavailableDraftVariantIds((current) => {
+      const next = new Set(current);
+      ids.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
+  const removeUnavailableDraftProducts = () => {
+    const ids = [...blockingUnavailableDraftIds];
+    if (!ids.length) return;
+
+    setDrafts((current) => {
+      const next = { ...current };
+      ids.forEach((id) => delete next[String(id)]);
+      return next;
+    });
+    setUnavailableDraftVariantIds((current) => {
+      const next = new Set(current);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
+    setRestoredCatalog((current) => {
+      const next = new Map(current);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
+    ids.forEach((id) => requestedDraftVariantIds.current.delete(id));
+    setReferenceChoices(new Map());
+    setSelectedReferences(new Map());
+    toast.success(
+      t("inventoryInbound.draftIssuesRemoved", {
+        count: ids.length,
+      })
+    );
+  };
+
+  const retryUnavailableDraftProducts = () => {
+    const ids = [...blockingUnavailableDraftIds];
+    if (!ids.length) return;
+
+    ids.forEach((id) => requestedDraftVariantIds.current.delete(id));
+    setUnavailableDraftVariantIds((current) => {
+      const next = new Set(current);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
+    setRestoredCatalog((current) => {
+      const next = new Map(current);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
+  };
+
+  const focusVariantIssue = (
+    variantId: number,
+    code: string | undefined,
+  ) => {
+    const rows = drafts[String(variantId)] ?? [];
+    const rowId = rows[0]?.row_id ?? `base-${variantId}`;
+    const preferredControl = controlForInboundError(code) ?? "quantity";
+    if (controlRefs.current.has(controlKey(rowId, preferredControl))) {
+      focusControl(rowId, preferredControl);
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      const row = rowRefs.current.get(rowId);
+      row?.scrollIntoView({
+        block: "nearest",
+        behavior: "smooth",
+      });
+      flashElement(row);
+    });
+  };
+
   const handleRowEnter = (
     event: KeyboardEvent<HTMLElement>,
     rowId: string,
@@ -681,6 +864,7 @@ export function Tab2Inbound({
     localStorage.removeItem(keys.fingerprint);
     setValidationError(null);
     setSetupValidation(null);
+    setUnavailableDraftVariantIds(new Set());
     setReferenceChoices(new Map());
     setSelectedReferences(new Map());
     setClearOpen(false);
@@ -754,6 +938,11 @@ export function Tab2Inbound({
       toast.error(t("inventoryInbound.errors.quantityRequired"));
       return;
     }
+    if (blockingUnavailableDraftIds.length) {
+      toast.error(t("inventoryInbound.errors.unavailableDraft"));
+      focusDraftIssues();
+      return;
+    }
     if (!costPolicy) {
       return toast.error(t("inventoryInbound.errors.policyLoad"));
     }
@@ -768,6 +957,26 @@ export function Tab2Inbound({
     let readyOptions = uomOptions;
     let readyAsOfDate = companyAsOfDate;
     try {
+      const variants = parseVariants(
+        await authenticatedFetch("/catalog/variants/resolve", {
+          method: "POST",
+          body: JSON.stringify({ ids }),
+        })
+      ).items;
+      const variantsById = new Map(
+        variants.map((variant) => [variant.id, variant] as const)
+      );
+      const unavailableIds = ids.filter((id) => {
+        const variant = variantsById.get(id);
+        return !variant || variant.lifecycle_status !== "ACTIVE";
+      });
+      if (unavailableIds.length) {
+        markUnavailableDraftProducts(unavailableIds, variants);
+        toast.error(t("inventoryInbound.errors.unavailableDraft"));
+        focusDraftIssues();
+        return;
+      }
+
       if (ids.some((id) => !uomOptions.has(id)) || !companyAsOfDate) {
         setPreparingReceipt(true);
         try {
@@ -786,19 +995,7 @@ export function Tab2Inbound({
           setPreparingReceipt(false);
         }
       }
-      const variants = parseVariants(
-        await authenticatedFetch("/catalog/variants/resolve", {
-          method: "POST",
-          body: JSON.stringify({ ids }),
-        })
-      ).items;
-      if (variants.length !== ids.length) {
-        const error = new Error("INBOUND_VARIANT_UNAVAILABLE") as Error & {
-          code: string;
-        };
-        error.code = "INBOUND_VARIANT_UNAVAILABLE";
-        throw error;
-      }
+
       const items = buildInboundItems(
         drafts,
         new Map(variants.map((item) => [String(item.id), item])),
@@ -840,16 +1037,48 @@ export function Tab2Inbound({
         setValidationError(error);
         focusValidation(error);
       }
-      if (apiErrorCode(error) === "COST_OPENING_BALANCE_REQUIRED") {
+
+      const code = apiErrorCode(error);
+      if (code === "COST_OPENING_BALANCE_REQUIRED") {
         setOpeningValuationOpen(true);
         toast.info(
           t("errors.codes.COST_OPENING_BALANCE_REQUIRED")
         );
         return;
       }
-      toast.error(
-        apiErrorMessage(error, t("inventoryInbound.errors.submit"))
+
+      const variantIds = apiErrorVariantIds(error);
+      if (code === "INBOUND_VARIANT_UNAVAILABLE" && variantIds.length) {
+        markUnavailableDraftProducts(variantIds);
+        toast.error(t("inventoryInbound.errors.unavailableDraft"));
+        focusDraftIssues();
+        return;
+      }
+
+      const message = apiErrorMessage(
+        error,
+        t("inventoryInbound.errors.submit")
       );
+      const targetVariantId = variantIds.find((id) =>
+        visibleCatalog.some((variant) => variant.id === id)
+      );
+      if (targetVariantId !== undefined) {
+        const product = visibleCatalog.find(
+          (variant) => variant.id === targetVariantId
+        );
+        focusVariantIssue(targetVariantId, code);
+        toast.error(
+          product
+            ? t("inventoryInbound.productError", {
+                product: product.name,
+                message,
+              })
+            : message
+        );
+        return;
+      }
+
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
@@ -944,6 +1173,60 @@ export function Tab2Inbound({
             </div>
           </div>
         </div>
+
+        {blockingUnavailableDraftIds.length > 0 && (
+          <div
+            ref={draftIssuesRef}
+            tabIndex={-1}
+            role="alert"
+            className="mx-3 mt-2 rounded-lg border border-rose-300 bg-rose-50 p-3 outline-none"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-black text-rose-950">
+                  {t("inventoryInbound.draftIssuesTitle", {
+                    count: blockingUnavailableDraftIds.length,
+                  })}
+                </p>
+                <p className="mt-1 text-[11px] font-semibold leading-5 text-rose-800">
+                  {t("inventoryInbound.draftIssuesBody")}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={retryUnavailableDraftProducts}
+                  className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-[11px] font-black text-rose-900"
+                >
+                  {t("inventoryInbound.retryDraftIssues")}
+                </button>
+                <button
+                  type="button"
+                  onClick={removeUnavailableDraftProducts}
+                  className="rounded-lg bg-rose-700 px-3 py-1.5 text-[11px] font-black text-white"
+                >
+                  {t("inventoryInbound.removeDraftIssues")}
+                </button>
+              </div>
+            </div>
+            <ul className="mt-2 space-y-1 text-[11px] font-bold text-rose-900">
+              {blockingUnavailableDraftIds.map((variantId, index) => {
+                const variant = restoredCatalog.get(variantId);
+                return (
+                  <li key={variantId}>
+                    {variant
+                      ? t("inventoryInbound.draftIssueNamed", {
+                          product: variant.name,
+                        })
+                      : t("inventoryInbound.draftIssueMissing", {
+                          number: index + 1,
+                        })}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
 
         {referenceChoices.size > 0 && (
           <div className="mx-3 mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
