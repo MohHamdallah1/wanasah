@@ -2,7 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
-import '../localization/app_copy.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../theme/field_theme.dart';
 
 enum FieldDestination { home, route, custody }
@@ -84,7 +84,7 @@ class _FieldAppShellState extends State<FieldAppShell> {
                           children: [
                             if (compactBrand)
                               Tooltip(
-                                message: AppCopy.of(context, AppCopyKey.brand),
+                                message: AppLocalizations.of(context).brand,
                                 child: const Icon(
                                   Icons.route_rounded,
                                   size: 28,
@@ -92,14 +92,14 @@ class _FieldAppShellState extends State<FieldAppShell> {
                               )
                             else
                               Text(
-                                AppCopy.of(context, AppCopyKey.brand),
+                                AppLocalizations.of(context).brand,
                                 style: Theme.of(context).textTheme.titleLarge,
                               ),
                             const SizedBox(width: 12),
                             Expanded(child: widget.statusUtility),
                             PopupMenuButton<_AccountAction>(
                               key: const ValueKey('shell-account'),
-                              tooltip: AppCopy.of(context, AppCopyKey.account),
+                              tooltip: AppLocalizations.of(context).account,
                               icon: const Icon(Icons.account_circle_outlined),
                               onSelected: (action) {
                                 switch (action) {
@@ -120,13 +120,13 @@ class _FieldAppShellState extends State<FieldAppShell> {
                                     PopupMenuItem(
                                       value: _AccountAction.refresh,
                                       child: Text(
-                                        AppCopy.of(context, AppCopyKey.refresh),
+                                        AppLocalizations.of(context).refresh,
                                       ),
                                     ),
                                     PopupMenuItem(
                                       value: _AccountAction.logout,
                                       child: Text(
-                                        AppCopy.of(context, AppCopyKey.logout),
+                                        AppLocalizations.of(context).logout,
                                       ),
                                     ),
                                   ],
@@ -194,14 +194,14 @@ class _FieldAppShellState extends State<FieldAppShell> {
                             _destination(
                               context,
                               FieldDestination.route,
-                              AppCopyKey.route,
+                              AppLocalizations.of(context).route,
                               Icons.route_outlined,
                               Icons.route_rounded,
                             ),
                             _destination(
                               context,
                               FieldDestination.home,
-                              AppCopyKey.home,
+                              AppLocalizations.of(context).home,
                               Icons.home_outlined,
                               Icons.home_rounded,
                               emphasized: true,
@@ -209,7 +209,7 @@ class _FieldAppShellState extends State<FieldAppShell> {
                             _destination(
                               context,
                               FieldDestination.custody,
-                              AppCopyKey.custody,
+                              AppLocalizations.of(context).custody,
                               Icons.inventory_2_outlined,
                               Icons.inventory_2_rounded,
                             ),
@@ -230,14 +230,13 @@ class _FieldAppShellState extends State<FieldAppShell> {
   Widget _destination(
     BuildContext context,
     FieldDestination destination,
-    AppCopyKey key,
+    String label,
     IconData icon,
     IconData selectedIcon, {
     bool emphasized = false,
   }) {
     final selected = _selected == destination;
     final colors = Theme.of(context).colorScheme;
-    final label = AppCopy.of(context, key);
     final background =
         selected
             ? colors.primary.withValues(alpha: emphasized ? 1 : 0.11)
