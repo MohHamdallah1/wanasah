@@ -42,11 +42,10 @@ class HomeOverview extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _DayIdentity(
-          greeting: l10n.greeting(state.driverName),
           region: state.assignedRegion,
           date: date,
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 14),
         workSession,
         const SizedBox(height: 18),
         _RouteProgress(
@@ -81,12 +80,10 @@ class HomeOverview extends StatelessWidget {
 
 class _DayIdentity extends StatelessWidget {
   const _DayIdentity({
-    required this.greeting,
     required this.region,
     required this.date,
   });
 
-  final String greeting;
   final String region;
   final String date;
 
@@ -96,15 +93,6 @@ class _DayIdentity extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          greeting,
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-            fontSize: 28,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.2,
-          ),
-        ),
-        const SizedBox(height: 10),
         Wrap(
           spacing: 8,
           runSpacing: 8,
