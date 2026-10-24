@@ -148,8 +148,58 @@ FIELD_SHOP_STATEMENTS = (
 )
 
 
+def _normalize_dashboard_inventory_identity(node):
+    if node.name != "get_driver_dashboard":
+        return node
+
+    matches = []
+    for part in ast.walk(node):
+        if not (
+            isinstance(part, ast.Call)
+            and isinstance(part.func, ast.Attribute)
+            and isinstance(part.func.value, ast.Name)
+            and part.func.value.id == "inventory_list"
+            and part.func.attr == "append"
+            and len(part.args) == 1
+            and isinstance(part.args[0], ast.Dict)
+        ):
+            continue
+        payload = part.args[0]
+        entries = {
+            key.value: (index, value)
+            for index, (key, value) in enumerate(zip(payload.keys, payload.values))
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+        }
+        if "product_variant_id" in entries:
+            matches.append((payload, entries))
+
+    if len(matches) != 1:
+        raise AssertionError("Expected exactly one canonical dashboard inventory payload")
+
+    payload, entries = matches
+    variant_index, variant_value = entries["product_variant_id"]
+    packs_index, packs_value = entries.get("packs_per_carton", (None, None))
+    if (
+        ast.unparse(variant_value) != "int(variant.id)"
+        or packs_index is None
+        or ast.unparse(packs_value) != "int(packs)"
+        or "product_id" in entries
+    ):
+        raise AssertionError("Unexpected dashboard inventory identity contract")
+
+    payload.keys[variant_index] = ast.Constant(value="product_id")
+    payload.values[variant_index] = ast.Attribute(
+        value=ast.Name(id="variant", ctx=ast.Load()),
+        attr="id",
+        ctx=ast.Load(),
+    )
+    del payload.keys[packs_index]
+    del payload.values[packs_index]
+    return node
+
+
 def without_field_additions(node):
-    node = copy.deepcopy(node)
+    node = _normalize_dashboard_inventory_identity(copy.deepcopy(node))
     snippets = FIELD_VISIT_STATEMENTS if node.name == "update_visit" else (
         FIELD_SHOP_STATEMENTS if node.name == "add_new_shop" else ()
     )
