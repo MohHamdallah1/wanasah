@@ -100,7 +100,7 @@ void main() {
 
         expect(session, contains('DateFormat.Hm(locale)'));
         expect(session, isNot(contains("'يجب إنهاء الاستراحة أولاً!'")));
-        expect(session, contains('WorkSessionIssuePanel'));
+        expect(session, isNot(contains('WorkSessionIssuePanel')));
         expect(transfer, contains("'تحديث عهدة من الإدارة'"));
         expect(
           transfer,
@@ -143,7 +143,11 @@ void main() {
         ),
       );
 
-      expect(find.text('ابدأ يومك'), findsOneWidget);
+      expect(find.text('ابدأ يومك'), findsNothing);
+      expect(
+        find.text('ابدأ جلسة العمل عندما تكون جاهزًا للانطلاق.'),
+        findsNothing,
+      );
       await tester.tap(find.text('بدء العمل'));
       await tester.pumpAndSettle();
 

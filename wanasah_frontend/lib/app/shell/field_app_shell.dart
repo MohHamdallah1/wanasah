@@ -66,7 +66,7 @@ class _FieldAppShellState extends State<FieldAppShell> {
               if (!didPop) _select(FieldDestination.home);
             },
             child: Scaffold(
-              extendBody: true,
+              extendBody: false,
               body: SafeArea(
                 bottom: false,
                 child: Column(
@@ -163,15 +163,15 @@ class _FieldAppShellState extends State<FieldAppShell> {
               ),
               bottomNavigationBar: SafeArea(
                 top: false,
-                minimum: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                minimum: const EdgeInsets.fromLTRB(12, 0, 12, 2),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(30),
+                  borderRadius: BorderRadius.circular(26),
                   child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                    filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
                     child: DecoratedBox(
                       decoration: BoxDecoration(
                         color: colors.surface.withValues(alpha: 0.82),
-                        borderRadius: BorderRadius.circular(30),
+                        borderRadius: BorderRadius.circular(26),
                         border: Border.all(
                           color: colors.outlineVariant.withValues(alpha: 0.65),
                         ),
@@ -185,8 +185,8 @@ class _FieldAppShellState extends State<FieldAppShell> {
                       ),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 6,
+                          horizontal: 4,
+                          vertical: 4,
                         ),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.center,
@@ -259,21 +259,21 @@ class _FieldAppShellState extends State<FieldAppShell> {
         child: ExcludeSemantics(
           child: Padding(
             padding: EdgeInsets.symmetric(
-              horizontal: emphasized ? 4 : 2,
-              vertical: emphasized ? 0 : 4,
+              horizontal: emphasized ? 3 : 1,
+              vertical: emphasized ? 0 : 2,
             ),
             child: InkWell(
               key: ValueKey('shell-tab-${destination.name}'),
-              borderRadius: BorderRadius.circular(emphasized ? 24 : 20),
+              borderRadius: BorderRadius.circular(emphasized ? 21 : 18),
               onTap: () => _select(destination),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
                 curve: Curves.easeOutCubic,
-                constraints: const BoxConstraints(minHeight: 60),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+                constraints: const BoxConstraints(minHeight: 54),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
                 decoration: BoxDecoration(
                   color: background,
-                  borderRadius: BorderRadius.circular(emphasized ? 24 : 20),
+                  borderRadius: BorderRadius.circular(emphasized ? 21 : 18),
                   border:
                       emphasized && !selected
                           ? Border.all(
@@ -293,10 +293,10 @@ class _FieldAppShellState extends State<FieldAppShell> {
                       child: Icon(
                         selected ? selectedIcon : icon,
                         color: foreground,
-                        size: emphasized ? 27 : 24,
+                        size: emphasized ? 25 : 22,
                       ),
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 2),
                     Text(
                       label,
                       maxLines: 1,
@@ -304,7 +304,7 @@ class _FieldAppShellState extends State<FieldAppShell> {
                       softWrap: false,
                       textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        fontSize: emphasized ? 13 : 12.5,
+                        fontSize: emphasized ? 12 : 11.5,
                         fontWeight:
                             selected ? FontWeight.w800 : FontWeight.w600,
                         color: foreground,

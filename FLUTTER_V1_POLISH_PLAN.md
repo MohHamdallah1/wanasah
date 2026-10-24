@@ -75,6 +75,8 @@ The representative shell uses **three persistent primary tabs**:
 - [x] Home is the visually emphasized center destination. Route/Custody use quieter active surfaces; active state must be recognizable by icon/shape/weight, not color alone.
 - [x] Because Route and Custody are persistent bottom destinations, Home must not repeat generic **"open Route"** or **"open Custody"** buttons. Home only keeps contextual next-action shortcuts when they add information beyond navigation.
 - [x] Deep task flows such as Visit execution, Add Shop, confirmation dialogs and other mutation-heavy screens may hide the bottom navigation when doing so protects focus/unsaved work.
+- [x] The persistent dock must never cover Route/Add Shop or other tab content. Shell layout reserves its vertical space; the dock stays visually floating but is not an overlay over tappable content.
+- [x] Keep the dock compact and as low as the Android safe area permits; do not consume extra bottom whitespace beyond the system inset.
 - [ ] Implement the shared shell and preserve existing navigation/back-safety behavior.
 
 ### 3.2 Global top-level utilities
@@ -101,7 +103,7 @@ The first question it should answer is:
   - end work;
   - start break;
   - end break.
-- [x] Show representative name, current assigned region and date.
+- [x] Keep representative identity available in the global account utility; Home does **not** repeat a large greeting/name block. Show current assigned region and date compactly.
 - [x] Show today's Visit progress in a compact visual form:
   - total/assigned;
   - completed;
@@ -128,6 +130,8 @@ The first question it should answer is:
   This is not Backoffice settlement authority.
 - [ ] Redesign the current Home around task priority and fast scanning.
 - [ ] Owner visual acceptance pending for the first production Home polish candidate: day identity, Work Session command surface, route progress and financial pulse. Keep this open until reviewed on the owner's device.
+- [x] Owner refinement 2026-10-24: the large greeting/name block is removed; inactive Work Session is reduced to status + primary action; redundant motivational/help copy is removed.
+- [x] Work Session business refusals are transient operator notifications, not persistent inline panels. Safe Backend business detail may explain the refusal; HTTP codes/request ids stay diagnostic-only and are not rendered in the normal operator message.
 
 - [ ] Ensure the current financial/Visit/custody data remains semantically identical after the visual restructure.
 

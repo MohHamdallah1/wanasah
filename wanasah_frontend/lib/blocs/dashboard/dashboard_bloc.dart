@@ -47,7 +47,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
   }
 
   DashboardBloc({
-    SyncRepository? syncRepository, 
+    SyncRepository? syncRepository,
     LocalDatabase? db,
     DashboardRepository? dashboardRepo,
     LocationService? locationService,
@@ -55,42 +55,41 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     RecoveryReader? recoveryReader,
     RecoverySyncCoordinator? recoverySyncCoordinator,
     CustodyCoordinator? custodyCoordinator,
-  })
-    : _syncRepository = syncRepository ?? SyncRepository(),
-      _db = db ?? LocalDatabase.instance,
-      _dashboardRepo = dashboardRepo ?? DashboardRepository(),
-      _workSessionCoordinator =
-          workSessionCoordinator ??
-          WorkSessionCoordinator(
-            remote: ApiWorkSessionRemoteDataSource(),
-            locationSource: DeviceWorkSessionLocationSource(
-              locationService ?? LocationService.instance,
-            ),
-          ),
-      _recoveryReader =
-          recoveryReader ??
-          RecoveryReader(
-            dataSource: LocalRecoveryDataSource(
-              database: db ?? LocalDatabase.instance,
-            ),
-          ),
-      _custodyCoordinator = custodyCoordinator ?? CustodyCoordinator.defaults(),
-      _recoverySyncCoordinator =
-          recoverySyncCoordinator ??
-          RecoverySyncCoordinator(
-            reader:
-                recoveryReader ??
-                RecoveryReader(
-                  dataSource: LocalRecoveryDataSource(
-                    database: db ?? LocalDatabase.instance,
-                  ),
-                ),
-            executor: ExistingSyncRepositoryExecutor(
-              repository: syncRepository ?? SyncRepository(),
-            ),
-          ),
-      super(const DashboardInitial()) {
-      
+  }) : _syncRepository = syncRepository ?? SyncRepository(),
+       _db = db ?? LocalDatabase.instance,
+       _dashboardRepo = dashboardRepo ?? DashboardRepository(),
+       _workSessionCoordinator =
+           workSessionCoordinator ??
+           WorkSessionCoordinator(
+             remote: ApiWorkSessionRemoteDataSource(),
+             locationSource: DeviceWorkSessionLocationSource(
+               locationService ?? LocationService.instance,
+             ),
+           ),
+       _recoveryReader =
+           recoveryReader ??
+           RecoveryReader(
+             dataSource: LocalRecoveryDataSource(
+               database: db ?? LocalDatabase.instance,
+             ),
+           ),
+       _custodyCoordinator =
+           custodyCoordinator ?? CustodyCoordinator.defaults(),
+       _recoverySyncCoordinator =
+           recoverySyncCoordinator ??
+           RecoverySyncCoordinator(
+             reader:
+                 recoveryReader ??
+                 RecoveryReader(
+                   dataSource: LocalRecoveryDataSource(
+                     database: db ?? LocalDatabase.instance,
+                   ),
+                 ),
+             executor: ExistingSyncRepositoryExecutor(
+               repository: syncRepository ?? SyncRepository(),
+             ),
+           ),
+       super(const DashboardInitial()) {
     // +++ ربط جميع الأحداث بالمحول التسلسلي لمنع الانهيار المعماري +++
     on<LoadDashboardData>(_onLoadDashboardData, transformer: _sequential());
     on<ForceSyncData>(_onForceSyncData, transformer: _sequential());
@@ -99,10 +98,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       _onCheckPendingTransfers,
       transformer: _sequential(),
     );
-    on<RespondToTransfer>(
-      _onRespondToTransfer,
-      transformer: _sequential(),
-    );
+    on<RespondToTransfer>(_onRespondToTransfer, transformer: _sequential());
     on<RespondToBatchTransfer>(
       _onRespondToBatchTransfer,
       transformer: _sequential(),
@@ -115,7 +111,12 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         emit((state as DashboardLoaded).copyWith(clearActionMessage: true));
       }
     }, transformer: _sequential());
-}
+    on<ClearWorkSessionIssueEvent>((event, emit) {
+      if (state is DashboardLoaded) {
+        emit((state as DashboardLoaded).copyWith(clearWorkSessionIssue: true));
+      }
+    }, transformer: _sequential());
+  }
 
   // ─── LoadDashboardData ────────────────────────────────────────────────────
   /// يقرأ من SQLite مباشرة — لا شبكة، لا انتظار.
@@ -150,8 +151,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
 
     try {
       final loaded = await _loadFromLocal(
-        isOffline:
-            result.disposition == RecoverySyncDisposition.unresolved,
+        isOffline: result.disposition == RecoverySyncDisposition.unresolved,
       );
       emit(loaded);
     } catch (error) {
@@ -174,14 +174,20 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     // +++ DAB-4: درع الابتلاع الآمن لمنع صف تالف واحد من تدمير الداشبورد بالكامل +++
     final List<VisitModel> visits = [];
     for (var row in rawVisits) {
-      try { visits.add(VisitModel.fromJson(row)); } 
-      catch (e) { developer.log('[DashboardBloc] Skipped corrupt visit row: $e'); }
+      try {
+        visits.add(VisitModel.fromJson(row));
+      } catch (e) {
+        developer.log('[DashboardBloc] Skipped corrupt visit row: $e');
+      }
     }
 
     final List<ProductModel> products = [];
     for (var row in rawProducts) {
-      try { products.add(ProductModel.fromJson(row)); } 
-      catch (e) { developer.log('[DashboardBloc] Skipped corrupt product row: $e'); }
+      try {
+        products.add(ProductModel.fromJson(row));
+      } catch (e) {
+        developer.log('[DashboardBloc] Skipped corrupt product row: $e');
+      }
     }
 
     // +++ القراءة من المستودع بدلاً من الخزنة مباشرة +++
@@ -201,9 +207,12 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
             : (int.tryParse(allData['cached_pending_visits'] ?? '0') ?? 0);
 
     // +++   قراءة الكاش إذا كانت قاعدة البيانات فارغة لمنع التصفير الوهمي +++
-    final int salesInCompleted = visits.isNotEmpty
-        ? visits.where((v) => v.status == 'Completed' && v.outcome == 'Sale').length
-        : (int.tryParse(allData['cached_sales_in_completed'] ?? '0') ?? 0);
+    final int salesInCompleted =
+        visits.isNotEmpty
+            ? visits
+                .where((v) => v.status == 'Completed' && v.outcome == 'Sale')
+                .length
+            : (int.tryParse(allData['cached_sales_in_completed'] ?? '0') ?? 0);
 
     final recovery = await _recoveryReader.read();
     final int quarantinedCount = recovery.blockedCount;
@@ -265,7 +274,6 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       pendingReturnCustody: pendingReturnCustody,
     );
   }
-  
 
   // ─── FetchDashboardData (المحرك المالي الشامل المحصن) ─────────────────────────────
   Future<void> _onFetchDashboardData(
@@ -292,13 +300,15 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         emit(DashboardError(message: 'استجابة غير صالحة من الخادم.'));
         return;
       }
-      final Map<String, dynamic> data = Map<String, dynamic>.from(response.data as Map);
+      final Map<String, dynamic> data = Map<String, dynamic>.from(
+        response.data as Map,
+      );
 
-      final sessionData = data['active_session'] is Map
-          ? Map<String, dynamic>.from(data['active_session'] as Map)
-          : null;
-      final sessionSnapshot =
-          WorkSessionSnapshot.fromDashboardResponse(data);
+      final sessionData =
+          data['active_session'] is Map
+              ? Map<String, dynamic>.from(data['active_session'] as Map)
+              : null;
+      final sessionSnapshot = WorkSessionSnapshot.fromDashboardResponse(data);
       final bool sessionIsActive = sessionSnapshot.isActive;
 
       bool isAuthorized = false;
@@ -312,26 +322,52 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         // +++ درع القوائم: حماية الـ List من الانهيار إذا أرسل السيرفر null أو Map بالخطأ +++
         final dynamic rawInv = sessionData['inventory'];
         final List<dynamic> inventoryList = rawInv is List ? rawInv : [];
-        apiProducts = inventoryList.map((p) => ProductModel.fromJson(p is Map ? Map<String, dynamic>.from(p) : {})).toList();
+        apiProducts =
+            inventoryList
+                .map(
+                  (p) => ProductModel.fromJson(
+                    p is Map ? Map<String, dynamic>.from(p) : {},
+                  ),
+                )
+                .toList();
       }
 
-      final financials = data['financials'] is Map ? Map<String, dynamic>.from(data['financials'] as Map) : null;
-      final countsData = data['counts'] is Map ? Map<String, dynamic>.from(data['counts'] as Map) : null;
+      final financials =
+          data['financials'] is Map
+              ? Map<String, dynamic>.from(data['financials'] as Map)
+              : null;
+      final countsData =
+          data['counts'] is Map
+              ? Map<String, dynamic>.from(data['counts'] as Map)
+              : null;
 
       // +++:تخزين الذاكرة عبر المستودع +++
       await _dashboardRepo.cacheDashboardData({
         'is_authorized': isAuthorized.toString(),
-        'is_on_break': isOnBreak.toString(), // +++ إصلاح ثغرة الاستراحة الشبح (تزامن إجباري مع السيرفر) +++
+        'is_on_break':
+            isOnBreak
+                .toString(), // +++ إصلاح ثغرة الاستراحة الشبح (تزامن إجباري مع السيرفر) +++
         'cached_driver_name': data['driver_name']?.toString() ?? '',
-        'cached_sales_in_completed': (countsData?['sales_in_completed']?.toString() ?? '0'), // +++ سد فجوة الكاش +++
+        'cached_sales_in_completed':
+            (countsData?['sales_in_completed']?.toString() ??
+                '0'), // +++ سد فجوة الكاش +++
         'cached_assigned_region': data['assigned_region']?.toString() ?? '',
-        'cached_total_sales_cash': (financials?['total_sales_cash']?.toString() ?? '0.0'),
-        'cached_total_debt_paid': (financials?['total_debt_paid']?.toString() ?? '0.0'),
-        'cached_debt_payments_count': (financials?['debt_payments_count']?.toString() ?? '0'),
-        'cached_total_cash_overall': (financials?['total_cash_overall']?.toString() ?? '0.0'),
-        'cached_total_visits': ((countsData?['total_pending'] ?? 0) + (countsData?['total_completed'] ?? 0)).toString(),
-        'cached_completed_visits': (countsData?['total_completed']?.toString() ?? '0'),
-        'cached_pending_visits': (countsData?['total_pending']?.toString() ?? '0'),
+        'cached_total_sales_cash':
+            (financials?['total_sales_cash']?.toString() ?? '0.0'),
+        'cached_total_debt_paid':
+            (financials?['total_debt_paid']?.toString() ?? '0.0'),
+        'cached_debt_payments_count':
+            (financials?['debt_payments_count']?.toString() ?? '0'),
+        'cached_total_cash_overall':
+            (financials?['total_cash_overall']?.toString() ?? '0.0'),
+        'cached_total_visits':
+            ((countsData?['total_pending'] ?? 0) +
+                    (countsData?['total_completed'] ?? 0))
+                .toString(),
+        'cached_completed_visits':
+            (countsData?['total_completed']?.toString() ?? '0'),
+        'cached_pending_visits':
+            (countsData?['total_pending']?.toString() ?? '0'),
         'cached_is_active_session': sessionIsActive.toString(),
         'cached_session_start_time': startTimeStr ?? '',
       });
@@ -340,7 +376,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         // +++   احترام قفل المزامنة الموحد (الـ bool) وتوثيق التخطي الصامت +++
         final bool syncRan = await _syncRepository.syncDown();
         if (!syncRan) {
-          developer.log('[DashboardBloc] SyncDown skipped during fetch (already running).');
+          developer.log(
+            '[DashboardBloc] SyncDown skipped during fetch (already running).',
+          );
         }
       } catch (syncError) {
         developer.log(
@@ -355,21 +393,33 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
           visits: localData.visits,
           products: apiProducts.isNotEmpty ? apiProducts : localData.products,
           // +++  لـ Bug 5: الاعتماد على الإجمالي المحلي إذا كان السيرفر معطلاً أو البيانات ناقصة +++
-          totalVisits: countsData != null 
-              ? (int.tryParse(countsData['total_pending']?.toString() ?? '0') ?? 0) + (int.tryParse(countsData['total_completed']?.toString() ?? '0') ?? 0)
-              : localData.totalVisits,
+          totalVisits:
+              countsData != null
+                  ? (int.tryParse(
+                            countsData['total_pending']?.toString() ?? '0',
+                          ) ??
+                          0) +
+                      (int.tryParse(
+                            countsData['total_completed']?.toString() ?? '0',
+                          ) ??
+                          0)
+                  : localData.totalVisits,
           completedVisits:
-              countsData?['total_completed'] != null 
-                  ? (int.tryParse(countsData!['total_completed'].toString()) ?? 0)
+              countsData?['total_completed'] != null
+                  ? (int.tryParse(countsData!['total_completed'].toString()) ??
+                      0)
                   : localData.completedVisits,
           pendingVisits:
-              countsData?['total_pending'] != null 
+              countsData?['total_pending'] != null
                   ? (int.tryParse(countsData!['total_pending'].toString()) ?? 0)
                   : localData.pendingVisits,
           offlineVisits: localData.offlineVisits,
           salesInCompleted:
-              countsData?['sales_in_completed'] != null 
-                  ? (int.tryParse(countsData!['sales_in_completed'].toString()) ?? 0)
+              countsData?['sales_in_completed'] != null
+                  ? (int.tryParse(
+                        countsData!['sales_in_completed'].toString(),
+                      ) ??
+                      0)
                   : localData.salesInCompleted,
           driverName: data['driver_name'] ?? localData.driverName,
           assignedRegion: data['assigned_region'] ?? localData.assignedRegion,
@@ -477,12 +527,10 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     }
   }
 
-
   String? _requestIdFromDio(DioException error) {
     final headers = error.response?.headers;
     final headerRequestId =
-        headers?.value('x-request-id') ??
-        headers?.value('x-correlation-id');
+        headers?.value('x-request-id') ?? headers?.value('x-correlation-id');
     if (headerRequestId != null && headerRequestId.trim().isNotEmpty) {
       return headerRequestId.trim();
     }
@@ -522,8 +570,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     }
 
     try {
-      nonSellableCustody =
-          await _custodyCoordinator.loadNonSellableCustody();
+      nonSellableCustody = await _custodyCoordinator.loadNonSellableCustody();
     } catch (e) {
       developer.log('[DashboardBloc] Non-sellable custody read failed: $e');
     }
@@ -539,8 +586,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     emit(
       (state as DashboardLoaded).copyWith(
         pendingTransfer: pendingTransfer,
-        clearPendingTransfer:
-            pendingReadCompleted && pendingTransfer == null,
+        clearPendingTransfer: pendingReadCompleted && pendingTransfer == null,
         nonSellableCustody: nonSellableCustody,
         pendingReturnCustody: pendingReturnCustody,
       ),
@@ -594,9 +640,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       } else {
         emit(snapshot.copyWith(clearPendingTransfer: true));
         add(
-          FetchDashboardData(
-            driverId: await _dashboardRepo.getDriverId() ?? 0,
-          ),
+          FetchDashboardData(driverId: await _dashboardRepo.getDriverId() ?? 0),
         );
       }
     } catch (e) {
@@ -640,9 +684,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       } else {
         emit(snapshot.copyWith(clearPendingTransfer: true));
         add(
-          FetchDashboardData(
-            driverId: await _dashboardRepo.getDriverId() ?? 0,
-          ),
+          FetchDashboardData(driverId: await _dashboardRepo.getDriverId() ?? 0),
         );
       }
     } catch (e) {
@@ -689,10 +731,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       if (state is DashboardLoaded) {
         var next = state as DashboardLoaded;
         if (result.reconciledSession != null) {
-          next = _applyRecoveredWorkSession(
-            next,
-            result.reconciledSession!,
-          );
+          next = _applyRecoveredWorkSession(next, result.reconciledSession!);
         }
         emit(
           next.copyWith(
@@ -709,18 +748,10 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     if (state is DashboardLoaded) {
       var next = state as DashboardLoaded;
       if (result.reconciledSession != null) {
-        next = _applyRecoveredWorkSession(
-          next,
-          result.reconciledSession!,
-        );
+        next = _applyRecoveredWorkSession(next, result.reconciledSession!);
       }
 
-      emit(
-        next.copyWith(
-          workSessionIssue: issue,
-          clearActionMessage: true,
-        ),
-      );
+      emit(next.copyWith(workSessionIssue: issue, clearActionMessage: true));
     } else {
       emit(DashboardError(message: message));
     }
@@ -758,9 +789,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       isActiveSession: session.isActive,
       activeSessionStartTime: session.startTime,
       isOnBreak:
-          session.isActive
-              ? (session.isOnBreak ?? current.isOnBreak)
-              : false,
+          session.isActive ? (session.isOnBreak ?? current.isOnBreak) : false,
       isOffline: current.isOffline,
       refreshIssue: current.refreshIssue,
       pendingTransfer: current.pendingTransfer,
@@ -770,5 +799,4 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       workSessionIssue: current.workSessionIssue,
     );
   }
-
 }

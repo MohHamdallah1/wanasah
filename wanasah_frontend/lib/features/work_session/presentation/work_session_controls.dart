@@ -4,8 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../../l10n/generated/app_localizations.dart';
-import '../application/work_session_action_issue.dart';
-import 'work_session_issue_panel.dart';
 
 class WorkSessionControls extends StatelessWidget {
   const WorkSessionControls({
@@ -17,7 +15,6 @@ class WorkSessionControls extends StatelessWidget {
     required this.onStart,
     required this.onEnd,
     required this.onToggleBreak,
-    this.issue,
     super.key,
   });
 
@@ -29,7 +26,6 @@ class WorkSessionControls extends StatelessWidget {
   final VoidCallback onStart;
   final VoidCallback onEnd;
   final ValueChanged<String> onToggleBreak;
-  final WorkSessionActionIssue? issue;
 
   DateTime? _startTime() {
     if (!isActiveSession || activeSessionStartTime == null) return null;
@@ -81,18 +77,11 @@ class WorkSessionControls extends StatelessWidget {
             : isOnBreak
             ? l10n.workSessionBreakStatus
             : l10n.workSessionActiveStatus;
-    final title =
-        !isActiveSession
-            ? l10n.workSessionReadyTitle
-            : isOnBreak
-            ? l10n.workSessionBreakTitle
-            : l10n.workSessionActiveTitle;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
-          padding: const EdgeInsets.all(18),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: colors.onSurface,
             borderRadius: BorderRadius.circular(24),
@@ -132,35 +121,14 @@ class WorkSessionControls extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: colors.surface,
-                    fontSize: 27,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.3,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  isActiveSession
-                      ? isOnBreak
-                          ? l10n.workSessionBreakHint
-                          : l10n.workSessionActiveHint
-                      : l10n.workSessionReadyHint,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: colors.surface.withValues(alpha: 0.66),
-                  ),
-                ),
                 if (isActiveSession) ...[
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 12),
                   _SessionTiming(
                     startTime: startTime,
                     fallback: l10n.workSessionStartUnknown,
                   ),
                 ],
-                const SizedBox(height: 18),
+                const SizedBox(height: 14),
                 if (!isActiveSession)
                   FilledButton.icon(
                     key: const ValueKey('work-session-start'),
@@ -269,7 +237,6 @@ class WorkSessionControls extends StatelessWidget {
             ),
           ),
         ),
-        if (issue != null) WorkSessionIssuePanel(issue: issue!),
       ],
     );
   }
