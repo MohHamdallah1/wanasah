@@ -243,6 +243,43 @@ Execute in this order unless a proven dependency requires a narrow adjustment:
 9. [ ] Cross-screen empty/loading/error/degraded/recovery consistency pass.
 10. [ ] Final visual/interaction consistency pass.
 
+## 9A. Proportional test gates — APPROVED
+
+Testing depth follows **behavioral risk**, not visual file count.
+
+### Tier A — visual-only polish
+
+Examples: spacing, typography, color, shape, hierarchy, icon placement, non-behavioral responsive layout.
+
+Required before merge:
+- [ ] `flutter analyze`
+- [ ] focused widget/golden/layout tests for the touched surface
+- [ ] RTL/LTR coverage when localized layout is touched
+
+A full 500+ test suite and Android APK rebuild are **not automatically required for every visual-only iteration** unless CI policy or a discovered regression justifies them.
+
+### Tier B — interaction / navigation / state wiring
+
+Examples: bottom navigation, tab persistence, dialogs, Work Session controls, Recovery/Sync state wiring, route transitions, state-preservation behavior.
+
+Required:
+- [ ] `flutter analyze`
+- [ ] focused behavioral tests
+- [ ] relevant regression suites
+- [ ] broader/full Flutter suite before integration when the changed shared boundary can affect multiple flows
+
+### Tier C — business/offline/authority/release boundary
+
+Examples: durable commands, replay, authorization, Visit mutation, Custody/transfer business behavior, Backend contract changes, final release checkpoint.
+
+Required:
+- [ ] focused domain tests
+- [ ] full Flutter regression suite
+- [ ] Android debug build when applicable
+- [ ] Backend/integration evidence where applicable
+
+**Model usage is separate from CI testing.** Expensive reasoning models are reserved for genuinely difficult architecture/design review, not routine implementation or repetitive visual iteration.
+
 ## 10. Per-slice execution contract
 
 For every slice:
