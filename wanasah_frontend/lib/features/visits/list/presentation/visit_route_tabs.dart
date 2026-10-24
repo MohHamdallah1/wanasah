@@ -123,7 +123,7 @@ class _RouteModeButton extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
                   color: foreground,
-                  fontWeight: selected ? FontWeight.w800 : FontWeight.w650,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
                 ),
               ),
             ),
