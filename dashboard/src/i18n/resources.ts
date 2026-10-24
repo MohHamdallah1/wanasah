@@ -684,6 +684,22 @@ export const resources = {
           "القيمة المكتوبة داخل صف المنتج لها الأولوية، والخانة الفارغة تستخدم هذا الافتراضي.",
         importTrackingValueHint:
           "داخل Excel: {{defaultValue}} / {{none}} / {{optional}} / {{required}}. ترك الخلية فارغة = {{defaultValue}}.",
+        importTrackingInspectingFile:
+          "جاري فحص خانات رقم الدفعة وتاريخ الصلاحية داخل الملف...",
+        importTrackingNoFallback:
+          "كل صفوف المنتجات تحدد إعداد رقم الدفعة وتاريخ الصلاحية. لا تحتاج لاختيار إعداد افتراضي إضافي.",
+        importTrackingFallbackNeededTitle:
+          "حدد فقط طريقة التعامل مع الخانات الفارغة",
+        importTrackingFallbackNeededBody:
+          "هذه الخيارات تطبق فقط على الخلايا الفارغة أو «استخدام الافتراضي». أي قيمة مكتوبة داخل الملف تبقى كما هي.",
+        importTrackingFallbackCounts:
+          "خانات الدفعة الفارغة: {{lot}} — خانات الصلاحية الفارغة: {{expiry}}",
+        importTrackingFallbackUnknownTitle:
+          "تعذر تحديد كل أعمدة التتبع قبل بدء الاستيراد",
+        importTrackingFallbackUnknownBody:
+          "اختر طريقة التعامل مع أي خانات تتبع فارغة. المطابقة والتحقق النهائيان سيبقيان من مسؤولية النظام.",
+        importTrackingFallbackUsingCompany:
+          "الخانات الفارغة فقط ستستخدم إعدادات الشركة الحالية.",
         trackingDefaultsLoading:
           "جاري تحميل الإعدادات الافتراضية للدفعة والصلاحية...",
         tracking: {
@@ -3021,6 +3037,22 @@ export const resources = {
           "An explicit row value wins; a blank cell uses this default.",
         importTrackingValueHint:
           "In Excel: {{defaultValue}} / {{none}} / {{optional}} / {{required}}. A blank cell = {{defaultValue}}.",
+        importTrackingInspectingFile:
+          "Checking batch and expiry tracking cells in this file...",
+        importTrackingNoFallback:
+          "Every product row already defines batch and expiry tracking. No extra default choice is needed.",
+        importTrackingFallbackNeededTitle:
+          "Choose only how to handle blank tracking cells",
+        importTrackingFallbackNeededBody:
+          "These choices apply only to blank or “Use default” cells. Any value already written in the file stays unchanged.",
+        importTrackingFallbackCounts:
+          "Blank batch / lot cells: {{lot}} — blank expiry cells: {{expiry}}",
+        importTrackingFallbackUnknownTitle:
+          "Tracking columns could not be fully confirmed before import",
+        importTrackingFallbackUnknownBody:
+          "Choose the fallback for any blank tracking cells. Mapping and final backend validation remain authoritative.",
+        importTrackingFallbackUsingCompany:
+          "Only blank tracking cells will use the current company settings.",
         trackingDefaultsLoading:
           "Loading company tracking defaults...",
         tracking: {

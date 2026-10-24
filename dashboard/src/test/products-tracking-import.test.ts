@@ -8,34 +8,49 @@ const normalizeWhitespace = (value: string): string =>
   value.replace(/\s+/g, " ").trim();
 
 describe("product import tracking workflow", () => {
-  it("loads tenant defaults and sends an immutable import tracking snapshot", () => {
-    const trackingQuery = normalizeWhitespace(
-      readSource("../pages/products/tracking/useTrackingDefaultsQuery.ts"),
+  it("loads tenant defaults only when the selected file needs a fallback", () => {
+    const workflow = normalizeWhitespace(
+      readSource("../pages/products/import/useImportProductWorkflow.ts"),
+    );
+    const sync = normalizeWhitespace(
+      readSource("../pages/products/import/useImportTrackingDefaultsSync.ts"),
     );
     const importUpload = normalizeWhitespace(
       readSource("../pages/products/import/useImportProductUpload.ts"),
     );
 
-    expect(trackingQuery).toContain(
-      '"/simple-products/tracking/defaults"',
+    expect(workflow).toContain(
+      'filePreflight.result.tracking.status !== "NOT_NEEDED"',
+    );
+    expect(workflow).toContain(
+      "enabled: trackingFallbackRequired",
+    );
+    expect(sync).toContain(
+      "!enabled || !importOpen",
     );
     expect(importUpload).toContain(
-      'form.append( "default_lot_control_mode", importLotControlMode );',
+      'if ( importLotControlMode ) { form.append( "default_lot_control_mode", importLotControlMode ); }',
     );
     expect(importUpload).toContain(
-      'form.append( "default_expiry_control_mode", importExpiryControlMode );',
+      'if ( importExpiryControlMode ) { form.append( "default_expiry_control_mode", importExpiryControlMode ); }',
     );
     expect(importUpload).toContain(
-      '${fingerprint}:${importLotControlMode}:${importExpiryControlMode}',
+      'importLotControlMode ?? "SERVER_DEFAULT"',
+    );
+    expect(importUpload).toContain(
+      'importExpiryControlMode ?? "SERVER_DEFAULT"',
     );
   });
 
-  it("supports optional per-row tracking overrides in mapping and template", () => {
+  it("supports optional per-row tracking overrides and shows fallback controls only contextually", () => {
     const importFields = normalizeWhitespace(
       readSource("../pages/products/import/importFields.ts"),
     );
     const startPanel = normalizeWhitespace(
       readSource("../pages/products/import/ImportProductStartPanel.tsx"),
+    );
+    const fallbackPanel = normalizeWhitespace(
+      readSource("../pages/products/import/ImportTrackingFallbackPanel.tsx"),
     );
 
     expect(importFields).toContain('"lot_control_mode"');
@@ -46,55 +61,18 @@ describe("product import tracking workflow", () => {
     expect(importFields).toContain(
       '"products.fields.expiryControlMode"',
     );
-    expect(startPanel).toContain("<ProductTrackingSimpleControls");
-  });
-
-  it("keeps import tracking compact by default and makes per-import overrides explicit", () => {
-    const page = normalizeWhitespace(
-      readSource("../pages/products/ProductsPage.tsx"),
+    expect(startPanel).not.toContain(
+      "<ProductTrackingSimpleControls",
     );
-    const importStart = normalizeWhitespace(
-      readSource("../pages/products/import/ImportProductStartPanel.tsx"),
+    expect(startPanel).toContain(
+      "trackingAnalysis.status !== \"NOT_NEEDED\"",
     );
-    const importHelpers = normalizeWhitespace(
-      readSource("../pages/products/import/helpers.ts"),
-    );
-    const translations = readSource("../i18n/resources.ts");
-
-    expect(importHelpers).toContain(
-      "usesCompanyImportTrackingDefaults",
-    );
-    expect(importStart).toContain(
-      "!trackingExpanded ?",
-    );
-    expect(importStart).toContain(
-      '"products.importTrackingChange"',
-    );
-    expect(importStart).toContain(
-      '"products.importTrackingReset"',
-    );
-    expect(importStart).toContain(
-      '"products.importTrackingOnlyThisImport"',
-    );
-
-    expect(translations).toContain(
-      'importTrackingCompanyScope:',
-    );
-    expect(translations).toContain(
-      'importTrackingCustomScope:',
-    );
-    expect(translations).toContain(
-      'importTrackingChange:',
-    );
-    expect(translations).toContain(
-      'importTrackingReset:',
+    expect(fallbackPanel).toContain(
+      "<ProductTrackingSimpleControls",
     );
   });
 
-  it("shows localized per-row tracking guidance before upload", () => {
-    const page = normalizeWhitespace(
-      readSource("../pages/products/ProductsPage.tsx"),
-    );
+  it("keeps the basic upload surface free of blank-cell default controls", () => {
     const importStart = normalizeWhitespace(
       readSource("../pages/products/import/ImportProductStartPanel.tsx"),
     );
@@ -104,35 +82,63 @@ describe("product import tracking workflow", () => {
     const translations = readSource("../i18n/resources.ts");
 
     expect(importStart).toContain(
-      "<ImportProductQuickGuide"
+      "<ImportProductQuickGuide",
     );
     expect(importStart).toContain(
-      '"products.importTrackingValueHint"',
+      "<ImportTrackingFallbackPanel",
     );
-    expect(quickGuide).toContain(
-      "products.tracking.importValues."
+    expect(importStart).not.toContain(
+      '"products.importTrackingChange"',
     );
-    expect(quickGuide).toContain(
-      '"products.importGuideFallbackCompany"'
+    expect(importStart).not.toContain(
+      '"products.importTrackingTitle"',
     );
-    expect(quickGuide).toContain(
-      '"products.importGuideFallbackImport"'
+    expect(quickGuide).not.toContain(
+      '"products.importGuideFallbackCompany"',
     );
-    expect(quickGuide).toContain(
-      '"products.importGuideUseDefault"'
-    );
-    expect(quickGuide).toContain(
-      '"products.importGuideBulkTip"'
-    );
-    expect(page).not.toContain(
-      '"REQUIRED", "REQUIRED",',
+    expect(quickGuide).not.toContain(
+      '"products.importGuideFallbackImport"',
     );
 
     expect(translations).toContain(
-      'importValues: {',
+      'importTrackingNoFallback:',
     );
     expect(translations).toContain(
-      'importGuideTrackingRule:',
+      'importTrackingFallbackNeededTitle:',
+    );
+    expect(translations).toContain(
+      'importTrackingFallbackUnknownTitle:',
+    );
+  });
+
+  it("inspects the selected file before upload instead of asking for defaults up front", () => {
+    const preflight = normalizeWhitespace(
+      readSource("../pages/products/import/productImportFilePreflight.ts"),
+    );
+    const hook = normalizeWhitespace(
+      readSource("../pages/products/import/useImportProductFilePreflight.ts"),
+    );
+    const startPanel = normalizeWhitespace(
+      readSource("../pages/products/import/ImportProductStartPanel.tsx"),
+    );
+
+    expect(preflight).toContain(
+      '"NOT_NEEDED" | "NEEDED" | "UNKNOWN"',
+    );
+    expect(preflight).toContain(
+      '"استخدام الافتراضي"',
+    );
+    expect(preflight).toContain(
+      '"use default"',
+    );
+    expect(hook).toContain(
+      "inspectProductImportFile",
+    );
+    expect(startPanel).toContain(
+      "filePreflightLoading",
+    );
+    expect(startPanel).toContain(
+      '"products.importTrackingInspectingFile"',
     );
   });
 
@@ -172,16 +178,7 @@ describe("product import tracking workflow", () => {
     expect(picker).toContain(
       "products.tracking.expiryModes",
     );
-    expect(picker).toContain(
-      '"products.tracking.lotExample"',
-    );
-    expect(picker).toContain(
-      '"products.tracking.expiryExample"',
-    );
 
-    expect(translations).toContain(
-      'importTrackingTitle:',
-    );
     expect(translations).toContain(
       'lotControlMode:',
     );

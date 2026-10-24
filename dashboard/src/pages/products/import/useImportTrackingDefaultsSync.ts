@@ -10,6 +10,7 @@ import type {
 } from "@/pages/products/contracts";
 
 type Params = {
+  enabled: boolean;
   importOpen: boolean;
   importJobId: string | null;
   defaults:
@@ -28,6 +29,7 @@ type Params = {
 };
 
 export function useImportTrackingDefaultsSync({
+  enabled,
   importOpen,
   importJobId,
   defaults,
@@ -36,6 +38,7 @@ export function useImportTrackingDefaultsSync({
 }: Params) {
   useEffect(() => {
     if (
+      !enabled ||
       !importOpen ||
       importJobId ||
       !defaults
@@ -53,6 +56,7 @@ export function useImportTrackingDefaultsSync({
         defaults.expiry_control_mode
     );
   }, [
+    enabled,
     importOpen,
     importJobId,
     defaults,

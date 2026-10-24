@@ -58,16 +58,21 @@ describe("Product Import in-flight file ownership", () => {
       online={true}
       file={new File(["Product name\nCoffee"], "upload.csv")}
       dragging={false}
+      filePreflightLoading={false}
+      trackingAnalysis={{
+        status: "NOT_NEEDED",
+        dataRows: 1,
+        lotFallbackRows: 0,
+        expiryFallbackRows: 0,
+      }}
       lotControlMode="NONE"
       expiryControlMode="NONE"
       trackingDefaultsLoading={false}
       trackingDefaultsError={false}
       trackingUsesCompanyDefaults={true}
-      trackingExpanded={false}
       fileRef={createRef<HTMLInputElement>()}
       onDownloadTemplate={vi.fn()}
       onRetryTrackingDefaults={vi.fn()}
-      onExpandTracking={vi.fn()}
       onLotControlModeChange={vi.fn()}
       onExpiryControlModeChange={vi.fn()}
       onResetTracking={vi.fn()}
