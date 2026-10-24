@@ -1322,6 +1322,8 @@ Design principles:
 
 ### 11.4 WANASAH V1 polish direction + FIELD surface freeze — 2026-10-24
 
+- [x] Canonical Flutter polish execution plan created: `FLUTTER_V1_POLISH_PLAN.md`. It owns the approved 3-tab shell (Home / Route & Visits / Custody), global Sync Center indicator, screen-by-screen cleanup order and per-slice acceptance workflow.
+
 **Current owner-approved visual brief:** Flutter V1 polish targets a deliberate mix of **Clean Modern UI** and **High Usability**. Visual experimentation must never hide, merge away, or invent FIELD business functions.
 
 - [x] The earlier Figma A/B/C exploration and the temporary **Daylight Signal** direction were reviewed by the owner and **rejected as visual directions**. They are historical exploration only and must not be treated as approved production design.
