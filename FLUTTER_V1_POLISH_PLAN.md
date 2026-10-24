@@ -32,6 +32,27 @@ Every polished screen must preserve the accepted FIELD functions frozen in:
 - [x] Material visual-direction changes are reviewed before production implementation.
 - [x] Connectivity, service failure, pending sync and blocked recovery are distinct operator states.
 
+## 2A. Localization / multi-language foundation — APPROVED
+
+The current production Flutter app is still Arabic-only at runtime, even though some newer presentation helpers already contain Arabic/English copy. Multi-language readiness must be fixed **before more UI polish spreads hard-coded text**.
+
+- [x] Arabic remains the current V1 default/fallback language.
+- [x] The architecture must allow adding another language without editing every screen/widget.
+- [x] User-visible copy must not be hard-coded inside new polished widgets.
+- [x] Use one canonical Flutter localization system for production UI copy. Prefer Flutter generated localization (`gen_l10n` + ARB resources) or an equivalently centralized typed solution; do not keep growing parallel ad-hoc maps per feature.
+- [x] Existing `AppCopy`, Visit string helpers and Recovery string maps are migration inputs, not justification for permanent competing localization systems.
+- [x] RTL/LTR is part of the foundation:
+  - use directional padding/alignment where direction matters;
+  - directional navigation icons/actions must remain semantically correct;
+  - layouts must survive both Arabic RTL and future LTR locales.
+- [x] Dates, numbers and currency values must be formatted through locale-aware formatting rather than embedded language-specific text assumptions.
+- [x] Adding a future locale should primarily mean adding translation resources + enabling the locale, not rewriting screen structure.
+- [x] Do not globally switch the app to English until the touched V1 surfaces have complete translation coverage; mixed-language production UI is not acceptable.
+- [ ] Create the canonical localization resource structure and app-level locale wiring.
+- [ ] Migrate the shared shell/Home/Recovery copy introduced by the shell slice into that canonical system.
+- [ ] Add Arabic RTL + English LTR widget coverage for the shared shell before the next major polish slice.
+- [ ] Continue migration screen-by-screen as each surface is polished; no newly polished screen may introduce new hard-coded operator copy.
+
 ## 3. App shell and primary navigation — APPROVED
 
 ### 3.1 Bottom navigation
