@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wanasah_frontend/features/custody/presentation/vehicle_inventory_section.dart';
 import 'package:wanasah_frontend/features/custody/domain/non_sellable_custody.dart';
 import 'package:wanasah_frontend/features/work_session/presentation/work_session_controls.dart';
+import 'package:wanasah_frontend/l10n/generated/app_localizations.dart';
 import 'package:wanasah_frontend/models/product_model.dart';
 
 void main() {
@@ -87,7 +88,7 @@ void main() {
       expect(screen, isNot(contains("'تحديث عهدة من الإدارة'")));
       expect(screen, isNot(contains("'مخزون سيارة المندوب:'")));
 
-      expect(session, contains("DateFormat('hh:mm a')"));
+      expect(session, contains('DateFormat.Hm(locale)'));
       expect(session, isNot(contains("'يجب إنهاء الاستراحة أولاً!'")));
       expect(session, contains('WorkSessionIssuePanel'));
       expect(transfer, contains("'تحديث عهدة من الإدارة'"));
@@ -109,6 +110,9 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('ar'),
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
           home: Scaffold(
             body: WorkSessionControls(
               isActiveSession: false,
@@ -124,7 +128,7 @@ void main() {
         ),
       );
 
-      expect(find.text('اضغط لبدء العمل'), findsOneWidget);
+      expect(find.text('ابدأ يومك'), findsOneWidget);
       await tester.tap(find.text('بدء العمل'));
       await tester.pumpAndSettle();
 
@@ -147,6 +151,9 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('ar'),
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
           home: Scaffold(
             body: WorkSessionControls(
               isActiveSession: true,
