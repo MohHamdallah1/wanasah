@@ -219,7 +219,7 @@ describe("Checkpoint 1 inbound UI", () => {
     await waitFor(() => expect(cost.value).toBe("4.25"));
     expect(cost.disabled).toBe(false);
     expect(within(row).queryByRole("button", { name: "Edit actual purchase cost" })).toBeNull();
-    const referenceButton = within(row).getByRole("button", { name: "Use reference cost 4.25 JOD" });
+    const referenceButton = within(row).getByRole("button", { name: "Use last approved purchase cost: 4.25 JOD" });
     expect(referenceButton).toHaveTextContent("Reference");
     expect(referenceButton).not.toHaveAttribute("title");
     expect(referenceButton).toHaveAttribute("data-state", "closed");
@@ -661,6 +661,49 @@ describe("Checkpoint 1 inbound UI", () => {
     expect(mocks.post).not.toHaveBeenCalled();
   });
 
+  it("shows pack conversion inside the purchase-unit option", async () => {
+    const variant = makeVariant(31, "Pack label", "NONE", "NONE");
+    const baseFetch = makeFetch([variant]);
+    const fetch = vi.fn(async (url: string, opts?: RequestInit): Promise<unknown> => {
+      if (url === "/warehouse/inbound/options") {
+        return {
+          currency_code: "JOD",
+          as_of_date: "2026-10-25",
+          items: [{
+            product_variant_id: 31,
+            base_uom_id: 1,
+            purchase_cost_reference: null,
+            uoms: [
+              { id: 1, code: "EACH", name: "Each", factor_to_base: "1" },
+              { id: 2, code: "CARTON", name: "Carton", factor_to_base: "8" },
+            ],
+          }],
+        };
+      }
+      return baseFetch(url, opts);
+    });
+
+    render(
+      <Tab2Inbound
+        companyId={1}
+        actorId={2}
+        locationId={3}
+        isAuditLocked={false}
+        authenticatedFetch={fetch}
+        onSuccess={vi.fn()}
+      />,
+    );
+
+    const row = (await screen.findByText("Pack label")).closest("tr")!;
+    const unit = within(row).getByLabelText("Purchase unit") as HTMLSelectElement;
+    await waitFor(() => expect(unit.options).toHaveLength(2));
+    expect(Array.from(unit.options).map((option) => option.textContent)).toEqual([
+      "Unit",
+      "Carton (8 Unit)",
+    ]);
+    expect(within(row).queryByText("= 8 Unit")).toBeNull();
+  });
+
   it("follows the visible column order with Enter for keyboard-first receiving", async () => {
     renderInbound([
       makeVariant(1, "Keyboard", "REQUIRED", "REQUIRED"),
@@ -680,21 +723,31 @@ describe("Checkpoint 1 inbound UI", () => {
 
     cost.focus();
     fireEvent.keyDown(cost, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(unit);
+    fireEvent.keyDown(unit, { key: "ArrowRight" });
     expect(document.activeElement).toBe(quantity);
     fireEvent.keyDown(quantity, { key: "ArrowLeft" });
-    expect(document.activeElement).toBe(cost);
+    expect(document.activeElement).toBe(unit);
     fireEvent.keyDown(cost, { key: "ArrowDown" });
     expect(document.activeElement).toBe(nextCost);
     fireEvent.keyDown(nextCost, { key: "ArrowUp" });
     expect(document.activeElement).toBe(cost);
 
     fireEvent.keyDown(cost, { key: "Enter" });
-    expect(document.activeElement).toBe(quantity);
-
-    fireEvent.keyDown(quantity, { key: "Enter" });
     expect(document.activeElement).toBe(unit);
 
+    const showPicker = vi.fn();
+    Object.defineProperty(unit, "showPicker", {
+      configurable: true,
+      value: showPicker,
+    });
     fireEvent.keyDown(unit, { key: "Enter" });
+    expect(showPicker).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(unit);
+
+    fireEvent.keyDown(unit, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(quantity);
+    fireEvent.keyDown(quantity, { key: "Enter" });
     expect(document.activeElement).toBe(production);
 
     fireEvent.keyDown(production, { key: "Enter" });
@@ -935,9 +988,12 @@ describe("Checkpoint 1 inbound UI", () => {
     });
     await waitFor(() => expect(root.getAttribute("dir")).toBe("rtl"));
     const rtlCost = within(localeRow).getByLabelText(i18n.t("inventoryInbound.unitCostPlaceholder"));
+    const rtlUnit = within(localeRow).getByLabelText(i18n.t("inventoryInbound.purchaseUnit"));
     const rtlQuantity = within(localeRow).getByLabelText(i18n.t("inventoryInbound.quantity"));
     (rtlCost as HTMLElement).focus();
     fireEvent.keyDown(rtlCost, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(rtlUnit);
+    fireEvent.keyDown(rtlUnit, { key: "ArrowLeft" });
     expect(document.activeElement).toBe(rtlQuantity);
     expect(
       screen.getByRole("columnheader", {
