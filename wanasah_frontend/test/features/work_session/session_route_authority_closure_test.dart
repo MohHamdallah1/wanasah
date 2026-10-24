@@ -13,6 +13,7 @@ import 'package:wanasah_frontend/features/work_session/data/work_session_remote_
 import 'package:wanasah_frontend/features/work_session/data/work_session_snapshot.dart';
 import 'package:wanasah_frontend/features/work_session/presentation/work_session_controls.dart';
 import 'package:wanasah_frontend/features/work_session/presentation/work_session_issue_message.dart';
+import 'package:wanasah_frontend/l10n/generated/app_localizations.dart';
 
 void main() {
   group('verified Backend session authority contract', () {
@@ -423,6 +424,9 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('ar'),
+        supportedLocales: AppLocalizations.supportedLocales,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
         home: Scaffold(
           body: WorkSessionControls(
             isActiveSession: true,
@@ -440,6 +444,7 @@ void main() {
     );
 
     expect(find.textContaining('أكمل المتطلبات التشغيلية أولاً.'), findsOneWidget);
+    expect(find.text('إنهاء العمل'), findsOneWidget);
     expect(find.textContaining('HTTP_400'), findsOneWidget);
     expect(find.textContaining('req-visible'), findsOneWidget);
   });
