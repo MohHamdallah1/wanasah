@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/services.dart';
@@ -16,6 +17,10 @@ import 'package:wanasah_frontend/features/visits/list/application/visit_map_targ
 import 'package:wanasah_frontend/features/visits/list/application/visit_route_action_gate.dart';
 import 'package:wanasah_frontend/features/visits/list/data/visit_list_data_source.dart';
 import 'package:wanasah_frontend/features/visits/list/data/visit_list_refresh_source.dart';
+import 'package:wanasah_frontend/l10n/generated/app_localizations.dart';
+import 'package:wanasah_frontend/features/visits/list/presentation/visit_list_strings.dart';
+import 'package:wanasah_frontend/features/visits/list/presentation/visit_list_summary.dart';
+import 'package:wanasah_frontend/features/visits/list/presentation/visit_card.dart';
 import 'package:wanasah_frontend/models/visit_model.dart';
 
 void main() {
@@ -419,6 +424,109 @@ void main() {
 
       expect(target.fallbackUri, isNull);
       expect(target.hasInvalidRawLink, isTrue);
+    });
+  });
+
+  group('Visit List polished presentation', () {
+    testWidgets('next and urgent badges stay semantic and compact', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final normal = VisitListRow(
+        visit: _visit(id: 81, sequence: 7, status: 'Pending'),
+        routeKind: VisitRouteKind.normal,
+        presentation: VisitExecutionPresentation.pending,
+      );
+      final urgent = VisitListRow(
+        visit: _visit(
+          id: 82,
+          sequence: 8,
+          status: 'Pending',
+          emergency: true,
+        ),
+        routeKind: VisitRouteKind.emergency,
+        presentation: VisitExecutionPresentation.pending,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('ar'),
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          home: Scaffold(
+            body: ListView(
+              children: [
+                VisitCard(
+                  row: normal,
+                  isNext: true,
+                  onOpen: () {},
+                  onMap: () {},
+                ),
+                VisitCard(
+                  row: urgent,
+                  onOpen: () {},
+                  onMap: () {},
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('التالي'), findsOneWidget);
+      expect(find.text('عاجل'), findsOneWidget);
+      expect(find.text('قيد الانتظار'), findsNWidgets(2));
+      expect(find.textContaining('الذمة:'), findsNWidgets(2));
+    });
+
+    testWidgets('route overview and filters use the canonical localized surface', (
+      tester,
+    ) async {
+      VisitListFilter? selected;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('ar'),
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          home: Scaffold(
+            body: VisitListSummary(
+              counts: const VisitRouteCounts(
+                total: 14,
+                completed: 6,
+                pending: 8,
+              ),
+              filter: VisitListFilter.all,
+              onFilterChanged: (value) => selected = value,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('14 زيارة • 6 مكتملة • 8 متبقية'), findsOneWidget);
+      expect(find.text('الكل 14'), findsOneWidget);
+      expect(find.text('المكتملة 6'), findsOneWidget);
+      expect(find.text('المتبقية 8'), findsOneWidget);
+
+      await tester.tap(find.text('المتبقية 8'));
+      expect(selected, VisitListFilter.pending);
+    });
+
+    test('Visit List copy is now backed by generated localization resources', () async {
+      final strings = await File(
+        'lib/features/visits/list/presentation/visit_list_strings.dart',
+      ).readAsString();
+      final screen = await File('lib/screens/visit_list_screen.dart').readAsString();
+
+      expect(strings, contains('lookupAppLocalizations'));
+      expect(strings, isNot(contains('const Map<VisitListStringKey, String> _ar')));
+      expect(strings, isNot(contains('const Map<VisitListStringKey, String> _en')));
+      expect(screen, contains('FloatingActionButton.extended'));
+      expect(screen, contains("ValueKey('visit-add-shop')"));
     });
   });
 
