@@ -30,11 +30,7 @@ void main() {
         ),
     home: FieldAppShell(
       accountName: 'Representative',
-      homeBuilder:
-          (context) => ListView(
-            children: [
-            ],
-          ),
+      homeBuilder: (context) => const SizedBox.shrink(),
       routeBuilder: (_) => const _RouteProbe(),
       custody: const Center(child: Text('Custody evidence')),
       statusUtility: TextButton(
@@ -66,7 +62,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.text('Open route'));
+      await tester.tap(find.byKey(const ValueKey('shell-tab-route')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Increment'));
       await tester.pump();
@@ -86,6 +82,8 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(app());
+    await tester.tap(find.byKey(const ValueKey('shell-tab-route')));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Deep action'));
     await tester.pumpAndSettle();
     expect(find.text('Protected draft'), findsOneWidget);
@@ -95,7 +93,15 @@ void main() {
     expect(find.text('Route 0'), findsOneWidget);
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
-    expect(find.text('Open route'), findsOneWidget);
+    expect(
+      tester.getSemantics(find.bySemanticsLabel('الرئيسية')),
+      matchesSemantics(
+        label: 'الرئيسية',
+        isButton: true,
+        isSelected: true,
+        hasTapAction: true,
+      ),
+    );
   });
 
   testWidgets(
