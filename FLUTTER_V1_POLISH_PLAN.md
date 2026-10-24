@@ -50,9 +50,10 @@ The current production Flutter app is still Arabic-only at runtime, even though 
 - [x] Dates, numbers and currency values must be formatted through locale-aware formatting rather than embedded language-specific text assumptions.
 - [x] Adding a future locale should primarily mean adding translation resources + enabling the locale, not rewriting screen structure.
 - [x] Do not globally switch the app to English until the touched V1 surfaces have complete translation coverage; mixed-language production UI is not acceptable.
-- [ ] Create the canonical localization resource structure and app-level locale wiring.
-- [ ] Migrate the shared shell/Home/Recovery copy introduced by the shell slice into that canonical system.
-- [ ] Add Arabic RTL + English LTR widget coverage for the shared shell before the next major polish slice.
+- [x] Create the canonical localization resource structure and app-level locale wiring.
+- [x] Migrate the shared shell/Home/Recovery copy introduced by the shell slice into that canonical system.
+- [x] Add Arabic RTL + English LTR widget coverage for the shared shell before the next major polish slice.
+- [x] Implementation proof: `gen_l10n` regenerates without localization drift; `flutter analyze` passes; focused Shell/Recovery/observability tests pass **33/33** on the localization branch.
 - [ ] Continue migration screen-by-screen as each surface is polished; no newly polished screen may introduce new hard-coded operator copy.
 
 ## 3. App shell and primary navigation — APPROVED
