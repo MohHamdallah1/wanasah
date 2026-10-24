@@ -742,3 +742,46 @@ This file is intentional product/architecture scope, not a temporary handoff not
 - Build a central, filterable company audit center in V2 for cross-module activity.
 - V1 still requires the product-local «سجل النشاط» so product actions are accountable without making the operator leave the product workflow.
 - Reuse immutable `domain_audit_events`; do not create a second audit authority in the frontend.
+
+## 13. Flutter representative financial / transaction workspace — deferred
+
+### V1 decision
+
+A fourth Flutter bottom-navigation tab for **Transactions & Ledger / Settlement** is intentionally **deferred from V1**.
+
+V1 keeps the representative shell focused on:
+
+1. Home;
+2. Route & Visits;
+3. Custody;
+
+while synchronization/recovery opens from a compact global status indicator.
+
+### Candidate V2 scope
+
+A future representative financial/history workspace may include:
+
+- today's committed Visit invoices;
+- today's returns;
+- read-only transaction/movement history relevant to the representative;
+- invoice detail/reopen and print/share/reprint support when a real printing contract exists;
+- navigation to the **original Visit** when an authorized correction is available;
+- a read-only end-of-day handoff summary for expected cash/custody.
+
+### Authority boundary
+
+This deferred workspace must **not** become a second accounting or settlement authority.
+
+- Visit correction remains owned by the original Visit workflow and existing `visit.execute` plus business-state guards; there is no independent `visit_command_correction` FIELD capability.
+- Physical receiving, representative reconciliation/settlement and financial close remain Dashboard/Backoffice authority under the accepted V1 settlement architecture unless a later explicit owner-approved architecture decision changes that boundary.
+- A future Flutter history page may display settlement/handoff status, but it must not silently acquire Backoffice write authority.
+
+### V2 prerequisites
+
+Before implementing this tab:
+
+- define an authoritative representative-scoped invoice/return history read contract instead of synthesizing a new ledger from unrelated endpoints;
+- define printing/reprint ownership if required;
+- define correction navigation and immutable revision evidence;
+- preserve tenant, capability and scope authorization;
+- define how the mobile history relates to Backoffice settlement without dual authority.
