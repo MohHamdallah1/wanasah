@@ -83,10 +83,12 @@ void main() {
       expect(bloc.events.whereType<LoadDashboardData>(), hasLength(1));
       expect(bloc.events.whereType<FetchDashboardData>(), hasLength(1));
       expect(find.byType(WorkSessionControls), findsOneWidget);
+      expect(find.byKey(const ValueKey('work-session-start')), findsOneWidget);
       expect(find.byType(VehicleInventorySection), findsNothing);
       expect(find.textContaining('أحمد'), findsOneWidget);
-      expect(find.textContaining('الذمم المحصلة'), findsOneWidget);
-      expect(find.textContaining('الكاش المستلم'), findsOneWidget);
+      expect(find.text('جولة اليوم'), findsOneWidget);
+      expect(find.text('تحصيل ذمم'), findsOneWidget);
+      expect(find.text('إجمالي الكاش المستلم'), findsOneWidget);
       await _capture(tester, boundary, 'home-rtl');
       await tester.tap(find.byKey(const ValueKey('shell-tab-custody')));
       await tester.pumpAndSettle();
