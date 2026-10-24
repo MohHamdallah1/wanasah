@@ -273,5 +273,94 @@
         "type": "String"
       }
     }
+  },
+  "visitListTitle": "Route",
+  "visitRefreshTooltip": "Refresh route",
+  "visitNormalRouteTab": "Today's route",
+  "visitEmergencyRouteTab": "Urgent requests",
+  "visitFilterAll": "All {count}",
+  "visitFilterCompleted": "Completed {count}",
+  "visitFilterPending": "Remaining {count}",
+  "visitStatusCompleted": "Completed",
+  "visitStatusPending": "Pending",
+  "visitStatusAttempted": "Attempted",
+  "visitStatusPostponed": "Postponed",
+  "visitStatusNoSale": "No sale",
+  "visitStatusUnknown": "Unknown status ({status})",
+  "visitBalanceLabel": "Balance: {amount} JOD",
+  "visitMapTooltip": "Open shop location",
+  "visitEmptyNormalAll": "No scheduled visits right now.",
+  "visitEmptyEmergencyAll": "No urgent requests right now.",
+  "visitEmptyNormalPending": "No remaining visits.",
+  "visitEmptyEmergencyPending": "No remaining urgent requests.",
+  "visitEmptyNormalCompleted": "No completed visits yet.",
+  "visitEmptyEmergencyCompleted": "No completed urgent requests yet.",
+  "visitAddShopAction": "Add shop",
+  "visitGateOnBreak": "You are on break. End the break before continuing.",
+  "visitGateUnauthorizedAdd": "You are not authorized to add shops.",
+  "visitGateUnauthorizedOpen": "You are not authorized to open this visit.",
+  "visitGateUnavailable": "Work-session and authorization state could not be confirmed. Refresh and try again.",
+  "visitRefreshSuccess": "Visit list refreshed.",
+  "visitRefreshAlreadySyncing": "A sync is already running elsewhere.",
+  "visitRefreshTransportAmbiguous": "The refresh result could not be confirmed because of connectivity. Local data is shown.",
+  "visitRefreshBlocked": "Unresolved offline work prevents replacing local data.",
+  "visitRefreshDeterministicFailure": "The visit list could not be refreshed.",
+  "visitLoadFailure": "The local visit list could not be loaded.",
+  "visitMapNoLocation": "No location is recorded for this shop.",
+  "visitMapNoApplication": "No maps app or valid external location link is available.",
+  "visitMapInvalidLink": "The location link is invalid.",
+  "visitMapOpenFailed": "The shop location could not be opened.",
+  "visitRequestIdLabel": "Request ID",
+  "visitRouteOverview": "{total} visits • {completed} completed • {pending} remaining",
+  "visitNextLabel": "Next",
+  "visitUrgentLabel": "Urgent",
+  "visitOpenVisitHint": "Open visit",
+  "@visitFilterAll": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@visitFilterCompleted": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@visitFilterPending": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@visitStatusUnknown": {
+    "placeholders": {
+      "status": {
+        "type": "String"
+      }
+    }
+  },
+  "@visitBalanceLabel": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "@visitRouteOverview": {
+    "placeholders": {
+      "total": {
+        "type": "String"
+      },
+      "completed": {
+        "type": "String"
+      },
+      "pending": {
+        "type": "String"
+      }
+    }
   }
 }
