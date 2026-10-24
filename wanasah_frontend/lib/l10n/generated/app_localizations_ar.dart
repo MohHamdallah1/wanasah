@@ -271,4 +271,183 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get recoveryReadOnlyNotice => 'السجلات المحجوبة للقراءة فقط في هذه المرحلة ولا يوجد حذف شامل.';
+
+  @override
+  String get homeTodayRoute => 'جولة اليوم';
+
+  @override
+  String get homeCompletedLabel => 'مكتملة';
+
+  @override
+  String get homeRemainingLabel => 'متبقية';
+
+  @override
+  String get homeSalesLabel => 'بمبيعات';
+
+  @override
+  String homeAwaitingSync(String count) {
+    return '$count زيارة بانتظار المزامنة';
+  }
+
+  @override
+  String get homeCashReceived => 'إجمالي الكاش المستلم';
+
+  @override
+  String get homeCashSales => 'مبيعات نقدية';
+
+  @override
+  String get homeDebtCollections => 'تحصيل ذمم';
+
+  @override
+  String homeDebtOperations(String count) {
+    return '$count عملية';
+  }
+
+  @override
+  String get workSessionReadyStatus => 'جاهز للبدء';
+
+  @override
+  String get workSessionActiveStatus => 'العمل جارٍ';
+
+  @override
+  String get workSessionBreakStatus => 'في استراحة';
+
+  @override
+  String get workSessionReadyTitle => 'ابدأ يومك';
+
+  @override
+  String get workSessionActiveTitle => 'الجولة مستمرة';
+
+  @override
+  String get workSessionBreakTitle => 'أنت في استراحة';
+
+  @override
+  String get workSessionReadyHint => 'ابدأ جلسة العمل عندما تكون جاهزًا للانطلاق.';
+
+  @override
+  String get workSessionActiveHint => 'جلسة العمل الحالية فعّالة وحالة اليوم مستمرة.';
+
+  @override
+  String get workSessionBreakHint => 'الجلسة محفوظة. أنهِ الاستراحة عندما تكون جاهزًا للمتابعة.';
+
+  @override
+  String get workSessionStartUnknown => 'وقت بدء الجلسة غير متوفر.';
+
+  @override
+  String workSessionStartedAt(String time) {
+    return 'بدأت $time';
+  }
+
+  @override
+  String workSessionElapsed(String duration) {
+    return 'مضى $duration';
+  }
+
+  @override
+  String get workSessionStartAction => 'بدء العمل';
+
+  @override
+  String get workSessionEndAction => 'إنهاء العمل';
+
+  @override
+  String get workSessionStartBreakAction => 'بدء الاستراحة';
+
+  @override
+  String get workSessionEndBreakAction => 'إنهاء الاستراحة';
+
+  @override
+  String get workSessionConfirmStartTitle => 'بدء العمل؟';
+
+  @override
+  String get workSessionConfirmStartBody => 'هل تريد بدء جلسة عمل جديدة؟';
+
+  @override
+  String get workSessionConfirmEndTitle => 'إنهاء العمل؟';
+
+  @override
+  String get workSessionConfirmEndBody => 'هل تريد إنهاء جلسة العمل الحالية؟';
+
+  @override
+  String get workSessionStartSuccess => 'تم بدء جلسة العمل.';
+
+  @override
+  String get workSessionEndSuccess => 'تم إنهاء جلسة العمل.';
+
+  @override
+  String get workSessionBreakStartSuccess => 'تم بدء الاستراحة (مسجلة على السيرفر).';
+
+  @override
+  String get workSessionBreakEndSuccess => 'تم إنهاء الاستراحة (مسجلة على السيرفر).';
+
+  @override
+  String get workSessionStartReconciled => 'تم تأكيد أن جلسة العمل نشطة بعد مطابقة حالتها مع السيرفر.';
+
+  @override
+  String get workSessionEndReconciled => 'تم تأكيد انتهاء جلسة العمل بعد مطابقة حالتها مع السيرفر.';
+
+  @override
+  String get workSessionBreakStartReconciled => 'تم تأكيد بدء الاستراحة بعد مطابقة حالتها مع السيرفر.';
+
+  @override
+  String get workSessionBreakEndReconciled => 'تم تأكيد انتهاء الاستراحة بعد مطابقة حالتها مع السيرفر.';
+
+  @override
+  String get workSessionUnresolved => 'تعذر تأكيد نتيجة العملية. حدّث البيانات قبل المحاولة مجدداً.';
+
+  @override
+  String get workSessionAuthRejected => 'انتهت صلاحية الجلسة أو لا تملك صلاحية تنفيذ العملية.';
+
+  @override
+  String get workSessionBusinessRejected => 'رفض السيرفر العملية بسبب حالة العمل الحالية.';
+
+  @override
+  String get workSessionRateLimited => 'عدد الطلبات مرتفع حالياً. أعد المحاولة بعد قليل.';
+
+  @override
+  String get workSessionNetworkUnresolved => 'تعذر تأكيد نتيجة العملية بسبب الاتصال. تم الحفاظ على حالة السيرفر كمرجع وحيد.';
+
+  @override
+  String get workSessionTimeoutUnresolved => 'انتهت مهلة الاتصال قبل تأكيد نتيجة العملية. حالة السيرفر ما زالت المرجع الوحيد.';
+
+  @override
+  String get workSessionServerUnresolved => 'تعذر تأكيد نتيجة العملية بسبب خطأ في السيرفر.';
+
+  @override
+  String get workSessionRequestIdLabel => 'رقم التتبع';
+
+  @override
+  String get workSessionStatusCodeLabel => 'رمز الحالة';
+
+  @override
+  String get workSessionServerDetailLabel => 'تفصيل السيرفر';
+
+  @override
+  String get workSessionIssueAuthentication => 'يلزم تأكيد تسجيل الدخول قبل تنفيذ إجراء الجلسة.';
+
+  @override
+  String get workSessionIssueInvalidStartEvidence => 'بيانات بدء العمل التي وصلت للسيرفر غير صالحة. حدّث البيانات ثم أعد المحاولة.';
+
+  @override
+  String get workSessionIssueVehicleCustody => 'عهدة السيارة التشغيلية غير جاهزة لبدء العمل. راجع مسؤول التوزيع أو العهدة.';
+
+  @override
+  String get workSessionIssueStartPrerequisite => 'السيرفر رفض بدء العمل بسبب متطلب تشغيلي في خط السير أو السيارة أو العهدة. راجع مسؤول التوزيع ثم أعد المحاولة.';
+
+  @override
+  String get workSessionIssueEndPrerequisite => 'السيرفر رفض إنهاء العمل بسبب متطلب تشغيلي قائم. عالج الاستراحة أو الحوالات المعلقة الظاهرة ثم أعد المحاولة.';
+
+  @override
+  String get workSessionIssueBreakState => 'حالة الاستراحة على السيرفر لا تسمح بهذا الإجراء. حدّث حالة الجلسة ثم أعد المحاولة.';
+
+  @override
+  String get workSessionIssueRateLimited => 'تم تأجيل إجراء الجلسة بسبب حد الطلبات. أعد المحاولة بعد قليل.';
+
+  @override
+  String get workSessionIssueConnectivity => 'تعذر الاتصال بالسيرفر. تحقق من الشبكة وحدّث حالة الجلسة قبل إعادة المحاولة.';
+
+  @override
+  String get workSessionIssueTimeout => 'انتهت مهلة الاتصال قبل تأكيد النتيجة. حدّث حالة الجلسة قبل إعادة المحاولة.';
+
+  @override
+  String get workSessionIssueUnresolved => 'لم يتم تأكيد نتيجة إجراء الجلسة. حالة السيرفر هي المرجع؛ حدّث البيانات قبل إعادة المحاولة.';
 }

@@ -562,6 +562,348 @@ abstract class AppLocalizations {
   /// In ar, this message translates to:
   /// **'السجلات المحجوبة للقراءة فقط في هذه المرحلة ولا يوجد حذف شامل.'**
   String get recoveryReadOnlyNotice;
+
+  /// No description provided for @homeTodayRoute.
+  ///
+  /// In ar, this message translates to:
+  /// **'جولة اليوم'**
+  String get homeTodayRoute;
+
+  /// No description provided for @homeCompletedLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'مكتملة'**
+  String get homeCompletedLabel;
+
+  /// No description provided for @homeRemainingLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'متبقية'**
+  String get homeRemainingLabel;
+
+  /// No description provided for @homeSalesLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'بمبيعات'**
+  String get homeSalesLabel;
+
+  /// No description provided for @homeAwaitingSync.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count} زيارة بانتظار المزامنة'**
+  String homeAwaitingSync(String count);
+
+  /// No description provided for @homeCashReceived.
+  ///
+  /// In ar, this message translates to:
+  /// **'إجمالي الكاش المستلم'**
+  String get homeCashReceived;
+
+  /// No description provided for @homeCashSales.
+  ///
+  /// In ar, this message translates to:
+  /// **'مبيعات نقدية'**
+  String get homeCashSales;
+
+  /// No description provided for @homeDebtCollections.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحصيل ذمم'**
+  String get homeDebtCollections;
+
+  /// No description provided for @homeDebtOperations.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count} عملية'**
+  String homeDebtOperations(String count);
+
+  /// No description provided for @workSessionReadyStatus.
+  ///
+  /// In ar, this message translates to:
+  /// **'جاهز للبدء'**
+  String get workSessionReadyStatus;
+
+  /// No description provided for @workSessionActiveStatus.
+  ///
+  /// In ar, this message translates to:
+  /// **'العمل جارٍ'**
+  String get workSessionActiveStatus;
+
+  /// No description provided for @workSessionBreakStatus.
+  ///
+  /// In ar, this message translates to:
+  /// **'في استراحة'**
+  String get workSessionBreakStatus;
+
+  /// No description provided for @workSessionReadyTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'ابدأ يومك'**
+  String get workSessionReadyTitle;
+
+  /// No description provided for @workSessionActiveTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'الجولة مستمرة'**
+  String get workSessionActiveTitle;
+
+  /// No description provided for @workSessionBreakTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'أنت في استراحة'**
+  String get workSessionBreakTitle;
+
+  /// No description provided for @workSessionReadyHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'ابدأ جلسة العمل عندما تكون جاهزًا للانطلاق.'**
+  String get workSessionReadyHint;
+
+  /// No description provided for @workSessionActiveHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'جلسة العمل الحالية فعّالة وحالة اليوم مستمرة.'**
+  String get workSessionActiveHint;
+
+  /// No description provided for @workSessionBreakHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'الجلسة محفوظة. أنهِ الاستراحة عندما تكون جاهزًا للمتابعة.'**
+  String get workSessionBreakHint;
+
+  /// No description provided for @workSessionStartUnknown.
+  ///
+  /// In ar, this message translates to:
+  /// **'وقت بدء الجلسة غير متوفر.'**
+  String get workSessionStartUnknown;
+
+  /// No description provided for @workSessionStartedAt.
+  ///
+  /// In ar, this message translates to:
+  /// **'بدأت {time}'**
+  String workSessionStartedAt(String time);
+
+  /// No description provided for @workSessionElapsed.
+  ///
+  /// In ar, this message translates to:
+  /// **'مضى {duration}'**
+  String workSessionElapsed(String duration);
+
+  /// No description provided for @workSessionStartAction.
+  ///
+  /// In ar, this message translates to:
+  /// **'بدء العمل'**
+  String get workSessionStartAction;
+
+  /// No description provided for @workSessionEndAction.
+  ///
+  /// In ar, this message translates to:
+  /// **'إنهاء العمل'**
+  String get workSessionEndAction;
+
+  /// No description provided for @workSessionStartBreakAction.
+  ///
+  /// In ar, this message translates to:
+  /// **'بدء الاستراحة'**
+  String get workSessionStartBreakAction;
+
+  /// No description provided for @workSessionEndBreakAction.
+  ///
+  /// In ar, this message translates to:
+  /// **'إنهاء الاستراحة'**
+  String get workSessionEndBreakAction;
+
+  /// No description provided for @workSessionConfirmStartTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'بدء العمل؟'**
+  String get workSessionConfirmStartTitle;
+
+  /// No description provided for @workSessionConfirmStartBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'هل تريد بدء جلسة عمل جديدة؟'**
+  String get workSessionConfirmStartBody;
+
+  /// No description provided for @workSessionConfirmEndTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'إنهاء العمل؟'**
+  String get workSessionConfirmEndTitle;
+
+  /// No description provided for @workSessionConfirmEndBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'هل تريد إنهاء جلسة العمل الحالية؟'**
+  String get workSessionConfirmEndBody;
+
+  /// No description provided for @workSessionStartSuccess.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم بدء جلسة العمل.'**
+  String get workSessionStartSuccess;
+
+  /// No description provided for @workSessionEndSuccess.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم إنهاء جلسة العمل.'**
+  String get workSessionEndSuccess;
+
+  /// No description provided for @workSessionBreakStartSuccess.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم بدء الاستراحة (مسجلة على السيرفر).'**
+  String get workSessionBreakStartSuccess;
+
+  /// No description provided for @workSessionBreakEndSuccess.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم إنهاء الاستراحة (مسجلة على السيرفر).'**
+  String get workSessionBreakEndSuccess;
+
+  /// No description provided for @workSessionStartReconciled.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم تأكيد أن جلسة العمل نشطة بعد مطابقة حالتها مع السيرفر.'**
+  String get workSessionStartReconciled;
+
+  /// No description provided for @workSessionEndReconciled.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم تأكيد انتهاء جلسة العمل بعد مطابقة حالتها مع السيرفر.'**
+  String get workSessionEndReconciled;
+
+  /// No description provided for @workSessionBreakStartReconciled.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم تأكيد بدء الاستراحة بعد مطابقة حالتها مع السيرفر.'**
+  String get workSessionBreakStartReconciled;
+
+  /// No description provided for @workSessionBreakEndReconciled.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم تأكيد انتهاء الاستراحة بعد مطابقة حالتها مع السيرفر.'**
+  String get workSessionBreakEndReconciled;
+
+  /// No description provided for @workSessionUnresolved.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر تأكيد نتيجة العملية. حدّث البيانات قبل المحاولة مجدداً.'**
+  String get workSessionUnresolved;
+
+  /// No description provided for @workSessionAuthRejected.
+  ///
+  /// In ar, this message translates to:
+  /// **'انتهت صلاحية الجلسة أو لا تملك صلاحية تنفيذ العملية.'**
+  String get workSessionAuthRejected;
+
+  /// No description provided for @workSessionBusinessRejected.
+  ///
+  /// In ar, this message translates to:
+  /// **'رفض السيرفر العملية بسبب حالة العمل الحالية.'**
+  String get workSessionBusinessRejected;
+
+  /// No description provided for @workSessionRateLimited.
+  ///
+  /// In ar, this message translates to:
+  /// **'عدد الطلبات مرتفع حالياً. أعد المحاولة بعد قليل.'**
+  String get workSessionRateLimited;
+
+  /// No description provided for @workSessionNetworkUnresolved.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر تأكيد نتيجة العملية بسبب الاتصال. تم الحفاظ على حالة السيرفر كمرجع وحيد.'**
+  String get workSessionNetworkUnresolved;
+
+  /// No description provided for @workSessionTimeoutUnresolved.
+  ///
+  /// In ar, this message translates to:
+  /// **'انتهت مهلة الاتصال قبل تأكيد نتيجة العملية. حالة السيرفر ما زالت المرجع الوحيد.'**
+  String get workSessionTimeoutUnresolved;
+
+  /// No description provided for @workSessionServerUnresolved.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر تأكيد نتيجة العملية بسبب خطأ في السيرفر.'**
+  String get workSessionServerUnresolved;
+
+  /// No description provided for @workSessionRequestIdLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'رقم التتبع'**
+  String get workSessionRequestIdLabel;
+
+  /// No description provided for @workSessionStatusCodeLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'رمز الحالة'**
+  String get workSessionStatusCodeLabel;
+
+  /// No description provided for @workSessionServerDetailLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'تفصيل السيرفر'**
+  String get workSessionServerDetailLabel;
+
+  /// No description provided for @workSessionIssueAuthentication.
+  ///
+  /// In ar, this message translates to:
+  /// **'يلزم تأكيد تسجيل الدخول قبل تنفيذ إجراء الجلسة.'**
+  String get workSessionIssueAuthentication;
+
+  /// No description provided for @workSessionIssueInvalidStartEvidence.
+  ///
+  /// In ar, this message translates to:
+  /// **'بيانات بدء العمل التي وصلت للسيرفر غير صالحة. حدّث البيانات ثم أعد المحاولة.'**
+  String get workSessionIssueInvalidStartEvidence;
+
+  /// No description provided for @workSessionIssueVehicleCustody.
+  ///
+  /// In ar, this message translates to:
+  /// **'عهدة السيارة التشغيلية غير جاهزة لبدء العمل. راجع مسؤول التوزيع أو العهدة.'**
+  String get workSessionIssueVehicleCustody;
+
+  /// No description provided for @workSessionIssueStartPrerequisite.
+  ///
+  /// In ar, this message translates to:
+  /// **'السيرفر رفض بدء العمل بسبب متطلب تشغيلي في خط السير أو السيارة أو العهدة. راجع مسؤول التوزيع ثم أعد المحاولة.'**
+  String get workSessionIssueStartPrerequisite;
+
+  /// No description provided for @workSessionIssueEndPrerequisite.
+  ///
+  /// In ar, this message translates to:
+  /// **'السيرفر رفض إنهاء العمل بسبب متطلب تشغيلي قائم. عالج الاستراحة أو الحوالات المعلقة الظاهرة ثم أعد المحاولة.'**
+  String get workSessionIssueEndPrerequisite;
+
+  /// No description provided for @workSessionIssueBreakState.
+  ///
+  /// In ar, this message translates to:
+  /// **'حالة الاستراحة على السيرفر لا تسمح بهذا الإجراء. حدّث حالة الجلسة ثم أعد المحاولة.'**
+  String get workSessionIssueBreakState;
+
+  /// No description provided for @workSessionIssueRateLimited.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم تأجيل إجراء الجلسة بسبب حد الطلبات. أعد المحاولة بعد قليل.'**
+  String get workSessionIssueRateLimited;
+
+  /// No description provided for @workSessionIssueConnectivity.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر الاتصال بالسيرفر. تحقق من الشبكة وحدّث حالة الجلسة قبل إعادة المحاولة.'**
+  String get workSessionIssueConnectivity;
+
+  /// No description provided for @workSessionIssueTimeout.
+  ///
+  /// In ar, this message translates to:
+  /// **'انتهت مهلة الاتصال قبل تأكيد النتيجة. حدّث حالة الجلسة قبل إعادة المحاولة.'**
+  String get workSessionIssueTimeout;
+
+  /// No description provided for @workSessionIssueUnresolved.
+  ///
+  /// In ar, this message translates to:
+  /// **'لم يتم تأكيد نتيجة إجراء الجلسة. حالة السيرفر هي المرجع؛ حدّث البيانات قبل إعادة المحاولة.'**
+  String get workSessionIssueUnresolved;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {
