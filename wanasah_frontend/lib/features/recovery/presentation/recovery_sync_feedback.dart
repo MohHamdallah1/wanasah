@@ -47,17 +47,28 @@ Future<void> refreshRecoveryWithFeedback(
   if (controller.syncing) return;
   final messenger = ScaffoldMessenger.of(context);
   final locale = Localizations.localeOf(context).toLanguageTag();
-  final loading = messenger.showSnackBar(
-    SnackBar(
-      content: Text(
-        recoveryString(RecoveryStringKey.syncInProgress, localeCode: locale),
-      ),
-      duration: const Duration(days: 1),
-    ),
-  );
+  final hadPendingWork = controller.snapshot?.hasPending == true;
+  final loading =
+      hadPendingWork
+          ? messenger.showSnackBar(
+            SnackBar(
+              content: Text(
+                recoveryString(
+                  RecoveryStringKey.syncInProgress,
+                  localeCode: locale,
+                ),
+              ),
+              duration: const Duration(days: 1),
+            ),
+          )
+          : null;
+
   final result = await controller.synchronize();
-  loading.close();
+  loading?.close();
   if (!context.mounted || result == null) return;
-  showRecoverySyncFeedback(context, result);
+
+  if (hadPendingWork || result.disposition != RecoverySyncDisposition.synced) {
+    showRecoverySyncFeedback(context, result);
+  }
   onAfterSync();
 }

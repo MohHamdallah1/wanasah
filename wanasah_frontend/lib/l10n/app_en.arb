@@ -192,7 +192,7 @@
   "homeTodayRoute": "Today's route",
   "homeCompletedLabel": "Completed",
   "homeRemainingLabel": "Remaining",
-  "homeSalesLabel": "With sales",
+  "homeSalesLabel": "Sales",
   "homeAwaitingSync": "{count} visits awaiting sync",
   "homeCashReceived": "Total cash received",
   "homeCashSales": "Cash sales",

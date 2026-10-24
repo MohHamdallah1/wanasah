@@ -192,7 +192,7 @@
   "homeTodayRoute": "جولة اليوم",
   "homeCompletedLabel": "مكتملة",
   "homeRemainingLabel": "متبقية",
-  "homeSalesLabel": "بمبيعات",
+  "homeSalesLabel": "مبيعات",
   "homeAwaitingSync": "{count} زيارة بانتظار المزامنة",
   "homeCashReceived": "إجمالي الكاش المستلم",
   "homeCashSales": "مبيعات نقدية",

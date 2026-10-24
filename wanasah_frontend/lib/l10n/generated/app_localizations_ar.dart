@@ -282,7 +282,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get homeRemainingLabel => 'متبقية';
 
   @override
-  String get homeSalesLabel => 'بمبيعات';
+  String get homeSalesLabel => 'مبيعات';
 
   @override
   String homeAwaitingSync(String count) {
