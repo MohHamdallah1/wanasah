@@ -1366,7 +1366,7 @@ export const resources = {
         noProducts: "لا توجد أصناف فعالة",
         batchNumber: "رقم التشغيلة (LOT)",
         productionDate: "تاريخ الإنتاج",
-        expiryDate: "تاريخ الصلاحية",
+        expiryDate: "تاريخ الانتهاء",
         required: "مطلوب",
         optional: "اختياري",
         quantity: "الكمية",
