@@ -1320,6 +1320,16 @@ Design principles:
 - [x] `POST /driver/session/{session_id}/reconcile` is **intentionally not a Flutter settlement screen**. The canonical representative-settlement plan requires the user-facing settlement of an ended representative session to start only from the Dashboard **Operations/Home yellow card**; Flutter ends the Work Session and preserves custody/evidence, while the Backoffice settlement flow owns the physical receiving/reconciliation and later financial close. Do not add a second settlement/reconciliation entry point to Flutter.
 - [x] Design review for each polished screen must check this function inventory before implementation so no existing V1 action becomes hidden, unreachable or accidentally replaced by decorative UI.
 
+### 11.4 WANASAH V1 mobile visual-direction checkpoint — 2026-10-24
+
+- [x] Figma connection verified and a dedicated design file created: [WANASAH Flutter V1 — Visual System & Field Home](https://www.figma.com/design/kzlrGGIflbZSeCWRSGXOdd).
+- [x] Three deliberately different field-home directions were explored in Figma before committing: industrial FIELD instrument, Arabic editorial route, and dark signal console. The final direction is a Lead-selected hybrid named **Daylight Signal**, combining strong operational signaling with daylight/outdoor readability instead of generic card-dashboard styling.
+- [x] Daylight Signal V1 foundation created in Figma with one coherent daylight token set and Arabic Alexandria typography. Current Figma Starter-plan limits the local variable collection to one mode, so V1 does **not** spend time forcing a second dark-mode token mode; dark-mode expansion is non-blocking unless later explicitly approved.
+- [x] Initial polished **Field Home / Ready** reference screen created on the dedicated Field Home page. It preserves the real V1 ready-state functions: refresh/logout utilities, connection/sync state, representative/region/date context, Work Session start action, route/Visit progress, cash custody, vehicle inventory status, Visit-list entry and Recovery/sync evidence.
+- [x] Arabic text/layout rendering was visually reviewed and corrected after the first composition pass; the accepted reference uses Alexandria throughout and no cropped/overlapping Arabic text remains in the reviewed ready-state frame.
+- [ ] This Figma checkpoint is a **design reference**, not Flutter production completion. Production implementation remains screen-by-screen under §11.1, with existing business contracts frozen and focused regression proof required before each polished slice is accepted.
+- [ ] Additional real states of the home screen (active session, break, service/connectivity degradation, pending/blocked Recovery/transfer evidence) must extend the same visual language as their owned Flutter behavior is polished; do not invent new business states from the mockup.
+
 ## 12. Tests / acceptance gates
 
 Current Flutter test coverage is minimal.
