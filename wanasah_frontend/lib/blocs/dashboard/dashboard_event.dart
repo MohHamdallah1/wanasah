@@ -100,3 +100,7 @@ class ToggleBreakEvent extends DashboardEvent {
 class ClearActionMessageEvent extends DashboardEvent {
   const ClearActionMessageEvent();
 }
+
+class ClearWorkSessionIssueEvent extends DashboardEvent {
+  const ClearWorkSessionIssueEvent();
+}
