@@ -180,13 +180,15 @@ void main() {
             GlobalWidgetsLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,
           ],
-          home: Builder(
-            builder:
-                (context) => ElevatedButton(
-                  onPressed:
-                      () => refreshRecoveryWithFeedback(context, view, () {}),
-                  child: const Text('refresh'),
-                ),
+          home: Scaffold(
+            body: Builder(
+              builder:
+                  (context) => ElevatedButton(
+                    onPressed:
+                        () => refreshRecoveryWithFeedback(context, view, () {}),
+                    child: const Text('refresh'),
+                  ),
+            ),
           ),
         ),
       );
@@ -219,13 +221,15 @@ void main() {
             GlobalWidgetsLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,
           ],
-          home: Builder(
-            builder:
-                (context) => ElevatedButton(
-                  onPressed:
-                      () => refreshRecoveryWithFeedback(context, view, () {}),
-                  child: const Text('refresh'),
-                ),
+          home: Scaffold(
+            body: Builder(
+              builder:
+                  (context) => ElevatedButton(
+                    onPressed:
+                        () => refreshRecoveryWithFeedback(context, view, () {}),
+                    child: const Text('refresh'),
+                  ),
+            ),
           ),
         ),
       );
