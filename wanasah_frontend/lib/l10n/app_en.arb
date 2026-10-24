@@ -188,5 +188,90 @@
   "recoveryLegacyBreak": "Legacy break",
   "recoveryCorrupt": "Invalid record",
   "recoveryUnknownOperation": "Unknown operation",
-  "recoveryReadOnlyNotice": "Blocked records are read-only here and there is no bulk-delete action."
+  "recoveryReadOnlyNotice": "Blocked records are read-only here and there is no bulk-delete action.",
+  "homeTodayRoute": "Today's route",
+  "homeCompletedLabel": "Completed",
+  "homeRemainingLabel": "Remaining",
+  "homeSalesLabel": "With sales",
+  "homeAwaitingSync": "{count} visits awaiting sync",
+  "homeCashReceived": "Total cash received",
+  "homeCashSales": "Cash sales",
+  "homeDebtCollections": "Debt collections",
+  "homeDebtOperations": "{count} operations",
+  "workSessionReadyStatus": "Ready to start",
+  "workSessionActiveStatus": "Work in progress",
+  "workSessionBreakStatus": "On break",
+  "workSessionReadyTitle": "Start your day",
+  "workSessionActiveTitle": "Route in progress",
+  "workSessionBreakTitle": "You are on a break",
+  "workSessionReadyHint": "Start the work session when you are ready to head out.",
+  "workSessionActiveHint": "The current work session is active and today's work continues.",
+  "workSessionBreakHint": "The session is preserved. End the break when you are ready to continue.",
+  "workSessionStartUnknown": "Session start time is unavailable.",
+  "workSessionStartedAt": "Started {time}",
+  "workSessionElapsed": "Elapsed {duration}",
+  "workSessionStartAction": "Start work",
+  "workSessionEndAction": "End work",
+  "workSessionStartBreakAction": "Start break",
+  "workSessionEndBreakAction": "End break",
+  "workSessionConfirmStartTitle": "Start work?",
+  "workSessionConfirmStartBody": "Do you want to start a new work session?",
+  "workSessionConfirmEndTitle": "End work?",
+  "workSessionConfirmEndBody": "Do you want to end the current work session?",
+  "workSessionStartSuccess": "Work session started.",
+  "workSessionEndSuccess": "Work session ended.",
+  "workSessionBreakStartSuccess": "Break started and recorded by the server.",
+  "workSessionBreakEndSuccess": "Break ended and recorded by the server.",
+  "workSessionStartReconciled": "The active work session was confirmed with the server.",
+  "workSessionEndReconciled": "The ended work session was confirmed with the server.",
+  "workSessionBreakStartReconciled": "The break start was confirmed with the server.",
+  "workSessionBreakEndReconciled": "The break end was confirmed with the server.",
+  "workSessionUnresolved": "The operation result could not be confirmed. Refresh before retrying.",
+  "workSessionAuthRejected": "The session expired or this action is not authorized.",
+  "workSessionBusinessRejected": "The server rejected the action because of the current work state.",
+  "workSessionRateLimited": "Too many requests. Try again shortly.",
+  "workSessionNetworkUnresolved": "The result could not be confirmed because of connectivity. Server state remains authoritative.",
+  "workSessionTimeoutUnresolved": "The request timed out before the result was confirmed. Server state remains authoritative.",
+  "workSessionServerUnresolved": "The result could not be confirmed because of a server error.",
+  "workSessionRequestIdLabel": "Request ID",
+  "workSessionStatusCodeLabel": "Status code",
+  "workSessionServerDetailLabel": "Server detail",
+  "workSessionIssueAuthentication": "Sign in again before performing this work-session action.",
+  "workSessionIssueInvalidStartEvidence": "The start-session request evidence was invalid. Refresh the data and try again.",
+  "workSessionIssueVehicleCustody": "The vehicle custody is not operationally ready. Contact dispatch or custody operations.",
+  "workSessionIssueStartPrerequisite": "The server refused to start work because a route, vehicle, or custody prerequisite is not ready.",
+  "workSessionIssueEndPrerequisite": "The server refused to end work because an operational prerequisite remains unresolved.",
+  "workSessionIssueBreakState": "The server break state does not allow this action. Refresh the session state and try again.",
+  "workSessionIssueRateLimited": "The work-session action was rate limited. Try again shortly.",
+  "workSessionIssueConnectivity": "The server could not be reached. Check the connection and refresh session state before retrying.",
+  "workSessionIssueTimeout": "The request timed out before the result was confirmed. Refresh session state before retrying.",
+  "workSessionIssueUnresolved": "The work-session result is unresolved. Server state remains authoritative; refresh before retrying.",
+  "@homeAwaitingSync": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@homeDebtOperations": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@workSessionStartedAt": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "@workSessionElapsed": {
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  }
 }
