@@ -26,8 +26,10 @@ void main() {
   setUpAll(() async {
     await initializeDateFormatting('ar');
     if (Platform.environment['FIELD_SHELL_CAPTURE'] == '1') {
-      final bytes = File('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf')
-          .readAsBytesSync();
+      final bytes =
+          File(
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+          ).readAsBytesSync();
       for (final family in ['Roboto', 'Ahem']) {
         final loader = FontLoader(family)
           ..addFont(Future.value(ByteData.sublistView(bytes)));
@@ -45,7 +47,8 @@ void main() {
       // Ahem does not shape Arabic. The ordinary suite checks composition at
       // its wide fixture size; the CI render gate checks 390px with real fonts.
       tester.view.physicalSize = Size(
-        Platform.environment['FIELD_SHELL_CAPTURE'] == '1' ? 390 : 800, 844,
+        Platform.environment['FIELD_SHELL_CAPTURE'] == '1' ? 390 : 800,
+        844,
       );
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);

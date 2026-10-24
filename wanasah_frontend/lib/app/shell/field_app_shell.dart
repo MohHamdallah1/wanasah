@@ -55,7 +55,8 @@ class _FieldAppShellState extends State<FieldAppShell> {
       child: Builder(
         builder: (context) {
           final colors = Theme.of(context).colorScheme;
-          final compactBrand = MediaQuery.sizeOf(context).width < 360 ||
+          final compactBrand =
+              MediaQuery.sizeOf(context).width < 360 ||
               MediaQuery.textScalerOf(context).scale(20) > 28;
           return PopScope(
             canPop: _selected == FieldDestination.home,
@@ -81,13 +82,16 @@ class _FieldAppShellState extends State<FieldAppShell> {
                             if (compactBrand)
                               Tooltip(
                                 message: AppCopy.of(context, AppCopyKey.brand),
-                                child: const Icon(Icons.route_rounded, size: 28),
+                                child: const Icon(
+                                  Icons.route_rounded,
+                                  size: 28,
+                                ),
                               )
                             else
-                            Text(
-                              AppCopy.of(context, AppCopyKey.brand),
-                              style: Theme.of(context).textTheme.titleLarge,
-                            ),
+                              Text(
+                                AppCopy.of(context, AppCopyKey.brand),
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
                             const SizedBox(width: 12),
                             Expanded(child: widget.statusUtility),
                             PopupMenuButton<_AccountAction>(

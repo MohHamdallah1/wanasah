@@ -27,9 +27,12 @@ class HomeOverview extends StatelessWidget {
     final locale = Localizations.localeOf(context).toLanguageTag();
     final numbers = NumberFormat.decimalPattern(locale);
     // Preserve locale order/month names with the approved Western digit style.
-    final date = DateFormat.yMMMMd(locale).format(DateTime.now()).replaceAllMapped(
-      RegExp('[٠-٩]'), (match) => (match[0]!.codeUnitAt(0) - 0x0660).toString(),
-    );
+    final date = DateFormat.yMMMMd(locale)
+        .format(DateTime.now())
+        .replaceAllMapped(
+          RegExp('[٠-٩]'),
+          (match) => (match[0]!.codeUnitAt(0) - 0x0660).toString(),
+        );
     final money = NumberFormat.currency(
       locale: locale,
       name: 'JOD',
@@ -55,9 +58,7 @@ class HomeOverview extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          copy(AppCopyKey.today, {
-            'date': date,
-          }),
+          copy(AppCopyKey.today, {'date': date}),
           style: TextStyle(
             fontSize: 15,
             color: Theme.of(context).colorScheme.onSurfaceVariant,
