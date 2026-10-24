@@ -78,4 +78,19 @@ describe("Dispatch large-catalog containment", () => {
       '"products": [{"id": str(product_id), "name": product_name} for product_id, product_name in products]',
     );
   });
+
+  it("surfaces the backend route-launch reason instead of the generic HTTP message", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/pages/DispatchBoard.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      'apiErrorMessage(err, "فشل إطلاق خط السير.")',
+    );
+    expect(source).not.toContain(
+      '"خطأ في إطلاق خط السير: " + getErrorMessage(err)',
+    );
+  });
+
 });

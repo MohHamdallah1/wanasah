@@ -35,7 +35,7 @@ import {
 } from "@/features/dispatch/productWindow";
 // Types
 import { TabId, Zone, PendingRoute, Shortage, Shop } from "@/types/dispatch";
-import { useAuthFetch } from "@/hooks/useAuthFetch";
+import { useAuthFetch } from "@/hooks/useAuthFetch";\nimport { apiErrorMessage } from "@/lib/apiErrors";
 
 interface WarehouseOption {
   id: string;
@@ -853,7 +853,11 @@ export default function DispatchBoard() {
         // +++ الكي الجراحي: استخدام Array.isArray لمنع كراش دالة .map إذا أرجع السيرفر كائن خطأ بدل المصفوفة +++
         authenticatedFetch("/dispatch/active_routes").then(data => setPendingRoutes(Array.isArray(data) ? data : [])).catch(err => console.error(err));
       })
-      .catch(err => toast.error("خطأ في إطلاق خط السير: " + getErrorMessage(err)));
+      .catch((err) =>
+        toast.error(
+          apiErrorMessage(err, "فشل إطلاق خط السير.")
+        )
+      );
   };
 
   const handleConfirmRouteAction = async () => {
