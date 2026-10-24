@@ -13,6 +13,7 @@ import '../blocs/auth/auth_bloc.dart';
 import '../blocs/auth/auth_event.dart';
 import 'visit_list_screen.dart';
 import '../features/work_session/presentation/work_session_controls.dart';
+import '../features/work_session/presentation/work_session_issue_message.dart';
 import '../features/recovery/presentation/recovery_dashboard_scroll.dart';
 import '../features/custody/presentation/pending_transfer_dialog.dart';
 import '../features/custody/domain/pending_transfer.dart';
@@ -190,6 +191,51 @@ class _DashboardScreenState extends State<DashboardScreen>
                 // تنظيف الرسالة فور عرضها كي لا تظهر مرة أخرى عند إعادة البناء
                 context.read<DashboardBloc>().add(
                   const ClearActionMessageEvent(),
+                );
+              }
+
+              if (state.workSessionIssue != null) {
+                final colors = Theme.of(context).colorScheme;
+                final messenger = ScaffoldMessenger.of(context);
+                messenger
+                  ..hideCurrentSnackBar()
+                  ..showSnackBar(
+                    SnackBar(
+                      behavior: SnackBarBehavior.floating,
+                      duration: const Duration(seconds: 5),
+                      showCloseIcon: true,
+                      backgroundColor: colors.errorContainer,
+                      closeIconColor: colors.onErrorContainer,
+                      content: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.info_outline_rounded,
+                            color: colors.onErrorContainer,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              workSessionIssueMessage(
+                                state.workSessionIssue!,
+                                localeCode:
+                                    Localizations.localeOf(
+                                      context,
+                                    ).toLanguageTag(),
+                              ),
+                              style: TextStyle(
+                                color: colors.onErrorContainer,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                context.read<DashboardBloc>().add(
+                  const ClearWorkSessionIssueEvent(),
                 );
               }
 
@@ -373,7 +419,6 @@ class _DashboardScreenState extends State<DashboardScreen>
             activeSessionStartTime: state.activeSessionStartTime,
             isOnBreak: state.isOnBreak,
             isActionInProgress: _isActionInProgress,
-            issue: state.workSessionIssue,
             onActionStarted: () {
               if (mounted) {
                 setState(() => _isActionInProgress = true);
