@@ -225,7 +225,9 @@ class _RouteProgress extends StatelessWidget {
                       ),
                       TextSpan(
                         text: ' / $total',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        style: Theme.of(
+                          context,
+                        ).textTheme.titleMedium?.copyWith(
                           color: colors.onSurfaceVariant,
                           fontWeight: FontWeight.w700,
                         ),
