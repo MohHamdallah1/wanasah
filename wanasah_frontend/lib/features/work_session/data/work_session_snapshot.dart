@@ -57,7 +57,22 @@ class WorkSessionSnapshot {
       throw const FormatException('Invalid dashboard session response.');
     }
 
-    final sessionId = int.tryParse(session['session_id']?.toString() ?? '');
+    final rawSessionId = session['session_id'];
+    if (rawSessionId == null) {
+      final startTime = _nonEmptyString(session['start_time']);
+      final authorizedToSell = session['is_authorized_to_sell'];
+
+      // Dashboard intentionally reuses the active_session envelope before a
+      // Work Session starts so Route vehicle inventory can remain visible.
+      // This exact shape means "route assigned, session inactive".
+      if (startTime == null && authorizedToSell == false) {
+        return const WorkSessionSnapshot.inactive();
+      }
+
+      throw const FormatException('Dashboard session is missing a valid id.');
+    }
+
+    final sessionId = int.tryParse(rawSessionId.toString());
     if (sessionId == null || sessionId <= 0) {
       throw const FormatException('Dashboard session is missing a valid id.');
     }
