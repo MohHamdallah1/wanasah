@@ -18,6 +18,7 @@ import { productImportSessionKey } from "@/pages/products/import/productImportSe
 import { useImportProductCommands } from "@/pages/products/import/useImportProductCommands";
 import { useImportCorrection } from "@/pages/products/import/useImportCorrection";
 import { useImportProductPolling } from "@/pages/products/import/useImportProductPolling";
+import { useImportProductFilePreflight } from "@/pages/products/import/useImportProductFilePreflight";
 import { useImportProductState } from "@/pages/products/import/useImportProductState";
 import { useImportProductUpload } from "@/pages/products/import/useImportProductUpload";
 import { useImportSessionResume } from "@/pages/products/import/useImportSessionResume";
@@ -122,7 +123,21 @@ export function useImportProductWorkflow({
     t,
   });
 
+  const filePreflight =
+    useImportProductFilePreflight(
+      importFile,
+    );
+
+  const trackingFallbackRequired =
+    Boolean(importFile) &&
+    !filePreflight.loading &&
+    filePreflight.result !== null &&
+    filePreflight.result.tracking.status !==
+      "NOT_NEEDED";
+
   useImportTrackingDefaultsSync({
+    enabled:
+      trackingFallbackRequired,
     importOpen,
     importJobId,
     defaults:
@@ -148,6 +163,9 @@ export function useImportProductWorkflow({
     importFile,
     importLotControlMode,
     importExpiryControlMode,
+    trackingFallbackRequired,
+    filePreflight:
+      filePreflight.result,
     companyId,
     driverId,
     authFetch,
@@ -202,7 +220,6 @@ export function useImportProductWorkflow({
     resetImport,
     openImport,
     closeImport,
-    expandImportTracking,
     resetImportTracking,
     completeImport,
   } = createImportFileActions({
@@ -298,8 +315,11 @@ export function useImportProductWorkflow({
       trackingDefaultsLoading,
       trackingDefaultsError,
       trackingUsesCompanyDefaults,
-      trackingExpanded:
-        importTrackingExpanded,
+      filePreflightLoading:
+        filePreflight.loading,
+      trackingAnalysis:
+        filePreflight.result
+          ?.tracking ?? null,
       mappingPending:
         mappingMutation.isPending,
       retryPending:
@@ -313,8 +333,6 @@ export function useImportProductWorkflow({
         downloadTemplate,
       onRetryTrackingDefaults:
         retryTrackingDefaults,
-      onExpandTracking:
-        expandImportTracking,
       onLotControlModeChange:
         setImportLotControlMode,
       onExpiryControlModeChange:

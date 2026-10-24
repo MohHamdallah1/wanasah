@@ -99,6 +99,9 @@ export function createImportFileActions({
     setImportStatus(null);
     setImportPollError(null);
     setMapping({});
+    setImportLotControlMode(null);
+    setImportExpiryControlMode(null);
+    setImportTrackingExpanded(false);
     if (
       importSessionKey
     ) {
@@ -115,14 +118,8 @@ export function createImportFileActions({
       setImportStatus(null);
       setImportPollError(null);
       setMapping({});
-      setImportLotControlMode(
-        trackingDefaultsQuery.data
-          ?.lot_control_mode ?? null
-      );
-      setImportExpiryControlMode(
-        trackingDefaultsQuery.data
-          ?.expiry_control_mode ?? null
-      );
+      setImportLotControlMode(null);
+      setImportExpiryControlMode(null);
       setImportTrackingExpanded(false);
       if (importSessionKey) {
         sessionStorage.removeItem(
@@ -188,6 +185,8 @@ export function createImportFileActions({
       setImportJobId(null);
       setImportStatus(null);
       setMapping({});
+      setImportLotControlMode(null);
+      setImportExpiryControlMode(null);
       setImportTrackingExpanded(
         false
       );

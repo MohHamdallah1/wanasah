@@ -35,7 +35,10 @@ type Props = {
   trackingDefaultsLoading: boolean;
   trackingDefaultsError: boolean;
   trackingUsesCompanyDefaults: boolean;
-  trackingExpanded: boolean;
+  filePreflightLoading: boolean;
+  trackingAnalysis:
+    | import("@/pages/products/import/productImportFilePreflight").ProductImportTrackingFallbackAnalysis
+    | null;
   mappingPending: boolean;
   retryPending: boolean;
   cancelPending: boolean;
@@ -43,7 +46,6 @@ type Props = {
   onClose: () => void;
   onDownloadTemplate: () => void;
   onRetryTrackingDefaults: () => void;
-  onExpandTracking: () => void;
   onLotControlModeChange: (
     value: ProductTrackingMode,
   ) => void;
@@ -98,7 +100,8 @@ export function ImportProductModal({
   trackingDefaultsLoading,
   trackingDefaultsError,
   trackingUsesCompanyDefaults,
-  trackingExpanded,
+  filePreflightLoading,
+  trackingAnalysis,
   mappingPending,
   retryPending,
   cancelPending,
@@ -106,7 +109,6 @@ export function ImportProductModal({
   onClose,
   onDownloadTemplate,
   onRetryTrackingDefaults,
-  onExpandTracking,
   onLotControlModeChange,
   onExpiryControlModeChange,
   onResetTracking,
@@ -168,8 +170,11 @@ export function ImportProductModal({
             trackingUsesCompanyDefaults={
               trackingUsesCompanyDefaults
             }
-            trackingExpanded={
-              trackingExpanded
+            filePreflightLoading={
+              filePreflightLoading
+            }
+            trackingAnalysis={
+              trackingAnalysis
             }
             fileRef={fileRef}
             onDownloadTemplate={
@@ -177,9 +182,6 @@ export function ImportProductModal({
             }
             onRetryTrackingDefaults={
               onRetryTrackingDefaults
-            }
-            onExpandTracking={
-              onExpandTracking
             }
             onLotControlModeChange={
               onLotControlModeChange

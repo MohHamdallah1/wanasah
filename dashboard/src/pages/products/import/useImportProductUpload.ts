@@ -28,6 +28,7 @@ import {
 } from "@/pages/products/productDurableScope";
 import {
   productImportFileHasDataRows,
+  type ProductImportFilePreflightResult,
 } from "@/pages/products/import/productImportFilePreflight";
 
 type AuthFetch = (
@@ -39,6 +40,8 @@ type Params = {
   importFile: File | null;
   importLotControlMode: ProductTrackingMode | null;
   importExpiryControlMode: ProductTrackingMode | null;
+  trackingFallbackRequired: boolean;
+  filePreflight: ProductImportFilePreflightResult | null;
   companyId: number | null;
   driverId: number | null;
   authFetch: AuthFetch;
@@ -65,6 +68,8 @@ export function useImportProductUpload({
   importFile,
   importLotControlMode,
   importExpiryControlMode,
+  trackingFallbackRequired,
+  filePreflight,
   companyId,
   driverId,
   authFetch,
@@ -87,8 +92,11 @@ export function useImportProductUpload({
           );
         }
         if (
-          !importLotControlMode ||
-          !importExpiryControlMode
+          trackingFallbackRequired &&
+          (
+            !importLotControlMode ||
+            !importExpiryControlMode
+          )
         ) {
           throw new Error(
             t(
@@ -98,6 +106,7 @@ export function useImportProductUpload({
         }
 
         const hasDataRows =
+          filePreflight?.hasDataRows ??
           await productImportFileHasDataRows(
             importFile
           );
@@ -115,12 +124,18 @@ export function useImportProductUpload({
           await fileFingerprint(
             importFile
           );
+        const lotSnapshot =
+          importLotControlMode ??
+          "SERVER_DEFAULT";
+        const expirySnapshot =
+          importExpiryControlMode ??
+          "SERVER_DEFAULT";
         const scope =
           productDurableScope(
             companyId,
             driverId,
             "product-import",
-            `${fingerprint}:${importLotControlMode}:${importExpiryControlMode}`
+            `${fingerprint}:${lotSnapshot}:${expirySnapshot}`
           );
         const requestId =
           await getOrCreateDurableRequestId(
@@ -142,14 +157,22 @@ export function useImportProductUpload({
           "request_id",
           requestId
         );
-        form.append(
-          "default_lot_control_mode",
+        if (
           importLotControlMode
-        );
-        form.append(
-          "default_expiry_control_mode",
+        ) {
+          form.append(
+            "default_lot_control_mode",
+            importLotControlMode
+          );
+        }
+        if (
           importExpiryControlMode
-        );
+        ) {
+          form.append(
+            "default_expiry_control_mode",
+            importExpiryControlMode
+          );
+        }
         form.append(
           "file",
           importFile

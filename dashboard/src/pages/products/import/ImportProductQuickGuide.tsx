@@ -6,55 +6,27 @@ import {
   useTranslation,
 } from "react-i18next";
 
-import type {
-  ProductTrackingMode,
-} from "@/pages/products/contracts";
 import { ProductPackagingHelp } from "@/pages/products/shared/ProductPackagingHelp";
 
 type Props = {
-  lotControlMode: ProductTrackingMode | null;
-  expiryControlMode: ProductTrackingMode | null;
-  trackingUsesCompanyDefaults: boolean;
   onDownloadTemplate: () => void;
 };
 
 export function ImportProductQuickGuide({
-  lotControlMode,
-  expiryControlMode,
-  trackingUsesCompanyDefaults,
   onDownloadTemplate,
 }: Props) {
   const { t } =
     useTranslation();
 
   const modeLabel = (
-    mode: ProductTrackingMode,
+    mode:
+      | "NONE"
+      | "OPTIONAL"
+      | "REQUIRED",
   ) =>
     t(
       `products.tracking.importValues.${mode}`,
     );
-
-  const fallbackText =
-    lotControlMode &&
-    expiryControlMode
-      ? t(
-          trackingUsesCompanyDefaults
-            ? "products.importGuideFallbackCompany"
-            : "products.importGuideFallbackImport",
-          {
-            lot:
-              modeLabel(
-                lotControlMode,
-              ),
-            expiry:
-              modeLabel(
-                expiryControlMode,
-              ),
-          },
-        )
-      : t(
-          "products.importGuideFallbackUnavailable",
-        );
 
   return (
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -91,7 +63,7 @@ export function ImportProductQuickGuide({
         </button>
       </div>
 
-      <div className="grid divide-y divide-slate-100 md:grid-cols-3 md:divide-x md:divide-y-0 md:rtl:divide-x-reverse">
+      <div className="grid divide-y divide-slate-100 md:grid-cols-2 md:divide-x md:divide-y-0 md:rtl:divide-x-reverse">
         <div className="px-3 py-2.5">
           <strong className="block text-[10px] font-black text-slate-900">
             {t(
@@ -132,17 +104,6 @@ export function ImportProductQuickGuide({
                   ),
               },
             )}
-          </p>
-        </div>
-
-        <div className="px-3 py-2.5">
-          <strong className="block text-[10px] font-black text-slate-900">
-            {t(
-              "products.importGuideBlankTitle",
-            )}
-          </strong>
-          <p className="mt-1 text-[10px] font-semibold leading-4 text-slate-500">
-            {fallbackText}
           </p>
         </div>
       </div>

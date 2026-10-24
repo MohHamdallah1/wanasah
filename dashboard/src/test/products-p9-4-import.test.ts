@@ -93,6 +93,12 @@ describe("Products P9.4 import workflow", () => {
       "<ImportProductQuickGuide",
     );
     expect(start).toContain(
+      "<ImportTrackingFallbackPanel",
+    );
+    const fallback = read(
+      "../pages/products/import/ImportTrackingFallbackPanel.tsx",
+    );
+    expect(fallback).toContain(
       "<ProductTrackingSimpleControls",
     );
     expect(start).toContain(
@@ -210,14 +216,23 @@ describe("Products P9.4 import workflow", () => {
     const quickGuide = read(
       "../pages/products/import/ImportProductQuickGuide.tsx",
     );
-    expect(quickGuide).toContain(
+    const fallback = read(
+      "../pages/products/import/ImportTrackingFallbackPanel.tsx",
+    );
+    expect(quickGuide).not.toContain(
       '"products.importGuideFallbackCompany"'
     );
-    expect(quickGuide).toContain(
+    expect(quickGuide).not.toContain(
       '"products.importGuideFallbackImport"'
     );
     expect(quickGuide).toContain(
       '"products.importGuideUseDefault"'
+    );
+    expect(fallback).toContain(
+      '"products.importTrackingFallbackNeededTitle"'
+    );
+    expect(fallback).toContain(
+      '"products.importTrackingNoFallback"'
     );
     expect(quickGuide).toContain(
       '"products.importGuideBulkTip"'
