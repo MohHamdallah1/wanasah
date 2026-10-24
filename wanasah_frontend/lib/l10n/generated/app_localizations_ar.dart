@@ -450,4 +450,139 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get workSessionIssueUnresolved => 'لم يتم تأكيد نتيجة إجراء الجلسة. حالة السيرفر هي المرجع؛ حدّث البيانات قبل إعادة المحاولة.';
+
+  @override
+  String get visitListTitle => 'خط السير';
+
+  @override
+  String get visitRefreshTooltip => 'تحديث الجولة';
+
+  @override
+  String get visitNormalRouteTab => 'جولة اليوم';
+
+  @override
+  String get visitEmergencyRouteTab => 'طلبات عاجلة';
+
+  @override
+  String visitFilterAll(String count) {
+    return 'الكل $count';
+  }
+
+  @override
+  String visitFilterCompleted(String count) {
+    return 'المكتملة $count';
+  }
+
+  @override
+  String visitFilterPending(String count) {
+    return 'المتبقية $count';
+  }
+
+  @override
+  String get visitStatusCompleted => 'مكتملة';
+
+  @override
+  String get visitStatusPending => 'قيد الانتظار';
+
+  @override
+  String get visitStatusAttempted => 'محاولة سابقة';
+
+  @override
+  String get visitStatusPostponed => 'مؤجلة';
+
+  @override
+  String get visitStatusNoSale => 'بدون بيع';
+
+  @override
+  String visitStatusUnknown(String status) {
+    return 'حالة غير معروفة ($status)';
+  }
+
+  @override
+  String visitBalanceLabel(String amount) {
+    return 'الذمة: $amount د.أ';
+  }
+
+  @override
+  String get visitMapTooltip => 'فتح موقع المحل';
+
+  @override
+  String get visitEmptyNormalAll => 'لا توجد زيارات مجدولة لك حاليًا.';
+
+  @override
+  String get visitEmptyEmergencyAll => 'لا توجد طلبات عاجلة حاليًا.';
+
+  @override
+  String get visitEmptyNormalPending => 'لا توجد زيارات متبقية.';
+
+  @override
+  String get visitEmptyEmergencyPending => 'لا توجد طلبات عاجلة متبقية.';
+
+  @override
+  String get visitEmptyNormalCompleted => 'لم تُكمل أي زيارة بعد.';
+
+  @override
+  String get visitEmptyEmergencyCompleted => 'لم تُكمل أي طلب عاجل بعد.';
+
+  @override
+  String get visitAddShopAction => 'إضافة محل';
+
+  @override
+  String get visitGateOnBreak => 'أنت الآن في وقت الاستراحة. أنهِ الاستراحة لمتابعة العمل.';
+
+  @override
+  String get visitGateUnauthorizedAdd => 'غير مصرح لك بإضافة محلات.';
+
+  @override
+  String get visitGateUnauthorizedOpen => 'غير مصرح لك بفتح الزيارة حاليًا.';
+
+  @override
+  String get visitGateUnavailable => 'تعذر تأكيد حالة جلسة العمل والصلاحية. حدّث البيانات ثم أعد المحاولة.';
+
+  @override
+  String get visitRefreshSuccess => 'تم تحديث قائمة الزيارات.';
+
+  @override
+  String get visitRefreshAlreadySyncing => 'المزامنة جارية بالفعل من مكان آخر.';
+
+  @override
+  String get visitRefreshTransportAmbiguous => 'تعذر تأكيد نتيجة التحديث بسبب الاتصال. يتم عرض البيانات المحلية.';
+
+  @override
+  String get visitRefreshBlocked => 'يوجد عمل أوفلاين غير محسوم يمنع استبدال البيانات المحلية.';
+
+  @override
+  String get visitRefreshDeterministicFailure => 'تعذر تحديث قائمة الزيارات.';
+
+  @override
+  String get visitLoadFailure => 'تعذر تحميل قائمة الزيارات المحلية.';
+
+  @override
+  String get visitMapNoLocation => 'لا يتوفر موقع مسجل لهذا المحل.';
+
+  @override
+  String get visitMapNoApplication => 'لا يوجد تطبيق خرائط مثبت ولا رابط خارجي صالح.';
+
+  @override
+  String get visitMapInvalidLink => 'رابط الموقع غير صالح.';
+
+  @override
+  String get visitMapOpenFailed => 'تعذر فتح موقع المحل.';
+
+  @override
+  String get visitRequestIdLabel => 'رقم التتبع';
+
+  @override
+  String visitRouteOverview(String total, String completed, String pending) {
+    return '$total زيارة • $completed مكتملة • $pending متبقية';
+  }
+
+  @override
+  String get visitNextLabel => 'التالي';
+
+  @override
+  String get visitUrgentLabel => 'عاجل';
+
+  @override
+  String get visitOpenVisitHint => 'فتح الزيارة';
 }

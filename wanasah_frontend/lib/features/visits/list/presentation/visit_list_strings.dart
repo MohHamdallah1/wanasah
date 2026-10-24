@@ -62,24 +62,24 @@ String visitListString(
     VisitListStringKey.normalRouteTab => l10n.visitNormalRouteTab,
     VisitListStringKey.emergencyRouteTab => l10n.visitEmergencyRouteTab,
     VisitListStringKey.filterAll => l10n.visitFilterAll(value('count')),
-    VisitListStringKey.filterCompleted =>
-      l10n.visitFilterCompleted(value('count')),
-    VisitListStringKey.filterPending =>
-      l10n.visitFilterPending(value('count')),
+    VisitListStringKey.filterCompleted => l10n.visitFilterCompleted(
+      value('count'),
+    ),
+    VisitListStringKey.filterPending => l10n.visitFilterPending(value('count')),
     VisitListStringKey.statusCompleted => l10n.visitStatusCompleted,
     VisitListStringKey.statusPending => l10n.visitStatusPending,
     VisitListStringKey.statusAttempted => l10n.visitStatusAttempted,
     VisitListStringKey.statusPostponed => l10n.visitStatusPostponed,
     VisitListStringKey.statusNoSale => l10n.visitStatusNoSale,
-    VisitListStringKey.statusUnknown =>
-      l10n.visitStatusUnknown(value('status')),
+    VisitListStringKey.statusUnknown => l10n.visitStatusUnknown(
+      value('status'),
+    ),
     VisitListStringKey.balanceLabel => l10n.visitBalanceLabel(value('amount')),
     VisitListStringKey.mapTooltip => l10n.visitMapTooltip,
     VisitListStringKey.emptyNormalAll => l10n.visitEmptyNormalAll,
     VisitListStringKey.emptyEmergencyAll => l10n.visitEmptyEmergencyAll,
     VisitListStringKey.emptyNormalPending => l10n.visitEmptyNormalPending,
-    VisitListStringKey.emptyEmergencyPending =>
-      l10n.visitEmptyEmergencyPending,
+    VisitListStringKey.emptyEmergencyPending => l10n.visitEmptyEmergencyPending,
     VisitListStringKey.emptyNormalCompleted => l10n.visitEmptyNormalCompleted,
     VisitListStringKey.emptyEmergencyCompleted =>
       l10n.visitEmptyEmergencyCompleted,
@@ -89,8 +89,7 @@ String visitListString(
     VisitListStringKey.gateUnauthorizedOpen => l10n.visitGateUnauthorizedOpen,
     VisitListStringKey.gateUnavailable => l10n.visitGateUnavailable,
     VisitListStringKey.refreshSuccess => l10n.visitRefreshSuccess,
-    VisitListStringKey.refreshAlreadySyncing =>
-      l10n.visitRefreshAlreadySyncing,
+    VisitListStringKey.refreshAlreadySyncing => l10n.visitRefreshAlreadySyncing,
     VisitListStringKey.refreshTransportAmbiguous =>
       l10n.visitRefreshTransportAmbiguous,
     VisitListStringKey.refreshBlocked => l10n.visitRefreshBlocked,

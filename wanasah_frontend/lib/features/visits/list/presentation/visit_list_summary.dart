@@ -55,11 +55,7 @@ class VisitListSummary extends StatelessWidget {
                   Expanded(
                     child: _FilterSegment(
                       selected: value == filter,
-                      label: _labelFor(
-                        value,
-                        locale,
-                        counts,
-                      ),
+                      label: _labelFor(value, locale, counts),
                       onTap: () => onFilterChanged(value),
                     ),
                   ),

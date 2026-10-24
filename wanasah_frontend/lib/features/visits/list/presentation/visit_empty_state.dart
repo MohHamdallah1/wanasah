@@ -53,10 +53,7 @@ class VisitEmptyState extends StatelessWidget {
                 ),
                 const SizedBox(height: 14),
                 Text(
-                  visitListString(
-                    _messageKey(),
-                    localeCode: locale,
-                  ),
+                  visitListString(_messageKey(), localeCode: locale),
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     color: colors.onSurfaceVariant,

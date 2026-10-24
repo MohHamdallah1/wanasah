@@ -109,7 +109,9 @@ class VisitCard extends StatelessWidget {
                         row.shopName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        style: Theme.of(
+                          context,
+                        ).textTheme.titleMedium?.copyWith(
                           color:
                               row.isCompleted
                                   ? colors.onSurfaceVariant
@@ -178,16 +180,14 @@ class VisitCard extends StatelessWidget {
     final key = switch (row.presentation) {
       VisitExecutionPresentation.completed =>
         VisitListStringKey.statusCompleted,
-      VisitExecutionPresentation.pending =>
-        VisitListStringKey.statusPending,
+      VisitExecutionPresentation.pending => VisitListStringKey.statusPending,
       VisitExecutionPresentation.postponed =>
         VisitListStringKey.statusPostponed,
       VisitExecutionPresentation.attempted =>
         row.backendOutcome.trim().toLowerCase() == 'nosale'
             ? VisitListStringKey.statusNoSale
             : VisitListStringKey.statusAttempted,
-      VisitExecutionPresentation.other =>
-        VisitListStringKey.statusUnknown,
+      VisitExecutionPresentation.other => VisitListStringKey.statusUnknown,
     };
 
     return visitListString(

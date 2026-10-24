@@ -450,4 +450,139 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get workSessionIssueUnresolved => 'The work-session result is unresolved. Server state remains authoritative; refresh before retrying.';
+
+  @override
+  String get visitListTitle => 'Route';
+
+  @override
+  String get visitRefreshTooltip => 'Refresh route';
+
+  @override
+  String get visitNormalRouteTab => 'Today\'s route';
+
+  @override
+  String get visitEmergencyRouteTab => 'Urgent requests';
+
+  @override
+  String visitFilterAll(String count) {
+    return 'All $count';
+  }
+
+  @override
+  String visitFilterCompleted(String count) {
+    return 'Completed $count';
+  }
+
+  @override
+  String visitFilterPending(String count) {
+    return 'Remaining $count';
+  }
+
+  @override
+  String get visitStatusCompleted => 'Completed';
+
+  @override
+  String get visitStatusPending => 'Pending';
+
+  @override
+  String get visitStatusAttempted => 'Attempted';
+
+  @override
+  String get visitStatusPostponed => 'Postponed';
+
+  @override
+  String get visitStatusNoSale => 'No sale';
+
+  @override
+  String visitStatusUnknown(String status) {
+    return 'Unknown status ($status)';
+  }
+
+  @override
+  String visitBalanceLabel(String amount) {
+    return 'Balance: $amount JOD';
+  }
+
+  @override
+  String get visitMapTooltip => 'Open shop location';
+
+  @override
+  String get visitEmptyNormalAll => 'No scheduled visits right now.';
+
+  @override
+  String get visitEmptyEmergencyAll => 'No urgent requests right now.';
+
+  @override
+  String get visitEmptyNormalPending => 'No remaining visits.';
+
+  @override
+  String get visitEmptyEmergencyPending => 'No remaining urgent requests.';
+
+  @override
+  String get visitEmptyNormalCompleted => 'No completed visits yet.';
+
+  @override
+  String get visitEmptyEmergencyCompleted => 'No completed urgent requests yet.';
+
+  @override
+  String get visitAddShopAction => 'Add shop';
+
+  @override
+  String get visitGateOnBreak => 'You are on break. End the break before continuing.';
+
+  @override
+  String get visitGateUnauthorizedAdd => 'You are not authorized to add shops.';
+
+  @override
+  String get visitGateUnauthorizedOpen => 'You are not authorized to open this visit.';
+
+  @override
+  String get visitGateUnavailable => 'Work-session and authorization state could not be confirmed. Refresh and try again.';
+
+  @override
+  String get visitRefreshSuccess => 'Visit list refreshed.';
+
+  @override
+  String get visitRefreshAlreadySyncing => 'A sync is already running elsewhere.';
+
+  @override
+  String get visitRefreshTransportAmbiguous => 'The refresh result could not be confirmed because of connectivity. Local data is shown.';
+
+  @override
+  String get visitRefreshBlocked => 'Unresolved offline work prevents replacing local data.';
+
+  @override
+  String get visitRefreshDeterministicFailure => 'The visit list could not be refreshed.';
+
+  @override
+  String get visitLoadFailure => 'The local visit list could not be loaded.';
+
+  @override
+  String get visitMapNoLocation => 'No location is recorded for this shop.';
+
+  @override
+  String get visitMapNoApplication => 'No maps app or valid external location link is available.';
+
+  @override
+  String get visitMapInvalidLink => 'The location link is invalid.';
+
+  @override
+  String get visitMapOpenFailed => 'The shop location could not be opened.';
+
+  @override
+  String get visitRequestIdLabel => 'Request ID';
+
+  @override
+  String visitRouteOverview(String total, String completed, String pending) {
+    return '$total visits • $completed completed • $pending remaining';
+  }
+
+  @override
+  String get visitNextLabel => 'Next';
+
+  @override
+  String get visitUrgentLabel => 'Urgent';
+
+  @override
+  String get visitOpenVisitHint => 'Open visit';
 }

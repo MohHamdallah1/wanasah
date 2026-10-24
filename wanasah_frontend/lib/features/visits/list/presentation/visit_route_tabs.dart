@@ -7,8 +7,7 @@ import 'visit_empty_state.dart';
 import 'visit_list_strings.dart';
 import 'visit_list_summary.dart';
 
-class VisitRouteTabBar extends StatelessWidget
-    implements PreferredSizeWidget {
+class VisitRouteTabBar extends StatelessWidget implements PreferredSizeWidget {
   const VisitRouteTabBar({
     required this.controller,
     required this.emergencyCount,
@@ -97,8 +96,7 @@ class _RouteModeButton extends StatelessWidget {
         urgent ? colors.onErrorContainer : colors.onPrimaryContainer;
     final selectedBackground =
         urgent ? colors.errorContainer : colors.primaryContainer;
-    final foreground =
-        selected ? selectedForeground : colors.onSurfaceVariant;
+    final foreground = selected ? selectedForeground : colors.onSurfaceVariant;
 
     return InkWell(
       borderRadius: BorderRadius.circular(14),
@@ -143,10 +141,7 @@ class _RouteModeButton extends StatelessWidget {
                   badgeCount.toString(),
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color:
-                        selected
-                            ? foreground
-                            : colors.onErrorContainer,
+                    color: selected ? foreground : colors.onErrorContainer,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
