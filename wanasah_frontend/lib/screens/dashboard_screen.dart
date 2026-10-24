@@ -214,9 +214,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               onRefresh: _refreshDashboard,
               onLogout: _logout,
               onDestinationChanged: _destinationChanged,
-              homeBuilder:
-                  (context, openRoute, openCustody) =>
-                      _buildHomeState(context, state, openRoute, openCustody),
+              homeBuilder: (context) => _buildHomeState(context, state),
               routeBuilder:
                   (context) => VisitListScreen(
                     driverId: widget.driverId,
@@ -245,22 +243,12 @@ class _DashboardScreenState extends State<DashboardScreen>
         : RecoveryServiceState.available;
   }
 
-  Widget _buildHomeState(
-    BuildContext context,
-    DashboardState state,
-    VoidCallback openRoute,
-    VoidCallback openCustody,
-  ) {
+  Widget _buildHomeState(BuildContext context, DashboardState state) {
     // +++ السطر الذي نسيته وتسبب في كسر الشجرة +++
     if (state is DashboardLoading || state is DashboardInitial) {
       return const Center(child: CircularProgressIndicator());
     } else if (state is DashboardLoaded) {
-      return _buildDashboardContent(
-        context,
-        state,
-        openRoute,
-        openCustody,
-      ); // تمرير البيانات للشاشة
+      return _buildDashboardContent(context, state);
     } else if (state is DashboardError) {
       return Center(
         child: Padding(
@@ -306,7 +294,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Widget _buildCustodyState(BuildContext context, DashboardState state) {
     if (state is! DashboardLoaded) {
-      return _buildHomeState(context, state, () {}, () {});
+      return _buildHomeState(context, state);
     }
     return RecoveryDashboardScroll(
       key: const PageStorageKey('field-custody'),
@@ -370,8 +358,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   Widget _buildDashboardContent(
     BuildContext context,
     DashboardLoaded state,
-    VoidCallback openRoute,
-    VoidCallback openCustody,
   ) {
     return RecoveryDashboardScroll(
       key: const PageStorageKey('field-home'),
@@ -383,8 +369,6 @@ class _DashboardScreenState extends State<DashboardScreen>
           _buildRefreshIssueBanner(context, state.refreshIssue!),
         HomeOverview(
           state: state,
-          openRoute: openRoute,
-          openCustody: openCustody,
           pendingTransfers: _pendingTransfers(state),
           workSession: WorkSessionControls(
             isActiveSession: state.isActiveSession,
