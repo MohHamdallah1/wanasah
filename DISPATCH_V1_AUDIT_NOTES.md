@@ -226,7 +226,17 @@ This commercial fail-closed behavior is intentional and must not be bypassed jus
 
 **Local development acceptance note (2026-10-24):** after taking a verified database backup, the local `wanasah_local` tenant received a development-only scaffold through the real domain services: published 0% Tax revision 1 plus `COMMERCIAL_ROUNDING` revision 1 for JOD with precision 3 / `HALF_UP`. This exists only to unblock the immediate route-launch test before the Tax/Settings UI is built; it is not a production default and must not be inferred as the company's real tax policy.
 
-### 2.17 A Dispatch render/chunk failure could destroy the whole dashboard session
+### 2.17 Vehicle inventory endpoint could silently create a 45k-key launch payload and fail at schema validation
+
+`GET /dispatch/inventory/{vehicle_id}` first reads the vehicle's positive AVAILABLE balances, but historically it then queried every product allowed by `ROUTE_LOAD_NEW` and returned zero quantities for products not actually loaded on the vehicle.
+
+With the current ~45k-product catalog, selecting an empty vehicle therefore populated `preloadQuantities` with tens of thousands of zero-valued keys. `POST /dispatch/route` accepts at most 5,000 inventory keys, so a route containing one real selected product could still fail before business logic with FastAPI/Pydantic **422 Unprocessable Entity**.
+
+This is a confirmed contract bug, not operator input error. Vehicle inventory reads must be sparse and return only products physically present on the vehicle. Route-launch payloads must also prune zero/non-integer quantities before submit.
+
+The generic `VALIDATION_ERROR` translation currently hides FastAPI field locations; the later Dispatch UX audit must make validation errors identify the exact field rather than saying only “review the entered fields.”
+
+### 2.18 A Dispatch render/chunk failure could destroy the whole dashboard session
 
 The global `DashboardErrorBoundary` previously offered only “return to login”. Clicking it did all of the following even when the failure was only a frontend component/chunk problem:
 

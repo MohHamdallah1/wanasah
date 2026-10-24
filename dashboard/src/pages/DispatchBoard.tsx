@@ -31,6 +31,7 @@ import {
   DISPATCH_PRODUCT_WINDOW_LIMIT,
   boundedDispatchProductSearch,
   mergeDispatchProductWindow,
+  positiveDispatchInventory,
   selectedDispatchProducts,
 } from "@/features/dispatch/productWindow";
 // Types
@@ -845,7 +846,7 @@ export default function DispatchBoard() {
         driver_id: selectedDriverId,
         vehicle_id: selectedVehicleId,
         source_location_id: Number(selectedSourceWarehouseId),
-        inventory: preloadQuantities
+        inventory: positiveDispatchInventory(preloadQuantities)
       })
     })
       .then(() => {
