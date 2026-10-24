@@ -9,115 +9,163 @@ class VisitCard extends StatelessWidget {
     required this.row,
     required this.onOpen,
     required this.onMap,
+    this.isNext = false,
     super.key,
   });
 
   final VisitListRow row;
   final VoidCallback onOpen;
   final VoidCallback onMap;
+  final bool isNext;
 
   @override
   Widget build(BuildContext context) {
     final locale = Localizations.localeOf(context).toLanguageTag();
-    final visual = _visual();
+    final colors = Theme.of(context).colorScheme;
+    final visual = _visual(colors);
     final amount = NumberFormat('0.00', 'en_US').format(row.shopBalance);
+    final sequence = NumberFormat('00', 'en_US').format(row.sequence);
 
-    return Card(
-      key: ValueKey(row.id),
-      elevation: row.isCompleted ? 0 : 2,
-      margin: const EdgeInsets.only(bottom: 12),
-      color: visual.background,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: visual.border, width: 1.2),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        splashColor: Colors.transparent,
-        highlightColor: Colors.transparent,
-        onTap: onOpen,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: visual.iconBackground,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  visual.icon,
-                  color: visual.iconColor,
-                  size: 26,
-                ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: Material(
+        key: ValueKey(row.id),
+        color: visual.background,
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: onOpen,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color:
+                    isNext
+                        ? colors.primary.withValues(alpha: 0.58)
+                        : visual.border,
+                width: isNext ? 1.4 : 1,
               ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${row.sequence}. ${row.shopName}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
+            ),
+            padding: const EdgeInsetsDirectional.fromSTEB(12, 11, 8, 11),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: visual.accent.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: Text(
+                    sequence,
+                    textDirection: TextDirection.ltr,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: visual.accent,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.4,
                     ),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      spacing: 10,
-                      runSpacing: 6,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: visual.statusColor,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            _statusLabel(locale),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 5,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          if (isNext)
+                            _MiniBadge(
+                              text: visitListString(
+                                VisitListStringKey.nextLabel,
+                                localeCode: locale,
+                              ),
+                              foreground: colors.onPrimaryContainer,
+                              background: colors.primaryContainer,
                             ),
+                          if (row.isEmergency)
+                            _MiniBadge(
+                              text: visitListString(
+                                VisitListStringKey.urgentLabel,
+                                localeCode: locale,
+                              ),
+                              foreground: colors.onErrorContainer,
+                              background: colors.errorContainer,
+                            ),
+                          _MiniBadge(
+                            text: _statusLabel(locale),
+                            foreground: visual.accent,
+                            background: visual.accent.withValues(alpha: 0.08),
                           ),
+                        ],
+                      ),
+                      const SizedBox(height: 7),
+                      Text(
+                        row.shopName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color:
+                              row.isCompleted
+                                  ? colors.onSurfaceVariant
+                                  : colors.onSurface,
+                          fontWeight: FontWeight.w850,
                         ),
-                        Text(
-                          visitListString(
-                            VisitListStringKey.balanceLabel,
-                            localeCode: locale,
-                            values: <String, Object>{'amount': amount},
-                          ),
-                          style: TextStyle(
-                            color: Colors.grey.shade700,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        visitListString(
+                          VisitListStringKey.balanceLabel,
+                          localeCode: locale,
+                          values: <String, Object>{'amount': amount},
                         ),
-                      ],
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: colors.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 5),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      key: ValueKey('visit-map-${row.id}'),
+                      constraints: const BoxConstraints(
+                        minWidth: 40,
+                        minHeight: 40,
+                      ),
+                      style: IconButton.styleFrom(
+                        backgroundColor: colors.surfaceContainerHigh,
+                        foregroundColor: colors.onSurfaceVariant,
+                      ),
+                      icon: const Icon(Icons.location_on_outlined, size: 21),
+                      tooltip: visitListString(
+                        VisitListStringKey.mapTooltip,
+                        localeCode: locale,
+                      ),
+                      onPressed: onMap,
+                    ),
+                    Icon(
+                      Directionality.of(context) == TextDirection.rtl
+                          ? Icons.chevron_left_rounded
+                          : Icons.chevron_right_rounded,
+                      color: colors.outline,
+                      size: 20,
+                      semanticLabel: visitListString(
+                        VisitListStringKey.openVisitHint,
+                        localeCode: locale,
+                      ),
                     ),
                   ],
                 ),
-              ),
-              IconButton(
-                icon: const Icon(
-                  Icons.map_outlined,
-                  color: Colors.blue,
-                  size: 28,
-                ),
-                tooltip: visitListString(
-                  VisitListStringKey.mapTooltip,
-                  localeCode: locale,
-                ),
-                onPressed: onMap,
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -150,67 +198,80 @@ class VisitCard extends StatelessWidget {
     );
   }
 
-  _VisitCardVisual _visual() {
+  _VisitCardVisual _visual(ColorScheme colors) {
     if (row.isCompleted) {
       return _VisitCardVisual(
-        icon: Icons.check_circle,
-        iconColor: Colors.green,
-        border: Colors.green.shade300,
-        background: Colors.green.shade50.withValues(alpha: 0.4),
-        iconBackground: Colors.green.shade100,
-        statusColor: Colors.green,
+        accent: colors.secondary,
+        border: colors.outlineVariant.withValues(alpha: 0.72),
+        background: colors.surfaceContainerLowest,
       );
     }
 
     if (row.isAttempted) {
       return _VisitCardVisual(
-        icon: Icons.history,
-        iconColor: Colors.orange,
-        border: Colors.orange.shade300,
-        background:
-            row.isEmergency ? Colors.red.shade50 : Colors.white,
-        iconBackground:
-            row.isEmergency ? Colors.red.shade100 : Colors.blue.shade50,
-        statusColor: Colors.orange,
+        accent: colors.tertiary,
+        border: colors.tertiary.withValues(alpha: 0.22),
+        background: colors.surfaceContainerLowest,
       );
     }
 
     if (row.isEmergency) {
       return _VisitCardVisual(
-        icon: Icons.warning_amber_rounded,
-        iconColor: Colors.red.shade600,
-        border: Colors.red.shade300,
-        background: Colors.red.shade50,
-        iconBackground: Colors.red.shade100,
-        statusColor: Colors.blueGrey,
+        accent: colors.error,
+        border: colors.error.withValues(alpha: 0.24),
+        background: colors.surfaceContainerLowest,
       );
     }
 
     return _VisitCardVisual(
-      icon: Icons.storefront,
-      iconColor: Colors.blueGrey,
-      border: Colors.grey.shade300,
-      background: Colors.white,
-      iconBackground: Colors.blue.shade50,
-      statusColor: Colors.blueGrey,
+      accent: colors.primary,
+      border: colors.outlineVariant.withValues(alpha: 0.78),
+      background:
+          isNext
+              ? colors.primaryContainer.withValues(alpha: 0.16)
+              : colors.surfaceContainerLowest,
+    );
+  }
+}
+
+class _MiniBadge extends StatelessWidget {
+  const _MiniBadge({
+    required this.text,
+    required this.foreground,
+    required this.background,
+  });
+
+  final String text;
+  final Color foreground;
+  final Color background;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        text,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: foreground,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
     );
   }
 }
 
 class _VisitCardVisual {
   const _VisitCardVisual({
-    required this.icon,
-    required this.iconColor,
+    required this.accent,
     required this.border,
     required this.background,
-    required this.iconBackground,
-    required this.statusColor,
   });
 
-  final IconData icon;
-  final Color iconColor;
+  final Color accent;
   final Color border;
   final Color background;
-  final Color iconBackground;
-  final Color statusColor;
 }
