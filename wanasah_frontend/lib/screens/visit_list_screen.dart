@@ -167,7 +167,7 @@ class _VisitListScreenState extends State<VisitListScreen>
                             localeCode: locale,
                           ),
                           style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w850,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
                 centerTitle: !widget.embedded,
