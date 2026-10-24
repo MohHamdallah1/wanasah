@@ -116,86 +116,83 @@ void main() {
     },
   );
 
-  testWidgets(
-    'polished Route surface renders at field width',
-    (tester) async {
-      tester.view.physicalSize = Size(
-        Platform.environment['FIELD_SHELL_CAPTURE'] == '1' ? 390 : 800,
-        844,
-      );
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      final boundary = GlobalKey();
-      final model = _routeModel();
+  testWidgets('polished Route surface renders at field width', (tester) async {
+    tester.view.physicalSize = Size(
+      Platform.environment['FIELD_SHELL_CAPTURE'] == '1' ? 390 : 800,
+      844,
+    );
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final boundary = GlobalKey();
+    final model = _routeModel();
 
-      await tester.pumpWidget(
-        MaterialApp(
-          locale: const Locale('ar'),
-          supportedLocales: AppLocalizations.supportedLocales,
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          home: DefaultTabController(
-            length: 2,
-            child: Builder(
-              builder: (context) {
-                final controller = DefaultTabController.of(context);
-                return RepaintBoundary(
-                  key: boundary,
-                  child: Scaffold(
-                    appBar: AppBar(
-                      toolbarHeight: 64,
-                      titleSpacing: 12,
-                      title: VisitRouteTabBar(
-                        controller: controller,
-                        emergencyCount: model.emergencyCount,
-                      ),
-                      actions: const [
-                        Padding(
-                          padding: EdgeInsetsDirectional.only(end: 6),
-                          child: IconButton.filledTonal(
-                            onPressed: null,
-                            icon: Icon(Icons.refresh_rounded),
-                          ),
-                        ),
-                      ],
-                    ),
-                    floatingActionButtonLocation:
-                        FloatingActionButtonLocation.startFloat,
-                    floatingActionButton: FloatingActionButton.extended(
-                      onPressed: () {},
-                      icon: const Icon(Icons.add_business_outlined),
-                      label: Text(
-                        visitListString(
-                          VisitListStringKey.addShopTooltip,
-                          localeCode: 'ar',
-                        ),
-                      ),
-                    ),
-                    body: VisitRouteTabs(
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('ar'),
+        supportedLocales: AppLocalizations.supportedLocales,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        home: DefaultTabController(
+          length: 2,
+          child: Builder(
+            builder: (context) {
+              final controller = DefaultTabController.of(context);
+              return RepaintBoundary(
+                key: boundary,
+                child: Scaffold(
+                  appBar: AppBar(
+                    toolbarHeight: 64,
+                    titleSpacing: 12,
+                    title: VisitRouteTabBar(
                       controller: controller,
-                      model: model,
-                      activeRoute: VisitRouteKind.normal,
-                      onFilterChanged: (_) {},
-                      onRefresh: () async {},
-                      onOpenVisit: (_) {},
-                      onOpenMap: (_) {},
+                      emergencyCount: model.emergencyCount,
+                    ),
+                    actions: const [
+                      Padding(
+                        padding: EdgeInsetsDirectional.only(end: 6),
+                        child: IconButton.filledTonal(
+                          onPressed: null,
+                          icon: Icon(Icons.refresh_rounded),
+                        ),
+                      ),
+                    ],
+                  ),
+                  floatingActionButtonLocation:
+                      FloatingActionButtonLocation.startFloat,
+                  floatingActionButton: FloatingActionButton.extended(
+                    onPressed: () {},
+                    icon: const Icon(Icons.add_business_outlined),
+                    label: Text(
+                      visitListString(
+                        VisitListStringKey.addShopTooltip,
+                        localeCode: 'ar',
+                      ),
                     ),
                   ),
-                );
-              },
-            ),
+                  body: VisitRouteTabs(
+                    controller: controller,
+                    model: model,
+                    activeRoute: VisitRouteKind.normal,
+                    onFilterChanged: (_) {},
+                    onRefresh: () async {},
+                    onOpenVisit: (_) {},
+                    onOpenMap: (_) {},
+                  ),
+                ),
+              );
+            },
           ),
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      expect(find.text('التالي'), findsOneWidget);
-      expect(find.text('14 زيارة • 6 مكتملة • 8 متبقية'), findsOneWidget);
-      expect(find.text('إضافة محل'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-      await _capture(tester, boundary, 'route-rtl');
-    },
-  );
+    expect(find.text('التالي'), findsOneWidget);
+    expect(find.text('14 زيارة • 6 مكتملة • 8 متبقية'), findsOneWidget);
+    expect(find.text('إضافة محل'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await _capture(tester, boundary, 'route-rtl');
+  });
 
   testWidgets(
     'service failure keeps cached evidence and distinct top utility',
@@ -254,7 +251,6 @@ Future<void> _capture(WidgetTester tester, GlobalKey key, String name) async {
     }
   });
 }
-
 
 VisitListReadModel _routeModel() {
   const names = <String>[
