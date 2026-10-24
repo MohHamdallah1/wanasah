@@ -40,15 +40,6 @@ void showVisitListRefreshFeedback(
     message = visitListString(key, localeCode: locale);
   }
 
-  final requestId = result.requestId;
-  if (requestId != null && requestId.trim().isNotEmpty) {
-    message =
-        '$message\n${visitListString(
-          VisitListStringKey.requestIdLabel,
-          localeCode: locale,
-        )}: $requestId';
-  }
-
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
       content: Text(message),
