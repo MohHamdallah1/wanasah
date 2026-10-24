@@ -188,5 +188,90 @@
   "recoveryLegacyBreak": "استراحة قديمة",
   "recoveryCorrupt": "سجل غير صالح",
   "recoveryUnknownOperation": "عملية غير معروفة",
-  "recoveryReadOnlyNotice": "السجلات المحجوبة للقراءة فقط في هذه المرحلة ولا يوجد حذف شامل."
+  "recoveryReadOnlyNotice": "السجلات المحجوبة للقراءة فقط في هذه المرحلة ولا يوجد حذف شامل.",
+  "homeTodayRoute": "جولة اليوم",
+  "homeCompletedLabel": "مكتملة",
+  "homeRemainingLabel": "متبقية",
+  "homeSalesLabel": "بمبيعات",
+  "homeAwaitingSync": "{count} زيارة بانتظار المزامنة",
+  "homeCashReceived": "إجمالي الكاش المستلم",
+  "homeCashSales": "مبيعات نقدية",
+  "homeDebtCollections": "تحصيل ذمم",
+  "homeDebtOperations": "{count} عملية",
+  "workSessionReadyStatus": "جاهز للبدء",
+  "workSessionActiveStatus": "العمل جارٍ",
+  "workSessionBreakStatus": "في استراحة",
+  "workSessionReadyTitle": "ابدأ يومك",
+  "workSessionActiveTitle": "الجولة مستمرة",
+  "workSessionBreakTitle": "أنت في استراحة",
+  "workSessionReadyHint": "ابدأ جلسة العمل عندما تكون جاهزًا للانطلاق.",
+  "workSessionActiveHint": "جلسة العمل الحالية فعّالة وحالة اليوم مستمرة.",
+  "workSessionBreakHint": "الجلسة محفوظة. أنهِ الاستراحة عندما تكون جاهزًا للمتابعة.",
+  "workSessionStartUnknown": "وقت بدء الجلسة غير متوفر.",
+  "workSessionStartedAt": "بدأت {time}",
+  "workSessionElapsed": "مضى {duration}",
+  "workSessionStartAction": "بدء العمل",
+  "workSessionEndAction": "إنهاء العمل",
+  "workSessionStartBreakAction": "بدء الاستراحة",
+  "workSessionEndBreakAction": "إنهاء الاستراحة",
+  "workSessionConfirmStartTitle": "بدء العمل؟",
+  "workSessionConfirmStartBody": "هل تريد بدء جلسة عمل جديدة؟",
+  "workSessionConfirmEndTitle": "إنهاء العمل؟",
+  "workSessionConfirmEndBody": "هل تريد إنهاء جلسة العمل الحالية؟",
+  "workSessionStartSuccess": "تم بدء جلسة العمل.",
+  "workSessionEndSuccess": "تم إنهاء جلسة العمل.",
+  "workSessionBreakStartSuccess": "تم بدء الاستراحة (مسجلة على السيرفر).",
+  "workSessionBreakEndSuccess": "تم إنهاء الاستراحة (مسجلة على السيرفر).",
+  "workSessionStartReconciled": "تم تأكيد أن جلسة العمل نشطة بعد مطابقة حالتها مع السيرفر.",
+  "workSessionEndReconciled": "تم تأكيد انتهاء جلسة العمل بعد مطابقة حالتها مع السيرفر.",
+  "workSessionBreakStartReconciled": "تم تأكيد بدء الاستراحة بعد مطابقة حالتها مع السيرفر.",
+  "workSessionBreakEndReconciled": "تم تأكيد انتهاء الاستراحة بعد مطابقة حالتها مع السيرفر.",
+  "workSessionUnresolved": "تعذر تأكيد نتيجة العملية. حدّث البيانات قبل المحاولة مجدداً.",
+  "workSessionAuthRejected": "انتهت صلاحية الجلسة أو لا تملك صلاحية تنفيذ العملية.",
+  "workSessionBusinessRejected": "رفض السيرفر العملية بسبب حالة العمل الحالية.",
+  "workSessionRateLimited": "عدد الطلبات مرتفع حالياً. أعد المحاولة بعد قليل.",
+  "workSessionNetworkUnresolved": "تعذر تأكيد نتيجة العملية بسبب الاتصال. تم الحفاظ على حالة السيرفر كمرجع وحيد.",
+  "workSessionTimeoutUnresolved": "انتهت مهلة الاتصال قبل تأكيد نتيجة العملية. حالة السيرفر ما زالت المرجع الوحيد.",
+  "workSessionServerUnresolved": "تعذر تأكيد نتيجة العملية بسبب خطأ في السيرفر.",
+  "workSessionRequestIdLabel": "رقم التتبع",
+  "workSessionStatusCodeLabel": "رمز الحالة",
+  "workSessionServerDetailLabel": "تفصيل السيرفر",
+  "workSessionIssueAuthentication": "يلزم تأكيد تسجيل الدخول قبل تنفيذ إجراء الجلسة.",
+  "workSessionIssueInvalidStartEvidence": "بيانات بدء العمل التي وصلت للسيرفر غير صالحة. حدّث البيانات ثم أعد المحاولة.",
+  "workSessionIssueVehicleCustody": "عهدة السيارة التشغيلية غير جاهزة لبدء العمل. راجع مسؤول التوزيع أو العهدة.",
+  "workSessionIssueStartPrerequisite": "السيرفر رفض بدء العمل بسبب متطلب تشغيلي في خط السير أو السيارة أو العهدة. راجع مسؤول التوزيع ثم أعد المحاولة.",
+  "workSessionIssueEndPrerequisite": "السيرفر رفض إنهاء العمل بسبب متطلب تشغيلي قائم. عالج الاستراحة أو الحوالات المعلقة الظاهرة ثم أعد المحاولة.",
+  "workSessionIssueBreakState": "حالة الاستراحة على السيرفر لا تسمح بهذا الإجراء. حدّث حالة الجلسة ثم أعد المحاولة.",
+  "workSessionIssueRateLimited": "تم تأجيل إجراء الجلسة بسبب حد الطلبات. أعد المحاولة بعد قليل.",
+  "workSessionIssueConnectivity": "تعذر الاتصال بالسيرفر. تحقق من الشبكة وحدّث حالة الجلسة قبل إعادة المحاولة.",
+  "workSessionIssueTimeout": "انتهت مهلة الاتصال قبل تأكيد النتيجة. حدّث حالة الجلسة قبل إعادة المحاولة.",
+  "workSessionIssueUnresolved": "لم يتم تأكيد نتيجة إجراء الجلسة. حالة السيرفر هي المرجع؛ حدّث البيانات قبل إعادة المحاولة.",
+  "@homeAwaitingSync": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@homeDebtOperations": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@workSessionStartedAt": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "@workSessionElapsed": {
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  }
 }
