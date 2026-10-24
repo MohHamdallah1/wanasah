@@ -7,10 +7,10 @@ class WorkSessionSnapshot {
   });
 
   const WorkSessionSnapshot.inactive()
-      : isActive = false,
-        sessionId = null,
-        startTime = null,
-        isOnBreak = false;
+    : isActive = false,
+      sessionId = null,
+      startTime = null,
+      isOnBreak = false;
 
   final bool isActive;
   final int? sessionId;
