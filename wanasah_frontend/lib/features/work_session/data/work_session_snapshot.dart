@@ -7,10 +7,10 @@ class WorkSessionSnapshot {
   });
 
   const WorkSessionSnapshot.inactive()
-      : isActive = false,
-        sessionId = null,
-        startTime = null,
-        isOnBreak = false;
+    : isActive = false,
+      sessionId = null,
+      startTime = null,
+      isOnBreak = false;
 
   final bool isActive;
   final int? sessionId;
@@ -57,7 +57,25 @@ class WorkSessionSnapshot {
       throw const FormatException('Invalid dashboard session response.');
     }
 
-    final sessionId = int.tryParse(session['session_id']?.toString() ?? '');
+    final rawSessionId = session['session_id'];
+    if (rawSessionId == null) {
+      final startTime = _nonEmptyString(session['start_time']);
+      final hasRouteInventory = session['inventory'] is List;
+      final hasBreakEvidence =
+          session.containsKey('break_start_time') ||
+          session.containsKey('break_end_time');
+
+      // Dashboard intentionally reuses the active_session envelope before a
+      // Work Session starts so Route vehicle inventory can remain visible.
+      // Inventory + no start/break evidence is the pre-session Route shape.
+      if (startTime == null && hasRouteInventory && !hasBreakEvidence) {
+        return const WorkSessionSnapshot.inactive();
+      }
+
+      throw const FormatException('Dashboard session is missing a valid id.');
+    }
+
+    final sessionId = int.tryParse(rawSessionId.toString());
     if (sessionId == null || sessionId <= 0) {
       throw const FormatException('Dashboard session is missing a valid id.');
     }
