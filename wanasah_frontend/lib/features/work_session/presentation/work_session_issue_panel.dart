@@ -43,7 +43,10 @@ class WorkSessionIssuePanel extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              workSessionIssueMessage(issue),
+              workSessionIssueMessage(
+                issue,
+                localeCode: Localizations.localeOf(context).toLanguageTag(),
+              ),
               style: const TextStyle(height: 1.45),
             ),
           ),
