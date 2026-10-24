@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wanasah_frontend/blocs/dashboard/dashboard_state.dart';
 import 'package:wanasah_frontend/features/work_session/application/work_session_action_issue.dart';
@@ -11,9 +10,7 @@ import 'package:wanasah_frontend/features/work_session/application/work_session_
 import 'package:wanasah_frontend/features/work_session/application/work_session_outcome.dart';
 import 'package:wanasah_frontend/features/work_session/data/work_session_remote_data_source.dart';
 import 'package:wanasah_frontend/features/work_session/data/work_session_snapshot.dart';
-import 'package:wanasah_frontend/features/work_session/presentation/work_session_controls.dart';
 import 'package:wanasah_frontend/features/work_session/presentation/work_session_issue_message.dart';
-import 'package:wanasah_frontend/l10n/generated/app_localizations.dart';
 
 void main() {
   group('verified Backend session authority contract', () {
