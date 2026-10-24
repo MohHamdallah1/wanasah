@@ -95,6 +95,18 @@ void main() {
       expect(find.text('تحصيل ذمم'), findsOneWidget);
       expect(find.text('إجمالي الكاش المستلم'), findsOneWidget);
       await _capture(tester, boundary, 'home-rtl');
+
+      await tester.tap(find.byKey(const ValueKey('shell-tab-route')));
+      await tester.pumpAndSettle();
+      final addShop = find.byType(FloatingActionButton);
+      expect(addShop, findsOneWidget);
+      final addShopRect = tester.getRect(addShop);
+      final dockHomeRect = tester.getRect(
+        find.byKey(const ValueKey('shell-tab-home')),
+      );
+      expect(addShopRect.bottom, lessThanOrEqualTo(dockHomeRect.top));
+      await _capture(tester, boundary, 'route-rtl');
+
       await tester.tap(find.byKey(const ValueKey('shell-tab-custody')));
       await tester.pumpAndSettle();
       expect(find.byType(VehicleInventorySection), findsOneWidget);
