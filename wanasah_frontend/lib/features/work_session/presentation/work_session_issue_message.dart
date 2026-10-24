@@ -49,10 +49,10 @@ String workSessionIssueDiagnosticMessage(
   final parts = <String>[visible];
 
   if (issue.code != null && issue.code!.trim().isNotEmpty) {
-    parts.add('code=' + issue.code!.trim());
+    parts.add('code=${issue.code!.trim()}');
   }
   if (issue.requestId != null && issue.requestId!.trim().isNotEmpty) {
-    parts.add('request_id=' + issue.requestId!.trim());
+    parts.add('request_id=${issue.requestId!.trim()}');
   }
 
   return parts.join(' | ');
