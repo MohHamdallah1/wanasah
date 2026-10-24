@@ -31,13 +31,8 @@ void main() {
     home: FieldAppShell(
       accountName: 'Representative',
       homeBuilder:
-          (context, openRoute, openCustody) => ListView(
+          (context) => ListView(
             children: [
-              TextButton(onPressed: openRoute, child: const Text('Open route')),
-              TextButton(
-                onPressed: openCustody,
-                child: const Text('Open custody'),
-              ),
             ],
           ),
       routeBuilder: (_) => const _RouteProbe(),
@@ -91,8 +86,6 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(app());
-    await tester.tap(find.text('Open route'));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('Deep action'));
     await tester.pumpAndSettle();
     expect(find.text('Protected draft'), findsOneWidget);
