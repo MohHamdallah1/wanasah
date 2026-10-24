@@ -253,12 +253,15 @@ void main() {
       );
 
       final message = workSessionIssueMessage(issue);
+      final diagnostic = workSessionIssueDiagnosticMessage(issue);
 
       expect(issue.kind, WorkSessionActionIssueKind.unresolved);
       expect(issue.displayFallback, isNull);
       expect(message, isNot(contains('sensitive server internals')));
-      expect(message, contains('HTTP_500'));
-      expect(message, contains('req-500'));
+      expect(message, isNot(contains('HTTP_500')));
+      expect(message, isNot(contains('req-500')));
+      expect(diagnostic, contains('HTTP_500'));
+      expect(diagnostic, contains('req-500'));
     });
   });
 
@@ -415,53 +418,38 @@ void main() {
       expect(bloc, contains('workSessionIssue: issue'));
       expect(bloc, contains('clearWorkSessionIssue: true'));
       expect(state, contains('WorkSessionActionIssue? workSessionIssue'));
-      expect(screen, contains('issue: state.workSessionIssue'));
-      expect(controls, contains('WorkSessionIssuePanel'));
+      expect(screen, contains('ClearWorkSessionIssueEvent'));
+      expect(screen, contains('workSessionIssueMessage('));
+      expect(controls, isNot(contains('WorkSessionIssuePanel')));
       expect(controls, isNot(contains('يجب إنهاء الاستراحة أولاً!')));
     });
   });
 
-  testWidgets(
-    'typed refusal remains visible instead of SnackBar-only handling',
-    (tester) async {
+  test(
+    'business refusal operator copy keeps safe reason and hides diagnostics',
+    () {
       final issue = WorkSessionActionIssue(
-        operation: WorkSessionOperation.end,
-        kind: WorkSessionActionIssueKind.endPrerequisite,
+        operation: WorkSessionOperation.start,
+        kind: WorkSessionActionIssueKind.startPrerequisite,
         status: 400,
         code: 'HTTP_400',
         context: const <String, dynamic>{'blocker': 'server_authority'},
         requestId: 'req-visible',
-        displayFallback: 'أكمل المتطلبات التشغيلية أولاً.',
+        displayFallback:
+            'لا يوجد لديك خط سير مخصص اليوم. الرجاء مراجعة مدير التوزيع.',
       );
 
-      await tester.pumpWidget(
-        MaterialApp(
-          locale: const Locale('ar'),
-          supportedLocales: AppLocalizations.supportedLocales,
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          home: Scaffold(
-            body: WorkSessionControls(
-              isActiveSession: true,
-              activeSessionStartTime: '2026-10-22T08:00:00Z',
-              isOnBreak: false,
-              isActionInProgress: false,
-              onActionStarted: () {},
-              onStart: () {},
-              onEnd: () {},
-              onToggleBreak: (_) {},
-              issue: issue,
-            ),
-          ),
-        ),
-      );
+      final message = workSessionIssueMessage(issue);
+      final diagnostic = workSessionIssueDiagnosticMessage(issue);
 
       expect(
-        find.textContaining('أكمل المتطلبات التشغيلية أولاً.'),
-        findsOneWidget,
+        message,
+        'لا يوجد لديك خط سير مخصص اليوم. الرجاء مراجعة مدير التوزيع.',
       );
-      expect(find.text('إنهاء العمل'), findsOneWidget);
-      expect(find.textContaining('HTTP_400'), findsOneWidget);
-      expect(find.textContaining('req-visible'), findsOneWidget);
+      expect(message, isNot(contains('HTTP_400')));
+      expect(message, isNot(contains('req-visible')));
+      expect(diagnostic, contains('HTTP_400'));
+      expect(diagnostic, contains('req-visible'));
     },
   );
 }
