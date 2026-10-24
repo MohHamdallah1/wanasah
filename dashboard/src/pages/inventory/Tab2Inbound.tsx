@@ -42,6 +42,7 @@ import {
   type InboundBatchDraft,
   type InboundDraftMap,
   type InboundField,
+  type InboundUomOption,
   InboundRowValidationError,
 } from "./inbound/contracts";
 import {
@@ -262,8 +263,8 @@ const rowControlOrder = (variant: CatalogVariant): InboundRowControl[] => {
   const policy = inboundTrackingPolicy(variant);
   return [
     "unit_cost",
-    "quantity",
     "uom_id",
+    "quantity",
     ...(policy.production.visible ? (["production_date"] as const) : []),
     ...(policy.expiry.visible ? (["expiry_date"] as const) : []),
     ...(policy.lot.visible ? (["batch_number"] as const) : []),
@@ -1095,6 +1096,25 @@ export function Tab2Inbound({
   const uomLabel = (code: string, _fallback: string) =>
     t(`uom.${code}`, { defaultValue: t("inventoryCommon.unit") });
 
+  const uomChoiceLabel = (
+    variant: CatalogVariant,
+    uom: InboundUomOption,
+  ) => {
+    const label = uomLabel(uom.code, uom.name);
+    const factor = Number(uom.factor_to_base);
+    if (
+      uom.id === variant.base_uom.id ||
+      !Number.isFinite(factor) ||
+      factor === 1
+    ) {
+      return label;
+    }
+    return `${label} (${formatFactor(uom.factor_to_base)} ${uomLabel(
+      variant.base_uom.code,
+      variant.base_uom.name,
+    )})`;
+  };
+
   const validationMessage = validationError
     ? t(`errors.codes.${validationError.code}`, {
         defaultValue: t("inventoryInbound.errors.submit"),
@@ -1390,12 +1410,13 @@ export function Tab2Inbound({
                             }}
                             className={fieldHasError(row.row_id, "unit_cost") ? "is-error" : ""}
                           />
-                          <span>
+                          <span className="inventory-inbound-cost-meta">
                             {costPolicy?.currency_code ?? ""}
                             {selectedOption
                               ? ` / ${uomLabel(selectedOption.code, selectedOption.name)}`
                               : ""}
                           </span>
+                          <div className="inventory-inbound-reference-slot">
                           {option?.purchase_cost_reference && (
                             <TooltipPrimitive.Provider delayDuration={0} skipDelayDuration={0}>
                               <TooltipPrimitive.Root>
@@ -1432,6 +1453,7 @@ export function Tab2Inbound({
                               </TooltipPrimitive.Root>
                             </TooltipPrimitive.Provider>
                           )}
+                          </div>
                         </div>
                         {fieldHasError(row.row_id, "unit_cost") && (
                           <p role="alert" className="inventory-inbound-field-error">
@@ -1441,6 +1463,49 @@ export function Tab2Inbound({
                       </td>
                       <td className="inventory-inbound-quantity-cell">
                         <div className="inventory-inbound-quantity-controls">
+                          <select
+                            ref={(node) => setControlRef(row.row_id, "uom_id", node)}
+                            value={selectedUom}
+                            aria-label={t("inventoryInbound.purchaseUnit")}
+                            aria-invalid={fieldHasError(row.row_id, "uom_id")}
+                            onKeyDown={(event) => {
+                              if (
+                                event.key === "Enter" &&
+                                !event.altKey &&
+                                !event.ctrlKey &&
+                                !event.metaKey &&
+                                !event.shiftKey
+                              ) {
+                                const picker = event.currentTarget as HTMLSelectElement & {
+                                  showPicker?: () => void;
+                                };
+                                if (typeof picker.showPicker === "function") {
+                                  try {
+                                    picker.showPicker();
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                  } catch {
+                                    // Keep the browser's native Enter behavior as fallback.
+                                  }
+                                }
+                                return;
+                              }
+                              if (handleCellArrow(event, row.row_id, variant, "uom_id")) return;
+                            }}
+                            onChange={(event) =>
+                              update(variant, row.row_id, {
+                                uom_id: event.target.value,
+                              })
+                            }
+                            disabled={!option}
+                            className={fieldHasError(row.row_id, "uom_id") ? "is-error" : ""}
+                          >
+                            {(option?.uoms ?? []).map((uom) => (
+                              <option key={uom.id} value={uom.id}>
+                                {uomChoiceLabel(variant, uom)}
+                              </option>
+                            ))}
+                          </select>
                           <input
                             ref={(node) => setControlRef(row.row_id, "quantity", node)}
                             inputMode="decimal"
@@ -1459,40 +1524,6 @@ export function Tab2Inbound({
                             }
                             className={fieldHasError(row.row_id, "quantity") ? "is-error" : ""}
                           />
-                          <select
-                            ref={(node) => setControlRef(row.row_id, "uom_id", node)}
-                            value={selectedUom}
-                            aria-label={t("inventoryInbound.purchaseUnit")}
-                            aria-invalid={fieldHasError(row.row_id, "uom_id")}
-                            onKeyDown={(event) => {
-                              if (handleCellArrow(event, row.row_id, variant, "uom_id")) return;
-                              handleRowEnter(event, row.row_id, variant, "uom_id");
-                            }}
-                            onChange={(event) =>
-                              update(variant, row.row_id, {
-                                uom_id: event.target.value,
-                              })
-                            }
-                            disabled={!option}
-                            className={fieldHasError(row.row_id, "uom_id") ? "is-error" : ""}
-                          >
-                            {(option?.uoms ?? []).map((uom) => (
-                              <option key={uom.id} value={uom.id}>
-                                {uomLabel(uom.code, uom.name)}
-                              </option>
-                            ))}
-                          </select>
-                          {selectedOption && selectedOption.id !== option?.base_uom_id && (
-                            <span className="inventory-inbound-factor">
-                              {t("inventoryInbound.factorToBase", {
-                                factor: formatFactor(selectedOption.factor_to_base),
-                                unit: uomLabel(
-                                  variant.base_uom.code,
-                                  variant.base_uom.name
-                                ),
-                              })}
-                            </span>
-                          )}
                         </div>
                         {(fieldHasError(row.row_id, "quantity") ||
                           fieldHasError(row.row_id, "uom_id")) && (
