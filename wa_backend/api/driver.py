@@ -2679,8 +2679,9 @@ async def get_driver_dashboard(
                 issued = row["issued_quantity"]
                 current = row["current_quantity"]
                 inventory_list.append({
-                    "product_id": variant.id,
+                    "product_variant_id": int(variant.id),
                     "product_name": variant.variant_name,
+                    "packs_per_carton": int(packs),
                     "starting_cartons": starting // packs,
                     "starting_packs": starting % packs,
                     "sold_cartons": issued // packs,
