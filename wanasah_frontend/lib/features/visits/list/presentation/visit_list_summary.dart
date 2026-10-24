@@ -39,7 +39,7 @@ class VisitListSummary extends StatelessWidget {
             ),
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: colors.onSurfaceVariant,
-              fontWeight: FontWeight.w650,
+              fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(height: 10),
@@ -139,7 +139,7 @@ class _FilterSegment extends StatelessWidget {
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.labelMedium?.copyWith(
             color: selected ? colors.onSurface : colors.onSurfaceVariant,
-            fontWeight: selected ? FontWeight.w800 : FontWeight.w650,
+            fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
           ),
         ),
       ),
