@@ -161,6 +161,10 @@ The first question it should answer is:
 - [x] Any legitimate correction starts from the original completed Visit context and existing `visit.execute`/business guards; there is no generic financial-history edit button.
 - [x] A list/history view in V1 is read-oriented. It must never invent a new correction authority.
 - [ ] Polish route priority, next-stop clarity, urgent work and completed-history readability.
+- [x] First production Route & Visits candidate implemented without changing Backend ordering or authority: modern route/urgent switch, compact counts/filters, field-scannable Visit rows, visual `التالي` marker for the first Backend-ordered Pending normal Visit, restrained urgent accent, and extended Add Shop action.
+- [x] Route & Visits presentation copy migrated from manual Arabic/English maps to the canonical ARB/gen_l10n source; the existing helper is now only a typed adapter.
+- [x] Visit-list operator feedback no longer appends request IDs to normal SnackBars; request identity remains diagnostic/support evidence.
+- [ ] Owner visual acceptance pending for the first Route & Visits polish candidate after on-device review.
 
 ## 6. Custody — العهدة
 
