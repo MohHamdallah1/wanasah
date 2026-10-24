@@ -7,8 +7,7 @@ import 'visit_empty_state.dart';
 import 'visit_list_strings.dart';
 import 'visit_list_summary.dart';
 
-class VisitRouteTabBar extends StatelessWidget
-    implements PreferredSizeWidget {
+class VisitRouteTabBar extends StatelessWidget implements PreferredSizeWidget {
   const VisitRouteTabBar({
     required this.controller,
     required this.emergencyCount,
@@ -19,36 +18,138 @@ class VisitRouteTabBar extends StatelessWidget
   final int emergencyCount;
 
   @override
-  Size get preferredSize => const Size.fromHeight(48);
+  Size get preferredSize => const Size.fromHeight(52);
 
   @override
   Widget build(BuildContext context) {
     final locale = Localizations.localeOf(context).toLanguageTag();
-    return TabBar(
-      controller: controller,
-      labelColor: const Color.fromARGB(255, 17, 5, 5),
-      unselectedLabelColor: const Color.fromARGB(179, 14, 7, 7),
-      indicatorColor: const Color.fromARGB(255, 73, 16, 16),
-      indicatorWeight: 4,
-      labelStyle: const TextStyle(
-        fontWeight: FontWeight.bold,
-        fontSize: 15,
+    final colors = Theme.of(context).colorScheme;
+
+    return AnimatedBuilder(
+      animation: controller,
+      builder:
+          (context, _) => Container(
+            height: 44,
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: colors.surfaceContainerHigh.withValues(alpha: 0.72),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: colors.outlineVariant.withValues(alpha: 0.72),
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _RouteModeButton(
+                    selected: controller.index == 0,
+                    icon: Icons.route_rounded,
+                    label: visitListString(
+                      VisitListStringKey.normalRouteTab,
+                      localeCode: locale,
+                    ),
+                    onTap: () => controller.animateTo(0),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: _RouteModeButton(
+                    selected: controller.index == 1,
+                    icon: Icons.priority_high_rounded,
+                    label: visitListString(
+                      VisitListStringKey.emergencyRouteTab,
+                      localeCode: locale,
+                    ),
+                    badgeCount: emergencyCount,
+                    urgent: true,
+                    onTap: () => controller.animateTo(1),
+                  ),
+                ),
+              ],
+            ),
+          ),
+    );
+  }
+}
+
+class _RouteModeButton extends StatelessWidget {
+  const _RouteModeButton({
+    required this.selected,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.badgeCount,
+    this.urgent = false,
+  });
+
+  final bool selected;
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final int? badgeCount;
+  final bool urgent;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final selectedForeground =
+        urgent ? colors.onErrorContainer : colors.onPrimaryContainer;
+    final selectedBackground =
+        urgent ? colors.errorContainer : colors.primaryContainer;
+    final foreground = selected ? selectedForeground : colors.onSurfaceVariant;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        decoration: BoxDecoration(
+          color: selected ? selectedBackground : Colors.transparent,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 18, color: foreground),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: foreground,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                ),
+              ),
+            ),
+            if ((badgeCount ?? 0) > 0) ...[
+              const SizedBox(width: 6),
+              Container(
+                constraints: const BoxConstraints(minWidth: 20),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color:
+                      selected
+                          ? foreground.withValues(alpha: 0.12)
+                          : colors.errorContainer,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  badgeCount.toString(),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: selected ? foreground : colors.onErrorContainer,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
-      tabs: [
-        Tab(
-          text: visitListString(
-            VisitListStringKey.normalRouteTab,
-            localeCode: locale,
-          ),
-        ),
-        Tab(
-          text: visitListString(
-            VisitListStringKey.emergencyRouteTab,
-            localeCode: locale,
-            values: <String, Object>{'count': emergencyCount},
-          ),
-        ),
-      ],
     );
   }
 }
@@ -73,8 +174,20 @@ class VisitRouteTabs extends StatelessWidget {
   final ValueChanged<VisitListRow> onOpenVisit;
   final ValueChanged<VisitListRow> onOpenMap;
 
+  int? _nextPendingVisitId() {
+    for (final row in model.orderedRows) {
+      if (row.routeKind == VisitRouteKind.normal &&
+          row.backendStatus.toLowerCase() == 'pending') {
+        return row.id;
+      }
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final nextPendingVisitId = _nextPendingVisitId();
+
     return Column(
       children: [
         VisitListSummary(
@@ -82,7 +195,6 @@ class VisitRouteTabs extends StatelessWidget {
           filter: model.filter,
           onFilterChanged: onFilterChanged,
         ),
-        const Divider(height: 1, thickness: 1),
         Expanded(
           child: TabBarView(
             controller: controller,
@@ -91,6 +203,7 @@ class VisitRouteTabs extends StatelessWidget {
                 rows: model.rowsFor(VisitRouteKind.normal),
                 routeKind: VisitRouteKind.normal,
                 filter: model.filter,
+                nextVisitId: nextPendingVisitId,
                 onRefresh: onRefresh,
                 onOpenVisit: onOpenVisit,
                 onOpenMap: onOpenMap,
@@ -99,6 +212,7 @@ class VisitRouteTabs extends StatelessWidget {
                 rows: model.rowsFor(VisitRouteKind.emergency),
                 routeKind: VisitRouteKind.emergency,
                 filter: model.filter,
+                nextVisitId: null,
                 onRefresh: onRefresh,
                 onOpenVisit: onOpenVisit,
                 onOpenMap: onOpenMap,
@@ -116,6 +230,7 @@ class _VisitRouteList extends StatelessWidget {
     required this.rows,
     required this.routeKind,
     required this.filter,
+    required this.nextVisitId,
     required this.onRefresh,
     required this.onOpenVisit,
     required this.onOpenMap,
@@ -124,6 +239,7 @@ class _VisitRouteList extends StatelessWidget {
   final List<VisitListRow> rows;
   final VisitRouteKind routeKind;
   final VisitListFilter filter;
+  final int? nextVisitId;
   final Future<void> Function() onRefresh;
   final ValueChanged<VisitListRow> onOpenVisit;
   final ValueChanged<VisitListRow> onOpenMap;
@@ -147,17 +263,13 @@ class _VisitRouteList extends StatelessWidget {
               : 'visitListScroll_norm',
         ),
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.only(
-          top: 12,
-          left: 12,
-          right: 12,
-          bottom: 80,
-        ),
+        padding: const EdgeInsetsDirectional.fromSTEB(14, 8, 14, 104),
         itemCount: rows.length,
         itemBuilder: (context, index) {
           final row = rows[index];
           return VisitCard(
             row: row,
+            isNext: row.id == nextVisitId,
             onOpen: () => onOpenVisit(row),
             onMap: () => onOpenMap(row),
           );

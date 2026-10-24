@@ -273,5 +273,94 @@
         "type": "String"
       }
     }
+  },
+  "visitListTitle": "خط السير",
+  "visitRefreshTooltip": "تحديث الجولة",
+  "visitNormalRouteTab": "جولة اليوم",
+  "visitEmergencyRouteTab": "طلبات عاجلة",
+  "visitFilterAll": "الكل {count}",
+  "visitFilterCompleted": "المكتملة {count}",
+  "visitFilterPending": "المتبقية {count}",
+  "visitStatusCompleted": "مكتملة",
+  "visitStatusPending": "قيد الانتظار",
+  "visitStatusAttempted": "محاولة سابقة",
+  "visitStatusPostponed": "مؤجلة",
+  "visitStatusNoSale": "بدون بيع",
+  "visitStatusUnknown": "حالة غير معروفة ({status})",
+  "visitBalanceLabel": "الذمة: {amount} د.أ",
+  "visitMapTooltip": "فتح موقع المحل",
+  "visitEmptyNormalAll": "لا توجد زيارات مجدولة لك حاليًا.",
+  "visitEmptyEmergencyAll": "لا توجد طلبات عاجلة حاليًا.",
+  "visitEmptyNormalPending": "لا توجد زيارات متبقية.",
+  "visitEmptyEmergencyPending": "لا توجد طلبات عاجلة متبقية.",
+  "visitEmptyNormalCompleted": "لم تُكمل أي زيارة بعد.",
+  "visitEmptyEmergencyCompleted": "لم تُكمل أي طلب عاجل بعد.",
+  "visitAddShopAction": "إضافة محل",
+  "visitGateOnBreak": "أنت الآن في وقت الاستراحة. أنهِ الاستراحة لمتابعة العمل.",
+  "visitGateUnauthorizedAdd": "غير مصرح لك بإضافة محلات.",
+  "visitGateUnauthorizedOpen": "غير مصرح لك بفتح الزيارة حاليًا.",
+  "visitGateUnavailable": "تعذر تأكيد حالة جلسة العمل والصلاحية. حدّث البيانات ثم أعد المحاولة.",
+  "visitRefreshSuccess": "تم تحديث قائمة الزيارات.",
+  "visitRefreshAlreadySyncing": "المزامنة جارية بالفعل من مكان آخر.",
+  "visitRefreshTransportAmbiguous": "تعذر تأكيد نتيجة التحديث بسبب الاتصال. يتم عرض البيانات المحلية.",
+  "visitRefreshBlocked": "يوجد عمل أوفلاين غير محسوم يمنع استبدال البيانات المحلية.",
+  "visitRefreshDeterministicFailure": "تعذر تحديث قائمة الزيارات.",
+  "visitLoadFailure": "تعذر تحميل قائمة الزيارات المحلية.",
+  "visitMapNoLocation": "لا يتوفر موقع مسجل لهذا المحل.",
+  "visitMapNoApplication": "لا يوجد تطبيق خرائط مثبت ولا رابط خارجي صالح.",
+  "visitMapInvalidLink": "رابط الموقع غير صالح.",
+  "visitMapOpenFailed": "تعذر فتح موقع المحل.",
+  "visitRequestIdLabel": "رقم التتبع",
+  "visitRouteOverview": "{total} زيارة • {completed} مكتملة • {pending} متبقية",
+  "visitNextLabel": "التالي",
+  "visitUrgentLabel": "عاجل",
+  "visitOpenVisitHint": "فتح الزيارة",
+  "@visitFilterAll": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@visitFilterCompleted": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@visitFilterPending": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@visitStatusUnknown": {
+    "placeholders": {
+      "status": {
+        "type": "String"
+      }
+    }
+  },
+  "@visitBalanceLabel": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "@visitRouteOverview": {
+    "placeholders": {
+      "total": {
+        "type": "String"
+      },
+      "completed": {
+        "type": "String"
+      },
+      "pending": {
+        "type": "String"
+      }
+    }
   }
 }

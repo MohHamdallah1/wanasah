@@ -40,15 +40,6 @@ void showVisitListRefreshFeedback(
     message = visitListString(key, localeCode: locale);
   }
 
-  final requestId = result.requestId;
-  if (requestId != null && requestId.trim().isNotEmpty) {
-    message =
-        '$message\n${visitListString(
-          VisitListStringKey.requestIdLabel,
-          localeCode: locale,
-        )}: $requestId';
-  }
-
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
       content: Text(message),
@@ -67,16 +58,13 @@ void showVisitRouteGateFeedback(
 
   final locale = Localizations.localeOf(context).toLanguageTag();
   final key = switch (decision) {
-    VisitRouteActionDecision.onBreak =>
-      VisitListStringKey.gateOnBreak,
+    VisitRouteActionDecision.onBreak => VisitListStringKey.gateOnBreak,
     VisitRouteActionDecision.unauthorized =>
       action == VisitRouteAction.addShop
           ? VisitListStringKey.gateUnauthorizedAdd
           : VisitListStringKey.gateUnauthorizedOpen,
-    VisitRouteActionDecision.unavailable =>
-      VisitListStringKey.gateUnavailable,
-    VisitRouteActionDecision.allowed =>
-      VisitListStringKey.gateUnavailable,
+    VisitRouteActionDecision.unavailable => VisitListStringKey.gateUnavailable,
+    VisitRouteActionDecision.allowed => VisitListStringKey.gateUnavailable,
   };
 
   ScaffoldMessenger.of(context).showSnackBar(
@@ -87,20 +75,15 @@ void showVisitRouteGateFeedback(
   );
 }
 
-void showVisitMapFeedback(
-  BuildContext context,
-  VisitMapLaunchOutcome outcome,
-) {
+void showVisitMapFeedback(BuildContext context, VisitMapLaunchOutcome outcome) {
   if (outcome == VisitMapLaunchOutcome.opened) return;
 
   final locale = Localizations.localeOf(context).toLanguageTag();
   final key = switch (outcome) {
-    VisitMapLaunchOutcome.noLocation =>
-      VisitListStringKey.mapNoLocation,
+    VisitMapLaunchOutcome.noLocation => VisitListStringKey.mapNoLocation,
     VisitMapLaunchOutcome.noMapApplication =>
       VisitListStringKey.mapNoApplication,
-    VisitMapLaunchOutcome.invalidLink =>
-      VisitListStringKey.mapInvalidLink,
+    VisitMapLaunchOutcome.invalidLink => VisitListStringKey.mapInvalidLink,
     VisitMapLaunchOutcome.failed => VisitListStringKey.mapOpenFailed,
     VisitMapLaunchOutcome.opened => VisitListStringKey.mapOpenFailed,
   };

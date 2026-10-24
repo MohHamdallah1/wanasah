@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/services.dart';
@@ -16,87 +17,80 @@ import 'package:wanasah_frontend/features/visits/list/application/visit_map_targ
 import 'package:wanasah_frontend/features/visits/list/application/visit_route_action_gate.dart';
 import 'package:wanasah_frontend/features/visits/list/data/visit_list_data_source.dart';
 import 'package:wanasah_frontend/features/visits/list/data/visit_list_refresh_source.dart';
+import 'package:wanasah_frontend/l10n/generated/app_localizations.dart';
+import 'package:wanasah_frontend/features/visits/list/presentation/visit_list_summary.dart';
+import 'package:wanasah_frontend/features/visits/list/presentation/visit_card.dart';
 import 'package:wanasah_frontend/models/visit_model.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   group('Visit List read model', () {
     test('orders deterministically by sequence then visit id', () async {
-      final model = await _reader(<VisitModel>[
-        _visit(id: 30, sequence: 2, status: 'Completed'),
-        _visit(
-          id: 20,
-          sequence: 1,
-          status: 'Pending',
-          emergency: true,
-          outcome: 'NoSale',
-        ),
-        _visit(
-          id: 10,
-          sequence: 1,
-          status: 'Pending',
-          outcome: 'Postponed',
-        ),
-        _visit(
-          id: 40,
-          sequence: 3,
-          status: 'Pending',
-          emergency: true,
-        ),
-      ]).read();
+      final model =
+          await _reader(<VisitModel>[
+            _visit(id: 30, sequence: 2, status: 'Completed'),
+            _visit(
+              id: 20,
+              sequence: 1,
+              status: 'Pending',
+              emergency: true,
+              outcome: 'NoSale',
+            ),
+            _visit(
+              id: 10,
+              sequence: 1,
+              status: 'Pending',
+              outcome: 'Postponed',
+            ),
+            _visit(id: 40, sequence: 3, status: 'Pending', emergency: true),
+          ]).read();
 
-      expect(
-        model.orderedRows.map((row) => row.id).toList(),
-        <int>[10, 20, 30, 40],
-      );
+      expect(model.orderedRows.map((row) => row.id).toList(), <int>[
+        10,
+        20,
+        30,
+        40,
+      ]);
     });
 
-    test('splits normal route and emergency rows without changing order',
-        () async {
-      final model = await _sampleReader().read();
+    test(
+      'splits normal route and emergency rows without changing order',
+      () async {
+        final model = await _sampleReader().read();
 
-      expect(
-        model.rowsFor(VisitRouteKind.normal).map((row) => row.id),
-        <int>[10, 30],
-      );
-      expect(
-        model.rowsFor(VisitRouteKind.emergency).map((row) => row.id),
-        <int>[20, 40],
-      );
-      expect(model.emergencyCount, 2);
-    });
+        expect(model.rowsFor(VisitRouteKind.normal).map((row) => row.id), <int>[
+          10,
+          30,
+        ]);
+        expect(
+          model.rowsFor(VisitRouteKind.emergency).map((row) => row.id),
+          <int>[20, 40],
+        );
+        expect(model.emergencyCount, 2);
+      },
+    );
 
-    test('Completed stays completed and Postponed stays backend Pending',
-        () async {
-      final model = await _sampleReader().read();
-      final completed =
-          model.orderedRows.firstWhere((row) => row.id == 30);
-      final postponed =
-          model.orderedRows.firstWhere((row) => row.id == 10);
+    test(
+      'Completed stays completed and Postponed stays backend Pending',
+      () async {
+        final model = await _sampleReader().read();
+        final completed = model.orderedRows.firstWhere((row) => row.id == 30);
+        final postponed = model.orderedRows.firstWhere((row) => row.id == 10);
 
-      expect(
-        completed.presentation,
-        VisitExecutionPresentation.completed,
-      );
-      expect(completed.backendStatus, 'Completed');
+        expect(completed.presentation, VisitExecutionPresentation.completed);
+        expect(completed.backendStatus, 'Completed');
 
-      expect(
-        postponed.presentation,
-        VisitExecutionPresentation.postponed,
-      );
-      expect(postponed.backendStatus, 'Pending');
-      expect(postponed.backendOutcome, 'Postponed');
-    });
+        expect(postponed.presentation, VisitExecutionPresentation.postponed);
+        expect(postponed.backendStatus, 'Pending');
+        expect(postponed.backendOutcome, 'Postponed');
+      },
+    );
 
     test('attempted Pending visit gets attempted presentation only', () async {
       final model = await _sampleReader().read();
-      final attempted =
-          model.orderedRows.firstWhere((row) => row.id == 20);
+      final attempted = model.orderedRows.firstWhere((row) => row.id == 20);
 
-      expect(
-        attempted.presentation,
-        VisitExecutionPresentation.attempted,
-      );
+      expect(attempted.presentation, VisitExecutionPresentation.attempted);
       expect(attempted.backendStatus, 'Pending');
       expect(attempted.backendOutcome, 'NoSale');
     });
@@ -115,21 +109,22 @@ void main() {
       expect(emergency.pending, 2);
     });
 
-    test('pending filter includes postponed and attempted because status is Pending',
-        () async {
-      final model = await _sampleReader().read(
-        filter: VisitListFilter.pending,
-      );
+    test(
+      'pending filter includes postponed and attempted because status is Pending',
+      () async {
+        final model = await _sampleReader().read(
+          filter: VisitListFilter.pending,
+        );
 
-      expect(
-        model.rowsFor(VisitRouteKind.normal).map((row) => row.id),
-        <int>[10],
-      );
-      expect(
-        model.rowsFor(VisitRouteKind.emergency).map((row) => row.id),
-        <int>[20, 40],
-      );
-    });
+        expect(model.rowsFor(VisitRouteKind.normal).map((row) => row.id), <int>[
+          10,
+        ]);
+        expect(
+          model.rowsFor(VisitRouteKind.emergency).map((row) => row.id),
+          <int>[20, 40],
+        );
+      },
+    );
 
     test('filter is preserved across Bloc local reload', () async {
       final dataSource = _FakeVisitListDataSource(_sampleVisits());
@@ -176,127 +171,120 @@ void main() {
 
   group('Visit List refresh classification', () {
     test('success is typed refreshed', () async {
-      final result = await VisitListRefreshCoordinator(
-        source: _FakeRefreshSource(syncResult: true),
-      ).refresh();
+      final result =
+          await VisitListRefreshCoordinator(
+            source: _FakeRefreshSource(syncResult: true),
+          ).refresh();
 
       expect(result.outcome, VisitListRefreshOutcome.refreshed);
     });
 
     test('sync lock reports already syncing', () async {
-      final result = await VisitListRefreshCoordinator(
-        source: _FakeRefreshSource(syncResult: false),
-      ).refresh();
+      final result =
+          await VisitListRefreshCoordinator(
+            source: _FakeRefreshSource(syncResult: false),
+          ).refresh();
 
-      expect(
-        result.outcome,
-        VisitListRefreshOutcome.alreadySyncing,
-      );
+      expect(result.outcome, VisitListRefreshOutcome.alreadySyncing);
     });
 
     test('connection failure is transport ambiguous', () async {
-      final result = await VisitListRefreshCoordinator(
-        source: _FakeRefreshSource(
-          error: DioException(
-            requestOptions: RequestOptions(path: '/driver/visits'),
-            type: DioExceptionType.connectionError,
-            message: 'arbitrary text must not classify the failure',
-          ),
-        ),
-      ).refresh();
+      final result =
+          await VisitListRefreshCoordinator(
+            source: _FakeRefreshSource(
+              error: DioException(
+                requestOptions: RequestOptions(path: '/driver/visits'),
+                type: DioExceptionType.connectionError,
+                message: 'arbitrary text must not classify the failure',
+              ),
+            ),
+          ).refresh();
 
-      expect(
-        result.outcome,
-        VisitListRefreshOutcome.transportAmbiguous,
-      );
+      expect(result.outcome, VisitListRefreshOutcome.transportAmbiguous);
     });
 
     test('deterministic 409 is deterministic failure', () async {
-      final result = await VisitListRefreshCoordinator(
-        source: _FakeRefreshSource(
-          error: _dioResponse(
-            status: 409,
-            message: 'Any display fallback',
-          ),
-        ),
-      ).refresh();
+      final result =
+          await VisitListRefreshCoordinator(
+            source: _FakeRefreshSource(
+              error: _dioResponse(status: 409, message: 'Any display fallback'),
+            ),
+          ).refresh();
 
-      expect(
-        result.outcome,
-        VisitListRefreshOutcome.deterministicFailure,
-      );
+      expect(result.outcome, VisitListRefreshOutcome.deterministicFailure);
     });
 
     test('free text does not change deterministic classification', () async {
-      final first = await VisitListRefreshCoordinator(
-        source: _FakeRefreshSource(
-          error: _dioResponse(
-            status: 409,
-            message: 'رسالة عربية',
-          ),
-        ),
-      ).refresh();
-      final second = await VisitListRefreshCoordinator(
-        source: _FakeRefreshSource(
-          error: _dioResponse(
-            status: 409,
-            message: 'Completely unrelated English fallback',
-          ),
-        ),
-      ).refresh();
+      final first =
+          await VisitListRefreshCoordinator(
+            source: _FakeRefreshSource(
+              error: _dioResponse(status: 409, message: 'رسالة عربية'),
+            ),
+          ).refresh();
+      final second =
+          await VisitListRefreshCoordinator(
+            source: _FakeRefreshSource(
+              error: _dioResponse(
+                status: 409,
+                message: 'Completely unrelated English fallback',
+              ),
+            ),
+          ).refresh();
 
       expect(first.outcome, second.outcome);
       expect(first.code, second.code);
       expect(first.displayFallback, isNot(second.displayFallback));
     });
 
-    test('generic failure plus unresolved durable evidence is blocked', () async {
-      final result = await VisitListRefreshCoordinator(
-        source: _FakeRefreshSource(
-          error: StateError('compatibility failure text'),
-          unresolvedRows: <Map<String, dynamic>>[
-            <String, dynamic>{
-              'id': 91,
-              'state': 'blocked',
-              'type': 'submit_sale',
-            },
-          ],
-        ),
-      ).refresh();
+    test(
+      'generic failure plus unresolved durable evidence is blocked',
+      () async {
+        final result =
+            await VisitListRefreshCoordinator(
+              source: _FakeRefreshSource(
+                error: StateError('compatibility failure text'),
+                unresolvedRows: <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'id': 91,
+                    'state': 'blocked',
+                    'type': 'submit_sale',
+                  },
+                ],
+              ),
+            ).refresh();
 
-      expect(
-        result.outcome,
-        VisitListRefreshOutcome.blockedByUnresolvedDurableWork,
-      );
-      expect(result.displayFallback, isNull);
-    });
+        expect(
+          result.outcome,
+          VisitListRefreshOutcome.blockedByUnresolvedDurableWork,
+        );
+        expect(result.displayFallback, isNull);
+      },
+    );
 
-    test('generic failure without durable evidence fails closed deterministically',
-        () async {
-      final result = await VisitListRefreshCoordinator(
-        source: _FakeRefreshSource(
-          error: StateError('must not be parsed'),
-        ),
-      ).refresh();
+    test(
+      'generic failure without durable evidence fails closed deterministically',
+      () async {
+        final result =
+            await VisitListRefreshCoordinator(
+              source: _FakeRefreshSource(
+                error: StateError('must not be parsed'),
+              ),
+            ).refresh();
 
-      expect(
-        result.outcome,
-        VisitListRefreshOutcome.deterministicFailure,
-      );
-      expect(result.displayFallback, isNull);
-    });
+        expect(result.outcome, VisitListRefreshOutcome.deterministicFailure);
+        expect(result.displayFallback, isNull);
+      },
+    );
 
     test('refresh timeout is transport ambiguous outside the Widget', () async {
       final source = _HangingRefreshSource();
-      final result = await VisitListRefreshCoordinator(
-        source: source,
-        waitLimit: const Duration(milliseconds: 1),
-      ).refresh();
+      final result =
+          await VisitListRefreshCoordinator(
+            source: source,
+            waitLimit: const Duration(milliseconds: 1),
+          ).refresh();
 
-      expect(
-        result.outcome,
-        VisitListRefreshOutcome.transportAmbiguous,
-      );
+      expect(result.outcome, VisitListRefreshOutcome.transportAmbiguous);
     });
   });
 
@@ -315,40 +303,60 @@ void main() {
       }
     });
 
-    test('allowed cache opens forms without claiming mutation acceptance', () async {
-      final gate = _gate(onBreak: 'false', authorized: 'true');
-      for (final action in VisitRouteAction.values) {
-        expect(await gate.evaluate(action), VisitRouteActionDecision.allowed);
-      }
-    });
-
-    test('missing or malformed compatibility values do not deny navigation', () async {
-      for (final gate in [
-        _gate(onBreak: null, authorized: null),
-        _gate(onBreak: 'invalid', authorized: 'yes'),
-      ]) {
+    test(
+      'allowed cache opens forms without claiming mutation acceptance',
+      () async {
+        final gate = _gate(onBreak: 'false', authorized: 'true');
         for (final action in VisitRouteAction.values) {
           expect(await gate.evaluate(action), VisitRouteActionDecision.allowed);
         }
-      }
-    });
+      },
+    );
 
-    test('storage failure cannot affect navigation because it is never read', () async {
-      var reads = 0;
-      const channel = MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, (_) async {
-        reads++;
-        throw StateError('storage unavailable');
-      });
-      addTearDown(() => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, null));
-      for (final action in VisitRouteAction.values) {
-        expect(await const VisitRouteActionGate().evaluate(action),
-          VisitRouteActionDecision.allowed);
-      }
-      expect(reads, 0);
-    });
+    test(
+      'missing or malformed compatibility values do not deny navigation',
+      () async {
+        for (final gate in [
+          _gate(onBreak: null, authorized: null),
+          _gate(onBreak: 'invalid', authorized: 'yes'),
+        ]) {
+          for (final action in VisitRouteAction.values) {
+            expect(
+              await gate.evaluate(action),
+              VisitRouteActionDecision.allowed,
+            );
+          }
+        }
+      },
+    );
+
+    test(
+      'storage failure cannot affect navigation because it is never read',
+      () async {
+        var reads = 0;
+        const channel = MethodChannel(
+          'plugins.it_nomads.com/flutter_secure_storage',
+        );
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (_) async {
+              reads++;
+              throw StateError('storage unavailable');
+            });
+        addTearDown(
+          () => TestDefaultBinaryMessengerBinding
+              .instance
+              .defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, null),
+        );
+        for (final action in VisitRouteAction.values) {
+          expect(
+            await const VisitRouteActionGate().evaluate(action),
+            VisitRouteActionDecision.allowed,
+          );
+        }
+        expect(reads, 0);
+      },
+    );
   });
 
   group('Map target safety', () {
@@ -422,39 +430,149 @@ void main() {
     });
   });
 
+  group('Visit List polished presentation', () {
+    testWidgets('next and urgent badges stay semantic and compact', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final normal = VisitListRow(
+        visit: _visit(id: 81, sequence: 7, status: 'Pending'),
+        routeKind: VisitRouteKind.normal,
+        presentation: VisitExecutionPresentation.pending,
+      );
+      final urgent = VisitListRow(
+        visit: _visit(id: 82, sequence: 8, status: 'Pending', emergency: true),
+        routeKind: VisitRouteKind.emergency,
+        presentation: VisitExecutionPresentation.pending,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('ar'),
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          home: Scaffold(
+            body: ListView(
+              children: [
+                VisitCard(
+                  row: normal,
+                  isNext: true,
+                  onOpen: () {},
+                  onMap: () {},
+                ),
+                VisitCard(row: urgent, onOpen: () {}, onMap: () {}),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('التالي'), findsOneWidget);
+      expect(find.text('عاجل'), findsOneWidget);
+      expect(find.text('قيد الانتظار'), findsNWidgets(2));
+      expect(find.textContaining('الذمة:'), findsNWidgets(2));
+    });
+
+    testWidgets(
+      'route overview and filters use the canonical localized surface',
+      (tester) async {
+        VisitListFilter? selected;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            locale: const Locale('ar'),
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            home: Scaffold(
+              body: VisitListSummary(
+                counts: const VisitRouteCounts(
+                  total: 14,
+                  completed: 6,
+                  pending: 8,
+                ),
+                filter: VisitListFilter.all,
+                onFilterChanged: (value) => selected = value,
+              ),
+            ),
+          ),
+        );
+
+        expect(find.text('14 زيارة • 6 مكتملة • 8 متبقية'), findsOneWidget);
+        expect(find.text('الكل 14'), findsOneWidget);
+        expect(find.text('المكتملة 6'), findsOneWidget);
+        expect(find.text('المتبقية 8'), findsOneWidget);
+
+        await tester.tap(find.text('المتبقية 8'));
+        expect(selected, VisitListFilter.pending);
+      },
+    );
+
+    test(
+      'Visit List copy is now backed by generated localization resources',
+      () async {
+        final strings =
+            await File(
+              'lib/features/visits/list/presentation/visit_list_strings.dart',
+            ).readAsString();
+        final screen =
+            await File('lib/screens/visit_list_screen.dart').readAsString();
+
+        expect(strings, contains('lookupAppLocalizations'));
+        expect(
+          strings,
+          isNot(contains('const Map<VisitListStringKey, String> _ar')),
+        );
+        expect(
+          strings,
+          isNot(contains('const Map<VisitListStringKey, String> _en')),
+        );
+        expect(screen, contains('FloatingActionButton.extended'));
+        expect(screen, contains("ValueKey('visit-add-shop')"));
+      },
+    );
+  });
+
   group('Visit List architecture invariants', () {
-    test('screen no longer parses raw DB rows or owns machine classification',
-        () async {
-      final screen = await File(
-        'lib/screens/visit_list_screen.dart',
-      ).readAsString();
+    test(
+      'screen no longer parses raw DB rows or owns machine classification',
+      () async {
+        final screen =
+            await File('lib/screens/visit_list_screen.dart').readAsString();
 
-      expect(screen, isNot(contains('LocalDatabase')));
-      expect(screen, isNot(contains('SyncRepository')));
-      expect(screen, isNot(contains('FlutterSecureStorage')));
-      expect(screen, isNot(contains('getVisits()')));
-      expect(screen, isNot(contains('VisitModel.fromJson')));
-      expect(screen, isNot(contains('message.contains(')));
-      expect(screen, isNot(contains("read(key: 'is_on_break')")));
-      expect(screen, isNot(contains("read(key: 'is_authorized')")));
-      expect(screen, contains('VisitRouteActionGate'));
-      expect(screen, contains('VisitRouteTabs'));
-    });
+        expect(screen, isNot(contains('LocalDatabase')));
+        expect(screen, isNot(contains('SyncRepository')));
+        expect(screen, isNot(contains('FlutterSecureStorage')));
+        expect(screen, isNot(contains('getVisits()')));
+        expect(screen, isNot(contains('VisitModel.fromJson')));
+        expect(screen, isNot(contains('message.contains(')));
+        expect(screen, isNot(contains("read(key: 'is_on_break')")));
+        expect(screen, isNot(contains("read(key: 'is_authorized')")));
+        expect(screen, contains('VisitRouteActionGate'));
+        expect(screen, contains('VisitRouteTabs'));
+      },
+    );
 
-    test('Bloc delegates raw reads, filtering and refresh classification',
-        () async {
-      final bloc = await File(
-        'lib/blocs/visit_list/visit_list_bloc.dart',
-      ).readAsString();
+    test(
+      'Bloc delegates raw reads, filtering and refresh classification',
+      () async {
+        final bloc =
+            await File(
+              'lib/blocs/visit_list/visit_list_bloc.dart',
+            ).readAsString();
 
-      expect(bloc, isNot(contains('LocalDatabase')));
-      expect(bloc, isNot(contains('SyncRepository')));
-      expect(bloc, isNot(contains('VisitModel.fromJson')));
-      expect(bloc, isNot(contains('.sort(')));
-      expect(bloc, isNot(contains('.where(')));
-      expect(bloc, contains('VisitListReader'));
-      expect(bloc, contains('VisitListRefreshCoordinator'));
-    });
+        expect(bloc, isNot(contains('LocalDatabase')));
+        expect(bloc, isNot(contains('SyncRepository')));
+        expect(bloc, isNot(contains('VisitModel.fromJson')));
+        expect(bloc, isNot(contains('.sort(')));
+        expect(bloc, isNot(contains('.where(')));
+        expect(bloc, contains('VisitListReader'));
+        expect(bloc, contains('VisitListRefreshCoordinator'));
+      },
+    );
 
     test('extracted list widgets stay presentation-only', () async {
       for (final path in <String>[
@@ -476,18 +594,12 @@ void main() {
 VisitListReader _sampleReader() => _reader(_sampleVisits());
 
 VisitListReader _reader(List<VisitModel> visits) {
-  return VisitListReader(
-    dataSource: _FakeVisitListDataSource(visits),
-  );
+  return VisitListReader(dataSource: _FakeVisitListDataSource(visits));
 }
 
 List<VisitModel> _sampleVisits() {
   return <VisitModel>[
-    _visit(
-      id: 30,
-      sequence: 2,
-      status: 'Completed',
-    ),
+    _visit(id: 30, sequence: 2, status: 'Completed'),
     _visit(
       id: 20,
       sequence: 1,
@@ -495,18 +607,8 @@ List<VisitModel> _sampleVisits() {
       emergency: true,
       outcome: 'NoSale',
     ),
-    _visit(
-      id: 10,
-      sequence: 1,
-      status: 'Pending',
-      outcome: 'Postponed',
-    ),
-    _visit(
-      id: 40,
-      sequence: 3,
-      status: 'Pending',
-      emergency: true,
-    ),
+    _visit(id: 10, sequence: 1, status: 'Pending', outcome: 'Postponed'),
+    _visit(id: 40, sequence: 3, status: 'Pending', emergency: true),
   ];
 }
 
@@ -540,9 +642,7 @@ VisitListRow _row(VisitModel visit) {
   return VisitListRow(
     visit: visit,
     routeKind:
-        visit.isEmergency
-            ? VisitRouteKind.emergency
-            : VisitRouteKind.normal,
+        visit.isEmergency ? VisitRouteKind.emergency : VisitRouteKind.normal,
     presentation: VisitExecutionPresentation.pending,
   );
 }
@@ -558,10 +658,7 @@ VisitRouteActionGate _gate({
   return const VisitRouteActionGate();
 }
 
-DioException _dioResponse({
-  required int status,
-  required String message,
-}) {
+DioException _dioResponse({required int status, required String message}) {
   final options = RequestOptions(path: '/driver/visits');
   return DioException(
     requestOptions: options,
@@ -587,8 +684,7 @@ class _FakeVisitListDataSource implements VisitListDataSource {
   List<VisitModel> visits;
 
   @override
-  Future<List<VisitModel>> readVisits() async =>
-      List<VisitModel>.from(visits);
+  Future<List<VisitModel>> readVisits() async => List<VisitModel>.from(visits);
 }
 
 class _FakeRefreshSource implements VisitListRefreshSource {
@@ -625,4 +721,3 @@ class _HangingRefreshSource implements VisitListRefreshSource {
     return const <Map<String, dynamic>>[];
   }
 }
-

@@ -904,6 +904,252 @@ abstract class AppLocalizations {
   /// In ar, this message translates to:
   /// **'لم يتم تأكيد نتيجة إجراء الجلسة. حالة السيرفر هي المرجع؛ حدّث البيانات قبل إعادة المحاولة.'**
   String get workSessionIssueUnresolved;
+
+  /// No description provided for @visitListTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'خط السير'**
+  String get visitListTitle;
+
+  /// No description provided for @visitRefreshTooltip.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحديث الجولة'**
+  String get visitRefreshTooltip;
+
+  /// No description provided for @visitNormalRouteTab.
+  ///
+  /// In ar, this message translates to:
+  /// **'جولة اليوم'**
+  String get visitNormalRouteTab;
+
+  /// No description provided for @visitEmergencyRouteTab.
+  ///
+  /// In ar, this message translates to:
+  /// **'طلبات عاجلة'**
+  String get visitEmergencyRouteTab;
+
+  /// No description provided for @visitFilterAll.
+  ///
+  /// In ar, this message translates to:
+  /// **'الكل {count}'**
+  String visitFilterAll(String count);
+
+  /// No description provided for @visitFilterCompleted.
+  ///
+  /// In ar, this message translates to:
+  /// **'المكتملة {count}'**
+  String visitFilterCompleted(String count);
+
+  /// No description provided for @visitFilterPending.
+  ///
+  /// In ar, this message translates to:
+  /// **'المتبقية {count}'**
+  String visitFilterPending(String count);
+
+  /// No description provided for @visitStatusCompleted.
+  ///
+  /// In ar, this message translates to:
+  /// **'مكتملة'**
+  String get visitStatusCompleted;
+
+  /// No description provided for @visitStatusPending.
+  ///
+  /// In ar, this message translates to:
+  /// **'قيد الانتظار'**
+  String get visitStatusPending;
+
+  /// No description provided for @visitStatusAttempted.
+  ///
+  /// In ar, this message translates to:
+  /// **'محاولة سابقة'**
+  String get visitStatusAttempted;
+
+  /// No description provided for @visitStatusPostponed.
+  ///
+  /// In ar, this message translates to:
+  /// **'مؤجلة'**
+  String get visitStatusPostponed;
+
+  /// No description provided for @visitStatusNoSale.
+  ///
+  /// In ar, this message translates to:
+  /// **'بدون بيع'**
+  String get visitStatusNoSale;
+
+  /// No description provided for @visitStatusUnknown.
+  ///
+  /// In ar, this message translates to:
+  /// **'حالة غير معروفة ({status})'**
+  String visitStatusUnknown(String status);
+
+  /// No description provided for @visitBalanceLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'الذمة: {amount} د.أ'**
+  String visitBalanceLabel(String amount);
+
+  /// No description provided for @visitMapTooltip.
+  ///
+  /// In ar, this message translates to:
+  /// **'فتح موقع المحل'**
+  String get visitMapTooltip;
+
+  /// No description provided for @visitEmptyNormalAll.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد زيارات مجدولة لك حاليًا.'**
+  String get visitEmptyNormalAll;
+
+  /// No description provided for @visitEmptyEmergencyAll.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد طلبات عاجلة حاليًا.'**
+  String get visitEmptyEmergencyAll;
+
+  /// No description provided for @visitEmptyNormalPending.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد زيارات متبقية.'**
+  String get visitEmptyNormalPending;
+
+  /// No description provided for @visitEmptyEmergencyPending.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد طلبات عاجلة متبقية.'**
+  String get visitEmptyEmergencyPending;
+
+  /// No description provided for @visitEmptyNormalCompleted.
+  ///
+  /// In ar, this message translates to:
+  /// **'لم تُكمل أي زيارة بعد.'**
+  String get visitEmptyNormalCompleted;
+
+  /// No description provided for @visitEmptyEmergencyCompleted.
+  ///
+  /// In ar, this message translates to:
+  /// **'لم تُكمل أي طلب عاجل بعد.'**
+  String get visitEmptyEmergencyCompleted;
+
+  /// No description provided for @visitAddShopAction.
+  ///
+  /// In ar, this message translates to:
+  /// **'إضافة محل'**
+  String get visitAddShopAction;
+
+  /// No description provided for @visitGateOnBreak.
+  ///
+  /// In ar, this message translates to:
+  /// **'أنت الآن في وقت الاستراحة. أنهِ الاستراحة لمتابعة العمل.'**
+  String get visitGateOnBreak;
+
+  /// No description provided for @visitGateUnauthorizedAdd.
+  ///
+  /// In ar, this message translates to:
+  /// **'غير مصرح لك بإضافة محلات.'**
+  String get visitGateUnauthorizedAdd;
+
+  /// No description provided for @visitGateUnauthorizedOpen.
+  ///
+  /// In ar, this message translates to:
+  /// **'غير مصرح لك بفتح الزيارة حاليًا.'**
+  String get visitGateUnauthorizedOpen;
+
+  /// No description provided for @visitGateUnavailable.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر تأكيد حالة جلسة العمل والصلاحية. حدّث البيانات ثم أعد المحاولة.'**
+  String get visitGateUnavailable;
+
+  /// No description provided for @visitRefreshSuccess.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم تحديث قائمة الزيارات.'**
+  String get visitRefreshSuccess;
+
+  /// No description provided for @visitRefreshAlreadySyncing.
+  ///
+  /// In ar, this message translates to:
+  /// **'المزامنة جارية بالفعل من مكان آخر.'**
+  String get visitRefreshAlreadySyncing;
+
+  /// No description provided for @visitRefreshTransportAmbiguous.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر تأكيد نتيجة التحديث بسبب الاتصال. يتم عرض البيانات المحلية.'**
+  String get visitRefreshTransportAmbiguous;
+
+  /// No description provided for @visitRefreshBlocked.
+  ///
+  /// In ar, this message translates to:
+  /// **'يوجد عمل أوفلاين غير محسوم يمنع استبدال البيانات المحلية.'**
+  String get visitRefreshBlocked;
+
+  /// No description provided for @visitRefreshDeterministicFailure.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر تحديث قائمة الزيارات.'**
+  String get visitRefreshDeterministicFailure;
+
+  /// No description provided for @visitLoadFailure.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر تحميل قائمة الزيارات المحلية.'**
+  String get visitLoadFailure;
+
+  /// No description provided for @visitMapNoLocation.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا يتوفر موقع مسجل لهذا المحل.'**
+  String get visitMapNoLocation;
+
+  /// No description provided for @visitMapNoApplication.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا يوجد تطبيق خرائط مثبت ولا رابط خارجي صالح.'**
+  String get visitMapNoApplication;
+
+  /// No description provided for @visitMapInvalidLink.
+  ///
+  /// In ar, this message translates to:
+  /// **'رابط الموقع غير صالح.'**
+  String get visitMapInvalidLink;
+
+  /// No description provided for @visitMapOpenFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر فتح موقع المحل.'**
+  String get visitMapOpenFailed;
+
+  /// No description provided for @visitRequestIdLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'رقم التتبع'**
+  String get visitRequestIdLabel;
+
+  /// No description provided for @visitRouteOverview.
+  ///
+  /// In ar, this message translates to:
+  /// **'{total} زيارة • {completed} مكتملة • {pending} متبقية'**
+  String visitRouteOverview(String total, String completed, String pending);
+
+  /// No description provided for @visitNextLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'التالي'**
+  String get visitNextLabel;
+
+  /// No description provided for @visitUrgentLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'عاجل'**
+  String get visitUrgentLabel;
+
+  /// No description provided for @visitOpenVisitHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'فتح الزيارة'**
+  String get visitOpenVisitHint;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

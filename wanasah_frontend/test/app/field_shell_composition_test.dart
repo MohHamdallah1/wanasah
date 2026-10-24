@@ -19,6 +19,11 @@ import 'package:wanasah_frontend/features/recovery/application/recovery_sync_coo
 import 'package:wanasah_frontend/features/recovery/data/recovery_data_source.dart';
 import 'package:wanasah_frontend/features/recovery/data/recovery_sync_executor.dart';
 import 'package:wanasah_frontend/features/work_session/presentation/work_session_controls.dart';
+import 'package:wanasah_frontend/models/visit_model.dart';
+import 'package:wanasah_frontend/features/visits/list/presentation/visit_route_tabs.dart';
+import 'package:wanasah_frontend/features/visits/list/presentation/visit_list_strings.dart';
+import 'package:wanasah_frontend/features/visits/list/application/visit_list_read_model.dart';
+import 'package:wanasah_frontend/features/visits/list/application/visit_list_filter.dart';
 import 'package:wanasah_frontend/models/product_model.dart';
 import 'package:wanasah_frontend/screens/dashboard_screen.dart';
 
@@ -111,6 +116,84 @@ void main() {
     },
   );
 
+  testWidgets('polished Route surface renders at field width', (tester) async {
+    tester.view.physicalSize = Size(
+      Platform.environment['FIELD_SHELL_CAPTURE'] == '1' ? 390 : 800,
+      844,
+    );
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final boundary = GlobalKey();
+    final model = _routeModel();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('ar'),
+        supportedLocales: AppLocalizations.supportedLocales,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        home: DefaultTabController(
+          length: 2,
+          child: Builder(
+            builder: (context) {
+              final controller = DefaultTabController.of(context);
+              return RepaintBoundary(
+                key: boundary,
+                child: Scaffold(
+                  appBar: AppBar(
+                    toolbarHeight: 64,
+                    titleSpacing: 12,
+                    title: VisitRouteTabBar(
+                      controller: controller,
+                      emergencyCount: model.emergencyCount,
+                    ),
+                    actions: const [
+                      Padding(
+                        padding: EdgeInsetsDirectional.only(end: 6),
+                        child: IconButton.filledTonal(
+                          onPressed: null,
+                          icon: Icon(Icons.refresh_rounded),
+                        ),
+                      ),
+                    ],
+                  ),
+                  floatingActionButtonLocation:
+                      FloatingActionButtonLocation.startFloat,
+                  floatingActionButton: FloatingActionButton.extended(
+                    onPressed: () {},
+                    icon: const Icon(Icons.add_business_outlined),
+                    label: Text(
+                      visitListString(
+                        VisitListStringKey.addShopTooltip,
+                        localeCode: 'ar',
+                      ),
+                    ),
+                  ),
+                  body: VisitRouteTabs(
+                    controller: controller,
+                    model: model,
+                    activeRoute: VisitRouteKind.normal,
+                    onFilterChanged: (_) {},
+                    onRefresh: () async {},
+                    onOpenVisit: (_) {},
+                    onOpenMap: (_) {},
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('التالي'), findsOneWidget);
+    expect(find.text('14 زيارة • 6 مكتملة • 8 متبقية'), findsOneWidget);
+    expect(find.text('إضافة محل'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await _capture(tester, boundary, 'route-rtl');
+  });
+
   testWidgets(
     'service failure keeps cached evidence and distinct top utility',
     (tester) async {
@@ -167,6 +250,80 @@ Future<void> _capture(WidgetTester tester, GlobalKey key, String name) async {
       image.dispose();
     }
   });
+}
+
+VisitListReadModel _routeModel() {
+  const names = <String>[
+    'بقالة الندى',
+    'سوبر ماركت الأمل',
+    'تموينات الياسمين',
+    'متجر الروابي',
+    'أسواق الصفوة',
+    'تموينات النخيل',
+    'ميني ماركت الريان',
+    'أسواق البركة',
+    'تموينات الوفاء',
+    'سوبر ماركت الشروق',
+    'متجر المدينة',
+    'أسواق الوادي',
+    'بقالة الخير',
+    'تموينات الشرق',
+  ];
+  final rows = <VisitListRow>[
+    _routeRow(1, 1, names[0], 42.5, 'Pending'),
+    for (var index = 1; index <= 6; index++)
+      _routeRow(
+        index + 1,
+        index + 1,
+        names[index],
+        index.isEven ? 0 : 12.5,
+        'Completed',
+      ),
+    for (var index = 7; index < names.length; index++)
+      _routeRow(
+        index + 1,
+        index + 1,
+        names[index],
+        5.0 + index,
+        'Pending',
+        outcome: index == 9 ? 'Postponed' : '',
+      ),
+  ];
+  return VisitListReadModel(
+    orderedRows: List<VisitListRow>.unmodifiable(rows),
+    filter: VisitListFilter.all,
+  );
+}
+
+VisitListRow _routeRow(
+  int id,
+  int sequence,
+  String shopName,
+  double balance,
+  String status, {
+  String outcome = '',
+}) {
+  final presentation =
+      status.toLowerCase() == 'completed'
+          ? VisitExecutionPresentation.completed
+          : outcome.toLowerCase() == 'postponed'
+          ? VisitExecutionPresentation.postponed
+          : VisitExecutionPresentation.pending;
+  return VisitListRow(
+    visit: VisitModel(
+      id: id,
+      shopId: 500 + id,
+      shopName: shopName,
+      shopBalance: balance,
+      maxDebtLimit: 100,
+      status: status,
+      outcome: outcome,
+      sequence: sequence,
+      isEmergency: false,
+    ),
+    routeKind: VisitRouteKind.normal,
+    presentation: presentation,
+  );
 }
 
 DashboardLoaded _loaded() => DashboardLoaded(
