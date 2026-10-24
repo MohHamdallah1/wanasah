@@ -149,11 +149,11 @@ class _VisitListScreenState extends State<VisitListScreen>
               appBar: AppBar(
                 automaticallyImplyLeading: !widget.embedded,
                 primary: !widget.embedded,
-                backgroundColor:
-                    widget.embedded
-                        ? Theme.of(context).colorScheme.surface
-                        : Colors.grey.shade50,
+                toolbarHeight: widget.embedded ? 64 : 60,
+                titleSpacing: widget.embedded ? 12 : null,
+                backgroundColor: Theme.of(context).colorScheme.surface,
                 elevation: 0,
+                scrolledUnderElevation: 0,
                 surfaceTintColor: Colors.transparent,
                 title:
                     widget.embedded
@@ -166,15 +166,21 @@ class _VisitListScreenState extends State<VisitListScreen>
                             VisitListStringKey.title,
                             localeCode: locale,
                           ),
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w850,
+                          ),
                         ),
-                centerTitle: true,
+                centerTitle: !widget.embedded,
                 actions: [
-                  IconButton(
-                    onPressed: _forceSync,
-                    icon: const Icon(Icons.refresh),
-                    tooltip: visitListString(
-                      VisitListStringKey.refreshTooltip,
-                      localeCode: locale,
+                  Padding(
+                    padding: const EdgeInsetsDirectional.only(end: 6),
+                    child: IconButton.filledTonal(
+                      onPressed: _forceSync,
+                      icon: const Icon(Icons.refresh_rounded),
+                      tooltip: visitListString(
+                        VisitListStringKey.refreshTooltip,
+                        localeCode: locale,
+                      ),
                     ),
                   ),
                 ],
@@ -186,13 +192,22 @@ class _VisitListScreenState extends State<VisitListScreen>
                           emergencyCount: model?.emergencyCount ?? 0,
                         ),
               ),
-              floatingActionButton: FloatingActionButton(
+              floatingActionButtonLocation:
+                  FloatingActionButtonLocation.startFloat,
+              floatingActionButton: FloatingActionButton.extended(
+                key: const ValueKey('visit-add-shop'),
                 onPressed: _openAddShop,
                 tooltip: visitListString(
                   VisitListStringKey.addShopTooltip,
                   localeCode: locale,
                 ),
-                child: const Icon(Icons.add),
+                icon: const Icon(Icons.add_business_outlined),
+                label: Text(
+                  visitListString(
+                    VisitListStringKey.addShopTooltip,
+                    localeCode: locale,
+                  ),
+                ),
               ),
               body: _buildBody(state, activeRoute, locale),
             );
