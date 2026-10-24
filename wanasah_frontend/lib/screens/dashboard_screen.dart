@@ -356,10 +356,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   // --- دالة بناء المحتوى: Recovery يملك القراءة/المزامنة/العرض، والداشبورد يركّب المحتوى فقط. ---
-  Widget _buildDashboardContent(
-    BuildContext context,
-    DashboardLoaded state,
-  ) {
+  Widget _buildDashboardContent(BuildContext context, DashboardLoaded state) {
     return RecoveryDashboardScroll(
       key: const PageStorageKey('field-home'),
       controller: _recovery,
