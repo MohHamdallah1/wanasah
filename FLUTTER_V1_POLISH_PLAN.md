@@ -165,7 +165,7 @@ The first question it should answer is:
 - [x] Route & Visits presentation copy migrated from manual Arabic/English maps to the canonical ARB/gen_l10n source; the existing helper is now only a typed adapter.
 - [x] Visit-list operator feedback no longer appends request IDs to normal SnackBars; request identity remains diagnostic/support evidence.
 - [ ] Owner visual acceptance pending for the first Route & Visits polish candidate after on-device review.
-- [x] Real-device acceptance defect fixed 2026-10-24: a launched Route before Work Session start returns a dashboard `active_session` envelope with `session_id=null` so vehicle inventory can be shown. Flutter now interprets only the exact pre-session envelope (`start_time=null`, `is_authorized_to_sell=false`) as inactive; malformed null-id session evidence still fails closed.
+- [x] Real-device acceptance defect fixed 2026-10-24: a launched Route before Work Session start returns a dashboard `active_session` envelope with `session_id=null` so vehicle inventory can be shown. Flutter now interprets only the exact pre-session Route envelope (`session_id=null`, no start/break evidence, Route inventory present) as inactive; malformed null-id session evidence still fails closed, and Flutter does not use authorization flags to classify session state.
 
 
 ## 6. Custody — العهدة
