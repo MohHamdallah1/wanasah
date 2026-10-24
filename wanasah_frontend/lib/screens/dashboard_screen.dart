@@ -11,6 +11,7 @@ import '../features/recovery/presentation/recovery_dashboard_scroll.dart';
 import '../features/custody/presentation/pending_transfer_dialog.dart';
 import '../features/custody/domain/pending_transfer.dart';
 import '../features/custody/presentation/vehicle_inventory_section.dart';
+import '../app/localization/app_copy.dart';
 
 
 class DashboardScreen extends StatefulWidget {
@@ -154,7 +155,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
               if (state is DashboardError) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text(state.message),
+                    content: Text(
+                      AppCopy.of(context, AppCopyKey.dashboardGenericError),
+                    ),
                     backgroundColor: Colors.red,
                   ),
                 );
@@ -196,7 +199,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        'حدث خطأ: ${state.message}',
+                        AppCopy.of(context, AppCopyKey.dashboardGenericError),
                         style: const TextStyle(color: Colors.red),
                         textAlign: TextAlign.center,
                       ),
@@ -206,7 +209,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             () => context.read<DashboardBloc>().add(
                               FetchDashboardData(driverId: widget.driverId),
                             ),
-                        child: const Text('إعادة المحاولة'),
+                        child: Text(
+                          AppCopy.of(context, AppCopyKey.retry),
+                        ),
                       ),
                     ],
                   ),
@@ -220,6 +225,44 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
   
+  Widget _buildRefreshIssueBanner(DashboardRefreshIssue issue) {
+    final isConnectivity =
+        issue.kind == DashboardRefreshIssueKind.connectivity;
+    final messageKey =
+        isConnectivity
+            ? AppCopyKey.dashboardConnectivityCached
+            : AppCopyKey.dashboardServiceCached;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.orange.shade200),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            isConnectivity ? Icons.cloud_off_rounded : Icons.cloud_sync_rounded,
+            color: Colors.deepOrange,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              AppCopy.of(context, messageKey),
+              style: const TextStyle(
+                color: Colors.deepOrange,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // --- دالة بناء المحتوى: Recovery يملك القراءة/المزامنة/العرض، والداشبورد يركّب المحتوى فقط. ---
   Widget _buildDashboardContent(DashboardLoaded state) {
     return RecoveryDashboardScroll(
@@ -228,28 +271,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         context.read<DashboardBloc>().add(const LoadDashboardData());
       },
       children: [
-          // تنبيه بوضع الأوفلاين
-          if (state.isOffline)
-            Container(
-              padding: const EdgeInsets.all(8),
-              margin: const EdgeInsets.only(bottom: 10), // التعديل الصحيح
-              color: Colors.orange.shade100,
-              child: const Row(
-                children: [
-                  Icon(Icons.wifi_off, color: Colors.orange),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'أنت في وضع عدم الاتصال. يتم عرض البيانات المحلية.',
-                      style: TextStyle(
-                        color: Colors.deepOrange,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          if (state.refreshIssue != null)
+            _buildRefreshIssueBanner(state.refreshIssue!),
 
           Text(
             'أهلاً بك، ${state.driverName}!',
