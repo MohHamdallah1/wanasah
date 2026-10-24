@@ -708,6 +708,137 @@ describe("Checkpoint 1 inbound UI", () => {
     expect(mocks.post).not.toHaveBeenCalled();
   });
 
+
+  it("waits for receipt preparation and completes the same submit click", async () => {
+    const variant = makeVariant(41, "Slow preparation product", "NONE", "NONE");
+    const keys = inboundStorageKeys(1, 2, 3);
+    localStorage.setItem(keys.reference, "INV-SLOW-PREP");
+    localStorage.setItem(keys.drafts, JSON.stringify({
+      "41": [{
+        row_id: "slow-prep-row",
+        quantity: "2",
+        uom_id: "1",
+        unit_cost: "3.5",
+        batch_number: "",
+        production_date: "",
+        expiry_date: "",
+      }],
+    }));
+
+    const baseFetch = makeFetch([variant]);
+    let resolveOptions: ((value: unknown) => void) | undefined;
+    const fetch = vi.fn((url: string, opts?: RequestInit) => {
+      if (url === "/warehouse/inbound/options") {
+        return new Promise<unknown>((resolve) => {
+          resolveOptions = resolve;
+        });
+      }
+      return baseFetch(url, opts);
+    });
+
+    render(
+      <Tab2Inbound
+        companyId={1}
+        actorId={2}
+        locationId={3}
+        isAuditLocked={false}
+        authenticatedFetch={fetch}
+        onSuccess={vi.fn()}
+      />,
+    );
+
+    await screen.findByText("Slow preparation product");
+    await waitFor(() =>
+      expect(fetch.mock.calls.filter(([url]) => url === "/warehouse/inbound/options")).toHaveLength(1)
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "choose-supplier" }));
+    const submit = screen.getByRole("button", { name: "Post receipt" });
+    fireEvent.click(submit);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Preparing receipt..." })).toBeDisabled()
+    );
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(fetch.mock.calls.filter(([url]) => url === "/warehouse/inbound/options")).toHaveLength(1);
+
+    resolveOptions?.({
+      currency_code: "JOD",
+      as_of_date: "2026-10-24",
+      items: [{
+        product_variant_id: 41,
+        base_uom_id: 1,
+        purchase_cost_reference: null,
+        uoms: [{
+          id: 1,
+          code: "EACH",
+          name: "Each",
+          factor_to_base: "1",
+        }],
+      }],
+    });
+
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
+    expect(mocks.post.mock.calls[0][0].items).toMatchObject([
+      {
+        product_variant_id: 41,
+        quantity: "2",
+        uom_id: 1,
+        unit_cost: "3.5",
+      },
+    ]);
+  });
+
+  it("retries receipt preparation on submit after a passive preload failure", async () => {
+    const variant = makeVariant(42, "Retry preparation product", "NONE", "NONE");
+    const keys = inboundStorageKeys(1, 2, 3);
+    localStorage.setItem(keys.reference, "INV-RETRY-PREP");
+    localStorage.setItem(keys.drafts, JSON.stringify({
+      "42": [{
+        row_id: "retry-prep-row",
+        quantity: "1",
+        uom_id: "1",
+        unit_cost: "2",
+        batch_number: "",
+        production_date: "",
+        expiry_date: "",
+      }],
+    }));
+
+    const baseFetch = makeFetch([variant]);
+    let optionCalls = 0;
+    const fetch = vi.fn(async (url: string, opts?: RequestInit): Promise<unknown> => {
+      if (url === "/warehouse/inbound/options") {
+        optionCalls += 1;
+        if (optionCalls === 1) {
+          throw new Error("temporary preload failure");
+        }
+      }
+      return baseFetch(url, opts);
+    });
+
+    render(
+      <Tab2Inbound
+        companyId={1}
+        actorId={2}
+        locationId={3}
+        isAuditLocked={false}
+        authenticatedFetch={fetch}
+        onSuccess={vi.fn()}
+      />,
+    );
+
+    await screen.findByText("Retry preparation product");
+    await waitFor(() => expect(optionCalls).toBe(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "choose-supplier" }));
+    fireEvent.click(screen.getByRole("button", { name: "Post receipt" }));
+
+    await waitFor(() => expect(optionCalls).toBe(2));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("Purchase units are not ready yet.")).toBeNull();
+  });
+
   it("does not duplicate a receipt while the first post is in flight", async () => {
     const keys = inboundStorageKeys(1, 2, 3);
     localStorage.setItem(
