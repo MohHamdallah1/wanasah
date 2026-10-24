@@ -1265,6 +1265,31 @@ Design principles:
 - [ ] Design tokens live centrally; feature screens consume them.
 - [ ] No full visual rewrite until P0 contract/offline rules are frozen.
 
+### 11.1 Final V1 Flutter polish + structural cleanup execution contract — 2026-10-24
+
+**Owner-approved execution order:** the next Flutter wave is a **polish + targeted structural cleanup** wave, not a rewrite and not a standalone repository-wide refactor campaign.
+
+- [ ] Polish the Flutter app **screen by screen** until the V1 field experience is clear, coherent and acceptable for real use. Keep the work bounded to V1 operator needs; no broad product redesign or scope expansion.
+- [ ] While each screen/flow is already being polished, inspect its code ownership and complete only the structural split that materially improves single responsibility, reviewability or safe future growth. Do **not** postpone obvious growth hazards until V2 when the same area is already being changed.
+- [ ] **File count is not a quality metric.** Do not create files merely to reduce line counts. Keep one cohesive file when it has one clear responsibility; extract only a genuinely independent responsibility, reusable boundary, transport/persistence concern, substantial presentation component, or unit that is expected to grow independently.
+- [ ] Establish new/modified UI on the existing feature/application/data/presentation boundaries where they fit. Do not add new business authority to widgets/screens, do not create a second sync/replay engine, and do not duplicate Backend rules in Flutter.
+- [ ] Preserve all already-accepted Backend/Flutter contracts and proven business behavior while polishing: canonical identity/capability authorization, Visit/offline durable identity and replay, Session/Custody, transfers, returns, pricing/money, reconciliation and Backend financial/inventory authority are **frozen behavior**, not redesign targets.
+- [ ] Large residual files are reviewed **in context of the next owned polish slice**. Split them cautiously when the next change would otherwise add another responsibility or make the file harder to review; do not perform unrelated decomposition merely to make the tree look cleaner.
+- [ ] Small files are held to the same rule: their responsibility and ownership must be clear before adding new UI behavior. A small file with mixed responsibilities is not considered well-founded merely because it is short.
+- [ ] Reuse central app/theme/design tokens and feature boundaries as the polished UI grows so new screens do not recreate the previous ad-hoc styling and god-file pattern.
+- [ ] Dashboard V1 continues in its separate owned track. Final cross-surface field acceptance waits until the launch-critical Dashboard flows needed to verify Flutter actions are functionally aligned with the current Backend; Flutter polish must not overwrite or take ownership of that parallel Dashboard work.
+- [ ] After Flutter polish/targeted organization is complete and the required Dashboard verification surfaces are ready, run the **full physical Android + current Backend + Dashboard** acceptance once as the release gate: login, session, visits/commercial actions, returns, offline/lost-response/restart/replay, transfers, revoke/grant negatives, reconciliation and final stock/money/invoice parity.
+- [ ] Only defects demonstrated by that acceptance reopen production logic. Do not invent additional refactors merely because the field-acceptance phase has started.
+- [ ] Only after the complete live acceptance evidence is reviewed may Phase 4 overall, P1–P9 final release sign-offs and the corresponding final field-acceptance checkboxes become `[x]`.
+
+**Practical sequence from this checkpoint:**
+
+1. Flutter screen-by-screen polish.
+2. In the same owned screen/flow, perform the minimum useful responsibility split/foundation cleanup needed for safe growth.
+3. Keep already-proven business contracts unchanged and use focused regression tests after each slice.
+4. Let the separate Dashboard track complete the launch-critical Backend parity needed for cross-surface verification.
+5. Run the comprehensive real-device/current-Backend/Dashboard acceptance last, then fix only proven blockers and sign off V1.
+
 ## 12. Tests / acceptance gates
 
 Current Flutter test coverage is minimal.
