@@ -253,6 +253,52 @@ void main() {
       expect(snapshot.isOnBreak, isNull);
     });
 
+    test(
+      'dashboard route-only envelope stays inactive before Work Session starts',
+      () {
+        final snapshot = WorkSessionSnapshot.fromDashboardResponse(
+          <String, dynamic>{
+            'active_session': <String, dynamic>{
+              'session_id': null,
+              'start_time': null,
+              'is_authorized_to_sell': false,
+              'inventory': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'product_id': 10,
+                  'product_name': 'Synthetic product',
+                  'remaining_cartons': 3,
+                  'remaining_packs': 2,
+                },
+              ],
+            },
+          },
+        );
+
+        expect(snapshot.isActive, isFalse);
+        expect(snapshot.sessionId, isNull);
+        expect(snapshot.startTime, isNull);
+        expect(snapshot.isOnBreak, isFalse);
+      },
+    );
+
+    test(
+      'dashboard null session id still fails closed when active evidence exists',
+      () {
+        expect(
+          () => WorkSessionSnapshot.fromDashboardResponse(
+            <String, dynamic>{
+              'active_session': <String, dynamic>{
+                'session_id': null,
+                'start_time': '2026-10-24T18:00:00+00:00',
+                'is_authorized_to_sell': false,
+              },
+            },
+          ),
+          throwsFormatException,
+        );
+      },
+    );
+
     test('dashboard runtime parser keeps break state server-authoritative', () {
       final snapshot = WorkSessionSnapshot.fromDashboardResponse(
         <String, dynamic>{
