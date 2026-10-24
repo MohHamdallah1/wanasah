@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -210,7 +212,7 @@ class _RouteProgress extends StatelessWidget {
                 ),
               ),
               Directionality(
-                textDirection: TextDirection.ltr,
+                textDirection: ui.TextDirection.ltr,
                 child: Text.rich(
                   TextSpan(
                     children: [
