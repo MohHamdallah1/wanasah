@@ -129,27 +129,21 @@ class DashboardErrorBoundary extends Component<{ children: React.ReactNode }, Er
           <div className="text-center p-8 max-w-md">
             <div className="text-6xl mb-4">⚠️</div>
             <h1 className="text-2xl font-bold text-white mb-4">حدث خطأ غير متوقع</h1>
-            <p className="text-slate-400 mb-6">نعتذر عن هذا الخلل. يرجى تحديث الصفحة أو التواصل مع الدعم الفني.</p>
-            <button
-              onClick={() => { 
-                // +++ الكي الجراحي: إبلاغ السيرفر بحرق التوكن (Blacklist) حتى لو انهارت الشاشة +++
-                const API_URL = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
-                const token = localStorage.getItem('admin_token');
-                const refresh = localStorage.getItem('refresh_token');
-                if (API_URL && token) {
-                  fetch(`${API_URL}/logout`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${token}`, 'X-Refresh-Token': refresh || '' }
-                  }).catch(() => {}); // Fire and forget
-                }
-                localStorage.clear(); 
-                sessionStorage.clear();
-                window.location.href = '/login'; 
-              }}
-              className="bg-cyan-600 hover:bg-cyan-500 text-white px-6 py-3 rounded-xl font-bold transition-all"
-            >
-              العودة لصفحة الدخول
-            </button>
+            <p className="text-slate-400 mb-6">نعتذر عن هذا الخلل. أعد تحميل الصفحة أو ارجع للرئيسية؛ لن تُحذف جلستك أو مسوداتك بسبب خطأ في واجهة واحدة.</p>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <button
+                onClick={() => window.location.reload()}
+                className="bg-cyan-600 hover:bg-cyan-500 text-white px-6 py-3 rounded-xl font-bold transition-all"
+              >
+                إعادة تحميل الصفحة
+              </button>
+              <button
+                onClick={() => { window.location.href = '/'; }}
+                className="bg-slate-700 hover:bg-slate-600 text-white px-6 py-3 rounded-xl font-bold transition-all"
+              >
+                العودة للرئيسية
+              </button>
+            </div>
             <p className="text-slate-600 text-xs mt-4 font-mono" dir="ltr">
               {this.state.error?.message || 'Unknown error'}
             </p>
