@@ -1,109 +1,56 @@
-# WANASAH Flutter V1 — Daylight Signal Design Handoff
+# WANASAH Flutter V1 — UI / UX Handoff
 
-Figma source of truth:
+## Current status
+
+The earlier Figma A/B/C exploration and temporary **Daylight Signal** direction were rejected by the owner on 2026-10-24. They are not production references.
+
+Figma is optional and must not be a V1 dependency. The project continues from repository-controlled functional mapping plus reviewed visual references and Flutter implementation.
+
+## Approved polish brief
+
+The current target is a deliberate blend of:
+
+- **Clean Modern UI** — contemporary, restrained, coherent and visually distinctive;
+- **High Usability** — fast field operation, obvious next action, one-handed use where practical, clear Arabic hierarchy, outdoor readability, and strong offline/service-state communication.
+
+The goal is not “more cards” or a generic AI dashboard. Visual polish must follow actual representative work.
+
+## Mandatory functional source
+
+Before changing any screen, read:
+
+- `design/wanasah_v1/FIELD_FUNCTION_SURFACE_MAP.md`
+- `FLUTTER_V1_END_TO_END_CLOSURE_PLAN.md`
+- `ARCHITECTURE.md` §12
+- `.rules`
+- `AGENTS.md`
+
+The FIELD function map defines what each Flutter screen/flow must preserve. A design that looks better but hides or removes an accepted V1 action is not acceptable.
+
+## Screen-by-screen workflow
+
+1. Read the exact current screen functions and states from the FIELD function map.
+2. Inspect the current Flutter ownership boundaries for that screen.
+3. Produce/review a visual direction using any reliable tool or generated reference; no external design service is mandatory.
+4. Owner reviews material visual-direction changes before production implementation.
+5. Implement the approved slice in Flutter on a clean branch.
+6. While touching that slice, perform only the useful single-responsibility cleanup needed for safe growth.
+7. Run focused tests plus the required Flutter gates.
+8. Review/merge, then fast-forward the owner checkout to `main`.
+
+## Non-negotiables
+
+- Backend business authority remains Backend authority.
+- Persisted FIELD capabilities/scopes remain authorization authority.
+- Existing Visit/offline durable command identity/replay remains intact.
+- Session, Custody, transfers, returns, pricing/money and reconciliation contracts are not redesigned by UI work.
+- Connectivity, service failure and pending synchronization are distinct states.
+- File count is not a quality metric; split only real responsibilities.
+- The whole Backend is **not** a Flutter surface. Only V1 FIELD functions intended for representatives belong in this app.
+
+## Historical Figma reference
+
+A prior exploration file exists at:
 https://www.figma.com/design/kzlrGGIflbZSeCWRSGXOdd
 
-## Purpose
-
-This folder is the repository-side mirror of the approved WANASAH Flutter V1 visual direction.
-The native Figma file remains cloud-native and is not replaced by a checked-in `.fig` snapshot.
-Flutter implementation must use this handoff plus the live Figma reference; business contracts remain frozen by the existing project architecture and V1 plans.
-
-## Visual direction
-
-**Daylight Signal** combines:
-- high daylight/outdoor readability;
-- bold operational signaling;
-- Arabic-first composition;
-- task-first hierarchy;
-- minimal decorative dashboard-card behavior;
-- preserved cached/local working state during service/connectivity degradation.
-
-Primary typeface: **Alexandria**.
-
-## Foundation
-
-See `daylight_signal_tokens.json`.
-
-### Core color roles
-
-- Canvas: warm off-white, not pure white.
-- Surface: slightly warmer elevated surface.
-- Ink: near-black operational surface.
-- Amber: primary attention / start-work / pending state.
-- Lime: positive actionable highlight.
-- Signal blue: active operational state and current-route emphasis.
-- Success green: connected/synchronized evidence.
-- Danger red: destructive action / service failure evidence.
-
-## Field Home states
-
-The live Figma page **02 — Field Home** currently contains these reference states:
-
-1. **Field Home / Ready**
-   - no active Work Session;
-   - start-work command;
-   - sync/connection evidence;
-   - representative, region and date context;
-   - route progress;
-   - cash custody;
-   - vehicle inventory;
-   - visits entry;
-   - quiet Recovery state.
-
-2. **Field Home / Active**
-   - active Work Session;
-   - started-at evidence;
-   - explicit **Start break** and **End work** actions;
-   - route/custody/visits remain visible.
-
-3. **Field Home / Break**
-   - active Work Session in break state;
-   - explicit **End break** and **End work** actions;
-   - route state remains preserved.
-
-4. **Field Home / Connectivity Cached**
-   - cached/local screen remains usable;
-   - warning says system reachability is temporarily unavailable;
-   - must not mislabel every service problem as "no internet".
-
-5. **Field Home / Service Cached**
-   - cached/local screen remains usable;
-   - service failure is visually distinct from device/network connectivity failure;
-   - raw HTTP/internal server details are not shown to the representative.
-
-6. **Field Home / Recovery Pending**
-   - pending synchronization evidence is explicit and non-destructive;
-   - local data is described as preserved;
-   - Recovery detail/sync action remains discoverable.
-
-## Pending design work
-
-- Pending transfer acceptance/rejection dialog in the same visual language.
-- Work-session action-issue state.
-- Additional blocked Recovery evidence state when durable evidence requires operator attention.
-- Visit list.
-- Visit detail / operation selection.
-- Sale / collection / sample / return flows.
-- Shop creation.
-- Custody / inventory sections.
-- Login and remaining support/error surfaces.
-
-## Review workflow
-
-For each UI slice:
-
-1. Design/reference state is created or updated in Figma.
-2. User reviews the design before production implementation when visual direction changes materially.
-3. Approved slice is implemented in Flutter on a clean branch.
-4. Existing business authority remains unchanged.
-5. Focused tests + Flutter gates run.
-6. PR is reviewed/merged.
-7. Local development checkout fast-forwards to `main`.
-
-Minor spacing/copy consistency fixes that do not change the accepted visual direction may be applied during implementation and then reflected back into this handoff.
-
-## Important
-
-A checked-in Figma export would be a static snapshot, not a live two-way synchronized design source.
-Do not treat a `.fig` export as authoritative over the live Figma file and this repository handoff.
+It may be used only as historical exploration. It is **not** the approved V1 visual source and must not block work if unavailable.
