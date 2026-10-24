@@ -19,26 +19,51 @@ class VisitEmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final locale = Localizations.localeOf(context).toLanguageTag();
+    final colors = Theme.of(context).colorScheme;
+    final emergency = routeKind == VisitRouteKind.emergency;
+
     return RefreshIndicator(
       onRefresh: onRefresh,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsetsDirectional.fromSTEB(24, 72, 24, 120),
         children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 50),
-            child: Center(
-              child: Text(
-                visitListString(
-                  _messageKey(),
-                  localeCode: locale,
+          Center(
+            child: Column(
+              children: [
+                Container(
+                  width: 54,
+                  height: 54,
+                  decoration: BoxDecoration(
+                    color:
+                        emergency
+                            ? colors.errorContainer.withValues(alpha: 0.72)
+                            : colors.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Icon(
+                    emergency
+                        ? Icons.priority_high_rounded
+                        : Icons.route_outlined,
+                    color:
+                        emergency
+                            ? colors.onErrorContainer
+                            : colors.onSurfaceVariant,
+                  ),
                 ),
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey,
-                  fontWeight: FontWeight.bold,
+                const SizedBox(height: 14),
+                Text(
+                  visitListString(
+                    _messageKey(),
+                    localeCode: locale,
+                  ),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: colors.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
         ],
