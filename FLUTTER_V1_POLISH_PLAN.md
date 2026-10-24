@@ -55,6 +55,7 @@ The current production Flutter app is still Arabic-only at runtime, even though 
 - [x] Add Arabic RTL + English LTR widget coverage for the shared shell before the next major polish slice.
 - [x] Implementation proof: `gen_l10n` regenerates without localization drift; `flutter analyze` passes; focused Shell/Recovery/observability/bootstrap/composition tests pass **53/53** on the localization branch.
 - [ ] Continue migration screen-by-screen as each surface is polished; no newly polished screen may introduce new hard-coded operator copy.
+- [x] Home + Work Session presentation copy migrated into canonical ARB/gen_l10n resources as part of the Home polish slice.
 
 ## 3. App shell and primary navigation — APPROVED
 
@@ -126,6 +127,8 @@ The first question it should answer is:
   - unresolved sync/recovery evidence.
   This is not Backoffice settlement authority.
 - [ ] Redesign the current Home around task priority and fast scanning.
+- [ ] Owner visual acceptance pending for the first production Home polish candidate: day identity, Work Session command surface, route progress and financial pulse. Keep this open until reviewed on the owner's device.
+
 - [ ] Ensure the current financial/Visit/custody data remains semantically identical after the visual restructure.
 
 ## 5. Route & Visits — خط السير
