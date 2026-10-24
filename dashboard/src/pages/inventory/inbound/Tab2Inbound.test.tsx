@@ -671,6 +671,7 @@ describe("Checkpoint 1 inbound UI", () => {
     const quantity = within(row).getByLabelText("Quantity") as HTMLElement;
     const unit = within(row).getByLabelText("Purchase unit") as HTMLElement;
     const cost = within(row).getByLabelText("Actual cost") as HTMLElement;
+    const nextQuantity = within(nextRow).getByLabelText("Quantity") as HTMLElement;
     const nextCost = within(nextRow).getByLabelText("Actual cost") as HTMLElement;
 
     fireEvent.change(quantity, { target: { value: "1" } });
@@ -678,33 +679,35 @@ describe("Checkpoint 1 inbound UI", () => {
     const production = within(row).getByLabelText("Production date") as HTMLElement;
     const expiry = within(row).getByLabelText("Expiry date") as HTMLElement;
 
-    cost.focus();
-    fireEvent.keyDown(cost, { key: "ArrowRight" });
-    expect(document.activeElement).toBe(quantity);
-    fireEvent.keyDown(quantity, { key: "ArrowLeft" });
+    quantity.focus();
+    fireEvent.keyDown(quantity, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(unit);
+    fireEvent.keyDown(unit, { key: "ArrowRight" });
     expect(document.activeElement).toBe(cost);
+    fireEvent.keyDown(cost, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(unit);
     fireEvent.keyDown(cost, { key: "ArrowDown" });
     expect(document.activeElement).toBe(nextCost);
     fireEvent.keyDown(nextCost, { key: "ArrowUp" });
     expect(document.activeElement).toBe(cost);
 
-    fireEvent.keyDown(cost, { key: "Enter" });
-    expect(document.activeElement).toBe(quantity);
-
     fireEvent.keyDown(quantity, { key: "Enter" });
     expect(document.activeElement).toBe(unit);
 
     fireEvent.keyDown(unit, { key: "Enter" });
-    expect(document.activeElement).toBe(production);
+    expect(document.activeElement).toBe(cost);
 
-    fireEvent.keyDown(production, { key: "Enter" });
-    expect(document.activeElement).toBe(expiry);
-
-    fireEvent.keyDown(expiry, { key: "Enter" });
+    fireEvent.keyDown(cost, { key: "Enter" });
     expect(document.activeElement).toBe(lot);
 
     fireEvent.keyDown(lot, { key: "Enter" });
-    expect(document.activeElement).toBe(nextCost);
+    expect(document.activeElement).toBe(expiry);
+
+    fireEvent.keyDown(expiry, { key: "Enter" });
+    expect(document.activeElement).toBe(production);
+
+    fireEvent.keyDown(production, { key: "Enter" });
+    expect(document.activeElement).toBe(nextQuantity);
     expect(mocks.post).not.toHaveBeenCalled();
   });
 
@@ -907,11 +910,11 @@ describe("Checkpoint 1 inbound UI", () => {
     expect(headers).toEqual([
       "#",
       "Product",
-      "Purchase cost*",
       "Quantity & purchase unit*",
-      "Production date",
-      "Expiry date",
+      "Purchase cost*",
       "Lot / batch number",
+      "Expiry date",
+      "Production date",
     ]);
     expect(localeRow.querySelectorAll(".inventory-inbound-required-marker")).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Next page" })).toBeNull();
@@ -936,9 +939,12 @@ describe("Checkpoint 1 inbound UI", () => {
     await waitFor(() => expect(root.getAttribute("dir")).toBe("rtl"));
     const rtlCost = within(localeRow).getByLabelText(i18n.t("inventoryInbound.unitCostPlaceholder"));
     const rtlQuantity = within(localeRow).getByLabelText(i18n.t("inventoryInbound.quantity"));
-    (rtlCost as HTMLElement).focus();
-    fireEvent.keyDown(rtlCost, { key: "ArrowLeft" });
-    expect(document.activeElement).toBe(rtlQuantity);
+    const rtlUnit = within(localeRow).getByLabelText(i18n.t("inventoryInbound.purchaseUnit"));
+    (rtlQuantity as HTMLElement).focus();
+    fireEvent.keyDown(rtlQuantity, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(rtlUnit);
+    fireEvent.keyDown(rtlUnit, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(rtlCost);
     expect(
       screen.getByRole("columnheader", {
         name: i18n.t("inventoryInbound.batchNumber"),
