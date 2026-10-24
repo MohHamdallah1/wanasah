@@ -85,7 +85,12 @@ void main() {
       expect(find.byType(WorkSessionControls), findsOneWidget);
       expect(find.byKey(const ValueKey('work-session-start')), findsOneWidget);
       expect(find.byType(VehicleInventorySection), findsNothing);
+      expect(find.textContaining('أحمد'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('shell-account')));
+      await tester.pumpAndSettle();
       expect(find.textContaining('أحمد'), findsOneWidget);
+      await tester.tapAt(const Offset(10, 200));
+      await tester.pumpAndSettle();
       expect(find.text('جولة اليوم'), findsOneWidget);
       expect(find.text('تحصيل ذمم'), findsOneWidget);
       expect(find.text('إجمالي الكاش المستلم'), findsOneWidget);
