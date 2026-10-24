@@ -257,11 +257,41 @@ Future<void> _capture(WidgetTester tester, GlobalKey key, String name) async {
 
 
 VisitListReadModel _routeModel() {
+  const names = <String>[
+    'بقالة الندى',
+    'سوبر ماركت الأمل',
+    'تموينات الياسمين',
+    'متجر الروابي',
+    'أسواق الصفوة',
+    'تموينات النخيل',
+    'ميني ماركت الريان',
+    'أسواق البركة',
+    'تموينات الوفاء',
+    'سوبر ماركت الشروق',
+    'متجر المدينة',
+    'أسواق الوادي',
+    'بقالة الخير',
+    'تموينات الشرق',
+  ];
   final rows = <VisitListRow>[
-    _routeRow(1, 1, 'بقالة الندى', 42.5, 'Pending'),
-    _routeRow(2, 2, 'سوبر ماركت الأمل', 0, 'Completed'),
-    _routeRow(3, 3, 'تموينات الياسمين', 17.75, 'Pending'),
-    _routeRow(4, 4, 'متجر الروابي', 8, 'Pending', outcome: 'Postponed'),
+    _routeRow(1, 1, names[0], 42.5, 'Pending'),
+    for (var index = 1; index <= 6; index++)
+      _routeRow(
+        index + 1,
+        index + 1,
+        names[index],
+        index.isEven ? 0 : 12.5,
+        'Completed',
+      ),
+    for (var index = 7; index < names.length; index++)
+      _routeRow(
+        index + 1,
+        index + 1,
+        names[index],
+        5.0 + index,
+        'Pending',
+        outcome: index == 9 ? 'Postponed' : '',
+      ),
   ];
   return VisitListReadModel(
     orderedRows: List<VisitListRow>.unmodifiable(rows),
