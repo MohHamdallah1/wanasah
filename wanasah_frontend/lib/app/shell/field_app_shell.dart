@@ -22,7 +22,7 @@ class FieldAppShell extends StatefulWidget {
     super.key,
   });
 
-  final Widget Function(BuildContext, VoidCallback, VoidCallback) homeBuilder;
+  final WidgetBuilder homeBuilder;
   final WidgetBuilder routeBuilder;
   final Widget custody;
   final Widget statusUtility;
@@ -139,11 +139,7 @@ class _FieldAppShellState extends State<FieldAppShell> {
                         children: [
                           TickerMode(
                             enabled: _selected == FieldDestination.home,
-                            child: widget.homeBuilder(
-                              context,
-                              () => _select(FieldDestination.route),
-                              () => _select(FieldDestination.custody),
-                            ),
+                            child: widget.homeBuilder(context),
                           ),
                           TickerMode(
                             enabled: _selected == FieldDestination.route,
