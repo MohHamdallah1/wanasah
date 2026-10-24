@@ -1,19 +1,15 @@
 {
-  "name": "WANASAH V1 — Daylight Signal",
-  "source": "Figma WANASAH Flutter V1 — Visual System & Field Home",
+  "name": "WANASAH V1 — Daylight Signal historical exploration",
+  "status": "REJECTED_VISUAL_EXPLORATION_ONLY",
+  "approvedForFlutterImplementation": false,
+  "supersededOn": "2026-10-24",
+  "supersededBy": "Clean Modern UI + High Usability screen-by-screen polish brief",
   "figmaFile": "https://www.figma.com/design/kzlrGGIflbZSeCWRSGXOdd",
-  "typography": {
-    "family": "Alexandria",
-    "styles": {
-      "display": {"size": 34, "weight": "Bold", "lineHeightPercent": 125},
-      "title": {"size": 22, "weight": "Bold", "lineHeightPercent": 130},
-      "heading": {"size": 17, "weight": "SemiBold", "lineHeightPercent": 135},
-      "body": {"size": 14, "weight": "Regular", "lineHeightPercent": 150},
-      "label": {"size": 11, "weight": "SemiBold", "lineHeightPercent": 140},
-      "micro": {"size": 9, "weight": "Regular", "lineHeightPercent": 140}
-    }
+  "warning": "Do not use these values as production design tokens unless individually re-approved in a later screen review.",
+  "historicalTypography": {
+    "family": "Alexandria"
   },
-  "colors": {
+  "historicalColors": {
     "bg.canvas": "#F4F0E8",
     "bg.surface": "#FFFDF8",
     "bg.ink": "#111318",
@@ -26,27 +22,5 @@
     "status.success": "#11B981",
     "status.danger": "#E33A2C",
     "border.subtle": "#D7D1C6"
-  },
-  "spacing": {
-    "xs": 4,
-    "sm": 8,
-    "md": 12,
-    "lg": 16,
-    "xl": 20,
-    "xxl": 24,
-    "xxxl": 32
-  },
-  "radius": {
-    "sm": 8,
-    "md": 12,
-    "lg": 18,
-    "xl": 24,
-    "full": 999
-  },
-  "mode": "Daylight",
-  "notes": [
-    "The current Figma Starter-plan variable collection is single-mode.",
-    "Dark mode is not a V1 blocker.",
-    "Flutter business contracts must not be inferred from visual references."
-  ]
+  }
 }
