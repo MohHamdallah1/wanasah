@@ -24,6 +24,23 @@ class DashboardLoading extends DashboardState {
   const DashboardLoading();
 }
 
+enum DashboardRefreshIssueKind { connectivity, service }
+
+class DashboardRefreshIssue extends Equatable {
+  final DashboardRefreshIssueKind kind;
+  final int? statusCode;
+  final String? requestId;
+
+  const DashboardRefreshIssue({
+    required this.kind,
+    this.statusCode,
+    this.requestId,
+  });
+
+  @override
+  List<Object?> get props => [kind, statusCode, requestId];
+}
+
 class DashboardLoaded extends DashboardState {
   final List<VisitModel> visits;
   final List<ProductModel> products; // هذه تغنيك عن _inventoryList البدائية
@@ -48,6 +65,7 @@ class DashboardLoaded extends DashboardState {
   final bool isOnBreak;
 
   final bool isOffline;
+  final DashboardRefreshIssue? refreshIssue;
   // +++ جديد: للتعامل مع المصافحة المعلقة (Transfers Handshake) +++
   final PendingTransferBatch? pendingTransfer;
   final List<NonSellableCustodyItem> nonSellableCustody;
@@ -75,6 +93,7 @@ class DashboardLoaded extends DashboardState {
     this.activeSessionStartTime,
     this.isOnBreak = false,
     this.isOffline = false,
+    this.refreshIssue,
     this.pendingTransfer,
     this.nonSellableCustody = const <NonSellableCustodyItem>[],
     this.pendingReturnCustody = const <PendingReturnCustodyItem>[],
@@ -102,6 +121,7 @@ class DashboardLoaded extends DashboardState {
     activeSessionStartTime,
     isOnBreak,
     isOffline,
+    refreshIssue,
     pendingTransfer,
     nonSellableCustody,
     pendingReturnCustody,
@@ -129,6 +149,7 @@ class DashboardLoaded extends DashboardState {
     String? activeSessionStartTime,
     bool? isOnBreak,
     bool? isOffline,
+    DashboardRefreshIssue? refreshIssue,
     PendingTransferBatch? pendingTransfer,
     List<NonSellableCustodyItem>? nonSellableCustody,
     List<PendingReturnCustodyItem>? pendingReturnCustody,
@@ -136,6 +157,7 @@ class DashboardLoaded extends DashboardState {
     WorkSessionActionIssue? workSessionIssue,
     bool clearActionMessage = false, // لتفريغ الرسالة بعد عرضها
     bool clearWorkSessionIssue = false,
+    bool clearRefreshIssue = false,
     bool clearPendingTransfer =
         false, // خدعة ذكية لتفريغ الحوالة بعد الرد عليها
   }) {
@@ -159,6 +181,8 @@ class DashboardLoaded extends DashboardState {
           activeSessionStartTime ?? this.activeSessionStartTime,
       isOnBreak: isOnBreak ?? this.isOnBreak,
       isOffline: isOffline ?? this.isOffline,
+      refreshIssue:
+          clearRefreshIssue ? null : (refreshIssue ?? this.refreshIssue),
       // إذا طلبنا تفريغها نضع null، وإلا نأخذ الجديدة أو نحتفظ بالقديمة
       pendingTransfer:
           clearPendingTransfer
