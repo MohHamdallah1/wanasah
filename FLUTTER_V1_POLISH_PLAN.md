@@ -53,7 +53,7 @@ The current production Flutter app is still Arabic-only at runtime, even though 
 - [x] Create the canonical localization resource structure and app-level locale wiring.
 - [x] Migrate the shared shell/Home/Recovery copy introduced by the shell slice into that canonical system.
 - [x] Add Arabic RTL + English LTR widget coverage for the shared shell before the next major polish slice.
-- [x] Implementation proof: `gen_l10n` regenerates without localization drift; `flutter analyze` passes; focused Shell/Recovery/observability tests pass **33/33** on the localization branch.
+- [x] Implementation proof: `gen_l10n` regenerates without localization drift; `flutter analyze` passes; focused Shell/Recovery/observability/bootstrap/composition tests pass **53/53** on the localization branch.
 - [ ] Continue migration screen-by-screen as each surface is polished; no newly polished screen may introduce new hard-coded operator copy.
 
 ## 3. App shell and primary navigation — APPROVED
