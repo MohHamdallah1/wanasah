@@ -10,6 +10,7 @@ import 'package:wanasah_frontend/features/recovery/data/recovery_data_source.dar
 import 'package:wanasah_frontend/features/recovery/data/recovery_sync_executor.dart';
 import 'package:wanasah_frontend/features/recovery/presentation/recovery_dashboard_scroll.dart';
 import 'package:wanasah_frontend/features/recovery/presentation/recovery_status_utility.dart';
+import 'package:wanasah_frontend/features/recovery/presentation/recovery_sync_feedback.dart';
 import 'package:wanasah_frontend/features/recovery/presentation/recovery_strings.dart';
 import 'package:wanasah_frontend/features/recovery/presentation/recovery_view_controller.dart';
 
@@ -158,6 +159,96 @@ void main() {
       view.dispose();
       old.complete([]);
       await expectLater(read, completes);
+    },
+  );
+
+  testWidgets(
+    'empty manual refresh stays silent while preserving canonical sync',
+    (tester) async {
+      final source = _Source();
+      final executor = _Executor();
+      final view = controller(source, executor);
+      addTearDown(view.dispose);
+      await view.reload();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('ar'),
+          supportedLocales: const [Locale('ar')],
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: Builder(
+            builder:
+                (context) => ElevatedButton(
+                  onPressed:
+                      () => refreshRecoveryWithFeedback(
+                        context,
+                        view,
+                        () {},
+                      ),
+                  child: const Text('refresh'),
+                ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('refresh'));
+      await tester.pumpAndSettle();
+
+      expect(executor.calls, 1);
+      expect(find.text('جاري مزامنة العمليات المحفوظة…'), findsNothing);
+      expect(find.text('تمت المزامنة بالكامل.'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'pending manual refresh shows sync progress and completion feedback',
+    (tester) async {
+      final source = _Source()..rows = [_row('pending')];
+      final completion = Completer<bool>();
+      final executor = _Executor()..run = () => completion.future;
+      final view = controller(source, executor);
+      addTearDown(view.dispose);
+      await view.reload();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('ar'),
+          supportedLocales: const [Locale('ar')],
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: Builder(
+            builder:
+                (context) => ElevatedButton(
+                  onPressed:
+                      () => refreshRecoveryWithFeedback(
+                        context,
+                        view,
+                        () {},
+                      ),
+                  child: const Text('refresh'),
+                ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('refresh'));
+      await tester.pump();
+      expect(find.text('جاري مزامنة العمليات المحفوظة…'), findsOneWidget);
+
+      source.rows = [];
+      completion.complete(true);
+      await tester.pump();
+      await tester.pump();
+
+      expect(executor.calls, 1);
+      expect(find.text('تمت المزامنة بالكامل.'), findsOneWidget);
     },
   );
 
