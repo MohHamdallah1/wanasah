@@ -209,26 +209,29 @@ class _RouteProgress extends StatelessWidget {
                   ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
                 ),
               ),
-              Text.rich(
-                TextSpan(
-                  children: [
-                    TextSpan(
-                      text: completed,
-                      style: Theme.of(
-                        context,
-                      ).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w900,
-                        color: colors.primary,
+              Directionality(
+                textDirection: TextDirection.ltr,
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: completed,
+                        style: Theme.of(
+                          context,
+                        ).textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          color: colors.primary,
+                        ),
                       ),
-                    ),
-                    TextSpan(
-                      text: ' / $total',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: colors.onSurfaceVariant,
-                        fontWeight: FontWeight.w700,
+                      TextSpan(
+                        text: ' / $total',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: colors.onSurfaceVariant,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ],
