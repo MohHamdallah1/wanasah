@@ -1,4 +1,4 @@
-﻿import { useInventoryAccess } from "@/hooks/useInventoryAccess";
+import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useTranslation } from "react-i18next";
 import { resolveI18nLocale } from "@/lib/locale";
 import { useDispatchOwnerNavigation } from "@/features/dispatch/useOwnerNavigation";
@@ -2104,4 +2104,3 @@ export default function DispatchBoard() {
     </div>
   );
 }
-
