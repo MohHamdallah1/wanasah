@@ -107,14 +107,8 @@ class _DayIdentity extends StatelessWidget {
           spacing: 8,
           runSpacing: 8,
           children: [
-            _ContextPill(
-              icon: Icons.location_on_outlined,
-              text: region,
-            ),
-            _ContextPill(
-              icon: Icons.calendar_today_outlined,
-              text: date,
-            ),
+            _ContextPill(icon: Icons.location_on_outlined, text: region),
+            _ContextPill(icon: Icons.calendar_today_outlined, text: date),
           ],
         ),
         const SizedBox(height: 2),
@@ -210,9 +204,9 @@ class _RouteProgress extends StatelessWidget {
               Expanded(
                 child: Text(
                   l10n.homeTodayRoute,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
                 ),
               ),
               Text.rich(
@@ -220,7 +214,9 @@ class _RouteProgress extends StatelessWidget {
                   children: [
                     TextSpan(
                       text: completed,
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      style: Theme.of(
+                        context,
+                      ).textTheme.headlineSmall?.copyWith(
                         fontWeight: FontWeight.w900,
                         color: colors.primary,
                       ),
@@ -265,10 +261,7 @@ class _RouteProgress extends StatelessWidget {
               ),
               _MetricDivider(color: colors.outlineVariant),
               Expanded(
-                child: _Metric(
-                  value: sales,
-                  label: l10n.homeSalesLabel,
-                ),
+                child: _Metric(value: sales, label: l10n.homeSalesLabel),
               ),
             ],
           ),
@@ -320,9 +313,9 @@ class _Metric extends StatelessWidget {
       children: [
         Text(
           value,
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.w900,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
         ),
         const SizedBox(height: 2),
         Text(
@@ -427,10 +420,7 @@ class _FinancialPulse extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 15),
-          Container(
-            height: 1,
-            color: foreground.withValues(alpha: 0.14),
-          ),
+          Container(height: 1, color: foreground.withValues(alpha: 0.14)),
           const SizedBox(height: 14),
           Row(
             children: [

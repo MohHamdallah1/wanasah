@@ -17,75 +17,64 @@ import 'package:wanasah_frontend/l10n/generated/app_localizations.dart';
 
 void main() {
   group('verified Backend session authority contract', () {
-    test('start location is optional and Backend owns route vehicle custody gates',
-        () async {
-      final schemas = await File('../wa_backend/schemas.py').readAsString();
-      final driver = await File('../wa_backend/api/driver.py').readAsString();
+    test(
+      'start location is optional and Backend owns route vehicle custody gates',
+      () async {
+        final schemas = await File('../wa_backend/schemas.py').readAsString();
+        final driver = await File('../wa_backend/api/driver.py').readAsString();
 
-      expect(schemas, contains('class SessionStartRequest(RequestModel):'));
-      expect(schemas, contains('latitude: Latitude = None'));
-      expect(schemas, contains('longitude: Longitude = None'));
+        expect(schemas, contains('class SessionStartRequest(RequestModel):'));
+        expect(schemas, contains('latitude: Latitude = None'));
+        expect(schemas, contains('longitude: Longitude = None'));
 
-      expect(driver, contains('dispatch_date=company_local_date'));
-      expect(driver, contains('status="active"'));
-      expect(driver, contains('if active_route.vehicle_id is None:'));
-      expect(driver, contains('resolve_vehicle_custody_location_id('));
-      expect(driver, contains('read_vehicle_operational_state('));
-      expect(driver, contains('require_route_commercial_context('));
-      expect(driver, contains('start_latitude=payload.latitude'));
-      expect(driver, contains('start_longitude=payload.longitude'));
-    });
+        expect(driver, contains('dispatch_date=company_local_date'));
+        expect(driver, contains('status="active"'));
+        expect(driver, contains('if active_route.vehicle_id is None:'));
+        expect(driver, contains('resolve_vehicle_custody_location_id('));
+        expect(driver, contains('read_vehicle_operational_state('));
+        expect(driver, contains('require_route_commercial_context('));
+        expect(driver, contains('start_latitude=payload.latitude'));
+        expect(driver, contains('start_longitude=payload.longitude'));
+      },
+    );
 
-    test('end authority blocks active break and pending handshake only', () async {
-      final driver = await File('../wa_backend/api/driver.py').readAsString();
+    test(
+      'end authority blocks active break and pending handshake only',
+      () async {
+        final driver = await File('../wa_backend/api/driver.py').readAsString();
 
-      expect(
-        driver,
-        contains(
-          'if active_session.break_start_time and not active_session.break_end_time:',
-        ),
-      );
-      expect(
-        driver,
-        contains('InventoryTransferHeader.workflow_type == "HANDSHAKE"'),
-      );
-      expect(
-        driver,
-        contains('InventoryTransferHeader.status == "PENDING"'),
-      );
-      expect(
-        driver,
-        contains('active_session.end_time = get_utc_now()'),
-      );
-      expect(
-        driver,
-        contains('التسوية ليست مسؤولية هذا endpoint'),
-      );
-    });
+        expect(
+          driver,
+          contains(
+            'if active_session.break_start_time and not active_session.break_end_time:',
+          ),
+        );
+        expect(
+          driver,
+          contains('InventoryTransferHeader.workflow_type == "HANDSHAKE"'),
+        );
+        expect(driver, contains('InventoryTransferHeader.status == "PENDING"'));
+        expect(driver, contains('active_session.end_time = get_utc_now()'));
+        expect(driver, contains('التسوية ليست مسؤولية هذا endpoint'));
+      },
+    );
 
-    test('restart recovery is canonical Backend read scoped to current actor',
-        () async {
-      final driver = await File('../wa_backend/api/driver.py').readAsString();
+    test(
+      'restart recovery is canonical Backend read scoped to current actor',
+      () async {
+        final driver = await File('../wa_backend/api/driver.py').readAsString();
 
-      expect(
-        driver,
-        contains(
-          '@router.get("/driver/sessions/active", response_model=ActiveSessionResponse, status_code=200)',
-        ),
-      );
-      expect(
-        driver,
-        contains('driver_id = legacy_actor.id'),
-      );
-      expect(
-        driver,
-        contains('company_id=field_context.company_id'),
-      );
-      expect(
-        driver,
-        contains('active_session_found'),
-      );
-    });
+        expect(
+          driver,
+          contains(
+            '@router.get("/driver/sessions/active", response_model=ActiveSessionResponse, status_code=200)',
+          ),
+        );
+        expect(driver, contains('driver_id = legacy_actor.id'));
+        expect(driver, contains('company_id=field_context.company_id'));
+        expect(driver, contains('active_session_found'));
+      },
+    );
   });
 
   group('start-session evidence', () {
@@ -105,46 +94,56 @@ void main() {
       expect(remote.lastLongitude, 35.91);
     });
 
-    test('missing optional location does not become a client-side blocker',
-        () async {
-      final remote = _FakeRemote();
-      final coordinator = WorkSessionCoordinator(
-        remote: remote,
-        locationSource: const _Location(null),
-      );
+    test(
+      'missing optional location does not become a client-side blocker',
+      () async {
+        final remote = _FakeRemote();
+        final coordinator = WorkSessionCoordinator(
+          remote: remote,
+          locationSource: const _Location(null),
+        );
 
-      final result = await coordinator.startSession();
+        final result = await coordinator.startSession();
 
-      expect(result.disposition, WorkSessionDisposition.success);
-      expect(remote.lastLatitude, isNull);
-      expect(remote.lastLongitude, isNull);
-    });
+        expect(result.disposition, WorkSessionDisposition.success);
+        expect(remote.lastLatitude, isNull);
+        expect(remote.lastLongitude, isNull);
+      },
+    );
 
-    test('invalid optional device coordinates are omitted, not authoritative',
-        () async {
-      final remote = _FakeRemote();
-      final coordinator = WorkSessionCoordinator(
-        remote: remote,
-        locationSource: const _Location(
-          WorkSessionCoordinates(latitude: 95, longitude: 35.91),
-        ),
-      );
+    test(
+      'invalid optional device coordinates are omitted, not authoritative',
+      () async {
+        final remote = _FakeRemote();
+        final coordinator = WorkSessionCoordinator(
+          remote: remote,
+          locationSource: const _Location(
+            WorkSessionCoordinates(latitude: 95, longitude: 35.91),
+          ),
+        );
 
-      final result = await coordinator.startSession();
+        final result = await coordinator.startSession();
 
-      expect(result.disposition, WorkSessionDisposition.success);
-      expect(remote.lastLatitude, isNull);
-      expect(remote.lastLongitude, isNull);
-    });
+        expect(result.disposition, WorkSessionDisposition.success);
+        expect(remote.lastLatitude, isNull);
+        expect(remote.lastLongitude, isNull);
+      },
+    );
 
     test('remote start transport omits nullable location keys', () async {
-      final source = await File(
-        'lib/features/work_session/data/work_session_remote_data_source.dart',
-      ).readAsString();
+      final source =
+          await File(
+            'lib/features/work_session/data/work_session_remote_data_source.dart',
+          ).readAsString();
 
       expect(source, contains("if (latitude != null) 'latitude': latitude"));
       expect(source, contains("if (longitude != null) 'longitude': longitude"));
-      expect(source, isNot(contains("'latitude': latitude,\n        'longitude': longitude")));
+      expect(
+        source,
+        isNot(
+          contains("'latitude': latitude,\n        'longitude': longitude"),
+        ),
+      );
     });
   });
 
@@ -165,10 +164,7 @@ void main() {
 
       final issue = WorkSessionActionIssue.fromResult(result);
 
-      expect(
-        issue.kind,
-        WorkSessionActionIssueKind.vehicleCustodyPrerequisite,
-      );
+      expect(issue.kind, WorkSessionActionIssueKind.vehicleCustodyPrerequisite);
       expect(issue.status, 409);
       expect(issue.code, 'VEHICLE_CUSTODY_LOCATION_INACTIVE');
       expect(issue.context, <String, dynamic>{'location_count': 0});
@@ -268,14 +264,15 @@ void main() {
 
   group('break and end semantics', () {
     test('break transport ambiguity never creates historical queue', () async {
-      final remote = _FakeRemote()
-        ..breakError = _networkError('/driver/sessions/break')
-        ..runtimeSnapshot = const WorkSessionSnapshot(
-          isActive: true,
-          sessionId: 700,
-          startTime: '2026-10-22T08:00:00Z',
-          isOnBreak: false,
-        );
+      final remote =
+          _FakeRemote()
+            ..breakError = _networkError('/driver/sessions/break')
+            ..runtimeSnapshot = const WorkSessionSnapshot(
+              isActive: true,
+              sessionId: 700,
+              startTime: '2026-10-22T08:00:00Z',
+              isOnBreak: false,
+            );
 
       final result = await _coordinator(remote).toggleBreak(start: true);
 
@@ -290,12 +287,13 @@ void main() {
     });
 
     test('end rejection never pretends local completion', () async {
-      final remote = _FakeRemote()
-        ..endError = _serverError(
-          status: 400,
-          code: 'HTTP_400',
-          requestId: 'req-blocked-end',
-        );
+      final remote =
+          _FakeRemote()
+            ..endError = _serverError(
+              status: 400,
+              code: 'HTTP_400',
+              requestId: 'req-blocked-end',
+            );
 
       final result = await _coordinator(remote).endSession();
 
@@ -322,46 +320,54 @@ void main() {
       );
     });
 
-    test('ambiguous end remains unresolved while Backend still reports active',
-        () async {
-      final remote = _FakeRemote()
-        ..endError = _networkError('/driver/sessions/end')
-        ..activeSnapshot = const WorkSessionSnapshot(
-          isActive: true,
-          sessionId: 701,
-          startTime: '2026-10-22T08:00:00Z',
-          isOnBreak: null,
-        );
+    test(
+      'ambiguous end remains unresolved while Backend still reports active',
+      () async {
+        final remote =
+            _FakeRemote()
+              ..endError = _networkError('/driver/sessions/end')
+              ..activeSnapshot = const WorkSessionSnapshot(
+                isActive: true,
+                sessionId: 701,
+                startTime: '2026-10-22T08:00:00Z',
+                isOnBreak: null,
+              );
 
-      final result = await _coordinator(remote).endSession();
+        final result = await _coordinator(remote).endSession();
 
-      expect(result.disposition, WorkSessionDisposition.unresolved);
-      expect(result.reconciledSession?.isActive, isTrue);
-      expect(result.isSuccess, isFalse);
-    });
+        expect(result.disposition, WorkSessionDisposition.unresolved);
+        expect(result.reconciledSession?.isActive, isTrue);
+        expect(result.isSuccess, isFalse);
+      },
+    );
 
-    test('ambiguous end succeeds only after Backend confirms inactive', () async {
-      final remote = _FakeRemote()
-        ..endError = _networkError('/driver/sessions/end')
-        ..activeSnapshot = const WorkSessionSnapshot.inactive();
+    test(
+      'ambiguous end succeeds only after Backend confirms inactive',
+      () async {
+        final remote =
+            _FakeRemote()
+              ..endError = _networkError('/driver/sessions/end')
+              ..activeSnapshot = const WorkSessionSnapshot.inactive();
 
-      final result = await _coordinator(remote).endSession();
+        final result = await _coordinator(remote).endSession();
 
-      expect(result.disposition, WorkSessionDisposition.reconciledSuccess);
-      expect(result.isSuccess, isTrue);
-      expect(result.reconciledSession?.isActive, isFalse);
-    });
+        expect(result.disposition, WorkSessionDisposition.reconciledSuccess);
+        expect(result.isSuccess, isTrue);
+        expect(result.reconciledSession?.isActive, isFalse);
+      },
+    );
   });
 
   group('restart and authority boundaries', () {
     test('restart recovery reads active session from Backend', () async {
-      final remote = _FakeRemote()
-        ..activeSnapshot = const WorkSessionSnapshot(
-          isActive: true,
-          sessionId: 702,
-          startTime: '2026-10-22T08:00:00Z',
-          isOnBreak: null,
-        );
+      final remote =
+          _FakeRemote()
+            ..activeSnapshot = const WorkSessionSnapshot(
+              isActive: true,
+              sessionId: 702,
+              startTime: '2026-10-22T08:00:00Z',
+              isOnBreak: null,
+            );
 
       final recovery = await _coordinator(remote).recoverActiveSession();
 
@@ -370,24 +376,28 @@ void main() {
       expect(remote.activeReads, 1);
     });
 
-    test('Work Session feature has no local role or authorization authority',
-        () async {
-      final sources = await _workSessionSources();
+    test(
+      'Work Session feature has no local role or authorization authority',
+      () async {
+        final sources = await _workSessionSources();
 
-      expect(sources, isNot(contains('is_authorized')));
-      expect(sources, isNot(contains('FlutterSecureStorage')));
-      expect(sources, isNot(contains('LocalDatabase')));
-      expect(sources, isNot(contains('role')));
-    });
+        expect(sources, isNot(contains('is_authorized')));
+        expect(sources, isNot(contains('FlutterSecureStorage')));
+        expect(sources, isNot(contains('LocalDatabase')));
+        expect(sources, isNot(contains('role')));
+      },
+    );
 
-    test('machine decisions do not branch on free-text display messages',
-        () async {
-      final sources = await _workSessionSources();
+    test(
+      'machine decisions do not branch on free-text display messages',
+      () async {
+        final sources = await _workSessionSources();
 
-      expect(sources, isNot(contains('message.contains')));
-      expect(sources, isNot(contains('displayFallback.contains')));
-      expect(sources, isNot(contains("contains('لا يوجد")));
-    });
+        expect(sources, isNot(contains('message.contains')));
+        expect(sources, isNot(contains('displayFallback.contains')));
+        expect(sources, isNot(contains("contains('لا يوجد")));
+      },
+    );
 
     test('Dashboard keeps typed session refusal in loaded composition', () async {
       final bloc =
@@ -396,9 +406,10 @@ void main() {
           await File('lib/blocs/dashboard/dashboard_state.dart').readAsString();
       final screen =
           await File('lib/screens/dashboard_screen.dart').readAsString();
-      final controls = await File(
-        'lib/features/work_session/presentation/work_session_controls.dart',
-      ).readAsString();
+      final controls =
+          await File(
+            'lib/features/work_session/presentation/work_session_controls.dart',
+          ).readAsString();
 
       expect(bloc, contains('WorkSessionActionIssue.fromResult(result)'));
       expect(bloc, contains('workSessionIssue: issue'));
@@ -410,44 +421,49 @@ void main() {
     });
   });
 
-  testWidgets('typed refusal remains visible instead of SnackBar-only handling',
-      (tester) async {
-    final issue = WorkSessionActionIssue(
-      operation: WorkSessionOperation.end,
-      kind: WorkSessionActionIssueKind.endPrerequisite,
-      status: 400,
-      code: 'HTTP_400',
-      context: const <String, dynamic>{'blocker': 'server_authority'},
-      requestId: 'req-visible',
-      displayFallback: 'أكمل المتطلبات التشغيلية أولاً.',
-    );
+  testWidgets(
+    'typed refusal remains visible instead of SnackBar-only handling',
+    (tester) async {
+      final issue = WorkSessionActionIssue(
+        operation: WorkSessionOperation.end,
+        kind: WorkSessionActionIssueKind.endPrerequisite,
+        status: 400,
+        code: 'HTTP_400',
+        context: const <String, dynamic>{'blocker': 'server_authority'},
+        requestId: 'req-visible',
+        displayFallback: 'أكمل المتطلبات التشغيلية أولاً.',
+      );
 
-    await tester.pumpWidget(
-      MaterialApp(
-        locale: const Locale('ar'),
-        supportedLocales: AppLocalizations.supportedLocales,
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        home: Scaffold(
-          body: WorkSessionControls(
-            isActiveSession: true,
-            activeSessionStartTime: '2026-10-22T08:00:00Z',
-            isOnBreak: false,
-            isActionInProgress: false,
-            onActionStarted: () {},
-            onStart: () {},
-            onEnd: () {},
-            onToggleBreak: (_) {},
-            issue: issue,
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('ar'),
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          home: Scaffold(
+            body: WorkSessionControls(
+              isActiveSession: true,
+              activeSessionStartTime: '2026-10-22T08:00:00Z',
+              isOnBreak: false,
+              isActionInProgress: false,
+              onActionStarted: () {},
+              onStart: () {},
+              onEnd: () {},
+              onToggleBreak: (_) {},
+              issue: issue,
+            ),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(find.textContaining('أكمل المتطلبات التشغيلية أولاً.'), findsOneWidget);
-    expect(find.text('إنهاء العمل'), findsOneWidget);
-    expect(find.textContaining('HTTP_400'), findsOneWidget);
-    expect(find.textContaining('req-visible'), findsOneWidget);
-  });
+      expect(
+        find.textContaining('أكمل المتطلبات التشغيلية أولاً.'),
+        findsOneWidget,
+      );
+      expect(find.text('إنهاء العمل'), findsOneWidget);
+      expect(find.textContaining('HTTP_400'), findsOneWidget);
+      expect(find.textContaining('req-visible'), findsOneWidget);
+    },
+  );
 }
 
 WorkSessionCoordinator _coordinator(_FakeRemote remote) {
@@ -486,10 +502,8 @@ class _FakeRemote implements WorkSessionRemoteDataSource {
   Object? activeError;
   Object? runtimeError;
 
-  WorkSessionSnapshot activeSnapshot =
-      const WorkSessionSnapshot.inactive();
-  WorkSessionSnapshot runtimeSnapshot =
-      const WorkSessionSnapshot.inactive();
+  WorkSessionSnapshot activeSnapshot = const WorkSessionSnapshot.inactive();
+  WorkSessionSnapshot runtimeSnapshot = const WorkSessionSnapshot.inactive();
 
   int startCalls = 0;
   int endCalls = 0;
@@ -557,11 +571,9 @@ DioException _serverError({
     response: Response<dynamic>(
       requestOptions: options,
       statusCode: status,
-      headers: Headers.fromMap(
-        <String, List<String>>{
-          'x-request-id': <String>[requestId],
-        },
-      ),
+      headers: Headers.fromMap(<String, List<String>>{
+        'x-request-id': <String>[requestId],
+      }),
       data: <String, dynamic>{
         'request_id': requestId,
         'error': <String, dynamic>{

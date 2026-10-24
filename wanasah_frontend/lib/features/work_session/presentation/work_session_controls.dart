@@ -47,10 +47,14 @@ class WorkSessionControls extends StatelessWidget {
       builder:
           (dialogContext) => AlertDialog(
             title: Text(
-              ending ? l10n.workSessionConfirmEndTitle : l10n.workSessionConfirmStartTitle,
+              ending
+                  ? l10n.workSessionConfirmEndTitle
+                  : l10n.workSessionConfirmStartTitle,
             ),
             content: Text(
-              ending ? l10n.workSessionConfirmEndBody : l10n.workSessionConfirmStartBody,
+              ending
+                  ? l10n.workSessionConfirmEndBody
+                  : l10n.workSessionConfirmStartBody,
             ),
             actions: <Widget>[
               TextButton(
@@ -107,10 +111,7 @@ class WorkSessionControls extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    _StatusDot(
-                      active: isActiveSession,
-                      onBreak: isOnBreak,
-                    ),
+                    _StatusDot(active: isActiveSession, onBreak: isOnBreak),
                     const SizedBox(width: 8),
                     Text(
                       status,
@@ -237,9 +238,9 @@ class WorkSessionControls extends StatelessWidget {
                                   : () async {
                                     final confirmed =
                                         await _showConfirmationDialog(
-                                      context,
-                                      ending: true,
-                                    );
+                                          context,
+                                          ending: true,
+                                        );
                                     if (!context.mounted || confirmed != true) {
                                       return;
                                     }
@@ -250,7 +251,9 @@ class WorkSessionControls extends StatelessWidget {
                             minimumSize: const Size.fromHeight(52),
                             foregroundColor: colors.errorContainer,
                             side: BorderSide(
-                              color: colors.errorContainer.withValues(alpha: 0.58),
+                              color: colors.errorContainer.withValues(
+                                alpha: 0.58,
+                              ),
                             ),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16),
@@ -309,10 +312,7 @@ class _StatusDot extends StatelessWidget {
 }
 
 class _SessionTiming extends StatelessWidget {
-  const _SessionTiming({
-    required this.startTime,
-    required this.fallback,
-  });
+  const _SessionTiming({required this.startTime, required this.fallback});
 
   final DateTime? startTime;
   final String fallback;
@@ -341,9 +341,8 @@ class _SessionTiming extends StatelessWidget {
       initialData: DateTime.now(),
       builder: (context, snapshot) {
         final now = snapshot.data ?? DateTime.now();
-        final duration = now.isBefore(resolved)
-            ? Duration.zero
-            : now.difference(resolved);
+        final duration =
+            now.isBefore(resolved) ? Duration.zero : now.difference(resolved);
         return Wrap(
           spacing: 12,
           runSpacing: 7,
@@ -387,20 +386,14 @@ class _TimingChip extends StatelessWidget {
       decoration: BoxDecoration(
         color: colors.surface.withValues(alpha: 0.075),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: colors.surface.withValues(alpha: 0.10),
-        ),
+        border: Border.all(color: colors.surface.withValues(alpha: 0.10)),
       ),
       child: Padding(
         padding: const EdgeInsetsDirectional.fromSTEB(10, 6, 11, 6),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              size: 15,
-              color: colors.surface.withValues(alpha: 0.72),
-            ),
+            Icon(icon, size: 15, color: colors.surface.withValues(alpha: 0.72)),
             const SizedBox(width: 6),
             Text(
               text,
