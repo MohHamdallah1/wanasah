@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -59,7 +61,7 @@ class VisitCard extends StatelessWidget {
                   ),
                   child: Text(
                     sequence,
-                    textDirection: TextDirection.ltr,
+                    textDirection: ui.TextDirection.ltr,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       color: visual.accent,
                       fontWeight: FontWeight.w900,
@@ -112,7 +114,7 @@ class VisitCard extends StatelessWidget {
                               row.isCompleted
                                   ? colors.onSurfaceVariant
                                   : colors.onSurface,
-                          fontWeight: FontWeight.w850,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -152,7 +154,7 @@ class VisitCard extends StatelessWidget {
                       onPressed: onMap,
                     ),
                     Icon(
-                      Directionality.of(context) == TextDirection.rtl
+                      Directionality.of(context) == ui.TextDirection.rtl
                           ? Icons.chevron_left_rounded
                           : Icons.chevron_right_rounded,
                       color: colors.outline,
