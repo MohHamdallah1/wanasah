@@ -1290,6 +1290,27 @@ Design principles:
 4. Let the separate Dashboard track complete the launch-critical Backend parity needed for cross-surface verification.
 5. Run the comprehensive real-device/current-Backend/Dashboard acceptance last, then fix only proven blockers and sign off V1.
 
+### 11.2 Final V1 visual-design leadership + operator failure-state contract — 2026-10-24
+
+**Owner-approved design leadership:** the Flutter polish wave may use external design/reasoning tools, references and models, but the primary technical Lead remains the decision authority for Wanasah architecture, contracts, screen responsibilities, integration order and production acceptance. External tools are specialists for ideation, critique, visual exploration or prototyping; they do not independently redefine Backend contracts, business rules, authorization, offline semantics or production code ownership.
+
+- [ ] Start from the **real Wanasah screen, real field task and real operator constraints**, not from a generic "modern dashboard" prompt. Arabic-first field use, one-handed operation, outdoor readability, weak/intermittent connectivity and fast task completion are primary design inputs.
+- [ ] Actively reject generic AI aesthetics: repeated decorative cards, gratuitous gradients/glass effects, meaningless metrics, template-like hero sections and visual ornament that does not improve the representative's next action.
+- [ ] Generate multiple genuinely different visual directions before committing the first polished screen. Use external models/tools only to widen the design search; the Lead selects, combines or rejects proposals against Wanasah's field workflow.
+- [ ] The first accepted polished screen establishes a coherent Wanasah mobile visual language (spacing, typography, surfaces, controls, states, motion/feedback and shared tokens). Later screens extend that system instead of inventing a new style per page.
+- [ ] Figma may be used as the shared design/prototype surface after a direction is selected; other external exploration/reference tools may be used when useful. Tool choice is subordinate to the approved design system and does not become repository authority.
+- [ ] Before implementing a visual proposal, map every visible control/state back to an existing V1 action or an explicitly approved V1 UX need. Do not create new business workflows merely because a generated design contains them.
+- [ ] The Lead reviews any generated design/code before production use and preserves the already-proved identity, authorization, Visit/offline replay, Session/Custody, transfer, return, pricing/money and reconciliation contracts.
+
+**Connectivity and failure-state UX rules for the polish wave:**
+
+- [ ] Do not tell the operator "no internet" unless the available evidence supports a device/network connectivity failure. Backend-unreachable, timeout, service failure and HTTP server errors must not be mislabeled as internet loss.
+- [ ] Distinguish at least: **up-to-date/connected**, **temporarily unable to reach the service while cached data remains usable**, **server/service failure**, and **pending/blocked synchronization evidence**. Keep the wording business-readable and avoid exposing internal implementation details.
+- [ ] When safe cached/local data exists, a refresh/server failure should not unnecessarily replace the whole working screen with a blank error page. Preserve usable state and surface a clear non-destructive warning/action where the existing workflow permits it.
+- [ ] Raw HTTP status numbers alone are not an operator explanation. User-facing errors should state the practical consequence and next safe action; canonical structured error code/context/request id remain available for support/diagnostics.
+- [ ] Unexpected backend failures must not leak stack traces, database/table names or internal exception text to the representative UI.
+- [ ] Current local development incident recorded on 2026-10-24: the checked-out Backend is ahead of the owner's local database schema (`alembic current = 9c4f8a2d7e31`, repository head = `b2f6c8e4a901`), causing `GET /driver/dashboard` to fail because `field_representative_roles` is absent. This is a **local schema-version mismatch**, not evidence that the approved FIELD authorization design is incomplete. Database upgrade is a separate owner-authorized environment action and must not be silently executed as part of UI polish.
+
 ## 12. Tests / acceptance gates
 
 Current Flutter test coverage is minimal.
