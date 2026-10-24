@@ -39,6 +39,8 @@ The current production Flutter app is still Arabic-only at runtime, even though 
 - [x] Arabic remains the current V1 default/fallback language.
 - [x] The architecture must allow adding another language without editing every screen/widget.
 - [x] User-visible copy must not be hard-coded inside new polished widgets.
+- [x] **All Flutter screens and all user-visible states are in scope for localization**, not only the shared shell or newly redesigned screens. Existing hard-coded Arabic is migrated as each screen enters its polish slice, and no screen is considered polish-complete while touched user-facing copy remains outside the canonical localization system.
+- [x] Dialogs, validation messages, empty/loading/error states, tooltips, accessibility/semantics labels, sync/recovery copy and action confirmations are part of localization coverage just like visible page text.
 - [x] Use one canonical Flutter localization system for production UI copy. Prefer Flutter generated localization (`gen_l10n` + ARB resources) or an equivalently centralized typed solution; do not keep growing parallel ad-hoc maps per feature.
 - [x] Existing `AppCopy`, Visit string helpers and Recovery string maps are migration inputs, not justification for permanent competing localization systems.
 - [x] RTL/LTR is part of the foundation:
