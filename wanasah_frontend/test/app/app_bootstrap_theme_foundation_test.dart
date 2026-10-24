@@ -239,26 +239,25 @@ void main() {
       );
     });
 
-    test('Arabic locale, delegates, Splash and Dashboard provider remain',
+    test('canonical localization, Arabic runtime, Splash and Dashboard provider remain',
         () async {
       final source = await File('lib/app/app.dart').readAsString();
 
       expect(
         source,
-        contains('GlobalMaterialLocalizations.delegate'),
+        contains('AppLocalizations.localizationsDelegates'),
       );
       expect(
         source,
-        contains('GlobalWidgetsLocalizations.delegate'),
+        contains('AppLocalizations.supportedLocales'),
       );
-      expect(
-        source,
-        contains('GlobalCupertinoLocalizations.delegate'),
-      );
-      expect(source, contains("Locale('ar', '')"));
+      expect(source, contains("locale: const Locale('ar')"));
       expect(source, contains('home: const SplashScreen()'));
       expect(source, contains('BlocProvider<DashboardBloc>'));
-      expect(source, contains("title: 'Wanasah App'"));
+      expect(
+        source,
+        contains('onGenerateTitle: (context) => AppLocalizations.of(context).appTitle'),
+      );
       expect(source, contains('debugShowCheckedModeBanner: false'));
     });
 
