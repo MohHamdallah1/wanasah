@@ -14,6 +14,7 @@ import { currentLocale } from "@/i18n";
 import { apiErrorCode, apiErrorMessage } from "@/lib/apiErrors";
 import { SupplierSelector } from "@/features/suppliers/SupplierSelector";
 import { useInboundPosting } from "./inbound/useInboundPosting";
+import { useInboundOptions } from "./inbound/useInboundOptions";
 import { OpeningValuationModal } from "./inbound/OpeningValuationModal";
 import {
   completeDurableOperation,
@@ -36,14 +37,12 @@ import {
   isInboundRowValidationError,
   parseCostPolicy,
   parseInboundDrafts,
-  parseInboundOptions,
   type CostMethod,
   type CostPolicy,
   type InboundBatchDraft,
   type InboundDraftMap,
   type InboundField,
   InboundRowValidationError,
-  type InboundVariantOptions,
 } from "./inbound/contracts";
 import {
   clearHiddenInboundTrackingValues,
@@ -99,7 +98,7 @@ const normalizeDateEntry = (value: string) => {
   if (!text) return "";
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
 
-  const separated = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  const separated = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
   if (separated) {
     const [, dayText, monthText, yearText] = separated;
     const day = Number(dayText);
@@ -245,19 +244,21 @@ export function Tab2Inbound({
     () => new Map()
   );
   const requestedDraftVariantIds = useRef(new Set<number>());
-  const [uomOptions, setUomOptions] = useState<
-    Map<number, InboundVariantOptions>
-  >(new Map());
+  const {
+    options: uomOptions,
+    asOfDate: companyAsOfDate,
+    ensure: ensureInboundOptions,
+    preload: preloadInboundOptions,
+  } = useInboundOptions(authenticatedFetch);
   // TODO(V2 Settings): move this company-level policy to the Settings workspace.
   // Inbound only guards first use until that workspace exists.
   const [costPolicy, setCostPolicy] = useState<CostPolicy | null>(null);
-  const [companyAsOfDate, setCompanyAsOfDate] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [cursor, setCursor] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [optionsLoading, setOptionsLoading] = useState(false);
+  const [preparingReceipt, setPreparingReceipt] = useState(false);
   const [referenceChoices, setReferenceChoices] = useState<Map<number, InboundReferenceSelection[]>>(new Map());
   const [selectedReferences, setSelectedReferences] = useState<Map<number, InboundReferenceSelection>>(new Map());
   const [submitting, setSubmitting] = useState(false);
@@ -275,8 +276,6 @@ export function Tab2Inbound({
     () => localStorage.getItem(keys.notes) || ""
   );
   const request = useRef(0);
-  const requestedOptionIds = useRef(new Set<number>());
-  const optionsInFlight = useRef(0);
   const rowRefs = useRef(new Map<string, HTMLTableRowElement>());
   const controlRefs = useRef(new Map<string, HTMLElement>());
   const supplierRef = useRef<HTMLDivElement>(null);
@@ -451,38 +450,10 @@ export function Tab2Inbound({
   useEffect(() => {
     const ids = visibleCatalog
       .map((item) => item.id)
-      .filter((id) => !uomOptions.has(id) && !requestedOptionIds.current.has(id))
       .slice(0, 200);
     if (!ids.length) return;
-    ids.forEach((id) => requestedOptionIds.current.add(id));
-
-    optionsInFlight.current += 1;
-    setOptionsLoading(true);
-    authenticatedFetch("/warehouse/inbound/options", {
-      method: "POST",
-      body: JSON.stringify({ ids }),
-    })
-      .then(parseInboundOptions)
-      .then((response) => {
-        setCompanyAsOfDate(response.as_of_date);
-        setUomOptions((current) => {
-          const next = new Map(current);
-          for (const item of response.items) {
-            if (ids.includes(item.product_variant_id)) {
-              next.set(item.product_variant_id, item);
-            }
-          }
-          return next;
-        });
-      })
-      .catch((error) => {
-        toast.error(apiErrorMessage(error, t("inventoryInbound.errors.optionsLoad")));
-      })
-      .finally(() => {
-        optionsInFlight.current -= 1;
-        if (optionsInFlight.current === 0) setOptionsLoading(false);
-      });
-  }, [authenticatedFetch, visibleCatalog, uomOptions, t]);
+    preloadInboundOptions(ids);
+  }, [preloadInboundOptions, visibleCatalog]);
 
   useEffect(() => {
     let active = true;
@@ -783,9 +754,6 @@ export function Tab2Inbound({
       toast.error(t("inventoryInbound.errors.quantityRequired"));
       return;
     }
-    if (ids.some((id) => !uomOptions.has(id)) || !companyAsOfDate) {
-      return toast.error(t("inventoryInbound.errors.optionsNotReady"));
-    }
     if (!costPolicy) {
       return toast.error(t("inventoryInbound.errors.policyLoad"));
     }
@@ -797,7 +765,27 @@ export function Tab2Inbound({
 
     setValidationError(null);
     setSubmitting(true);
+    let readyOptions = uomOptions;
+    let readyAsOfDate = companyAsOfDate;
     try {
+      if (ids.some((id) => !uomOptions.has(id)) || !companyAsOfDate) {
+        setPreparingReceipt(true);
+        try {
+          const prepared = await ensureInboundOptions(ids);
+          readyOptions = prepared.options;
+          readyAsOfDate = prepared.asOfDate;
+        } catch (error) {
+          toast.error(
+            apiErrorMessage(
+              error,
+              t("inventoryInbound.errors.prepare")
+            )
+          );
+          return;
+        } finally {
+          setPreparingReceipt(false);
+        }
+      }
       const variants = parseVariants(
         await authenticatedFetch("/catalog/variants/resolve", {
           method: "POST",
@@ -814,8 +802,8 @@ export function Tab2Inbound({
       const items = buildInboundItems(
         drafts,
         new Map(variants.map((item) => [String(item.id), item])),
-        uomOptions,
-        companyAsOfDate,
+        readyOptions,
+        readyAsOfDate ?? undefined,
       );
       const choices = inboundReferenceChoices(items);
       const selections: InboundReferenceSelection[] = [];
@@ -1202,7 +1190,7 @@ export function Tab2Inbound({
                                 uom_id: event.target.value,
                               })
                             }
-                            disabled={optionsLoading || !option}
+                            disabled={!option}
                             className={fieldHasError(row.row_id, "uom_id") ? "is-error" : ""}
                           >
                             {(option?.uoms ?? []).map((uom) => (
@@ -1399,9 +1387,11 @@ export function Tab2Inbound({
                   }
                   className="inventory-inbound-submit disabled:opacity-50"
                 >
-                  {submitting
-                    ? t("inventoryInbound.submitting")
-                    : t("inventoryInbound.submit")}
+                  {preparingReceipt
+                    ? t("inventoryInbound.preparing")
+                    : submitting
+                      ? t("inventoryInbound.submitting")
+                      : t("inventoryInbound.submit")}
                 </button>
               </TooltipPrimitive.Trigger>
               {isAuditLocked && (
