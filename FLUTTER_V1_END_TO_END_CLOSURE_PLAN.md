@@ -1311,6 +1311,15 @@ Design principles:
 - [ ] Unexpected backend failures must not leak stack traces, database/table names or internal exception text to the representative UI.
 - [ ] Current local development incident recorded on 2026-10-24: the checked-out Backend is ahead of the owner's local database schema (`alembic current = 9c4f8a2d7e31`, repository head = `b2f6c8e4a901`), causing `GET /driver/dashboard` to fail because `field_representative_roles` is absent. This is a **local schema-version mismatch**, not evidence that the approved FIELD authorization design is incomplete. Database upgrade is a separate owner-authorized environment action and must not be silently executed as part of UI polish.
 
+### 11.3 V1 FIELD function-exposure audit before visual polish — 2026-10-24
+
+- [x] Source-level audit completed against the current V1 FIELD contracts before redesigning screens; visual polish must preserve every accepted operator flow rather than merely restyle the currently visible layout.
+- [x] Flutter has an operator path for company-code login; Work Session start/break/end and active-session recovery; assigned route/Visit list and Visit detail; Shop creation; Sale/NoSale, prior-debt collection, samples, all approved return reasons, commercial readiness, invoice preview and committed invoice display; vehicle custody/non-sellable return evidence; pending transfer accept/reject including batch behavior; and Sync/Recovery state.
+- [x] Backend reads such as active-session/dashboard state are supporting transports for the visible workflow and do not require a separate operator screen merely because an endpoint exists.
+- [x] The protected catalog endpoint `GET /product_variants` is not evidence of a missing standalone Flutter feature: the current FIELD projection/catalog used by the Visit flow is populated through the authoritative `GET /driver/visits` payload. Do not invent a duplicate catalog screen unless the frozen contract changes.
+- [x] `POST /driver/session/{session_id}/reconcile` is **intentionally not a Flutter settlement screen**. The canonical representative-settlement plan requires the user-facing settlement of an ended representative session to start only from the Dashboard **Operations/Home yellow card**; Flutter ends the Work Session and preserves custody/evidence, while the Backoffice settlement flow owns the physical receiving/reconciliation and later financial close. Do not add a second settlement/reconciliation entry point to Flutter.
+- [x] Design review for each polished screen must check this function inventory before implementation so no existing V1 action becomes hidden, unreachable or accidentally replaced by decorative UI.
+
 ## 12. Tests / acceptance gates
 
 Current Flutter test coverage is minimal.
