@@ -68,6 +68,10 @@ The representative shell uses **three persistent primary tabs**:
 - [x] These three tabs are the V1 primary navigation.
 - [x] Do not add a fourth bottom-tab merely to expose every secondary function.
 - [x] The bottom navigation is persistent on the three top-level sections.
+- [x] Physical order is intentional and direction-aware: **Route on the leading side, Home in the center, Custody on the trailing side**. In Arabic RTL this renders **خط السير يمين — الرئيسية وسط — العهدة يسار**.
+- [x] The primary navigation uses a **floating translucent/glass-inspired dock** with restrained blur, depth and rounded grouping; it must remain highly legible and field-usable rather than decorative glass for its own sake.
+- [x] Home is the visually emphasized center destination. Route/Custody use quieter active surfaces; active state must be recognizable by icon/shape/weight, not color alone.
+- [x] Because Route and Custody are persistent bottom destinations, Home must not repeat generic **"open Route"** or **"open Custody"** buttons. Home only keeps contextual next-action shortcuts when they add information beyond navigation.
 - [x] Deep task flows such as Visit execution, Add Shop, confirmation dialogs and other mutation-heavy screens may hide the bottom navigation when doing so protects focus/unsaved work.
 - [ ] Implement the shared shell and preserve existing navigation/back-safety behavior.
 
