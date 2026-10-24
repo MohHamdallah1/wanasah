@@ -82,7 +82,6 @@ void main() {
     tester,
   ) async {
     final semantics = tester.ensureSemantics();
-    addTearDown(semantics.dispose);
     await tester.pumpWidget(app());
     await tester.tap(find.byKey(const ValueKey('shell-tab-route')));
     await tester.pumpAndSettle();
@@ -104,6 +103,7 @@ void main() {
         hasTapAction: true,
       ),
     );
+    semantics.dispose();
   });
 
   testWidgets(
