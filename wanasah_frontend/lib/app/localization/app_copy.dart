@@ -71,9 +71,12 @@ class AppCopy {
   };
 
   static const Map<AppCopyKey, String> _en = {
-    AppCopyKey.dashboardConnectivityCached: 'The service is temporarily unreachable. Saved data remains available.',
-    AppCopyKey.dashboardServiceCached: 'The service could not refresh your data. Saved data remains available.',
-    AppCopyKey.dashboardGenericError: 'Unable to load this data. Try again or contact support.',
+    AppCopyKey.dashboardConnectivityCached:
+        'The service is temporarily unreachable. Saved data remains available.',
+    AppCopyKey.dashboardServiceCached:
+        'The service could not refresh your data. Saved data remains available.',
+    AppCopyKey.dashboardGenericError:
+        'Unable to load this data. Try again or contact support.',
     AppCopyKey.retry: 'Try again',
     AppCopyKey.home: 'Home',
     AppCopyKey.route: 'Route',
@@ -103,7 +106,9 @@ class AppCopy {
     AppCopyKey.pendingTransfers: 'Review pending transfers',
   };
 
-  static String of(BuildContext context, AppCopyKey key, {
+  static String of(
+    BuildContext context,
+    AppCopyKey key, {
     Map<String, String> values = const {},
   }) {
     final languageCode = Localizations.localeOf(context).languageCode;

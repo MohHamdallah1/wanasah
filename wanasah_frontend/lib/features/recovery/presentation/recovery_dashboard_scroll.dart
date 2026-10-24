@@ -23,7 +23,8 @@ class RecoveryDashboardScroll extends StatefulWidget {
   final EdgeInsetsGeometry padding;
 
   @override
-  State<RecoveryDashboardScroll> createState() => _RecoveryDashboardScrollState();
+  State<RecoveryDashboardScroll> createState() =>
+      _RecoveryDashboardScrollState();
 }
 
 class _RecoveryDashboardScrollState extends State<RecoveryDashboardScroll> {
@@ -38,7 +39,8 @@ class _RecoveryDashboardScrollState extends State<RecoveryDashboardScroll> {
 
   void _attach() {
     _ownsController = widget.controller == null;
-    _controller = widget.controller ??
+    _controller =
+        widget.controller ??
         RecoveryViewController(coordinator: widget.coordinator);
     if (_ownsController) _controller.reload();
   }
@@ -69,23 +71,27 @@ class _RecoveryDashboardScrollState extends State<RecoveryDashboardScroll> {
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: _controller,
-      builder: (context, _) => RefreshIndicator(
-        onRefresh: () => refreshRecoveryWithFeedback(
-          context, _controller, widget.onAfterSync,
-        ),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: widget.padding,
-          children: [
-            RecoveryStatusBanner(
-              snapshot: _controller.snapshot,
-              readUnavailable: _controller.readUnavailable,
-              onTap: _openPanel,
+      builder:
+          (context, _) => RefreshIndicator(
+            onRefresh:
+                () => refreshRecoveryWithFeedback(
+                  context,
+                  _controller,
+                  widget.onAfterSync,
+                ),
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: widget.padding,
+              children: [
+                RecoveryStatusBanner(
+                  snapshot: _controller.snapshot,
+                  readUnavailable: _controller.readUnavailable,
+                  onTap: _openPanel,
+                ),
+                ...widget.children,
+              ],
             ),
-            ...widget.children,
-          ],
-        ),
-      ),
+          ),
     );
   }
 }

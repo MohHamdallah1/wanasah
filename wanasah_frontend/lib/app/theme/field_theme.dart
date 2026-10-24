@@ -19,7 +19,8 @@ class FieldTheme {
       onPrimary: dark ? const Color(0xFF12372D) : Colors.white,
       surface: dark ? const Color(0xFF15201E) : const Color(0xFFF5F7F6),
       onSurface: dark ? const Color(0xFFE4EEE9) : const Color(0xFF192F2A),
-      onSurfaceVariant: dark ? const Color(0xFFB9C9C2) : const Color(0xFF4D625A),
+      onSurfaceVariant:
+          dark ? const Color(0xFFB9C9C2) : const Color(0xFF4D625A),
       outlineVariant: dark ? const Color(0xFF3F514A) : const Color(0xFFD2DED7),
     );
     final base = ThemeData(
@@ -32,18 +33,32 @@ class FieldTheme {
     return base.copyWith(
       textTheme: base.textTheme.copyWith(
         headlineSmall: base.textTheme.headlineSmall?.copyWith(
-          fontSize: 24, fontWeight: FontWeight.w700, height: 1.4,
+          fontSize: 24,
+          fontWeight: FontWeight.w700,
+          height: 1.4,
         ),
         titleLarge: base.textTheme.titleLarge?.copyWith(
-          fontSize: 20, fontWeight: FontWeight.w700, height: 1.4,
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
+          height: 1.4,
         ),
         titleMedium: base.textTheme.titleMedium?.copyWith(
-          fontSize: 16, fontWeight: FontWeight.w600, height: 1.4,
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+          height: 1.4,
         ),
-        bodyLarge: base.textTheme.bodyLarge?.copyWith(fontSize: 16, height: 1.5),
-        bodyMedium: base.textTheme.bodyMedium?.copyWith(fontSize: 14, height: 1.5),
+        bodyLarge: base.textTheme.bodyLarge?.copyWith(
+          fontSize: 16,
+          height: 1.5,
+        ),
+        bodyMedium: base.textTheme.bodyMedium?.copyWith(
+          fontSize: 14,
+          height: 1.5,
+        ),
         labelLarge: base.textTheme.labelLarge?.copyWith(
-          fontSize: 14, fontWeight: FontWeight.w700, letterSpacing: 0,
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0,
         ),
       ),
       appBarTheme: AppBarTheme(
@@ -53,33 +68,49 @@ class FieldTheme {
         elevation: 0,
         centerTitle: false,
       ),
-      dividerTheme: DividerThemeData(color: scheme.outlineVariant, thickness: 1),
+      dividerTheme: DividerThemeData(
+        color: scheme.outlineVariant,
+        thickness: 1,
+      ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           minimumSize: const Size(touchTarget, touchTarget),
           elevation: 0,
           backgroundColor: scheme.primary,
           foregroundColor: scheme.onPrimary,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(radius)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(radius),
+          ),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           minimumSize: const Size(touchTarget, touchTarget),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(radius)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(radius),
+          ),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(minimumSize: const Size(touchTarget, touchTarget)),
+        style: TextButton.styleFrom(
+          minimumSize: const Size(touchTarget, touchTarget),
+        ),
       ),
       iconButtonTheme: IconButtonThemeData(
-        style: IconButton.styleFrom(minimumSize: const Size(touchTarget, touchTarget)),
+        style: IconButton.styleFrom(
+          minimumSize: const Size(touchTarget, touchTarget),
+        ),
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         backgroundColor: scheme.inverseSurface,
-        contentTextStyle: TextStyle(color: scheme.onInverseSurface, fontSize: 16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(radius)),
+        contentTextStyle: TextStyle(
+          color: scheme.onInverseSurface,
+          fontSize: 16,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(radius),
+        ),
       ),
     );
   }

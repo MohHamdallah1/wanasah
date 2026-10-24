@@ -53,19 +53,22 @@ class RecoveryStatusUtility extends StatelessWidget {
 
   String _text(BuildContext context, RecoveryStringKey key) {
     final locale = Localizations.localeOf(context).toLanguageTag();
-    final count = key == RecoveryStringKey.blockedCompact
-        ? controller.snapshot?.blockedCount ?? 0
-        : controller.snapshot?.pendingCount ?? 0;
-    return recoveryString(key, localeCode: locale, values: {
-      'count': NumberFormat.decimalPattern(locale).format(count),
-    });
+    final count =
+        key == RecoveryStringKey.blockedCompact
+            ? controller.snapshot?.blockedCount ?? 0
+            : controller.snapshot?.pendingCount ?? 0;
+    return recoveryString(
+      key,
+      localeCode: locale,
+      values: {'count': NumberFormat.decimalPattern(locale).format(count)},
+    );
   }
 
   bool get _degraded =>
       serviceState == RecoveryServiceState.unreachable ||
       serviceState == RecoveryServiceState.serviceFailure ||
       (controller.lastExecution != null &&
-       controller.lastExecution != RecoverySyncExecution.completed);
+          controller.lastExecution != RecoverySyncExecution.completed);
 
   IconData get _icon => switch (statusKey) {
     RecoveryStringKey.blockedCompact => Icons.error_outline_rounded,
@@ -117,66 +120,87 @@ class RecoveryStatusUtility extends StatelessWidget {
       context: thisContext,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-          child: ListenableBuilder(
-            listenable: controller,
-            builder: (context, _) {
-              final snapshot = controller.snapshot;
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_text(context, RecoveryStringKey.panelTitle),
-                    style: Theme.of(context).textTheme.titleLarge),
-                  const SizedBox(height: 12),
-                  Text(_text(context, statusKey)),
-                  if (controller.readUnavailable)
-                    Text(_text(context, RecoveryStringKey.readUnavailable)),
-                  if (snapshot?.hasPending == true)
-                    Text(_text(context, RecoveryStringKey.pendingCompact)),
-                  if (snapshot?.hasBlocked == true)
-                    Text(_text(context, RecoveryStringKey.blockedCompact)),
-                  if (serviceState != RecoveryServiceState.available)
-                    Text(_text(context, switch (serviceState) {
-                      RecoveryServiceState.unreachable => RecoveryStringKey.unreachableCompact,
-                      RecoveryServiceState.serviceFailure => RecoveryStringKey.serviceCompact,
-                      _ => RecoveryStringKey.cachedCompact,
-                    })),
-                  if (controller.lastExecution != null &&
-                      controller.lastExecution != RecoverySyncExecution.completed)
-                    Text(_text(context, RecoveryStringKey.syncUnresolved)),
-                  const SizedBox(height: 16),
-                  if (snapshot != null && !snapshot.isEmpty)
-                    OutlinedButton(
-                      onPressed: () {
-                        Navigator.of(sheetContext).pop();
-                        showRecoveryPanel(thisContext, snapshot);
-                      },
-                      child: Text(_text(context, RecoveryStringKey.detailsAction)),
-                    ),
-                  TextButton(
-                    onPressed: controller.syncing || controller.reading
-                        ? null : controller.reload,
-                    child: Text(_text(context, RecoveryStringKey.inspectAction)),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: controller.syncing ? null : () {
-                      Navigator.of(sheetContext).pop();
-                      refreshRecoveryWithFeedback(
-                        thisContext, controller, onAfterSync,
-                      );
-                    },
-                    icon: const Icon(Icons.sync_rounded),
-                    label: Text(_text(context, RecoveryStringKey.refreshAction)),
-                  ),
-                ],
-              );
-            },
+      builder:
+          (sheetContext) => SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+              child: ListenableBuilder(
+                listenable: controller,
+                builder: (context, _) {
+                  final snapshot = controller.snapshot;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _text(context, RecoveryStringKey.panelTitle),
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(_text(context, statusKey)),
+                      if (controller.readUnavailable)
+                        Text(_text(context, RecoveryStringKey.readUnavailable)),
+                      if (snapshot?.hasPending == true)
+                        Text(_text(context, RecoveryStringKey.pendingCompact)),
+                      if (snapshot?.hasBlocked == true)
+                        Text(_text(context, RecoveryStringKey.blockedCompact)),
+                      if (serviceState != RecoveryServiceState.available)
+                        Text(
+                          _text(context, switch (serviceState) {
+                            RecoveryServiceState.unreachable =>
+                              RecoveryStringKey.unreachableCompact,
+                            RecoveryServiceState.serviceFailure =>
+                              RecoveryStringKey.serviceCompact,
+                            _ => RecoveryStringKey.cachedCompact,
+                          }),
+                        ),
+                      if (controller.lastExecution != null &&
+                          controller.lastExecution !=
+                              RecoverySyncExecution.completed)
+                        Text(_text(context, RecoveryStringKey.syncUnresolved)),
+                      const SizedBox(height: 16),
+                      if (snapshot != null && !snapshot.isEmpty)
+                        OutlinedButton(
+                          onPressed: () {
+                            Navigator.of(sheetContext).pop();
+                            showRecoveryPanel(thisContext, snapshot);
+                          },
+                          child: Text(
+                            _text(context, RecoveryStringKey.detailsAction),
+                          ),
+                        ),
+                      TextButton(
+                        onPressed:
+                            controller.syncing || controller.reading
+                                ? null
+                                : controller.reload,
+                        child: Text(
+                          _text(context, RecoveryStringKey.inspectAction),
+                        ),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed:
+                            controller.syncing
+                                ? null
+                                : () {
+                                  Navigator.of(sheetContext).pop();
+                                  refreshRecoveryWithFeedback(
+                                    thisContext,
+                                    controller,
+                                    onAfterSync,
+                                  );
+                                },
+                        icon: const Icon(Icons.sync_rounded),
+                        label: Text(
+                          _text(context, RecoveryStringKey.refreshAction),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
           ),
-        ),
-      ),
     );
   }
 }

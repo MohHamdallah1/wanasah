@@ -26,108 +26,140 @@ class HomeOverview extends StatelessWidget {
   Widget build(BuildContext context) {
     final locale = Localizations.localeOf(context).toLanguageTag();
     final numbers = NumberFormat.decimalPattern(locale);
-    final money = NumberFormat.currency(locale: locale, name: 'JOD', decimalDigits: 3);
+    // Preserve locale order/month names with the approved Western digit style.
+    final date = DateFormat.yMMMMd(locale).format(DateTime.now()).replaceAllMapped(
+      RegExp('[٠-٩]'), (match) => (match[0]!.codeUnitAt(0) - 0x0660).toString(),
+    );
+    final money = NumberFormat.currency(
+      locale: locale,
+      name: 'JOD',
+      decimalDigits: 3,
+    );
     String copy(AppCopyKey key, [Map<String, String> values = const {}]) =>
         AppCopy.of(context, key, values: values);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        Text(
+          copy(AppCopyKey.greeting, {'name': state.driverName}),
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          copy(AppCopyKey.region, {'region': state.assignedRegion}),
+          style: TextStyle(
+            fontSize: 17,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          copy(AppCopyKey.today, {
+            'date': date,
+          }),
+          style: TextStyle(
+            fontSize: 15,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const Divider(height: 30, thickness: 1),
 
+        workSession,
+        const Divider(height: 30, thickness: 1),
+        Text(
+          copy(AppCopyKey.routeSummary),
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        const SizedBox(height: 12),
+        Text(
+          copy(AppCopyKey.completedVisits, {
+            'count': numbers.format(state.completedVisits),
+          }),
+          style: const TextStyle(fontSize: 16),
+        ),
+        Text(
+          copy(AppCopyKey.salesVisits, {
+            'count': numbers.format(state.salesInCompleted),
+          }),
+          style: const TextStyle(fontSize: 16),
+        ),
+        Text(
+          copy(AppCopyKey.pendingVisits, {
+            'count': numbers.format(state.pendingVisits),
+          }),
+          style: const TextStyle(fontSize: 16),
+        ),
+        if (state.offlineVisits > 0)
           Text(
-            copy(AppCopyKey.greeting, {'name': state.driverName}),
-            style: Theme.of(context).textTheme.headlineSmall,
+            copy(AppCopyKey.offlineVisits, {
+              'count': numbers.format(state.offlineVisits),
+            }),
+            style: TextStyle(
+              fontSize: 16,
+              color: Theme.of(context).colorScheme.error,
+              fontWeight: FontWeight.bold,
+            ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            copy(AppCopyKey.region, {'region': state.assignedRegion}),
-            style: TextStyle(fontSize: 17, color: Theme.of(context).colorScheme.onSurfaceVariant),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            copy(AppCopyKey.today, {'date': DateFormat.yMMMMd(locale).format(DateTime.now())}),
-            style: TextStyle(fontSize: 15, color: Theme.of(context).colorScheme.onSurfaceVariant),
-          ),
-          const Divider(height: 30, thickness: 1),
 
-          workSession,
-          const Divider(height: 30, thickness: 1),
-          Text(copy(AppCopyKey.routeSummary), style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 12),
-          Text(
-            copy(AppCopyKey.completedVisits, {'count': numbers.format(state.completedVisits)}),
-            style: const TextStyle(fontSize: 16),
-          ),
-          Text(
-            copy(AppCopyKey.salesVisits, {'count': numbers.format(state.salesInCompleted)}),
-            style: const TextStyle(fontSize: 16),
-          ),
-          Text(
-            copy(AppCopyKey.pendingVisits, {'count': numbers.format(state.pendingVisits)}),
-            style: const TextStyle(fontSize: 16),
-          ),
-          if (state.offlineVisits > 0)
-            Text(
-              copy(AppCopyKey.offlineVisits, {'count': numbers.format(state.offlineVisits)}),
-              style: TextStyle(
-                fontSize: 16,
-                color: Theme.of(context).colorScheme.error,
-                fontWeight: FontWeight.bold,
+        const SizedBox(height: 15),
+        Text(
+          copy(AppCopyKey.financialSummary),
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                copy(AppCopyKey.salesCash, {
+                  'amount': money.format(state.totalSalesCash),
+                }),
+                style: const TextStyle(fontSize: 16),
               ),
-            ),
-
-          const SizedBox(height: 15),
-          Text(copy(AppCopyKey.financialSummary), style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 12),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  copy(AppCopyKey.salesCash, {'amount': money.format(state.totalSalesCash)}),
-                  style: const TextStyle(fontSize: 16),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  copy(AppCopyKey.debtCash, {'count': numbers.format(state.debtPaymentsCount), 'amount': money.format(state.totalDebtPaid)}),
-                  style: const TextStyle(fontSize: 16),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  copy(AppCopyKey.totalCash, {'amount': money.format(state.totalCashOverall)}),
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 10),
-          Center(
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.list_alt_rounded),
-              label: Text(copy(AppCopyKey.openRoute)),
-              onPressed: openRoute,
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 30,
-                  vertical: 15,
-                ),
-                textStyle: const TextStyle(fontSize: 16),
+              const SizedBox(height: 4),
+              Text(
+                copy(AppCopyKey.debtCash, {
+                  'count': numbers.format(state.debtPaymentsCount),
+                  'amount': money.format(state.totalDebtPaid),
+                }),
+                style: const TextStyle(fontSize: 16),
               ),
+              const SizedBox(height: 4),
+              Text(
+                copy(AppCopyKey.totalCash, {
+                  'amount': money.format(state.totalCashOverall),
+                }),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 10),
+        Center(
+          child: ElevatedButton.icon(
+            icon: const Icon(Icons.list_alt_rounded),
+            label: Text(copy(AppCopyKey.openRoute)),
+            onPressed: openRoute,
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+              textStyle: const TextStyle(fontSize: 16),
             ),
           ),
+        ),
 
-          pendingTransfers,
-          OutlinedButton.icon(
-            onPressed: openCustody,
-            icon: const Icon(Icons.inventory_2_outlined),
-            label: Text(copy(AppCopyKey.openCustody)),
-          ),
-
+        pendingTransfers,
+        OutlinedButton.icon(
+          onPressed: openCustody,
+          icon: const Icon(Icons.inventory_2_outlined),
+          label: Text(copy(AppCopyKey.openCustody)),
+        ),
       ],
     );
   }

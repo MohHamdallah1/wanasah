@@ -10,10 +10,12 @@ import '../data/recovery_sync_executor.dart';
 /// persistence and replay remain in the existing Recovery coordinator.
 class RecoveryViewController extends ChangeNotifier {
   RecoveryViewController({RecoverySyncCoordinator? coordinator})
-    : _coordinator = coordinator ?? RecoverySyncCoordinator(
-        reader: RecoveryReader(dataSource: LocalRecoveryDataSource()),
-        executor: ExistingSyncRepositoryExecutor(),
-      );
+    : _coordinator =
+          coordinator ??
+          RecoverySyncCoordinator(
+            reader: RecoveryReader(dataSource: LocalRecoveryDataSource()),
+            executor: ExistingSyncRepositoryExecutor(),
+          );
 
   final RecoverySyncCoordinator _coordinator;
   RecoverySnapshot? snapshot;

@@ -64,9 +64,7 @@ class _VisitListScreenState extends State<VisitListScreen>
 
   Future<void> _forceSync() async {
     final completion = Completer<void>();
-    _visitListBloc.add(
-      RefreshVisitsEvent(completion: completion),
-    );
+    _visitListBloc.add(RefreshVisitsEvent(completion: completion));
     await completion.future;
   }
 
@@ -74,11 +72,7 @@ class _VisitListScreenState extends State<VisitListScreen>
     final decision = await _actionGate.evaluate(action);
     if (!mounted) return false;
     if (decision != VisitRouteActionDecision.allowed) {
-      showVisitRouteGateFeedback(
-        context,
-        action: action,
-        decision: decision,
-      );
+      showVisitRouteGateFeedback(context, action: action, decision: decision);
       return false;
     }
     return true;
@@ -90,9 +84,7 @@ class _VisitListScreenState extends State<VisitListScreen>
 
     final result = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(
-        builder: (context) => const AddShopScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const AddShopScreen()),
     );
     if (!mounted) return;
     if (result == true) {
@@ -136,44 +128,45 @@ class _VisitListScreenState extends State<VisitListScreen>
       value: _visitListBloc,
       child: BlocListener<VisitListBloc, VisitListState>(
         listener: (context, state) {
-          if (state is VisitListLoaded &&
-              state.refreshResult != null) {
-            showVisitListRefreshFeedback(
-              context,
-              state.refreshResult!,
-            );
+          if (state is VisitListLoaded && state.refreshResult != null) {
+            showVisitListRefreshFeedback(context, state.refreshResult!);
           }
         },
         child: BlocBuilder<VisitListBloc, VisitListState>(
           builder: (context, state) {
-            final model =
-                state is VisitListLoaded ? state.model : null;
+            final model = state is VisitListLoaded ? state.model : null;
             final activeRoute =
                 _tabController.index == 1
                     ? VisitRouteKind.emergency
                     : VisitRouteKind.normal;
-            final locale =
-                Localizations.localeOf(context).toLanguageTag();
+            final locale = Localizations.localeOf(context).toLanguageTag();
 
             return Scaffold(
-              backgroundColor: widget.embedded
-                  ? Theme.of(context).colorScheme.surface : Colors.grey.shade50,
+              backgroundColor:
+                  widget.embedded
+                      ? Theme.of(context).colorScheme.surface
+                      : Colors.grey.shade50,
               appBar: AppBar(
                 automaticallyImplyLeading: !widget.embedded,
                 primary: !widget.embedded,
-                backgroundColor: widget.embedded
-                    ? Theme.of(context).colorScheme.surface : Colors.grey.shade50,
+                backgroundColor:
+                    widget.embedded
+                        ? Theme.of(context).colorScheme.surface
+                        : Colors.grey.shade50,
                 elevation: 0,
                 surfaceTintColor: Colors.transparent,
-                title: widget.embedded ? VisitRouteTabBar(
-                  controller: _tabController,
-                  emergencyCount: model?.emergencyCount ?? 0,
-                ) : Text(
-                  visitListString(
-                    VisitListStringKey.title,
-                    localeCode: locale,
-                  ),
-                ),
+                title:
+                    widget.embedded
+                        ? VisitRouteTabBar(
+                          controller: _tabController,
+                          emergencyCount: model?.emergencyCount ?? 0,
+                        )
+                        : Text(
+                          visitListString(
+                            VisitListStringKey.title,
+                            localeCode: locale,
+                          ),
+                        ),
                 centerTitle: true,
                 actions: [
                   IconButton(
@@ -185,10 +178,13 @@ class _VisitListScreenState extends State<VisitListScreen>
                     ),
                   ),
                 ],
-                bottom: widget.embedded ? null : VisitRouteTabBar(
-                  controller: _tabController,
-                  emergencyCount: model?.emergencyCount ?? 0,
-                ),
+                bottom:
+                    widget.embedded
+                        ? null
+                        : VisitRouteTabBar(
+                          controller: _tabController,
+                          emergencyCount: model?.emergencyCount ?? 0,
+                        ),
               ),
               floatingActionButton: FloatingActionButton(
                 onPressed: _openAddShop,
@@ -198,11 +194,7 @@ class _VisitListScreenState extends State<VisitListScreen>
                 ),
                 child: const Icon(Icons.add),
               ),
-              body: _buildBody(
-                state,
-                activeRoute,
-                locale,
-              ),
+              body: _buildBody(state, activeRoute, locale),
             );
           },
         ),
@@ -236,10 +228,7 @@ class _VisitListScreenState extends State<VisitListScreen>
             ElevatedButton(
               onPressed: _forceSync,
               child: Text(
-                visitListString(
-                  VisitListStringKey.retry,
-                  localeCode: locale,
-                ),
+                visitListString(VisitListStringKey.retry, localeCode: locale),
               ),
             ),
           ],
@@ -253,9 +242,7 @@ class _VisitListScreenState extends State<VisitListScreen>
         model: state.model,
         activeRoute: activeRoute,
         onFilterChanged:
-            (filter) => _visitListBloc.add(
-              FilterVisitsEvent(filter),
-            ),
+            (filter) => _visitListBloc.add(FilterVisitsEvent(filter)),
         onRefresh: _forceSync,
         onOpenVisit: _openVisit,
         onOpenMap: _openMap,
