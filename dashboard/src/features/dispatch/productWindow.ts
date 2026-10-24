@@ -52,6 +52,20 @@ export function selectedDispatchProducts(
   return result;
 }
 
+export function positiveDispatchInventory(
+  quantities: Record<string, number>,
+): Record<string, number> {
+  const result: Record<string, number> = {};
+
+  for (const [productId, rawQuantity] of Object.entries(quantities)) {
+    const quantity = Number(rawQuantity);
+    if (!Number.isSafeInteger(quantity) || quantity <= 0) continue;
+    result[productId] = quantity;
+  }
+
+  return result;
+}
+
 export function mergeDispatchProductWindow(
   selected: DispatchProductOption[],
   searched: DispatchProductOption[],

@@ -6,6 +6,7 @@ import {
   DISPATCH_PRODUCT_WINDOW_LIMIT,
   boundedDispatchProductSearch,
   mergeDispatchProductWindow,
+  positiveDispatchInventory,
   selectedDispatchProducts,
 } from "@/features/dispatch/productWindow";
 
@@ -51,6 +52,35 @@ describe("Dispatch large-catalog containment", () => {
     expect(merged[0]).toEqual({ id: "999", name: "Product 999" });
     expect(merged.some((product) => product.id === "1000")).toBe(false);
     expect(merged).toHaveLength(6);
+  });
+
+  it("keeps the launch payload sparse even if a 50k zero-filled map reaches the client", () => {
+    const quantities: Record<string, number> = Object.fromEntries(
+      Array.from({ length: 50_000 }, (_, index) => [String(index + 1), 0]),
+    );
+    quantities["504"] = 1;
+
+    expect(positiveDispatchInventory(quantities)).toEqual({ "504": 1 });
+  });
+
+  it("vehicle inventory endpoint returns actual loaded products only", () => {
+    const source = readFileSync(
+      join(process.cwd(), "../wa_backend/api/dispatch.py"),
+      "utf8",
+    ).replace(/\r\n/g, "\n");
+
+    const start = source.indexOf("async def get_vehicle_inventory");
+    const end = source.indexOf(
+      '@router.get("/dispatch/route/{route_id}/live_inventory"',
+      start,
+    );
+    const endpoint = source.slice(start, end);
+
+    expect(endpoint).toContain("if not loaded_ids:\n        return []");
+    expect(endpoint).toContain("ProductVariant.id.in_(loaded_ids)");
+    expect(endpoint).not.toContain(
+      "or_(product_capability_predicate(ProductVariant, ROUTE_LOAD_NEW), ProductVariant.id.in_(loaded_ids))",
+    );
   });
 
   it("does not construct heavy product modals while they are closed", () => {

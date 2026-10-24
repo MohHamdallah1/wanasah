@@ -1974,15 +1974,16 @@ async def get_vehicle_inventory(
     inventory_map = {int(pid): int(qty or 0) for pid, qty in rows}
 
     loaded_ids = sorted(inventory_map)
-    variant_filter = (
-        or_(product_capability_predicate(ProductVariant, ROUTE_LOAD_NEW), ProductVariant.id.in_(loaded_ids))
-        if loaded_ids
-        else product_capability_predicate(ProductVariant, ROUTE_LOAD_NEW)
-    )
+    if not loaded_ids:
+        return []
+
     variants = (
         await db.execute(
             select(ProductVariant)
-            .filter(ProductVariant.company_id == company_id, variant_filter)
+            .filter(
+                ProductVariant.company_id == company_id,
+                ProductVariant.id.in_(loaded_ids),
+            )
             .order_by(ProductVariant.id.asc())
         )
     ).scalars().all()
