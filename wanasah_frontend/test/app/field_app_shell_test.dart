@@ -219,6 +219,23 @@ void main() {
     expect(find.text('عرض العهدة'), findsNothing);
   });
 
+  testWidgets('persistent dock reserves space above route actions', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(app());
+    await tester.tap(find.byKey(const ValueKey('shell-tab-route')));
+    await tester.pumpAndSettle();
+
+    final fab = find.byKey(const ValueKey('route-probe-fab'));
+    final dockHome = find.byKey(const ValueKey('shell-tab-home'));
+    expect(fab, findsOneWidget);
+    expect(tester.getRect(fab).bottom, lessThanOrEqualTo(tester.getRect(dockHome).top));
+  });
+
   testWidgets('shell labels are locale resources', (tester) async {
     await tester.pumpWidget(app(locale: const Locale('en')));
     expect(find.text('Route'), findsOneWidget);
@@ -236,22 +253,29 @@ class _RouteProbe extends StatefulWidget {
 class _RouteProbeState extends State<_RouteProbe> {
   int count = 0;
   @override
-  Widget build(BuildContext context) => ListView(
-    children: [
-      Text('Route $count'),
-      TextButton(
-        onPressed: () => setState(() => count++),
-        child: const Text('Increment'),
-      ),
-      TextButton(
-        onPressed:
-            () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const Scaffold(body: Text('Protected draft')),
+  Widget build(BuildContext context) => Scaffold(
+    body: ListView(
+      children: [
+        Text('Route $count'),
+        TextButton(
+          onPressed: () => setState(() => count++),
+          child: const Text('Increment'),
+        ),
+        TextButton(
+          onPressed:
+              () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const Scaffold(body: Text('Protected draft')),
+                ),
               ),
-            ),
-        child: const Text('Deep action'),
-      ),
-    ],
+          child: const Text('Deep action'),
+        ),
+      ],
+    ),
+    floatingActionButton: FloatingActionButton(
+      key: const ValueKey('route-probe-fab'),
+      onPressed: () {},
+      child: const Icon(Icons.add),
+    ),
   );
 }
