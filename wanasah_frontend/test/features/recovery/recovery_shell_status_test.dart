@@ -184,11 +184,7 @@ void main() {
             builder:
                 (context) => ElevatedButton(
                   onPressed:
-                      () => refreshRecoveryWithFeedback(
-                        context,
-                        view,
-                        () {},
-                      ),
+                      () => refreshRecoveryWithFeedback(context, view, () {}),
                   child: const Text('refresh'),
                 ),
           ),
@@ -227,11 +223,7 @@ void main() {
             builder:
                 (context) => ElevatedButton(
                   onPressed:
-                      () => refreshRecoveryWithFeedback(
-                        context,
-                        view,
-                        () {},
-                      ),
+                      () => refreshRecoveryWithFeedback(context, view, () {}),
                   child: const Text('refresh'),
                 ),
           ),

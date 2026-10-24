@@ -584,7 +584,7 @@ abstract class AppLocalizations {
   /// No description provided for @homeSalesLabel.
   ///
   /// In ar, this message translates to:
-  /// **'بمبيعات'**
+  /// **'مبيعات'**
   String get homeSalesLabel;
 
   /// No description provided for @homeAwaitingSync.
