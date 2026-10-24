@@ -81,6 +81,8 @@ void main() {
   testWidgets('deep actions hide shell; back restores route then Home', (
     tester,
   ) async {
+    final semantics = tester.ensureSemantics();
+    addTearDown(semantics.dispose);
     await tester.pumpWidget(app());
     await tester.tap(find.byKey(const ValueKey('shell-tab-route')));
     await tester.pumpAndSettle();
