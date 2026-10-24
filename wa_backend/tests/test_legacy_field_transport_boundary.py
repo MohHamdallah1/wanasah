@@ -176,7 +176,7 @@ def _normalize_dashboard_inventory_identity(node):
     if len(matches) != 1:
         raise AssertionError("Expected exactly one canonical dashboard inventory payload")
 
-    payload, entries = matches
+    payload, entries = matches[0]
     variant_index, variant_value = entries["product_variant_id"]
     packs_index, packs_value = entries.get("packs_per_carton", (None, None))
     if (
