@@ -1,4 +1,4 @@
-import { useInventoryAccess } from "@/hooks/useInventoryAccess";
+﻿import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useTranslation } from "react-i18next";
 import { resolveI18nLocale } from "@/lib/locale";
 import { useDispatchOwnerNavigation } from "@/features/dispatch/useOwnerNavigation";
@@ -35,7 +35,8 @@ import {
 } from "@/features/dispatch/productWindow";
 // Types
 import { TabId, Zone, PendingRoute, Shortage, Shop } from "@/types/dispatch";
-import { useAuthFetch } from "@/hooks/useAuthFetch";\nimport { apiErrorMessage } from "@/lib/apiErrors";
+import { useAuthFetch } from "@/hooks/useAuthFetch";
+import { apiErrorMessage } from "@/lib/apiErrors";
 
 interface WarehouseOption {
   id: string;
@@ -2103,3 +2104,4 @@ export default function DispatchBoard() {
     </div>
   );
 }
+
