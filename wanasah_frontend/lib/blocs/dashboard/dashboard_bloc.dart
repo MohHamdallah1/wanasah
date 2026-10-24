@@ -115,6 +115,11 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         emit((state as DashboardLoaded).copyWith(clearActionMessage: true));
       }
     }, transformer: _sequential());
+    on<ClearWorkSessionIssueEvent>((event, emit) {
+      if (state is DashboardLoaded) {
+        emit((state as DashboardLoaded).copyWith(clearWorkSessionIssue: true));
+      }
+    }, transformer: _sequential());
 }
 
   // ─── LoadDashboardData ────────────────────────────────────────────────────
