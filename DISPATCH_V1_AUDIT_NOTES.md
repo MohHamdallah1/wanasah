@@ -224,6 +224,21 @@ After Tax is configured, the same tenant would next fail with `COMMERCIAL_ROUNDI
 
 This commercial fail-closed behavior is intentional and must not be bypassed just to make Dispatch launch succeed. The UI/setup flow, however, must make the prerequisite obvious before the operator reaches the Launch button.
 
+**Local development acceptance note (2026-10-24):** after taking a verified database backup, the local `wanasah_local` tenant received a development-only scaffold through the real domain services: published 0% Tax revision 1 plus `COMMERCIAL_ROUNDING` revision 1 for JOD with precision 3 / `HALF_UP`. This exists only to unblock the immediate route-launch test before the Tax/Settings UI is built; it is not a production default and must not be inferred as the company's real tax policy.
+
+### 2.17 A Dispatch render/chunk failure could destroy the whole dashboard session
+
+The global `DashboardErrorBoundary` previously offered only “return to login”. Clicking it did all of the following even when the failure was only a frontend component/chunk problem:
+
+- called the backend logout endpoint;
+- cleared all `localStorage`;
+- cleared all `sessionStorage`;
+- navigated to `/login`.
+
+That turns a local page-render failure into loss of authentication state and unrelated local drafts/preferences.
+
+The recovery screen must preserve session/local draft state and offer reload/home recovery first. Explicit logout belongs to the normal account/logout flow, not to a generic React error boundary.
+
 ## 3. Confirmed items that are NOT the main cause
 
 - Product data is mostly text/IDs, not images or video. Individual records are light, but **45,000 records multiplied across DB objects, JSON, React elements, DOM nodes and input components is not light**.
