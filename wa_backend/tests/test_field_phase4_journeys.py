@@ -190,6 +190,13 @@ async def test_field_sale_frozen_invoice_and_backoffice_views_share_same_truth(s
     dashboard = await call(g, "GET", "/driver/dashboard")
     assert dashboard.status_code == 200, dashboard.text
     assert Decimal(dashboard.json()["financials"]["total_sales_cash"]) == Decimal("50")
+    dashboard_inventory = dashboard.json()["active_session"]["inventory"]
+    dashboard_stock = next(
+        item for item in dashboard_inventory
+        if int(item["product_variant_id"]) == g.variant["id"]
+    )
+    assert "product_id" not in dashboard_stock
+    assert dashboard_stock["packs_per_carton"] == 50
     bo_stock = await call(g, "GET", f"/dispatch/inventory/{g.vehicle}", token=g.owner_token)
     assert bo_stock.status_code == 200, bo_stock.text
     stock = next(i for i in bo_stock.json() if int(i["product_id"]) == g.variant["id"])

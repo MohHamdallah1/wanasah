@@ -166,6 +166,7 @@ The first question it should answer is:
 - [x] Visit-list operator feedback no longer appends request IDs to normal SnackBars; request identity remains diagnostic/support evidence.
 - [ ] Owner visual acceptance pending for the first Route & Visits polish candidate after on-device review.
 - [x] Real-device acceptance defect fixed 2026-10-24: a launched Route before Work Session start returns a dashboard `active_session` envelope with `session_id=null` so vehicle inventory can be shown. Flutter now interprets only the exact pre-session Route envelope (`session_id=null`, no start/break evidence, Route inventory present) as inactive; malformed null-id session evidence still fails closed, and Flutter does not use authorization flags to classify session state.
+- [x] Real-device Route-load contract defect fixed 2026-10-24: `/driver/dashboard` vehicle inventory now exposes the concrete SKU as canonical `product_variant_id` (plus `packs_per_carton`) instead of the ambiguous `product_id` key that caused Flutter `ProductModel` parsing to fail as soon as a Route carried stock. Flutter does not accept `product_id` as a compatibility alias because elsewhere that name denotes the Product Master.
 
 
 ## 6. Custody — العهدة
