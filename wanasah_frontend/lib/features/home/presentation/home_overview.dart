@@ -23,7 +23,6 @@ class HomeOverview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final locale = Localizations.localeOf(context).toLanguageTag();
-    final l10n = AppLocalizations.of(context);
     final numbers = NumberFormat.decimalPattern(locale);
     final money = NumberFormat.currency(
       locale: locale,
