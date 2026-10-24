@@ -233,7 +233,10 @@ void main() {
     final fab = find.byKey(const ValueKey('route-probe-fab'));
     final dockHome = find.byKey(const ValueKey('shell-tab-home'));
     expect(fab, findsOneWidget);
-    expect(tester.getRect(fab).bottom, lessThanOrEqualTo(tester.getRect(dockHome).top));
+    expect(
+      tester.getRect(fab).bottom,
+      lessThanOrEqualTo(tester.getRect(dockHome).top),
+    );
   });
 
   testWidgets('shell labels are locale resources', (tester) async {
