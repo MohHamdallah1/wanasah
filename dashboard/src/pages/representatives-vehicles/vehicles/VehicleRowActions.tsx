@@ -1,4 +1,4 @@
-import { Info, MoreHorizontal, Pencil, Power, PowerOff } from "lucide-react";
+import { Info, MoreHorizontal, Package, Pencil, Power, PowerOff } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -14,6 +14,7 @@ interface VehicleRowActionsProps {
   vehicle: Vehicle;
   canManage: boolean;
   onView: (vehicle: Vehicle) => void;
+  onLoad: (vehicle: Vehicle) => void;
   onEdit: (vehicle: Vehicle) => void;
   onLifecycle: (vehicle: Vehicle) => void;
 }
@@ -22,6 +23,7 @@ export function VehicleRowActions({
   vehicle,
   canManage,
   onView,
+  onLoad,
   onEdit,
   onLifecycle,
 }: VehicleRowActionsProps) {
@@ -54,6 +56,13 @@ export function VehicleRowActions({
         >
           <Info className="h-4 w-4" aria-hidden="true" />
           {t("representativesVehicles.vehicles.details.action")}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => onLoad(vehicle)}
+          className="gap-2 rounded-lg px-2.5 py-2 text-xs font-black text-slate-700"
+        >
+          <Package className="h-4 w-4" aria-hidden="true" />
+          {t("representativesVehicles.vehicles.load.action")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
