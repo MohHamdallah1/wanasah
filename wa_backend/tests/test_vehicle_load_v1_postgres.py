@@ -7,7 +7,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -17,7 +17,6 @@ from domains.vehicles.contracts import CreateVehicleCommand, VehicleError, Vehic
 from domains.vehicles.lifecycle import deactivate_vehicle
 from domains.vehicles.management import create_vehicle
 from models import (
-    Base,
     Company,
     DispatchRoute,
     InventoryBalance,
@@ -36,9 +35,6 @@ from tests.canonical_actor_fixtures import seed_company_owner_fixture
 
 
 GATE_ENV = "WANASAH_VEHICLE_LOAD_PG_GATE"
-SCHEMA_PREFIX = "vehicle_load_v1_"
-
-
 class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -52,8 +48,6 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
         if not str(parsed.drivername).startswith("postgresql"):
             raise unittest.SkipTest("PostgreSQL is required")
         cls.raw_url = raw_url
-        cls.schema = SCHEMA_PREFIX + uuid4().hex
-        asyncio.run(cls._create_schema())
 
     @classmethod
     def _engine(cls):
@@ -62,44 +56,11 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
             poolclass=NullPool,
             connect_args={
                 "server_settings": {
-                    "search_path": f'"{cls.schema}",public',
                     "lock_timeout": "5000",
                     "statement_timeout": "12000",
                 }
             },
         )
-
-    @classmethod
-    async def _create_schema(cls) -> None:
-        admin = create_async_engine(cls.raw_url, poolclass=NullPool)
-        try:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'CREATE SCHEMA "{cls.schema}"'))
-            engine = cls._engine()
-            try:
-                async with engine.begin() as conn:
-                    await conn.run_sync(Base.metadata.create_all)
-            finally:
-                await engine.dispose()
-        except Exception:
-            async with admin.begin() as conn:
-                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{cls.schema}" CASCADE'))
-            raise
-        finally:
-            await admin.dispose()
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        async def cleanup() -> None:
-            admin = create_async_engine(cls.raw_url, poolclass=NullPool)
-            try:
-                async with admin.begin() as conn:
-                    await conn.execute(text(f'DROP SCHEMA IF EXISTS "{cls.schema}" CASCADE'))
-            finally:
-                await admin.dispose()
-
-        asyncio.run(cleanup())
-        super().tearDownClass()
 
     async def asyncSetUp(self) -> None:
         self.engine = self._engine()
