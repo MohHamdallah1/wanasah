@@ -98,6 +98,8 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
         )
         self.db.add_all([self.warehouse_a, self.warehouse_b])
         await self.db.flush()
+        self.warehouse_a_id = int(self.warehouse_a.id)
+        self.warehouse_b_id = int(self.warehouse_b.id)
 
         uom = UOM(name=f"Each {suffix}", code=f"E{suffix.upper()}")
         self.db.add(uom)
@@ -128,31 +130,33 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
         )
         self.db.add(self.variant)
         await self.db.flush()
+        self.variant_id = int(self.variant.id)
 
         self.db.add(
             ProductLocation(
                 company_id=self.company_id,
-                location_id=int(self.warehouse_a.id),
-                product_variant_id=int(self.variant.id),
+                location_id=self.warehouse_a_id,
+                product_variant_id=self.variant_id,
                 operational_flags=dict(DEFAULT_PRODUCT_LOCATION_FLAGS),
                 created_by=int(self.owner.operational_driver.id),
             )
         )
         self.batch = ProductBatch(
             company_id=self.company_id,
-            product_variant_id=int(self.variant.id),
+            product_variant_id=self.variant_id,
             batch_number=f"B-{suffix}",
             disposition="RELEASED",
             is_active=True,
         )
         self.db.add(self.batch)
         await self.db.flush()
+        self.batch_id = int(self.batch.id)
         self.db.add(
             InventoryBalance(
                 company_id=self.company_id,
-                location_id=int(self.warehouse_a.id),
-                product_variant_id=int(self.variant.id),
-                batch_id=int(self.batch.id),
+                location_id=self.warehouse_a_id,
+                product_variant_id=self.variant_id,
+                batch_id=self.batch_id,
                 stock_status="AVAILABLE",
                 on_hand_quantity=Decimal("10"),
                 reserved_quantity=Decimal("0"),
@@ -201,7 +205,7 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
         stock_status: str | None = None,
     ):
         item = {
-            "product_variant_id": int(self.variant.id),
+            "product_variant_id": self.variant_id,
             "quantity": Decimal(quantity),
         }
         if stock_status is not None:
@@ -222,8 +226,8 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
             select(InventoryBalance.on_hand_quantity).where(
                 InventoryBalance.company_id == self.company_id,
                 InventoryBalance.location_id == self.vehicle_location_id,
-                InventoryBalance.product_variant_id == int(self.variant.id),
-                InventoryBalance.batch_id == int(self.batch.id),
+                InventoryBalance.product_variant_id == self.variant_id,
+                InventoryBalance.batch_id == self.batch_id,
                 InventoryBalance.stock_status == status,
             )
         )
@@ -234,7 +238,7 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
             await self._mutate(
                 self.db,
                 direction="ADD",
-                warehouse_id=int(self.warehouse_a.id),
+                warehouse_id=self.warehouse_a_id,
                 quantity="11",
             )
         self.assertEqual(ctx.exception.code, "VEHICLE_LOAD_SOURCE_STOCK_CHANGED")
@@ -245,7 +249,7 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
         await self._mutate(
             self.db,
             direction="ADD",
-            warehouse_id=int(self.warehouse_a.id),
+            warehouse_id=self.warehouse_a_id,
             quantity="2",
         )
         flags = dict(DEFAULT_PRODUCT_LOCATION_FLAGS)
@@ -253,7 +257,7 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
         self.db.add(
             ProductLocation(
                 company_id=self.company_id,
-                location_id=int(self.warehouse_b.id),
+                location_id=self.warehouse_b_id,
                 product_variant_id=int(self.variant.id),
                 operational_flags=flags,
                 created_by=int(self.owner.operational_driver.id),
@@ -265,7 +269,7 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
             await self._mutate(
                 self.db,
                 direction="UNLOAD",
-                warehouse_id=int(self.warehouse_b.id),
+                warehouse_id=self.warehouse_b_id,
                 quantity="1",
                 stock_status="AVAILABLE",
             )
@@ -277,7 +281,7 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
             select(ProductLocation).where(
                 ProductLocation.company_id == self.company_id,
                 ProductLocation.location_id == int(self.warehouse_b.id),
-                ProductLocation.product_variant_id == int(self.variant.id),
+                ProductLocation.product_variant_id == self.variant_id,
             )
         )
         self.assertFalse(bool(row.operational_flags["inbound_enabled"]))
@@ -286,17 +290,19 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
         await self._mutate(
             self.db,
             direction="ADD",
-            warehouse_id=int(self.warehouse_a.id),
+            warehouse_id=self.warehouse_a_id,
             quantity="3",
         )
-        self.variant.operational_hold = "RECALL"
-        self.variant.lifecycle_revision = int(self.variant.lifecycle_revision) + 1
+        variant = await self.db.get(ProductVariant, self.variant_id)
+        self.assertIsNotNone(variant)
+        variant.operational_hold = "RECALL"
+        variant.lifecycle_revision = int(variant.lifecycle_revision) + 1
         await self.db.commit()
 
         await self._mutate(
             self.db,
             direction="UNLOAD",
-            warehouse_id=int(self.warehouse_b.id),
+            warehouse_id=self.warehouse_b_id,
             quantity="3",
             stock_status="AVAILABLE",
         )
@@ -306,8 +312,8 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
             select(InventoryBalance.on_hand_quantity).where(
                 InventoryBalance.company_id == self.company_id,
                 InventoryBalance.location_id == int(self.warehouse_b.id),
-                InventoryBalance.product_variant_id == int(self.variant.id),
-                InventoryBalance.batch_id == int(self.batch.id),
+                InventoryBalance.product_variant_id == self.variant_id,
+                InventoryBalance.batch_id == self.batch_id,
                 InventoryBalance.stock_status == "RECALLED",
             )
         )
@@ -315,8 +321,8 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
             select(InventoryBalance.on_hand_quantity).where(
                 InventoryBalance.company_id == self.company_id,
                 InventoryBalance.location_id == int(self.warehouse_b.id),
-                InventoryBalance.product_variant_id == int(self.variant.id),
-                InventoryBalance.batch_id == int(self.batch.id),
+                InventoryBalance.product_variant_id == self.variant_id,
+                InventoryBalance.batch_id == self.batch_id,
                 InventoryBalance.stock_status == "AVAILABLE",
             )
         )
@@ -328,14 +334,14 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
         await self._mutate(
             self.db,
             direction="ADD",
-            warehouse_id=int(self.warehouse_a.id),
+            warehouse_id=self.warehouse_a_id,
             quantity="1",
         )
         request_id = uuid4()
         first = await self._mutate(
             self.db,
             direction="UNLOAD",
-            warehouse_id=int(self.warehouse_b.id),
+            warehouse_id=self.warehouse_b_id,
             quantity="1",
             stock_status="AVAILABLE",
             request_id=request_id,
@@ -355,7 +361,7 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
         replay = await self._mutate(
             self.db,
             direction="UNLOAD",
-            warehouse_id=int(self.warehouse_b.id),
+            warehouse_id=self.warehouse_b_id,
             quantity="1",
             stock_status="AVAILABLE",
             request_id=request_id,
@@ -373,7 +379,7 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
             zone_id=int(zone.id),
             driver_id=int(self.owner.operational_driver.id),
             vehicle_id=self.vehicle_id,
-            source_location_id=int(self.warehouse_a.id),
+            source_location_id=self.warehouse_a_id,
             dispatch_date=date.today(),
             status="closed",
         )
@@ -400,7 +406,7 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
                 self._mutate(
                     contender,
                     direction="ADD",
-                    warehouse_id=int(self.warehouse_a.id),
+                    warehouse_id=self.warehouse_a_id,
                     quantity="1",
                 )
             )
