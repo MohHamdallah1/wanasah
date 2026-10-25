@@ -305,20 +305,20 @@ describe("CP5 ProductLocation capability closure", () => {
     });
   });
 
-  it("exposes ProductLocation as a normal Products row action while preserving the existing keyboard menu contract", () => {
+  it("keeps ProductLocation visible but disabled in the V1 Products row menu", () => {
     const actions = readFileSync(
       resolve(process.cwd(), "src/pages/products/list/ProductRowActions.tsx"),
       "utf8",
     );
 
     expect(actions).toContain("canViewProductLocations");
-    expect(actions).toContain("onManageProductLocations(");
     expect(actions).toContain("catalogLifecycle.assignments.title");
+    expect(actions).toContain("products.productLocationsV1Disabled");
+    expect(actions).toContain("<DropdownMenuItem");
+    expect(actions).toContain("disabled");
+    expect(actions).not.toContain("onManageProductLocations(");
     expect(actions).toContain("<DropdownMenuTrigger asChild>");
     expect(actions).toContain("loop");
-    expect(actions).toContain("const queueAfterMenuClose");
-    expect(actions).toContain("onCloseAutoFocus={");
-    expect(actions).toContain("queueMicrotask(action)");
   });
 
   it("removes Inventory mutation UI and hands ProductLocation focus to Products", async () => {

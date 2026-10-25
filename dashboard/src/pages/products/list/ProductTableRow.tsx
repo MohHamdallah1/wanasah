@@ -113,7 +113,7 @@ export function ProductTableRow({
 
   return (
     <tr className="group bg-white transition-colors hover:bg-slate-50/80">
-      <td className={`${cellSpacing} w-32 text-center`}>
+      <td className={`${cellSpacing} w-12 min-w-12 text-center`}>
         <span className="inline-flex min-w-7 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-1.5 py-1 text-[10px] font-black tabular-nums text-slate-500">
           {formatLocaleDecimal(
             String(rowNumber),
@@ -138,17 +138,15 @@ export function ProductTableRow({
           <span className="block break-words text-[13px] font-black leading-5 text-slate-950 transition group-hover:text-slate-700">
             {item.name}
           </span>
-          {item.family_name !==
-          item.name ? (
-            <span className="mt-0.5 block break-words text-[10px] font-bold leading-4 text-slate-500">
-              {item.family_name}
-            </span>
-          ) : null}
         </button>
       </td>
 
+      <td className={`${cellSpacing} w-[150px] max-w-[180px] truncate whitespace-nowrap text-start text-xs font-bold text-slate-600`} title={item.family_name}>
+        {item.family_name}
+      </td>
+
       {visibleColumns.package ? (
-        <td className={`${cellSpacing} w-[84px] text-center text-xs font-bold text-slate-700`}>
+        <td className={`${cellSpacing} w-[96px] whitespace-nowrap text-center text-xs font-bold text-slate-700`}>
           {item.package_uom_code
             ? t(
                 `uom.${item.package_uom_code}`,
