@@ -1,0 +1,201 @@
+name: Vehicle Load V1 acceptance
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "wa_backend/domains/inventory_vehicle_load/**"
+      - "wa_backend/api/vehicles/load.py"
+      - "wa_backend/api/vehicles/load_schemas.py"
+      - "wa_backend/api/vehicles/__init__.py"
+      - "wa_backend/tests/test_vehicle_load_v1_*"
+      - "dashboard/src/pages/representatives-vehicles/vehicles/load/**"
+      - "dashboard/src/pages/representatives-vehicles/vehicles/VehicleRowActions*"
+      - "dashboard/src/pages/representatives-vehicles/vehicles/VehicleTable*"
+      - "dashboard/src/pages/representatives-vehicles/vehicles/VehiclesTab.tsx"
+      - "dashboard/src/pages/representatives-vehicles/vehicles/vehicleErrorMessage.ts"
+      - "dashboard/src/pages/DispatchBoard.tsx"
+      - "dashboard/src/test/vehicle-load-v1-contract.test.ts"
+      - "dashboard/src/i18n/representativesVehicles.ts"
+      - ".github/workflows/vehicle-load-v1-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vehicle-load-v1-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  backend-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: VehicleLoadSyntheticKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://vehicle_load@127.0.0.1:1/vehicle_load
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt
+      - name: Compile Vehicle Load backend
+        run: >-
+          python -m compileall -q
+          wa_backend/domains/inventory_vehicle_load
+          wa_backend/api/vehicles/load.py
+          wa_backend/api/vehicles/load_schemas.py
+          wa_backend/tests/test_vehicle_load_v1_contract.py
+          wa_backend/tests/test_vehicle_load_v1_postgres.py
+      - name: Vehicle Load contract tests
+        working-directory: wa_backend
+        run: >-
+          python -m unittest
+          tests.test_vehicle_load_v1_contract
+          tests.test_vehicles_architecture
+          tests.test_vehicles_http_contract
+      - name: Diff check
+        run: git diff --check origin/main...HEAD
+
+  postgres-16:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: VehicleLoadPostgresKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://vehicle_load_app@127.0.0.1:55461/vehicle_load_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://vehicle_load_admin@127.0.0.1:55461/vehicle_load_test
+      WANASAH_VEHICLE_LOAD_PG_GATE: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL acceptance dependencies
+        run: python -m pip install -r wa_backend/requirements.txt
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name vehicle-load-postgres \
+            --env POSTGRES_USER=vehicle_load_admin \
+            --env POSTGRES_DB=vehicle_load_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55461:55461 \
+            postgres:16 -p 55461
+          for attempt in $(seq 1 30); do
+            if docker exec vehicle-load-postgres pg_isready -U vehicle_load_admin -d vehicle_load_test -p 55461; then exit 0; fi
+            sleep 1
+          done
+          docker logs vehicle-load-postgres
+          exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = (
+              make_url(os.environ["DATABASE_URL_MIGRATION"])
+              .set(drivername="postgresql")
+              .render_as_string(hide_password=False)
+          )
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              if conn.execute(
+                  "SELECT 1 FROM pg_roles WHERE rolname='vehicle_load_app'"
+              ).fetchone() is None:
+                  conn.execute(
+                      "CREATE ROLE vehicle_load_app LOGIN "
+                      "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS"
+                  )
+          PY
+      - name: Migrate disposable Vehicle Load database
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: Grant runtime DML after migration
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = (
+              make_url(os.environ["DATABASE_URL_MIGRATION"])
+              .set(drivername="postgresql")
+              .render_as_string(hide_password=False)
+          )
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT CONNECT ON DATABASE vehicle_load_test TO vehicle_load_app")
+              conn.execute("GRANT USAGE ON SCHEMA public TO vehicle_load_app")
+              conn.execute(
+                  "GRANT SELECT, INSERT, UPDATE, DELETE "
+                  "ON ALL TABLES IN SCHEMA public TO vehicle_load_app"
+              )
+              conn.execute(
+                  "GRANT USAGE, SELECT, UPDATE "
+                  "ON ALL SEQUENCES IN SCHEMA public TO vehicle_load_app"
+              )
+              conn.execute(
+                  "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO vehicle_load_app"
+              )
+          PY
+      - name: Vehicle Load PostgreSQL acceptance
+        working-directory: wa_backend
+        run: python -m unittest -v tests.test_vehicle_load_v1_postgres
+
+  dashboard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install locked dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Vehicle Load dashboard tests
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/test/vehicle-load-v1-contract.test.ts
+          src/pages/representatives-vehicles/vehicles/VehicleRowActions.test.tsx
+          src/pages/representatives-vehicles/vehicles/VehicleTable.test.tsx
+          src/pages/representatives-vehicles/vehicles/vehicleErrorMessage.test.ts
+          src/pages/representatives-vehicles/vehicles/vehicleI18n.test.ts
+          src/pages/representatives-vehicles/RepresentativesVehiclesPage.test.tsx
+          src/test/dispatch-navigation.test.ts
+          src/test/archive-owner-navigation.test.tsx
+      - name: TypeScript
+        working-directory: dashboard
+        run: npx tsc --noEmit
+      - name: ESLint
+        working-directory: dashboard
+        run: >-
+          npx eslint
+          src/pages/representatives-vehicles/vehicles/load
+          src/pages/representatives-vehicles/vehicles/VehicleRowActions.tsx
+          src/pages/representatives-vehicles/vehicles/VehicleRowActions.test.tsx
+          src/pages/representatives-vehicles/vehicles/VehicleTable.tsx
+          src/pages/representatives-vehicles/vehicles/VehiclesTab.tsx
+          src/pages/representatives-vehicles/vehicles/vehicleErrorMessage.ts
+          src/pages/DispatchBoard.tsx
+          src/test/vehicle-load-v1-contract.test.ts
+          src/i18n/representativesVehicles.ts
+      - name: Production build
+        working-directory: dashboard
+        run: npm run build

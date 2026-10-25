@@ -18,6 +18,7 @@ import type {
 import { VehicleDetailsModal } from "./VehicleDetailsModal";
 import { VehicleForm } from "./VehicleForm";
 import { VehicleLifecycleActions } from "./VehicleLifecycleActions";
+import { VehicleLoadModal } from "./load/VehicleLoadModal";
 import { VehicleTable } from "./VehicleTable";
 import { VehicleQuickUpdateModal, type VehicleQuickActionKind } from "./VehicleQuickUpdateModal";
 import type { VehicleNote } from "./vehiclePresentation";
@@ -28,7 +29,7 @@ import { useVehicles } from "./useVehicles";
 
 const filters: VehicleStatusFilter[] = ["all", "ready", "maintenance", "inactive"];
 type VehicleAction =
-  | { type: "view" | "edit" | "lifecycle"; vehicle: Vehicle }
+  | { type: "view" | "load" | "edit" | "lifecycle"; vehicle: Vehicle }
   | { type: "quick"; vehicle: Vehicle; kind: VehicleQuickActionKind };
 
 export function VehiclesTab() {
@@ -230,6 +231,7 @@ export function VehiclesTab() {
               loading={vehicles.query.isFetching && vehicles.items.length === 0}
               canManage={canManage}
               onView={(vehicle) => setAction({ type: "view", vehicle })}
+              onLoad={(vehicle) => setAction({ type: "load", vehicle })}
               onEdit={(vehicle) => { if (canManage) setAction({ type: "edit", vehicle }); }}
               onLifecycle={(vehicle) => { if (canManage) setAction({ type: "lifecycle", vehicle }); }}
               onNoteAction={openNoteAction}
@@ -266,6 +268,14 @@ export function VehiclesTab() {
           vehicle={action.vehicle}
           open
           onOpenChange={(open) => { if (!open) setAction(null); }}
+        />
+      ) : null}
+
+      {action?.type === "load" ? (
+        <VehicleLoadModal
+          vehicle={action.vehicle}
+          open
+          onClose={() => setAction(null)}
         />
       ) : null}
 
