@@ -63,6 +63,7 @@ describe("VehicleTable operator notes", () => {
         items={[{ ...base, next_maintenance_date: null, next_oil_change: 900 }]}
         canManage
         onView={() => undefined}
+        onLoad={() => undefined}
         onEdit={() => undefined}
         onLifecycle={() => undefined}
         onNoteAction={onNoteAction}
