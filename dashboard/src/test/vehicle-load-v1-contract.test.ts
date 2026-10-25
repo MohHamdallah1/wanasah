@@ -43,8 +43,8 @@ describe("Vehicle Load V1 contract", () => {
       "pages/representatives-vehicles/vehicles/load/api.ts",
     );
     expect(api).toContain("/load/source-inventory");
-    expect(api).toContain("/load/add");
-    expect(api).toContain("/load/unload");
+    expect(api).toContain('direction === "ADD" ? "add" : "unload"');
+    expect(api).toContain("/load/");
     expect(modal).toContain("snapshot.can_add");
     expect(modal).toContain("snapshot.can_unload");
     expect(modal).not.toContain("InventoryLocation");
