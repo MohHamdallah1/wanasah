@@ -36,7 +36,7 @@ export function useTransferCreate({
   const [policyBlocked, setPolicyBlocked] = useState(false);
   const restoringDraft = useRef(false);
   const draftScope = useRef<string | null>(null);
-  const [transferPurpose, setTransferPurpose] = useState<"REPLENISHMENT" | "WAREHOUSE_BALANCING">("WAREHOUSE_BALANCING");
+  const transferPurpose = "WAREHOUSE_BALANCING" as const;
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createDirection, setCreateDirection] =
@@ -60,7 +60,14 @@ export function useTransferCreate({
 
   const { transferLocations, setTransferLocations, transferLocationsLoading, transferLocationSearchInput, setTransferLocationSearchInput,
     sourceProducts, sourceProductsLoading, sourceProductsLoadingMore, sourceProductsNextCursor, productSearchInput, setProductSearchInput,
-    resetQueries, invalidateQueries, loadMoreSourceProducts } = useTransferQueries(createOpen, createDirection, locationId, counterpartLocationId, sourceLocationId);
+    resetQueries, invalidateQueries, loadMoreSourceProducts } = useTransferQueries(
+      createOpen,
+      createDirection,
+      locationId,
+      counterpartLocationId,
+      sourceLocationId,
+      destinationLocationId,
+    );
 
   const selectedAccess = useInventoryAccess(locationId);
   const sourceAccess = useInventoryAccess(sourceLocationId);
@@ -79,7 +86,6 @@ export function useTransferCreate({
   const resetCreateForm = useCallback(() => {
     resetQueries();
     resetFefo();
-    setTransferPurpose("WAREHOUSE_BALANCING");
     setCreateDirection("outgoing");
     setCounterpartLocationId(null);
     setCreateNotes("");
@@ -99,7 +105,6 @@ export function useTransferCreate({
         setCreateDirection(draft.direction);
         setCounterpartLocationId(draft.counterpart);
         setCreateNotes(draft.notes);
-        setTransferPurpose(draft.purpose);
         setDraftItems(draft.items);
         setTransferLocations(draft.locations);
       } else setCreateDirection(canOutgoing ? "outgoing" : "incoming");
@@ -130,9 +135,9 @@ export function useTransferCreate({
     if (!createOpen || !draftScope.current) return;
     try {
       writeTransferDraft(draftScope.current, { direction: createDirection, counterpart: counterpartLocationId,
-        notes: createNotes, purpose: transferPurpose, items: draftItems, locations: transferLocations });
+        notes: createNotes, purpose: "WAREHOUSE_BALANCING", items: draftItems, locations: transferLocations });
     } catch (error) { toast.error(getErrorMessage(error)); }
-  }, [createOpen, createDirection, counterpartLocationId, createNotes, transferPurpose, draftItems, transferLocations]);
+  }, [createOpen, createDirection, counterpartLocationId, createNotes, draftItems, transferLocations]);
 
   const addDraftProduct = (product: TransferSourceInventoryItem) => {
     if (
@@ -296,7 +301,7 @@ export function useTransferCreate({
   };
 
   return {
-    command, retryPendingDispatch, transferPurpose, setTransferPurpose, policyBlocked,
+    command, retryPendingDispatch, policyBlocked,
     canOutgoing, canIncoming, canSubmit, canOverride,
     createOpen,
     createDirection,
