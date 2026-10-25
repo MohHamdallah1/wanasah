@@ -36,7 +36,8 @@ export const productQualityInline = {
       openLinkedOperation: "عرض العملية المرتبطة",
       blockers: {
         reservedStock: "هناك {{quantity}} مرتبطة بعملية تشغيلية مفتوحة، مثل تحميل أو إرجاع مندوب. أنهِ أو ألغِ العملية المالكة أولًا؛ لا تعدّل الرصيد يدويًا.",
-        custody: "?? ???? ??????? ?? ??????? ???? ??? ????? ?? ??? ?????? ????? ?? ?????/??? ????? ?? ???? ???? ?? ?????. ??? ?????? ??? ?????? ????? ?????? ?? ???? ???????? ?? ????.",
+        custody: "لا يمكن إتلاف المنتج أو إرجاعه الآن لأن جزءًا من الكمية ليس داخل مستودع فعّال. أعد كل الكمية إلى مستودع فعّال أولًا، ثم افتح المعالجة من جديد.",
+        custodyLocations: "لا يمكن إتلاف المنتج أو إرجاعه الآن. الكمية الموجودة خارج المستودع: {{locations}}. أعدها إلى مستودع فعّال أولًا، ثم افتح المعالجة من جديد.",
       },
     },
     fields: {
@@ -86,7 +87,8 @@ export const productQualityInline = {
       openLinkedOperation: "View linked operation",
       blockers: {
         reservedStock: "{{quantity}} is tied to an open operational process, such as a pending driver load or return. Complete or cancel the owning operation first; do not edit the stock balance manually.",
-        custody: "Disposal or vendor return is unavailable because part of this product is with a representative/on a vehicle or in an unfinished movement. Return that stock to an active warehouse first, then reopen handling.",
+        custody: "Disposal or vendor return is unavailable because part of this product is outside an active warehouse. Return all stock to an active warehouse first, then reopen handling.",
+        custodyLocations: "Disposal or vendor return is unavailable. Stock outside the warehouse: {{locations}}. Return it to an active warehouse first, then reopen handling.",
       },
     },
     fields: { reason: "Reason", reasonMissing: "Enter the issue reason to continue.", recipientName: "Vendor / recipient", supervisorPassword: "Password", supervisorPasswordPlaceholder: "Enter your password" },
