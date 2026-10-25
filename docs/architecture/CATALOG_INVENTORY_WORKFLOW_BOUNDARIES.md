@@ -166,12 +166,14 @@ It does not create or redefine catalog identity except through an explicitly app
 
 ### 3.5 Transfers page
 
-**Purpose:** move existing physical stock between authorized locations.
+**Purpose:** move existing physical stock between authorized ordinary warehouses.
 
-It owns:
-- Source/destination selection under exact-location permission checks.
-- Warehouse/vehicle/custody movement workflows supported by the backend.
-- Transfer lifecycle and evidence.
+V1 generic Transfers owns:
+- Warehouse → Warehouse source/destination selection under exact-location permission checks.
+- The warehouse-transfer lifecycle and evidence.
+- Automatic destination ProductLocation creation only when the assignment is genuinely missing; an existing disabled assignment remains authoritative.
+
+It does **not** own Vehicle custody movement in V1. Vehicle load/unload belongs to the Vehicle/Dispatch operational context defined by `V1_SCOPE_FREEZE.md` and `docs/architecture/VEHICLES_V1_IMPLEMENTATION_CONTRACT.md`. An active-route Vehicle uses Dispatch **Adjust load**; a no-route Vehicle uses the bounded Vehicle Load workflow. Direct Vehicle → Vehicle is V2.
 
 It does not redefine product or batch business identity.
 
