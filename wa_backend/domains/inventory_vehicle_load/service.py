@@ -856,19 +856,25 @@ async def mutate_vehicle_load(
         await _require(access, "transfer.send", vehicle_location_id)
         await _require(access, "transfer.destination", warehouse_id)
 
-    idem, replay = await begin_idempotent_operation(
-        db,
-        company_id=company_id,
-        actor_id=int(actor_id),
-        operation=f"VEHICLE_LOAD_{normalized_direction}",
-        request_id=str(request_id),
-        request_hash=_request_hash(
-            vehicle_id=vehicle_id,
-            warehouse_id=warehouse_id,
-            direction=normalized_direction,
-            items=items,
-        ),
-    )
+    try:
+        idem, replay = await begin_idempotent_operation(
+            db,
+            company_id=company_id,
+            actor_id=int(actor_id),
+            operation=f"VEHICLE_LOAD_{normalized_direction}",
+            request_id=str(request_id),
+            request_hash=_request_hash(
+                vehicle_id=vehicle_id,
+                warehouse_id=warehouse_id,
+                direction=normalized_direction,
+                items=items,
+            ),
+        )
+    except InventoryMutationError as exc:
+        raise _error(
+            "VEHICLE_LOAD_IDEMPOTENCY_CONFLICT",
+            str(exc),
+        ) from exc
     if replay is not None:
         await db.rollback()
         return replay
@@ -882,7 +888,19 @@ async def mutate_vehicle_load(
     )
 
     ids = sorted({int(item["product_variant_id"]) for item in items})
-    authorities = await load_variant_uom_authorities(db, company_id=company_id, variant_ids=ids)
+    try:
+        authorities = await load_variant_uom_authorities(
+            db,
+            company_id=company_id,
+            variant_ids=ids,
+        )
+    except UomAuthorityError as exc:
+        raise _error(
+            exc.code,
+            exc.message,
+            status_code=422,
+            **exc.context,
+        ) from exc
     normalized_items = []
     seen = set()
     for item in items:
