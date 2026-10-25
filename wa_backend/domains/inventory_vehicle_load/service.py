@@ -35,10 +35,12 @@ from models import (
     ProductLocation,
     ProductVariant,
     UOM,
+    Vehicle,
     WorkSession,
 )
 from product_lifecycle import (
     DEFAULT_PRODUCT_LOCATION_FLAGS,
+    INBOUND_NEW,
     ROUTE_LOAD_NEW,
     acquire_product_lifecycle_guards,
     evaluate_product_capability,
@@ -632,6 +634,32 @@ async def vehicle_load_source_inventory(
     }
 
 
+async def _lock_direct_vehicle(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    vehicle_id: int,
+) -> Vehicle:
+    vehicle = (
+        await db.execute(
+            select(Vehicle)
+            .where(
+                Vehicle.company_id == int(company_id),
+                Vehicle.id == int(vehicle_id),
+            )
+            .order_by(Vehicle.id.asc())
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if vehicle is None:
+        raise _error(
+            "VEHICLE_NOT_FOUND",
+            "السيارة غير موجودة داخل الشركة.",
+            status_code=404,
+        )
+    return vehicle
+
+
 async def _lock_direct_context(
     db: AsyncSession,
     *,
@@ -688,18 +716,42 @@ async def _ensure_unload_product_locations(
     ids = sorted({int(value) for value in variant_ids})
     if not ids:
         return
-    existing = set(
-        (
-            await db.scalars(
-                select(ProductLocation.product_variant_id).where(
-                    ProductLocation.company_id == company_id,
-                    ProductLocation.location_id == int(warehouse_id),
-                    ProductLocation.product_variant_id.in_(ids),
-                )
+    existing_rows = (
+        await db.execute(
+            select(
+                ProductLocation.product_variant_id,
+                ProductLocation.operational_flags,
+            ).where(
+                ProductLocation.company_id == company_id,
+                ProductLocation.location_id == int(warehouse_id),
+                ProductLocation.product_variant_id.in_(ids),
             )
-        ).all()
+        )
+    ).all()
+    existing_flags = {
+        int(row.product_variant_id): row.operational_flags
+        for row in existing_rows
+    }
+    disabled = sorted(
+        variant_id
+        for variant_id in ids
+        if (
+            variant_id in existing_flags
+            and not product_location_allows(
+                existing_flags[variant_id],
+                INBOUND_NEW,
+            )
+        )
     )
-    missing = sorted(set(ids) - {int(value) for value in existing})
+    if disabled:
+        raise _error(
+            "PRODUCT_LOCATION_INBOUND_DISABLED",
+            "استلام الصنف معطّل في مستودع الوجهة.",
+            destination_location_id=int(warehouse_id),
+            product_variant_ids=disabled,
+        )
+
+    missing = sorted(set(ids) - set(existing_flags))
     if not missing:
         return
     rows = list(
@@ -741,6 +793,40 @@ async def _ensure_unload_product_locations(
                 "version": 1,
                 "created_by": int(actor_id),
             },
+        )
+
+    # A concurrent writer may have won ON CONFLICT with an explicitly disabled
+    # assignment. Re-read the authority instead of assuming our defaults won.
+    refreshed_rows = (
+        await db.execute(
+            select(
+                ProductLocation.product_variant_id,
+                ProductLocation.operational_flags,
+            ).where(
+                ProductLocation.company_id == company_id,
+                ProductLocation.location_id == int(warehouse_id),
+                ProductLocation.product_variant_id.in_(missing),
+            )
+        )
+    ).all()
+    refreshed_flags = {
+        int(row.product_variant_id): row.operational_flags
+        for row in refreshed_rows
+    }
+    concurrent_disabled = sorted(
+        variant_id
+        for variant_id in missing
+        if not product_location_allows(
+            refreshed_flags.get(variant_id),
+            INBOUND_NEW,
+        )
+    )
+    if concurrent_disabled:
+        raise _error(
+            "PRODUCT_LOCATION_INBOUND_DISABLED",
+            "استلام الصنف معطّل في مستودع الوجهة.",
+            destination_location_id=int(warehouse_id),
+            product_variant_ids=concurrent_disabled,
         )
 
 
@@ -935,11 +1021,15 @@ async def mutate_vehicle_load(
         raise _error("VEHICLE_LOAD_DIRECTION_INVALID", "اتجاه حركة الحمولة غير صالح.", status_code=422)
 
     company_id = access.company_id
+
+    # Resolve the stable custody identity without requiring current readiness so
+    # a completed idempotent replay remains reachable after later Vehicle state
+    # changes. New mutations re-check active custody after replay.
     vehicle_location_id = await _vehicle_location(
         db,
         company_id=company_id,
         vehicle_id=vehicle_id,
-        require_active=True,
+        require_active=False,
     )
     if normalized_direction == "ADD":
         await _require(access, "transfer.send", warehouse_id)
@@ -970,14 +1060,6 @@ async def mutate_vehicle_load(
     if replay is not None:
         await db.rollback()
         return replay
-
-    await _lock_direct_context(
-        db,
-        company_id=company_id,
-        vehicle_id=vehicle_id,
-        vehicle_location_id=vehicle_location_id,
-        warehouse_id=warehouse_id,
-    )
 
     ids = sorted({int(item["product_variant_id"]) for item in items})
     try:
@@ -1019,13 +1101,46 @@ async def mutate_vehicle_load(
             {"product_variant_id": variant_id, "stock_status": status, "quantity": quantity}
         )
 
-    if normalized_direction == "ADD":
-        vehicle = await read_vehicle_operational_state(
-            db, company_id=company_id, vehicle_id=vehicle_id
+    # Shared ownership/lock hierarchy:
+    # idempotency -> Vehicle -> product lifecycle -> inventory locations ->
+    # ProductLocation/batch/balance rows.
+    # Dispatch route activation/reassignment also locks Vehicle before Route,
+    # so the final owner re-check below serializes DIRECT vs ROUTE ownership.
+    vehicle = await _lock_direct_vehicle(
+        db,
+        company_id=company_id,
+        vehicle_id=vehicle_id,
+    )
+    await acquire_product_lifecycle_guards(
+        db,
+        company_id,
+        ids,
+        exclusive=False,
+    )
+
+    active_vehicle_location_id = await _vehicle_location(
+        db,
+        company_id=company_id,
+        vehicle_id=vehicle_id,
+        require_active=True,
+    )
+    if active_vehicle_location_id != int(vehicle_location_id):
+        raise _error(
+            "VEHICLE_CUSTODY_CHANGED",
+            "تغير موقع عهدة السيارة أثناء العملية.",
         )
+
+    await _lock_direct_context(
+        db,
+        company_id=company_id,
+        vehicle_id=vehicle_id,
+        vehicle_location_id=vehicle_location_id,
+        warehouse_id=warehouse_id,
+    )
+
+    if normalized_direction == "ADD":
         if not vehicle_is_operational(vehicle):
             raise _error("VEHICLE_NOT_OPERATIONAL", "السيارة متوقفة أو في الصيانة ولا تقبل حمولة جديدة.")
-        await acquire_product_lifecycle_guards(db, company_id, ids, exclusive=False)
         variants = list(
             (
                 await db.scalars(
@@ -1071,14 +1186,23 @@ async def mutate_vehicle_load(
                     warehouse_id=int(warehouse_id),
                 )
         as_of = await get_company_local_date(db, company_id)
-        allocations = await allocate_fefo_inventory_batch(
-            db,
-            company_id=company_id,
-            location_id=int(warehouse_id),
-            requests={item["product_variant_id"]: item["quantity"] for item in normalized_items},
-            as_of_date=as_of,
-            require_full=True,
-        )
+        try:
+            allocations = await allocate_fefo_inventory_batch(
+                db,
+                company_id=company_id,
+                location_id=int(warehouse_id),
+                requests={
+                    item["product_variant_id"]: item["quantity"]
+                    for item in normalized_items
+                },
+                as_of_date=as_of,
+                require_full=True,
+            )
+        except InventoryMutationError as exc:
+            raise _error(
+                "VEHICLE_LOAD_SOURCE_STOCK_CHANGED",
+                "الرصيد الصالح للتحميل تغيّر أو لم يعد يغطي الكمية المطلوبة.",
+            ) from exc
         specs = []
         for item in normalized_items:
             variant_id = item["product_variant_id"]
