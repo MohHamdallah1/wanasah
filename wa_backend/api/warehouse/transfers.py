@@ -9,6 +9,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, case, func, or_, select, tuple_
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -66,14 +67,15 @@ from schemas import (
 from quantity import canonical_quantity
 from domains.product_tracking import public_batch_number
 from product_lifecycle import (
+    DEFAULT_PRODUCT_LOCATION_FLAGS,
     INBOUND_NEW,
     REPLENISHMENT_NEW,
     WAREHOUSE_BALANCING,
     acquire_product_lifecycle_guards,
-    ensure_missing_product_locations,
     evaluate_product_capability,
     product_capability_predicate,
     product_location_allows,
+    record_domain_event,
 )
 
 from services import (
@@ -2250,6 +2252,83 @@ _GENERIC_TRANSFER_PURPOSE_CAPABILITY = {
 }
 
 
+
+async def _ensure_transfer_destination_product_locations(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    location_id: int,
+    variant_ids: List[int],
+    actor_id: int,
+    request_id: uuid.UUID,
+) -> set[int]:
+    """Create only genuinely missing destination assignments for generic transfers.
+
+    Generic transfer authorization and destination validation are owned by the
+    caller. Existing ProductLocation rows are never changed, so an explicit
+    inbound-disabled assignment remains authoritative.
+    """
+    normalized_ids = sorted({int(value) for value in variant_ids})
+    if not normalized_ids:
+        return set()
+
+    created_rows = list(
+        (
+            await db.execute(
+                pg_insert(ProductLocation)
+                .values([
+                    {
+                        "company_id": int(company_id),
+                        "location_id": int(location_id),
+                        "product_variant_id": int(variant_id),
+                        "operational_flags": dict(
+                            DEFAULT_PRODUCT_LOCATION_FLAGS
+                        ),
+                        "created_by": int(actor_id),
+                    }
+                    for variant_id in normalized_ids
+                ])
+                .on_conflict_do_nothing(
+                    constraint="uq_product_location_assignment"
+                )
+                .returning(
+                    ProductLocation.id,
+                    ProductLocation.product_variant_id,
+                )
+            )
+        ).all()
+    )
+
+    for product_location_id, product_variant_id in created_rows:
+        record_domain_event(
+            db,
+            company_id=int(company_id),
+            actor_id=int(actor_id),
+            request_id=request_id,
+            event_type="ProductLocationAssigned",
+            entity_type="ProductLocation",
+            entity_id=int(product_location_id),
+            reason="AUTO_WAREHOUSE_TRANSFER_DESTINATION",
+            before=None,
+            after={
+                "id": int(product_location_id),
+                "company_id": int(company_id),
+                "location_id": int(location_id),
+                "product_variant_id": int(product_variant_id),
+                "operational_flags": dict(
+                    DEFAULT_PRODUCT_LOCATION_FLAGS
+                ),
+                "version": 1,
+                "created_by": int(actor_id),
+            },
+        )
+
+    return {
+        int(product_variant_id)
+        for _, product_variant_id in created_rows
+    }
+
+
 # ====================================================
 # 10.14 إنشاء حوالة عامة REPLENISHMENT/WAREHOUSE_BALANCING ونقلها إلى IN_TRANSIT
 # ====================================================
@@ -2495,14 +2574,13 @@ async def unified_transfer_dispatch(
             )
 
         if missing_destination_assignment:
-            await ensure_missing_product_locations(
+            await _ensure_transfer_destination_product_locations(
                 db,
                 company_id=company_id,
                 location_id=payload.destination_location_id,
                 variant_ids=missing_destination_assignment,
                 actor_id=legacy_actor.id,
                 request_id=payload.request_id,
-                reason="AUTO_WAREHOUSE_TRANSFER_DESTINATION",
             )
             destination_rows = (
                 await db.execute(
