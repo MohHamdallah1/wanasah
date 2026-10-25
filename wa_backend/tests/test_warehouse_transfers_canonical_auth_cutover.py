@@ -329,7 +329,7 @@ class WarehouseTransfersCanonicalAuthCutoverTests(unittest.TestCase):
         )
         self.assertEqual(
             _call_count(TRANSFERS_TREE, "complete_idempotent_operation"),
-            10,
+            11,
         )
         self.assertEqual(_call_count(TRANSFERS_TREE, "with_for_update"), 3)
         self.assertEqual(
