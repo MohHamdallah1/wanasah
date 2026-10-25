@@ -14,13 +14,14 @@ interface VehicleTableProps {
   loading?: boolean;
   canManage: boolean;
   onView: (vehicle: Vehicle) => void;
+  onLoad: (vehicle: Vehicle) => void;
   onEdit: (vehicle: Vehicle) => void;
   onLifecycle: (vehicle: Vehicle) => void;
   onNoteAction: (vehicle: Vehicle, note: VehicleNote) => void;
 }
 
 
-export function VehicleTable({ items, loading = false, canManage, onView, onEdit, onLifecycle, onNoteAction }: VehicleTableProps) {
+export function VehicleTable({ items, loading = false, canManage, onView, onLoad, onEdit, onLifecycle, onNoteAction }: VehicleTableProps) {
   const { t, i18n } = useTranslation();
 
   const noteText = (note: VehicleNote) => {
@@ -107,7 +108,7 @@ export function VehicleTable({ items, loading = false, canManage, onView, onEdit
                 ) : <span className="text-xs font-semibold text-slate-400">—</span>}
               </td>
               <td className="border-b border-slate-100 px-4 py-2 text-center">
-                <VehicleRowActions vehicle={vehicle} canManage={canManage} onView={onView} onEdit={onEdit} onLifecycle={onLifecycle} />
+                <VehicleRowActions vehicle={vehicle} canManage={canManage} onView={onView} onLoad={onLoad} onEdit={onEdit} onLifecycle={onLifecycle} />
               </td>
             </tr>
           );
