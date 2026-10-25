@@ -97,6 +97,9 @@ jobs:
           done
           docker logs vehicle-load-postgres
           exit 1
+      - name: Migrate disposable Vehicle Load database
+        working-directory: wa_backend
+        run: alembic upgrade head
       - name: Vehicle Load PostgreSQL acceptance
         working-directory: wa_backend
         run: python -m unittest -v tests.test_vehicle_load_v1_postgres
