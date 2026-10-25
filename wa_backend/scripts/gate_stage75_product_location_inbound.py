@@ -11,6 +11,7 @@ I18N = ROOT / "dashboard" / "src" / "i18n" / "resources.ts"
 MODEL = ROOT / "wa_backend" / "models.py"
 STAGE3_GATE = ROOT / "wa_backend" / "scripts" / "gate_stage3_lifecycle.py"
 PRODUCT_LOCATIONS_API = ROOT / "wa_backend" / "api" / "product_locations.py"
+PRODUCT_LIFECYCLE = ROOT / "wa_backend" / "product_lifecycle.py"
 CATALOG_PANEL = ROOT / "dashboard" / "src" / "pages" / "inventory" / "catalog" / "CatalogLifecyclePanel.tsx"
 PRODUCTS_PAGE = ROOT / "dashboard" / "src" / "pages" / "products" / "ProductsPage.tsx"
 PRODUCT_DETAIL = ROOT / "dashboard" / "src" / "pages" / "products" / "detail" / "ProductDetailDrawer.tsx"
@@ -29,6 +30,7 @@ i18n = I18N.read_text(encoding="utf-8")
 model = MODEL.read_text(encoding="utf-8")
 stage3 = STAGE3_GATE.read_text(encoding="utf-8")
 product_locations_api = PRODUCT_LOCATIONS_API.read_text(encoding="utf-8")
+product_lifecycle = PRODUCT_LIFECYCLE.read_text(encoding="utf-8")
 catalog_panel = CATALOG_PANEL.read_text(encoding="utf-8")
 normal_products = (
     PRODUCTS_PAGE.read_text(encoding="utf-8")
@@ -41,9 +43,9 @@ check("no mass product-to-warehouse provisioning", "Never mass-provision every p
 check("first successful inbound lifecycle recorded", "أول Inbound ناجح للمستودع المختار" in plan)
 check("simple product service still has no ProductLocation writes", "ProductLocation(" not in simple_products and "product_locations" not in simple_products)
 check("inbound helper exists", "async def _ensure_first_inbound_product_locations(" in warehouse)
-check("lazy assignment uses unique conflict guard", '.on_conflict_do_nothing(\n                    constraint="uq_product_location_assignment"' in warehouse)
-check("lazy assignment uses default operational flags", "dict(DEFAULT_PRODUCT_LOCATION_FLAGS)" in warehouse)
-check("lazy assignment is audited", 'reason="AUTO_FIRST_INBOUND"' in warehouse and 'event_type="ProductLocationAssigned"' in warehouse)
+check("lazy assignment uses unique conflict guard", '.on_conflict_do_nothing(\n                    constraint="uq_product_location_assignment"' in product_lifecycle)
+check("lazy assignment uses default operational flags", "dict(DEFAULT_PRODUCT_LOCATION_FLAGS)" in product_lifecycle)
+check("lazy assignment is audited", 'reason="AUTO_FIRST_INBOUND"' in warehouse and 'event_type="ProductLocationAssigned"' in product_lifecycle)
 check("selected inbound location permission remains explicit", "await access.require('inbound.create', payload.location_id)" in warehouse)
 check("selected inbound target excludes system locations", "location_type='WAREHOUSE',\n                    is_system_managed=False,\n                    is_active=True" in warehouse)
 check("variant lookup is company scoped", "ProductVariant.company_id == company_id" in warehouse)
