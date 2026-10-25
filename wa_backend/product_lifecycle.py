@@ -6,12 +6,14 @@ from typing import Any, Iterable, Literal
 from uuid import UUID
 
 from sqlalchemy import and_, func, inspect, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import (
     DomainAuditEvent,
     InventoryTransferHeader,
     InventoryTransferLine,
+    ProductLocation,
     ProductVariant,
     TransactionalOutbox,
     utc_now,
@@ -373,6 +375,81 @@ def record_domain_event(
             attempts=0,
             available_at=now,
         ))
+
+
+async def ensure_missing_product_locations(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    location_id: int,
+    variant_ids: Iterable[int],
+    actor_id: int,
+    request_id: UUID,
+    reason: str,
+) -> set[int]:
+    """Create only genuinely missing sparse ProductLocation assignments.
+
+    Callers own the business authorization and destination/workflow validation.
+    Existing rows are never changed, so explicit inbound/outbound flags remain
+    authoritative. The insert and domain evidence stay in the caller transaction.
+    """
+    normalized_ids = sorted({int(value) for value in variant_ids})
+    if not normalized_ids:
+        return set()
+
+    rows = [
+        {
+            "company_id": int(company_id),
+            "location_id": int(location_id),
+            "product_variant_id": int(variant_id),
+            "operational_flags": dict(DEFAULT_PRODUCT_LOCATION_FLAGS),
+            "created_by": int(actor_id),
+        }
+        for variant_id in normalized_ids
+    ]
+    created_rows = list(
+        (
+            await db.execute(
+                pg_insert(ProductLocation)
+                .values(rows)
+                .on_conflict_do_nothing(
+                    constraint="uq_product_location_assignment"
+                )
+                .returning(
+                    ProductLocation.id,
+                    ProductLocation.product_variant_id,
+                )
+            )
+        ).all()
+    )
+
+    for product_location_id, product_variant_id in created_rows:
+        snapshot = {
+            "id": int(product_location_id),
+            "company_id": int(company_id),
+            "location_id": int(location_id),
+            "product_variant_id": int(product_variant_id),
+            "operational_flags": dict(DEFAULT_PRODUCT_LOCATION_FLAGS),
+            "version": 1,
+            "created_by": int(actor_id),
+        }
+        record_domain_event(
+            db,
+            company_id=int(company_id),
+            actor_id=int(actor_id),
+            request_id=request_id,
+            event_type="ProductLocationAssigned",
+            entity_type="ProductLocation",
+            entity_id=int(product_location_id),
+            reason=str(reason),
+            before=None,
+            after=snapshot,
+        )
+
+    return {
+        int(product_variant_id)
+        for _, product_variant_id in created_rows
+    }
 
 
 async def draft_delete_blockers(
