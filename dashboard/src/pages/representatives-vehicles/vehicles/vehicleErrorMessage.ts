@@ -28,6 +28,12 @@ const vehicleErrorKeys: Record<string, string> = {
   VEHICLE_FIELD_INVALID: "errors.codes.VALIDATION_ERROR",
   VEHICLE_VERSION_INVALID: "errors.codes.VALIDATION_ERROR",
   VEHICLE_MAINTENANCE_STATUS_INVALID: "representativesVehicles.vehicles.form.maintenanceInvalid",
+  VEHICLE_LOAD_PERMISSION_DENIED: "representativesVehicles.vehicles.load.permissionDenied",
+  VEHICLE_LOAD_OWNED_BY_WORKFLOW: "representativesVehicles.vehicles.load.workflowOwned",
+  VEHICLE_LOAD_IDEMPOTENCY_CONFLICT: "representativesVehicles.vehicles.errors.idempotencyConflict",
+  VEHICLE_LOAD_CURSOR_INVALID: "representativesVehicles.vehicles.errors.cursorInvalid",
+  VEHICLE_CUSTODY_LOCATION_UNAVAILABLE: "representativesVehicles.vehicles.errors.custodyUnavailable",
+  VEHICLE_NOT_OPERATIONAL: "representativesVehicles.vehicles.load.notOperational",
 };
 
 export function vehicleErrorMessage(error: unknown, fallback: string): string {
