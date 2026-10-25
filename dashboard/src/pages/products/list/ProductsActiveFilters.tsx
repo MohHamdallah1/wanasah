@@ -12,6 +12,7 @@ import { findProductSortOption } from "@/pages/products/list/productSortOptions"
 import type { ProductWarehouseFilterOption } from "@/pages/products/list/warehouseFilterContract";
 import type {
   ProductBooleanFilter,
+  ProductCommercialStatusFilter,
   ProductLifecycleFilter,
   ProductSortDirection,
   ProductSortField,
@@ -23,6 +24,7 @@ type Props = {
   familyFilterName: string;
   warehouseFilters: ProductWarehouseFilterOption[];
   lifecycleFilter: ProductLifecycleFilter;
+  commercialStatusFilter: ProductCommercialStatusFilter;
   trackingTypeFilter: ProductTrackingTypeFilter;
   compatibilityFilter: ProductBooleanFilter;
   barcodeFilter: ProductBooleanFilter;
@@ -37,6 +39,7 @@ type Props = {
   onFamilyFilterChange: (value: string) => void;
   onWarehouseFiltersChange: (value: ProductWarehouseFilterOption[]) => void;
   onLifecycleFilterChange: (value: ProductLifecycleFilter) => void;
+  onCommercialStatusFilterChange: (value: ProductCommercialStatusFilter) => void;
   onTrackingTypeFilterChange: (value: ProductTrackingTypeFilter) => void;
   onCompatibilityFilterChange: (value: ProductBooleanFilter) => void;
   onBarcodeFilterChange: (value: ProductBooleanFilter) => void;
@@ -93,6 +96,7 @@ export function ProductsActiveFilters({
   familyFilterName,
   warehouseFilters,
   lifecycleFilter,
+  commercialStatusFilter,
   trackingTypeFilter,
   compatibilityFilter,
   barcodeFilter,
@@ -107,6 +111,7 @@ export function ProductsActiveFilters({
   onFamilyFilterChange,
   onWarehouseFiltersChange,
   onLifecycleFilterChange,
+  onCommercialStatusFilterChange,
   onTrackingTypeFilterChange,
   onCompatibilityFilterChange,
   onBarcodeFilterChange,
@@ -127,6 +132,7 @@ export function ProductsActiveFilters({
     familyFilterId ||
       warehouseFilters.length > 0 ||
       lifecycleFilter ||
+      commercialStatusFilter ||
       trackingTypeFilter ||
       compatibilityFilter ||
       barcodeFilter ||
@@ -187,6 +193,18 @@ export function ProductsActiveFilters({
           )}
           onRemove={() =>
             onLifecycleFilterChange("")
+          }
+        />
+      ) : null}
+
+      {commercialStatusFilter ? (
+        <FilterChip
+          label={label(
+            "products.filters.lifecycle",
+            t("products.summary.stopped"),
+          )}
+          onRemove={() =>
+            onCommercialStatusFilterChange("")
           }
         />
       ) : null}

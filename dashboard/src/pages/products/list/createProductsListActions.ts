@@ -13,6 +13,7 @@ import type {
 } from "@/pages/products/contracts";
 import type {
   ProductBooleanFilter,
+  ProductCommercialStatusFilter,
   ProductLifecycleFilter,
   ProductSortDirection,
   ProductSortField,
@@ -46,6 +47,9 @@ type Params = {
   setWarehouseFilters: Dispatch<SetStateAction<ProductWarehouseFilterOption[]>>;
   setLifecycleFilter: Dispatch<
     SetStateAction<ProductLifecycleFilter>
+  >;
+  setCommercialStatusFilter: Dispatch<
+    SetStateAction<ProductCommercialStatusFilter>
   >;
   setTrackingTypeFilter: Dispatch<
     SetStateAction<ProductTrackingTypeFilter>
@@ -96,6 +100,7 @@ export function createProductsListActions({
   setWarehouseFilterSearchInput,
   setWarehouseFilters,
   setLifecycleFilter,
+  setCommercialStatusFilter,
   setTrackingTypeFilter,
   setCompatibilityFilter,
   setBarcodeFilter,
@@ -120,6 +125,7 @@ export function createProductsListActions({
     setWarehouseFilterSearchInput("");
     setWarehouseFilters([]);
     setLifecycleFilter("");
+    setCommercialStatusFilter("");
     setTrackingTypeFilter("");
     setCompatibilityFilter("");
     setBarcodeFilter("");
@@ -170,6 +176,17 @@ export function createProductsListActions({
     value: ProductLifecycleFilter
   ) => {
     setLifecycleFilter(value);
+    setCommercialStatusFilter("");
+    resetProductPagination();
+  };
+
+  const updateCommercialStatusFilter = (
+    value: ProductCommercialStatusFilter
+  ) => {
+    setCommercialStatusFilter(value);
+    if (value) {
+      setLifecycleFilter("");
+    }
     resetProductPagination();
   };
 
@@ -264,6 +281,7 @@ export function createProductsListActions({
     selectFamily,
     updateWarehouseFilters,
     updateLifecycleFilter,
+    updateCommercialStatusFilter,
     updateTrackingTypeFilter,
     updateCompatibilityFilter,
     updateBarcodeFilter,

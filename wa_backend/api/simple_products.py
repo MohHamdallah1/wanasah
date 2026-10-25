@@ -65,6 +65,7 @@ from domains.pricing.core import PricingError
 from domains.simple_products.catalog_summary import (
     CatalogSummaryResponse,
     load_catalog_summary,
+    stopped_product_predicate,
 )
 from domains.simple_products.status_reason import (
     load_current_product_status_reasons,
@@ -566,6 +567,7 @@ def _next_cursor(
 
 
 _PRODUCT_LIFECYCLES = {"ACTIVE", "RETIRING", "ARCHIVED"}
+_PRODUCT_COMMERCIAL_STATUSES = {"STOPPED"}
 _PRODUCT_TRACKING_TYPES = {
     "NONE",
     "LOT",
@@ -740,6 +742,7 @@ def _product_cursor_scope(
     search: str | None,
     family_id: int | None,
     lifecycle: str | None,
+    commercial_status: str | None,
     tracking_type: str | None,
     simple_compatible: bool | None,
     has_barcode: bool | None,
@@ -759,6 +762,7 @@ def _product_cursor_scope(
             ),
             "family_id": family_id,
             "lifecycle": lifecycle,
+            "commercial_status": commercial_status,
             "tracking_type": tracking_type,
             "simple_compatible":
                 simple_compatible,
@@ -786,6 +790,7 @@ def _product_cursor(
     search: str | None,
     family_id: int | None,
     lifecycle: str | None,
+    commercial_status: str | None,
     tracking_type: str | None,
     simple_compatible: bool | None,
     has_barcode: bool | None,
@@ -841,6 +846,7 @@ def _product_cursor(
                 search=search,
                 family_id=family_id,
                 lifecycle=lifecycle,
+                commercial_status=commercial_status,
                 tracking_type=tracking_type,
                 simple_compatible=
                     simple_compatible,
@@ -892,6 +898,7 @@ def _product_next_cursor(
     search: str | None,
     family_id: int | None,
     lifecycle: str | None,
+    commercial_status: str | None,
     tracking_type: str | None,
     simple_compatible: bool | None,
     has_barcode: bool | None,
@@ -933,6 +940,7 @@ def _product_next_cursor(
                 search=search,
                 family_id=family_id,
                 lifecycle=lifecycle,
+                commercial_status=commercial_status,
                 tracking_type=tracking_type,
                 simple_compatible=
                     simple_compatible,
@@ -1475,6 +1483,7 @@ async def list_simple_products(
     ),
     family_id: int | None = None,
     lifecycle: str | None = None,
+    commercial_status: str | None = None,
     tracking_type: str | None = None,
     simple_compatible: bool | None = None,
     has_barcode: bool | None = None,
@@ -1512,6 +1521,19 @@ async def list_simple_products(
         uppercase=True,
         code="SIMPLE_PRODUCT_FILTER_INVALID",
     )
+    commercial_status_value = _normalized_product_choice(
+        commercial_status,
+        field="commercial_status",
+        allowed=_PRODUCT_COMMERCIAL_STATUSES,
+        uppercase=True,
+        code="SIMPLE_PRODUCT_FILTER_INVALID",
+    )
+    if lifecycle_value is not None and commercial_status_value is not None:
+        raise _product_query_error(
+            code="SIMPLE_PRODUCT_FILTER_INVALID",
+            field="commercial_status",
+            value=commercial_status,
+        )
     tracking_value = _normalized_product_choice(
         tracking_type,
         field="tracking_type",
@@ -1592,6 +1614,7 @@ async def list_simple_products(
             search=search,
             family_id=family_id,
             lifecycle=lifecycle_value,
+            commercial_status=commercial_status_value,
             tracking_type=tracking_value,
             simple_compatible=simple_compatible,
             has_barcode=has_barcode,
@@ -1638,7 +1661,9 @@ async def list_simple_products(
             ProductVariant.company_id
             == company_id,
         )
-        if lifecycle_value is None:
+        if commercial_status_value == "STOPPED":
+            stmt = stmt.where(stopped_product_predicate())
+        elif lifecycle_value is None:
             stmt = stmt.where(
                 ProductVariant.lifecycle_status.in_(
                     ("ACTIVE", "RETIRING")
@@ -2114,6 +2139,7 @@ async def list_simple_products(
                     search=search,
                     family_id=family_id,
                     lifecycle=lifecycle_value,
+                    commercial_status=commercial_status_value,
                     tracking_type=tracking_value,
                     simple_compatible=
                         simple_compatible,

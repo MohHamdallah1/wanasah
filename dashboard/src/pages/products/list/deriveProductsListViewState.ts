@@ -8,6 +8,7 @@ import type { ProductWarehouseFilterOption } from "@/pages/products/list/warehou
 
 import type {
   ProductBooleanFilter,
+  ProductCommercialStatusFilter,
   ProductLifecycleFilter,
   ProductSortDirection,
   ProductSortField,
@@ -22,6 +23,7 @@ type Params = {
   familyFilterId: string;
   warehouseFilters: ProductWarehouseFilterOption[];
   lifecycleFilter: ProductLifecycleFilter;
+  commercialStatusFilter: ProductCommercialStatusFilter;
   trackingTypeFilter: ProductTrackingTypeFilter;
   compatibilityFilter: ProductBooleanFilter;
   barcodeFilter: ProductBooleanFilter;
@@ -40,6 +42,7 @@ export function deriveProductsListViewState({
   familyFilterId,
   warehouseFilters,
   lifecycleFilter,
+  commercialStatusFilter,
   trackingTypeFilter,
   compatibilityFilter,
   barcodeFilter,
@@ -57,7 +60,7 @@ export function deriveProductsListViewState({
   const visibleColumns =
     displayPreferences.columns;
   const productTableColumnCount =
-    2 +
+    3 + // number + product + family
     Number(
       visibleColumns.package
     ) +
@@ -93,6 +96,7 @@ export function deriveProductsListViewState({
         familyFilterId ||
         warehouseFilters.length > 0 ||
         lifecycleFilter ||
+        commercialStatusFilter ||
         trackingTypeFilter ||
         compatibilityFilter ||
         barcodeFilter ||
@@ -108,6 +112,7 @@ export function deriveProductsListViewState({
     Boolean(
       familyFilterId ||
         lifecycleFilter ||
+        commercialStatusFilter ||
         trackingTypeFilter ||
         compatibilityFilter ||
         barcodeFilter ||
