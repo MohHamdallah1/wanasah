@@ -42,6 +42,29 @@ class VehicleLoadV1ContractTests(unittest.TestCase):
         self.assertIn('owner.mode != _MODE_DIRECT', SERVICE)
         self.assertIn("_lock_direct_context(", SERVICE)
 
+    def test_direct_mutation_uses_canonical_lock_order_and_rechecks_owner(self):
+        vehicle_lock = SERVICE.index("vehicle = await _lock_direct_vehicle(")
+        lifecycle_lock = SERVICE.index("await acquire_product_lifecycle_guards(", vehicle_lock)
+        location_lock = SERVICE.index("await _lock_direct_context(", lifecycle_lock)
+        owner_recheck = SERVICE.index("owner = await resolve_vehicle_load_owner(", SERVICE.index("async def _lock_direct_context"))
+        self.assertLess(vehicle_lock, lifecycle_lock)
+        self.assertLess(lifecycle_lock, location_lock)
+        self.assertGreater(owner_recheck, SERVICE.index("acquire_inventory_location_guard(", SERVICE.index("async def _lock_direct_context")))
+        self.assertIn(".with_for_update()", SERVICE[SERVICE.index("async def _lock_direct_vehicle"):SERVICE.index("async def _lock_direct_context")])
+
+    def test_replay_precedes_active_custody_readiness(self):
+        mutate = SERVICE[SERVICE.index("async def mutate_vehicle_load"):]
+        replay = mutate.index("if replay is not None:")
+        active = mutate.index("require_active=True")
+        self.assertLess(replay, active)
+        self.assertIn("require_active=False", mutate[:replay])
+
+    def test_unload_honors_existing_inbound_disabled_assignment(self):
+        unload = SERVICE[SERVICE.index("async def _ensure_unload_product_locations"):SERVICE.index("async def _allocate_vehicle_status")]
+        self.assertIn("INBOUND_NEW", unload)
+        self.assertIn("PRODUCT_LOCATION_INBOUND_DISABLED", unload)
+        self.assertIn("concurrent_disabled", unload)
+
     def test_add_path_is_operational_lifecycle_product_location_and_fefo_guarded(self):
         for fragment in (
             "vehicle_is_operational(vehicle)",
