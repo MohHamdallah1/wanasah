@@ -1379,9 +1379,7 @@ async def list_unified_transfers(
                 select(InventoryLocation.id).filter(
                     InventoryLocation.company_id == company_id,
                     InventoryLocation.id == location_id,
-                    InventoryLocation.location_type.in_(
-                        ['WAREHOUSE', 'VEHICLE', 'SCRAP']
-                    ),
+                    InventoryLocation.location_type == 'WAREHOUSE',
                 )
             )
         ).scalar_one_or_none()
@@ -1400,6 +1398,9 @@ async def list_unified_transfers(
         InventoryTransferHeader.company_id == company_id,
         transfer_filter(access),
         InventoryTransferHeader.workflow_type == 'TRANSIT',
+        InventoryTransferHeader.transfer_purpose.in_(
+            sorted(_GENERIC_TRANSFER_PURPOSE_CAPABILITY)
+        ),
     )
 
     if normalized_status:
@@ -1517,6 +1518,9 @@ async def get_unified_transfer_detail(
                 InventoryTransferHeader.company_id == company_id,
                 InventoryTransferHeader.id == header_id,
                 InventoryTransferHeader.workflow_type == 'TRANSIT',
+                InventoryTransferHeader.transfer_purpose.in_(
+                    sorted(_GENERIC_TRANSFER_PURPOSE_CAPABILITY)
+                ),
             )
         )
     ).scalar_one_or_none()
