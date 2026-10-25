@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, case, func, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from api.authentication.backoffice_authorization import (
     get_current_backoffice_capability_access,
@@ -69,6 +70,7 @@ from product_lifecycle import (
     REPLENISHMENT_NEW,
     WAREHOUSE_BALANCING,
     acquire_product_lifecycle_guards,
+    ensure_missing_product_locations,
     evaluate_product_capability,
     product_capability_predicate,
     product_location_allows,
@@ -564,9 +566,7 @@ async def list_unified_transfer_locations(
                 'transfer.destination' if purpose == 'destination' else
                 ('transfer.read', 'transfer.send', 'transfer.destination')),
             InventoryLocation.is_active.is_(True),
-            InventoryLocation.location_type.in_(
-                ['WAREHOUSE', 'VEHICLE']
-            ),
+            InventoryLocation.location_type == 'WAREHOUSE',
         )
     )
 
@@ -631,33 +631,100 @@ async def get_unified_transfer_source_inventory(
     access: BackofficeCapabilityAccess = Depends(
         get_current_backoffice_capability_access
     ),
+    destination_location_id: Optional[int] = Query(default=None, ge=1),
+    transfer_purpose: str = Query(
+        default="WAREHOUSE_BALANCING",
+        pattern="^(REPLENISHMENT|WAREHOUSE_BALANCING)$",
+    ),
 ):
     await _require_transfer_capability(access, 'transfer.send', location_id)
 
     company_id = access.company_id
     clean_search = (search or "").strip().lower()
+    normalized_purpose = str(transfer_purpose or "").strip().upper()
+    lifecycle_capability = _GENERIC_TRANSFER_PURPOSE_CAPABILITY.get(
+        normalized_purpose
+    )
+    if lifecycle_capability is None:
+        raise HTTPException(
+            status_code=422,
+            detail=inventory_business_error(
+                "TRANSFER_PURPOSE_INVALID",
+                "غرض الحوالة العامة غير صالح.",
+                context={"transfer_purpose": normalized_purpose},
+            ),
+        )
 
     location = (
         await db.execute(
-            select(
-                InventoryLocation.id,
-                InventoryLocation.location_type,
-            ).filter(
+            select(InventoryLocation.id).filter(
                 InventoryLocation.company_id == company_id,
                 InventoryLocation.id == location_id,
                 InventoryLocation.is_active.is_(True),
-                InventoryLocation.location_type.in_(
-                    ['WAREHOUSE', 'VEHICLE']
-                ),
+                InventoryLocation.location_type == 'WAREHOUSE',
             )
         )
-    ).one_or_none()
+    ).scalar_one_or_none()
 
     if location is None:
         raise HTTPException(
             status_code=404,
-            detail="مصدر الحوالة غير موجود أو غير فعال أو لا يتبع شركتك.",
+            detail="مصدر الحوالة غير موجود أو غير فعال أو ليس مستودعاً تابعاً لشركتك.",
         )
+
+    if destination_location_id is not None:
+        if destination_location_id == location_id:
+            raise HTTPException(
+                status_code=422,
+                detail=inventory_business_error(
+                    "TRANSFER_SAME_LOCATION",
+                    "مصدر الحوالة ووجهتها يجب أن يكونا مختلفين.",
+                ),
+            )
+        await _require_transfer_capability(
+            access,
+            'transfer.destination',
+            destination_location_id,
+        )
+        destination = (
+            await db.execute(
+                select(InventoryLocation.id).filter(
+                    InventoryLocation.company_id == company_id,
+                    InventoryLocation.id == destination_location_id,
+                    InventoryLocation.is_active.is_(True),
+                    InventoryLocation.location_type == 'WAREHOUSE',
+                )
+            )
+        ).scalar_one_or_none()
+        if destination is None:
+            raise HTTPException(
+                status_code=404,
+                detail="وجهة الحوالة غير موجودة أو غير فعالة أو ليست مستودعاً تابعاً لشركتك.",
+            )
+
+    lifecycle_predicate = product_capability_predicate(
+        ProductVariant,
+        lifecycle_capability,
+    )
+    if normalized_purpose == "WAREHOUSE_BALANCING":
+        allow_retiring_balancing = False
+        if "transfer.warehouse_balancing_override" in await access.codes():
+            try:
+                await resolve_retiring_warehouse_balancing_override_context(
+                    db,
+                    company_id=company_id,
+                )
+                allow_retiring_balancing = True
+            except (InventoryRuleError, InventoryMutationError):
+                allow_retiring_balancing = False
+        if allow_retiring_balancing:
+            lifecycle_predicate = or_(
+                lifecycle_predicate,
+                and_(
+                    ProductVariant.lifecycle_status == "RETIRING",
+                    ProductVariant.operational_hold != "RECALL",
+                ),
+            )
 
     as_of_date = await get_company_local_date(db, company_id)
 
@@ -705,6 +772,7 @@ async def get_unified_transfer_source_inventory(
         InventoryBalance.on_hand_quantity
         - InventoryBalance.reserved_quantity
     )
+    destination_assignment = aliased(ProductLocation)
 
     stmt = (
         select(
@@ -753,7 +821,7 @@ async def get_unified_transfer_source_inventory(
         )
         .filter(
             ProductVariant.company_id == company_id,
-            product_capability_predicate(ProductVariant, WAREHOUSE_BALANCING),
+            lifecycle_predicate,
             sellable_batch,
             ProductLocation.operational_flags['outbound_enabled'].as_boolean().is_(True),
             InventoryBalance.company_id == company_id,
@@ -761,7 +829,30 @@ async def get_unified_transfer_source_inventory(
             InventoryBalance.stock_status == 'AVAILABLE',
             ~active_lock_exists,
         )
-        .group_by(
+    )
+
+    if destination_location_id is not None:
+        stmt = stmt.outerjoin(
+            destination_assignment,
+            and_(
+                destination_assignment.company_id
+                == ProductVariant.company_id,
+                destination_assignment.product_variant_id
+                == ProductVariant.id,
+                destination_assignment.location_id
+                == destination_location_id,
+            ),
+        ).filter(
+            or_(
+                destination_assignment.id.is_(None),
+                destination_assignment.operational_flags[
+                    'inbound_enabled'
+                ].as_boolean().is_(True),
+            )
+        )
+
+    stmt = (
+        stmt.group_by(
             ProductVariant.id,
             ProductVariant.name,
             ProductVariant.sku,
@@ -792,7 +883,8 @@ async def get_unified_transfer_source_inventory(
         )
 
     scope = (
-        f"transfer-source|{company_id}|{location_id}|{clean_search}"
+        f"transfer-source|{company_id}|{location_id}|"
+        f"{destination_location_id or 0}|{normalized_purpose}|{clean_search}"
     )
 
     total = None
@@ -856,7 +948,9 @@ async def get_unified_transfer_source_inventory(
                 "base_uom_name": str(row.base_uom_name),
                 "quantity_scale": int(row.quantity_scale),
                 "quantity_step": canonical_quantity(row.quantity_step),
-                "available_quantity": canonical_quantity(row.available_quantity or 0),
+                "available_quantity": canonical_quantity(
+                    row.available_quantity or 0
+                ),
             }
             for row in page_rows
         ],
