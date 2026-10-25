@@ -358,7 +358,7 @@ export function ProductsListResults({
           ref={scrollContainerRef}
           className="min-h-0 flex-1 overflow-auto bg-white"
         >
-          <table className="w-full min-w-[1040px] text-start text-sm">
+          <table className="w-full min-w-[980px] text-start text-sm">
             <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 text-[11px] font-black text-slate-500 backdrop-blur-sm">
               <tr>
                 <th
@@ -372,31 +372,31 @@ export function ProductsListResults({
                     "products.columns.product",
                   )}
                 </th>
-                <th className={`${tableHeaderSpacing} w-[112px] whitespace-nowrap text-start`}>
+                <th className={`${tableHeaderSpacing} w-[104px] whitespace-nowrap text-start`}>
                   {t("products.columns.family")}
                 </th>
                 {columns.package ? (
-                  <th className={`${tableHeaderSpacing} w-[96px] whitespace-nowrap text-center`}>
+                  <th className={`${tableHeaderSpacing} w-[88px] whitespace-nowrap text-center`}>
                     {t(
                       "products.columns.package",
                     )}
                   </th>
                 ) : null}
                 {columns.unitsPerPackage ? (
-                  <th className={`${tableHeaderSpacing} w-[92px] text-center`}>
+                  <th className={`${tableHeaderSpacing} w-[84px] text-center`}>
                     {t(
                       "products.columns.unitsPerPackage",
                     )}
                   </th>
                 ) : null}
                 {columns.tracking ? (
-                  <th className={`${tableHeaderSpacing} w-[235px] text-center`}>
+                  <th className={`${tableHeaderSpacing} w-[216px] text-center`}>
                     {t(
                       "products.columns.tracking",
                     )}
                   </th>
                 ) : null}
-                <th scope="col" className={`${tableHeaderSpacing} w-[108px] text-center`}>
+                <th scope="col" className={`${tableHeaderSpacing} w-[100px] text-center`}>
                   {t("products.tableStatus.column")}
                 </th>
                 {columns.unitBarcode ? (
