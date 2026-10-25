@@ -176,6 +176,25 @@ The Vehicle administration scope already implemented in merged PR #320 includes 
 - Bulk CSV/XLSX onboarding for Representatives/Vehicles is not required for V1 and is
   tracked as an optional future capability in `VERSION_2_FUTURE_FEATURES.md`.
 
+#### Owner-approved Vehicle load-management V1 scope amendment — 2026-10-25
+
+V1 closes the stranded-vehicle-custody gap without turning the generic Inventory Transfers page into a vehicle-transfer workspace.
+
+- Generic Inventory **Transfers** remains Warehouse → Warehouse only.
+- A Vehicle row exposes one compact **Load / الحمولة** action that can show the Vehicle's current authoritative nonzero custody stock without exposing technical InventoryLocation IDs.
+- If the Vehicle is bound to an active/waiting/postponed operational route or an unreconciled live WorkSession, the Vehicle surface must not create a second inventory-mutation path. It may show the current load, but any load change routes the operator to the existing route **Adjust load / تعديل الحمولة** workflow.
+- If the Vehicle has **no active operational route and no unreconciled WorkSession**, the Vehicle Load action may perform only Warehouse ↔ Vehicle custody operations:
+  - load stock from an explicitly selected authorized Warehouse into the Vehicle;
+  - unload stock from the Vehicle into an explicitly selected authorized Warehouse.
+- Loading stock into a Vehicle requires the Vehicle to be active, operational, and custody-ready. Unloading/cleanup must remain available where lifecycle safety allows so maintenance/inactive state cannot strand physical custody.
+- Warehouse selection is explicit per operation; V1 does not add permanent Vehicle↔Warehouse ownership.
+- Inventory movement authority remains the canonical Inventory/custody engine. Vehicle CRUD must never write InventoryBalance directly.
+- Authorization must include the exact affected Warehouse/location inventory capabilities in addition to the Vehicle read surface; `vehicle.manage` alone is not stock-movement authority.
+- FEFO/Batch selection, lifecycle/safety gates, locks, idempotency, audit, cost neutrality for internal transfers, and tenant/location isolation remain backend-owned.
+- Vehicle → Vehicle direct transfer is intentionally **not V1** and is tracked in `VERSION_2_FUTURE_FEATURES.md`.
+
+This is one operational capability with context-sensitive entry points, not duplicated business logic across Vehicles, Dispatch and Transfers.
+
 Advanced route optimization, generalized fleet-management expansion, or unrelated logistics features are V2 unless explicitly promoted through the scope-change guard.
 
 ### 5.5 Flutter field application — V1 REQUIRED

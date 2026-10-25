@@ -2,7 +2,7 @@
 
 **Status:** CANONICAL V2 BACKLOG — DO NOT DELETE OR ARCHIVE AS TEMPORARY NOTES  
 **Scope:** Product and operational capabilities intentionally deferred from Version 1
-**Last updated:** 2026-10-15
+**Last updated:** 2026-10-25
 
 This file is the canonical source of truth for capabilities intentionally deferred from Version 1. Some already have meaningful backend/domain foundations; others are future product or operational workflows that must not be mistaken for unfinished V1 work.
 
@@ -662,6 +662,32 @@ contracts. Add file onboarding only when real customer volume justifies it.
   plate uniqueness/idempotency.
 - [ ] Define row-level validation, retry/correction, partial-success semantics, audit, and
   tenant isolation before exposing either import to operators.
+
+### 10.5 Direct Vehicle → Vehicle inventory transfer
+
+**Owner decision (2026-10-25): Deferred to Version 2.**
+
+Version 1 intentionally supports Warehouse ↔ Warehouse transfers and bounded Warehouse ↔ Vehicle custody movement, but does **not** add a direct Vehicle → Vehicle stock transfer.
+
+V2 may add direct Vehicle → Vehicle transfer only as an explicit custody-handoff workflow, not as a generic balance edit.
+
+Required V2 design:
+
+- [ ] identify source and destination Vehicle custody explicitly and preserve company isolation;
+- [ ] define who currently owns/controls each Vehicle (route/session/representative context) before allowing the handoff;
+- [ ] if either Vehicle has an active route or live WorkSession, integrate with its custody/handshake authority rather than bypassing it;
+- [ ] require an explicit sender/receiver decision where operational custody demands it;
+- [ ] preserve exact Product/Batch/stock-status quantities through the Unified Inventory Movement authority;
+- [ ] keep the movement cost-neutral internally and create no sale COGS;
+- [ ] preserve FEFO/safety/lifecycle/lock/idempotency/audit rules;
+- [ ] define how pending reservations, route load plans, stocktake, maintenance, reconciliation and end-of-day settlement interact with the transfer;
+- [ ] provide one clear UI owner so Vehicle → Vehicle is not duplicated in Vehicles, Dispatch and generic Warehouse Transfers;
+- [ ] add full authorization, race, replay and interrupted-network acceptance gates before enabling it.
+
+Until this workflow is implemented and proven, an operator who must move stock from Vehicle A to Vehicle B uses the safe V1 sequence:
+
+**Vehicle A → authorized Warehouse → Vehicle B.**
+
 
 ---
 
