@@ -11,11 +11,12 @@ describe("Products V1 density polish", () => {
     const results = read("src/pages/products/list/ProductsListResults.tsx");
 
     expect(row).toContain("w-12 min-w-12");
+    expect(row).toContain("min-w-[320px]");
     expect(row).toContain("title={item.family_name}");
     expect(row).toContain("{item.family_name}");
     expect(row).toContain("whitespace-nowrap text-center text-xs font-bold");
     expect(results).toContain('products.columns.family');
-    expect(results).toContain('w-[150px] whitespace-nowrap text-start');
+    expect(results).toContain('w-[112px] whitespace-nowrap text-start');
     expect(results).toContain('w-[96px] whitespace-nowrap text-center');
   });
 

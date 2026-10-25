@@ -8,6 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models import Product, ProductVariant
 
 
+def stopped_product_predicate():
+    return and_(
+        ProductVariant.lifecycle_status != "ARCHIVED",
+        or_(
+            ProductVariant.lifecycle_status != "ACTIVE",
+            ProductVariant.operational_hold != "NONE",
+        ),
+    )
+
+
 class CatalogSummaryResponse(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
@@ -42,13 +52,7 @@ async def load_catalog_summary(
         .where(Product.company_id == company_id)
         .scalar_subquery()
     )
-    stopped_predicate = and_(
-        ProductVariant.lifecycle_status != "ARCHIVED",
-        or_(
-            ProductVariant.lifecycle_status != "ACTIVE",
-            ProductVariant.operational_hold != "NONE",
-        ),
-    )
+    stopped_predicate = stopped_product_predicate()
     row = (await db.execute(
         select(
             func.count().label("total"),

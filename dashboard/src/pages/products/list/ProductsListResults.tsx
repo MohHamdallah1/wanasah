@@ -367,12 +367,12 @@ export function ProductsListResults({
                 >
                   #
                 </th>
-                <th className={`${tableHeaderSpacing} text-start`}>
+                <th className={`${tableHeaderSpacing} min-w-[320px] text-start`}>
                   {t(
                     "products.columns.product",
                   )}
                 </th>
-                <th className={`${tableHeaderSpacing} w-[150px] whitespace-nowrap text-start`}>
+                <th className={`${tableHeaderSpacing} w-[112px] whitespace-nowrap text-start`}>
                   {t("products.columns.family")}
                 </th>
                 {columns.package ? (

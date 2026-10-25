@@ -193,24 +193,30 @@ describe("Company catalog summary contract and compact presentation", () => {
   ])("%s keeps Western digits and exposes only exactly supported filter buttons", (language, dir, title, stopped) => {
     const { Wrapper } = wrapper(language);
     const onChange = vi.fn();
+    const onCommercialChange = vi.fn();
     const { container, rerender } = render(
       <ProductsCatalogSummary data={summary} isFetching={false} error={null}
-        lifecycleFilter="" onLifecycleFilterChange={onChange} onRetry={vi.fn()} />,
+        lifecycleFilter="" commercialStatusFilter="" onLifecycleFilterChange={onChange}
+        onCommercialStatusFilterChange={onCommercialChange} onRetry={vi.fn()} />,
       { wrapper: Wrapper },
     );
     expect(screen.getByRole("group", { name: title })).toHaveAttribute("dir", dir);
-    expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(screen.getAllByRole("button")).toHaveLength(2);
     expect(container.textContent).toContain("1,234");
     expect(container.textContent).toContain(stopped);
     expect(container.textContent).not.toMatch(/[٠-٩۰-۹]/);
+    const stoppedButton = screen.getByRole("button", { name: new RegExp(stopped) });
+    expect(stoppedButton).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(stoppedButton);
+    expect(onCommercialChange).toHaveBeenLastCalledWith("STOPPED");
     const archivedButton = screen.getByRole("button", { name: new RegExp(language === "ar" ? "مؤرشف" : "Archived") });
     archivedButton.focus();
     expect(archivedButton).toHaveFocus();
     expect(archivedButton).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(archivedButton);
     expect(onChange).toHaveBeenLastCalledWith("ARCHIVED");
-    rerender(<ProductsCatalogSummary data={summary} isFetching={false} error={null} lifecycleFilter="ARCHIVED"
-      onLifecycleFilterChange={onChange} onRetry={vi.fn()} />);
+    rerender(<ProductsCatalogSummary data={summary} isFetching={false} error={null} lifecycleFilter="ARCHIVED" commercialStatusFilter=""
+      onLifecycleFilterChange={onChange} onCommercialStatusFilterChange={onCommercialChange} onRetry={vi.fn()} />);
     expect(screen.getByRole("button", { name: new RegExp(language === "ar" ? "مؤرشف" : "Archived") })).toHaveAttribute("aria-pressed", "true");
   });
 
@@ -218,7 +224,8 @@ describe("Company catalog summary contract and compact presentation", () => {
     const { Wrapper } = wrapper();
     const retry = vi.fn();
     render(<ProductsCatalogSummary data={summary} isFetching={false} error={new Error("offline")}
-      lifecycleFilter="" onLifecycleFilterChange={vi.fn()} onRetry={retry} />, { wrapper: Wrapper });
+      lifecycleFilter="" commercialStatusFilter="" onLifecycleFilterChange={vi.fn()}
+      onCommercialStatusFilterChange={vi.fn()} onRetry={retry} />, { wrapper: Wrapper });
     expect(screen.queryByText("1,234")).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
@@ -240,8 +247,20 @@ describe("Summary shares catalog identity/invalidation boundaries", () => {
     act(() => result.current.section.results.onLoadMore());
     await waitFor(() => expect(authFetch.mock.calls.some(([path]) => path.includes("cursor=next"))).toBe(true));
     const view = render(<ProductsCatalogSummary {...result.current.section.summary} />, { wrapper: Wrapper });
+    fireEvent.click(screen.getByRole("button", { name: /Stopped/ }));
+    await waitFor(() => expect(result.current.section.summary.commercialStatusFilter).toBe("STOPPED"));
+    await waitFor(() => {
+      const calls = authFetch.mock.calls.filter(([path]) => path.startsWith("/simple-products?"));
+      const params = new URLSearchParams(calls[calls.length - 1][0].split("?")[1]);
+      expect(params.get("commercial_status")).toBe("STOPPED");
+      expect(params.has("lifecycle")).toBe(false);
+      expect(params.has("cursor")).toBe(false);
+    });
+    view.rerender(<ProductsCatalogSummary {...result.current.section.summary} />);
+    expect(screen.getByRole("button", { name: /Stopped/ })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByRole("button", { name: /Archived/ }));
     await waitFor(() => expect(result.current.section.filters.lifecycleFilter).toBe("ARCHIVED"));
+    await waitFor(() => expect(result.current.section.summary.commercialStatusFilter).toBe(""));
     await waitFor(() => {
       const calls = authFetch.mock.calls.filter(([path]) => path.startsWith("/simple-products?"));
       const params = new URLSearchParams(calls[calls.length - 1][0].split("?")[1]);

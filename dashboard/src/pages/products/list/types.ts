@@ -4,6 +4,10 @@ export type ProductLifecycleFilter =
   | "RETIRING"
   | "ARCHIVED";
 
+export type ProductCommercialStatusFilter =
+  | ""
+  | "STOPPED";
+
 export type ProductTrackingTypeFilter =
   | ""
   | "NONE"

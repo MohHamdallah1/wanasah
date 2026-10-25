@@ -16,6 +16,7 @@ import type { ProductWarehouseFilterOption } from "@/pages/products/list/warehou
 
 import type {
   ProductBooleanFilter,
+  ProductCommercialStatusFilter,
   ProductLifecycleFilter,
   ProductSortDirection,
   ProductSortField,
@@ -51,6 +52,9 @@ type ListScope = {
   setWarehouseFilters: Dispatch<SetStateAction<ProductWarehouseFilterOption[]>>;
   setLifecycleFilter: Dispatch<
     SetStateAction<ProductLifecycleFilter>
+  >;
+  setCommercialStatusFilter: Dispatch<
+    SetStateAction<ProductCommercialStatusFilter>
   >;
   setTrackingTypeFilter: Dispatch<
     SetStateAction<ProductTrackingTypeFilter>
@@ -205,6 +209,7 @@ export function useProductsIdentityScopeReset({
     setWarehouseFilterSearch,
     setWarehouseFilters,
     setLifecycleFilter,
+    setCommercialStatusFilter,
     setTrackingTypeFilter,
     setCompatibilityFilter,
     setBarcodeFilter,
@@ -274,6 +279,7 @@ export function useProductsIdentityScopeReset({
     setWarehouseFilterSearch("");
     setWarehouseFilters([]);
     setLifecycleFilter("");
+    setCommercialStatusFilter("");
     setTrackingTypeFilter("");
     setCompatibilityFilter("");
     setBarcodeFilter("");
@@ -336,6 +342,7 @@ export function useProductsIdentityScopeReset({
     setImportLotControlMode,
     setImportTrackingExpanded,
     setLifecycleFilter,
+    setCommercialStatusFilter,
     setLotFilter,
     setPriceEdit,
     setPriceFilter,

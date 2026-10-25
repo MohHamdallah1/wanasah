@@ -6,6 +6,7 @@ import type { ProductWarehouseFilterOption } from "@/pages/products/list/warehou
 
 import type {
   ProductBooleanFilter,
+  ProductCommercialStatusFilter,
   ProductLifecycleFilter,
   ProductSortDirection,
   ProductSortField,
@@ -18,6 +19,7 @@ type Params = {
   familyFilterId: string;
   warehouseFilters: ProductWarehouseFilterOption[];
   lifecycleFilter: ProductLifecycleFilter;
+  commercialStatusFilter: ProductCommercialStatusFilter;
   trackingTypeFilter: ProductTrackingTypeFilter;
   compatibilityFilter: ProductBooleanFilter;
   barcodeFilter: ProductBooleanFilter;
@@ -36,6 +38,7 @@ export function useProductsListParams({
   familyFilterId,
   warehouseFilters,
   lifecycleFilter,
+  commercialStatusFilter,
   trackingTypeFilter,
   compatibilityFilter,
   barcodeFilter,
@@ -75,6 +78,12 @@ export function useProductsListParams({
           value.set(
             "lifecycle",
             lifecycleFilter,
+          );
+        }
+        if (commercialStatusFilter) {
+          value.set(
+            "commercial_status",
+            commercialStatusFilter,
           );
         }
         if (trackingTypeFilter) {
@@ -123,6 +132,7 @@ export function useProductsListParams({
         familyFilterId,
         warehouseFilters,
         lifecycleFilter,
+        commercialStatusFilter,
         trackingTypeFilter,
         compatibilityFilter,
         barcodeFilter,

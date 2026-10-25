@@ -36,7 +36,7 @@ export const productQualityInline = {
       openLinkedOperation: "عرض العملية المرتبطة",
       blockers: {
         reservedStock: "هناك {{quantity}} مرتبطة بعملية تشغيلية مفتوحة، مثل تحميل أو إرجاع مندوب. أنهِ أو ألغِ العملية المالكة أولًا؛ لا تعدّل الرصيد يدويًا.",
-        custody: "جزء من الكمية موجود خارج مستودع فعّال أو ضمن حيازة أو حركة قائمة. أعده إلى مستودع فعّال أولًا.",
+        custody: "?? ???? ??????? ?? ??????? ???? ??? ????? ?? ??? ?????? ????? ?? ?????/??? ????? ?? ???? ???? ?? ?????. ??? ?????? ??? ?????? ????? ?????? ?? ???? ???????? ?? ????.",
       },
     },
     fields: {
@@ -86,7 +86,7 @@ export const productQualityInline = {
       openLinkedOperation: "View linked operation",
       blockers: {
         reservedStock: "{{quantity}} is tied to an open operational process, such as a pending driver load or return. Complete or cancel the owning operation first; do not edit the stock balance manually.",
-        custody: "Part of the stock is outside an active warehouse or tied to custody or movement. Return it to an active warehouse first.",
+        custody: "Disposal or vendor return is unavailable because part of this product is with a representative/on a vehicle or in an unfinished movement. Return that stock to an active warehouse first, then reopen handling.",
       },
     },
     fields: { reason: "Reason", reasonMissing: "Enter the issue reason to continue.", recipientName: "Vendor / recipient", supervisorPassword: "Password", supervisorPasswordPlaceholder: "Enter your password" },

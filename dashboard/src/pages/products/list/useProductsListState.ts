@@ -6,6 +6,7 @@ import type { ProductWarehouseFilterOption } from "@/pages/products/list/warehou
 
 import type {
   ProductBooleanFilter,
+  ProductCommercialStatusFilter,
   ProductLifecycleFilter,
   ProductSortDirection,
   ProductSortField,
@@ -70,6 +71,13 @@ export function useProductsListState() {
     setLifecycleFilter,
   ] =
     useState<ProductLifecycleFilter>(
+      ""
+    );
+  const [
+    commercialStatusFilter,
+    setCommercialStatusFilter,
+  ] =
+    useState<ProductCommercialStatusFilter>(
       ""
     );
   const [
@@ -161,6 +169,8 @@ export function useProductsListState() {
     setWarehouseFilters,
     lifecycleFilter,
     setLifecycleFilter,
+    commercialStatusFilter,
+    setCommercialStatusFilter,
     trackingTypeFilter,
     setTrackingTypeFilter,
     compatibilityFilter,

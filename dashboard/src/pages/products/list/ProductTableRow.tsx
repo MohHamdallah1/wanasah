@@ -124,7 +124,7 @@ export function ProductTableRow({
         </span>
       </td>
 
-      <td className={cellSpacing}>
+      <td className={`${cellSpacing} min-w-[320px]`}>
         <button
           type="button"
           onClick={() =>
@@ -141,7 +141,7 @@ export function ProductTableRow({
         </button>
       </td>
 
-      <td className={`${cellSpacing} w-[150px] max-w-[180px] truncate whitespace-nowrap text-start text-xs font-bold text-slate-600`} title={item.family_name}>
+      <td className={`${cellSpacing} w-[112px] max-w-[128px] truncate whitespace-nowrap text-start text-xs font-bold text-slate-600`} title={item.family_name}>
         {item.family_name}
       </td>
 
