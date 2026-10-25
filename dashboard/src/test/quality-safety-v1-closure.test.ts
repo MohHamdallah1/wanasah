@@ -44,7 +44,8 @@ describe("V1 quality and safety workflow closure", () => {
     expect(previewHook).toContain("/resolve-preview");
     expect(inline).toContain('openAction("DISPOSE")');
     expect(inline).toContain('openAction("RETURN_TO_VENDOR")');
-    expect(inline).not.toContain("preview.data.locations");
+    expect(inline).toContain("preview.data.locations.filter");
+    expect(inline).toContain("custodyLocationsText");
     expect(inline).not.toContain("preview.data.batches");
     expect(inline).not.toContain("valuationLines");
     expect(inline).toContain("preview.data.totalBookValue");
@@ -127,6 +128,8 @@ describe("V1 quality and safety workflow closure", () => {
     expect(translations).toContain('title: "التأكيد النهائي"');
     expect(translations).toContain('reactivate: "إعادة تفعيل المنتج"');
     expect(translations).toContain('keepStopped: "إبقاء المنتج متوقفًا"');
+    expect(translations).toContain('custodyLocations: "لا يمكن إتلاف المنتج أو إرجاعه الآن.');
+    expect(translations).not.toContain('custody: "??');
     expect(translations).not.toContain("إجمالي القيمة الدفترية");
     expect(translations).not.toContain("FIFO");
   });

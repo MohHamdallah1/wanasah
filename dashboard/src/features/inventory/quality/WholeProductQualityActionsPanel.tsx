@@ -131,6 +131,31 @@ export function WholeProductQualityActionsPanel({
   };
 
   const previewBlocked = (preview.data?.blockerCodes.length ?? 0) > 0;
+  const custodyLocationsText = useMemo(() => {
+    if (!preview.data) return null;
+    const outsideWarehouse = preview.data.locations.filter(
+      (location) => location.locationType !== "WAREHOUSE",
+    );
+    if (outsideWarehouse.length === 0) return null;
+    return outsideWarehouse.map((location) => {
+      const display = formatCommercialQuantity(
+        location.quantity,
+        displayUomName,
+        baseUomName,
+        displayFactorToBase,
+      );
+      const quantity = `${display.primary}${display.secondary
+        ? ` — ${t("productQualityInline.totalBaseQuantity", { quantity: display.secondary })}`
+        : ""}`;
+      return `${location.locationName}: ${quantity}`;
+    }).join("، ");
+  }, [
+    baseUomName,
+    displayFactorToBase,
+    displayUomName,
+    preview.data,
+    t,
+  ]);
   const blockerText = useMemo(() => {
     const codes = preview.data?.blockerCodes ?? [];
     if (codes.includes("WHOLE_PRODUCT_QUALITY_RESERVED_STOCK")) {
@@ -140,10 +165,14 @@ export function WholeProductQualityActionsPanel({
       return t("productQualityInline.preview.blockers.reservedStock", { quantity: reserved });
     }
     if (codes.includes("WHOLE_PRODUCT_QUALITY_CUSTODY_BLOCKER")) {
-      return t("productQualityInline.preview.blockers.custody");
+      return custodyLocationsText
+        ? t("productQualityInline.preview.blockers.custodyLocations", {
+            locations: custodyLocationsText,
+          })
+        : t("productQualityInline.preview.blockers.custody");
     }
     return codes.length > 0 ? t("productQualityInline.preview.blocked") : null;
-  }, [preview.data?.blockerCodes, reservedDisplay, t]);
+  }, [custodyLocationsText, preview.data?.blockerCodes, reservedDisplay, t]);
   const interactionBlocked = commands.busyKey !== null
     || commands.pending !== null
     || commands.recoveryBlocked
