@@ -16,6 +16,7 @@ vi.mock("react-i18next", () => ({
       if (key.endsWith("permissions.manageRequired")) return "manage-blocked";
       return key;
     },
+    i18n: { dir: () => "rtl" },
   }),
 }));
 
