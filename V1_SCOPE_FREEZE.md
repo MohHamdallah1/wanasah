@@ -196,6 +196,26 @@ The V1 field app boundary is:
 
 Do not redesign Flutter into a new product before these required workflows are production-usable.
 
+#### Owner-approved Direct Field Sale V1 scope amendment — 2026-10-25
+
+V1 includes one bounded **Direct Sale / بيع مباشر** workflow for a field representative who sells from current vehicle custody to a walk-up/anonymous cash buyer without creating a fake Shop or fake Visit.
+
+The canonical implementation and acceptance authority is `DIRECT_FIELD_SALE_V1_PLAN.md`.
+
+V1 Direct Sale is intentionally bounded:
+
+- it is available only in an authorized active FIELD work context with assigned vehicle custody;
+- it is cash-only in V1 and creates no customer debt/balance;
+- it uses the existing authoritative pricing/tax/offer/sales-calculation/inventory/costing authorities rather than a parallel POS engine;
+- using the same pricing engine does **not** require using the same price as a Shop: the company must explicitly configure the Direct Sale pricing audience/profile as normal supported shop/base pricing or retail/direct-consumer pricing;
+- the representative does not manually choose the pricing audience, tax jurisdiction, Batch, cost or technical inventory location;
+- vehicle stock is consumed through canonical FEFO/Batch movement authority and normal product/batch safety gates;
+- Direct Sale cash contributes to the authoritative work-session expected-cash settlement;
+- stable idempotency/offline recovery must prevent duplicate inventory, cash, sale or COGS effects;
+- fake Shop creation, fake Visit creation, anonymous credit/debt, arbitrary field price override, cash refund and a generalized POS/CRM workflow are outside this V1 amendment.
+
+Implementation is deferred until the FIELD / Flutter sales closure track, before final Flutter/V1 production acceptance. It must not interrupt the current Inventory Transfers closure.
+
 ### 5.6 Commercial rules, offers and taxes — V1 REQUIRED only for enabled current workflows
 
 V1 includes the offers/tax/commercial-policy behavior already consumed by V1 product/visit/sales calculations and the minimum administration needed to operate it.
