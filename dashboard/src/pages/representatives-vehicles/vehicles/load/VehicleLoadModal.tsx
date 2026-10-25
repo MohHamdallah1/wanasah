@@ -18,9 +18,11 @@ import {
 } from "./api";
 import type {
   VehicleLoadDirection,
+  VehicleLoadItem,
   VehicleLoadMutationItem,
   VehicleLoadSnapshot,
   VehicleLoadSourceItem,
+  VehicleLoadStockStatus,
   VehicleLoadWarehouse,
 } from "./contracts";
 import { useVehicleLoadCommand } from "./useVehicleLoadCommand";
@@ -33,6 +35,13 @@ interface VehicleLoadModalProps {
 
 const itemKey = (productVariantId: number, stockStatus?: string) =>
   String(productVariantId) + ":" + (stockStatus || "AVAILABLE");
+
+const candidateStockStatus = (
+  item: VehicleLoadSourceItem | VehicleLoadItem,
+): VehicleLoadStockStatus | undefined =>
+  "stock_status" in item
+    ? (item.stock_status as VehicleLoadStockStatus)
+    : undefined;
 
 export function VehicleLoadModal({ vehicle, open, onClose }: VehicleLoadModalProps) {
   const { t } = useTranslation();
@@ -215,7 +224,7 @@ export function VehicleLoadModal({ vehicle, open, onClose }: VehicleLoadModalPro
 
     const items: VehicleLoadMutationItem[] = [];
     for (const item of candidates) {
-      const status = "stock_status" in item ? item.stock_status : undefined;
+      const status = candidateStockStatus(item);
       const key = itemKey(item.product_variant_id, status);
       const raw = (quantities[key] || "").trim();
       if (!raw) continue;
@@ -603,7 +612,7 @@ export function VehicleLoadModal({ vehicle, open, onClose }: VehicleLoadModalPro
                       ) : (
                         <div className="max-h-72 overflow-auto rounded-xl border border-slate-200">
                           {candidates.map((item) => {
-                            const status = "stock_status" in item ? item.stock_status : undefined;
+                            const status = candidateStockStatus(item);
                             const key = itemKey(item.product_variant_id, status);
                             return (
                               <div
