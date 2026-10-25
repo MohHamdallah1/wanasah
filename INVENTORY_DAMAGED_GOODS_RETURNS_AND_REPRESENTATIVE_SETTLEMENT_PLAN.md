@@ -102,7 +102,7 @@ Do not hard-code the assumption that settlement must happen every calendar day. 
 
 # 4. Vehicle → Warehouse custody handoff
 
-This is a required V1 closed-loop gap.
+The ended-session representative custody handoff is implemented for V1. The broader damaged-goods/shop-return lifecycle in later sections remains open.
 
 **Do not auto-transfer inventory merely because the driver ended work or a reconciliation screen opened.** The movement represents a real responsibility transfer and requires positive receiving confirmation.
 
@@ -121,13 +121,19 @@ Expected sequence:
 
 Required movement behavior:
 
-- [ ] `Vehicle / AVAILABLE → Warehouse / AVAILABLE` for remaining saleable stock that is physically returned.
-- [ ] `Vehicle / DAMAGED → Warehouse / DAMAGED` for damaged/expired/factory-defect goods physically handed over.
-- [ ] Preserve other supported non-AVAILABLE states exactly; do not convert status merely because location changes.
-- [ ] Preserve exact Batch identity and quantity through the handoff.
-- [ ] Do not use a status change when the real event is a physical location/custody transfer.
-- [ ] Create immutable movement/audit evidence for sender vehicle/work session and receiving actor.
-- [ ] Retry/idempotency must never duplicate receipt.
+- [x] `Vehicle / AVAILABLE → Warehouse / AVAILABLE` for remaining saleable stock that is physically returned.
+- [x] `Vehicle / DAMAGED → Warehouse / DAMAGED` for damaged/expired/factory-defect goods physically handed over.
+- [x] Preserve other supported non-AVAILABLE states exactly; do not convert status merely because location changes.
+- [x] Preserve exact Batch identity and quantity through the handoff.
+- [x] Do not use a status change when the real event is a physical location/custody transfer.
+- [x] Create immutable movement/audit evidence for sender vehicle/work session and receiving actor.
+- [x] Retry/idempotency must never duplicate receipt.
+
+Evidence:
+- `wa_backend/api/representative_settlement.py` owns the receiver-confirmed ended-session custody handoff, preserves Batch + stock status, routes discrepancies through Vehicle Recon, writes immutable audit evidence, and uses idempotent Unified Inventory Movement mutations.
+- `wa_backend/tests/test_representative_settlement_custody_postgres.py` exercises real PostgreSQL shortage/recount/approval, exact receiver-confirmed handoff, surplus, financial gating, and replay behavior, including DAMAGED custody.
+- Dashboard uses the same business flow through `dashboard/src/features/operations/representativeSettlement/`.
+- Live local acceptance on 2026-10-25 also exercised the separate active-route/no-WorkSession return path: Route 6 returned ProductVariant 505 quantity 6, Batch 1072, `AVAILABLE → AVAILABLE`, from `Vehicle 12-25132` to `ماركا الشمالية` through `DISPATCH_UNLOAD`. FIFO state stayed at 20 units / JOD 2.680000 and `WHOLE_PRODUCT_QUALITY_CUSTODY_BLOCKER` cleared.
 
 If expected damaged quantity is 4 and the receiver confirms only 3, the missing 1 does not disappear. It remains a recorded difference requiring the existing reconciliation/recount/approval path and attributable evidence.
 
@@ -420,10 +426,10 @@ The feature is not complete until end-to-end acceptance proves all of the follow
 
 - [ ] Shop 1:1 exchange creates one replacement outbound and one damaged inbound.
 - [ ] Returned damaged goods are visible in vehicle custody.
-- [ ] Vehicle reconciliation includes DAMAGED and all supported states.
-- [ ] Matching handoff moves exact quantities to warehouse.
-- [ ] Short/over receipt remains variance; no quantity is silently discarded.
-- [ ] Receiving actor and originating work session/vehicle remain attributable.
+- [x] Vehicle reconciliation includes DAMAGED and all supported states.
+- [x] Matching handoff moves exact quantities to warehouse.
+- [x] Short/over receipt remains variance; no quantity is silently discarded.
+- [x] Receiving actor and originating work session/vehicle remain attributable.
 
 ## 13.3 Batch and provenance
 
