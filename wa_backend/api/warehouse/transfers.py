@@ -2284,7 +2284,7 @@ async def unified_transfer_dispatch(
             company_id,
             payload.source_location_id,
             payload.destination_location_id,
-            allowed_types=['WAREHOUSE', 'VEHICLE']
+            allowed_types=['WAREHOUSE']
         )
 
         requested_variant_ids = {item.product_variant_id for item in payload.items}
@@ -2423,13 +2423,18 @@ async def unified_transfer_dispatch(
             ).where(
                 ProductLocation.company_id == company_id,
                 ProductLocation.product_variant_id.in_(requested_variant_ids),
-                ProductLocation.location_id.in_([payload.source_location_id, payload.destination_location_id]),
+                ProductLocation.location_id.in_([
+                    payload.source_location_id,
+                    payload.destination_location_id,
+                ]),
             )
         )).all()
         assignments = {
-            (int(row.location_id), int(row.product_variant_id)): row.operational_flags
+            (int(row.location_id), int(row.product_variant_id)):
+                row.operational_flags
             for row in assignment_rows
         }
+
         missing_source = sorted(
             variant_id for variant_id in requested_variant_ids
             if not product_location_allows(
@@ -2437,28 +2442,104 @@ async def unified_transfer_dispatch(
                 lifecycle_capability,
             )
         )
-        missing_destination = sorted(
-            variant_id for variant_id in requested_variant_ids
-            if location_types.get(payload.destination_location_id) == 'WAREHOUSE'
-            and not product_location_allows(
-                assignments.get((payload.destination_location_id, variant_id)),
-                INBOUND_NEW,
-            )
-        )
-        if missing_source or missing_destination:
+        if missing_source:
             raise HTTPException(
                 status_code=409,
                 detail={
                     "code": "PRODUCT_LOCATION_REQUIRED",
-                    "message": "الحوالة تتطلب ربطاً تشغيلياً صريحاً للصنف بالموقع.",
+                    "message": "الصنف غير مهيأ للصرف من مستودع المصدر.",
                     "context": {
                         "source_location_id": payload.source_location_id,
-                        "destination_location_id": payload.destination_location_id,
-                        "source_product_variant_ids": missing_source,
-                        "destination_product_variant_ids": missing_destination,
+                        "product_variant_ids": missing_source,
                     },
                 },
             )
+
+        missing_destination_assignment = sorted(
+            variant_id for variant_id in requested_variant_ids
+            if (
+                payload.destination_location_id,
+                variant_id,
+            ) not in assignments
+        )
+        disabled_destination = sorted(
+            variant_id for variant_id in requested_variant_ids
+            if (
+                payload.destination_location_id,
+                variant_id,
+            ) in assignments
+            and not product_location_allows(
+                assignments[(
+                    payload.destination_location_id,
+                    variant_id,
+                )],
+                INBOUND_NEW,
+            )
+        )
+        if disabled_destination:
+            raise HTTPException(
+                status_code=409,
+                detail=inventory_business_error(
+                    "PRODUCT_LOCATION_INBOUND_DISABLED",
+                    "استلام الصنف معطّل في مستودع الوجهة.",
+                    context={
+                        "destination_location_id":
+                            payload.destination_location_id,
+                        "product_variant_ids": disabled_destination,
+                    },
+                ),
+            )
+
+        if missing_destination_assignment:
+            await ensure_missing_product_locations(
+                db,
+                company_id=company_id,
+                location_id=payload.destination_location_id,
+                variant_ids=missing_destination_assignment,
+                actor_id=legacy_actor.id,
+                request_id=payload.request_id,
+                reason="AUTO_WAREHOUSE_TRANSFER_DESTINATION",
+            )
+            destination_rows = (
+                await db.execute(
+                    select(
+                        ProductLocation.product_variant_id,
+                        ProductLocation.operational_flags,
+                    ).where(
+                        ProductLocation.company_id == company_id,
+                        ProductLocation.location_id
+                        == payload.destination_location_id,
+                        ProductLocation.product_variant_id.in_(
+                            missing_destination_assignment
+                        ),
+                    )
+                )
+            ).all()
+            destination_flags = {
+                int(row.product_variant_id): row.operational_flags
+                for row in destination_rows
+            }
+            concurrent_disabled = sorted(
+                variant_id
+                for variant_id in missing_destination_assignment
+                if not product_location_allows(
+                    destination_flags.get(variant_id),
+                    INBOUND_NEW,
+                )
+            )
+            if concurrent_disabled:
+                raise HTTPException(
+                    status_code=409,
+                    detail=inventory_business_error(
+                        "PRODUCT_LOCATION_INBOUND_DISABLED",
+                        "استلام الصنف معطّل في مستودع الوجهة.",
+                        context={
+                            "destination_location_id":
+                                payload.destination_location_id,
+                            "product_variant_ids": concurrent_disabled,
+                        },
+                    ),
+                )
         for item in payload.items:
             if item.uom_id != variant_uoms[item.product_variant_id]:
                 raise HTTPException(
@@ -2479,7 +2560,7 @@ async def unified_transfer_dispatch(
             company_id,
             payload.source_location_id,
             payload.destination_location_id,
-            allowed_types=['WAREHOUSE', 'VEHICLE'],
+            allowed_types=['WAREHOUSE'],
         )
 
         ordered_items = sorted(
@@ -3101,10 +3182,16 @@ async def unified_transfer_receive(
                 detail="الوجهة المرسلة لا تطابق الوجهة الأصلية للحوالة."
             )
 
-        if header.dispatched_by == legacy_actor.id:
+        if (
+            special_permission is not None
+            and header.dispatched_by == legacy_actor.id
+        ):
             raise HTTPException(
                 status_code=403,
-                detail="مرفوض رقابياً: لا يمكن للمُرسل تأكيد استلام نفس الحوالة."
+                detail=(
+                    "مرفوض رقابياً: مسار التحويل الخاص يتطلب "
+                    "مستقبلاً مختلفاً عن المرسل."
+                ),
             )
 
         await _move_transfer_lines_from_transit(
