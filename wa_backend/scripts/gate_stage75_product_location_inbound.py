@@ -12,7 +12,8 @@ MODEL = ROOT / "wa_backend" / "models.py"
 STAGE3_GATE = ROOT / "wa_backend" / "scripts" / "gate_stage3_lifecycle.py"
 PRODUCT_LOCATIONS_API = ROOT / "wa_backend" / "api" / "product_locations.py"
 PRODUCT_LIFECYCLE = ROOT / "wa_backend" / "product_lifecycle.py"
-CATALOG_PANEL = ROOT / "dashboard" / "src" / "pages" / "inventory" / "catalog" / "CatalogLifecyclePanel.tsx"
+PRODUCT_LOCATION_MANAGER = ROOT / "dashboard" / "src" / "features" / "inventory" / "productLocations" / "ProductLocationManager.tsx"
+PRODUCT_ROW_ACTIONS = ROOT / "dashboard" / "src" / "pages" / "products" / "list" / "ProductRowActions.tsx"
 PRODUCTS_PAGE = ROOT / "dashboard" / "src" / "pages" / "products" / "ProductsPage.tsx"
 PRODUCT_DETAIL = ROOT / "dashboard" / "src" / "pages" / "products" / "detail" / "ProductDetailDrawer.tsx"
 
@@ -31,7 +32,8 @@ model = MODEL.read_text(encoding="utf-8")
 stage3 = STAGE3_GATE.read_text(encoding="utf-8")
 product_locations_api = PRODUCT_LOCATIONS_API.read_text(encoding="utf-8")
 product_lifecycle = PRODUCT_LIFECYCLE.read_text(encoding="utf-8")
-catalog_panel = CATALOG_PANEL.read_text(encoding="utf-8")
+product_location_manager = PRODUCT_LOCATION_MANAGER.read_text(encoding="utf-8")
+product_row_actions = PRODUCT_ROW_ACTIONS.read_text(encoding="utf-8")
 normal_products = (
     PRODUCTS_PAGE.read_text(encoding="utf-8")
     + "\n"
@@ -73,11 +75,18 @@ check(
     and '"PRODUCT_LOCATION_DELETE_BLOCKED"' in product_locations_api,
 )
 check(
-    "advanced Inventory catalog owns product-location operator UI",
-    '"/warehouse/product-locations"' in catalog_panel
-    and '"product_location.read"' in catalog_panel
-    and '"product_location.manage"' in catalog_panel
-    and "getOrCreateDurableCommand(" in catalog_panel,
+    "product-location management foundation remains available",
+    '"/warehouse/product-locations"' in product_location_manager
+    and '"product_location.read"' in product_location_manager
+    and '"product_location.manage"' in product_location_manager
+    and "getOrCreateDurableCommand(" in product_location_manager,
+)
+check(
+    "V1 Products keeps product-location management disabled",
+    'products.productLocationsV1Disabled' in product_row_actions
+    and '<DropdownMenuItem' in product_row_actions
+    and 'disabled' in product_row_actions
+    and 'onManageProductLocations(' not in product_row_actions,
 )
 check(
     "normal Products keeps company identity separate from warehouse setup",
