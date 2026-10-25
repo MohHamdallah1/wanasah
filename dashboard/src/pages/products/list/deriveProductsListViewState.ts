@@ -88,8 +88,8 @@ export function deriveProductsListViewState({
   const tableHeaderSpacing =
     displayPreferences.density ===
     "compact"
-      ? "px-4 py-2"
-      : "px-5 py-3";
+      ? "px-3.5 py-2"
+      : "px-4 py-3";
   const hasResultCriteria =
     Boolean(
       search ||

@@ -96,8 +96,8 @@ export function ProductTableRow({
     DEFAULT_PRODUCT_DISPLAY_PREFERENCES.columns;
   const cellSpacing =
     density === "compact"
-      ? "px-4 py-2.5"
-      : "px-4 py-3";
+      ? "px-3.5 py-2.5"
+      : "px-3.5 py-3";
 
   const formatPackageUnits = (
     value: number | null,
@@ -141,12 +141,12 @@ export function ProductTableRow({
         </button>
       </td>
 
-      <td className={`${cellSpacing} w-[112px] max-w-[128px] truncate whitespace-nowrap text-start text-xs font-bold text-slate-600`} title={item.family_name}>
+      <td className={`${cellSpacing} w-[104px] max-w-[120px] truncate whitespace-nowrap text-start text-xs font-bold text-slate-600`} title={item.family_name}>
         {item.family_name}
       </td>
 
       {visibleColumns.package ? (
-        <td className={`${cellSpacing} w-[96px] whitespace-nowrap text-center text-xs font-bold text-slate-700`}>
+        <td className={`${cellSpacing} w-[88px] whitespace-nowrap text-center text-xs font-bold text-slate-700`}>
           {item.package_uom_code
             ? t(
                 `uom.${item.package_uom_code}`,
@@ -156,7 +156,7 @@ export function ProductTableRow({
       ) : null}
 
       {visibleColumns.unitsPerPackage ? (
-        <td className={`${cellSpacing} w-[92px] text-center text-xs font-black tabular-nums text-slate-800`}>
+        <td className={`${cellSpacing} w-[84px] text-center text-xs font-black tabular-nums text-slate-800`}>
           {item.package_uom_code
             ? formatPackageUnits(
                 item.units_per_package,
@@ -166,7 +166,7 @@ export function ProductTableRow({
       ) : null}
 
       {visibleColumns.tracking ? (
-        <td className={`${cellSpacing} w-[235px] text-center`}>
+        <td className={`${cellSpacing} w-[216px] text-center`}>
           <div className="mx-auto flex flex-nowrap items-center justify-center gap-1 whitespace-nowrap">
             <span className="inline-flex items-center rounded-md bg-slate-100 px-1.5 py-1 text-[10px] font-bold leading-4 text-slate-600">
               {t(
@@ -190,7 +190,7 @@ export function ProductTableRow({
         </td>
       ) : null}
 
-      <td className={`${cellSpacing} w-[108px] text-center`}>
+      <td className={`${cellSpacing} w-[100px] text-center`}>
         <ProductStatusBadges item={item} />
       </td>
 

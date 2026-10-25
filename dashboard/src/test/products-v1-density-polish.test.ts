@@ -16,8 +16,13 @@ describe("Products V1 density polish", () => {
     expect(row).toContain("{item.family_name}");
     expect(row).toContain("whitespace-nowrap text-center text-xs font-bold");
     expect(results).toContain('products.columns.family');
-    expect(results).toContain('w-[112px] whitespace-nowrap text-start');
-    expect(results).toContain('w-[96px] whitespace-nowrap text-center');
+    expect(results).toContain('min-w-[980px]');
+    expect(results).toContain('w-[104px] whitespace-nowrap text-start');
+    expect(results).toContain('w-[88px] whitespace-nowrap text-center');
+    expect(results).toContain('w-[84px] text-center');
+    expect(results).toContain('w-[216px] text-center');
+    expect(results).toContain('w-[100px] text-center');
+    expect(row).toContain('"px-3.5 py-3"');
   });
 
   it("keeps search, filters, and catalog summary in one desktop toolbar row", () => {
