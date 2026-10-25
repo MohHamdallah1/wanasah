@@ -1605,7 +1605,7 @@ export function Tab2Inbound({
                             )}
                           </>
                         ) : (
-                          <span className="inventory-inbound-not-applicable">{"\u2014"}</span>
+                          <span className="inventory-inbound-not-applicable" title={t("inventoryInbound.expiryNotTracked")} aria-label={t("inventoryInbound.expiryNotTracked")}>{"\u2014"}</span>
                         )}
                       </td>
                       <td className="inventory-inbound-lot-cell">
