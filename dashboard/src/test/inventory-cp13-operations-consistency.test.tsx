@@ -60,8 +60,9 @@ describe("CP13.5 operations presentation consistency", () => {
     expect(sources.transferActions).toContain('data-cp13-action-priority={priority}');
   });
 
-  it("keeps transfer purpose required and FEFO automatic while override stays exceptional and reason-bound", () => {
-    expect(sources.transferCreate).toContain('data-cp13-transfer-purpose="required"');
+  it("keeps manual transfers warehouse-balancing only and FEFO automatic while override stays exceptional and reason-bound", () => {
+    expect(sources.transferCreate).not.toContain('data-cp13-transfer-purpose="required"');
+    expect(sources.transferCreate).not.toContain('controller.setTransferPurpose');
     expect(sources.transferParser).toContain('if (!isTransferPurpose(row.transfer_purpose)) throw invalid("transfer_purpose");');
     expect(sources.transferFefo).toContain('data-cp13-fefo-mode={item.fefo_mode}');
     expect(sources.transferFefo).toContain('data-cp13-fefo-override="exceptional"');

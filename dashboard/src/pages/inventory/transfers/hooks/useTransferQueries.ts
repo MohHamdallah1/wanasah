@@ -8,7 +8,7 @@ import { getErrorMessage } from "../utils";
 import { compareQuantity } from "../../quantity";
 
 export function useTransferQueries(createOpen: boolean, createDirection: TransferCreateDirection, locationId: number,
-  counterpartLocationId: number | null, sourceLocationId: number | null) {
+  counterpartLocationId: number | null, sourceLocationId: number | null, destinationLocationId: number | null) {
   const authenticatedFetch = useAuthFetch();
   const { t } = useTranslation();
   const [transferLocations, setTransferLocations] = useState<
@@ -31,7 +31,7 @@ export function useTransferQueries(createOpen: boolean, createDirection: Transfe
   const [sourceProductsNextCursor, setSourceProductsNextCursor] =
     useState<string | null>(null);
   const sourceProductsRequestSeq = useRef(0);
-  const currentSource = JSON.stringify([createOpen, sourceLocationId, productSearch]);
+  const currentSource = JSON.stringify([createOpen, sourceLocationId, destinationLocationId, productSearch]);
   const sourceScopeRef = useRef(currentSource);
   sourceScopeRef.current = currentSource;
   const currentLocations = JSON.stringify([createOpen, createDirection, locationId, transferLocationSearch]);
@@ -85,7 +85,7 @@ export function useTransferQueries(createOpen: boolean, createDirection: Transfe
       if (seq !== transferLocationsRequestSeq.current || locationScopeRef.current !== currentLocations) return;
 
       const locations = parseTransferLocations(raw).filter(
-        (item) => item.id !== locationId
+        (item) => item.location_type === "WAREHOUSE" && item.id !== locationId
       );
 
       setTransferLocations((prev) => {
@@ -124,7 +124,7 @@ export function useTransferQueries(createOpen: boolean, createDirection: Transfe
       pageCursor: string | null = null,
       append = false
     ) => {
-      if (!createOpen || sourceLocationId === null) {
+      if (!createOpen || sourceLocationId === null || destinationLocationId === null) {
         setSourceProducts([]);
         setSourceProductsNextCursor(null);
         return;
@@ -142,6 +142,8 @@ export function useTransferQueries(createOpen: boolean, createDirection: Transfe
       try {
         const params = new URLSearchParams({
           location_id: String(sourceLocationId),
+          destination_location_id: String(destinationLocationId),
+          transfer_purpose: "WAREHOUSE_BALANCING",
           limit: "50",
         });
         if (productSearch) params.set("search", productSearch);
@@ -194,6 +196,7 @@ export function useTransferQueries(createOpen: boolean, createDirection: Transfe
       createOpen,
       productSearch,
       sourceLocationId,
+      destinationLocationId,
       currentSource,
       t,
     ]
@@ -203,7 +206,7 @@ export function useTransferQueries(createOpen: boolean, createDirection: Transfe
   useEffect(() => {
     ++sourceProductsRequestSeq.current;
     setSourceProducts([]); setSourceProductsNextCursor(null); setSourceProductsLoadingMore(false);
-  }, [createOpen, sourceLocationId]);
+  }, [createOpen, sourceLocationId, destinationLocationId]);
   useEffect(() => { void fetchSourceProducts(null, false); }, [fetchSourceProducts]);
   const loadMoreSourceProducts = () => {
     if (sourceProductsNextCursor && !sourceProductsLoadingMore) void fetchSourceProducts(sourceProductsNextCursor, true);

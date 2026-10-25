@@ -329,7 +329,7 @@ class WarehouseTransfersCanonicalAuthCutoverTests(unittest.TestCase):
         )
         self.assertEqual(
             _call_count(TRANSFERS_TREE, "complete_idempotent_operation"),
-            10,
+            11,
         )
         self.assertEqual(_call_count(TRANSFERS_TREE, "with_for_update"), 3)
         self.assertEqual(
@@ -364,6 +364,68 @@ class WarehouseTransfersCanonicalAuthCutoverTests(unittest.TestCase):
         self.assertIn("company_id=company_id", TRANSFERS_SOURCE)
         self.assertIn("status_code=403", TRANSFERS_SOURCE)
         self.assertIn("status_code=404", TRANSFERS_SOURCE)
+
+
+    def test_v1_generic_transfer_contract_is_warehouse_only_and_destination_aware(self):
+        functions = _function_map(TRANSFERS_TREE)
+        locations_segment = _segment(
+            TRANSFERS_SOURCE,
+            functions["list_unified_transfer_locations"],
+        )
+        source_segment = _segment(
+            TRANSFERS_SOURCE,
+            functions["get_unified_transfer_source_inventory"],
+        )
+        dispatch_segment = _segment(
+            TRANSFERS_SOURCE,
+            functions["unified_transfer_dispatch"],
+        )
+        receive_segment = _segment(
+            TRANSFERS_SOURCE,
+            functions["unified_transfer_receive"],
+        )
+
+        self.assertIn(
+            "InventoryLocation.location_type == 'WAREHOUSE'",
+            locations_segment,
+        )
+        self.assertNotIn(
+            "InventoryLocation.location_type.in_",
+            locations_segment,
+        )
+
+        self.assertIn("destination_location_id", source_segment)
+        self.assertIn("transfer_purpose", source_segment)
+        self.assertIn(
+            "destination_assignment = aliased(ProductLocation)",
+            source_segment,
+        )
+        self.assertIn(
+            "destination_location_id or 0",
+            source_segment,
+        )
+
+        self.assertIn(
+            "allowed_types=['WAREHOUSE']",
+            dispatch_segment,
+        )
+        self.assertIn(
+            "_ensure_transfer_destination_product_locations(",
+            dispatch_segment,
+        )
+        self.assertIn(
+            '"PRODUCT_LOCATION_INBOUND_DISABLED"',
+            dispatch_segment,
+        )
+
+        self.assertIn(
+            "special_permission is not None",
+            receive_segment,
+        )
+        self.assertIn(
+            "header.dispatched_by == legacy_actor.id",
+            receive_segment,
+        )
 
 
 if __name__ == "__main__":

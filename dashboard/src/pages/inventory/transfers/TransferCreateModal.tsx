@@ -88,21 +88,7 @@ export function TransferCreateModal({
         }}
       >
         <fieldset disabled={createSubmitting || Boolean(controller.command.pending) || controller.command.busy} className="min-w-0 space-y-3">
-          <div className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3 md:grid-cols-[minmax(160px,0.8fr)_minmax(220px,1fr)_minmax(220px,1fr)]">
-            <label className="block text-xs font-bold text-slate-700">
-              {t("inventoryTransfers.purpose")}
-              <select
-                aria-label={t("inventoryTransfers.purpose")}
-                value={controller.transferPurpose}
-                onChange={(event) => controller.setTransferPurpose(event.target.value as "REPLENISHMENT" | "WAREHOUSE_BALANCING")}
-                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
-                data-cp13-transfer-purpose="required"
-              >
-                <option value="WAREHOUSE_BALANCING">{t("inventoryTransfers.WAREHOUSE_BALANCING")}</option>
-                <option value="REPLENISHMENT">{t("inventoryTransfers.REPLENISHMENT")}</option>
-              </select>
-            </label>
-
+          <div className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3 md:grid-cols-2">
             <div>
               <label className="text-xs font-bold text-slate-700">{t("inventoryTransfers.direction")}</label>
               <select
@@ -141,9 +127,7 @@ export function TransferCreateModal({
                     .filter((item) => item.id !== locationId)
                     .map((item) => (
                       <option key={item.id} value={item.id}>
-                        {item.location_type === "WAREHOUSE"
-                          ? t("inventoryTransfers.warehouse")
-                          : t("inventoryTransfers.vehicle")} — {item.name} ({item.code})
+                        {item.name} ({item.code})
                       </option>
                     ))}
                 </select>

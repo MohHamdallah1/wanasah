@@ -9,8 +9,10 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, case, func, or_, select, tuple_
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from api.authentication.backoffice_authorization import (
     get_current_backoffice_capability_access,
@@ -65,6 +67,7 @@ from schemas import (
 from quantity import canonical_quantity
 from domains.product_tracking import public_batch_number
 from product_lifecycle import (
+    DEFAULT_PRODUCT_LOCATION_FLAGS,
     INBOUND_NEW,
     REPLENISHMENT_NEW,
     WAREHOUSE_BALANCING,
@@ -72,6 +75,7 @@ from product_lifecycle import (
     evaluate_product_capability,
     product_capability_predicate,
     product_location_allows,
+    record_domain_event,
 )
 
 from services import (
@@ -564,9 +568,7 @@ async def list_unified_transfer_locations(
                 'transfer.destination' if purpose == 'destination' else
                 ('transfer.read', 'transfer.send', 'transfer.destination')),
             InventoryLocation.is_active.is_(True),
-            InventoryLocation.location_type.in_(
-                ['WAREHOUSE', 'VEHICLE']
-            ),
+            InventoryLocation.location_type == 'WAREHOUSE',
         )
     )
 
@@ -631,33 +633,100 @@ async def get_unified_transfer_source_inventory(
     access: BackofficeCapabilityAccess = Depends(
         get_current_backoffice_capability_access
     ),
+    destination_location_id: Optional[int] = Query(default=None, ge=1),
+    transfer_purpose: str = Query(
+        default="WAREHOUSE_BALANCING",
+        pattern="^(REPLENISHMENT|WAREHOUSE_BALANCING)$",
+    ),
 ):
     await _require_transfer_capability(access, 'transfer.send', location_id)
 
     company_id = access.company_id
     clean_search = (search or "").strip().lower()
+    normalized_purpose = str(transfer_purpose or "").strip().upper()
+    lifecycle_capability = _GENERIC_TRANSFER_PURPOSE_CAPABILITY.get(
+        normalized_purpose
+    )
+    if lifecycle_capability is None:
+        raise HTTPException(
+            status_code=422,
+            detail=inventory_business_error(
+                "TRANSFER_PURPOSE_INVALID",
+                "غرض الحوالة العامة غير صالح.",
+                context={"transfer_purpose": normalized_purpose},
+            ),
+        )
 
     location = (
         await db.execute(
-            select(
-                InventoryLocation.id,
-                InventoryLocation.location_type,
-            ).filter(
+            select(InventoryLocation.id).filter(
                 InventoryLocation.company_id == company_id,
                 InventoryLocation.id == location_id,
                 InventoryLocation.is_active.is_(True),
-                InventoryLocation.location_type.in_(
-                    ['WAREHOUSE', 'VEHICLE']
-                ),
+                InventoryLocation.location_type == 'WAREHOUSE',
             )
         )
-    ).one_or_none()
+    ).scalar_one_or_none()
 
     if location is None:
         raise HTTPException(
             status_code=404,
-            detail="مصدر الحوالة غير موجود أو غير فعال أو لا يتبع شركتك.",
+            detail="مصدر الحوالة غير موجود أو غير فعال أو ليس مستودعاً تابعاً لشركتك.",
         )
+
+    if destination_location_id is not None:
+        if destination_location_id == location_id:
+            raise HTTPException(
+                status_code=422,
+                detail=inventory_business_error(
+                    "TRANSFER_SAME_LOCATION",
+                    "مصدر الحوالة ووجهتها يجب أن يكونا مختلفين.",
+                ),
+            )
+        await _require_transfer_capability(
+            access,
+            'transfer.destination',
+            destination_location_id,
+        )
+        destination = (
+            await db.execute(
+                select(InventoryLocation.id).filter(
+                    InventoryLocation.company_id == company_id,
+                    InventoryLocation.id == destination_location_id,
+                    InventoryLocation.is_active.is_(True),
+                    InventoryLocation.location_type == 'WAREHOUSE',
+                )
+            )
+        ).scalar_one_or_none()
+        if destination is None:
+            raise HTTPException(
+                status_code=404,
+                detail="وجهة الحوالة غير موجودة أو غير فعالة أو ليست مستودعاً تابعاً لشركتك.",
+            )
+
+    lifecycle_predicate = product_capability_predicate(
+        ProductVariant,
+        lifecycle_capability,
+    )
+    if normalized_purpose == "WAREHOUSE_BALANCING":
+        allow_retiring_balancing = False
+        if "transfer.warehouse_balancing_override" in await access.codes():
+            try:
+                await resolve_retiring_warehouse_balancing_override_context(
+                    db,
+                    company_id=company_id,
+                )
+                allow_retiring_balancing = True
+            except (InventoryRuleError, InventoryMutationError):
+                allow_retiring_balancing = False
+        if allow_retiring_balancing:
+            lifecycle_predicate = or_(
+                lifecycle_predicate,
+                and_(
+                    ProductVariant.lifecycle_status == "RETIRING",
+                    ProductVariant.operational_hold != "RECALL",
+                ),
+            )
 
     as_of_date = await get_company_local_date(db, company_id)
 
@@ -705,6 +774,7 @@ async def get_unified_transfer_source_inventory(
         InventoryBalance.on_hand_quantity
         - InventoryBalance.reserved_quantity
     )
+    destination_assignment = aliased(ProductLocation)
 
     stmt = (
         select(
@@ -753,7 +823,7 @@ async def get_unified_transfer_source_inventory(
         )
         .filter(
             ProductVariant.company_id == company_id,
-            product_capability_predicate(ProductVariant, WAREHOUSE_BALANCING),
+            lifecycle_predicate,
             sellable_batch,
             ProductLocation.operational_flags['outbound_enabled'].as_boolean().is_(True),
             InventoryBalance.company_id == company_id,
@@ -761,7 +831,30 @@ async def get_unified_transfer_source_inventory(
             InventoryBalance.stock_status == 'AVAILABLE',
             ~active_lock_exists,
         )
-        .group_by(
+    )
+
+    if destination_location_id is not None:
+        stmt = stmt.outerjoin(
+            destination_assignment,
+            and_(
+                destination_assignment.company_id
+                == ProductVariant.company_id,
+                destination_assignment.product_variant_id
+                == ProductVariant.id,
+                destination_assignment.location_id
+                == destination_location_id,
+            ),
+        ).filter(
+            or_(
+                destination_assignment.id.is_(None),
+                destination_assignment.operational_flags[
+                    'inbound_enabled'
+                ].as_boolean().is_(True),
+            )
+        )
+
+    stmt = (
+        stmt.group_by(
             ProductVariant.id,
             ProductVariant.name,
             ProductVariant.sku,
@@ -792,7 +885,8 @@ async def get_unified_transfer_source_inventory(
         )
 
     scope = (
-        f"transfer-source|{company_id}|{location_id}|{clean_search}"
+        f"transfer-source|{company_id}|{location_id}|"
+        f"{destination_location_id or 0}|{normalized_purpose}|{clean_search}"
     )
 
     total = None
@@ -856,7 +950,9 @@ async def get_unified_transfer_source_inventory(
                 "base_uom_name": str(row.base_uom_name),
                 "quantity_scale": int(row.quantity_scale),
                 "quantity_step": canonical_quantity(row.quantity_step),
-                "available_quantity": canonical_quantity(row.available_quantity or 0),
+                "available_quantity": canonical_quantity(
+                    row.available_quantity or 0
+                ),
             }
             for row in page_rows
         ],
@@ -1285,9 +1381,7 @@ async def list_unified_transfers(
                 select(InventoryLocation.id).filter(
                     InventoryLocation.company_id == company_id,
                     InventoryLocation.id == location_id,
-                    InventoryLocation.location_type.in_(
-                        ['WAREHOUSE', 'VEHICLE', 'SCRAP']
-                    ),
+                    InventoryLocation.location_type == 'WAREHOUSE',
                 )
             )
         ).scalar_one_or_none()
@@ -1306,6 +1400,9 @@ async def list_unified_transfers(
         InventoryTransferHeader.company_id == company_id,
         transfer_filter(access),
         InventoryTransferHeader.workflow_type == 'TRANSIT',
+        InventoryTransferHeader.transfer_purpose.in_(
+            sorted(_GENERIC_TRANSFER_PURPOSE_CAPABILITY)
+        ),
     )
 
     if normalized_status:
@@ -1423,6 +1520,9 @@ async def get_unified_transfer_detail(
                 InventoryTransferHeader.company_id == company_id,
                 InventoryTransferHeader.id == header_id,
                 InventoryTransferHeader.workflow_type == 'TRANSIT',
+                InventoryTransferHeader.transfer_purpose.in_(
+                    sorted(_GENERIC_TRANSFER_PURPOSE_CAPABILITY)
+                ),
             )
         )
     ).scalar_one_or_none()
@@ -2152,6 +2252,83 @@ _GENERIC_TRANSFER_PURPOSE_CAPABILITY = {
 }
 
 
+
+async def _ensure_transfer_destination_product_locations(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    location_id: int,
+    variant_ids: List[int],
+    actor_id: int,
+    request_id: uuid.UUID,
+) -> set[int]:
+    """Create only genuinely missing destination assignments for generic transfers.
+
+    Generic transfer authorization and destination validation are owned by the
+    caller. Existing ProductLocation rows are never changed, so an explicit
+    inbound-disabled assignment remains authoritative.
+    """
+    normalized_ids = sorted({int(value) for value in variant_ids})
+    if not normalized_ids:
+        return set()
+
+    created_rows = list(
+        (
+            await db.execute(
+                pg_insert(ProductLocation)
+                .values([
+                    {
+                        "company_id": int(company_id),
+                        "location_id": int(location_id),
+                        "product_variant_id": int(variant_id),
+                        "operational_flags": dict(
+                            DEFAULT_PRODUCT_LOCATION_FLAGS
+                        ),
+                        "created_by": int(actor_id),
+                    }
+                    for variant_id in normalized_ids
+                ])
+                .on_conflict_do_nothing(
+                    constraint="uq_product_location_assignment"
+                )
+                .returning(
+                    ProductLocation.id,
+                    ProductLocation.product_variant_id,
+                )
+            )
+        ).all()
+    )
+
+    for product_location_id, product_variant_id in created_rows:
+        record_domain_event(
+            db,
+            company_id=int(company_id),
+            actor_id=int(actor_id),
+            request_id=request_id,
+            event_type="ProductLocationAssigned",
+            entity_type="ProductLocation",
+            entity_id=int(product_location_id),
+            reason="AUTO_WAREHOUSE_TRANSFER_DESTINATION",
+            before=None,
+            after={
+                "id": int(product_location_id),
+                "company_id": int(company_id),
+                "location_id": int(location_id),
+                "product_variant_id": int(product_variant_id),
+                "operational_flags": dict(
+                    DEFAULT_PRODUCT_LOCATION_FLAGS
+                ),
+                "version": 1,
+                "created_by": int(actor_id),
+            },
+        )
+
+    return {
+        int(product_variant_id)
+        for _, product_variant_id in created_rows
+    }
+
+
 # ====================================================
 # 10.14 إنشاء حوالة عامة REPLENISHMENT/WAREHOUSE_BALANCING ونقلها إلى IN_TRANSIT
 # ====================================================
@@ -2190,7 +2367,7 @@ async def unified_transfer_dispatch(
             company_id,
             payload.source_location_id,
             payload.destination_location_id,
-            allowed_types=['WAREHOUSE', 'VEHICLE']
+            allowed_types=['WAREHOUSE']
         )
 
         requested_variant_ids = {item.product_variant_id for item in payload.items}
@@ -2329,13 +2506,18 @@ async def unified_transfer_dispatch(
             ).where(
                 ProductLocation.company_id == company_id,
                 ProductLocation.product_variant_id.in_(requested_variant_ids),
-                ProductLocation.location_id.in_([payload.source_location_id, payload.destination_location_id]),
+                ProductLocation.location_id.in_([
+                    payload.source_location_id,
+                    payload.destination_location_id,
+                ]),
             )
         )).all()
         assignments = {
-            (int(row.location_id), int(row.product_variant_id)): row.operational_flags
+            (int(row.location_id), int(row.product_variant_id)):
+                row.operational_flags
             for row in assignment_rows
         }
+
         missing_source = sorted(
             variant_id for variant_id in requested_variant_ids
             if not product_location_allows(
@@ -2343,28 +2525,103 @@ async def unified_transfer_dispatch(
                 lifecycle_capability,
             )
         )
-        missing_destination = sorted(
-            variant_id for variant_id in requested_variant_ids
-            if location_types.get(payload.destination_location_id) == 'WAREHOUSE'
-            and not product_location_allows(
-                assignments.get((payload.destination_location_id, variant_id)),
-                INBOUND_NEW,
-            )
-        )
-        if missing_source or missing_destination:
+        if missing_source:
             raise HTTPException(
                 status_code=409,
                 detail={
                     "code": "PRODUCT_LOCATION_REQUIRED",
-                    "message": "الحوالة تتطلب ربطاً تشغيلياً صريحاً للصنف بالموقع.",
+                    "message": "الصنف غير مهيأ للصرف من مستودع المصدر.",
                     "context": {
                         "source_location_id": payload.source_location_id,
-                        "destination_location_id": payload.destination_location_id,
-                        "source_product_variant_ids": missing_source,
-                        "destination_product_variant_ids": missing_destination,
+                        "product_variant_ids": missing_source,
                     },
                 },
             )
+
+        missing_destination_assignment = sorted(
+            variant_id for variant_id in requested_variant_ids
+            if (
+                payload.destination_location_id,
+                variant_id,
+            ) not in assignments
+        )
+        disabled_destination = sorted(
+            variant_id for variant_id in requested_variant_ids
+            if (
+                payload.destination_location_id,
+                variant_id,
+            ) in assignments
+            and not product_location_allows(
+                assignments[(
+                    payload.destination_location_id,
+                    variant_id,
+                )],
+                INBOUND_NEW,
+            )
+        )
+        if disabled_destination:
+            raise HTTPException(
+                status_code=409,
+                detail=inventory_business_error(
+                    "PRODUCT_LOCATION_INBOUND_DISABLED",
+                    "استلام الصنف معطّل في مستودع الوجهة.",
+                    context={
+                        "destination_location_id":
+                            payload.destination_location_id,
+                        "product_variant_ids": disabled_destination,
+                    },
+                ),
+            )
+
+        if missing_destination_assignment:
+            await _ensure_transfer_destination_product_locations(
+                db,
+                company_id=company_id,
+                location_id=payload.destination_location_id,
+                variant_ids=missing_destination_assignment,
+                actor_id=legacy_actor.id,
+                request_id=payload.request_id,
+            )
+            destination_rows = (
+                await db.execute(
+                    select(
+                        ProductLocation.product_variant_id,
+                        ProductLocation.operational_flags,
+                    ).where(
+                        ProductLocation.company_id == company_id,
+                        ProductLocation.location_id
+                        == payload.destination_location_id,
+                        ProductLocation.product_variant_id.in_(
+                            missing_destination_assignment
+                        ),
+                    )
+                )
+            ).all()
+            destination_flags = {
+                int(row.product_variant_id): row.operational_flags
+                for row in destination_rows
+            }
+            concurrent_disabled = sorted(
+                variant_id
+                for variant_id in missing_destination_assignment
+                if not product_location_allows(
+                    destination_flags.get(variant_id),
+                    INBOUND_NEW,
+                )
+            )
+            if concurrent_disabled:
+                raise HTTPException(
+                    status_code=409,
+                    detail=inventory_business_error(
+                        "PRODUCT_LOCATION_INBOUND_DISABLED",
+                        "استلام الصنف معطّل في مستودع الوجهة.",
+                        context={
+                            "destination_location_id":
+                                payload.destination_location_id,
+                            "product_variant_ids": concurrent_disabled,
+                        },
+                    ),
+                )
         for item in payload.items:
             if item.uom_id != variant_uoms[item.product_variant_id]:
                 raise HTTPException(
@@ -2385,7 +2642,7 @@ async def unified_transfer_dispatch(
             company_id,
             payload.source_location_id,
             payload.destination_location_id,
-            allowed_types=['WAREHOUSE', 'VEHICLE'],
+            allowed_types=['WAREHOUSE'],
         )
 
         ordered_items = sorted(
@@ -3007,10 +3264,16 @@ async def unified_transfer_receive(
                 detail="الوجهة المرسلة لا تطابق الوجهة الأصلية للحوالة."
             )
 
-        if header.dispatched_by == legacy_actor.id:
+        if (
+            special_permission is not None
+            and header.dispatched_by == legacy_actor.id
+        ):
             raise HTTPException(
                 status_code=403,
-                detail="مرفوض رقابياً: لا يمكن للمُرسل تأكيد استلام نفس الحوالة."
+                detail=(
+                    "مرفوض رقابياً: مسار التحويل الخاص يتطلب "
+                    "مستقبلاً مختلفاً عن المرسل."
+                ),
             )
 
         await _move_transfer_lines_from_transit(
