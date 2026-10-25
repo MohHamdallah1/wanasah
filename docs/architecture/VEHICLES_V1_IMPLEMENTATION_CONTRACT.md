@@ -3,7 +3,7 @@
 **Status:** FROZEN FOR IMPLEMENTATION  
 **Freeze date:** 2026-10-14  
 **Base SHA audited:** `c4010598f48e92d3a609d3b58476f2d9dc26be4a`  
-**Owner-approved scope amendment:** 2026-10-14 — `next_maintenance_date` + bounded Dashboard form/list/tab URL UX, implemented in merged PR #320.
+**Owner-approved scope amendments:** 2026-10-14 — `next_maintenance_date` + bounded Dashboard form/list/tab URL UX, implemented in merged PR #320; 2026-10-25 — bounded Vehicle Load visibility and Warehouse ↔ Vehicle custody management when no active route/unreconciled WorkSession.
 **Authority:** `ARCHITECTURE.md`, `.rules`, `AGENTS.md`, `V1_SCOPE_FREEZE.md`, `PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md`, `docs/architecture/VEHICLE_MASTER_SCOPE_AND_VISIBILITY_DECISION.md`.
 
 This document freezes the exact V1 Vehicle administration contract after a source-first audit of the current Vehicle, Dispatch, WorkSession, InventoryLocation, transfer, reconciliation, stocktake, authorization, Live Stock, and Dashboard paths. Workers must not broaden or reinterpret it.
@@ -336,6 +336,71 @@ Cleanup/closure paths such as ending work, transfer response/cancellation, stock
 This is operational eligibility, not permanent warehouse assignment.
 
 ---
+
+## 12A. Owner-approved Vehicle Load V1 operational amendment — 2026-10-25
+
+This amendment closes the operational case where a Vehicle holds custody stock while it has no active operational route. It does not redefine Vehicle master ownership and does not make Vehicle CRUD an Inventory authority.
+
+### Dashboard surface
+
+Each Vehicle may expose a compact **Load / الحمولة** action.
+
+The action may show the current authoritative nonzero Vehicle custody balances in business-facing product/UOM terms. It must not expose raw InventoryLocation IDs, Batch database IDs, cost-layer internals, or allow balance editing.
+
+### Route-aware behavior
+
+Before allowing any stock mutation, Backend resolves current route/session ownership for the Vehicle.
+
+- If an active/waiting/postponed operational route or unreconciled live WorkSession owns the Vehicle, the Vehicle surface is read-only for load mutation and directs the operator to the existing Dispatch **Adjust load / تعديل الحمولة** workflow. Do not duplicate that command.
+- If no such route/session exists, the Vehicle Load workflow may perform bounded Warehouse ↔ Vehicle custody movement.
+
+### No-route Warehouse ↔ Vehicle movement
+
+Supported V1 commands:
+
+1. **Load Vehicle:** explicit authorized Warehouse → selected Vehicle.
+2. **Unload Vehicle:** selected Vehicle → explicit authorized Warehouse.
+
+There is no Vehicle → Vehicle command in V1.
+
+The source/destination Warehouse is chosen per operation. No permanent Vehicle↔Warehouse assignment or ownership is introduced.
+
+### Authority
+
+The Vehicle page is only the presentation/navigation owner. The inventory mutation must live behind a dedicated Inventory/custody application contract and use the Unified Inventory Movement authority.
+
+- `vehicle.read` may gate visibility of Vehicle master/load entry.
+- `vehicle.manage` is **not** sufficient inventory-movement authority.
+- the exact affected Warehouse/location must be authorized with the canonical inventory/transfer capability set chosen by the implementation;
+- company/tenant and Vehicle-custody identity are backend-derived/revalidated;
+- direct API calls must obey the same route/session and location rules.
+
+If the current capability catalog cannot express the operation cleanly without over-granting generic Warehouse transfer powers, add the smallest dedicated canonical inventory/custody capability rather than abusing `vehicle.manage`.
+
+### Movement and lifecycle invariants
+
+- never write `InventoryBalance` directly;
+- acquire canonical Vehicle custody + Warehouse location guards in the global lock order;
+- use FEFO/Batch authority for outbound sellable source stock where applicable;
+- preserve exact Batch/status evidence;
+- internal Warehouse↔Vehicle movement is cost-neutral company inventory movement and must not create sale COGS;
+- loading requires an active, operational, custody-ready Vehicle;
+- unloading/cleanup remains possible when required to safely clear custody from an inactive/in-maintenance Vehicle, subject to existing locks/unfinished-work guards;
+- pending reservations/handshakes, active stocktake, locks, or other custody blockers fail closed;
+- every mutation is idempotent, audited, tenant-safe, and retry-safe.
+
+### UI simplicity
+
+The operator should see only:
+
+- current load;
+- **Add load / إضافة حمولة**;
+- **Unload to warehouse / تفريغ إلى مستودع**;
+- selected Warehouse;
+- products and quantities;
+- a clear reason when the Vehicle is currently controlled by an active route.
+
+Backend Batch/FEFO/status/cost mechanics remain hidden.
 
 ## 13. Frozen deactivate blocker matrix
 
