@@ -5,6 +5,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Iterable
 from uuid import UUID
 
@@ -55,6 +56,7 @@ from services import (
     begin_idempotent_operation,
     complete_idempotent_operation,
     get_company_local_date,
+    resolve_inflight_transfer_destination_statuses,
 )
 
 
@@ -803,6 +805,96 @@ async def _allocate_vehicle_status(
     return allocations
 
 
+def _preserve_or_tighten_unload_status(
+    source_status: str,
+    current_safe_status: str,
+) -> str:
+    """Never make Vehicle custody more sellable while unloading it."""
+    source = str(source_status or "").strip().upper()
+    safe = str(current_safe_status or "").strip().upper()
+    if source in {"DAMAGED", "DISPOSAL_PENDING"}:
+        return source
+    if safe == "RECALLED" or source == "RECALLED":
+        return "RECALLED"
+    if safe == "BLOCKED" or source == "BLOCKED":
+        return "BLOCKED"
+    if safe == "QUARANTINED" or source == "QUARANTINED":
+        return "QUARANTINED"
+    return "AVAILABLE"
+
+
+async def _safe_unload_terminal_statuses(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    warehouse_id: int,
+    allocations: list[dict],
+) -> dict[int, str]:
+    """Reuse the canonical in-flight safety resolver for direct Vehicle cleanup.
+
+    Direct Vehicle unload has no TransferHeader/Line document, so we provide the
+    resolver only the immutable-shaped evidence it requires. Creation evidence
+    is the current locked Product lifecycle revision: the operation starts and
+    finishes in this same transaction, while the resolver owns Batch/shelf-life
+    and current safety precedence.
+    """
+    if not allocations:
+        return {}
+
+    variant_ids = sorted({
+        int(item["product_variant_id"])
+        for item in allocations
+    })
+    variant_rows = (
+        await db.execute(
+            select(
+                ProductVariant.id,
+                ProductVariant.lifecycle_status,
+                ProductVariant.operational_hold,
+                ProductVariant.lifecycle_revision,
+            ).where(
+                ProductVariant.company_id == int(company_id),
+                ProductVariant.id.in_(variant_ids),
+            )
+        )
+    ).all()
+    variants = {int(row.id): row for row in variant_rows}
+    if set(variants) != set(variant_ids):
+        raise _error(
+            "VEHICLE_LOAD_PRODUCT_NOT_FOUND",
+            "أحد أصناف عهدة السيارة لم يعد موجوداً داخل الشركة.",
+            status_code=409,
+        )
+
+    lines = []
+    for index, item in enumerate(allocations, start=1):
+        variant = variants[int(item["product_variant_id"])]
+        lines.append(SimpleNamespace(
+            id=index,
+            product_variant_id=int(item["product_variant_id"]),
+            batch_id=int(item["batch_id"]),
+            source_stock_status=str(item["stock_status"]),
+            lifecycle_revision_snapshot=int(variant.lifecycle_revision),
+            lifecycle_status_snapshot=str(variant.lifecycle_status),
+            operational_hold_snapshot=str(variant.operational_hold),
+        ))
+
+    resolved = await resolve_inflight_transfer_destination_statuses(
+        db,
+        company_id=int(company_id),
+        destination_location_id=int(warehouse_id),
+        transfer_purpose="WAREHOUSE_BALANCING",
+        lines=lines,
+    )
+    return {
+        index: _preserve_or_tighten_unload_status(
+            str(allocations[index - 1]["stock_status"]),
+            resolved[index],
+        )
+        for index in resolved
+    }
+
+
 def _request_hash(*, vehicle_id: int, warehouse_id: int, direction: str, items: list[dict]) -> str:
     body = {
         "vehicle_id": int(vehicle_id),
@@ -1017,7 +1109,7 @@ async def mutate_vehicle_load(
             actor_id=int(actor_id),
             request_id=request_id,
         )
-        specs = []
+        allocated_rows: list[dict] = []
         for item in normalized_items:
             allocations = await _allocate_vehicle_status(
                 db,
@@ -1027,25 +1119,67 @@ async def mutate_vehicle_load(
                 stock_status=item["stock_status"],
                 quantity=item["quantity"],
             )
-            for index, (batch_id, qty) in enumerate(allocations):
+            for batch_id, qty in allocations:
+                allocated_rows.append({
+                    "product_variant_id": item["product_variant_id"],
+                    "batch_id": int(batch_id),
+                    "quantity": qty,
+                    "stock_status": item["stock_status"],
+                })
+
+        safe_statuses = await _safe_unload_terminal_statuses(
+            db,
+            company_id=company_id,
+            warehouse_id=int(warehouse_id),
+            allocations=allocated_rows,
+        )
+        specs = []
+        for index, row in enumerate(allocated_rows, start=1):
+            source_status = str(row["stock_status"])
+            final_status = safe_statuses[index]
+            movement_key = (
+                f"VUNLOAD-{request_id}-{row['product_variant_id']}-"
+                f"{source_status}-{row['batch_id']}-{index}"
+            )
+            specs.append(
+                {
+                    "product_variant_id": row["product_variant_id"],
+                    "batch_id": row["batch_id"],
+                    "quantity": row["quantity"],
+                    "movement_kind": "PHYSICAL",
+                    "reference_type": "VEHICLE_UNLOAD_DIRECT",
+                    "reference_id": str(request_id),
+                    "idempotency_key": movement_key,
+                    "source_location_id": int(vehicle_location_id),
+                    "destination_location_id": int(warehouse_id),
+                    "source_stock_status": source_status,
+                    "destination_stock_status": source_status,
+                    "work_session_id": None,
+                    "notes": (
+                        f"تفريغ مباشر من سيارة {vehicle_id} "
+                        f"إلى مستودع {warehouse_id}."
+                    ),
+                }
+            )
+            if final_status != source_status:
                 specs.append(
                     {
-                        "product_variant_id": item["product_variant_id"],
-                        "batch_id": int(batch_id),
-                        "quantity": qty,
-                        "movement_kind": "PHYSICAL",
-                        "reference_type": "VEHICLE_UNLOAD_DIRECT",
+                        "product_variant_id": row["product_variant_id"],
+                        "batch_id": row["batch_id"],
+                        "quantity": row["quantity"],
+                        "movement_kind": "STATUS_CHANGE",
+                        "reference_type": "VEHICLE_UNLOAD_SAFE_STATUS",
                         "reference_id": str(request_id),
-                        "idempotency_key": (
-                            f"VUNLOAD-{request_id}-{item['product_variant_id']}-"
-                            f"{item['stock_status']}-{batch_id}-{index}"
-                        ),
-                        "source_location_id": int(vehicle_location_id),
+                        "idempotency_key": f"{movement_key}-STATUS",
+                        "source_location_id": int(warehouse_id),
                         "destination_location_id": int(warehouse_id),
-                        "source_stock_status": item["stock_status"],
-                        "destination_stock_status": item["stock_status"],
+                        "source_stock_status": source_status,
+                        "destination_stock_status": final_status,
                         "work_session_id": None,
-                        "notes": f"تفريغ مباشر من سيارة {vehicle_id} إلى مستودع {warehouse_id}.",
+                        "notes": (
+                            "Vehicle unload safety status: "
+                            f"{source_status}->{final_status}"
+                        ),
                     }
                 )
 
