@@ -174,15 +174,9 @@ export function ProductRowActions({
         {canViewProductLocations &&
         onManageProductLocations ? (
           <DropdownMenuItem
-            onSelect={() =>
-              queueAfterMenuClose(
-                () =>
-                  onManageProductLocations(
-                    item,
-                  ),
-              )
-            }
-            className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
+            disabled
+            title={t("products.productLocationsV1Disabled")}
+            className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-500"
           >
             <Link2 className="h-4 w-4 shrink-0 text-slate-400" />
             {t(

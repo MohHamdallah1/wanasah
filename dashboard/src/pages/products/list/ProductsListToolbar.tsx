@@ -18,6 +18,7 @@ type Props = {
   filtersOpen: boolean;
   hasActiveControls: boolean;
   filtersContent: ReactNode;
+  summaryContent?: ReactNode;
   onSearchInputChange: (
     value: string,
   ) => void;
@@ -31,6 +32,7 @@ export function ProductsListToolbar({
   filtersOpen,
   hasActiveControls,
   filtersContent,
+  summaryContent,
   onSearchInputChange,
   onFiltersOpenChange,
 }: Props) {
@@ -40,8 +42,8 @@ export function ProductsListToolbar({
     i18n.dir();
 
   return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-      <div className="relative min-w-0 flex-1">
+    <div className="flex flex-col gap-2 xl:flex-row xl:items-center">
+      <div className="relative min-w-[18rem] flex-1">
         <Search className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         <input
           type="search"
@@ -82,11 +84,7 @@ export function ProductsListToolbar({
               }`}
             >
               <ListFilter className="h-4 w-4" />
-              {t(
-                filtersOpen
-                  ? "products.filters.hide"
-                  : "products.filters.show",
-              )}
+              {t("products.filters.button")}
               {hasActiveControls &&
               !filtersOpen ? (
                 <span
@@ -111,6 +109,12 @@ export function ProductsListToolbar({
           </PopoverContent>
         </Popover>
       </div>
+
+      {summaryContent ? (
+        <div className="min-w-0 shrink-0">
+          {summaryContent}
+        </div>
+      ) : null}
     </div>
   );
 }

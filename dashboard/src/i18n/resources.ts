@@ -86,6 +86,7 @@ export const resources = {
           "ابحث بالمنتج أو العائلة أو SKU أو الباركود...",
         filters: {
           show: "الفلاتر والفرز",
+          button: "الفلاتر",
           hide: "إخفاء الفلاتر",
           clear: "مسح الفلاتر",
           active: "الفلاتر النشطة",
@@ -316,6 +317,7 @@ export const resources = {
         },
         columns: {
           product: "المنتج",
+          family: "العائلة",
           package: "العبوة",
           unitsPerPackage: "الوحدات / العبوة",
           tracking: "التتبع",
@@ -363,6 +365,7 @@ export const resources = {
           },
         },
         editPrice: "تعديل سعر البيع",
+        productLocationsV1Disabled: "تحكم متقدم غير مفعل في V1 — يحدد السماح بتوريد هذا الصنف أو صرفه حسب المستودع.",
         purchaseReference: {
           action: "تعديل تكلفة الشراء المرجعية",
           title: "تكلفة الشراء المرجعية",
@@ -889,6 +892,7 @@ export const resources = {
         rejectedRows: {
           title: "الصفوف المرفوضة",
           show: "عرض التفاصيل",
+          button: "Filters",
           hide: "إخفاء",
           hint: "اعرض أسباب رفض الصفوف مع أرقامها الأصلية في Excel. هذه قائمة مراجعة فقط؛ لتعديل البيانات استخدم ملف التصحيح الرسمي.",
           loading: "جاري تحميل الصفوف المرفوضة...",
@@ -2676,6 +2680,7 @@ export const resources = {
         },
         columns: {
           product: "Product",
+          family: "Family",
           package: "Package",
           unitsPerPackage:
             "Units / package",
@@ -2724,6 +2729,7 @@ export const resources = {
           },
         },
         editPrice: "Edit sale price",
+        productLocationsV1Disabled: "Advanced control disabled in V1 — controls whether this product may be received into or issued from each warehouse.",
         purchaseReference: {
           action: "Edit purchase cost reference",
           title: "Purchase cost reference",

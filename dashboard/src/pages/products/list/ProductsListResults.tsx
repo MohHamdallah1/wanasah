@@ -358,7 +358,7 @@ export function ProductsListResults({
           ref={scrollContainerRef}
           className="min-h-0 flex-1 overflow-auto bg-white"
         >
-          <table className="w-full min-w-[920px] text-start text-sm">
+          <table className="w-full min-w-[1040px] text-start text-sm">
             <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 text-[11px] font-black text-slate-500 backdrop-blur-sm">
               <tr>
                 <th
@@ -372,8 +372,11 @@ export function ProductsListResults({
                     "products.columns.product",
                   )}
                 </th>
+                <th className={`${tableHeaderSpacing} w-[150px] whitespace-nowrap text-start`}>
+                  {t("products.columns.family")}
+                </th>
                 {columns.package ? (
-                  <th className={`${tableHeaderSpacing} w-[84px] text-center`}>
+                  <th className={`${tableHeaderSpacing} w-[96px] whitespace-nowrap text-center`}>
                     {t(
                       "products.columns.package",
                     )}

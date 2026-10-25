@@ -26,8 +26,7 @@ export function ProductsCatalogSummary({ data, isFetching, error, lifecycleFilte
   const locale = resolveI18nLocale(i18n);
   return (
     <div dir={i18n.dir()} role="group" aria-label={t("products.summary.title")} aria-busy={isFetching}
-      className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
-      <span className="text-[10px] font-semibold text-slate-500">{t("products.summary.scope")}</span>
+      className="flex flex-wrap items-center gap-1.5 text-[11px]">
       {chips.map(({ key, filter }) => {
         const selected = filter !== null && lifecycleFilter === filter;
         const className = `inline-flex min-h-8 items-center gap-2 rounded-lg border px-2 py-1 font-semibold ${selected

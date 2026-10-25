@@ -44,9 +44,10 @@ export function ProductsListSection({
               {...filters}
             />
           }
+          summaryContent={
+            summary ? <ProductsCatalogSummary {...summary} /> : null
+          }
         />
-
-        {summary ? <ProductsCatalogSummary {...summary} /> : null}
 
         <ProductsActiveFilters
           {...activeFilters}
