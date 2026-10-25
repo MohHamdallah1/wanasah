@@ -69,12 +69,11 @@ from domains.inventory_costing.service import (
     set_cost_policy,
 )
 from product_lifecycle import (
-    DEFAULT_PRODUCT_LOCATION_FLAGS,
     INBOUND_NEW,
     acquire_product_lifecycle_guards,
+    ensure_missing_product_locations,
     evaluate_product_capability,
     product_location_allows,
-    record_domain_event,
 )
 from domains.suppliers.public import SupplierError, select_active_supplier, require_supplier_permission
 from domains.inventory_supplier_evidence import record_supplier_evidence
@@ -279,69 +278,16 @@ async def _ensure_first_inbound_product_locations(
     actor_id: int,
     request_id: uuid.UUID,
 ) -> set[int]:
-    """Create only missing product/location assignments for the selected inbound warehouse.
-
-    The caller must already have validated exact-warehouse inbound permission and
-    company-scoped product lifecycle eligibility. Existing assignments are never
-    overwritten, so explicit inbound/outbound flags remain authoritative.
-    """
-    normalized_ids = sorted({int(value) for value in variant_ids})
-    if not normalized_ids:
-        return set()
-
-    rows = [
-        {
-            "company_id": int(company_id),
-            "location_id": int(location_id),
-            "product_variant_id": int(variant_id),
-            "operational_flags": dict(DEFAULT_PRODUCT_LOCATION_FLAGS),
-            "created_by": int(actor_id),
-        }
-        for variant_id in normalized_ids
-    ]
-    created_rows = list(
-        (
-            await db.execute(
-                pg_insert(ProductLocation)
-                .values(rows)
-                .on_conflict_do_nothing(
-                    constraint="uq_product_location_assignment"
-                )
-                .returning(
-                    ProductLocation.id,
-                    ProductLocation.product_variant_id,
-                )
-            )
-        ).all()
+    """Create missing assignments for the approved first supplier-inbound path."""
+    return await ensure_missing_product_locations(
+        db,
+        company_id=company_id,
+        location_id=location_id,
+        variant_ids=variant_ids,
+        actor_id=actor_id,
+        request_id=request_id,
+        reason="AUTO_FIRST_INBOUND",
     )
-
-    for product_location_id, product_variant_id in created_rows:
-        snapshot = {
-            "id": int(product_location_id),
-            "company_id": int(company_id),
-            "location_id": int(location_id),
-            "product_variant_id": int(product_variant_id),
-            "operational_flags": dict(DEFAULT_PRODUCT_LOCATION_FLAGS),
-            "version": 1,
-            "created_by": int(actor_id),
-        }
-        record_domain_event(
-            db,
-            company_id=int(company_id),
-            actor_id=int(actor_id),
-            request_id=request_id,
-            event_type="ProductLocationAssigned",
-            entity_type="ProductLocation",
-            entity_id=int(product_location_id),
-            reason="AUTO_FIRST_INBOUND",
-            before=None,
-            after=snapshot,
-        )
-
-    return {
-        int(product_variant_id)
-        for _, product_variant_id in created_rows
-    }
 
 
 def _inbound_batch_context(
