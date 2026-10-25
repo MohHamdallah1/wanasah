@@ -3044,7 +3044,7 @@
 .inventory-inbound-table th {
   padding: 0.48rem 0.55rem !important;
   border-bottom: 1px solid #d0dce1;
-  border-inline-end: 1px solid #e0e7ea;
+  border-inline-end: 1px solid #d3dde1;
   color: #3d555f;
   font-size: 0.68rem;
   font-weight: 900;
@@ -3058,7 +3058,7 @@
 .inventory-inbound-table td {
   padding: 0.28rem 0.55rem !important;
   border-bottom: 1px solid #edf1f3;
-  border-inline-end: 1px solid #f0f3f4;
+  border-inline-end: 1px solid #dce5e8;
   vertical-align: middle;
 }
 
