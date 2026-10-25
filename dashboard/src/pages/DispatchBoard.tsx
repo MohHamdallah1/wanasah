@@ -351,11 +351,17 @@ export default function DispatchBoard() {
       setRadarFocusTransferId(intent.transferId);
       setRadarOpenCancel(intent.openCancel);
       setIsRadarModalOpen(true);
-    } else {
-      setArchiveRouteFocus(route.id);
-      setPendingRoutes((rows) => [...rows.filter((row) => row.id !== route.id), route]);
-      if (route.status === "postponed") setIsShowPostponedModalOpen(true);
+      return;
     }
+    if (intent.kind === "route-load") {
+      setPendingRoutes((rows) => [...rows.filter((row) => row.id !== route.id), route]);
+      setInventoryRoute(route);
+      setIsInventoryModalOpen(true);
+      return;
+    }
+    setArchiveRouteFocus(route.id);
+    setPendingRoutes((rows) => [...rows.filter((row) => row.id !== route.id), route]);
+    if (route.status === "postponed") setIsShowPostponedModalOpen(true);
   }, []);
   const openShortageOwner = useCallback((rows: Shortage[], shortage: Shortage) => {
     setShortages((previous) => [...rows, ...previous.filter((row) => !rows.some((fresh) => fresh.id === row.id))]);
