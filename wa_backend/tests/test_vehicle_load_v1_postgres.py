@@ -258,7 +258,7 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
             ProductLocation(
                 company_id=self.company_id,
                 location_id=self.warehouse_b_id,
-                product_variant_id=int(self.variant.id),
+                product_variant_id=self.variant_id,
                 operational_flags=flags,
                 created_by=int(self.owner.operational_driver.id),
             )
@@ -280,7 +280,7 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
         row = await self.db.scalar(
             select(ProductLocation).where(
                 ProductLocation.company_id == self.company_id,
-                ProductLocation.location_id == int(self.warehouse_b.id),
+                ProductLocation.location_id == self.warehouse_b_id,
                 ProductLocation.product_variant_id == self.variant_id,
             )
         )
@@ -311,7 +311,7 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
         recalled = await self.db.scalar(
             select(InventoryBalance.on_hand_quantity).where(
                 InventoryBalance.company_id == self.company_id,
-                InventoryBalance.location_id == int(self.warehouse_b.id),
+                InventoryBalance.location_id == self.warehouse_b_id,
                 InventoryBalance.product_variant_id == self.variant_id,
                 InventoryBalance.batch_id == self.batch_id,
                 InventoryBalance.stock_status == "RECALLED",
@@ -320,7 +320,7 @@ class VehicleLoadV1Postgres(unittest.IsolatedAsyncioTestCase):
         available = await self.db.scalar(
             select(InventoryBalance.on_hand_quantity).where(
                 InventoryBalance.company_id == self.company_id,
-                InventoryBalance.location_id == int(self.warehouse_b.id),
+                InventoryBalance.location_id == self.warehouse_b_id,
                 InventoryBalance.product_variant_id == self.variant_id,
                 InventoryBalance.batch_id == self.batch_id,
                 InventoryBalance.stock_status == "AVAILABLE",
