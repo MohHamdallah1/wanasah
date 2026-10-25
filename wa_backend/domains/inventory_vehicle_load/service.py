@@ -303,9 +303,10 @@ async def vehicle_load_snapshot(
         )
     ).all()
 
+    reserved_present = any(Decimal(row.reserved or 0) > 0 for row in rows)
     can_add = False
     can_unload = False
-    if owner.mode == _MODE_DIRECT:
+    if owner.mode == _MODE_DIRECT and not reserved_present:
         can_add = (
             operational
             and await _permission_available(access, "transfer.destination", vehicle_location_id)
@@ -466,6 +467,19 @@ async def vehicle_load_source_inventory(
 
     await _require(access, "transfer.send", warehouse_id)
     await _require(access, "transfer.destination", vehicle_location_id)
+    reserved_total = await db.scalar(
+        select(func.coalesce(func.sum(InventoryBalance.reserved_quantity), 0)).where(
+            InventoryBalance.company_id == company_id,
+            InventoryBalance.location_id == int(vehicle_location_id),
+            InventoryBalance.reserved_quantity > 0,
+        )
+    )
+    if Decimal(reserved_total or 0) > 0:
+        raise _error(
+            "VEHICLE_LOAD_PENDING_RESERVATION",
+            "يوجد حجز مخزون معلّق على السيارة؛ عالج الحجز أو العهدة قبل تعديل الحمولة.",
+        )
+
     warehouse = await db.scalar(
         select(InventoryLocation.id).where(
             InventoryLocation.company_id == company_id,
