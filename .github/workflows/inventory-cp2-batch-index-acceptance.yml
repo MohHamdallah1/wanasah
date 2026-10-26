@@ -99,6 +99,14 @@ jobs:
       - name: CP2 real PostgreSQL acceptance
         working-directory: wa_backend
         run: python -m pytest -q -s tests/test_inventory_batch_index_postgres_acceptance.py
+      - name: Legacy Live Stock and quality regressions
+        working-directory: wa_backend
+        run: |
+          python -m pytest -q \
+            tests/test_live_stock_batch_detail_disposition_contract.py \
+            tests/test_live_stock_canonical_boundary.py \
+            tests/test_cp7_live_stock_contract.py \
+            tests/test_cp8_transfers_backend.py
       - name: CP1 regression
         working-directory: wa_backend
         run: |
@@ -158,14 +166,27 @@ jobs:
                   text=True,
               ).splitlines()
           )
-          if changed != expected:
-              raise SystemExit(
-                  "CP2_SCOPE=FAIL\n"
-                  f"missing={sorted(expected - changed)}\n"
-                  f"extra={sorted(changed - expected)}"
-              )
+          # The historical CP2 introduction was exactly nine files. New
+          # maintenance PRs must stay within that ownership boundary, but
+          # must not be forced to re-touch all nine original files.
+          if os.environ["GITHUB_EVENT_NAME"] == "pull_request":
+              invalid = changed - expected
+              if not changed or invalid:
+                  raise SystemExit(
+                      "CP2_SCOPE=FAIL maintenance changes outside CP2 ownership\n"
+                      f"extra={sorted(invalid)}"
+                  )
+              scope = "maintenance"
+          else:
+              if changed != expected:
+                  raise SystemExit(
+                      "CP2_SCOPE=FAIL historical introduction boundary\n"
+                      f"missing={sorted(expected - changed)}\n"
+                      f"extra={sorted(changed - expected)}"
+                  )
+              scope = "historical"
           forbidden_prefixes = ("wa_backend/alembic/versions/", "dashboard/")
           if any(path.startswith(forbidden_prefixes) for path in changed):
               raise SystemExit("CP2_SCOPE=FAIL forbidden runtime expansion")
-          print("CP2_SCOPE=PASS exact_files=9 runtime_files=5 test_files=3 workflow_files=1")
+          print(f"CP2_SCOPE=PASS mode={scope} files={len(changed)}")
           PY
