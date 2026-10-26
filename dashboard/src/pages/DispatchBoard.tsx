@@ -11,7 +11,6 @@ import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 // Components
 import { CustomSelect } from "@/components/ui/custom-select";
-import { QuantityInput } from "@/components/ui/quantity-input";
 import { ShopTable } from "@/components/dispatch/ShopTable";
 import { PendingRoutesTable } from "@/components/dispatch/PendingRoutesTable";
 import { ShortageModal } from "@/components/dispatch/ShortageModal";
@@ -31,13 +30,17 @@ import {
   DISPATCH_PRODUCT_WINDOW_LIMIT,
   boundedDispatchProductSearch,
   mergeDispatchProductWindow,
-  positiveDispatchInventory,
   selectedDispatchProducts,
 } from "@/features/dispatch/productWindow";
 // Types
 import { TabId, Zone, PendingRoute, Shortage, Shop } from "@/types/dispatch";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { apiErrorMessage } from "@/lib/apiErrors";
+import { formatQuantity, type Quantity } from "@/lib/quantity";
+import {
+  buildRouteLoadBaseTargets, formatRouteLoadQuantity, parseRouteLoadUomWindow,
+  parseRouteLoadVehicleInventory, routeLoadReview, type RouteLoadUom,
+} from "@/features/dispatch/routeLoadUom";
 
 interface WarehouseOption {
   id: string;
@@ -294,6 +297,11 @@ export default function DispatchBoard() {
     localStorage.setItem("wanasah_route_vehicle", selectedVehicleId);
   }, [selectedZoneId, selectedDriverId, selectedVehicleId]);
   const [preloadQuantities, setPreloadQuantities] = useState<Record<string, number>>({});
+  const [routeLoadCurrent, setRouteLoadCurrent] = useState<Record<string, Quantity>>({});
+  const [routeLoadTargets, setRouteLoadTargets] = useState<Record<string, Quantity>>({});
+  const [routeLoadUnits, setRouteLoadUnits] = useState<Record<string, RouteLoadUom>>({});
+  const [routeLoadNames, setRouteLoadNames] = useState<Record<string, string>>({});
+  const [routeLoadMetaError, setRouteLoadMetaError] = useState(false);
 
   const [isRouteModalOpen, setIsRouteModalOpen] = useState(false);
   const [routeModalType, setRouteModalType] = useState<"follow_up" | "transfer">("follow_up");
@@ -392,10 +400,15 @@ export default function DispatchBoard() {
     () => boundedDispatchProductSearch(products, deferredProductSearch),
     [products, deferredProductSearch],
   );
-  const selectedLaunchProducts = useMemo(
-    () => selectedDispatchProducts(productsById, preloadQuantities),
-    [productsById, preloadQuantities],
-  );
+  const selectedLaunchProducts = useMemo(() => {
+    const selectedIds = new Set([...Object.keys(routeLoadCurrent), ...Object.keys(routeLoadTargets)]);
+    const selected = selectedDispatchProducts(productsById,
+      Object.fromEntries([...selectedIds].map((id) => [id, 1])));
+    const unavailableInBootstrap = [...selectedIds]
+      .filter((id) => !productsById.has(id))
+      .map((id) => ({ id, name: routeLoadNames[id] || id }));
+    return [...selected, ...unavailableInBootstrap];
+  }, [productsById, routeLoadCurrent, routeLoadTargets, routeLoadNames]);
   const visibleLaunchProducts = useMemo(
     () => mergeDispatchProductWindow(selectedLaunchProducts, searchedLaunchProducts),
     [selectedLaunchProducts, searchedLaunchProducts],
@@ -656,10 +669,20 @@ export default function DispatchBoard() {
   useEffect(() => {
     if (!selectedVehicleId) {
       setPreloadQuantities({});
+      setRouteLoadCurrent({});
+      setRouteLoadTargets({});
+      setRouteLoadUnits({});
+      setRouteLoadNames({});
+      setRouteLoadMetaError(false);
       setVehicleInventoryLoadedForId(null);
       return;
     }
 
+    setRouteLoadCurrent({});
+    setRouteLoadTargets({});
+    setRouteLoadUnits({});
+    setRouteLoadNames({});
+    setRouteLoadMetaError(false);
     const requestedVehicleId = selectedVehicleId;
     const controller = new AbortController();
     setVehicleInventoryLoadedForId(null);
@@ -671,12 +694,21 @@ export default function DispatchBoard() {
         if (!Array.isArray(data)) {
           throw new Error("استجابة مخزون المركبة غير صالحة.");
         }
+        // The legacy carton fields are used only for older Route Management actions.
         const inventory: Record<string, number> = {};
         data.forEach((raw) => {
           const item = raw as VehicleInventoryPayload;
           inventory[String(item.product_id)] = Number(item.current_quantity) || 0;
         });
+        const precise = parseRouteLoadVehicleInventory(data);
         setPreloadQuantities(inventory);
+        setRouteLoadCurrent(precise.current);
+        setRouteLoadTargets({ ...precise.current });
+        setRouteLoadUnits(precise.units);
+        setRouteLoadNames(Object.fromEntries(data.map((raw) => {
+          const item = raw as VehicleInventoryPayload & { product_name?: string };
+          return [String(item.product_id), String(item.product_name || item.product_id)];
+        })));
         setVehicleInventoryLoadedForId(requestedVehicleId);
       })
       .catch((err: unknown) => {
@@ -687,6 +719,29 @@ export default function DispatchBoard() {
 
     return () => controller.abort();
   }, [selectedVehicleId, vehicleInventoryReloadKey, authenticatedFetch]);
+
+  // Resolve only visible products not already present in the exact vehicle snapshot.
+  useEffect(() => {
+    if (!selectedVehicleId || vehicleInventoryLoadedForId !== selectedVehicleId) return;
+    const missing = visibleLaunchProducts.filter((p) => !routeLoadUnits[p.id]).map((p) => p.id);
+    if (!missing.length) return;
+    const controller = new AbortController();
+    const params = new URLSearchParams({ vehicle_id: selectedVehicleId });
+    missing.slice(0, 100).forEach((id) => params.append("product_ids", id));
+    authenticatedFetch(`/dispatch/route-load/uom?${params.toString()}`, { signal: controller.signal })
+      .then((raw) => {
+        const units = parseRouteLoadUomWindow(raw);
+        if (missing.some((id) => !units[id])) throw new Error("DISPATCH_UOM_METADATA_MISSING");
+        setRouteLoadUnits((current) => ({ ...current, ...units }));
+        setRouteLoadMetaError(false);
+      })
+      .catch((err: unknown) => {
+        if (err instanceof Error && err.name === "AbortError") return;
+        setRouteLoadMetaError(true);
+        toast.error(t("dispatchRouteLoad.blocked"));
+      });
+    return () => controller.abort();
+  }, [visibleLaunchProducts, routeLoadUnits, vehicleInventoryLoadedForId, selectedVehicleId, authenticatedFetch, t]);
 
   useEffect(() => { setIsEditMode(false); setSelectedShopIds([]); setHasUnsavedChanges(false); }, [activeTab]);
 
@@ -843,7 +898,18 @@ export default function DispatchBoard() {
     if (targetShops.length === 0) {
       return toast.error("⚠️ المنطقة المختارة لا تحتوي على محلات نشطة.");
     }
-    if (Object.values(preloadQuantities).reduce((acc, q) => acc + (Number(q) || 0), 0) === 0) return toast.error("⚠️ لا يمكن إطلاق خط السير بحمولة صفر");
+    if (Object.values(routeLoadTargets).every((q) => q === "0")) return toast.error("⚠️ لا يمكن إطلاق خط السير بحمولة صفر");
+
+    let inventoryBase: Record<string, Quantity>;
+    try {
+      if (routeLoadMetaError || visibleLaunchProducts.some((p) => !routeLoadUnits[p.id])) {
+        throw new Error("DISPATCH_UOM_METADATA_MISSING");
+      }
+      inventoryBase = buildRouteLoadBaseTargets(routeLoadTargets, routeLoadUnits);
+    } catch {
+      toast.error(t("dispatchRouteLoad.invalid"));
+      return;
+    }
 
     authenticatedFetch("/dispatch/route", {
       method: "POST",
@@ -852,12 +918,13 @@ export default function DispatchBoard() {
         driver_id: selectedDriverId,
         vehicle_id: selectedVehicleId,
         source_location_id: Number(selectedSourceWarehouseId),
-        inventory: positiveDispatchInventory(preloadQuantities)
+        inventory_base: inventoryBase,
+        expected_inventory_base: routeLoadCurrent
       })
     })
       .then(() => {
         toast.success("تم إطلاق خط السير بنجاح");
-        setSelectedZoneId(""); setSelectedDriverId(""); setSelectedVehicleId(""); setPreloadQuantities({});
+        setSelectedZoneId(""); setSelectedDriverId(""); setSelectedVehicleId(""); setPreloadQuantities({}); setRouteLoadTargets({});
         // +++ الكي الجراحي: استخدام Array.isArray لمنع كراش دالة .map إذا أرجع السيرفر كائن خطأ بدل المصفوفة +++
         authenticatedFetch("/dispatch/active_routes").then(data => setPendingRoutes(Array.isArray(data) ? data : [])).catch(err => console.error(err));
       })
@@ -1615,7 +1682,7 @@ export default function DispatchBoard() {
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 z-10 bg-slate-50/90 backdrop-blur-md shadow-sm border-b border-slate-200">
                       <tr className="text-slate-500 text-xs uppercase">
-                        <th className="text-start py-3 px-6 font-extrabold w-2/3">
+                        <th className="text-start py-3 px-6 font-extrabold w-1/3">
                           <div className="flex flex-col md:flex-row md:items-center gap-4">
                             <span>المنتج</span>
                             <div className="relative font-normal flex-1 max-w-sm">
@@ -1633,43 +1700,82 @@ export default function DispatchBoard() {
                             </div>
                           </div>
                         </th>
-                        <th className="text-center py-3 px-6 font-extrabold relative">
+                        <th className="text-center py-3 px-3 font-extrabold">{t("dispatchRouteLoad.current")}</th>
+                        <th className="text-center py-3 px-3 font-extrabold relative">
                           {/* +++ سنترة الكلمة فوق العدادات بالضبط +++ */}
-                          <span className="block w-full text-center">الكمية (كرتونة)</span>
+                          <span className="block w-full text-center">{t("dispatchRouteLoad.target")}</span>
                           {/* +++ زر التصفير تم نقله لأقصى اليسار ليفسح المجال للسنترة المطلقة +++ */}
-                          <button onClick={() => setPreloadQuantities({})} className="absolute left-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-red-500 hover:text-red-700 flex items-center gap-1 bg-red-50 hover:bg-red-100 px-2.5 py-1.5 rounded-md transition-colors border border-red-100 shadow-sm shrink-0">
+                          <button onClick={() => setRouteLoadTargets({})} className="absolute left-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-red-500 hover:text-red-700 flex items-center gap-1 bg-red-50 hover:bg-red-100 px-2.5 py-1.5 rounded-md transition-colors border border-red-100 shadow-sm shrink-0">
                             <Eraser className="w-3.5 h-3.5" /> تصفير الحمولة
                           </button>
                         </th>
+                        <th className="text-center py-3 px-3 font-extrabold">{t("dispatchRouteLoad.difference")}</th>
+                        <th className="text-center py-3 px-3 font-extrabold">{t("dispatchRouteLoad.action")}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {visibleLaunchProducts.map((prod) => (
-                        <tr key={prod.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="py-3 px-6 font-bold text-slate-800 text-base">{prod.name}</td>
-                          <td className="py-3 px-6">
-                            <div className="flex justify-center">
-                              <QuantityInput
-                                value={preloadQuantities[prod.id] ?? 0}
-                                onChange={(quantity) =>
-                                  setPreloadQuantities((current) => {
-                                    const next = { ...current };
-                                    if (quantity > 0) next[prod.id] = quantity;
-                                    else delete next[prod.id];
-                                    return next;
-                                  })
-                                }
-                              />
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                      {visibleLaunchProducts.map((prod) => {
+                        const unit = routeLoadUnits[prod.id];
+                        const current = routeLoadCurrent[prod.id] ?? "0";
+                        const target = routeLoadTargets[prod.id] ?? "0";
+                        let review: ReturnType<typeof routeLoadReview> | null = null;
+                        try {
+                          if (unit) review = routeLoadReview(current, target, unit);
+                        } catch {
+                          // Invalid draft stays visible, but launch validation fails closed.
+                        }
+                        return (
+                          <tr key={prod.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="py-3 px-6 font-bold text-slate-800 text-base">{prod.name}</td>
+                            <td className="py-3 px-3 text-center">
+                              {unit ? (
+                                <div className="font-semibold">
+                                  {formatRouteLoadQuantity(current, unit)}
+                                  <div className="text-xs text-slate-500">{formatQuantity(current, unit.base_uom_name)}</div>
+                                </div>
+                              ) : t("dispatchRouteLoad.loading")}
+                            </td>
+                            <td className="py-3 px-3">
+                              <div className="flex flex-col items-center gap-1">
+                                <label className="sr-only" htmlFor={`route-base-${prod.id}`}>
+                                  {t("dispatchRouteLoad.target")} — {prod.name}
+                                </label>
+                                <input
+                                  id={`route-base-${prod.id}`}
+                                  type="text"
+                                  inputMode="decimal"
+                                  disabled={!unit}
+                                  aria-invalid={Boolean(unit && !review)}
+                                  title={unit ? `${t("dispatchRouteLoad.baseInput")}: ${unit.base_uom_name}` : t("dispatchRouteLoad.loading")}
+                                  className="w-28 rounded-lg border border-slate-300 p-2 text-center focus-visible:ring-2 focus-visible:ring-sky-500"
+                                  value={target}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    setRouteLoadTargets((previous) => ({ ...previous, [prod.id]: value }));
+                                  }}
+                                />
+                                <span className="text-xs text-slate-500">{unit?.base_uom_name ?? ""}</span>
+                                {unit && review && <span className="text-xs text-slate-600">{formatRouteLoadQuantity(target, unit)}</span>}
+                              </div>
+                            </td>
+                            <td className="py-3 px-3 text-center">
+                              {unit && review ? formatRouteLoadQuantity(review.absoluteDelta, unit) : t("dispatchRouteLoad.invalid")}
+                            </td>
+                            <td className="py-3 px-3 text-center">
+                              {!review ? t("dispatchRouteLoad.blocked") :
+                                t(review.direction === "ADD" ? "dispatchRouteLoad.add" :
+                                  review.direction === "UNLOAD" ? "dispatchRouteLoad.unload" : "dispatchRouteLoad.unchanged")}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               </div>
 
               {/* +++ الزر: تصغيره وتنسيقه بالأسفل +++ */}
+              <p className="text-sm text-slate-600">{t("dispatchRouteLoad.review")}</p>
               <div className="flex justify-end mb-8">
                 <button
                   disabled={!canLaunch}
