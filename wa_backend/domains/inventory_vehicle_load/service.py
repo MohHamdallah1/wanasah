@@ -20,6 +20,7 @@ from domains.authorization.backoffice_access import (
 from domains.inventory_rules import batch_sellability_predicate
 from domains.uom_authority import UomAuthorityError, load_variant_uom_authorities
 from domains.vehicles import (
+    read_vehicle_operational_state,
     resolve_vehicle_custody_location_id,
     vehicle_is_operational,
 )
