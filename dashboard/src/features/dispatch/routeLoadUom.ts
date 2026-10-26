@@ -31,9 +31,18 @@ export function parseRouteLoadUom(value: unknown): RouteLoadUom {
   const step = validateVariantQuantity(row.quantity_step, Number(row.quantity_scale), row.quantity_step);
   const name = row.display_uom_name;
   const factor = row.display_factor_to_base;
-  if ((name !== null && typeof name !== "string") ||
-      (factor !== null && (typeof factor !== "string" || !/^\d+$/.test(factor) || factor === "0")) ||
-      ((name === null) !== (factor === null))) throw new Error("DISPATCH_UOM_METADATA_INVALID");
+  if (name !== null && typeof name !== "string") {
+    throw new Error("DISPATCH_UOM_METADATA_INVALID");
+  }
+  if (factor !== null && typeof factor !== "string") {
+    throw new Error("DISPATCH_UOM_METADATA_INVALID");
+  }
+  if (factor !== null && (!/^\d+$/.test(factor) || factor === "0")) {
+    throw new Error("DISPATCH_UOM_METADATA_INVALID");
+  }
+  if ((name === null) !== (factor === null)) {
+    throw new Error("DISPATCH_UOM_METADATA_INVALID");
+  }
   return {
     base_uom_id: Number(row.base_uom_id),
     base_uom_code: String(row.base_uom_code),
