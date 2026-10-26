@@ -117,9 +117,11 @@ jobs:
             tests/test_batch_reservation_owner_contract.py \
             tests/test_whole_product_quality_issue_sources.py
       - name: Warehouse route manifest gate
+        if: ${{ !cancelled() }}
         working-directory: wa_backend
         run: python scripts/gate_warehouse_route_manifest.py
       - name: CP2 py_compile
+        if: ${{ !cancelled() }}
         working-directory: wa_backend
         run: |
           python -m py_compile \
@@ -131,6 +133,7 @@ jobs:
             tests/test_inventory_batch_index_authorization.py \
             tests/test_inventory_batch_index_postgres_acceptance.py
       - name: Resolve CP2 audit base
+        if: ${{ !cancelled() }}
         id: audit-base
         run: |
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
@@ -139,8 +142,10 @@ jobs:
             echo "sha=$CP2_REQUESTED_BASE_SHA" >> "$GITHUB_OUTPUT"
           fi
       - name: Diff check
+        if: ${{ !cancelled() }}
         run: git diff --check "${{ steps.audit-base.outputs.sha }}" HEAD --
       - name: Exact CP2 scope audit
+        if: ${{ !cancelled() }}
         env:
           CP2_AUDIT_BASE_SHA: ${{ steps.audit-base.outputs.sha }}
         run: |
