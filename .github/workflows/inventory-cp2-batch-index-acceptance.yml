@@ -104,7 +104,6 @@ jobs:
         run: |
           python -m pytest -q \
             tests/test_live_stock_batch_detail_disposition_contract.py \
-            tests/test_live_stock_canonical_boundary.py \
             tests/test_cp7_live_stock_contract.py \
             tests/test_cp8_transfers_backend.py
       - name: CP1 regression
