@@ -66,6 +66,9 @@ export function VehicleLoadModal({ vehicle, open, onClose }: VehicleLoadModalPro
   const [sourceNextCursor, setSourceNextCursor] = useState<string | null>(null);
   const [sourceHasMore, setSourceHasMore] = useState(false);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
+  const [selectedUnloadKeys, setSelectedUnloadKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const addCommand = useVehicleLoadCommand(vehicle.id, "ADD");
   const unloadCommand = useVehicleLoadCommand(vehicle.id, "UNLOAD");
@@ -99,6 +102,7 @@ export function VehicleLoadModal({ vehicle, open, onClose }: VehicleLoadModalPro
     setSourceNextCursor(null);
     setSourceHasMore(false);
     setQuantities({});
+    setSelectedUnloadKeys(new Set());
     void reloadSnapshot();
   }, [open, reloadSnapshot]);
 
@@ -219,14 +223,17 @@ export function VehicleLoadModal({ vehicle, open, onClose }: VehicleLoadModalPro
 
   const candidates = direction === "ADD" ? sourceItems : unloadItems;
 
-  const submit = async () => {
-    if (!direction || !warehouseId || !snapshot) return;
-
+  const buildMutationItems = (
+    source: Array<VehicleLoadSourceItem | VehicleLoadItem>,
+    useFullAvailable: boolean,
+  ): VehicleLoadMutationItem[] | null => {
     const items: VehicleLoadMutationItem[] = [];
-    for (const item of candidates) {
+    for (const item of source) {
       const status = candidateStockStatus(item);
       const key = itemKey(item.product_variant_id, status);
-      const raw = (quantities[key] || "").trim();
+      const raw = useFullAvailable
+        ? item.available_quantity
+        : (quantities[key] || "").trim();
       if (!raw) continue;
       try {
         const quantity = validateVariantQuantity(
@@ -245,15 +252,18 @@ export function VehicleLoadModal({ vehicle, open, onClose }: VehicleLoadModalPro
         });
       } catch {
         toast.error(t("representativesVehicles.vehicles.load.invalidQuantity"));
-        return;
+        return null;
       }
     }
+    return items;
+  };
 
+  const executeMutation = async (items: VehicleLoadMutationItem[]) => {
+    if (!direction || !warehouseId || !snapshot) return;
     if (!items.length) {
       toast.error(t("representativesVehicles.vehicles.load.noItemsSelected"));
       return;
     }
-
     try {
       const command = direction === "ADD" ? addCommand : unloadCommand;
       const result = await command.execute({ warehouse_id: warehouseId, items });
@@ -268,6 +278,7 @@ export function VehicleLoadModal({ vehicle, open, onClose }: VehicleLoadModalPro
       setDirection(null);
       setWarehouseId(null);
       setQuantities({});
+      setSelectedUnloadKeys(new Set());
       await reloadSnapshot();
     } catch (error) {
       toast.error(
@@ -277,6 +288,26 @@ export function VehicleLoadModal({ vehicle, open, onClose }: VehicleLoadModalPro
         ),
       );
     }
+  };
+
+  const submit = async () => {
+    const items = buildMutationItems(candidates, false);
+    if (items === null) return;
+    await executeMutation(items);
+  };
+
+  const submitFullUnload = async (selectedOnly: boolean) => {
+    if (direction !== "UNLOAD") return;
+    const source = selectedOnly
+      ? unloadItems.filter((item) =>
+          selectedUnloadKeys.has(
+            itemKey(item.product_variant_id, item.stock_status),
+          ),
+        )
+      : unloadItems;
+    const items = buildMutationItems(source, true);
+    if (items === null) return;
+    await executeMutation(items);
   };
 
   const retryPending = async () => {
@@ -486,6 +517,7 @@ export function VehicleLoadModal({ vehicle, open, onClose }: VehicleLoadModalPro
                       setDirection("ADD");
                       setWarehouseId(null);
                       setQuantities({});
+                      setSelectedUnloadKeys(new Set());
                     }}
                     className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-black text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
                   >
@@ -498,6 +530,7 @@ export function VehicleLoadModal({ vehicle, open, onClose }: VehicleLoadModalPro
                       setDirection("UNLOAD");
                       setWarehouseId(null);
                       setQuantities({});
+                      setSelectedUnloadKeys(new Set());
                     }}
                     className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-black text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
                   >
@@ -522,6 +555,7 @@ export function VehicleLoadModal({ vehicle, open, onClose }: VehicleLoadModalPro
                         setDirection(null);
                         setWarehouseId(null);
                         setQuantities({});
+                        setSelectedUnloadKeys(new Set());
                       }}
                       className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-black text-slate-600 hover:bg-slate-100"
                     >
@@ -562,6 +596,7 @@ export function VehicleLoadModal({ vehicle, open, onClose }: VehicleLoadModalPro
                         onChange={(event) => {
                           setWarehouseId(event.target.value ? Number(event.target.value) : null);
                           setQuantities({});
+                          setSelectedUnloadKeys(new Set());
                         }}
                         disabled={warehousesLoading}
                         className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 outline-none focus:border-cyan-300"
@@ -610,15 +645,61 @@ export function VehicleLoadModal({ vehicle, open, onClose }: VehicleLoadModalPro
                           {t("representativesVehicles.vehicles.load.sourceEmpty")}
                         </div>
                       ) : (
-                        <div className="max-h-72 overflow-auto rounded-xl border border-slate-200">
+                        <>
+                          {direction === "UNLOAD" ? (
+                            <div className="mb-2 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={operationBusy || unloadItems.length === 0}
+                                onClick={() => void submitFullUnload(false)}
+                                className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-black text-white disabled:opacity-40"
+                              >
+                                {t("representativesVehicles.vehicles.load.unloadAll")}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={operationBusy || selectedUnloadKeys.size === 0}
+                                onClick={() => void submitFullUnload(true)}
+                                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-40"
+                              >
+                                {t("representativesVehicles.vehicles.load.unloadSelected")}
+                              </button>
+                            </div>
+                          ) : null}
+                          <div className="max-h-72 overflow-auto rounded-xl border border-slate-200">
                           {candidates.map((item) => {
                             const status = candidateStockStatus(item);
                             const key = itemKey(item.product_variant_id, status);
                             return (
                               <div
                                 key={key}
-                                className="grid grid-cols-[minmax(0,1fr)_110px] items-center gap-3 border-b border-slate-100 p-3 last:border-b-0"
+                                className={
+                                  "grid items-center gap-3 border-b border-slate-100 p-3 last:border-b-0 " +
+                                  (direction === "UNLOAD"
+                                    ? "grid-cols-[28px_minmax(0,1fr)_110px]"
+                                    : "grid-cols-[minmax(0,1fr)_110px]")
+                                }
                               >
+                                {direction === "UNLOAD" ? (
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedUnloadKeys.has(key)}
+                                    onChange={(event) => {
+                                      setSelectedUnloadKeys((current) => {
+                                        const next = new Set(current);
+                                        if (event.target.checked) next.add(key);
+                                        else next.delete(key);
+                                        return next;
+                                      });
+                                    }}
+                                    aria-label={
+                                      t("representativesVehicles.vehicles.load.selectForFullUnload") +
+                                      " - " +
+                                      item.product_name
+                                    }
+                                    className="h-4 w-4 accent-slate-900"
+                                  />
+                                ) : null}
                                 <div className="min-w-0">
                                   <p className="truncate text-sm font-black text-slate-800">{item.product_name}</p>
                                   <p className="mt-0.5 text-[10px] font-semibold text-slate-500">
@@ -662,7 +743,8 @@ export function VehicleLoadModal({ vehicle, open, onClose }: VehicleLoadModalPro
                               </button>
                             </div>
                           ) : null}
-                        </div>
+                          </div>
+                        </>
                       )}
                     </div>
                   </div>
