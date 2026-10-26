@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 from datetime import date, timedelta
-from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import get_args
@@ -13,6 +12,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
+from sqlalchemy import select
 
 os.environ.setdefault(
     "SECRET_KEY",
@@ -24,6 +24,8 @@ os.environ.setdefault(
 )
 
 import api.warehouse.inbound as inbound
+from models import OperationIdempotency
+from tests.test_inbound_no_lot_frozen_contract import AS_OF, ReceiptHarness
 from domains.product_tracking import (
     INTERNAL_NO_LOT_PREFIX,
     build_internal_no_lot_batch_number,
@@ -229,80 +231,42 @@ def test_expired_and_future_production_are_rejected():
 
 @pytest.mark.asyncio
 async def test_production_after_expiry_reaches_endpoint_stable_business_code():
-    # Pydantic parses the dates but intentionally does not own this business rule.
-    payload = UpgradedInboundRequest(
-        request_id=uuid4(),
-        supplier_id=1,
-        location_id=2,
-        reference_id="DATE-RULE-TEST",
-        items=[{
-            "product_variant_id": 7,
-            "quantity": "1",
-            "uom_id": 10,
-            "unit_cost": "2",
-            "batch_number": "REAL-LOT",
-            "production_date": date(2026, 10, 16),
-            "expiry_date": date(2026, 10, 15),
-        }],
-    )
-    assert payload.items[0].production_date > payload.items[0].expiry_date
+    receipt = ReceiptHarness()
+    try:
+        body = receipt.body(item={
+            "production_date": AS_OF + timedelta(days=1),
+            "expiry_date": AS_OF,
+        })
+        # Pydantic parses dates; the real handler owns the business rejection.
+        payload = UpgradedInboundRequest.model_validate(body)
+        assert payload.items[0].production_date > payload.items[0].expiry_date
+        pending_query = select(OperationIdempotency).where(
+            OperationIdempotency.company_id == 1,
+            OperationIdempotency.operation == "WAREHOUSE_INBOUND",
+            OperationIdempotency.request_id == str(payload.request_id),
+        )
+        rollback = receipt.db.rollback
 
-    class _ScalarResult:
-        def scalar_one_or_none(self):
-            return SimpleNamespace(id=2)
+        async def observe_pending_then_rollback():
+            pending = receipt.session.scalar(pending_query)
+            assert pending is not None
+            assert pending.completed_at is None and pending.response_json is None
+            await rollback()
 
-    variant = SimpleNamespace(
-        id=7,
-        base_uom_id=10,
-        quantity_scale=0,
-        quantity_step=Decimal("1"),
-        lot_control_mode="REQUIRED",
-        expiry_control_mode="OPTIONAL",
-        lifecycle_status="ACTIVE",
-        operational_hold="NONE",
-        operational_flags={
-            "inbound_enabled": True,
-            "outbound_enabled": True,
-        },
-    )
+        with patch.object(receipt.db, "rollback",
+                          AsyncMock(side_effect=observe_pending_then_rollback)) as rolled_back:
+            with pytest.raises(HTTPException) as caught:
+                await receipt.post(body)
 
-    class _RowsResult:
-        def all(self):
-            return [variant]
-
-    db = SimpleNamespace(
-        execute=AsyncMock(side_effect=[_ScalarResult(), _RowsResult()]),
-        rollback=AsyncMock(),
-    )
-    access = SimpleNamespace(company_id=3)
-    legacy_actor = SimpleNamespace(id=4)
-
-    with patch.object(inbound, "_require_inbound_access", AsyncMock()), \
-         patch.object(inbound, "_require_active_warehouse_setup", AsyncMock()), \
-         patch.object(inbound, "require_supplier_permission", AsyncMock()), \
-         patch.object(
-             inbound, "begin_idempotent_operation",
-             AsyncMock(return_value=(object(), None)),
-         ), \
-         patch.object(
-             inbound, "select_active_supplier",
-             AsyncMock(return_value=SimpleNamespace(id=1)),
-         ), \
-         patch.object(inbound, "acquire_product_lifecycle_guards", AsyncMock()), \
-         patch.object(
-             inbound, "_resolve_inbound_uom_options",
-             AsyncMock(return_value=({7: 10}, {(7, 10): Decimal("1")}, {})),
-         ), \
-         patch.object(
-             inbound, "get_company_local_date",
-             AsyncMock(return_value=date(2026, 10, 15)),
-         ):
-        with pytest.raises(HTTPException) as caught:
-            await inbound.warehouse_inbound(payload, db, access, legacy_actor)
-
-    assert caught.value.status_code == 422
-    assert _error_code(caught.value) == "INBOUND_BATCH_DATES_INVALID"
-    db.rollback.assert_awaited_once()
+        assert caught.value.status_code == 422
+        assert _error_code(caught.value) == "INBOUND_BATCH_DATES_INVALID"
+        rolled_back.assert_awaited_once()
+        receipt.movement.assert_not_awaited()
+        assert receipt.posted == []
+        assert receipt.batches() == []
+        assert receipt.session.scalar(pending_query) is None
+    finally:
+        receipt.close()
 
 
 def _batch(*, production, expiry, number="REAL-LOT"):
@@ -467,7 +431,7 @@ def test_operator_facing_serializers_use_central_public_batch_helper():
     root = Path(__file__).resolve().parents[1]
     paths = (
         root / "api/warehouse/live_stock.py",
-        root / "api/warehouse/ledger.py",
+        root / "domains/ledger/read.py",
         root / "api/warehouse/transfers.py",
         root / "api/warehouse/stocktake.py",
         root / "api/warehouse/whole_product_quality_preview.py",

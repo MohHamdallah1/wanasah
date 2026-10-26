@@ -1,13 +1,15 @@
-"""Independent Checkpoint 1 specification; intentionally red on acb8470d.
+"""Independent Checkpoint 1 lot/expiry acceptance specification.
 
 Run from wa_backend with: python -B -m pytest -p no:cacheprovider -q
     tests/test_inbound_no_lot_frozen_contract.py
 
 The receipt tests execute the real schema, handler, capability resolver, supplier
 selection, idempotency and batch persistence on synthetic in-memory relations.
-Only PostgreSQL lock primitives, the clock, and the inventory/cost posting
-boundary are substituted. This is NOT a PostgreSQL/RLS/concurrency acceptance
-gate; the companion opt-in module covers committed database effects.
+PostgreSQL locks/tenant context, the clock, inventory/cost posting, and purchase-
+reference persistence are synthetic boundaries. The audit-lock query, canonical
+receipt authorization and purchase-reference selection validation stay real.
+This is NOT a PostgreSQL/RLS/concurrency acceptance gate; the companion opt-in
+module covers committed database effects.
 
 Presentation probes execute real endpoint serializers with bounded scripted DB
 rows. They never replace the batch formatter or sanitize the observed output.
@@ -45,12 +47,14 @@ from api.authentication.backoffice_compatibility import get_current_backoffice_l
 from database import get_db
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from domains.authorization.backoffice_subject import BackofficeAuthorizationSubject
+from domains.identity.models import BackofficeUser, CompanyPrincipal
+from domains.inventory_costing.purchase_reference.authorization import require_receipt_access
 from domains.inventory_supplier_evidence import InventorySupplierEvidence
 from domains.suppliers.models import Supplier
 from models import (Company, DomainAuditEvent, InventoryBalance, InventoryLocation,
-                    InventoryMovement, OperationIdempotency, Permission,
+                    InventoryLock, InventoryMovement, OperationIdempotency, Permission,
                     ProductBatch, ProductLocation, ProductUomConversion,
-                    ProductVariant, TransactionalOutbox, UOM, UserLocationAccess, UserRole,
+                    ProductVariant, StocktakeSession, TransactionalOutbox, UOM, UserLocationAccess, UserRole,
                     role_permissions)
 from schemas import (BatchDispositionChangeRequest, InboundBatchItem,
                      UpgradedInboundRequest)
@@ -95,6 +99,7 @@ class MemorySession:
     def __init__(self, session):
         self.session = session
         self.audit_id = -1
+        self.tenant_id = "1"  # default trusted context for the HTTP fixture
 
     async def execute(self, statement, *args, **kwargs):
         return self.session.execute(statement, *args, **kwargs)
@@ -135,13 +140,17 @@ class ReceiptHarness:
             connection.create_function("hashtextextended", 2, lambda _value, _seed: 1)
             connection.create_function("pg_advisory_xact_lock", -1, lambda *_args: 0)
             connection.create_function("pg_advisory_xact_lock_shared", -1, lambda *_args: 0)
+            # Model the trusted DB dependency's tenant context, not PostgreSQL RLS.
+            connection.create_function("current_setting", 2, lambda key, _missing:
+                                       self.db.tenant_id if key == "app.current_tenant" else None)
 
         metadata = MetaData()
         self.tables = {}
         models = (Company, InventoryLocation, ProductVariant, ProductLocation,
                   ProductUomConversion, ProductBatch, OperationIdempotency,
                   InventoryMovement, UOM, Permission, UserRole, UserLocationAccess,
-                  DomainAuditEvent, TransactionalOutbox, Supplier, InventorySupplierEvidence)
+                  DomainAuditEvent, TransactionalOutbox, Supplier, InventorySupplierEvidence,
+                  InventoryLock, StocktakeSession, CompanyPrincipal, BackofficeUser)
         for original in [model.__table__ for model in models] + [role_permissions]:
             columns = []
             for column in original.c:
@@ -168,15 +177,46 @@ class ReceiptHarness:
             self.posted.extend(movements)
             return [NS(id=len(self.posted) + index) for index, _ in enumerate(movements)]
 
+        async def begin_reference_boundary(_db, *, access, operation, location_id):
+            # Keep real identity, tenant and exact-location authorization. Only
+            # the PostgreSQL transaction/writer persistence is outside this fixture.
+            assert _db is self.db
+            await require_receipt_access(_db, access, location_id)
+            assert operation in self.session
+            assert operation.company_id == access.company_id
+            assert operation.operation == "WAREHOUSE_INBOUND"
+            assert operation.completed_at is None and operation.response_json is None
+            return NS(operation=operation, access=access, location_id=location_id)
+
+        async def write_reference_boundary(_db, *, access, writer, reference_id,
+                                           movement_ids, selections):
+            # The synthetic movement boundary emits no persisted cost events;
+            # their reference provenance is covered by PostgreSQL acceptance.
+            assert _db is self.db and writer.access is access
+            await require_receipt_access(_db, access, writer.location_id)
+            assert writer.operation.completed_at is None
+            assert writer.operation.response_json is None
+            assert reference_id and movement_ids
+
         self.movement = AsyncMock(side_effect=movement_boundary)
+        self.begin_reference = AsyncMock(side_effect=begin_reference_boundary)
+        self.write_reference = AsyncMock(side_effect=write_reference_boundary)
         self.clock = AsyncMock(return_value=AS_OF)
         self.activate = AsyncMock()
         self.stack = ExitStack()
         self.stack.enter_context(patch.object(inbound, "apply_inventory_movements_batch", self.movement))
         self.stack.enter_context(patch.object(inbound, "activate_costing_for_first_receipt", self.activate))
         self.stack.enter_context(patch.object(inbound, "get_company_local_date", self.clock))
+        self.stack.enter_context(patch.object(inbound, "begin_receipt_reference", self.begin_reference))
+        self.stack.enter_context(patch.object(inbound, "write_receipt_references", self.write_reference))
         for tenant, variant, location, supplier in ((1, 101, 41, 31), (2, 202, 82, 62)):
             self.insert(Company, id=tenant, company_code=f"SYN-{tenant}", name=f"Synthetic {tenant}", timezone="Asia/Amman", currency_code="JOD", is_active=True)
+            self.insert(CompanyPrincipal, id=1100 + tenant, company_id=tenant,
+                        username=f"synthetic-{tenant}", password_hash="not-a-login-fixture",
+                        full_name="Synthetic operator", principal_type="BACKOFFICE",
+                        is_active=True, auth_revision=1)
+            self.insert(BackofficeUser, id=2201 + tenant, company_id=tenant,
+                        principal_id=1100 + tenant, principal_type="BACKOFFICE")
             self.insert(InventoryLocation, id=location, company_id=tenant, code=f"WH-{tenant}",
                         name="Synthetic warehouse", location_type="WAREHOUSE", is_active=True,
                         is_system_managed=False, version=1)
@@ -209,7 +249,7 @@ class ReceiptHarness:
 
     def access(self, *, company=1, owner=True):
         return BackofficeCapabilityAccess(self.db, BackofficeAuthorizationSubject(
-            principal_id=1101, backoffice_user_id=2202, company_id=company,
+            principal_id=1100 + company, backoffice_user_id=2201 + company, company_id=company,
             is_company_owner=owner, legacy_grant_driver_id=None if owner else 909))
 
     def grant(self, code, *, location=None):
@@ -229,12 +269,16 @@ class ReceiptHarness:
         item.update(overrides.pop("item", {}))
         result = dict(request_id=uuid4(), supplier_id=31, location_id=41, items=[item])
         result.update(overrides)
+        # Derive once from the final operation ID; retries reuse this same body.
+        result.setdefault("reference_id", f"CP1-SYNTHETIC-{result['request_id']}")
         return result
 
     async def post(self, body, *, access=None):
         # ValidationError is a deliberate failing assertion on the old null-rejecting schema.
         payload = UpgradedInboundRequest.model_validate(body)
-        return await inbound.warehouse_inbound(payload, self.db, access or self.access(), self.actor)
+        resolved_access = access or self.access()
+        self.db.tenant_id = str(resolved_access.company_id)
+        return await inbound.warehouse_inbound(payload, self.db, resolved_access, self.actor)
 
     def batches(self):
         self.session.expire_all()
@@ -365,6 +409,9 @@ async def test_anonymous_metadata_groups_split_but_distinct_uoms_share_group(rec
     body = receipt.body(None)
     row = body["items"][0]
     body["items"] = [row, {**row, "uom_id": 2}, {**row, "expiry_date": FUTURE + timedelta(days=1)}]
+    body["purchase_reference_selections"] = [
+        dict(product_variant_id=101, uom_id=2, unit_cost=row["unit_cost"]),
+    ]
     await receipt.post(body)
     assert len(receipt.batches()) == 2
     assert len(receipt.posted) == 3
@@ -753,10 +800,25 @@ async def test_operator_surfaces_never_expose_internal_lot(surface, number, expe
                           source_stock_status=None, destination_stock_status="AVAILABLE", notes=None,
                           created_at=datetime(2026, 10, 15), reference_id="receipt-9", reference_type="INBOUND_SUPPLIER")
             uom = NS(id=1, code="EACH", name="Each")
-            db = ScriptedDB(execute=[Result(scalar=1), Result(rows=[(movement, "Product", uom, 6, Decimal("0.000001"), "Operator")]),
-                Result(rows=[(11, number)]), Result()], scalar=["JOD"], scalars=[Result(), Result()])
-            patches.enter_context(patch.object(ledger, "_load_inventory_display_uoms", AsyncMock(return_value={})))
-            response = await ledger.get_warehouse_ledger_cursor(None, None, 50, None, None, "receipt-9", db, access)
+            snapshot = NS(movement_id=9, location_delta=Decimal("5"),
+                          cumulative_delta=Decimal("5"), total_delta=Decimal("5"),
+                          current_total=Decimal("5"))
+            db = ScriptedDB(
+                execute=[
+                    Result(scalar=1),  # filtered movement count
+                    Result(rows=[(movement, "Product", uom, 6, Decimal("0.000001"), "Operator")]),
+                    Result(rows=[snapshot]),  # product/location balance reconstruction
+                    Result(),  # display UOMs: fall back to the real base UOM
+                    Result(rows=[(11, number)]),
+                    Result(rows=[(41, "Warehouse")]),
+                    Result(),  # movement impacts
+                ],
+                scalar=[41, "JOD"],  # exact warehouse authorization, then currency
+                scalars=[Result(), Result()],  # supplier evidence, then cost events
+            )
+            access.db = db
+            response = await ledger.get_warehouse_ledger_cursor(41, None, 50, None, None, "receipt-9", db, access)
+            access.require.assert_awaited_once_with("ledger.read", 41)
             assert response["items"][0]["id"] == 9
         elif surface == "transfer_detail":
             line = NS(id=19, product_variant_id=101, batch_id=11, quantity=Decimal("5"),

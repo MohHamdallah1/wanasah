@@ -229,8 +229,16 @@ class InboundCanonicalAccessTests(unittest.IsolatedAsyncioTestCase):
                 params["access"].default.dependency,
                 get_current_backoffice_capability_access,
             )
-        for route in (inbound.update_warehouse_costing_policy, inbound.warehouse_inbound):
+        for route in (
+            inbound.update_warehouse_costing_policy,
+            inbound.finalize_warehouse_opening_valuation,
+            inbound.warehouse_inbound,
+        ):
             params = inspect.signature(route).parameters
+            self.assertIs(
+                params["access"].default.dependency,
+                get_current_backoffice_capability_access,
+            )
             self.assertIs(
                 params["legacy_actor"].default.dependency,
                 get_current_backoffice_legacy_driver,
@@ -363,7 +371,77 @@ class CanonicalCutoverSourceProofTests(unittest.TestCase):
         quality_source = self.sources[ROOT / "api" / "warehouse" / "whole_product_quality.py"]
 
         self.assertEqual(supplier_source.count("legacy_actor.id"), 3)
-        self.assertEqual(inbound_source.count("legacy_actor.id"), 2)
+        tree = ast.parse(inbound_source)
+        parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        permitted = {
+            "update_warehouse_costing_policy": {
+                ("begin_idempotent_operation", "actor_id"),
+                ("set_cost_policy", "actor_id"),
+            },
+            "finalize_warehouse_opening_valuation": {
+                ("begin_idempotent_operation", "actor_id"),
+                ("finalize_opening_valuation", "actor_id"),
+            },
+            "warehouse_inbound": {
+                ("begin_idempotent_operation", "actor_id"),
+                ("_ensure_first_inbound_product_locations", "actor_id"),
+                ("activate_costing_for_first_receipt", "actor_id"),
+                ("apply_inventory_movements_batch", "performed_by"),
+            },
+        }
+        provenance_functions = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Name) or node.id != "legacy_actor":
+                continue
+            # No aliasing, whole-actor forwarding or legacy attributes beyond ID.
+            attribute = parents[node]
+            self.assertIsInstance(attribute, ast.Attribute)
+            self.assertEqual(attribute.attr, "id")
+            conversion = parents[attribute]
+            self.assertIsInstance(conversion, ast.Call)
+            self.assertEqual(ast.unparse(conversion), "int(legacy_actor.id)")
+            assignment = parents[conversion]
+            self.assertIsInstance(assignment, ast.Assign)
+            self.assertEqual([ast.unparse(target) for target in assignment.targets], ["actor_id"])
+            function = assignment
+            while not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                function = parents[function]
+            self.assertIn(function.name, permitted)
+            provenance_functions.add(function.name)
+        self.assertEqual(provenance_functions, set(permitted))
+
+        functions = {node.name: node for node in tree.body if isinstance(node, ast.AsyncFunctionDef)}
+        for name, allowed_sinks in permitted.items():
+            function = functions[name]
+            company_assignments = [
+                node for node in ast.walk(function) if isinstance(node, ast.Assign)
+                and any(isinstance(target, ast.Name) and target.id == "company_id"
+                        for target in node.targets)
+            ]
+            self.assertEqual(len(company_assignments), 1)
+            self.assertEqual(ast.unparse(company_assignments[0].value), "int(access.company_id)")
+            # Authorization must execute before entering the mutation transaction.
+            prefix = function.body[:next(i for i, node in enumerate(function.body)
+                                         if isinstance(node, ast.Try))]
+            prefix_statements = {ast.dump(node) for node in prefix}
+            guards = (
+                ["await _require_inbound_access(access, 'inbound.create', any_location=True)",
+                 "await _require_inbound_access(access, 'inbound.create', payload.location_id)"]
+                if name == "warehouse_inbound" else
+                ["await _require_inbound_access(access, 'inventory.costing.manage')"]
+            )
+            for guard in guards:
+                self.assertIn(ast.dump(ast.parse(guard).body[0]), prefix_statements)
+            for node in ast.walk(function):
+                if not (isinstance(node, ast.Name) and node.id == "actor_id"
+                        and isinstance(node.ctx, ast.Load)):
+                    continue
+                keyword = parents[node]
+                self.assertIsInstance(keyword, ast.keyword)
+                call = parents[keyword]
+                self.assertIsInstance(call, ast.Call)
+                self.assertIsInstance(call.func, ast.Name)
+                self.assertIn((call.func.id, keyword.arg), allowed_sinks)
         self.assertEqual(quality_source.count("legacy_actor.id"), 1)
         self.assertIn("verify_quality_confirmation(db, access,", quality_source)
         self.assertNotIn("verify_actor_password(legacy_actor", quality_source)
