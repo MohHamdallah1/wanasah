@@ -16,10 +16,16 @@ import {
 
 import type { CatalogVariant } from "@/features/catalog/contracts";
 import i18n, { setAppLanguage } from "@/i18n";
+import { apiErrorMessage } from "@/lib/apiErrors";
 import { inboundStorageKeys, type CostPolicy } from "./contracts";
 
 const mocks = vi.hoisted(() => ({
   post: vi.fn(),
+  toastError: vi.fn(),
+}));
+
+vi.mock("sonner", () => ({
+  toast: { error: mocks.toastError, success: vi.fn(), info: vi.fn() },
 }));
 
 vi.mock("./useInboundPosting", () => ({
@@ -182,10 +188,22 @@ const renderInbound = (
 
 import { Tab2Inbound } from "../Tab2Inbound";
 
+const recallCode = "PRODUCT_RECALL_INBOUND_NEW_BLOCKED";
+const rawRecallMessage = "The product state does not allow inbound stock.";
+const recallMessages = {
+  ar: "لا يمكن توريد هذا المنتج لأنه موقوف حاليًا بسبب مشكلة جودة أو سلامة. عالج حالة المنتج أولًا ثم أعد المحاولة.",
+  en: "This product cannot be received because it is currently on hold due to a quality or safety issue. Resolve the product status first, then try again.",
+};
+const savedRecallDraft = {
+  "506": [{ row_id: "saved-recall", quantity: "3", uom_id: "1", unit_cost: "4",
+    batch_number: "", production_date: "", expiry_date: "" }],
+};
+
 describe("Checkpoint 1 inbound UI", () => {
   beforeEach(async () => {
     localStorage.clear();
     mocks.post.mockReset();
+    mocks.toastError.mockClear();
     mocks.post.mockResolvedValue(true);
     await setAppLanguage("en");
     Object.defineProperty(window, "requestAnimationFrame", {
@@ -207,6 +225,94 @@ describe("Checkpoint 1 inbound UI", () => {
         disconnect() {}
       },
     });
+  });
+
+  it.each(["ar", "en"] as const)("shows RECALL without entry fields but still receives SALES_HOLD in %s", async (language) => {
+    await setAppLanguage(language);
+    const recalled = { ...makeVariant(506, "Recalled lentils", "REQUIRED", "REQUIRED"), operational_hold: "RECALL" as const };
+    const salesHold = { ...makeVariant(507, "Temporarily paused sales", "NONE", "NONE"), operational_hold: "SALES_HOLD" as const };
+    renderInbound([recalled, salesHold]);
+
+    const blockedRow = (await screen.findByText(recalled.name)).closest("tr")!;
+    expect(blockedRow).toHaveTextContent(i18n.t("inventoryInbound.recallStatus"));
+    expect(blockedRow).toHaveTextContent(recallMessages[language]);
+    expect(blockedRow.querySelectorAll("input, select")).toHaveLength(0);
+    expect(screen.queryByText(rawRecallMessage)).not.toBeInTheDocument();
+
+    const row = screen.getByText(salesHold.name).closest("tr")!;
+    await waitFor(() => expect(within(row).getByLabelText(i18n.t("inventoryInbound.purchaseUnit"))).not.toBeDisabled());
+    fireEvent.change(within(row).getByLabelText(i18n.t("inventoryInbound.quantity")), { target: { value: "2" } });
+    fireEvent.change(within(row).getByLabelText(i18n.t("inventoryInbound.unitCostPlaceholder")), { target: { value: "5" } });
+    fireEvent.change(screen.getByLabelText(i18n.t("inventoryInbound.reference")), { target: { value: "INV-SALES-HOLD" } });
+    fireEvent.click(screen.getByRole("button", { name: "choose-supplier" }));
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("inventoryInbound.submit") }));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
+    expect(mocks.post.mock.calls[0][0].items).toMatchObject([{ product_variant_id: 507, quantity: "2" }]);
+    expect(mocks.post.mock.calls[0][0].items).toHaveLength(1);
+  });
+
+  it.each([false, true])("preserves and blocks a saved RECALL draft (off-page: %s) until explicitly removed", async (offPage) => {
+    const keys = inboundStorageKeys(1, 2, 3);
+    localStorage.setItem(keys.drafts, JSON.stringify(savedRecallDraft));
+    localStorage.setItem(keys.reference, "INV-RECALL");
+    const recalled = { ...makeVariant(506, "Saved recalled product", "NONE", "NONE"), operational_hold: "RECALL" as const };
+    renderInbound(offPage ? [] : [recalled], null, costPolicy, [recalled]);
+    const row = (await screen.findByText(recalled.name)).closest("tr")!;
+    expect(row.querySelectorAll("input, select")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "choose-supplier" }));
+    fireEvent.click(screen.getByRole("button", { name: "Post receipt" }));
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith(recallMessages.en));
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(JSON.parse(localStorage.getItem(keys.drafts)!)).toEqual(savedRecallDraft);
+    fireEvent.click(within(row).getByRole("button", { name: "Remove this product from the receipt draft" }));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(keys.drafts)!)).toEqual({}));
+  });
+
+  it("rechecks current catalog state before posting and preserves a newly recalled draft", async () => {
+    const keys = inboundStorageKeys(1, 2, 3);
+    localStorage.setItem(keys.drafts, JSON.stringify(savedRecallDraft));
+    localStorage.setItem(keys.reference, "INV-NEW-RECALL");
+    const product = makeVariant(506, "Newly recalled product", "NONE", "NONE");
+    renderInbound([product], null, costPolicy, [{ ...product, operational_hold: "RECALL" }]);
+    const row = (await screen.findByText(product.name)).closest("tr")!;
+    expect(within(row).getByLabelText("Quantity")).toHaveValue("3");
+    fireEvent.click(screen.getByRole("button", { name: "choose-supplier" }));
+    fireEvent.click(screen.getByRole("button", { name: "Post receipt" }));
+    await waitFor(() => expect(screen.getByText(recallMessages.en)).toBeInTheDocument());
+    expect(screen.getByText(product.name).closest("tr")!.querySelectorAll("input, select")).toHaveLength(0);
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(JSON.parse(localStorage.getItem(keys.drafts)!)).toEqual(savedRecallDraft);
+  });
+
+  it.each(["ar", "en"] as const)("localizes a late backend RECALL rejection in %s and retains the draft", async (language) => {
+    await setAppLanguage(language);
+    const keys = inboundStorageKeys(1, 2, 3);
+    localStorage.setItem(keys.drafts, JSON.stringify(savedRecallDraft));
+    localStorage.setItem(keys.reference, "INV-LATE-RECALL");
+    mocks.post.mockRejectedValueOnce(Object.assign(new Error(rawRecallMessage), {
+      status: 409,
+      data: { error: { code: recallCode, message: rawRecallMessage,
+        context: { product_variant_id: 506 }, request_id: "recall-request" } },
+    }));
+    renderInbound([makeVariant(506, "Late recalled product", "NONE", "NONE")]);
+    await screen.findByText("Late recalled product");
+    fireEvent.click(screen.getByRole("button", { name: "choose-supplier" }));
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("inventoryInbound.submit") }));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith(i18n.t("inventoryInbound.productError", {
+      product: "Late recalled product", message: recallMessages[language],
+    })));
+    expect(mocks.toastError.mock.calls.flat().join(" ")).not.toContain(rawRecallMessage);
+    expect(JSON.parse(localStorage.getItem(keys.drafts)!)).toEqual(savedRecallDraft);
+  });
+
+  it("uses the current UI language and code translation instead of raw server copy", async () => {
+    const error = { status: 409, code: recallCode, serverMessage: rawRecallMessage, requestId: "recall-request" };
+    for (const language of ["ar", "en"] as const) {
+      await setAppLanguage(language);
+      expect(i18n.exists(`errors.codes.${recallCode}`, { lng: language, fallbackLng: false })).toBe(true);
+      expect(apiErrorMessage(error, "fallback")).toBe(recallMessages[language]);
+    }
   });
 
   it("removes the row highlight after the operator clears the entered value", async () => {
