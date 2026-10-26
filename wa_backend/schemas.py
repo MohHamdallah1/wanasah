@@ -994,6 +994,10 @@ class DispatchRouteRequest(RequestModel):
     source_location_id: PositiveDbInt
     # Legacy React wire shape is preserved, but keys/values are now validated and normalized.
     inventory: Dict[str, NonNegativeDbInt] = Field(default_factory=dict, max_length=5000)
+    # Exact base quantities, while legacy inventory retains carton units.
+    inventory_base: Optional[Dict[str, NonNegativeQuantity]] = Field(default=None, max_length=5000)
+    # Optimistic inventory snapshot prevents unintended movement after a concurrent stock change.
+    expected_inventory_base: Optional[Dict[str, NonNegativeQuantity]] = Field(default=None, max_length=5000)
 
     @field_validator("inventory", mode="before")
     @classmethod
@@ -1012,11 +1016,27 @@ class DispatchRouteRequest(RequestModel):
         return out
 
 
+    @field_validator("inventory_base", "expected_inventory_base", mode="before")
+    @classmethod
+    def validate_inventory_base_map(cls, value):
+        if value is None:
+            return None
+        return cls.validate_inventory_map(value)
+
+
 class VehicleInventoryItemResponse(BaseModel):
     product_id: str
     product_name: str
-    current_quantity: int
+    current_quantity: int  # Legacy full cartons only.
     current_loose_packs: int = 0
+    current_base_quantity: NonNegativeQuantity
+    base_uom_id: PositiveDbInt
+    base_uom_name: str
+    base_uom_code: str
+    quantity_scale: int
+    quantity_step: NonNegativeQuantity
+    display_uom_name: Optional[str] = None
+    display_factor_to_base: Optional[str] = None
 
 class RouteLiveInventoryItemResponse(BaseModel):
     product_id: str

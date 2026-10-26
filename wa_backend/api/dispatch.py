@@ -125,6 +125,11 @@ from domains.pricing.context import (
 )
 from domains.taxation.core import TaxError, require_active_jurisdictions
 from domains.dispatch_representatives import has_canonical_field_identity
+from domains.uom_authority import UomAuthorityError, load_variant_uom_authorities
+from domains.dispatch_route_load import (
+    allocate_route_base_batches, canonical_route_delta,
+    route_load_uom_metadata, route_vehicle_base_totals,
+)
 from domains.live_stock_projection.service import (
     get_live_stock_vehicle_sources,
     refresh_live_stock_vehicle_attribution,
@@ -1630,10 +1635,27 @@ async def dispatch_route(
                 detail="المنطقة أو المندوب أو السيارة مستخدمة حالياً في خط سير فعال/معلق.",
             )
 
-        clean_inventory = {int(pid): int(qty) for pid, qty in payload.inventory.items()}
+        use_canonical_base = payload.inventory_base is not None
+        if use_canonical_base and payload.inventory:
+            raise HTTPException(status_code=400, detail={
+                "code": "DISPATCH_LOAD_CONTRACT_CONFLICT",
+                "message": "Use inventory_base or legacy inventory, not both.",
+            })
+        if use_canonical_base and payload.expected_inventory_base is None:
+            raise HTTPException(status_code=400, detail={
+                "code": "DISPATCH_LOAD_EXPECTED_BASE_REQUIRED",
+                "message": "A verified current vehicle load snapshot is required.",
+            })
+        clean_inventory = (
+            {int(pid): qty for pid, qty in payload.inventory_base.items()}
+            if use_canonical_base else
+            {int(pid): int(qty) for pid, qty in payload.inventory.items()}
+        )
         target_product_ids = sorted(clean_inventory)
 
-        current_vehicle = await _dispatch_available_totals(
+        current_vehicle = await (
+            route_vehicle_base_totals if use_canonical_base else _dispatch_available_totals
+        )(
             db,
             company_id=company_id,
             location_id=vehicle_location_id,
@@ -1643,6 +1665,17 @@ async def dispatch_route(
                 status_code=409,
                 detail="السيارة تحمل حجوزات مخزون معلقة؛ عالج المصافحات/الحجوزات قبل إطلاق خط سير جديد.",
             )
+
+        if use_canonical_base:
+            expected = {int(pid): qty for pid, qty in payload.expected_inventory_base.items()}
+            for pid in sorted(set(current_vehicle) | set(expected)):
+                actual = current_vehicle.get(pid, (Decimal(0), Decimal(0)))[0]
+                if expected.get(pid, Decimal(0)) != actual:
+                    raise HTTPException(status_code=409, detail={
+                        "code": "DISPATCH_VEHICLE_LOAD_CHANGED",
+                        "message": "Vehicle stock changed since the load was opened. Refresh before launching.",
+                        "context": {"product_variant_id": pid},
+                    })
 
         all_product_ids = sorted(set(target_product_ids) | set(current_vehicle))
         await acquire_product_lifecycle_guards(
@@ -1663,6 +1696,10 @@ async def dispatch_route(
             variants_map = {int(v.id): v for v in variants}
             if set(variants_map) != set(all_product_ids):
                 raise HTTPException(status_code=404, detail="أحد أصناف خطة التحميل غير موجود داخل الشركة.")
+
+        base_authorities = await load_variant_uom_authorities(
+            db, company_id=company_id, variant_ids=all_product_ids,
+        ) if use_canonical_base else {}
 
         source_assignments = {
             int(item.product_variant_id): item
@@ -1696,20 +1733,25 @@ async def dispatch_route(
         movement_specs = []
         for product_variant_id in all_product_ids:
             variant = variants_map[product_variant_id]
-            ppc = int(variant.packs_per_carton or 0)
-            if ppc <= 0:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"إعداد عدد الحبات في الكرتونة غير صالح للصنف ({variant.variant_name}).",
+            if use_canonical_base:
+                target_packs = clean_inventory.get(product_variant_id, Decimal(0))
+                current_packs = current_vehicle.get(product_variant_id, (Decimal(0), Decimal(0)))[0]
+                delta_packs = canonical_route_delta(
+                    current=current_packs, target=target_packs,
+                    authority=base_authorities[product_variant_id],
                 )
-
-            target_cartons = clean_inventory.get(product_variant_id, 0)
-            target_packs = target_cartons * ppc
-            if target_packs > _DB_INT_MAX_DISPATCH:
-                raise HTTPException(status_code=400, detail="حمولة صنف تتجاوز سعة INTEGER في قاعدة البيانات.")
-
-            current_packs = current_vehicle.get(product_variant_id, (0, 0))[0]
-            delta_packs = target_packs - current_packs
+            else:
+                ppc = int(variant.packs_per_carton or 0)
+                if ppc <= 0:
+                    raise HTTPException(status_code=409, detail={
+                        "code": "INVALID_LEGACY_PACK_SIZE",
+                        "message": "Legacy packs_per_carton must be positive.",
+                    })
+                target_packs = clean_inventory.get(product_variant_id, 0) * ppc
+                if target_packs > _DB_INT_MAX_DISPATCH:
+                    raise HTTPException(status_code=400, detail="Legacy load target exceeds integer limits.")
+                current_packs = current_vehicle.get(product_variant_id, (0, 0))[0]
+                delta_packs = target_packs - current_packs
 
             await _dispatch_set_load_plan_target(
                 db,
@@ -1746,7 +1788,9 @@ async def dispatch_route(
                 await check_inventory_lock(
                     db, company_id, vehicle_location_id, variant_id=product_variant_id
                 )
-                allocations = await _dispatch_allocate_available_batches(
+                allocations = await (
+                    allocate_route_base_batches if use_canonical_base else _dispatch_allocate_available_batches
+                )(
                     db,
                     company_id=company_id,
                     location_id=int(source_location.id),
@@ -1764,7 +1808,9 @@ async def dispatch_route(
                 await check_inventory_lock(
                     db, company_id, int(source_location.id), variant_id=product_variant_id
                 )
-                allocations = await _dispatch_allocate_available_batches(
+                allocations = await (
+                    allocate_route_base_batches if use_canonical_base else _dispatch_allocate_available_batches
+                )(
                     db,
                     company_id=company_id,
                     location_id=vehicle_location_id,
@@ -1914,6 +1960,11 @@ async def dispatch_route(
             status_code=exc.status_code,
             detail=exc.as_detail(),
         ) from exc
+    except UomAuthorityError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail={
+            "code": exc.code, "message": exc.message, "context": exc.context,
+        }) from exc
     except InventoryMutationError as exc:
         await db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -1971,7 +2022,7 @@ async def get_vehicle_inventory(
             .order_by(InventoryBalance.product_variant_id.asc())
         )
     ).all()
-    inventory_map = {int(pid): int(qty or 0) for pid, qty in rows}
+    inventory_map = {int(pid): Decimal(qty or 0) for pid, qty in rows}
 
     loaded_ids = sorted(inventory_map)
     if not loaded_ids:
@@ -1988,27 +2039,52 @@ async def get_vehicle_inventory(
         )
     ).scalars().all()
 
+    try:
+        metadata = await route_load_uom_metadata(
+            db, company_id=company_id, variant_ids=loaded_ids,
+        )
+    except UomAuthorityError as exc:
+        raise HTTPException(status_code=409, detail={
+            "code": exc.code, "message": exc.message, "context": exc.context,
+        }) from exc
     result = []
     for variant in variants:
+        base_quantity = inventory_map[int(variant.id)]
+        # Legacy fields are retained only for pre-existing consumers.
         ppc = int(variant.packs_per_carton or 0)
-        if ppc <= 0:
-            raise HTTPException(
-                status_code=409,
-                detail=f"إعداد التعبئة غير صالح للصنف ({variant.variant_name}).",
-            )
-        total_packs = inventory_map.get(int(variant.id), 0)
-        cartons, loose = divmod(total_packs, ppc)
+        cartons = int(base_quantity // ppc) if ppc > 0 else 0
+        loose = int(base_quantity % ppc) if ppc > 0 else 0
         result.append({
             "product_id": str(variant.id),
             "product_name": variant.variant_name,
             "current_quantity": cartons,
             "current_loose_packs": loose,
+            "current_base_quantity": base_quantity,
+            **metadata[int(variant.id)],
         })
     return result
 
 # =========================================
 # 8. جلب الجرد اللحظي الحر لسيارة المسار
 # =========================================
+@router.get("/dispatch/route-load/uom", status_code=200)
+async def get_dispatch_route_load_uom(
+    vehicle_id: int,
+    product_ids: List[int] = Query(..., min_length=1, max_length=100),
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(_dispatch_read_access),
+):
+    await require_vehicle(access, "dispatch.read", vehicle_id)
+    try:
+        return await route_load_uom_metadata(
+            db, company_id=access.company_id, variant_ids=product_ids,
+        )
+    except UomAuthorityError as exc:
+        raise HTTPException(status_code=409, detail={
+            "code": exc.code, "message": exc.message, "context": exc.context,
+        }) from exc
+
+
 @router.get("/dispatch/route/{route_id}/live_inventory", response_model=List[RouteLiveInventoryItemResponse], status_code=200)
 async def get_route_live_inventory(
     route_id: int,

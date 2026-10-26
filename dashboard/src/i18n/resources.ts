@@ -5,6 +5,7 @@ import { productQualityInline } from "./productQualityInline";
 import { terminalQualityActions } from "./terminalQualityActions";
 import { qualityActionReasons } from "./qualityActionReasons";
 import { suppliers } from "./suppliers";
+import { dispatchRouteLoad } from "./dispatchRouteLoad";
 
 export const supportedLanguages = [
   "ar",
@@ -24,6 +25,7 @@ export const resources = {
       terminalQualityActions: terminalQualityActions.ar,
       qualityActionReasons: qualityActionReasons.ar,
       suppliers: suppliers.ar,
+      dispatchRouteLoad: dispatchRouteLoad.ar,
       common: {
         save: "حفظ",
         cancel: "إلغاء",
@@ -2385,6 +2387,7 @@ export const resources = {
       terminalQualityActions: terminalQualityActions.en,
       qualityActionReasons: qualityActionReasons.en,
       suppliers: suppliers.en,
+      dispatchRouteLoad: dispatchRouteLoad.en,
       common: {
         save: "Save",
         cancel: "Cancel",
