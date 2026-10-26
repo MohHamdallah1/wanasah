@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import ast
 import base64
 import json
 import os
-import subprocess
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -32,7 +32,6 @@ from schemas import (
 )
 
 
-BASE = "947d4c9c33aa2c2bdf593d12d33736b9c57aa209"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BATCH_INDEX = REPO_ROOT / "wa_backend" / "api" / "warehouse" / "batch_index.py"
 LIVE_STOCK = REPO_ROOT / "wa_backend" / "api" / "warehouse" / "live_stock.py"
@@ -310,25 +309,76 @@ def test_routes_use_authoritative_sources_filters_before_keyset_and_no_n_plus_on
     assert "has_disposal_pending" in source
 
 
-def test_old_product_batch_drill_down_file_is_unchanged_from_checkpoint_2_base():
-    result = subprocess.run(
-        [
-            "git",
-            "diff",
-            "--exit-code",
-            BASE,
-            "--",
-            "wa_backend/api/warehouse/live_stock.py",
-        ],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
+def test_existing_batch_drill_down_preserves_independent_batch_and_location_authority():
+    # CP2 adds a warehouse-wide Batch Index; it does not own or freeze the
+    # separate product batch drill-down. Later quality/security work may update
+    # live_stock.py without changing this legacy endpoint's authority.
     source = LIVE_STOCK.read_text(encoding="utf-8")
-    assert '"/warehouse/inventory/{product_variant_id}/batches"' in source
-    assert "async def get_warehouse_inventory_batches(" in source
+    module = ast.parse(source)
+    handlers = [
+        node
+        for node in module.body
+        if isinstance(node, ast.AsyncFunctionDef)
+        and node.name == "get_warehouse_inventory_batches"
+    ]
+    assert len(handlers) == 1
+    handler = handlers[0]
+    decorators = [
+        ast.get_source_segment(source, decorator) or ""
+        for decorator in handler.decorator_list
+    ]
+    assert any(
+        '"/warehouse/inventory/{product_variant_id}/batches"' in decorator
+        and "WarehouseInventoryBatchDetailResponse" in decorator
+        for decorator in decorators
+    )
+
+    read_checks = [
+        node
+        for node in ast.walk(handler)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "access"
+        and node.func.attr == "allows"
+    ]
+    assert any(
+        len(call.args) >= 2
+        and isinstance(call.args[0], ast.Constant)
+        and call.args[0].value == "inventory.read"
+        and isinstance(call.args[1], ast.Name)
+        and call.args[1].id == "location_id"
+        for call in read_checks
+    )
+
+    body = ast.get_source_segment(source, handler)
+    assert body is not None
+    for required in (
+        "company_id = access.company_id",
+        "InventoryLocation.company_id == company_id",
+        'location_access_row.location_type != "WAREHOUSE"',
+        "ProductVariant.company_id == company_id",
+        "ProductBatch.company_id == company_id",
+        "InventoryBalance.company_id == company_id",
+        "InventoryBalance.location_id == location_id",
+        "InventoryBalance.product_variant_id",
+        "InventoryBalance.batch_id == ProductBatch.id",
+        "batch_presence",
+        "batch_cursor_predicate",
+        ".limit(limit + 1)",
+        "ProductBatch.expiry_date.asc().nulls_last()",
+        "ProductBatch.id.asc()",
+        "_decode_batch_cursor(",
+        "_encode_batch_cursor(",
+        "batch_sellability_predicate(",
+        "public_batch_number(",
+    ):
+        assert required in body, f"Legacy batch drill-down lost: {required}"
+
+    # The CP2 index is additive, not a replacement projection or a second
+    # stock authority for the existing drill-down.
+    assert "batch_index" not in body
+    assert "InventoryLiveStockProjection" not in body
 
 
 def test_route_has_keyset_only_and_batch_id_tie_breaks_every_sort():
