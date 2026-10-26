@@ -36,8 +36,8 @@ export function parseRouteLoadUom(value: unknown): RouteLoadUom {
       ((name === null) !== (factor === null))) throw new Error("DISPATCH_UOM_METADATA_INVALID");
   return {
     base_uom_id: Number(row.base_uom_id),
-    base_uom_code: row.base_uom_code,
-    base_uom_name: row.base_uom_name,
+    base_uom_code: String(row.base_uom_code),
+    base_uom_name: String(row.base_uom_name),
     quantity_scale: Number(row.quantity_scale),
     quantity_step: step,
     display_uom_name: name,
