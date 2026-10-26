@@ -199,6 +199,10 @@ const savedRecallDraft = {
     batch_number: "", production_date: "", expiry_date: "" }],
 };
 
+const inboundNames = (container: HTMLElement) =>
+  [...container.querySelectorAll(".inventory-inbound-table tbody tr strong")]
+    .map((node) => node.textContent);
+
 describe("Checkpoint 1 inbound UI", () => {
   beforeEach(async () => {
     localStorage.clear();
@@ -237,6 +241,7 @@ describe("Checkpoint 1 inbound UI", () => {
     expect(blockedRow).toHaveTextContent(i18n.t("inventoryInbound.recallStatus"));
     expect(blockedRow).toHaveTextContent(recallMessages[language]);
     expect(blockedRow.querySelectorAll("input, select")).toHaveLength(0);
+    expect(within(blockedRow).queryByRole("button")).not.toBeInTheDocument();
     expect(screen.queryByText(rawRecallMessage)).not.toBeInTheDocument();
 
     const row = screen.getByText(salesHold.name).closest("tr")!;
@@ -251,24 +256,45 @@ describe("Checkpoint 1 inbound UI", () => {
     expect(mocks.post.mock.calls[0][0].items).toHaveLength(1);
   });
 
-  it.each([false, true])("preserves and blocks a saved RECALL draft (off-page: %s) until explicitly removed", async (offPage) => {
+  it.each([false, true])("automatically cleans a saved RECALL draft (off-page: %s) and posts only valid products", async (offPage) => {
     const keys = inboundStorageKeys(1, 2, 3);
     localStorage.setItem(keys.drafts, JSON.stringify(savedRecallDraft));
     localStorage.setItem(keys.reference, "INV-RECALL");
     const recalled = { ...makeVariant(506, "Saved recalled product", "NONE", "NONE"), operational_hold: "RECALL" as const };
-    renderInbound(offPage ? [] : [recalled], null, costPolicy, [recalled]);
-    const row = (await screen.findByText(recalled.name)).closest("tr")!;
-    expect(row.querySelectorAll("input, select")).toHaveLength(0);
+    const valid = makeVariant(507, "Valid receiving product", "NONE", "NONE");
+    const { fetch } = renderInbound(offPage ? [valid] : [recalled, valid], null, costPolicy, [recalled, valid]);
+    const row = (await screen.findByText(valid.name)).closest("tr")!;
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(keys.drafts)!)["506"]).toBeUndefined());
+    const blockedRow = (await screen.findByText(recalled.name)).closest("tr")!;
+    expect(blockedRow).toHaveTextContent(recallMessages.en);
+    expect(blockedRow.querySelectorAll("input, select, button")).toHaveLength(0);
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(fetch.mock.calls.some(([url]) => url === "/warehouse/inbound")).toBe(false);
+    expect(screen.queryByRole("button", { name: "Remove this product from the receipt draft" })).not.toBeInTheDocument();
+    await waitFor(() => expect(within(row).getByLabelText("Purchase unit")).not.toBeDisabled());
+    fireEvent.change(within(row).getByLabelText("Quantity"), { target: { value: "2" } });
+    fireEvent.change(within(row).getByLabelText("Actual cost"), { target: { value: "5" } });
     fireEvent.click(screen.getByRole("button", { name: "choose-supplier" }));
     fireEvent.click(screen.getByRole("button", { name: "Post receipt" }));
-    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith(recallMessages.en));
-    expect(mocks.post).not.toHaveBeenCalled();
-    expect(JSON.parse(localStorage.getItem(keys.drafts)!)).toEqual(savedRecallDraft);
-    fireEvent.click(within(row).getByRole("button", { name: "Remove this product from the receipt draft" }));
-    await waitFor(() => expect(JSON.parse(localStorage.getItem(keys.drafts)!)).toEqual({}));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
+    expect(mocks.post.mock.calls[0][0].items).toMatchObject([{ product_variant_id: 507, quantity: "2" }]);
+    expect(mocks.post.mock.calls[0][0].items).toHaveLength(1);
   });
 
-  it("rechecks current catalog state before posting and preserves a newly recalled draft", async () => {
+  it("cleans editable recall input without deleting a pending command or sending it automatically", async () => {
+    const keys = inboundStorageKeys(1, 2, 3);
+    localStorage.setItem(keys.drafts, JSON.stringify(savedRecallDraft));
+    localStorage.setItem(keys.requestId, "11111111-1111-4111-8111-111111111111");
+    const pendingPayload = JSON.stringify({ location_id: 3, items: [{ product_variant_id: 506, quantity: "3" }] });
+    localStorage.setItem(keys.fingerprint, pendingPayload);
+    renderInbound([{ ...makeVariant(506, "Recall with pending evidence", "NONE", "NONE"), operational_hold: "RECALL" }]);
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(keys.drafts)!)).toEqual({}));
+    expect(localStorage.getItem(keys.requestId)).toBe("11111111-1111-4111-8111-111111111111");
+    expect(localStorage.getItem(keys.fingerprint)).toBe(pendingPayload);
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+
+  it("rechecks current catalog state before posting and automatically cleans a newly recalled draft", async () => {
     const keys = inboundStorageKeys(1, 2, 3);
     localStorage.setItem(keys.drafts, JSON.stringify(savedRecallDraft));
     localStorage.setItem(keys.reference, "INV-NEW-RECALL");
@@ -281,10 +307,11 @@ describe("Checkpoint 1 inbound UI", () => {
     await waitFor(() => expect(screen.getByText(recallMessages.en)).toBeInTheDocument());
     expect(screen.getByText(product.name).closest("tr")!.querySelectorAll("input, select")).toHaveLength(0);
     expect(mocks.post).not.toHaveBeenCalled();
-    expect(JSON.parse(localStorage.getItem(keys.drafts)!)).toEqual(savedRecallDraft);
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(keys.drafts)!)).toEqual({}));
+    expect(screen.queryByRole("button", { name: "Remove this product from the receipt draft" })).not.toBeInTheDocument();
   });
 
-  it.each(["ar", "en"] as const)("localizes a late backend RECALL rejection in %s and retains the draft", async (language) => {
+  it.each(["ar", "en"] as const)("localizes a late backend RECALL rejection in %s and cleans the affected local draft", async (language) => {
     await setAppLanguage(language);
     const keys = inboundStorageKeys(1, 2, 3);
     localStorage.setItem(keys.drafts, JSON.stringify(savedRecallDraft));
@@ -303,7 +330,10 @@ describe("Checkpoint 1 inbound UI", () => {
       product: "Late recalled product", message: recallMessages[language],
     })));
     expect(mocks.toastError.mock.calls.flat().join(" ")).not.toContain(rawRecallMessage);
-    expect(JSON.parse(localStorage.getItem(keys.drafts)!)).toEqual(savedRecallDraft);
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(keys.drafts)!)).toEqual({}));
+    const blockedRow = screen.getByText("Late recalled product").closest("tr")!;
+    expect(blockedRow).toHaveTextContent(recallMessages[language]);
+    expect(blockedRow.querySelectorAll("input, select, button")).toHaveLength(0);
   });
 
   it("uses the current UI language and code translation instead of raw server copy", async () => {
@@ -313,6 +343,135 @@ describe("Checkpoint 1 inbound UI", () => {
       expect(i18n.exists(`errors.codes.${recallCode}`, { lng: language, fallbackLng: false })).toBe(true);
       expect(apiErrorMessage(error, "fallback")).toBe(recallMessages[language]);
     }
+  });
+
+  it("stably places RECALL rows last and restores source order when a refreshed hold is released", async () => {
+    const products = [
+      makeVariant(1, "A active", "NONE", "NONE"),
+      { ...makeVariant(2, "B recalled", "NONE", "NONE"), operational_hold: "RECALL" as const },
+      makeVariant(3, "C active", "NONE", "NONE"),
+      { ...makeVariant(4, "D recalled", "NONE", "NONE"), operational_hold: "RECALL" as const },
+      { ...makeVariant(5, "E sales hold", "NONE", "NONE"), operational_hold: "SALES_HOLD" as const },
+    ];
+    const view = renderInbound(products);
+    await waitFor(() => expect(inboundNames(view.container)).toEqual([
+      "A active", "C active", "E sales hold", "B recalled", "D recalled",
+    ]));
+
+    const refreshedFetch = makeFetch(products.map((product) =>
+      product.id === 2 ? { ...product, operational_hold: "NONE" } : product
+    ));
+    view.rerender(
+      <div data-testid="host">
+        <Tab2Inbound companyId={1} actorId={2} locationId={3} isAuditLocked={false}
+          authenticatedFetch={refreshedFetch} onSuccess={vi.fn()} />
+      </div>,
+    );
+    await waitFor(() => expect(inboundNames(view.container)).toEqual([
+      "A active", "B recalled", "C active", "E sales hold", "D recalled",
+    ]));
+    const releasedRow = screen.getByText("B recalled").closest("tr")!;
+    expect(within(releasedRow).getByLabelText("Quantity")).toHaveValue("");
+    expect(within(releasedRow).queryByText(recallMessages.en)).not.toBeInTheDocument();
+  });
+
+  it("partitions the combined cursor pages and keeps keyboard navigation in eligible row order", async () => {
+    const products = [
+      makeVariant(1, "Page A", "NONE", "NONE"),
+      { ...makeVariant(2, "Page B recall", "NONE", "NONE"), operational_hold: "RECALL" as const },
+      makeVariant(3, "Page C", "NONE", "NONE"),
+      { ...makeVariant(4, "Page D recall", "NONE", "NONE"), operational_hold: "RECALL" as const },
+      makeVariant(5, "Page E", "NONE", "NONE"),
+    ];
+    const { container, fetch } = renderInbound(products.slice(0, 2), "page-2");
+    await screen.findByText("Page A");
+    const fallback = makeFetch(products);
+    fetch.mockImplementation(async (url, opts) => {
+      if (url.startsWith("/catalog/variants?")) {
+        const after = new URLSearchParams(url.split("?")[1]).get("cursor");
+        return { items: after ? products.slice(2) : products.slice(0, 2),
+          next_cursor: after ? null : "page-2", has_more: !after };
+      }
+      return fallback(url, opts);
+    });
+    const scroller = container.querySelector(".inventory-inbound-table-wrap")!;
+    Object.defineProperties(scroller, {
+      scrollTop: { configurable: true, value: 900 },
+      clientHeight: { configurable: true, value: 500 },
+      scrollHeight: { configurable: true, value: 1300 },
+    });
+    fireEvent.scroll(scroller);
+    await waitFor(() => expect(inboundNames(container)).toEqual([
+      "Page A", "Page C", "Page E", "Page B recall", "Page D recall",
+    ]));
+    const catalogCalls = fetch.mock.calls.filter(([url]) => url.startsWith("/catalog/variants?"));
+    expect(catalogCalls).toHaveLength(2);
+    expect(catalogCalls[1][0]).toContain("cursor=page-2");
+    const firstQuantity = within(screen.getByText("Page A").closest("tr")!).getByLabelText("Quantity");
+    firstQuantity.focus();
+    fireEvent.keyDown(firstQuantity, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(within(screen.getByText("Page C").closest("tr")!).getByLabelText("Quantity"));
+  });
+
+  it("keeps server search results and cursor reset intact when partitioning recalled rows", async () => {
+    const products = [
+      { ...makeVariant(1, "Match recalled", "NONE", "NONE"), operational_hold: "RECALL" as const },
+      makeVariant(2, "Match active", "NONE", "NONE"),
+      { ...makeVariant(3, "Other sales hold", "NONE", "NONE"), operational_hold: "SALES_HOLD" as const },
+    ];
+    const { container, fetch } = renderInbound(products, "old-cursor");
+    await screen.findByText("Match active");
+    const fallback = makeFetch(products);
+    fetch.mockImplementation(async (url, opts) => {
+      if (url.startsWith("/catalog/variants?")) {
+        const params = new URLSearchParams(url.split("?")[1]);
+        const search = params.get("search");
+        const items = search === "Match recalled" ? [products[0]]
+          : search === "Match" ? products.slice(0, 2) : products;
+        expect(params.has("cursor")).toBe(false);
+        expect(params.get("lifecycle_status")).toBe("ACTIVE");
+        return { items, next_cursor: null, has_more: false };
+      }
+      return fallback(url, opts);
+    });
+    const search = screen.getByPlaceholderText(i18n.t("inventoryInbound.search"));
+    fireEvent.change(search, { target: { value: "Match" } });
+    await waitFor(() => expect(inboundNames(container)).toEqual(["Match active", "Match recalled"]));
+    fireEvent.change(search, { target: { value: "Match recalled" } });
+    await waitFor(() => expect(inboundNames(container)).toEqual(["Match recalled"]));
+    expect(container.querySelector(".inventory-inbound-table tbody input")).not.toBeInTheDocument();
+    fireEvent.change(search, { target: { value: "" } });
+    await waitFor(() => expect(inboundNames(container)).toEqual(["Match active", "Other sales hold", "Match recalled"]));
+    expect(fetch.mock.calls.filter(([url]) => url.startsWith("/catalog/variants?"))).toHaveLength(4);
+  });
+
+  it("keeps a cleaned off-page explanation out of searches and does not resurrect a released hold", async () => {
+    const keys = inboundStorageKeys(1, 2, 3);
+    localStorage.setItem(keys.drafts, JSON.stringify(savedRecallDraft));
+    const active = makeVariant(1, "Current receiving product", "NONE", "NONE");
+    const recalled = { ...makeVariant(506, "Restored recall product", "NONE", "NONE"), operational_hold: "RECALL" as const };
+    const { container, fetch } = renderInbound([active], null, costPolicy, [recalled, active]);
+    await screen.findByText(recalled.name);
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(keys.drafts)!)).toEqual({}));
+    expect(inboundNames(container)).toEqual([active.name, recalled.name]);
+    const fallback = makeFetch([active], null, costPolicy, [recalled, active]);
+    fetch.mockImplementation(async (url, opts) => {
+      if (url.startsWith("/catalog/variants?")) {
+        const search = new URLSearchParams(url.split("?")[1]).get("search");
+        return { items: search === recalled.name ? [{ ...recalled, operational_hold: "NONE" }] : [active],
+          next_cursor: null, has_more: false };
+      }
+      return fallback(url, opts);
+    });
+    const search = screen.getByPlaceholderText(i18n.t("inventoryInbound.search"));
+    fireEvent.change(search, { target: { value: active.name } });
+    await waitFor(() => expect(inboundNames(container)).toEqual([active.name]));
+    fireEvent.change(search, { target: { value: recalled.name } });
+    await waitFor(() => expect(inboundNames(container)).toEqual([recalled.name]));
+    expect(within(screen.getByText(recalled.name).closest("tr")!).getByLabelText("Quantity")).toHaveValue("");
+    fireEvent.change(search, { target: { value: "" } });
+    await waitFor(() => expect(inboundNames(container)).toEqual([active.name]));
+    expect(screen.queryByText(recallMessages.en)).not.toBeInTheDocument();
   });
 
   it("removes the row highlight after the operator clears the entered value", async () => {

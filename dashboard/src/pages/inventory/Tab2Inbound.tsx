@@ -17,7 +17,12 @@ import { useInboundPosting } from "./inbound/useInboundPosting";
 import { useInboundOptions } from "./inbound/useInboundOptions";
 import { OpeningValuationModal } from "./inbound/OpeningValuationModal";
 import { InboundRecallRow } from "./inbound/InboundRecallRow";
-import { INBOUND_RECALL_BLOCK_CODE, isInboundRecallBlocked } from "./inbound/eligibility";
+import {
+  INBOUND_RECALL_BLOCK_CODE,
+  isInboundRecallBlocked,
+  orderInboundCatalog,
+  withoutRecalledInboundDrafts,
+} from "./inbound/eligibility";
 import {
   completeDurableOperation,
   durableScope,
@@ -368,8 +373,23 @@ export function Tab2Inbound({
       .filter((variant): variant is CatalogVariant =>
         variant !== undefined && variant.lifecycle_status === "ACTIVE"
       );
-    return [...saved, ...catalog];
-  }, [catalog, drafts, restoredCatalog]);
+    // Keep the explanation for a resolved off-page draft after cleaning its
+    // inputs, without pinning old recalled products into new search results.
+    const savedIds = new Set(saved.map((variant) => variant.id));
+    const recalled = search ? [] : [...restoredCatalog.values()].filter((variant) =>
+      variant.lifecycle_status === "ACTIVE" && isInboundRecallBlocked(variant) &&
+      !pagedIds.has(variant.id) && !savedIds.has(variant.id)
+    );
+    return orderInboundCatalog([...saved, ...recalled, ...catalog]);
+  }, [catalog, drafts, restoredCatalog, search]);
+
+  useEffect(() => {
+    const recalledIds = new Set(visibleCatalog.filter(isInboundRecallBlocked).map((variant) => variant.id));
+    if (!recalledIds.size) return;
+    setDrafts((current) => withoutRecalledInboundDrafts(current, visibleCatalog));
+    setReferenceChoices((current) => new Map([...current].filter(([id]) => !recalledIds.has(id))));
+    setSelectedReferences((current) => new Map([...current].filter(([id]) => !recalledIds.has(id))));
+  }, [visibleCatalog]);
 
   const blockingUnavailableDraftIds = useMemo(
     () =>
@@ -493,6 +513,14 @@ export function Tab2Inbound({
               ...current,
               ...page.items.filter((item) => !seen.has(item.id)),
             ];
+          });
+          // A searched/refreshed product may have had its hold released.
+          // Do not let an older off-page draft snapshot restore the old hold.
+          setRestoredCatalog((current) => {
+            const refreshed = page.items.filter((variant) => current.has(variant.id));
+            return refreshed.length
+              ? new Map([...current, ...refreshed.map((variant) => [variant.id, variant] as const)])
+              : current;
           });
           setNextCursor(page.next_cursor);
         }
@@ -941,7 +969,9 @@ export function Tab2Inbound({
       return;
     }
 
-    const ids = inboundProductIds(drafts);
+    // Also ignore known recalled input synchronously if submit races cleanup.
+    const receiptDrafts = withoutRecalledInboundDrafts(drafts, visibleCatalog);
+    const ids = inboundProductIds(receiptDrafts);
     if (!ids.length) {
       const firstRowId = keyboardRowIds[0];
       if (firstRowId) {
@@ -959,14 +989,6 @@ export function Tab2Inbound({
     if (blockingUnavailableDraftIds.length) {
       toast.error(t("inventoryInbound.errors.unavailableDraft"));
       focusDraftIssues();
-      return;
-    }
-    const recalledDraft = visibleCatalog.find((variant) =>
-      ids.includes(variant.id) && isInboundRecallBlocked(variant)
-    );
-    if (recalledDraft) {
-      toast.error(t(`errors.codes.${INBOUND_RECALL_BLOCK_CODE}`));
-      focusVariantIssue(recalledDraft.id, INBOUND_RECALL_BLOCK_CODE);
       return;
     }
     if (!costPolicy) {
@@ -1036,7 +1058,7 @@ export function Tab2Inbound({
       }
 
       const items = buildInboundItems(
-        drafts,
+        receiptDrafts,
         new Map(variants.map((item) => [String(item.id), item])),
         readyOptions,
         readyAsOfDate ?? undefined,
@@ -1087,6 +1109,15 @@ export function Tab2Inbound({
       }
 
       const variantIds = apiErrorVariantIds(error);
+      if (code === INBOUND_RECALL_BLOCK_CODE && variantIds.length) {
+        const recalledIds = new Set(variantIds);
+        const markRecalled = (variant: CatalogVariant): CatalogVariant =>
+          recalledIds.has(variant.id) ? { ...variant, operational_hold: "RECALL" } : variant;
+        setCatalog((current) => current.map(markRecalled));
+        setRestoredCatalog((current) => new Map(
+          [...current].map(([id, variant]) => [id, markRecalled(variant)])
+        ));
+      }
       if (code === "INBOUND_VARIANT_UNAVAILABLE" && variantIds.length) {
         markUnavailableDraftProducts(variantIds);
         toast.error(t("inventoryInbound.errors.unavailableDraft"));
@@ -1381,15 +1412,6 @@ export function Tab2Inbound({
                       name={variant.name}
                       number={variantIndex + 1}
                       rowRef={(node) => setRowRef(savedRows?.[0]?.row_id ?? `base-${variant.id}`, node)}
-                      onRemoveDraft={savedRows?.length ? () => {
-                        setDrafts((current) => {
-                          const next = { ...current };
-                          delete next[String(variant.id)];
-                          return next;
-                        });
-                        setReferenceChoices(new Map());
-                        setSelectedReferences(new Map());
-                      } : undefined}
                     />,
                   ];
                 }
