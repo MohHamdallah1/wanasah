@@ -217,6 +217,7 @@ describe("Checkpoint 1 inbound UI", () => {
     const row = (await screen.findByText("Reference product")).closest("tr")!;
     const cost = within(row).getByLabelText("Actual cost") as HTMLInputElement;
     await waitFor(() => expect(cost.value).toBe("4.25"));
+    expect(row).not.toHaveAttribute("data-engaged");
     expect(cost.disabled).toBe(false);
     expect(within(row).queryByRole("button", { name: "Edit actual purchase cost" })).toBeNull();
     const referenceButton = within(row).getByRole("button", { name: "Use last approved purchase cost: 4.25 JOD" });
@@ -226,6 +227,8 @@ describe("Checkpoint 1 inbound UI", () => {
     expect(referenceButton.closest(".inventory-inbound-cost-control"))
       .toBe(cost.closest(".inventory-inbound-cost-control"));
     fireEvent.change(cost, { target: { value: "5.100000" } });
+    await waitFor(() => expect(row).toHaveAttribute("data-engaged", "true"));
+    expect(row).toHaveClass("inventory-inbound-row--engaged");
     fireEvent.change(within(row).getByLabelText("Quantity"), { target: { value: "2" } });
     expect(cost.value).toBe("5.100000");
     fireEvent.click(screen.getByRole("button", { name: "choose-supplier" }));
