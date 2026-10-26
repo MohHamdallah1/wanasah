@@ -1,5 +1,6 @@
 import { Menu, WifiOff } from "lucide-react";
 import {
+  Suspense,
   useEffect,
   useState,
 } from "react";
@@ -212,7 +213,18 @@ const DashboardLayout = () => {
         ) : null}
 
         <main className="dashboard-content mt-2 flex min-h-0 flex-1 flex-col gap-4">
-          <Outlet />
+          <Suspense
+            fallback={
+              <div
+                className="grid min-h-0 flex-1 place-items-center rounded-2xl border border-white/50 bg-white/35 text-sm font-bold text-slate-500"
+                role="status"
+              >
+                {t("common.loading")}
+              </div>
+            }
+          >
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>
