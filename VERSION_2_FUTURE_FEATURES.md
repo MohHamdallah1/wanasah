@@ -811,3 +811,14 @@ Before implementing this tab:
 - define correction navigation and immutable revision evidence;
 - preserve tenant, capability and scope authorization;
 - define how the mobile history relates to Backoffice settlement without dual authority.
+
+## 14. Vehicle Load and Dispatch large-catalog scale hardening — deferred from V1
+
+### V1 decision — 2026-10-26
+
+The owner explicitly deferred the following scale-hardening work so it does not delay the Version 1 launch. This deferral does not weaken inventory correctness, custody authority, authorization, lifecycle safety, idempotency, or stock/financial truth.
+
+- [ ] **Vehicle Load 50k stock-bearing benchmark and search hardening:** the V1 Vehicle Load source picker is already warehouse-scoped, stock-scoped, backend-searched, cursor-paginated, and bounded to small pages. V2 must benchmark the extreme case where roughly 50,000 products all carry eligible stock in one warehouse, measure first-page/search/cursor query times, and improve indexed text/SKU search if measured evidence requires it. Do not regress to full-catalog transfer.
+- [ ] **Dispatch full-catalog transport removal:** the current V1 Dispatch initialization still transfers the company product catalog to the browser and applies a bounded client-side display window. V2 must remove product-catalog payload ownership from `/dispatch/init` and replace it with bounded server-side product search that is warehouse-aware and available-stock-aware, preferably reusing a shared authoritative read model/service with Vehicle Load where domain boundaries permit. Route launch inventory/custody truth remains backend-authoritative throughout.
+
+These are V2 scale/efficiency items only. Any demonstrated V1 correctness defect in route-load quantity meaning, UOM conversion, custody delta, authorization, or inventory movement remains a V1 blocker and must not be hidden behind this deferral.
