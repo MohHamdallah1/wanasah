@@ -85,15 +85,15 @@ const positiveVariantId = (value: unknown): number | null =>
 
 const hasMeaningfulInboundDraft = (
   row: InboundBatchDraft,
-  defaultUomId: string,
+  baseline: InboundBatchDraft,
 ): boolean =>
   Boolean(
     row.quantity.trim() ||
-      row.unit_cost.trim() ||
       row.batch_number.trim() ||
       row.production_date.trim() ||
       row.expiry_date.trim() ||
-      (row.uom_id && row.uom_id !== defaultUomId),
+      (row.unit_cost.trim() && row.unit_cost.trim() !== baseline.unit_cost.trim()) ||
+      (row.uom_id && row.uom_id !== baseline.uom_id),
   );
 
 const apiErrorVariantIds = (error: unknown): number[] => {
@@ -1366,8 +1366,13 @@ export function Tab2Inbound({
                   const isPersisted = Boolean(
                     persistedRows?.some((saved) => saved.row_id === row.row_id),
                   );
+                  const baselineRow = prefilledInboundRow(
+                    row.row_id,
+                    defaultUom,
+                    option,
+                  );
                   const isEngaged =
-                    isPersisted && hasMeaningfulInboundDraft(row, defaultUom);
+                    isPersisted && hasMeaningfulInboundDraft(row, baselineRow);
                   const selectedOption = option?.uoms.find(
                     (uom) => String(uom.id) === selectedUom
                   );
