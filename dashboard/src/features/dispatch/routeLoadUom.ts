@@ -19,6 +19,12 @@ export interface RouteLoadVehicleItem extends RouteLoadUom {
   current_base_quantity: Quantity;
 }
 
+function parseNullableMetadataString(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string") throw new Error("DISPATCH_UOM_METADATA_INVALID");
+  return value;
+}
+
 export function parseRouteLoadUom(value: unknown): RouteLoadUom {
   if (!value || typeof value !== "object") throw new Error("DISPATCH_UOM_METADATA_INVALID");
   const row = value as Record<string, unknown>;
@@ -29,14 +35,8 @@ export function parseRouteLoadUom(value: unknown): RouteLoadUom {
       Number(row.quantity_scale) > 6 ||
       typeof row.quantity_step !== "string") throw new Error("DISPATCH_UOM_METADATA_INVALID");
   const step = validateVariantQuantity(row.quantity_step, Number(row.quantity_scale), row.quantity_step);
-  const name = row.display_uom_name;
-  const factor = row.display_factor_to_base;
-  if (name !== null && typeof name !== "string") {
-    throw new Error("DISPATCH_UOM_METADATA_INVALID");
-  }
-  if (factor !== null && typeof factor !== "string") {
-    throw new Error("DISPATCH_UOM_METADATA_INVALID");
-  }
+  const name = parseNullableMetadataString(row.display_uom_name);
+  const factor = parseNullableMetadataString(row.display_factor_to_base);
   if (factor !== null && (!/^\d+$/.test(factor) || factor === "0")) {
     throw new Error("DISPATCH_UOM_METADATA_INVALID");
   }
