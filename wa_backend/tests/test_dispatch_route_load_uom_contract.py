@@ -9,6 +9,7 @@ import pytest
 from domains.dispatch_route_load import (
     allocate_route_base_batches, canonical_route_delta,
     route_vehicle_base_totals,
+    route_load_uom_metadata,
 )
 from domains.uom_authority import _build_authority
 from schemas import DispatchRouteRequest
@@ -85,3 +86,55 @@ def test_route_launch_uses_base_contract_and_preserves_legacy_keys():
     assert "require_location(access, 'dispatch.execute', int(source_location.id))" in route
     assert "check_inventory_lock(" in route
     assert "apply_inventory_movements_batch(" in route
+
+@pytest.mark.asyncio
+async def test_metadata_resolves_one_exact_pack_and_keeps_base_name():
+    variant = SimpleNamespace(
+        id=701, base_uom_id=1, quantity_scale=0, quantity_step=Decimal("1"),
+    )
+    conversion = SimpleNamespace(
+        product_variant_id=701, from_uom_id=2, to_uom_id=1,
+        numerator=Decimal("8"), denominator=Decimal("1"),
+    )
+    responses = iter([
+        [(701, 1, 0, Decimal("1"), "piece", "PCS")],
+        [(2, "packet")],
+    ])
+    db = SimpleNamespace(
+        execute=AsyncMock(side_effect=lambda _: SimpleNamespace(all=lambda: next(responses))),
+        scalars=AsyncMock(side_effect=[
+            SimpleNamespace(all=lambda: [variant]),
+            SimpleNamespace(all=lambda: [conversion]),
+        ]),
+    )
+    metadata = await route_load_uom_metadata(db, company_id=1, variant_ids=[701])
+    assert metadata[701]["base_uom_name"] == "piece"
+    assert metadata[701]["display_uom_name"] == "packet"
+    assert metadata[701]["display_factor_to_base"] == "8"
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_commercial_display_falls_back_to_base_unit():
+    variant = SimpleNamespace(
+        id=701, base_uom_id=1, quantity_scale=0, quantity_step=Decimal("1"),
+    )
+    conversion1 = SimpleNamespace(
+        product_variant_id=701, from_uom_id=2, to_uom_id=1,
+        numerator=Decimal("8"), denominator=Decimal("1"),
+    )
+    conversion2 = SimpleNamespace(
+        product_variant_id=701, from_uom_id=3, to_uom_id=1,
+        numerator=Decimal("16"), denominator=Decimal("1"),
+    )
+    db = SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(
+            all=lambda: [(701, 1, 0, Decimal("1"), "piece", "PCS")],
+        )),
+        scalars=AsyncMock(side_effect=[
+            SimpleNamespace(all=lambda: [variant]),
+            SimpleNamespace(all=lambda: [conversion1, conversion2]),
+        ]),
+    )
+    metadata = await route_load_uom_metadata(db, company_id=1, variant_ids=[701])
+    assert metadata[701]["display_uom_name"] is None
+    assert metadata[701]["display_factor_to_base"] is None
