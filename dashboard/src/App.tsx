@@ -6,18 +6,26 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { toast } from "sonner"; // +++  (E-11): استدعاء الـ Toast لعرض الأخطاء +++
 import { readPlatformSession } from "@/features/platform/session";
-import { loadProductsPage } from "@/routes/routePreloaders";
+import {
+  loadCommercialRulesDashboard,
+  loadDispatchBoard,
+  loadInventoryPage,
+  loadOperationsDashboard,
+  loadProductsPage,
+  loadRepresentativesVehiclesPage,
+  loadSalesReturnsDashboard,
+} from "@/routes/routePreloaders";
 
 // +++ الكي الجراحي: تحميل ديناميكي للصفحات لتفكيك الكتلة الضخمة في ملف index +++
 const DashboardLayout = lazy(() => import("@/components/operations/DashboardLayout"));
-const OperationsDashboard = lazy(() => import("./pages/OperationsDashboard"));
-const DispatchBoard = lazy(() => import("./pages/DispatchBoard"));
-const MainInventory = lazy(() => import("./pages/inventory/InventoryPage"));
+const OperationsDashboard = lazy(loadOperationsDashboard);
+const DispatchBoard = lazy(loadDispatchBoard);
+const MainInventory = lazy(loadInventoryPage);
 const ProductsPage = lazy(loadProductsPage);
-const RepresentativesVehiclesPage = lazy(() => import("./pages/representatives-vehicles/RepresentativesVehiclesPage"));
+const RepresentativesVehiclesPage = lazy(loadRepresentativesVehiclesPage);
 const AdvancedUomDashboard = lazy(() => import("./pages/products/advanced-uom/AdvancedUomDashboard"));
-const CommercialRulesDashboard = lazy(() => import("./pages/CommercialRulesDashboard"));
-const SalesReturnsDashboard = lazy(() => import("./pages/SalesReturnsDashboard"));
+const CommercialRulesDashboard = lazy(loadCommercialRulesDashboard);
+const SalesReturnsDashboard = lazy(loadSalesReturnsDashboard);
 const Login = lazy(() => import("./pages/Login"));
 const PlatformLogin = lazy(() => import("./pages/PlatformLogin"));
 const PlatformDashboard = lazy(() => import("./pages/PlatformDashboard"));
