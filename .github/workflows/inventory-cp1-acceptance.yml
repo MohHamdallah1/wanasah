@@ -39,6 +39,9 @@ jobs:
           python -m pytest -q
           tests/test_inbound_lot_expiry_checkpoint1.py
           tests/test_inbound_no_lot_frozen_contract.py
+          tests/test_inbound_audit_lock_backend.py
+          tests/test_inbound_reference_required_contract.py
+          tests/test_purchase_reference_inbound_contract.py
           tests/test_stocktake_nullable_expiry_serialization.py
           tests/test_live_stock_batch_detail_disposition_contract.py
           tests/test_batch_reservation_owner_contract.py
@@ -125,7 +128,7 @@ jobs:
               conn.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
               conn.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
           PY
-      - name: Prove baseline permission-catalog debt and seed acceptance fixture
+      - name: Verify migrated receipt permission catalog
         run: |
           python - <<'PY'
           import os
@@ -143,12 +146,8 @@ jobs:
                   "SELECT 1 FROM permissions WHERE code='inbound.create'"
               ).fetchone()
               assert supplier is not None, "supplier.read migration unexpectedly missing"
-              assert inbound is None, "baseline debt changed; reassess fixture before acceptance"
-              conn.execute(
-                  "INSERT INTO permissions(code) VALUES ('inbound.create') "
-                  "ON CONFLICT(code) DO NOTHING"
-              )
-          print("BASELINE_INBOUND_PERMISSION_DEBT=PROVEN_AND_FIXTURE_SEEDED")
+              assert inbound is not None, "inbound.create migration unexpectedly missing"
+          print("MIGRATED_RECEIPT_PERMISSIONS=VERIFIED")
           PY
       - name: Frozen committed PostgreSQL acceptance
         working-directory: wa_backend
@@ -187,18 +186,18 @@ jobs:
       - name: Production Dashboard build
         working-directory: dashboard
         run: npm run build
-      - name: Combined diff whitespace gate
-        run: git diff --check acb8470dd62d72bbdb0b217f23adcbbffb172a6e HEAD
-      - name: Prove unrelated Supplier frontend failures on common base
-        working-directory: dashboard
+      - name: Task diff whitespace gate
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          git checkout acb8470dd62d72bbdb0b217f23adcbbffb172a6e -- .
-          set +e
-          npm test -- src/test/suppliers-v1.test.tsx > /tmp/supplier-base.log 2>&1
-          status=$?
-          set -e
-          cat /tmp/supplier-base.log
-          test "$status" -ne 0
-          grep -F "retries whole-product return independently of current stock preview after a lost response" /tmp/supplier-base.log
-          grep -F "replays a stored pre-Supplier quality command while new whole-product return resolves Supplier automatically" /tmp/supplier-base.log
-          echo "SUPPLIER_FRONTEND_FAILURES_PREEXIST_ON_BASE=PROVEN"
+          base_ref="${PR_BASE_SHA:-origin/main}"
+          merge_base="$(git merge-base "$base_ref" HEAD)"
+          git diff --check "$merge_base" HEAD
+      - name: Current Supplier V1 frontend regressions
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/test/suppliers-v1.test.tsx
+          src/test/quality-safety-v1-closure.test.ts
+          src/test/whole-product-quality-preview.test.ts
+          src/test/catalog-inventory-boundary.test.ts
