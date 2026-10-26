@@ -4,6 +4,66 @@
     {
       "insert_after": {
         "method": "GET",
+        "path": "/warehouse/locations"
+      },
+      "method": "GET",
+      "path": "/warehouse/locations/code-suggestion",
+      "function": "suggest_warehouse_location_code",
+      "status_code": "200",
+      "response_model": "WarehouseLocationCodeSuggestionResponse",
+      "expected_module": "locations"
+    },
+    {
+      "insert_after": {
+        "method": "PUT",
+        "path": "/warehouse/costing-policy"
+      },
+      "method": "GET",
+      "path": "/warehouse/costing/opening-valuation/template",
+      "function": "download_warehouse_opening_valuation_template",
+      "status_code": "200",
+      "response_model": null,
+      "expected_module": "inbound"
+    },
+    {
+      "insert_after": {
+        "method": "GET",
+        "path": "/warehouse/costing/opening-valuation/template"
+      },
+      "method": "POST",
+      "path": "/warehouse/costing/opening-valuation/preview-file",
+      "function": "preview_warehouse_opening_valuation_file",
+      "status_code": "200",
+      "response_model": null,
+      "expected_module": "inbound"
+    },
+    {
+      "insert_after": {
+        "method": "POST",
+        "path": "/warehouse/costing/opening-valuation/preview-file"
+      },
+      "method": "POST",
+      "path": "/warehouse/costing/opening-valuation/preview",
+      "function": "preview_warehouse_opening_valuation",
+      "status_code": "200",
+      "response_model": null,
+      "expected_module": "inbound"
+    },
+    {
+      "insert_after": {
+        "method": "POST",
+        "path": "/warehouse/costing/opening-valuation/preview"
+      },
+      "method": "POST",
+      "path": "/warehouse/costing/opening-valuation/finalize",
+      "function": "finalize_warehouse_opening_valuation",
+      "status_code": "200",
+      "response_model": null,
+      "expected_module": "inbound"
+    },
+    {
+      "insert_after": {
+        "method": "GET",
         "path": "/warehouse/inventory/families"
       },
       "method": "GET",
