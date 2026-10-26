@@ -3066,8 +3066,20 @@
   border-inline-end: 0;
 }
 
+.inventory-inbound-table tbody tr {
+  transition: background-color 120ms ease;
+}
+
 .inventory-inbound-table tbody tr:hover {
   background: #fbfcfd;
+}
+
+.inventory-inbound-table tbody tr.inventory-inbound-row--engaged {
+  background: rgb(219 234 254 / 0.42);
+}
+
+.inventory-inbound-table tbody tr.inventory-inbound-row--engaged:hover {
+  background: rgb(219 234 254 / 0.58);
 }
 
 .inventory-inbound-number-head,
