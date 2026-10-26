@@ -209,6 +209,27 @@ describe("Checkpoint 1 inbound UI", () => {
     });
   });
 
+  it("removes the row highlight after the operator clears the entered value", async () => {
+    renderInbound(
+      [makeVariant(7, "Clear highlight product", "NONE", "NONE")],
+      null,
+      costPolicy,
+      [makeVariant(7, "Clear highlight product", "NONE", "NONE")],
+      "4.250000",
+    );
+    const row = (await screen.findByText("Clear highlight product")).closest("tr")!;
+    const quantity = within(row).getByLabelText("Quantity") as HTMLInputElement;
+    await waitFor(() => expect(within(row).getByLabelText("Actual cost")).toHaveValue("4.25"));
+    expect(row).not.toHaveAttribute("data-engaged");
+
+    fireEvent.change(quantity, { target: { value: "2" } });
+    await waitFor(() => expect(row).toHaveAttribute("data-engaged", "true"));
+
+    fireEvent.change(quantity, { target: { value: "" } });
+    await waitFor(() => expect(row).not.toHaveAttribute("data-engaged"));
+    expect(row).not.toHaveClass("inventory-inbound-row--engaged");
+  });
+
   it("prefills the default purchase reference but preserves the operator's actual edit", async () => {
     const keys = inboundStorageKeys(1, 2, 3);
     localStorage.setItem(keys.reference, "INV-REFERENCE");
