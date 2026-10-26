@@ -45,20 +45,21 @@ The following rules are binding whenever Codex Desktop, Codex CLI, another local
 
 ### Default Codex safety posture
 
-- Codex must start from a restrictive configuration: `sandbox_mode = "read-only"`, `approval_policy = "on-request"`, and desktop ambient suggestions disabled.
+- Ordinary implementation tasks may give Codex/agents **task-scoped write access from the start** inside one clean dedicated branch/worktree or cloud workspace. A separate read-only phase is not mandatory when the task, ownership boundary, and rollback path are already clear.
+- Use read-only mode for audits, ambiguous diagnosis, broad architectural discovery, or tasks whose safe write boundary is not yet known. Do not force read-only mode onto routine, reversible Git-tracked implementation work.
 - Ambient/background suggestion workflows must remain disabled unless the owner explicitly re-enables them after reviewing the exact product behavior and risk.
-- Read-only is the default posture, not a limitation to work around silently. When a task genuinely requires writes, Codex may request a **task-scoped** write escalation; the owner approves only the specific operation needed for the current isolated worktree.
 - Never grant blanket approval for unrestricted filesystem access, profile-wide writes, drive-root writes, recursive cleanup, or commands whose target path is ambiguous.
-- If Codex requests access outside the dedicated task worktree, to the user profile root, another drive root, Git internals, credentials, or unrelated project paths, deny the request and stop the task until the need is proven.
+- If an agent requests access outside the dedicated task workspace, to the user profile root, another drive root, Git internals, credentials, or unrelated project paths, deny the request until the need is proven.
 
 ### Repository isolation and GitHub authority
 
-- Codex must never work directly on `main`.
-- Every Codex task starts from the newest verified `main` in a **clean dedicated branch/worktree** created for that task. The worktree is disposable; the canonical repository and independent backups are not.
-- Codex must not push directly to GitHub, merge pull requests, force-push, delete remote branches/tags, rewrite remote history, change repository visibility, change repository rulesets/protection, or alter GitHub administration/security settings.
-- GitHub reads are preferred for source inspection. GitHub mutations follow the controlled project workflow: reviewed branch commit -> push through the approved GitHub path -> PR -> required checks/review -> merge -> sync -> delete the disposable task branch/worktree after the stability point.
-- The local Codex worktree should have remote push disabled or otherwise prevented whenever practical. Codex is a code-analysis/editing worker, not the authority that publishes or protects the repository.
-- `main` must be protected by GitHub branch/ruleset controls that block deletion and force-push and require the approved PR/check flow. Independent off-GitHub backups remain mandatory because branch protection does not replace repository backup.
+- Agents must never work directly on `main`.
+- Every implementation task starts from the newest verified `main` in a **clean dedicated branch/worktree or isolated cloud workspace** created for that task.
+- A task owner may create commits, push the dedicated task branch, and open/update its pull request when that publication is part of the assigned task. This is the preferred fast path for Codex Cloud and other isolated GitHub workers.
+- Agents must not merge their own pull requests unless the Lead/Owner explicitly assigns that responsibility after review. Force-push, direct `main` push, protected-ref deletion, remote-history rewrite, repository visibility/ruleset/protection changes, and GitHub administration/security mutations remain forbidden.
+- GitHub reads are preferred for source inspection. Mutations follow the controlled project workflow: dedicated task branch -> focused commits -> tests -> PR -> review/checks -> merge at the agreed stability point -> sync -> delete the disposable task branch/worktree.
+- Local Codex/Desktop may also commit and push its **dedicated task branch** when explicitly assigned, provided the worktree is clean and scoped. It is not allowed to publish unrelated local changes.
+- `main` must remain protected by GitHub branch/ruleset controls that block deletion and force-push and require the approved PR/check flow. Independent backups are maintained for disaster recovery, but they are not a per-task gate for ordinary reversible Git-tracked code changes.
 
 ### Destructive-command and filesystem guards
 
@@ -72,26 +73,37 @@ The following rules are binding whenever Codex Desktop, Codex CLI, another local
 
 ### Required Codex task flow
 
-1. Read `ARCHITECTURE.md`, `.rules`, `AGENTS.md`, `SKILL.md`, the active plan, and the exact related source before changing code.
-2. Verify the newest GitHub `main` commit and confirm an independent backup/mirror exists before a local write session.
-3. Create one dedicated branch/worktree from that verified `main`; never reuse a dirty or unrelated worktree.
-4. Let Codex analyze in read-only mode first. Require a concrete source-based hypothesis or implementation plan before approving writes.
-5. Approve only narrowly scoped writes inside the dedicated worktree. Do not approve unrelated machine/profile access.
-6. Run only the focused, risk-appropriate tests/gates required by the change. Analysis identifies the cause; tests prove the fix.
-7. Inspect the complete diff and specifically check deletions, renamed files, generated files, migrations, permissions, tenant/location isolation, `RUN.txt`, and any unexpected path outside the intended scope.
+1. Read `ARCHITECTURE.md`, `.rules`, `AGENTS.md`, the active plan, and the exact related source needed for the task before changing code.
+2. Verify the newest GitHub `main` commit. Check/refresh an independent backup only when the task falls under the high-risk backup rule below.
+3. Create one dedicated branch/worktree or isolated cloud workspace from that verified `main`; never reuse a dirty or unrelated worktree.
+4. For a clear ordinary implementation task, analyze and write in the same task. Use a separate read-only audit only when uncertainty/risk justifies it.
+5. Keep writes narrowly scoped to the assigned task workspace. Do not approve unrelated machine/profile access.
+6. Run the focused, risk-appropriate tests/gates required by the change. Analysis identifies the cause; tests prove the fix.
+7. Inspect the complete diff and specifically check deletions, renamed/generated files, migrations, permissions, tenant/location isolation, `RUN.txt`, and unexpected paths outside the intended scope.
 8. Commit only the reviewed task diff on the task branch. No direct `main` commit.
-9. Publish through the approved GitHub flow, open a PR, satisfy required checks/review, and merge only at the agreed stability point.
-10. Sync from the merged `main`, then remove only the verified disposable branch/worktree. Mark the completed plan item `[x]` and record the stability checkpoint.
+9. The assigned worker may push the task branch and open/update the PR. Required checks/review must pass; merge remains a Lead/Owner stability decision unless explicitly delegated.
+10. Sync from merged `main`, then remove only the verified disposable branch/worktree. Mark the completed plan item `[x]` and record the stability checkpoint.
 
 ### Backup rule
 
-Before high-risk refactors or any renewed Codex Desktop usage after a tooling/runtime change, keep at least one independent verified repository mirror outside the working disk. A GitHub-hosted repository alone is not treated as the only copy, and a local worktree on the same physical SSD is not an independent backup.
+Independent off-disk backup is a **high-risk/data-loss safeguard, not a routine code-write prerequisite**.
+
+It is required before operations that can lose or irreversibly alter information not safely recoverable from normal Git history, including:
+- destructive repository/filesystem recovery or broad cleanup;
+- writes to untracked/local-only source or artifacts that are not already preserved elsewhere;
+- operational database mutation, restore, destructive migration rehearsal, or data reset outside a disposable test database;
+- bulk automated rewrites whose blast radius is not bounded to reviewed Git-tracked files;
+- tooling/runtime changes that grant broad filesystem access or could mutate paths outside the dedicated workspace.
+
+It is **not required** before ordinary reversible Git-tracked edits, commits, focused tests, task-branch pushes, or PR creation in a clean dedicated branch/worktree/cloud workspace. GitHub history plus the protected PR workflow is sufficient for that normal code path.
+
+Maintain periodic independent repository/data backups for disaster recovery. A worktree on the same physical disk is not an independent backup, but its absence must not block normal scoped branch-based development.
 
 ---
 
 **Status:** CANONICAL ARCHITECTURE DIRECTION  
 **Scope:** Entire repository and all future modules  
-**Last updated:** 2026-10-18
+**Last updated:** 2026-10-26
 
 This document is the architectural constitution of the Wanasah platform. It records the intended long-term direction so future work does not accidentally optimize one feature at the expense of the platform.
 
