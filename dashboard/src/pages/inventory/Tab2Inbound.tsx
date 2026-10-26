@@ -83,6 +83,19 @@ const positiveVariantId = (value: unknown): number | null =>
     ? value
     : null;
 
+const hasMeaningfulInboundDraft = (
+  row: InboundBatchDraft,
+  defaultUomId: string,
+): boolean =>
+  Boolean(
+    row.quantity.trim() ||
+      row.unit_cost.trim() ||
+      row.batch_number.trim() ||
+      row.production_date.trim() ||
+      row.expiry_date.trim() ||
+      (row.uom_id && row.uom_id !== defaultUomId),
+  );
+
 const apiErrorVariantIds = (error: unknown): number[] => {
   const context = apiErrorContext(error);
   if (!context) return [];
@@ -1343,12 +1356,18 @@ export function Tab2Inbound({
                     ? commercialUoms[0].id
                     : option?.base_uom_id ?? variant.base_uom.id
                 );
-                const rows = drafts[String(variant.id)]?.length
-                  ? drafts[String(variant.id)]
+                const persistedRows = drafts[String(variant.id)];
+                const rows = persistedRows?.length
+                  ? persistedRows
                   : [prefilledInboundRow(`base-${variant.id}`, defaultUom, option)];
 
                 return rows.map((row, index) => {
                   const selectedUom = row.uom_id || defaultUom;
+                  const isPersisted = Boolean(
+                    persistedRows?.some((saved) => saved.row_id === row.row_id),
+                  );
+                  const isEngaged =
+                    isPersisted && hasMeaningfulInboundDraft(row, defaultUom);
                   const selectedOption = option?.uoms.find(
                     (uom) => String(uom.id) === selectedUom
                   );
@@ -1358,6 +1377,8 @@ export function Tab2Inbound({
                       key={`${variant.id}-${row.row_id}`}
                       ref={(node) => setRowRef(row.row_id, node)}
                       data-inbound-row-id={row.row_id}
+                      data-engaged={isEngaged ? "true" : undefined}
+                      className={isEngaged ? "inventory-inbound-row--engaged" : undefined}
                     >
                       <td className="inventory-inbound-number-cell">
                         {variantIndex + 1}
