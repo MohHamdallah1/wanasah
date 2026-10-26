@@ -29,7 +29,15 @@ import {
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { clearLocalStoragePreservingLoginHintsAndPreferences } from "@/lib/authStorage";
 import { resolveI18nLocale } from "@/lib/locale";
-import { preloadProductsPage } from "@/routes/routePreloaders";
+import {
+  preloadCommercialRulesDashboard,
+  preloadDispatchBoard,
+  preloadInventoryPage,
+  preloadOperationsDashboard,
+  preloadProductsPage,
+  preloadRepresentativesVehiclesPage,
+  preloadSalesReturnsDashboard,
+} from "@/routes/routePreloaders";
 
 interface OperationsSidebarProps {
   open: boolean;
@@ -85,6 +93,16 @@ const navItems = [
     path: "/settings",
   },
 ] as const;
+
+const navPreloaders: Partial<Record<(typeof navItems)[number]["path"], () => void>> = {
+  "/": preloadOperationsDashboard,
+  "/dispatch": preloadDispatchBoard,
+  "/inventory": preloadInventoryPage,
+  "/representatives-vehicles": preloadRepresentativesVehiclesPage,
+  "/products": preloadProductsPage,
+  "/commercial-rules": preloadCommercialRulesDashboard,
+  "/sales-returns": preloadSalesReturnsDashboard,
+};
 
 export function OperationsSidebar({
   open,
@@ -433,18 +451,9 @@ export function OperationsSidebar({
                 <button
                   key={item.path}
                   type="button"
-                  onPointerEnter={
-                    item.path ===
-                    "/products"
-                      ? preloadProductsPage
-                      : undefined
-                  }
-                  onFocus={
-                    item.path ===
-                    "/products"
-                      ? preloadProductsPage
-                      : undefined
-                  }
+                  onPointerEnter={navPreloaders[item.path]}
+                  onPointerDown={navPreloaders[item.path]}
+                  onFocus={navPreloaders[item.path]}
                   onClick={() =>
                     handleNav(item)
                   }
