@@ -113,11 +113,18 @@ Quick live Dashboard acceptance:
 
 ### [ ] 5. Repair stale Warehouse Route Manifest gate
 
-**Owner:** primary technical lead after the two active worker branches are reviewed.
+**Status:** implemented and merged in PR #571; automated gate is green, pending owner live Dashboard smoke acceptance before `[x]`.
 
-Current confirmed failure:
+Original confirmed failure:
 
 `WAREHOUSE_ROUTE_MANIFEST=FAIL: route count mismatch: baseline=45, extensions=13, package=63`
+
+Accepted repair evidence:
+
+- five legitimate V1 routes were reconstructed from accepted history;
+- the extensions manifest now records 18 explicit post-baseline routes;
+- final gate result is baseline=45, extensions=18, package=63;
+- exact runtime order passes and duplicate method+path routes remain zero.
 
 Required:
 
