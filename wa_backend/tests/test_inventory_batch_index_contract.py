@@ -333,11 +333,28 @@ def test_existing_batch_drill_down_preserves_independent_batch_and_location_auth
         for decorator in decorators
     )
 
+    read_checks = [
+        node
+        for node in ast.walk(handler)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "access"
+        and node.func.attr == "allows"
+    ]
+    assert any(
+        len(call.args) >= 2
+        and isinstance(call.args[0], ast.Constant)
+        and call.args[0].value == "inventory.read"
+        and isinstance(call.args[1], ast.Name)
+        and call.args[1].id == "location_id"
+        for call in read_checks
+    )
+
     body = ast.get_source_segment(source, handler)
     assert body is not None
     for required in (
         "company_id = access.company_id",
-        'access.allows(\n                        "inventory.read",',
         "InventoryLocation.company_id == company_id",
         'location_access_row.location_type != "WAREHOUSE"',
         "ProductVariant.company_id == company_id",
