@@ -7,12 +7,10 @@ export function InboundRecallRow({
   name,
   number,
   rowRef,
-  onRemoveDraft,
 }: {
   name: string;
   number: number;
   rowRef: (node: HTMLTableRowElement | null) => void;
-  onRemoveDraft?: () => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -28,11 +26,6 @@ export function InboundRecallRow({
       </td>
       <td colSpan={5}>
         <p>{t(`errors.codes.${INBOUND_RECALL_BLOCK_CODE}`)}</p>
-        {onRemoveDraft && (
-          <button type="button" onClick={onRemoveDraft} className="underline">
-            {t("inventoryInbound.removeRecallDraft")}
-          </button>
-        )}
       </td>
     </tr>
   );
