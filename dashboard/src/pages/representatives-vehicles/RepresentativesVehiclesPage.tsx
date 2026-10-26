@@ -14,6 +14,24 @@ type PageTab = "representatives" | "vehicles" | "suppliers";
 const pageTabFromUrl = (value: string | null): PageTab | null =>
   value === "representatives" || value === "vehicles" || value === "suppliers" ? value : null;
 
+const tabPreferenceKey = (companyId?: number, principalId?: number): string | null => {
+  if (
+    typeof companyId !== "number" || typeof principalId !== "number"
+    || !Number.isSafeInteger(companyId) || !Number.isSafeInteger(principalId)
+    || companyId <= 0 || principalId <= 0
+  ) return null;
+  return `wanasah:layout:representatives-vehicles:tab:v1:${companyId}:${principalId}`;
+};
+
+const readTabPreference = (key: string | null): PageTab | null => {
+  if (!key) return null;
+  try {
+    return pageTabFromUrl(localStorage.getItem(key));
+  } catch {
+    return null;
+  }
+};
+
 export default function RepresentativesVehiclesPage() {
   const { t, i18n } = useTranslation();
   const access = useInventoryAccess();
@@ -37,16 +55,20 @@ export default function RepresentativesVehiclesPage() {
       : canReadSuppliers
         ? "suppliers"
         : null;
-  const requestedTabAllowed = requestedTab === "representatives"
+  const preferenceKey = tabPreferenceKey(access.data?.company_id, access.data?.principal_id);
+  const storedTab = readTabPreference(preferenceKey);
+  const canReadTab = (tab: PageTab | null): boolean => tab === "representatives"
     ? canReadRepresentatives
-    : requestedTab === "vehicles"
+    : tab === "vehicles"
       ? canReadVehicles
-      : requestedTab === "suppliers"
+      : tab === "suppliers"
         ? canReadSuppliers
         : false;
-  const activeTab: PageTab = requestedTab && requestedTabAllowed
+  const activeTab: PageTab = requestedTab && canReadTab(requestedTab)
     ? requestedTab
-    : firstReadableTab ?? "representatives";
+    : storedTab && canReadTab(storedTab)
+      ? storedTab
+      : firstReadableTab ?? "representatives";
   const [visitedTabs, setVisitedTabs] = useState<Set<PageTab>>(
     () => new Set<PageTab>(),
   );
@@ -61,12 +83,7 @@ export default function RepresentativesVehiclesPage() {
   }, [location.hash, location.search, navigate]);
 
   const activate = (tab: PageTab) => {
-    const allowed = tab === "representatives"
-      ? canReadRepresentatives
-      : tab === "vehicles"
-        ? canReadVehicles
-        : canReadSuppliers;
-    if (!allowed || tab === activeTab) return;
+    if (!canReadTab(tab) || tab === activeTab) return;
     setVisitedTabs((current) => {
       const next = new Set(current);
       next.add(tab);
@@ -77,6 +94,13 @@ export default function RepresentativesVehiclesPage() {
 
   useEffect(() => {
     if (access.isLoading || firstReadableTab === null) return;
+    if (preferenceKey) {
+      try {
+        localStorage.setItem(preferenceKey, activeTab);
+      } catch {
+        // A browser preference must never block authorized tab navigation.
+      }
+    }
     setVisitedTabs((current) => {
       if (current.has(activeTab)) return current;
       const next = new Set(current);
@@ -92,6 +116,7 @@ export default function RepresentativesVehiclesPage() {
     firstReadableTab,
     location.pathname,
     navigateToTab,
+    preferenceKey,
     rawTab,
   ]);
 
