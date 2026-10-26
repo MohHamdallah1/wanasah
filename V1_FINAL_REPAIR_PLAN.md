@@ -21,8 +21,8 @@ If live acceptance fails, keep the item open and continue from the actual defect
 
 ### [ ] 1. Inbound RECALL UX / i18n closure
 
-**Worker:** Codex  
-**Branch:** `codex/inbound-recall-ux-i18n-closure`
+**Status:** initial fix merged in PR #568; owner live acceptance found two final UX refinements still required.  
+**Worker:** next bounded inbound follow-up worker.
 
 Frozen behavior:
 
@@ -30,6 +30,8 @@ Frozen behavior:
 - The Dashboard must not show a raw English backend message while Arabic is active.
 - The error must be clear and operator-facing.
 - The inbound row must communicate the block before submit and prevent normal inbound entry.
+- Do not show an "remove this product from the receipt draft" action for a recalled product. Once RECALL is known, the row must directly show the blocked state without requiring an operator cleanup click; stale local draft input for that recalled product must not keep blocking the receipt flow.
+- RECALL rows must be stably partitioned to the bottom of the currently loaded inbound table so blocked products do not disrupt active receiving rows. When the hold is released, the product returns to its normal table order.
 - `ACTIVE + SALES_HOLD` must remain inbound-eligible.
 - Backend lifecycle authority remains unchanged.
 
@@ -38,13 +40,14 @@ Quick live Dashboard acceptance:
 - Open Inbound in Arabic.
 - Find a product currently under a quality/safety RECALL.
 - Confirm the row clearly explains that new inbound is blocked and normal inbound entry is disabled.
+- Confirm no remove-draft button is shown and no stale recalled draft blocks other valid receipt work.
+- Confirm recalled products appear after active inbound-eligible products; release the hold and confirm the product returns to normal ordering.
 - Confirm no English/raw technical error is shown.
 - Confirm another `SALES_HOLD` product can still be received when otherwise eligible.
 
 ### [ ] 2. Route Launch and Vehicle Load use one quantity/UOM meaning
 
-**Worker:** secondary ChatGPT implementation worker  
-**Branch:** `sol/dispatch-route-load-uom-correctness`
+**Status:** implemented and merged in PR #569; pending owner live Dashboard acceptance before `[x]`.
 
 Frozen behavior:
 
@@ -62,8 +65,7 @@ Quick live Dashboard acceptance:
 
 ### [ ] 3. Preserve loose remainder during Route Launch
 
-**Worker:** same branch as item 2  
-**Branch:** `sol/dispatch-route-load-uom-correctness`
+**Status:** implemented and merged in PR #569; pending owner live Dashboard acceptance before `[x]`.
 
 Regression case:
 
@@ -88,8 +90,7 @@ Quick live Dashboard acceptance:
 
 ### [ ] 4. Show current / target / delta before Route Launch
 
-**Worker:** same branch as items 2-3  
-**Branch:** `sol/dispatch-route-load-uom-correctness`
+**Status:** implemented and merged in PR #569; pending owner live Dashboard acceptance before `[x]`.
 
 Required:
 
