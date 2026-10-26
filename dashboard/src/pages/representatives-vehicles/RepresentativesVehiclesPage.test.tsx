@@ -6,6 +6,9 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 let direction: "rtl" | "ltr" = "rtl";
 let owner = false;
 let permissions = new Set<string>();
+let companyId: number | undefined = 7;
+let principalId: number | undefined = 11;
+let loading = false;
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -18,7 +21,8 @@ vi.mock("@/components/dashboard/WorkspaceTopBar", () => ({
 }));
 vi.mock("@/hooks/useInventoryAccess", () => ({
   useInventoryAccess: () => ({
-    isLoading: false,
+    isLoading: loading,
+    data: { company_id: companyId, principal_id: principalId },
     isCompanyOwner: owner,
     can: (capability: string) => permissions.has(capability),
   }),
@@ -39,7 +43,7 @@ import RepresentativesVehiclesPage from "./RepresentativesVehiclesPage";
 
 function LocationProbe() {
   const location = useLocation();
-  return <output data-testid="route-location">{`${location.pathname}${location.search}`}</output>;
+  return <output data-testid="route-location">{`${location.pathname}${location.search}${location.hash}`}</output>;
 }
 
 const renderPage = (entry = "/representatives-vehicles") => render(
@@ -54,9 +58,181 @@ afterEach(() => {
   direction = "rtl";
   owner = false;
   permissions = new Set<string>();
+  companyId = 7;
+  principalId = 11;
+  loading = false;
+  vi.restoreAllMocks();
+  localStorage.clear();
 });
 
 describe("RepresentativesVehiclesPage", () => {
+  it.each(["vehicles", "suppliers"] as const)(
+    "restores the last selected %s tab after leaving and remounting without a query",
+    async (tab) => {
+      permissions = new Set(["representative.read", "vehicle.read", "supplier.read"]);
+      const first = renderPage();
+      fireEvent.click(screen.getByRole("tab", { name: "representativesVehicles.tabs." + tab }));
+      await waitFor(() => expect(screen.getByTestId("route-location").textContent).toBe(
+        "/representatives-vehicles?tab=" + tab,
+      ));
+      first.unmount();
+
+      renderPage();
+      await waitFor(() => expect(screen.getByTestId("route-location").textContent).toBe(
+        "/representatives-vehicles?tab=" + tab,
+      ));
+      expect(screen.getByRole("tab", { name: "representativesVehicles.tabs." + tab }))
+        .toHaveAttribute("aria-selected", "true");
+      expect(screen.getByTestId(tab + "-workflow")).toBeTruthy();
+      expect(screen.queryByTestId("representatives-workflow")).toBeNull();
+      expect(screen.queryByTestId((tab === "vehicles" ? "suppliers" : "vehicles") + "-workflow")).toBeNull();
+    },
+  );
+
+  it("lets an explicit readable query override the stored Vehicles preference", async () => {
+    permissions = new Set(["representative.read", "vehicle.read", "supplier.read"]);
+    const first = renderPage();
+    fireEvent.click(screen.getByRole("tab", { name: "representativesVehicles.tabs.vehicles" }));
+    await waitFor(() => expect(screen.getByTestId("route-location").textContent).toBe(
+      "/representatives-vehicles?tab=vehicles",
+    ));
+    first.unmount();
+
+    renderPage("/representatives-vehicles?tab=representatives");
+    expect(screen.getByRole("tab", { name: "representativesVehicles.tabs.representatives" }))
+      .toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("representatives-workflow")).toBeTruthy();
+    expect(screen.queryByTestId("vehicles-workflow")).toBeNull();
+    expect(screen.getByTestId("route-location").textContent).toBe(
+      "/representatives-vehicles?tab=representatives",
+    );
+  });
+
+  it.each(["", "?tab=vehicles", "?tab=invalid"])(
+    "falls back safely when the stored tab loses access, with query %s",
+    async (query) => {
+      permissions = new Set(["representative.read", "vehicle.read", "supplier.read"]);
+      const first = renderPage();
+      fireEvent.click(screen.getByRole("tab", { name: "representativesVehicles.tabs.vehicles" }));
+      first.unmount();
+
+      permissions = new Set(["representative.read", "supplier.read"]);
+      renderPage("/representatives-vehicles" + query);
+      await waitFor(() => expect(screen.getByTestId("route-location").textContent).toBe(
+        "/representatives-vehicles?tab=representatives",
+      ));
+      expect(screen.getByRole("tab", { name: "representativesVehicles.tabs.vehicles" })).toBeDisabled();
+      expect(screen.queryByTestId("vehicles-workflow")).toBeNull();
+      expect(screen.queryByTestId("suppliers-workflow")).toBeNull();
+      expect(screen.getByTestId("representatives-workflow")).toBeTruthy();
+    },
+  );
+
+  it.each([
+    { company: 8, principal: 11 },
+    { company: 7, principal: 12 },
+  ])("isolates preferences for canonical company $company / principal $principal", async ({ company, principal }) => {
+    permissions = new Set(["representative.read", "vehicle.read", "supplier.read"]);
+    // Untrusted local identity hints must not replace the canonical access scope.
+    localStorage.setItem("company_id", "99");
+    localStorage.setItem("principal_id", "999");
+    const first = renderPage();
+    fireEvent.click(screen.getByRole("tab", { name: "representativesVehicles.tabs.vehicles" }));
+    first.unmount();
+
+    companyId = company;
+    principalId = principal;
+    const other = renderPage();
+    expect(screen.getByRole("tab", { name: "representativesVehicles.tabs.representatives" }))
+      .toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByTestId("vehicles-workflow")).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "representativesVehicles.tabs.suppliers" }));
+    other.unmount();
+
+    companyId = 7;
+    principalId = 11;
+    renderPage();
+    await waitFor(() => expect(screen.getByTestId("route-location").textContent).toBe(
+      "/representatives-vehicles?tab=vehicles",
+    ));
+    expect(screen.queryByTestId("suppliers-workflow")).toBeNull();
+  });
+
+  it.each(["company", "principal"] as const)(
+    "does not use a shared preference when canonical %s identity is unavailable",
+    async (missing) => {
+      permissions = new Set(["representative.read", "vehicle.read"]);
+      if (missing === "company") companyId = undefined;
+      else principalId = undefined;
+      const first = renderPage();
+      fireEvent.click(screen.getByRole("tab", { name: "representativesVehicles.tabs.vehicles" }));
+      await waitFor(() => expect(screen.getByTestId("route-location").textContent).toBe(
+        "/representatives-vehicles?tab=vehicles",
+      ));
+      expect(localStorage.length).toBe(0);
+      first.unmount();
+
+      renderPage();
+      expect(screen.getByRole("tab", { name: "representativesVehicles.tabs.representatives" }))
+        .toHaveAttribute("aria-selected", "true");
+      expect(screen.queryByTestId("vehicles-workflow")).toBeNull();
+    },
+  );
+
+  it("restores a readable preference for an invalid query and preserves other URL state", async () => {
+    permissions = new Set(["representative.read", "vehicle.read", "supplier.read"]);
+    const first = renderPage();
+    fireEvent.click(screen.getByRole("tab", { name: "representativesVehicles.tabs.suppliers" }));
+    first.unmount();
+
+    renderPage("/representatives-vehicles?tab=invalid&filter=recent#workspace");
+    await waitFor(() => expect(screen.getByTestId("route-location").textContent).toBe(
+      "/representatives-vehicles?tab=suppliers&filter=recent#workspace",
+    ));
+    expect(screen.queryByTestId("representatives-workflow")).toBeNull();
+    expect(screen.queryByTestId("vehicles-workflow")).toBeNull();
+  });
+
+  it("waits for access to load before restoring or replacing the stored preference", async () => {
+    permissions = new Set(["representative.read", "vehicle.read", "supplier.read"]);
+    const first = renderPage();
+    fireEvent.click(screen.getByRole("tab", { name: "representativesVehicles.tabs.vehicles" }));
+    first.unmount();
+
+    loading = true;
+    const pending = renderPage();
+    expect(screen.getByText("common.loading")).toBeTruthy();
+    expect(screen.getByTestId("route-location").textContent).toBe("/representatives-vehicles");
+    expect(screen.queryByTestId("vehicles-workflow")).toBeNull();
+    loading = false;
+    pending.rerender(
+      <MemoryRouter initialEntries={["/representatives-vehicles"]}>
+        <RepresentativesVehiclesPage />
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByTestId("route-location").textContent).toBe(
+      "/representatives-vehicles?tab=vehicles",
+    ));
+    expect(screen.queryByTestId("representatives-workflow")).toBeNull();
+  });
+
+  it.each(["getItem", "setItem"] as const)(
+    "keeps tab navigation usable when preference storage %s fails",
+    async (method) => {
+      permissions = new Set(["representative.read", "vehicle.read"]);
+      vi.spyOn(Storage.prototype, method).mockImplementation(() => {
+        throw new DOMException("Storage unavailable", "SecurityError");
+      });
+      renderPage();
+      fireEvent.click(screen.getByRole("tab", { name: "representativesVehicles.tabs.vehicles" }));
+      await waitFor(() => expect(screen.getByTestId("route-location").textContent).toBe(
+        "/representatives-vehicles?tab=vehicles",
+      ));
+      expect(screen.getByTestId("vehicles-workflow")).toBeTruthy();
+    },
+  );
+
   it("lets a user with all read capabilities switch between all three real tabs", async () => {
     permissions = new Set(["representative.read", "vehicle.read", "supplier.read"]);
     renderPage();
