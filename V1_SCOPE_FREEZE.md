@@ -284,6 +284,15 @@ Before V1 is done:
 
 V1 does **not** require production-like proof of 1,000 simultaneous real HTTP/TLS clients, large multi-company scale, horizontal autoscaling, or every long-term Modulith boundary to be fully migrated.
 
+### Owner-approved large-catalog scale deferral — 2026-10-26
+
+For the first-company V1 launch, the following are explicitly **not V1 blockers** and are tracked in `VERSION_2_FUTURE_FEATURES.md`:
+
+- proving Vehicle Load query/search performance in the extreme case where about 50,000 products all have eligible stock in one warehouse, beyond the already bounded server-side page/search design;
+- replacing Dispatch `/dispatch/init` full product-catalog transport with a bounded warehouse/stock-aware server-side product picker.
+
+This deferral applies only to large-catalog scale/transport optimization. It does **not** defer any demonstrated correctness bug in UOM meaning, existing Vehicle-load prefill, route target/delta calculation, Warehouse ↔ Vehicle movement, authorization, lifecycle safety, or inventory truth.
+
 ## 6. Explicit V2 / not-a-V1-blocker boundary
 
 The following must not delay V1 unless a later explicit scope change promotes them:
