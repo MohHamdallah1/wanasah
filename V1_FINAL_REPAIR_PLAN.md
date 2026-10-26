@@ -21,8 +21,7 @@ If live acceptance fails, keep the item open and continue from the actual defect
 
 ### [ ] 1. Inbound RECALL UX / i18n closure
 
-**Status:** initial fix merged in PR #568; owner live acceptance found two final UX refinements still required.  
-**Worker:** next bounded inbound follow-up worker.
+**Status:** final UX refinements implemented and merged in PR #572; pending owner live Dashboard acceptance before `[x]`.
 
 Frozen behavior:
 
