@@ -1,6 +1,7 @@
 import unittest
 from pathlib import Path
 
+from domains.inventory_vehicle_load import service as vehicle_load_service
 from domains.inventory_vehicle_load.service import (
     _preserve_or_tighten_unload_status,
 )
@@ -16,6 +17,9 @@ ROUTER = (BACKEND / "api/vehicles/__init__.py").read_text(encoding="utf-8")
 
 
 class VehicleLoadV1ContractTests(unittest.TestCase):
+    def test_snapshot_operational_state_dependency_is_bound_at_runtime(self):
+        self.assertTrue(callable(vehicle_load_service.read_vehicle_operational_state))
+
     def test_inventory_engine_remains_the_only_quantity_mutation_authority(self):
         self.assertIn("apply_inventory_movements_batch(", SERVICE)
         self.assertNotIn("InventoryBalance(", SERVICE)
