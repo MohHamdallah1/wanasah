@@ -16,6 +16,8 @@ import { SupplierSelector } from "@/features/suppliers/SupplierSelector";
 import { useInboundPosting } from "./inbound/useInboundPosting";
 import { useInboundOptions } from "./inbound/useInboundOptions";
 import { OpeningValuationModal } from "./inbound/OpeningValuationModal";
+import { InboundRecallRow } from "./inbound/InboundRecallRow";
+import { INBOUND_RECALL_BLOCK_CODE, isInboundRecallBlocked } from "./inbound/eligibility";
 import {
   completeDurableOperation,
   durableScope,
@@ -577,6 +579,7 @@ export function Tab2Inbound({
     rowId: string,
     patch: Partial<Omit<InboundBatchDraft, "row_id">>
   ) => {
+    if (isInboundRecallBlocked(variant)) return;
     setDrafts((current) => {
       const key = String(variant.id);
       const variantOptions = uomOptions.get(variant.id);
@@ -847,6 +850,7 @@ export function Tab2Inbound({
   const keyboardRowIds = useMemo(
     () =>
       visibleCatalog.flatMap((variant) => {
+        if (isInboundRecallBlocked(variant)) return [];
         const rows = drafts[String(variant.id)];
         return rows?.length
           ? rows.map((row) => row.row_id)
@@ -957,6 +961,14 @@ export function Tab2Inbound({
       focusDraftIssues();
       return;
     }
+    const recalledDraft = visibleCatalog.find((variant) =>
+      ids.includes(variant.id) && isInboundRecallBlocked(variant)
+    );
+    if (recalledDraft) {
+      toast.error(t(`errors.codes.${INBOUND_RECALL_BLOCK_CODE}`));
+      focusVariantIssue(recalledDraft.id, INBOUND_RECALL_BLOCK_CODE);
+      return;
+    }
     if (!costPolicy) {
       return toast.error(t("inventoryInbound.errors.policyLoad"));
     }
@@ -988,6 +1000,19 @@ export function Tab2Inbound({
         markUnavailableDraftProducts(unavailableIds, variants);
         toast.error(t("inventoryInbound.errors.unavailableDraft"));
         focusDraftIssues();
+        return;
+      }
+
+      const recalled = variants.find(isInboundRecallBlocked);
+      if (recalled) {
+        setCatalog((current) => current.map((variant) =>
+          variantsById.get(variant.id) ?? variant
+        ));
+        setRestoredCatalog((current) => new Map([
+          ...current, ...variantsById,
+        ]));
+        toast.error(t(`errors.codes.${INBOUND_RECALL_BLOCK_CODE}`));
+        focusVariantIssue(recalled.id, INBOUND_RECALL_BLOCK_CODE);
         return;
       }
 
@@ -1348,6 +1373,26 @@ export function Tab2Inbound({
                 </tr>
               )}
               {visibleCatalog.flatMap((variant, variantIndex) => {
+                if (isInboundRecallBlocked(variant)) {
+                  const savedRows = drafts[String(variant.id)];
+                  return [
+                    <InboundRecallRow
+                      key={variant.id}
+                      name={variant.name}
+                      number={variantIndex + 1}
+                      rowRef={(node) => setRowRef(savedRows?.[0]?.row_id ?? `base-${variant.id}`, node)}
+                      onRemoveDraft={savedRows?.length ? () => {
+                        setDrafts((current) => {
+                          const next = { ...current };
+                          delete next[String(variant.id)];
+                          return next;
+                        });
+                        setReferenceChoices(new Map());
+                        setSelectedReferences(new Map());
+                      } : undefined}
+                    />,
+                  ];
+                }
                 const option = uomOptions.get(variant.id);
                 const commercialUoms =
                   option?.uoms.filter((uom) => uom.id !== option.base_uom_id) ?? [];
