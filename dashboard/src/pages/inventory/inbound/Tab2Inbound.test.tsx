@@ -445,6 +445,42 @@ describe("Checkpoint 1 inbound UI", () => {
     expect(fetch.mock.calls.filter(([url]) => url.startsWith("/catalog/variants?"))).toHaveLength(4);
   });
 
+  it("shows only server-matched products during search while preserving unrelated saved drafts", async () => {
+    const keys = inboundStorageKeys(1, 2, 3);
+    localStorage.setItem(keys.drafts, JSON.stringify({
+      "3": [{ row_id: "saved-active", quantity: "4", uom_id: "1", unit_cost: "2",
+        batch_number: "", production_date: "", expiry_date: "" }],
+    }));
+    const match = makeVariant(1, "حمص حب مختار 750 غ تجربة وناسة هـ-00004", "NONE", "NONE");
+    const unrelated = makeVariant(3, "أرز قصير محفوظ بالمسودة", "NONE", "NONE");
+    const { container, fetch } = renderInbound([match], null, costPolicy, [match, unrelated]);
+
+    await screen.findByText(unrelated.name);
+    expect(inboundNames(container)).toContain(unrelated.name);
+
+    const fallback = makeFetch([match], null, costPolicy, [match, unrelated]);
+    fetch.mockImplementation(async (url, opts) => {
+      if (url.startsWith("/catalog/variants?")) {
+        const params = new URLSearchParams(url.split("?")[1]);
+        return {
+          items: params.get("search") ? [match] : [match],
+          next_cursor: null,
+          has_more: false,
+        };
+      }
+      return fallback(url, opts);
+    });
+
+    const search = screen.getByPlaceholderText(i18n.t("inventoryInbound.search"));
+    fireEvent.change(search, { target: { value: match.name } });
+    await waitFor(() => expect(inboundNames(container)).toEqual([match.name]));
+    expect(screen.queryByText(unrelated.name)).not.toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: "" } });
+    await waitFor(() => expect(inboundNames(container)).toContain(unrelated.name));
+    expect(JSON.parse(localStorage.getItem(keys.drafts)!)).toHaveProperty("3");
+  });
+
   it("keeps a cleaned off-page explanation out of searches and does not resurrect a released hold", async () => {
     const keys = inboundStorageKeys(1, 2, 3);
     localStorage.setItem(keys.drafts, JSON.stringify(savedRecallDraft));

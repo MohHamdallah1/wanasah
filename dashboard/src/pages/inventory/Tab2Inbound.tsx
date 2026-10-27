@@ -365,6 +365,10 @@ export function Tab2Inbound({
   const posting = useInboundPosting({ companyId, actorId, locationId, authenticatedFetch, legacyRequestKey: keys.requestId, legacyPayloadKey: keys.fingerprint });
 
   const visibleCatalog = useMemo(() => {
+    // Search is a view over server-matched results only. Off-page drafts stay
+    // persisted, but must not appear as unrelated rows while a search is active.
+    if (search) return orderInboundCatalog(catalog);
+
     const pagedIds = new Set(catalog.map((variant) => variant.id));
     const saved = Object.keys(drafts)
       .map(Number)
@@ -376,7 +380,7 @@ export function Tab2Inbound({
     // Keep the explanation for a resolved off-page draft after cleaning its
     // inputs, without pinning old recalled products into new search results.
     const savedIds = new Set(saved.map((variant) => variant.id));
-    const recalled = search ? [] : [...restoredCatalog.values()].filter((variant) =>
+    const recalled = [...restoredCatalog.values()].filter((variant) =>
       variant.lifecycle_status === "ACTIVE" && isInboundRecallBlocked(variant) &&
       !pagedIds.has(variant.id) && !savedIds.has(variant.id)
     );
