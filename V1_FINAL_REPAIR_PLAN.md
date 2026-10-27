@@ -19,9 +19,9 @@ If live acceptance fails, keep the item open and continue from the actual defect
 
 ## Remaining V1 blockers
 
-### [ ] 1. Inbound RECALL UX / i18n closure
+### [x] 1. Inbound RECALL UX / i18n closure
 
-**Status:** final UX refinements implemented and merged in PR #572; pending owner live Dashboard acceptance before `[x]`.
+**Status:** accepted by owner in live Dashboard after PR #572. The later unrelated Inbound search-isolation defect was repaired separately in PR #575.
 
 Frozen behavior:
 
