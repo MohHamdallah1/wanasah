@@ -44,9 +44,9 @@ Quick live Dashboard acceptance:
 - Confirm no English/raw technical error is shown.
 - Confirm another `SALES_HOLD` product can still be received when otherwise eligible.
 
-### [ ] 2. Route Launch and Vehicle Load use one quantity/UOM meaning
+### [x] 2. Route Launch and Vehicle Load use one quantity/UOM meaning
 
-**Status:** implemented and merged in PR #569; pending owner live Dashboard acceptance before `[x]`.
+**Status:** owner live flow accepted and independently verified against the live database. Route Launch stored the exact 30-base-unit target and Vehicle Load reported the same 30 base units.
 
 Frozen behavior:
 
@@ -62,9 +62,9 @@ Quick live Dashboard acceptance:
 - Verify Vehicle Load and Route Launch describe the same physical quantity using clear unit labels.
 - Change the target using the displayed unit and confirm the resulting physical quantity is exactly what the operator intended.
 
-### [ ] 3. Preserve loose remainder during Route Launch
+### [x] 3. Preserve loose remainder during Route Launch
 
-**Status:** implemented and merged in PR #569; pending owner live Dashboard acceptance before `[x]`.
+**Status:** owner live flow accepted and independently verified against the live database. The tested product has 1 pack = 8 base units; 30 base units therefore include a 6-unit loose remainder. Relaunch at unchanged target produced zero inventory movements and preserved all 30 units.
 
 Regression case:
 
@@ -110,9 +110,9 @@ Quick live Dashboard acceptance:
 - Decrease one product and verify the UI shows the exact return to Warehouse.
 - Execute and verify both resulting balances match the preview.
 
-### [ ] 5. Repair stale Warehouse Route Manifest gate
+### [x] 5. Repair stale Warehouse Route Manifest gate
 
-**Status:** implemented and merged in PR #571; automated gate is green, pending owner live Dashboard smoke acceptance before `[x]`.
+**Status:** accepted. Automated manifest/route acceptance is green; owner confirmed the live Warehouse code-suggestion entry point. Opening-valuation routes remain covered by focused acceptance and are not surfaced on the current company because costing is already active, so no destructive reset was performed merely to force that one-time bootstrap UI.
 
 Original confirmed failure:
 
