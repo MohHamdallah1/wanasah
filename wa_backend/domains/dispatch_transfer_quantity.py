@@ -1,9 +1,24 @@
 """Creation-time quantity contract for Dispatch handshakes and FIELD projection."""
 from domains.uom_authority import UomAuthorityError
 from quantity import QuantityError, parse_quantity
+from quantity import canonical_quantity
+from domains.dispatch_route_load import route_load_uom_metadata
 
 
 CANONICAL_BASE_V1 = "CANONICAL_BASE_V1"
+
+
+async def canonical_handshake_uom_metadata(db, *, company_id, headers, totals):
+    ids = {totals[int(header.id)][0]["product_variant_id"] for header in headers
+           if is_canonical_base_handshake(header)}
+    return await route_load_uom_metadata(db, company_id=company_id, variant_ids=ids) if ids else {}
+
+
+def canonical_handshake_evidence(header, signed_quantity, metadata):
+    if not is_canonical_base_handshake(header):
+        return {}
+    return {"quantity_contract": CANONICAL_BASE_V1,
+            "signed_base_quantity": canonical_quantity(signed_quantity), **metadata}
 
 
 def is_canonical_base_handshake(header) -> bool:

@@ -82,7 +82,8 @@ void main() {
       final source =
           await File('lib/core/db/local_database.dart').readAsString();
 
-      expect(source, contains('version: 10'));
+      expect(source, contains('version: 11'));
+      expect(source, contains('ALTER TABLE incoming_transfers ADD COLUMN'));
       expect(source, contains("DEFAULT 'pending'"));
       expect(source, contains('owner_company_code'));
       expect(source, contains('attempt_count'));

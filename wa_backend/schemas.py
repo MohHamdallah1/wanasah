@@ -498,7 +498,31 @@ class BatchTransferResponseRequest(RequestModel):
         return self
 
 
-class PendingTransferItem(BaseModel):
+class PendingTransferQuantityEvidence(BaseModel):
+    quantity_contract: Optional[Literal["CANONICAL_BASE_V1"]] = None
+    signed_base_quantity: Optional[SignedQuantity] = None
+    base_uom_id: Optional[PositiveDbInt] = None
+    base_uom_code: Optional[str] = None
+    base_uom_name: Optional[str] = None
+    quantity_scale: Optional[int] = Field(None, ge=0, le=6)
+    quantity_step: Optional[NonNegativeQuantity] = None
+    display_uom_name: Optional[str] = None
+    display_factor_to_base: Optional[str] = None
+
+    @model_serializer(mode="wrap")
+    def preserve_unmarked_legacy_response(self, handler):
+        result = handler(self)
+        if self.quantity_contract is None:
+            for key in ("quantity_contract", "signed_base_quantity", "base_uom_id", "base_uom_code",
+                        "base_uom_name", "quantity_scale", "quantity_step", "display_uom_name", "display_factor_to_base"):
+                result.pop(key, None)
+            for key in ("product_name", "delta_cartons", "delta_packs"):
+                if result.get(key) is None:
+                    result.pop(key, None)
+        return result
+
+
+class PendingTransferItem(PendingTransferQuantityEvidence):
     real_transfer_id: int
     product_name: str
     delta_cartons: int
@@ -640,7 +664,10 @@ class InventoryDataResponse(BaseModel):
     current_cartons: int
     current_packs: int
 
-class PendingTransferMinResponse(BaseModel):
+class PendingTransferMinResponse(PendingTransferQuantityEvidence):
+    product_name: Optional[str] = None
+    delta_cartons: Optional[int] = None
+    delta_packs: Optional[int] = None
     transfer_id: int
     product_variant_id: int
     quantity_packs: int

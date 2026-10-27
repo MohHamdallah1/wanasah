@@ -159,6 +159,14 @@ FIELD compatibility exposes their signed integral base quantity as zero cartons 
 all base units in `delta_packs`; absent markers preserve legacy splitting. Canonical
 radar validity/presentation does not depend on legacy `packs_per_carton`.
 
+Owner-authorized narrow FIELD custody extension (2026-10-27): pending-transfer
+responses and session-refresh custody evidence carry canonical base/UOM metadata.
+Flutter preserves that evidence in additive SQLite v11 columns, formats the exact
+server-provided display factor or true base UOM, and retains canonical local retry
+context. Unmarked rows keep legacy presentation. Transfer decisions still carry
+only transfer identity and decision; Backend lines remain quantity authority.
+Item 6 stays OPEN for lead diff review, passing gates and owner live acceptance.
+
 Confirmed evidence:
 
 - the active-route `Adjust load / تعديل الحمولة` workflow still reads and writes integer `delta_cartons`;

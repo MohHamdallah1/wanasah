@@ -78,7 +78,8 @@ from product_lifecycle import (
 )
 from domains.pricing.core import PricingError
 from domains.dispatch_load_plan import lock_session_load_plan, synchronize_session_load_plans
-from domains.dispatch_transfer_quantity import is_canonical_base_handshake, canonical_field_base_quantity
+from domains.dispatch_transfer_quantity import is_canonical_base_handshake, canonical_field_base_quantity, canonical_handshake_uom_metadata, canonical_handshake_evidence
+from domains.uom_authority import UomAuthorityError
 from domains.pricing.context import (
     commercial_context_payload,
     require_route_commercial_context,
@@ -3360,6 +3361,10 @@ async def get_pending_transfers(
         canonical_header_ids={int(header.id) for header in headers if is_canonical_base_handshake(header)},
     )
 
+    try:
+        pending_uom = await canonical_handshake_uom_metadata(db, company_id=company_id, headers=headers, totals=totals)
+    except UomAuthorityError as exc:
+        raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message, "context": exc.context}) from exc
     batches = {}
     for header in headers:
         product = totals[int(header.id)][0]
@@ -3391,6 +3396,7 @@ async def get_pending_transfers(
             "product_name": product["variant_name"],
             "delta_cartons": 0 if canonical_base else (abs_packs // packs) * sign,
             "delta_packs": canonical_field_base_quantity(signed_quantity) if canonical_base else (abs_packs % packs) * sign,
+            **canonical_handshake_evidence(header, signed_quantity, pending_uom.get(product["product_variant_id"], {})),
         })
 
     return list(batches.values())
@@ -3866,6 +3872,10 @@ async def get_driver_visits(
                 header_ids=[int(header.id) for header in pending_headers],
                 canonical_header_ids={int(header.id) for header in pending_headers if is_canonical_base_handshake(header)},
             )
+            try:
+                pending_uom = await canonical_handshake_uom_metadata(db, company_id=company_id, headers=pending_headers, totals=totals)
+            except UomAuthorityError as exc:
+                raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message, "context": exc.context}) from exc
             for header in pending_headers:
                 product = totals[int(header.id)][0]
                 pending_transfers_data.append({
@@ -3879,6 +3889,10 @@ async def get_driver_visits(
                     "status": "pending",
                     "created_at": header.created_at.replace(tzinfo=timezone.utc).isoformat()
                     if header.created_at else None,
+                    **({"product_name": product["variant_name"], "delta_cartons": 0,
+                        "delta_packs": _handshake_signed_quantity(header, vehicle_location_id=vehicle_location_id, quantity=product["quantity"]),
+                        **canonical_handshake_evidence(header, _handshake_signed_quantity(header, vehicle_location_id=vehicle_location_id, quantity=product["quantity"]), pending_uom[product["product_variant_id"]])}
+                       if is_canonical_base_handshake(header) else {}),
                 })
 
     return {

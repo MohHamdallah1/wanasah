@@ -9,6 +9,7 @@ import '../core/sync/durable_command.dart';
 import '../core/sync/sync_reconciliation_failure.dart';
 import '../core/visit/local_inventory_projection.dart';
 import '../features/auth/data/secure_auth_identity_store.dart';
+import '../features/custody/domain/transfer_decision_command.dart';
 import '../features/visits/application/visit_replay_adapter.dart';
 import '../features/visits/data/local_visit_replay_adapter.dart';
 import '../models/product_model.dart';
@@ -400,8 +401,9 @@ class SyncRepository {
       'response': responseStr,
       'reason': reason,
       'context_product_name': contextData['product_name'],
-      'context_delta_cartons': contextData['delta_cartons'],
-      'context_delta_packs': contextData['delta_packs'],
+      if (contextData['quantity_contract'] == null) 'context_delta_cartons': contextData['delta_cartons'],
+      if (contextData['quantity_contract'] == null) 'context_delta_packs': contextData['delta_packs'],
+      ...TransferDecisionCommand.canonicalContext(contextData),
     };
 
     owner.requireSame(await _identities.requireCommandOwner(_db.currentTenant));

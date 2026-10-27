@@ -101,10 +101,10 @@ void main() {
         expect(session, contains('DateFormat.Hm(locale)'));
         expect(session, isNot(contains("'يجب إنهاء الاستراحة أولاً!'")));
         expect(session, isNot(contains('WorkSessionIssuePanel')));
-        expect(transfer, contains("'تحديث عهدة من الإدارة'"));
+        expect(transfer, contains("strings.t('title')"));
         expect(
           transfer,
-          contains("'يجب الرد على جميع الحركات بالقبول أو الرفض.'"),
+          contains("strings.t('allRequired')"),
         );
         expect(inventory, contains("'مخزون سيارة المندوب:'"));
         expect(

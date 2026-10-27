@@ -7,6 +7,7 @@ import 'package:wanasah_frontend/features/auth/data/secure_auth_identity_store.d
 
 import '../domain/transfer_decision.dart';
 import '../domain/transfer_decision_command.dart';
+import '../domain/pending_transfer_quantity.dart';
 
 class StoredTransferDecision {
   const StoredTransferDecision({
@@ -143,6 +144,7 @@ class LocalTransferDecisionStore implements TransferDecisionStore {
       productName: context?['product_name']?.toString(),
       deltaCartons: context?['delta_cartons'],
       deltaPacks: context?['delta_packs'],
+      canonicalQuantity: context == null ? null : PendingTransferQuantity.fromEvidence(context),
     );
     owner.requireSame(await _identities.requireCommandOwner(_database.currentTenant));
     final recordId = await _database.addPendingSync(

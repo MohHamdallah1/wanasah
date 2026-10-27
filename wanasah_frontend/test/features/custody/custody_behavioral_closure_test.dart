@@ -147,7 +147,7 @@ void main() {
     expect(state, contains('List<NonSellableCustodyItem> nonSellableCustody'));
     expect(dialog, contains('PendingTransferBatch batch'));
     expect(dialog, contains('List<TransferDecision> decisions'));
-    expect(dialog, contains("labelText: 'سبب الرفض'"));
+    expect(dialog, contains("labelText: strings.t('reason')"));
     expect(dialog, isNot(contains('detailedResponses')));
   });
 

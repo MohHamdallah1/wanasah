@@ -286,7 +286,24 @@ def without_load_plan_reconciliation(node):
 def without_canonical_projection_source(source):
     """Whitelist exact owner-approved read adaptations; fingerprint everything else."""
     replacements = (
-        ("from domains.dispatch_transfer_quantity import is_canonical_base_handshake, canonical_field_base_quantity\n", ""),
+        ("from domains.dispatch_transfer_quantity import is_canonical_base_handshake, canonical_field_base_quantity, canonical_handshake_uom_metadata, canonical_handshake_evidence\n", ""),
+        ("from domains.uom_authority import UomAuthorityError\n", ""),
+        ('''    try:
+        pending_uom = await canonical_handshake_uom_metadata(db, company_id=company_id, headers=headers, totals=totals)
+    except UomAuthorityError as exc:
+        raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message, "context": exc.context}) from exc
+''', ""),
+        ('''            try:
+                pending_uom = await canonical_handshake_uom_metadata(db, company_id=company_id, headers=pending_headers, totals=totals)
+            except UomAuthorityError as exc:
+                raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message, "context": exc.context}) from exc
+''', ""),
+        ('            **canonical_handshake_evidence(header, signed_quantity, pending_uom.get(product["product_variant_id"], {})),\n', ""),
+        ('''                    **({"product_name": product["variant_name"], "delta_cartons": 0,
+                        "delta_packs": _handshake_signed_quantity(header, vehicle_location_id=vehicle_location_id, quantity=product["quantity"]),
+                        **canonical_handshake_evidence(header, _handshake_signed_quantity(header, vehicle_location_id=vehicle_location_id, quantity=product["quantity"]), pending_uom[product["product_variant_id"]])}
+                       if is_canonical_base_handshake(header) else {}),
+''', ""),
         ("    canonical_header_ids: Optional[set[int]] = None,\n", ""),
         ("        if products[0][\"quantity\"] <= 0 or (\n"
          "            int(header_id) not in (canonical_header_ids or ()) and products[0][\"packs_per_carton\"] <= 0\n"

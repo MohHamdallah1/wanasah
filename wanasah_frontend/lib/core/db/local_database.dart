@@ -22,6 +22,7 @@ import '../../models/visit_model.dart';
 import '../sync/durable_command.dart';
 import '../sync/pending_command_store.dart';
 import 'visit/visit_local_persistence.dart';
+import '../../features/custody/domain/pending_transfer_quantity.dart';
 
 class LocalDatabase {
   // -----------------------------------------------------------------------
@@ -126,7 +127,7 @@ class LocalDatabase {
 
     return await openDatabase(
       dbPath,
-      version: 10, // V10: durable offline command lifecycle without deleting legacy evidence
+      version: 11, // V11: additive canonical pending-transfer display evidence
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -200,7 +201,16 @@ class LocalDatabase {
         delta_packs INTEGER,
         status TEXT,
         created_at TEXT,
-        batch_id TEXT
+        batch_id TEXT,
+        quantity_contract TEXT,
+        signed_base_quantity TEXT,
+        base_uom_id INTEGER,
+        base_uom_code TEXT,
+        base_uom_name TEXT,
+        quantity_scale INTEGER,
+        quantity_step TEXT,
+        display_uom_name TEXT,
+        display_factor_to_base TEXT
       )
     ''');
 
@@ -352,6 +362,15 @@ class LocalDatabase {
       developer.log(
         '[LocalDatabase] v10 migration: preserved pending_sync rows and added durable lifecycle metadata.',
       );
+    }
+    if (oldVersion < 11) {
+      for (final column in const [
+        'quantity_contract TEXT', 'signed_base_quantity TEXT', 'base_uom_id INTEGER',
+        'base_uom_code TEXT', 'base_uom_name TEXT', 'quantity_scale INTEGER',
+        'quantity_step TEXT', 'display_uom_name TEXT', 'display_factor_to_base TEXT',
+      ]) {
+        await _safeAlterTable(db, 'ALTER TABLE incoming_transfers ADD COLUMN $column');
+      }
     }
   }
 
@@ -669,7 +688,8 @@ class LocalDatabase {
               'delta_packs': (transfer['delta_packs'] as num?)?.toInt() ?? 0,
               'status': transfer['status']?.toString() ?? 'pending',
               'created_at': transfer['created_at']?.toString(),
-              'batch_id': batchId
+              'batch_id': batchId,
+              ...?(PendingTransferQuantity.fromEvidence(transfer)?.toEvidence()),
             },
             conflictAlgorithm: ConflictAlgorithm.replace,
           );

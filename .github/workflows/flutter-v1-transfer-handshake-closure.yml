@@ -10,6 +10,10 @@ on:
       - "wanasah_frontend/lib/features/custody/**"
       - "wanasah_frontend/lib/blocs/dashboard/dashboard_bloc.dart"
       - "wanasah_frontend/test/features/custody/**"
+      - "wanasah_frontend/lib/core/db/local_database.dart"
+      - "wanasah_frontend/lib/repositories/sync_repository.dart"
+      - "wanasah_frontend/pubspec.yaml"
+      - "wanasah_frontend/pubspec.lock"
       - ".github/workflows/flutter-v1-transfer-handshake-closure.yml"
 
 permissions:
@@ -45,6 +49,8 @@ jobs:
         run: >-
           flutter test
           test/features/custody/transfer_handshake_closure_test.dart
+          test/features/custody/canonical_transfer_uom_test.dart
+          test/features/custody/canonical_transfer_sqlite_test.dart
           test/features/custody/custody_behavioral_closure_test.dart
           test/features/custody/domain/custody_contracts_test.dart
           test/offline_durable_command_test.dart

@@ -19,11 +19,18 @@ from models import (DispatchRoute, DispatchLoadPlanLine, InventoryBalance, Inven
     InventoryTransferHeader, InventoryTransferLine, ProductUomConversion, ProductVariant,
     UOM, WorkSession, Zone, utc_now)
 from schemas import (AdjustRouteInventoryRequest, RouteLiveInventoryItemResponse,
-    TransferResponseRequest, BatchTransferResponseRequest, ForceCancelHandshakeRequest)
+    TransferResponseRequest, BatchTransferResponseRequest, ForceCancelHandshakeRequest,
+    PendingTransferItem, PendingBatchResponse, GetVisitsContract, PendingTransferMinResponse)
 from tests import test_vehicle_load_v1_postgres as vehicle_fixture
 
 
 class AdjustmentContractTests(unittest.TestCase):
+    def test_legacy_pending_response_additions_do_not_change_historical_json(self):
+        legacy = dict(real_transfer_id=17, product_name="Legacy", delta_cartons=1, delta_packs=0)
+        self.assertEqual(PendingTransferItem.model_validate(legacy).model_dump(mode="json"), legacy)
+        minimal = dict(transfer_id=17, product_variant_id=7, quantity_packs=8, status="pending", created_at=None)
+        self.assertEqual(PendingTransferMinResponse.model_validate(minimal).model_dump(mode="json"), minimal)
+
     def test_marker_is_explicit_and_fractional_projection_never_truncates(self):
         for context in (None, {}, {"quantity_contract": "LEGACY"}):
             self.assertFalse(is_canonical_base_handshake(SimpleNamespace(commercial_context=context)))
@@ -221,6 +228,28 @@ class ActiveRouteAdjustLoadPostgres(unittest.IsolatedAsyncioTestCase):
         radar = await dispatch.get_route_transfers(self.rid, self.db, self.seed.owner.access(self.db))
         self.assertEqual({row["signed_base_quantity"] for row in radar}, {Decimal(8), Decimal(-5)})
         self.assertTrue(all(row["display_factor_to_base"] == "8" and row["display_uom_name"] == "PACK" for row in radar))
+        encoded = [PendingBatchResponse.model_validate(batch).model_dump(mode="json") for batch in pending]
+        items = [item for batch in encoded for item in batch["items"]]
+        self.assertEqual({item["signed_base_quantity"] for item in items}, {"8", "-5"})
+        self.assertTrue(all(item["quantity_contract"] == CANONICAL_BASE_V1 and item["display_factor_to_base"] == "8"
+            and item["base_uom_name"] and item["quantity_step"] == "1" for item in items))
+
+    async def test_session_refresh_keeps_canonical_pending_display_evidence(self):
+        await self.bind()
+        await self.adjust(8)
+        self.seed.variant.packs_per_carton = 32
+        await self.db.commit()
+        # This fixture has no commercial sale/pricing context. Leave that separate
+        # projection empty while exercising real session, route and pending SQL.
+        with patch.object(driver, "_load_vehicle_inventory_projection", AsyncMock(return_value=(self.vid, []))), \
+             patch.object(driver, "resolve_driver_display_prices_bulk", AsyncMock(return_value={})):
+            raw = await driver.get_driver_visits(self.db, self.field, self.actor)
+        encoded = GetVisitsContract.model_validate(raw).model_dump(mode="json")
+        item = encoded["pending_transfers"][0]
+        self.assertEqual(item["quantity_contract"], CANONICAL_BASE_V1)
+        self.assertEqual(item["signed_base_quantity"], "8")
+        self.assertEqual((item["delta_cartons"], item["delta_packs"], item["product_name"]), (0, 8, self.seed.variant.variant_name))
+        self.assertEqual(item["display_factor_to_base"], "8")
 
     async def test_canonical_read_projections_do_not_require_legacy_packing(self):
         await self.bind()
