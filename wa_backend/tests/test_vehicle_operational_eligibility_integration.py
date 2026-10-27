@@ -128,6 +128,10 @@ def _load_dispatch_functions(*names, **dependencies):
             for value in node.args.defaults
         ]
     namespace = dict(globals(), **dependencies)
+    # The new session-plan guard is an independent DB seam in these isolated
+    # legacy route-status tests; its real serialization is exercised by PG tests.
+    namespace.setdefault("lock_session_load_plan", AsyncMock())
+    namespace.setdefault("lock_route_adjustment_context", AsyncMock(return_value=None))
     module = ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[]))
     exec(compile(module, str(DISPATCH), "exec"), namespace)
     return namespace

@@ -37,6 +37,7 @@ from datetime import timedelta, datetime, timezone
 from sqlalchemy.orm import joinedload
 from sqlalchemy.exc import IntegrityError
 from decimal import Decimal
+from quantity import canonical_quantity
 from typing import List 
 from fastapi.responses import JSONResponse
 import hashlib
@@ -127,9 +128,11 @@ from domains.taxation.core import TaxError, require_active_jurisdictions
 from domains.dispatch_representatives import has_canonical_field_identity
 from domains.uom_authority import UomAuthorityError, load_variant_uom_authorities
 from domains.dispatch_route_load import (
-    allocate_route_base_batches, canonical_route_delta,
+    allocate_route_base_batches, allocate_route_return_batches, canonical_route_delta, canonical_adjustment_target,
     route_load_uom_metadata, route_vehicle_base_totals,
 )
+from domains.dispatch_load_plan import lock_session_load_plan, lock_route_adjustment_context, pending_handshake_base_net, synchronize_session_load_plans
+from domains.inventory_vehicle_load.return_safety import safe_unload_terminal_statuses
 from domains.live_stock_projection.service import (
     get_live_stock_vehicle_sources,
     refresh_live_stock_vehicle_attribution,
@@ -2111,27 +2114,17 @@ async def get_route_live_inventory(
         vehicle_id=route.vehicle_id,
     )
 
-    rows = (
-        await db.execute(
-            select(
-                InventoryBalance.product_variant_id,
-                func.sum(
-                    InventoryBalance.on_hand_quantity - InventoryBalance.reserved_quantity
-                ),
-            )
-            .filter(
-                InventoryBalance.company_id == company_id,
-                InventoryBalance.location_id == vehicle_location_id,
-                InventoryBalance.stock_status == "AVAILABLE",
-                InventoryBalance.on_hand_quantity > 0,
-            )
-            .group_by(InventoryBalance.product_variant_id)
-            .order_by(InventoryBalance.product_variant_id.asc())
-        )
-    ).all()
-    free_map = {int(pid): max(0, int(qty or 0)) for pid, qty in rows}
-
-    loaded_ids = sorted(free_map)
+    totals = await route_vehicle_base_totals(
+        db, company_id=company_id, location_id=vehicle_location_id, all_statuses=True,
+    )
+    legacy_totals = await route_vehicle_base_totals(
+        db, company_id=company_id, location_id=vehicle_location_id,
+    )
+    pending = await _dispatch_pending_handshake_net(
+        db, company_id=company_id, work_session_id=route.work_session_id,
+        driver_id=route.driver_id, vehicle_location_id=vehicle_location_id,
+    ) if route.work_session_id is not None else {}
+    loaded_ids = sorted(set(totals) | set(pending))
     variant_filter = (
         or_(product_capability_predicate(ProductVariant, ROUTE_LOAD_NEW), ProductVariant.id.in_(loaded_ids))
         if loaded_ids
@@ -2145,21 +2138,31 @@ async def get_route_live_inventory(
         )
     ).scalars().all()
 
+    try:
+        metadata = await route_load_uom_metadata(
+            db, company_id=company_id, variant_ids=[variant.id for variant in variants],
+        )
+    except UomAuthorityError as exc:
+        raise HTTPException(status_code=409, detail={
+            "code": exc.code, "message": exc.message, "context": exc.context,
+        }) from exc
     result = []
     for variant in variants:
         ppc = int(variant.packs_per_carton or 0)
-        if ppc <= 0:
-            raise HTTPException(
-                status_code=409,
-                detail=f"إعداد التعبئة غير صالح للصنف ({variant.variant_name}).",
-            )
-        total_packs = free_map.get(int(variant.id), 0)
-        cartons, loose = divmod(total_packs, ppc)
+        on_hand, reserved = totals.get(int(variant.id), (Decimal(0), Decimal(0)))
+        # Compatibility display only; neither field drives the canonical path.
+        legacy_on_hand, legacy_reserved = legacy_totals.get(int(variant.id), (Decimal(0), Decimal(0)))
+        free = max(Decimal(0), legacy_on_hand - legacy_reserved)
+        cartons, loose = (int(free // ppc), int(free % ppc)) if ppc > 0 else (0, 0)
         result.append({
             "product_id": str(variant.id),
             "product_name": variant.variant_name,
             "current_cartons": cartons,
             "current_packs": loose,
+            "current_base_quantity": on_hand,
+            "reserved_base_quantity": reserved,
+            "pending_base_quantity": pending.get(int(variant.id), Decimal(0)),
+            **metadata[int(variant.id)],
         })
     return result
 
@@ -2226,52 +2229,13 @@ async def _dispatch_variant_map(
 
 
 async def _dispatch_pending_handshake_net(
-    db: AsyncSession,
-    *,
-    company_id: int,
-    work_session_id: int,
-    driver_id: int,
-    vehicle_location_id: int,
+    db: AsyncSession, *, company_id: int, work_session_id: int,
+    driver_id: int, vehicle_location_id: int,
 ):
-    rows = (
-        await db.execute(
-            select(
-                InventoryTransferHeader.source_location_id,
-                InventoryTransferHeader.destination_location_id,
-                InventoryTransferLine.product_variant_id,
-                func.sum(InventoryTransferLine.quantity),
-            )
-            .join(
-                InventoryTransferLine,
-                and_(
-                    InventoryTransferLine.company_id == InventoryTransferHeader.company_id,
-                    InventoryTransferLine.transfer_header_id == InventoryTransferHeader.id,
-                ),
-            )
-            .filter(
-                InventoryTransferHeader.company_id == company_id,
-                InventoryTransferHeader.work_session_id == work_session_id,
-                InventoryTransferHeader.workflow_type == "HANDSHAKE",
-                InventoryTransferHeader.status == "PENDING",
-                InventoryTransferHeader.expected_receiver_id == driver_id,
-                InventoryTransferLine.company_id == company_id,
-                or_(
-                    InventoryTransferHeader.source_location_id == vehicle_location_id,
-                    InventoryTransferHeader.destination_location_id == vehicle_location_id,
-                ),
-            )
-            .group_by(
-                InventoryTransferHeader.source_location_id,
-                InventoryTransferHeader.destination_location_id,
-                InventoryTransferLine.product_variant_id,
-            )
-        )
-    ).all()
-    result = {}
-    for src, dst, pid, qty in rows:
-        signed = int(qty or 0) * (1 if int(dst) == vehicle_location_id else -1)
-        result[int(pid)] = result.get(int(pid), 0) + signed
-    return result
+    return await pending_handshake_base_net(
+        db, company_id=company_id, work_session_id=work_session_id,
+        driver_id=driver_id, vehicle_location_id=vehicle_location_id,
+    )
 
 
 async def _dispatch_apply_pack_deltas(
@@ -2285,8 +2249,16 @@ async def _dispatch_apply_pack_deltas(
     pack_deltas,
     plan_targets,
     audit_action: str,
+    canonical_base: bool = False,
 ):
-    deltas = {int(pid): int(qty) for pid, qty in pack_deltas.items() if int(qty)}
+    deltas = {int(pid): Decimal(qty) if canonical_base else int(qty)
+              for pid, qty in pack_deltas.items() if qty}
+    if canonical_base and session is not None and any(Decimal(qty) != Decimal(qty).to_integral_value() for qty in deltas.values()):
+        raise HTTPException(status_code=409, detail=inventory_business_error(
+            "DRIVER_MOBILE_QUANTITY_PRECISION_UNSUPPORTED",
+            "The current FIELD transfer contract requires integral base quantities.",
+        ))
+    allocate_batches = allocate_route_base_batches if canonical_base else _dispatch_allocate_available_batches
     if route.vehicle_id is None or route.source_location_id is None:
         raise HTTPException(status_code=409, detail="المسار لا يملك سيارة ومستودع مصدر صالحين.")
 
@@ -2319,7 +2291,7 @@ async def _dispatch_apply_pack_deltas(
 
     positive_variant_ids = sorted(pid for pid, delta in deltas.items() if delta > 0)
     await acquire_product_lifecycle_guards(
-        db, company_id, positive_variant_ids, exclusive=False,
+        db, company_id, sorted(deltas) if canonical_base else positive_variant_ids, exclusive=False,
     )
     source_assignments = {
         int(item.product_variant_id): item
@@ -2373,7 +2345,7 @@ async def _dispatch_apply_pack_deltas(
 
             await check_inventory_lock(db, company_id, src, variant_id=pid)
             await check_inventory_lock(db, company_id, dst, variant_id=pid)
-            allocations = await _dispatch_allocate_available_batches(
+            allocations = await allocate_batches(
                 db,
                 company_id=company_id,
                 location_id=src,
@@ -2448,8 +2420,10 @@ async def _dispatch_apply_pack_deltas(
         mode = "HANDSHAKE"
 
     elif session is None and deltas:
-        current = await _dispatch_available_totals(
-            db, company_id=company_id, location_id=vehicle_location_id
+        current = await route_vehicle_base_totals(
+            db, company_id=company_id, location_id=vehicle_location_id, all_statuses=True,
+        ) if canonical_base else await _dispatch_available_totals(
+            db, company_id=company_id, location_id=vehicle_location_id,
         )
         if any(reserved for _, reserved in current.values()):
             raise HTTPException(status_code=409, detail="السيارة تحمل حجوزات معلقة.")
@@ -2472,16 +2446,22 @@ async def _dispatch_apply_pack_deltas(
                 src, dst, sellable, ref = vehicle_location_id, int(warehouse.id), False, "DISPATCH_UNLOAD"
             await check_inventory_lock(db, company_id, src, variant_id=pid)
             await check_inventory_lock(db, company_id, dst, variant_id=pid)
-            allocations = await _dispatch_allocate_available_batches(
-                db,
-                company_id=company_id,
-                location_id=src,
-                product_variant_id=pid,
-                quantity=abs(delta),
-                as_of_date=as_of_date,
-                require_sellable=sellable,
-            )
-            for idx, (batch_id, quantity) in enumerate(allocations):
+            if canonical_base and delta < 0:
+                returned = await allocate_route_return_batches(
+                    db, company_id=company_id, location_id=src, product_variant_id=pid, quantity=abs(delta),
+                )
+                safe = await safe_unload_terminal_statuses(
+                    db, company_id=company_id, warehouse_id=dst, allocations=returned,
+                )
+                allocations = [(row["batch_id"], row["quantity"], row["stock_status"], safe[index])
+                               for index, row in enumerate(returned, start=1)]
+            else:
+                allocations = [(batch_id, quantity, "AVAILABLE", "AVAILABLE")
+                               for batch_id, quantity in await allocate_batches(
+                                   db, company_id=company_id, location_id=src, product_variant_id=pid,
+                                   quantity=abs(delta), as_of_date=as_of_date, require_sellable=sellable,
+                               )]
+            for idx, (batch_id, quantity, source_status, final_status) in enumerate(allocations):
                 specs.append({
                     "product_variant_id": pid,
                     "batch_id": batch_id,
@@ -2492,12 +2472,19 @@ async def _dispatch_apply_pack_deltas(
                     "idempotency_key": f"DSP-ADJ-{route.id}-{token}-{pid}-{batch_id}-{idx}",
                     "source_location_id": src,
                     "destination_location_id": dst,
-                    "source_stock_status": "AVAILABLE",
-                    "destination_stock_status": "AVAILABLE",
+                    "source_stock_status": source_status,
+                    "destination_stock_status": source_status,
                     "work_session_id": None,
                     "transfer_header_id": None,
                     "notes": "تعديل حمولة Dispatch قبل بدء WorkSession.",
                 })
+                if final_status != source_status:
+                    specs.append({
+                        **specs[-1], "movement_kind": "STATUS_CHANGE",
+                        "reference_type": "VEHICLE_UNLOAD_SAFE_STATUS",
+                        "idempotency_key": f"DSP-ADJ-{route.id}-{token}-{pid}-{batch_id}-{idx}-SAFE",
+                        "source_location_id": dst, "destination_stock_status": final_status,
+                    })
         if len(specs) > 10_000:
             raise HTTPException(status_code=400, detail="تعديل الحمولة يتجاوز الحد الآمن.")
         await apply_inventory_movements_batch(
@@ -2511,13 +2498,14 @@ async def _dispatch_apply_pack_deltas(
             company_id=company_id,
             route_id=route.id,
             product_variant_id=int(pid),
-            target_quantity_packs=int(target),
+            target_quantity_packs=target if canonical_base else int(target),
             updated_by=legacy_actor_id,
         )
 
     if deltas:
         details = " | ".join(
-            f"{variants[pid].variant_name}: {deltas[pid]:+d} حبة"
+            (f"{variants[pid].variant_name}: {canonical_quantity(deltas[pid])} BASE"
+             if canonical_base else f"{variants[pid].variant_name}: {deltas[pid]:+d} حبة")
             for pid in sorted(deltas)
         )[:4000]
         db.add(SystemAuditLog(
@@ -2654,11 +2642,13 @@ async def adjust_route_inventory(
     await require_route(access, 'dispatch.execute', route_id)
 
     company_id = access.company_id
+    use_canonical_base = any(getattr(item, "delta_base", None) is not None for item in payload.deltas)
     canonical_deltas = sorted(
         (
             {
                 "product_id": int(item.product_id),
-                "delta_cartons": int(item.delta_cartons),
+                **({"delta_base": canonical_quantity(item.delta_base)} if use_canonical_base
+                   else {"delta_cartons": int(item.delta_cartons)}),
             }
             for item in payload.deltas
         ),
@@ -2686,6 +2676,7 @@ async def adjust_route_inventory(
             await db.rollback()
             return replay_response
 
+        bound_context = await lock_route_adjustment_context(db, company_id=company_id, route_id=route_id)
         route = (
             await db.execute(
                 select(DispatchRoute)
@@ -2696,6 +2687,11 @@ async def adjust_route_inventory(
         if route is None or route.driver_id is None or route.vehicle_id is None:
             raise HTTPException(status_code=404, detail="خط السير غير موجود أو غير مكتمل.")
 
+        if getattr(route, "work_session_id", None) != bound_context:
+            raise HTTPException(status_code=409, detail=inventory_business_error(
+                "DISPATCH_ROUTE_CONTEXT_CHANGED", "The route WorkSession binding changed. Refresh before adjusting.",
+            ))
+
         session = await _dispatch_bound_session(db, company_id=company_id, route=route)
         if session is not None:
             if session.end_time is not None:
@@ -2703,16 +2699,18 @@ async def adjust_route_inventory(
             if session.inventory_reconciled_at is not None:
                 raise HTTPException(status_code=409, detail="عهدة الجلسة مختومة مخزنياً.")
 
-        carton_deltas = {}
+        requested_deltas = {}
         for item in payload.deltas:
             pid = int(item.product_id)
-            carton_deltas[pid] = carton_deltas.get(pid, 0) + int(item.delta_cartons)
-        carton_deltas = {pid: qty for pid, qty in carton_deltas.items() if qty}
-        if not carton_deltas:
+            requested_deltas[pid] = requested_deltas.get(pid, 0) + (
+                item.delta_base if use_canonical_base else int(item.delta_cartons)
+            )
+        requested_deltas = {pid: qty for pid, qty in requested_deltas.items() if qty}
+        if not requested_deltas:
             raise HTTPException(status_code=400, detail="لم يتم إرسال أي تعديل فعلي.")
 
         variants = await _dispatch_variant_map(
-            db, company_id=company_id, product_ids=carton_deltas
+            db, company_id=company_id, product_ids=requested_deltas
         )
         vehicle_location_id = await _dispatch_vehicle_location_id(
             db, company_id=company_id, vehicle_id=route.vehicle_id
@@ -2739,7 +2737,9 @@ async def adjust_route_inventory(
                 status_code=409,
                 detail="لا يمكن تعديل حمولة المسار لأن السيارة متوقفة أو في الصيانة.",
             )
-        current = await _dispatch_available_totals(
+        current = await route_vehicle_base_totals(
+            db, company_id=company_id, location_id=vehicle_location_id, all_statuses=True,
+        ) if use_canonical_base else await _dispatch_available_totals(
             db, company_id=company_id, location_id=vehicle_location_id
         )
         pending = (
@@ -2754,22 +2754,25 @@ async def adjust_route_inventory(
             else {}
         )
 
+        authorities = await load_variant_uom_authorities(
+            db, company_id=company_id, variant_ids=requested_deltas,
+        ) if use_canonical_base else {}
         deltas, plan_targets = {}, {}
-        for pid, cartons in carton_deltas.items():
-            ppc = int(variants[pid].packs_per_carton or 0)
-            if ppc <= 0:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"إعداد التعبئة غير صالح للصنف ({variants[pid].variant_name}).",
+        for pid, requested in requested_deltas.items():
+            if use_canonical_base:
+                delta = requested
+                target = canonical_adjustment_target(
+                    current=current.get(pid, (0, 0))[0], pending=pending.get(pid, 0),
+                    delta=delta, authority=authorities[pid],
                 )
-            delta = cartons * ppc
-            projected = current.get(pid, (0, 0))[0] + pending.get(pid, 0)
-            target = projected + delta
-            if abs(delta) > _DB_INT_MAX_DISPATCH or not (0 <= target <= _DB_INT_MAX_DISPATCH):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"الحمولة الناتجة للصنف ({variants[pid].variant_name}) خارج النطاق.",
-                )
+            else:
+                ppc = int(variants[pid].packs_per_carton or 0)
+                if ppc <= 0:
+                    raise HTTPException(status_code=409, detail=f"إعداد التعبئة غير صالح للصنف ({variants[pid].variant_name}).")
+                delta = requested * ppc
+                target = current.get(pid, (0, 0))[0] + pending.get(pid, 0) + delta
+                if abs(delta) > _DB_INT_MAX_DISPATCH or not (0 <= target <= _DB_INT_MAX_DISPATCH):
+                    raise HTTPException(status_code=400, detail=f"الحمولة الناتجة للصنف ({variants[pid].variant_name}) خارج النطاق.")
             deltas[pid], plan_targets[pid] = delta, target
 
         mode = await _dispatch_apply_pack_deltas(
@@ -2786,9 +2789,11 @@ async def adjust_route_inventory(
                 if session is not None
                 else "DIRECT_INVENTORY_ADJUSTMENT"
             ),
+            **({"canonical_base": True} if use_canonical_base else {}),
         )
 
         response_payload = {
+            "mode": mode,
             "message": (
                 "تم إرسال الحوالة للمندوب؛ الرصيد الفيزيائي لن يتغير قبل القبول."
                 if mode == "HANDSHAKE"
@@ -2809,6 +2814,11 @@ async def adjust_route_inventory(
     except HTTPException:
         await db.rollback()
         raise
+    except UomAuthorityError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail={
+            "code": exc.code, "message": exc.message, "context": exc.context,
+        }) from exc
     except InventoryMutationError as exc:
         await db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -2816,6 +2826,11 @@ async def adjust_route_inventory(
         await db.rollback()
         logger.error(f"Dispatch inventory conflict: {str(exc)}", exc_info=True)
         raise HTTPException(status_code=409, detail="تعارض متزامن أثناء تعديل الحمولة.") from exc
+    except VehicleError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=exc.status_code, detail={
+            "code": exc.code, "message": exc.message, "context": exc.context,
+        }) from exc
     except Exception as exc:
         await db.rollback()
         logger.error(f"خطأ في تعديل حمولة المسار: {str(exc)}", exc_info=True)
@@ -2877,6 +2892,7 @@ async def force_cancel_handshake(
             raise HTTPException(status_code=404, detail="المصافحة غير موجودة داخل الشركة.")
         if header.status != "PENDING":
             raise HTTPException(status_code=409, detail=f"لا يمكن إلغاء حوالة بحالة {header.status}.")
+        await lock_session_load_plan(db, company_id=company_id, work_session_id=header.work_session_id)
 
         lines = (await db.execute(
             select(InventoryTransferLine).filter(
@@ -2917,6 +2933,9 @@ async def force_cancel_handshake(
         header.cancelled_at = now
         header.updated_at = now
         header.decision_reason = payload.reason.strip()
+        await synchronize_session_load_plans(
+            db, company_id=company_id, work_session_id=header.work_session_id, actor_id=legacy_actor.id,
+        )
         db.add(SystemAuditLog(
             company_id=company_id,
             admin_id=legacy_actor.id,
@@ -3047,8 +3066,17 @@ async def get_route_transfers(
     by_header = {}
     for header_id, product_variant_id, quantity, variant_name, ppc in rows:
         by_header.setdefault(int(header_id), []).append(
-            (int(product_variant_id), int(quantity or 0), str(variant_name), int(ppc or 0))
+            (int(product_variant_id), Decimal(quantity or 0), str(variant_name), int(ppc or 0))
         )
+
+    try:
+        metadata = await route_load_uom_metadata(
+            db, company_id=company_id, variant_ids={int(row[1]) for row in rows},
+        )
+    except UomAuthorityError as exc:
+        raise HTTPException(status_code=409, detail={
+            "code": exc.code, "message": exc.message, "context": exc.context,
+        }) from exc
 
     status_map = {
         "PENDING": "pending",
@@ -3064,7 +3092,7 @@ async def get_route_transfers(
                 status_code=409,
                 detail=f"الحوالة ({header.id}) لا تطابق عقد المصافحة: Header واحد يجب أن يحمل صنفاً واحداً.",
             )
-        _, quantity, variant_name, ppc = products[0]
+        product_id, quantity, variant_name, ppc = products[0]
         if quantity <= 0 or ppc <= 0:
             raise HTTPException(
                 status_code=409,
@@ -3088,8 +3116,10 @@ async def get_route_transfers(
         result.append({
             "transfer_id": int(header.id),
             "product_name": variant_name,
-            "delta_cartons": (absolute // ppc) * sign,
-            "delta_packs": (absolute % ppc) * sign,
+            "delta_cartons": (int(absolute) // ppc) * sign,
+            "delta_packs": (int(absolute) % ppc) * sign,
+            "signed_base_quantity": signed_quantity,
+            **metadata[product_id],
             "status": status_map.get(str(header.status), str(header.status).lower()),
             "created_at": (
                 header.created_at.replace(tzinfo=timezone.utc).isoformat()
@@ -3794,6 +3824,7 @@ async def update_route_status(
         active_session = None
 
         if snap_session_id is not None:
+            await lock_session_load_plan(db, company_id=company_id, work_session_id=snap_session_id)
             # Route تاريخي/مربوط: نفس ترتيب undo/reconciliation يبدأ بـWorkSession.
             bound_session = (
                 await db.execute(

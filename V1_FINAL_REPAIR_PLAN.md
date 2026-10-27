@@ -143,6 +143,17 @@ Quick live Dashboard acceptance:
 
 **Status:** newly confirmed V1 correctness blocker during final live acceptance.
 
+Owner-frozen compatibility decision (2026-10-27): the new Dashboard contract uses
+decimal-string `delta_base` and canonical UOM metadata. DIRECT preserves the
+Product quantity scale/step exactly. Bound-session HANDSHAKE rejects non-integral
+base deltas before creating headers/reservations while the separately owned FIELD
+contract remains integer-only. Legacy `delta_cartons` retains its old meaning;
+mixing the two request forms is forbidden. Terminal accept/reject/cancel must
+reconcile the plan to physical Vehicle base custody plus remaining pending net.
+Direct returns reuse the accepted unload safety authority; the Dashboard radar
+uses canonical signed base/UOM evidence. This item remains open until diff review,
+automated gates and owner live acceptance are complete.
+
 Confirmed evidence:
 
 - the active-route `Adjust load / تعديل الحمولة` workflow still reads and writes integer `delta_cartons`;

@@ -85,6 +85,14 @@ export interface RouteTransfer {
   product_name: string;
   delta_cartons: number;
   delta_packs: number;
+  signed_base_quantity: string;
+  base_uom_id: number;
+  base_uom_code: string;
+  base_uom_name: string;
+  quantity_scale: number;
+  quantity_step: string;
+  display_uom_name: string | null;
+  display_factor_to_base: string | null;
   status: "pending" | "accepted" | "rejected" | "cancelled";
   created_at: string | null;
   batch_id: string;

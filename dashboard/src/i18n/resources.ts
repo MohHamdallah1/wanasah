@@ -6,6 +6,7 @@ import { terminalQualityActions } from "./terminalQualityActions";
 import { qualityActionReasons } from "./qualityActionReasons";
 import { suppliers } from "./suppliers";
 import { dispatchRouteLoad } from "./dispatchRouteLoad";
+import { dispatchAdjustLoad } from "./dispatchAdjustLoad";
 
 export const supportedLanguages = [
   "ar",
@@ -26,6 +27,7 @@ export const resources = {
       qualityActionReasons: qualityActionReasons.ar,
       suppliers: suppliers.ar,
       dispatchRouteLoad: dispatchRouteLoad.ar,
+      dispatchAdjustLoad: dispatchAdjustLoad.ar,
       common: {
         save: "حفظ",
         cancel: "إلغاء",
@@ -2176,6 +2178,12 @@ export const resources = {
           PRODUCT_HOLD_OPEN: "يوجد إيقاف تشغيلي مفتوح يجب معالجته أولاً.",
           PRODUCT_RECALL_OPEN: "بيع المنتج موقوف بسبب مشكلة حاليًا. عالج الحالة أو أعد إتاحة البيع أولًا.",
           PRODUCT_RECALL_INBOUND_NEW_BLOCKED: "لا يمكن توريد هذا المنتج لأنه موقوف حاليًا بسبب مشكلة جودة أو سلامة. عالج حالة المنتج أولًا ثم أعد المحاولة.",
+          DISPATCH_ADJUSTMENT_INVALID: "تعذر التحقق من كمية تعديل الحمولة أو وحدة المنتج. راجع البيانات ثم أعد المحاولة.",
+          DISPATCH_TRANSFER_RESPONSE_INVALID: "تعذر التحقق من كميات المصافحات ووحداتها. حدّث الرادار وحاول مجددًا.",
+          DISPATCH_ROUTE_CONTEXT_CHANGED: "تغيّر ارتباط المسار بجلسة العمل. حدّث بيانات الحمولة ثم أعد المحاولة.",
+          DISPATCH_ADJUSTMENT_NEGATIVE: "رصيد السيارة والمصافحات المعلقة لا يغطيان مقدار الإرجاع المطلوب.",
+          DRIVER_MOBILE_QUANTITY_PRECISION_UNSUPPORTED: "هذه الجلسة مرتبطة بتطبيق المندوب الذي يدعم حاليًا كميات صحيحة بالوحدة الأساسية فقط. أدخل مقدار تعديل صحيحًا؛ لم تُنشأ أي مصافحة.",
+          DISPATCH_ADJUSTMENT_RESPONSE_INVALID: "لم تتأكد نتيجة تعديل الحمولة. أعد التحقق بنفس الطلب قبل تعديل جديد.",
           PRODUCT_RECALL_COMPLETION_REQUIRED: "لا يمكن إعادة إتاحة البيع قبل تنفيذ المتطلبات الموضحة في حالة البيع.",
           PRODUCT_RECALL_TRANSITION_INVALID: "حالة المنتج الحالية لا تسمح بإيقاف البيع بسبب مشكلة.",
           PRODUCT_RECALL_CLOSE_INVALID: "البيع ليس في حالة «موقوف لحين المعالجة».",
@@ -2391,6 +2399,7 @@ export const resources = {
       qualityActionReasons: qualityActionReasons.en,
       suppliers: suppliers.en,
       dispatchRouteLoad: dispatchRouteLoad.en,
+      dispatchAdjustLoad: dispatchAdjustLoad.en,
       common: {
         save: "Save",
         cancel: "Cancel",
@@ -4544,6 +4553,12 @@ export const resources = {
           PRODUCT_HOLD_OPEN: "An operational hold is still open and must be resolved first.",
           PRODUCT_RECALL_OPEN: "Product sales are paused for an issue. Resolve the state or make it available for sale first.",
           PRODUCT_RECALL_INBOUND_NEW_BLOCKED: "This product cannot be received because it is currently on hold due to a quality or safety issue. Resolve the product status first, then try again.",
+          DISPATCH_ADJUSTMENT_INVALID: "The load adjustment quantity or product unit could not be verified. Review the data and try again.",
+          DISPATCH_TRANSFER_RESPONSE_INVALID: "Transfer quantities and units could not be verified. Refresh the radar and try again.",
+          DISPATCH_ROUTE_CONTEXT_CHANGED: "The route WorkSession binding changed. Refresh the load data and try again.",
+          DISPATCH_ADJUSTMENT_NEGATIVE: "Vehicle stock and pending handshakes do not cover the requested return.",
+          DRIVER_MOBILE_QUANTITY_PRECISION_UNSUPPORTED: "The representative app for this session currently supports only whole base units. Enter a whole-number adjustment; no handshake was created.",
+          DISPATCH_ADJUSTMENT_RESPONSE_INVALID: "The load adjustment outcome is unconfirmed. Retry the same request before making another adjustment.",
           PRODUCT_RECALL_COMPLETION_REQUIRED: "Sales cannot be restored until the requirements shown in Sales status are completed.",
           PRODUCT_RECALL_TRANSITION_INVALID: "The current product state does not allow sales to be paused for an issue.",
           PRODUCT_RECALL_CLOSE_INVALID: "Sales are not currently in the “Paused pending resolution” state.",

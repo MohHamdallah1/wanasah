@@ -1,4 +1,7 @@
 import { currentLocale } from "@/i18n";
+import { useTranslation } from "react-i18next";
+import { compareQuantity } from "@/lib/quantity";
+import { formatTransferQuantity, parseRouteTransfers } from "@/features/dispatch/routeTransfers";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Modal } from "@/components/ui/modal";
 import {
@@ -28,25 +31,25 @@ const STATUS_MAP: Record<
   pending: {
     bg: "bg-amber-100",
     text: "text-amber-700",
-    label: "بانتظار المندوب",
+    label: "pending",
     icon: Clock,
   },
   accepted: {
     bg: "bg-emerald-100",
     text: "text-emerald-700",
-    label: "تم الاستلام",
+    label: "accepted",
     icon: CheckCircle,
   },
   rejected: {
     bg: "bg-red-100",
     text: "text-red-700",
-    label: "رفض الاستلام",
+    label: "rejected",
     icon: XCircle,
   },
   cancelled: {
     bg: "bg-slate-100",
     text: "text-slate-600",
-    label: "ملغاة",
+    label: "cancelled",
     icon: Ban,
   },
 };
@@ -60,17 +63,18 @@ interface TransfersRadarModalProps {
 }
 
 const parseTransferTime = (
-  value: string | null
+  value: string | null,
+  unavailable: string,
 ): { timestamp: number; formatted: string } => {
   if (!value) {
-    return { timestamp: 0, formatted: "وقت غير متاح" };
+    return { timestamp: 0, formatted: unavailable };
   }
 
   const normalized =
     value.endsWith("Z") || value.includes("+") ? value : `${value}Z`;
   const date = new Date(normalized);
   if (Number.isNaN(date.getTime())) {
-    return { timestamp: 0, formatted: "وقت غير متاح" };
+    return { timestamp: 0, formatted: unavailable };
   }
 
   return {
@@ -83,50 +87,14 @@ const parseTransferTime = (
   };
 };
 
-const formatSigned = (value: number): string =>
-  value > 0 ? `+${value}` : String(value);
-
-const TRANSFER_STATUSES = new Set<TransferStatus>([
-  "pending",
-  "accepted",
-  "rejected",
-  "cancelled",
-]);
-
-const parseRouteTransfers = (raw: unknown): RouteTransfer[] => {
-  if (!Array.isArray(raw)) {
-    throw new Error("استجابة رادار المصافحات غير صالحة.");
-  }
-
-  return raw.map((item) => {
-    if (!item || typeof item !== "object") {
-      throw new Error("استجابة رادار المصافحات غير صالحة.");
-    }
-    const value = item as Record<string, unknown>;
-    if (
-      !Number.isSafeInteger(value.transfer_id) ||
-      Number(value.transfer_id) <= 0 ||
-      typeof value.product_name !== "string" ||
-      !Number.isInteger(value.delta_cartons) ||
-      !Number.isInteger(value.delta_packs) ||
-      typeof value.status !== "string" ||
-      !TRANSFER_STATUSES.has(value.status as TransferStatus) ||
-      (value.created_at !== null && typeof value.created_at !== "string") ||
-      typeof value.batch_id !== "string" ||
-      typeof value.can_force_cancel !== "boolean"
-    ) {
-      throw new Error("استجابة رادار المصافحات غير صالحة.");
-    }
-    return value as unknown as RouteTransfer;
-  });
-};
+// Canonical quantity parsing/formatting is owned by the Dispatch feature seam.
 
 const parseForceCancelResponse = (
   raw: unknown,
   expectedTransferId: number
 ): string => {
   if (!raw || typeof raw !== "object") {
-    throw new Error("استجابة إلغاء الحوالة غير صالحة.");
+    throw Object.assign(new Error(), { code: "DISPATCH_TRANSFER_RESPONSE_INVALID" });
   }
   const value = raw as Record<string, unknown>;
   if (
@@ -135,7 +103,7 @@ const parseForceCancelResponse = (
     typeof value.message !== "string" ||
     !value.message
   ) {
-    throw new Error("استجابة إلغاء الحوالة غير صالحة.");
+    throw Object.assign(new Error(), { code: "DISPATCH_TRANSFER_RESPONSE_INVALID" });
   }
   return value.message;
 };
@@ -147,6 +115,7 @@ export function TransfersRadarModal({
   focusTransferId = null,
   openCancelForFocus = false,
 }: TransfersRadarModalProps) {
+  const { t, i18n } = useTranslation();
   const authenticatedFetch = useAuthFetch();
   const [transfers, setTransfers] = useState<RouteTransfer[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -173,10 +142,11 @@ export function TransfersRadarModal({
         `/dispatch/route/${route.id}/transfers`,
         { signal: controller.signal }
       );
-      setTransfers(parseRouteTransfers(data));
+      try { setTransfers(parseRouteTransfers(data)); }
+      catch { throw Object.assign(new Error(), { code: "DISPATCH_TRANSFER_RESPONSE_INVALID" }); }
     } catch (error: unknown) {
       if (error instanceof Error && error.name === "AbortError") return;
-      toast.error(error instanceof Error ? error.message : "فشل تحديث الرادار");
+      toast.error(apiErrorMessage(error, t("dispatchAdjustLoad.loadError")));
       setTransfers([]);
     } finally {
       if (requestControllerRef.current === controller) {
@@ -184,7 +154,7 @@ export function TransfersRadarModal({
         setIsLoading(false);
       }
     }
-  }, [route?.id, authenticatedFetch]);
+  }, [route?.id, authenticatedFetch, t]);
 
   const openForceCancel = useCallback((transfer: RouteTransfer) => {
     if (transfer.status !== "pending" || !transfer.can_force_cancel) return;
@@ -236,11 +206,11 @@ export function TransfersRadarModal({
     if (!cancelTarget || isCancelling) return;
     const reason = cancelReason.trim();
     if (reason.length < 3) {
-      toast.error("سبب الإلغاء يجب أن يتكون من 3 أحرف على الأقل.");
+      toast.error(t("dispatchAdjustLoad.radar.shortReason"));
       return;
     }
     if (reason.length > 500) {
-      toast.error("سبب الإلغاء لا يجوز أن يتجاوز 500 حرف.");
+      toast.error(t("dispatchAdjustLoad.radar.longReason"));
       return;
     }
 
@@ -256,7 +226,7 @@ export function TransfersRadarModal({
           }),
         }
       );
-      const message = parseForceCancelResponse(raw, cancelTarget.transfer_id);
+      parseForceCancelResponse(raw, cancelTarget.transfer_id);
       setTransfers((current) =>
         current.map((transfer) =>
           transfer.transfer_id === cancelTarget.transfer_id
@@ -266,10 +236,10 @@ export function TransfersRadarModal({
       );
       setCancelTarget(null);
       setCancelReason("");
-      toast.success(message);
+      toast.success(t("dispatchAdjustLoad.radar.cancelSuccess"));
       void fetchTransfers();
     } catch (error: unknown) {
-      toast.error(apiErrorMessage(error, "تعذر إلغاء الحوالة المعلقة."));
+      toast.error(apiErrorMessage(error, t("dispatchAdjustLoad.radar.cancelError")));
       const status = apiErrorStatus(error);
       if (status === 403 || status === 404 || status === 409) {
         setCancelTarget(null);
@@ -286,6 +256,7 @@ export function TransfersRadarModal({
     cancelTarget,
     fetchTransfers,
     isCancelling,
+    t,
   ]);
 
   const closeRadar = useCallback(() => {
@@ -318,7 +289,7 @@ export function TransfersRadarModal({
           ? `BATCH_${transfer.batch_id}`
           : `ID_${transfer.transfer_id}`;
         const key = `${baseKey}_${transfer.status}`;
-        const time = parseTransferTime(transfer.created_at);
+        const time = parseTransferTime(transfer.created_at, t("dispatchAdjustLoad.radar.timeUnavailable"));
 
         if (!acc[key]) {
           acc[key] = {
@@ -351,20 +322,19 @@ export function TransfersRadarModal({
     return Object.values(groupedMap).sort(
       (a, b) => b.rawTimestamp - a.rawTimestamp
     );
-  }, [transfers]);
+  }, [transfers, t]);
 
   return (
     <>
     <Modal
       isOpen={isOpen}
       onClose={closeRadar}
-      title={`📡 رادار المصافحات: ${route?.driverName || "..."}`}
+      title={t("dispatchAdjustLoad.radar.title", { name: route?.driverName || "…" })}
     >
-      <div className="space-y-4">
+      <div className="space-y-4" dir={i18n.dir()}>
         <div className="bg-blue-50 border-r-4 border-blue-400 p-3 rounded-lg">
           <p className="text-xs text-blue-800 font-bold leading-relaxed">
-            تتبع حالة البضاعة المرسلة للمندوب لحظياً. يتم تجميع الأصناف التي
-            أرسلت في دفعة واحدة معاً.
+            {t("dispatchAdjustLoad.radar.description")}
           </p>
         </div>
 
@@ -372,14 +342,14 @@ export function TransfersRadarModal({
           <div className="flex flex-col items-center py-12 gap-3">
             <RefreshCcw className="w-8 h-8 text-blue-400 animate-spin" />
             <p className="text-sm text-slate-400 font-bold">
-              جاري مسح الرادار...
+              {t("dispatchAdjustLoad.radar.loading")}
             </p>
           </div>
         ) : transfers.length === 0 ? (
           <div className="text-center py-10 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
             <Radar className="w-10 h-10 text-slate-300 mx-auto mb-2" />
             <p className="text-slate-500 font-bold text-sm">
-              لا توجد مصافحات لهذه الجلسة.
+              {t("dispatchAdjustLoad.radar.empty")}
             </p>
           </div>
         ) : (
@@ -409,7 +379,7 @@ export function TransfersRadarModal({
                       <Clock className="w-3.5 h-3.5 text-slate-400" />
                       <span
                         className="text-[11px] font-black text-slate-500"
-                        dir="ltr"
+                        dir={i18n.dir()}
                       >
                         {batch.formattedDate}
                       </span>
@@ -418,16 +388,13 @@ export function TransfersRadarModal({
                       className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-black ${config.bg} ${config.text}`}
                     >
                       <StatusIcon className="w-3 h-3" />
-                      {config.label}
+                      {t(`dispatchAdjustLoad.radar.${config.label}`)}
                     </span>
                   </div>
 
                   <div className="p-3 divide-y divide-slate-50">
                     {batch.items.map((transfer) => {
-                      const positive =
-                        transfer.delta_cartons > 0 ||
-                        (transfer.delta_cartons === 0 &&
-                          transfer.delta_packs > 0);
+                      const positive = compareQuantity(transfer.signed_base_quantity, "0") > 0;
                       const focused = transfer.transfer_id === focusTransferId;
                       return (
                         <div
@@ -458,16 +425,9 @@ export function TransfersRadarModal({
                               className={`font-black text-sm tabular-nums ${
                                 positive ? "text-emerald-600" : "text-red-600"
                               }`}
-                              dir="ltr"
+                              dir={i18n.dir()}
                             >
-                              <span>
-                                {formatSigned(transfer.delta_cartons)} ك
-                              </span>
-                              {transfer.delta_packs !== 0 && (
-                                <span className="ms-2">
-                                  {formatSigned(transfer.delta_packs)} ح
-                                </span>
-                              )}
+                              <span>{formatTransferQuantity({ ...transfer, base_uom_name: t(`uom.${transfer.base_uom_code}`, { defaultValue: transfer.base_uom_name }) })}</span>
                             </div>
                             {transfer.status === "pending" &&
                               transfer.can_force_cancel && (
@@ -475,10 +435,10 @@ export function TransfersRadarModal({
                                   type="button"
                                   onClick={() => openForceCancel(transfer)}
                                   className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-black text-red-700 hover:bg-red-100 transition-colors"
-                                  title="إلغاء الحوالة المعلقة وتحرير الحجز"
+                                  title={t("dispatchAdjustLoad.radar.cancelHint")}
                                 >
                                   <Ban className="w-3.5 h-3.5" />
-                                  إلغاء
+                                  {t("dispatchAdjustLoad.radar.cancel")}
                                 </button>
                               )}
                           </div>
@@ -494,7 +454,7 @@ export function TransfersRadarModal({
 
         <div className="flex justify-between items-center pt-4 border-t border-slate-100">
           <p className="text-[10px] text-slate-400 font-bold italic">
-            ملاحظة: تظهر هنا مصافحات الجلسة الحالية فقط.
+            {t("dispatchAdjustLoad.radar.note")}
           </p>
           <button
             onClick={fetchTransfers}
@@ -504,7 +464,7 @@ export function TransfersRadarModal({
             <RefreshCcw
               className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`}
             />
-            تحديث الرادار
+            {t("dispatchAdjustLoad.radar.refresh")}
           </button>
         </div>
       </div>
@@ -513,7 +473,7 @@ export function TransfersRadarModal({
     <Modal
       isOpen={cancelTarget !== null}
       onClose={closeForceCancel}
-      title="إلغاء حوالة معلقة"
+      title={t("dispatchAdjustLoad.radar.cancelTitle")}
       maxWidth="max-w-lg"
       footer={
         <>
@@ -523,7 +483,7 @@ export function TransfersRadarModal({
             disabled={isCancelling}
             className="px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-600 disabled:opacity-50"
           >
-            تراجع
+            {t("dispatchAdjustLoad.radar.back")}
           </button>
           <button
             type="button"
@@ -536,20 +496,20 @@ export function TransfersRadarModal({
             ) : (
               <Ban className="w-4 h-4" />
             )}
-            {isCancelling ? "جارٍ الإلغاء..." : "تأكيد الإلغاء"}
+            {t(`dispatchAdjustLoad.radar.${isCancelling ? "cancelling" : "confirm"}`)}
           </button>
         </>
       }
     >
-      <div className="space-y-4" dir="rtl">
+      <div className="space-y-4" dir={i18n.dir()}>
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 flex items-start gap-3">
           <ShieldAlert className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
           <div>
             <p className="text-sm font-black text-red-800">
-              هذا الإجراء مخصص للحوالة المعلقة فقط.
+              {t("dispatchAdjustLoad.radar.pendingOnly")}
             </p>
             <p className="text-xs font-bold text-red-700/80 mt-1 leading-relaxed">
-              سيحرر الخادم حجز الكمية ويحوّل الحوالة إلى ملغاة دون إنشاء حركة مخزون فيزيائية.
+              {t("dispatchAdjustLoad.radar.cancelEffect")}
             </p>
           </div>
         </div>
@@ -559,15 +519,15 @@ export function TransfersRadarModal({
             <p className="text-sm font-black text-slate-800">
               {cancelTarget.product_name}
             </p>
-            <p className="text-xs font-bold text-slate-500 mt-1" dir="ltr">
-              #{cancelTarget.transfer_id} · {formatSigned(cancelTarget.delta_cartons)} ك · {formatSigned(cancelTarget.delta_packs)} ح
+            <p className="text-xs font-bold text-slate-500 mt-1" dir={i18n.dir()}>
+              {formatTransferQuantity({ ...cancelTarget, base_uom_name: t(`uom.${cancelTarget.base_uom_code}`, { defaultValue: cancelTarget.base_uom_name }) })}
             </p>
           </div>
         )}
 
         <div>
           <label className="block text-xs font-black text-slate-700 mb-2">
-            سبب الإلغاء <span className="text-red-600">*</span>
+            {t("dispatchAdjustLoad.radar.reason")} <span className="text-red-600">*</span>
           </label>
           <textarea
             value={cancelReason}
@@ -575,11 +535,11 @@ export function TransfersRadarModal({
             disabled={isCancelling}
             rows={4}
             maxLength={500}
-            placeholder="اكتب سبباً واضحاً وقابلاً للتدقيق..."
+            placeholder={t("dispatchAdjustLoad.radar.reasonPlaceholder")}
             className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-medium text-slate-800 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100 disabled:opacity-60"
           />
-          <p className="text-[10px] font-bold text-slate-400 mt-1 text-left" dir="ltr">
-            {cancelReason.length}/500
+          <p className="text-[10px] font-bold text-slate-400 mt-1 text-end" dir={i18n.dir()}>
+            {t("dispatchAdjustLoad.radar.characterCount", { characters: new Intl.NumberFormat(currentLocale()).format(cancelReason.length), limit: new Intl.NumberFormat(currentLocale()).format(500) })}
           </p>
         </div>
       </div>

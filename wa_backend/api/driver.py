@@ -77,6 +77,7 @@ from product_lifecycle import (
     product_capability_predicate,
 )
 from domains.pricing.core import PricingError
+from domains.dispatch_load_plan import lock_session_load_plan, synchronize_session_load_plans
 from domains.pricing.context import (
     commercial_context_payload,
     require_route_commercial_context,
@@ -2860,6 +2861,8 @@ async def respond_to_transfer(
         if response == "rejected" and not reason:
             raise HTTPException(status_code=400, detail="رفض الحوالة يتطلب سبباً واضحاً.")
 
+        await lock_session_load_plan(db, company_id=company_id, work_session_id=header.work_session_id)
+
         work_session = (
             await db.execute(
                 select(WorkSession)
@@ -2991,6 +2994,9 @@ async def respond_to_transfer(
             new_value=audit_value,
         ))
 
+        await synchronize_session_load_plans(
+            db, company_id=company_id, work_session_id=header.work_session_id, actor_id=driver_id,
+        )
         await db.commit()
         return {"message": f"تم تسجيل الرد ({response}) بنجاح."}
 
@@ -3086,6 +3092,7 @@ async def batch_respond_to_transfers(
                 raise transfer_batch_error(409, "FIELD_TRANSFER_BATCH_MIXED_SESSIONS",
                     "A batch must belong to one work session.")
             work_session_id = next(iter(session_ids))
+            await lock_session_load_plan(db, company_id=company_id, work_session_id=work_session_id)
 
             work_session = (
                 await db.execute(
@@ -3255,6 +3262,9 @@ async def batch_respond_to_transfers(
                     new_value=new_value,
                 ))
 
+            await synchronize_session_load_plans(
+                db, company_id=company_id, work_session_id=work_session_id, actor_id=driver_id,
+            )
         await db.commit()
         return {"message": f"تمت معالجة {len(transfer_ids)} حوالة بنجاح."}
 

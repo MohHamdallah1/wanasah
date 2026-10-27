@@ -5,6 +5,19 @@ on:
     branches:
       - main
     paths:
+      - "wa_backend/api/dispatch.py"
+      - "wa_backend/api/driver.py"
+      - "wa_backend/schemas.py"
+      - "wa_backend/domains/dispatch_load_plan.py"
+      - "wa_backend/domains/dispatch_route_load.py"
+      - "wa_backend/tests/test_dispatch_adjust_load_uom.py"
+      - "dashboard/src/components/dispatch/AdjustInventoryModal.tsx"
+      - "dashboard/src/components/dispatch/TransfersRadarModal.tsx"
+      - "dashboard/src/features/dispatch/**"
+      - "dashboard/src/types/dispatch.ts"
+      - "dashboard/src/i18n/dispatchAdjustLoad.ts"
+      - "dashboard/src/test/dispatch-adjust-load.test.tsx"
+      - "dashboard/scripts/verify-dispatch-adjust-load-types.cjs"
       - "wa_backend/domains/inventory_vehicle_load/**"
       - "wa_backend/api/vehicles/load.py"
       - "wa_backend/api/vehicles/load_schemas.py"
@@ -61,6 +74,7 @@ jobs:
           tests.test_vehicle_load_v1_contract
           tests.test_vehicles_architecture
           tests.test_vehicles_http_contract
+          tests.test_dispatch_adjust_load_uom.AdjustmentContractTests
       - name: Diff check
         run: git diff --check origin/main...HEAD
 
@@ -73,6 +87,7 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://vehicle_load_app@127.0.0.1:55461/vehicle_load_test
       DATABASE_URL_MIGRATION: postgresql+asyncpg://vehicle_load_admin@127.0.0.1:55461/vehicle_load_test
       WANASAH_VEHICLE_LOAD_PG_GATE: "1"
+      WANASAH_ADJUST_LOAD_PG_GATE: "1"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -150,7 +165,10 @@ jobs:
           PY
       - name: Vehicle Load PostgreSQL acceptance
         working-directory: wa_backend
-        run: python -m unittest -v tests.test_vehicle_load_v1_postgres
+        run: >-
+          python -m unittest -v
+          tests.test_vehicle_load_v1_postgres
+          tests.test_dispatch_adjust_load_uom
 
   dashboard:
     runs-on: ubuntu-24.04
@@ -179,10 +197,12 @@ jobs:
           src/pages/representatives-vehicles/vehicles/vehicleI18n.test.ts
           src/pages/representatives-vehicles/RepresentativesVehiclesPage.test.tsx
           src/test/dispatch-navigation.test.ts
+          src/test/dispatch-adjust-load.test.tsx
+          src/test/dispatch-route-load-uom.test.ts
           src/test/archive-owner-navigation.test.tsx
-      - name: TypeScript
+      - name: Adjust Load TypeScript and full-app diagnostic regression guard
         working-directory: dashboard
-        run: npx tsc --noEmit
+        run: node scripts/verify-dispatch-adjust-load-types.cjs "${{ github.event.pull_request.base.sha || 'HEAD^' }}"
       - name: ESLint
         working-directory: dashboard
         run: >-
@@ -196,6 +216,13 @@ jobs:
           src/pages/DispatchBoard.tsx
           src/test/vehicle-load-v1-contract.test.ts
           src/i18n/representativesVehicles.ts
+          src/components/dispatch/AdjustInventoryModal.tsx
+          src/components/dispatch/TransfersRadarModal.tsx
+          src/features/dispatch/adjustLoad.ts
+          src/features/dispatch/routeTransfers.ts
+          src/features/dispatch/useAdjustLoadCommand.ts
+          src/i18n/dispatchAdjustLoad.ts
+          src/test/dispatch-adjust-load.test.tsx
       - name: Production build
         working-directory: dashboard
         run: npm run build

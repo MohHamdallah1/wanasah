@@ -1043,15 +1043,28 @@ class RouteLiveInventoryItemResponse(BaseModel):
     product_name: str
     current_cartons: int
     current_packs: int
+    current_base_quantity: NonNegativeQuantity
+    reserved_base_quantity: NonNegativeQuantity
+    pending_base_quantity: SignedQuantity
+    base_uom_id: PositiveDbInt
+    base_uom_name: str
+    base_uom_code: str
+    quantity_scale: int
+    quantity_step: NonNegativeQuantity
+    display_uom_name: Optional[str] = None
+    display_factor_to_base: Optional[str] = None
 
 class InventoryAdjustmentDelta(RequestModel):
     product_id: PositiveDbInt
-    delta_cartons: SignedDbInt
+    delta_cartons: Optional[SignedDbInt] = None  # Legacy carton-count contract only.
+    delta_base: Optional[SignedQuantity] = None
 
     @model_validator(mode="after")
     def reject_zero_delta(self) -> "InventoryAdjustmentDelta":
-        if self.delta_cartons == 0:
-            raise ValueError("delta_cartons لا يجوز أن يكون صفراً.")
+        if (self.delta_cartons is None) == (self.delta_base is None):
+            raise ValueError("Supply exactly one of delta_cartons or delta_base.")
+        if self.delta_cartons == 0 or self.delta_base == 0:
+            raise ValueError("The adjustment delta must not be zero.")
         return self
 
 
@@ -1066,6 +1079,8 @@ class AdjustRouteInventoryRequest(RequestModel):
         ids = [item.product_id for item in self.deltas]
         if len(ids) != len(set(ids)):
             raise ValueError("لا يجوز تكرار نفس المنتج في تعديلات المسار.")
+        if len({item.delta_base is not None for item in self.deltas}) != 1:
+            raise ValueError("Do not mix legacy carton and canonical base adjustments.")
         return self
 
 
@@ -1084,6 +1099,14 @@ class RouteTransferResponse(BaseModel):
     product_name: str
     delta_cartons: int
     delta_packs: int  # +++ إرجاع الفراطة المفقودة (بنفس اسم الفلاسك الأصلي) +++
+    signed_base_quantity: SignedQuantity
+    base_uom_id: PositiveDbInt
+    base_uom_name: str
+    base_uom_code: str
+    quantity_scale: int
+    quantity_step: NonNegativeQuantity
+    display_uom_name: Optional[str] = None
+    display_factor_to_base: Optional[str] = None
     status: str
     created_at: Optional[str] = None
     batch_id: str
