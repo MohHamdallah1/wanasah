@@ -139,6 +139,35 @@ Quick live Dashboard acceptance:
 - Confirm the pages/actions still open and route to their intended workflow.
 - The automated manifest gate remains mandatory; Dashboard smoke alone is not sufficient for this item.
 
+### [ ] 6. Active-route Adjust Load must use canonical quantity/UOM meaning
+
+**Status:** newly confirmed V1 correctness blocker during final live acceptance.
+
+Confirmed evidence:
+
+- the active-route `Adjust load / تعديل الحمولة` workflow still reads and writes integer `delta_cartons`;
+- its backend conversion is still driven by legacy `packs_per_carton`;
+- the UI labels that unit as `كرتونة`;
+- the live test product `شعيرية ممتاز 750 مل تجربة وناسة هـ-00019` has canonical base UOM `حبة` and commercial conversion `1 باكيت = 8 حبات`, while legacy `packs_per_carton = 8`;
+- therefore the active-route adjustment surface can describe the same physical 8-base-unit quantity as a carton while Route Launch correctly describes it as a pack.
+
+Required:
+
+- preserve the separate business purpose: Route Launch sets the load target before a new route, while Adjust Load changes custody during an existing route;
+- migrate active-route load adjustment away from legacy `packs_per_carton` quantity authority;
+- use canonical base quantity plus existing UOM authority / ProductUomConversion;
+- preserve loose base-unit remainder exactly;
+- show clear current quantity, requested delta/target, and resulting quantity with correct unit labels;
+- retain current session/handshake, inventory movement, FEFO/batch, permissions, lifecycle, idempotency, audit and custody authority;
+- do not create a duplicate inventory mutation path.
+
+Quick live Dashboard acceptance:
+
+- Open an active route whose Vehicle has a product with a known commercial conversion such as `1 باكيت = 8 حبات`.
+- Open `تعديل الحمولة`.
+- Confirm the current physical quantity is described with the same UOM meaning as Vehicle Load and Route Launch.
+- Increase and decrease by an exact base/commercial amount and confirm preview plus resulting Vehicle/Warehouse balances match without losing loose remainder.
+
 ## Explicit V2 deferrals — do not reopen for V1
 
 These are already documented in `V1_SCOPE_FREEZE.md` and `VERSION_2_FUTURE_FEATURES.md`:
