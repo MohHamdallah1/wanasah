@@ -123,7 +123,7 @@ async def allocate_route_return_batches(db, *, company_id, location_id, product_
 
 
 async def route_load_uom_metadata(db: AsyncSession, *, company_id: int, variant_ids):
-    """Exact base UOM plus one uniquely reachable commercial UOM when available."""
+    """Exact base UOM plus the shared authority's largest unambiguous display UOM."""
     ids = sorted({int(v) for v in variant_ids})
     if not ids:
         return {}
@@ -140,11 +140,9 @@ async def route_load_uom_metadata(db: AsyncSession, *, company_id: int, variant_
     authorities = await load_variant_uom_authorities(db, company_id=company_id, variant_ids=ids)
     commercial = {}
     for pid in ids:
-        authority = authorities[pid]
-        candidates = [(uom_id, factor) for uom_id, factor in authority.factors_to_base.items()
-                      if uom_id != authority.base_uom_id and factor > 1 and factor.denominator == 1]
-        if len(candidates) == 1:
-            commercial[pid] = candidates[0]
+        candidate = authorities[pid].largest_display_uom()
+        if candidate is not None:
+            commercial[pid] = candidate
     candidate_ids = sorted({candidate[0] for candidate in commercial.values()})
     names = dict((await db.execute(select(UOM.id, UOM.name).where(
         UOM.id.in_(candidate_ids)))).all()) if candidate_ids else {}

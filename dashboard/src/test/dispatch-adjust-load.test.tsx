@@ -35,6 +35,16 @@ beforeEach(async () => {
 });
 
 describe("Canonical Adjust Load quantities and radar", () => {
+  it.each([["48000", "10 PALLET"], ["5000", "1 PALLET + 200 EACH"], ["5", "5 EACH"]])(
+    "uses server-selected PALLET for %s with only a base remainder", (quantity, expected) => {
+      const raw = { ...inventory, current_base_quantity: quantity, display_uom_name: "PALLET", display_factor_to_base: "4800" };
+      const item = parseAdjustLoadInventory([raw])[0];
+      expect(formatRouteLoadQuantity(item.current_base_quantity, item)).toBe(expected);
+      const [transfer] = parseRouteTransfers([{ ...raw, transfer_id: 1, signed_base_quantity: quantity,
+        quantity_contract: "CANONICAL_BASE_V1", status: "pending", created_at: null, batch_id: "b", can_force_cancel: true }]);
+      expect(formatTransferQuantity(transfer)).toBe(`+${expected.replace("EACH", i18n.t("uom.EACH"))}`);
+    });
+
   it.each([0, 1, -1, 5, -5, 8, -8])("preserves 25 EACH and exact delta %s independently of carton fields", (delta) => {
     const item = parseAdjustLoadInventory([inventory])[0];
     expect(formatRouteLoadQuantity(item.current_base_quantity, item)).toBe("3 PACK + 1 EACH");

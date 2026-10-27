@@ -218,6 +218,40 @@ class ActiveRouteAdjustLoadPostgres(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(row["quantity_contract"] == CANONICAL_BASE_V1 for row in radar))
         self.assertEqual({(row["delta_cartons"], row["delta_packs"]) for row in radar}, field_quantities)
 
+    async def test_largest_chained_uom_reaches_canonical_field_and_radar_without_converting_stock(self):
+        pack = await self.db.scalar(select(UOM).where(UOM.name == "PACK"))
+        previous = pack
+        for name, ratio in (("CARTON", 12), ("PALLET", 50)):
+            unit = await self.db.scalar(select(UOM).where(UOM.name == name))
+            if unit is None:
+                unit = UOM(code="M" + uuid4().hex[:10], name=name)
+                self.db.add(unit)
+                await self.db.flush()
+            self.db.add(ProductUomConversion(company_id=self.company, product_variant_id=self.pid,
+                from_uom_id=unit.id, to_uom_id=previous.id, numerator=ratio, denominator=1, version=1))
+            previous = unit
+        balance = await self.db.scalar(select(InventoryBalance).where(InventoryBalance.company_id == self.company,
+            InventoryBalance.location_id == self.wh, InventoryBalance.product_variant_id == self.pid))
+        balance.on_hand_quantity = 60000
+        self.seed.variant.packs_per_carton = 32
+        await self.db.commit()
+        await self.bind()
+        await self.adjust(48000)
+        pending = await driver.get_pending_transfers(self.db, self.field, self.actor)
+        encoded = PendingBatchResponse.model_validate(pending[0]).model_dump(mode="json")["items"][0]
+        self.assertEqual((encoded["quantity_contract"], encoded["signed_base_quantity"]), (CANONICAL_BASE_V1, "48000"))
+        self.assertEqual((encoded["display_uom_name"], encoded["display_factor_to_base"]), ("PALLET", "4800"))
+        self.assertEqual((encoded["delta_cartons"], encoded["delta_packs"]), (0, 48000))
+        radar = await dispatch.get_route_transfers(self.rid, self.db, self.seed.owner.access(self.db))
+        self.assertEqual((radar[0]["display_uom_name"], radar[0]["display_factor_to_base"]), ("PALLET", "4800"))
+        live = await dispatch.get_route_live_inventory(self.rid, self.db, self.seed.owner.access(self.db))
+        self.assertEqual((live[0]["display_uom_name"], live[0]["display_factor_to_base"]), ("PALLET", "4800"))
+        lines = (await self.db.scalars(select(InventoryTransferLine).where(
+            InventoryTransferLine.company_id == self.company))).all()
+        self.assertEqual([line.quantity for line in lines], [Decimal(48000)])
+        self.assertEqual(await self.physical(), Decimal(25))
+        self.assertEqual(await self.plan(), Decimal(48025))
+
     async def test_canonical_marker_survives_conflicting_legacy_configuration(self):
         await self.bind()
         await self.adjust(8)

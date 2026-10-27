@@ -167,6 +167,15 @@ context. Unmarked rows keep legacy presentation. Transfer decisions still carry
 only transfer identity and decision; Backend lines remain quantity authority.
 Item 6 stays OPEN for lead diff review, passing gates and owner live acceptance.
 
+Owner-approved display selection correction (2026-10-27): shared UOM authority
+selects the unique largest reachable non-base UOM whose exact factor to base is
+an integer greater than one, including chained conversions. Equal-largest ties
+or no candidate retain base-UOM display. Canonical Route Launch, Adjust Load,
+radar and FIELD consume this through existing metadata; presentation remains
+one display UOM plus the exact base remainder, without multi-level decomposition.
+Stock/movement quantities remain BASE and unmarked historical transfers keep
+their legacy presentation. This does not open Advanced UOM configuration scope.
+
 Confirmed evidence:
 
 - the active-route `Adjust load / تعديل الحمولة` workflow still reads and writes integer `delta_cartons`;

@@ -93,7 +93,29 @@ void main() {
       },
     );
   }
-  test('no unique commercial UOM uses true non-EACH base name', () {
+  for (final example
+      in {
+        '48000': '10 PALLET',
+        '5000': '1 PALLET + 200 حبة',
+        '5': '5 حبة',
+      }.entries) {
+    test(
+      'server-selected largest UOM displays ${example.key} with base remainder',
+      () {
+        final item = PendingTransferItem.fromServerJson(
+          canonicalTransfer(quantity: example.key)
+            ..['display_uom_name'] = 'PALLET'
+            ..['display_factor_to_base'] = '4800',
+        );
+        expect(item.canonicalQuantity!.signedBaseQuantity, example.key);
+        expect(
+          formatPendingTransferQuantity(item, locale: 'en'),
+          example.value,
+        );
+      },
+    );
+  }
+  test('no unique largest commercial UOM uses true non-EACH base name', () {
     final item = PendingTransferItem.fromServerJson(
       canonicalTransfer(quantity: '5')
         ..['base_uom_code'] = 'KG'
