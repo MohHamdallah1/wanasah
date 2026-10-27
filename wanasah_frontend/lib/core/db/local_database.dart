@@ -22,7 +22,7 @@ import '../../models/visit_model.dart';
 import '../sync/durable_command.dart';
 import '../sync/pending_command_store.dart';
 import 'visit/visit_local_persistence.dart';
-import '../../features/custody/domain/pending_transfer_quantity.dart';
+import '../serialization/pending_transfer_quantity.dart';
 
 class LocalDatabase {
   // -----------------------------------------------------------------------
