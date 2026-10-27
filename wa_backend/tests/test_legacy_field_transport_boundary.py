@@ -241,6 +241,48 @@ def without_field_additions(node):
     return node.body
 
 
+def without_load_plan_reconciliation(node):
+    """Allow only the owner-approved terminal plan hooks; freeze all old FIELD AST."""
+    node = copy.deepcopy(node)
+    if node.name not in {"respond_to_transfer", "batch_respond_to_transfers"}:
+        return node
+    single = node.name == "respond_to_transfer"
+    session = "header.work_session_id" if single else "work_session_id"
+    snippets = (
+        f"await lock_session_load_plan(db, company_id=company_id, work_session_id={session})",
+        f"await synchronize_session_load_plans(db, company_id=company_id, work_session_id={session}, actor_id=driver_id)",
+    )
+    expected = {ast.dump(ast.parse(source).body[0], include_attributes=False): 0 for source in snippets}
+    hook_shapes = list(expected)
+    if single:
+        block = next(part.body for part in node.body if isinstance(part, ast.Try))
+        session_index = next(i for i, part in enumerate(block) if isinstance(part, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "work_session" for target in part.targets))
+        commit_index = next(i for i, part in enumerate(block) if ast.unparse(part) == "await db.commit()")
+        assert ast.dump(block[session_index - 1], include_attributes=False) == hook_shapes[0]
+        assert ast.dump(block[commit_index - 1], include_attributes=False) == hook_shapes[1]
+    else:
+        block = next(part.body for part in ast.walk(node) if isinstance(part, ast.If)
+            and any(isinstance(statement, ast.Assign) and any(isinstance(target, ast.Name)
+                and target.id == "work_session_id" for target in statement.targets) for statement in part.body))
+        session_index = next(i for i, part in enumerate(block) if isinstance(part, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "work_session_id" for target in part.targets))
+        assert ast.dump(block[session_index + 1], include_attributes=False) == hook_shapes[0]
+        assert ast.dump(block[-1], include_attributes=False) == hook_shapes[1]
+
+    class RemoveExactHooks(ast.NodeTransformer):
+        def visit(self, part):
+            shape = ast.dump(part, include_attributes=False)
+            if shape in expected:
+                expected[shape] += 1
+                return None
+            return super().visit(part)
+
+    node = RemoveExactHooks().visit(node)
+    assert all(count == 1 for count in expected.values()), "Plan hooks must occur exactly once"
+    return node
+
+
 class OperationalLocator:
     id = 303
     full_name = "Operational display name"
@@ -358,7 +400,8 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
             approved_batch = name == "batch_respond_to_transfers"
             expected = digest((self.approved_functions if approved_batch else self.baseline_functions)[name].body)
             with self.subTest(endpoint=name):
-                actual = self.functions[name].body if approved_batch else without_field_additions(self.functions[name])
+                normalized = without_load_plan_reconciliation(self.functions[name])
+                actual = normalized.body if approved_batch else without_field_additions(normalized)
                 self.assertEqual(digest(actual), expected)
                 self.assertEqual([ast.unparse(item) for item in without_capability_decorator(self.functions[name]).decorator_list],
                                  ROUTES[name])
@@ -366,6 +409,11 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
     def test_helpers_mixed_visit_details_and_all_unrelated_module_code_are_unchanged(self):
         remainder = []
         for node in self.tree.body:
+            if isinstance(node, ast.ImportFrom) and node.module == "domains.dispatch_load_plan":
+                self.assertEqual(ast.dump(node, include_attributes=False), ast.dump(ast.parse(
+                    "from domains.dispatch_load_plan import lock_session_load_plan, synchronize_session_load_plans"
+                ).body[0], include_attributes=False))
+                continue
             if isinstance(node, ast.ImportFrom) and node.module in {
                 "api.authentication.field_authorization",
                 "api.authentication.field_transfer_authorization",
@@ -405,6 +453,28 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
                     (node.name in FROZEN_FUNCTIONS or node.name == "_load_handshake_lines_for_update"))
         ]
         self.assertEqual(digest(remainder), digest(baseline))
+
+    def test_terminal_plan_normalization_rejects_missing_duplicate_or_reordered_hooks(self):
+        for name in ("respond_to_transfer", "batch_respond_to_transfers"):
+            original = self.functions[name]
+            for mode in ("missing", "duplicate", "reordered"):
+                node = copy.deepcopy(original)
+                block = next(part.body for part in ast.walk(node) if isinstance(part, (ast.Try, ast.If))
+                    and any(isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Await)
+                        and isinstance(statement.value.value, ast.Call)
+                        and isinstance(statement.value.value.func, ast.Name)
+                        and statement.value.value.func.id == "lock_session_load_plan" for statement in part.body))
+                index = next(i for i, part in enumerate(block) if isinstance(part, ast.Expr)
+                    and isinstance(part.value, ast.Await) and isinstance(part.value.value, ast.Call)
+                    and isinstance(part.value.value.func, ast.Name) and part.value.value.func.id == "lock_session_load_plan")
+                if mode == "missing":
+                    block.pop(index)
+                elif mode == "duplicate":
+                    block.insert(index, copy.deepcopy(block[index]))
+                else:
+                    block[index], block[index + 1] = block[index + 1], block[index]
+                with self.subTest(endpoint=name, mutation=mode), self.assertRaises(AssertionError):
+                    without_load_plan_reconciliation(node)
 
     def test_retired_adapter_is_absent_and_has_zero_runtime_consumers(self):
         self.assertFalse((BACKEND / "api" / "authentication" / "legacy_field_transport.py").exists())
