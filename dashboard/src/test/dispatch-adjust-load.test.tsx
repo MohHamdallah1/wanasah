@@ -75,7 +75,7 @@ describe("Adjust Load operator workflow", () => {
     await setAppLanguage(language);
     fake.fetch.mockResolvedValue(["8", "5", "-5"].map((quantity, index) => ({ ...inventory,
       transfer_id: index + 1, signed_base_quantity: quantity, status: "pending", created_at: null,
-      batch_id: "b", can_force_cancel: false, delta_cartons: 999, delta_packs: 999,
+      batch_id: "b", can_force_cancel: false, delta_cartons: 0, delta_packs: Number(quantity), packs_per_carton: 32,
     })));
     render(<TransfersRadarModal isOpen onClose={vi.fn()} route={route} />);
     expect(await screen.findByText("+1 PACK")).toBeInTheDocument();

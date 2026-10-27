@@ -17,6 +17,7 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from domains.dispatch_transfer_quantity import is_canonical_base_handshake, canonical_field_base_quantity
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.orm import selectinload

@@ -133,6 +133,7 @@ from domains.dispatch_route_load import (
 )
 from domains.dispatch_load_plan import lock_session_load_plan, lock_route_adjustment_context, pending_handshake_base_net, synchronize_session_load_plans
 from domains.inventory_vehicle_load.return_safety import safe_unload_terminal_statuses
+from domains.dispatch_transfer_quantity import CANONICAL_BASE_V1, is_canonical_base_handshake, canonical_field_base_quantity
 from domains.live_stock_projection.service import (
     get_live_stock_vehicle_sources,
     refresh_live_stock_vehicle_attribution,
@@ -2374,6 +2375,7 @@ async def _dispatch_apply_pack_deltas(
                     "source_location_type": source_location_type,
                     "destination_location_type": destination_location_type,
                     "transfer_purpose": transfer_purpose,
+                    **({"quantity_contract": CANONICAL_BASE_V1} if canonical_base else {}),
                 },
                 work_session_id=session.id,
                 expected_receiver_id=route.driver_id,
@@ -3093,7 +3095,8 @@ async def get_route_transfers(
                 detail=f"الحوالة ({header.id}) لا تطابق عقد المصافحة: Header واحد يجب أن يحمل صنفاً واحداً.",
             )
         product_id, quantity, variant_name, ppc = products[0]
-        if quantity <= 0 or ppc <= 0:
+        canonical_base = is_canonical_base_handshake(header)
+        if quantity <= 0 or (not canonical_base and ppc <= 0):
             raise HTTPException(
                 status_code=409,
                 detail=f"الحوالة ({header.id}) تحمل بيانات كمية غير صالحة.",
@@ -3110,14 +3113,20 @@ async def get_route_transfers(
                 ),
             )
         signed_quantity = quantity if destination_is_vehicle else -quantity
+        try:
+            field_base = canonical_field_base_quantity(signed_quantity) if canonical_base else None
+        except UomAuthorityError as exc:
+            raise HTTPException(status_code=409, detail={
+                "code": exc.code, "message": exc.message, "context": exc.context,
+            }) from exc
 
         sign = -1 if signed_quantity < 0 else 1
         absolute = abs(signed_quantity)
         result.append({
             "transfer_id": int(header.id),
             "product_name": variant_name,
-            "delta_cartons": (int(absolute) // ppc) * sign,
-            "delta_packs": (int(absolute) % ppc) * sign,
+            "delta_cartons": 0 if canonical_base else (int(absolute) // ppc) * sign,
+            "delta_packs": field_base if canonical_base else (int(absolute) % ppc) * sign,
             "signed_base_quantity": signed_quantity,
             **metadata[product_id],
             "status": status_map.get(str(header.status), str(header.status).lower()),

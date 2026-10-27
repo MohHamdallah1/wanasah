@@ -283,6 +283,28 @@ def without_load_plan_reconciliation(node):
     return node
 
 
+def without_canonical_projection_source(source):
+    """Whitelist exact owner-approved read adaptations; fingerprint everything else."""
+    replacements = (
+        ("from domains.dispatch_transfer_quantity import is_canonical_base_handshake, canonical_field_base_quantity\n", ""),
+        ("    canonical_header_ids: Optional[set[int]] = None,\n", ""),
+        ("        if products[0][\"quantity\"] <= 0 or (\n"
+         "            int(header_id) not in (canonical_header_ids or ()) and products[0][\"packs_per_carton\"] <= 0\n"
+         "        ):\n", "        if products[0][\"quantity\"] <= 0 or products[0][\"packs_per_carton\"] <= 0:\n"),
+        ("        canonical_header_ids={int(header.id) for header in headers if is_canonical_base_handshake(header)},\n", ""),
+        ("                canonical_header_ids={int(header.id) for header in pending_headers if is_canonical_base_handshake(header)},\n", ""),
+        ("        canonical_base = is_canonical_base_handshake(header)\n", ""),
+        ('"delta_cartons": 0 if canonical_base else (abs_packs // packs) * sign,',
+         '"delta_cartons": (abs_packs // packs) * sign,'),
+        ('"delta_packs": canonical_field_base_quantity(signed_quantity) if canonical_base else (abs_packs % packs) * sign,',
+         '"delta_packs": (abs_packs % packs) * sign,'),
+    )
+    for approved, legacy in replacements:
+        assert source.count(approved) == 1, "Canonical projection must match the exact approved adaptation once"
+        source = source.replace(approved, legacy, 1)
+    return source
+
+
 class OperationalLocator:
     id = 303
     full_name = "Operational display name"
@@ -298,7 +320,8 @@ class OperationalLocator:
 
 class LegacyFieldTransportBoundaryTests(unittest.TestCase):
     def setUp(self):
-        self.tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
+        self.current_source = SOURCE.read_text(encoding="utf-8")
+        self.tree = ast.parse(without_canonical_projection_source(self.current_source))
         baseline = subprocess.check_output(
             ["git", "show", BASELINE_SHA + ":wa_backend/api/driver.py"],
             cwd=BACKEND.parent, text=True, encoding="utf-8",
@@ -341,6 +364,12 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
         original = ast.parse("def nested(): return 1").body
         changed = ast.parse("def nested(): return 2").body
         self.assertNotEqual(digest(original), digest(changed))
+
+    def test_canonical_projection_allowlist_rejects_missing_duplicate_or_changed_adaptations(self):
+        marker = "        canonical_base = is_canonical_base_handshake(header)\n"
+        for replacement in ("", marker + marker, marker.replace("header", "product")):
+            with self.subTest(replacement=replacement), self.assertRaises(AssertionError):
+                without_canonical_projection_source(self.current_source.replace(marker, replacement, 1))
 
     def test_all_twelve_routes_use_cached_canonical_field_and_operational_dependencies(self):
         for name, node in self.functions.items():

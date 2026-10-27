@@ -13,7 +13,8 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 from api import dispatch, driver
 from domains.dispatch_route_load import canonical_adjustment_target
-from domains.uom_authority import _build_authority
+from domains.dispatch_transfer_quantity import CANONICAL_BASE_V1, canonical_field_base_quantity, is_canonical_base_handshake
+from domains.uom_authority import UomAuthorityError, _build_authority
 from models import (DispatchRoute, DispatchLoadPlanLine, InventoryBalance, InventoryMovement,
     InventoryTransferHeader, InventoryTransferLine, ProductUomConversion, ProductVariant,
     UOM, WorkSession, Zone, utc_now)
@@ -23,6 +24,16 @@ from tests import test_vehicle_load_v1_postgres as vehicle_fixture
 
 
 class AdjustmentContractTests(unittest.TestCase):
+    def test_marker_is_explicit_and_fractional_projection_never_truncates(self):
+        for context in (None, {}, {"quantity_contract": "LEGACY"}):
+            self.assertFalse(is_canonical_base_handshake(SimpleNamespace(commercial_context=context)))
+        self.assertTrue(is_canonical_base_handshake(SimpleNamespace(commercial_context={"quantity_contract": CANONICAL_BASE_V1})))
+        self.assertEqual(canonical_field_base_quantity(Decimal(8)), 8)
+        self.assertEqual(canonical_field_base_quantity(Decimal(-5)), -5)
+        with self.assertRaises(UomAuthorityError) as caught:
+            canonical_field_base_quantity(Decimal("0.5"))
+        self.assertEqual(caught.exception.code, "DRIVER_MOBILE_QUANTITY_PRECISION_UNSUPPORTED")
+
     def test_exact_signed_base_and_legacy_are_distinct(self):
         legacy = AdjustRouteInventoryRequest(request_id=uuid4(), deltas=[dict(product_id=7, delta_cartons=1)])
         exact = AdjustRouteInventoryRequest(request_id=uuid4(), deltas=[dict(product_id=7, delta_base="0.50")])
@@ -182,10 +193,68 @@ class ActiveRouteAdjustLoadPostgres(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([line.quantity for line in lines], [Decimal(5), Decimal(5), Decimal(8)])
         pending = await driver.get_pending_transfers(self.db, self.field, self.actor)
         field_quantities = {(item["delta_cartons"], item["delta_packs"]) for batch in pending for item in batch["items"]}
-        self.assertEqual(field_quantities, {(0, 5), (0, -5), (1, 0)})
+        self.assertEqual(field_quantities, {(0, 5), (0, -5), (0, 8)})
+        contexts = (await self.db.scalars(select(InventoryTransferHeader.commercial_context).where(
+            InventoryTransferHeader.company_id == self.company))).all()
+        self.assertEqual(len(contexts), 3)
+        self.assertTrue(all(context["quantity_contract"] == CANONICAL_BASE_V1 for context in contexts))
         radar = await dispatch.get_route_transfers(self.rid, self.db, self.seed.owner.access(self.db))
         self.assertEqual({row["signed_base_quantity"] for row in radar}, {Decimal(5), Decimal(-5), Decimal(8)})
         self.assertTrue(all(row["display_uom_name"] == "PACK" for row in radar))
+        self.assertEqual({(row["delta_cartons"], row["delta_packs"]) for row in radar}, field_quantities)
+
+    async def test_canonical_marker_survives_conflicting_legacy_configuration(self):
+        await self.bind()
+        await self.adjust(8)
+        await self.adjust(-5)
+        self.seed.variant.packs_per_carton = 32
+        await self.db.commit()
+        await self.adjust(8)  # Creation itself also ignores the conflicting legacy factor.
+        # Read back persisted JSON independently of the identity-mapped header objects.
+        contexts = (await self.db.scalars(select(InventoryTransferHeader.commercial_context).where(
+            InventoryTransferHeader.company_id == self.company))).all()
+        self.assertEqual(len(contexts), 3)
+        self.assertTrue(all(context["quantity_contract"] == CANONICAL_BASE_V1 for context in contexts))
+        pending = await driver.get_pending_transfers(self.db, self.field, self.actor)
+        self.assertEqual({(item["delta_cartons"], item["delta_packs"]) for batch in pending for item in batch["items"]},
+            {(0, 8), (0, -5)})
+        radar = await dispatch.get_route_transfers(self.rid, self.db, self.seed.owner.access(self.db))
+        self.assertEqual({row["signed_base_quantity"] for row in radar}, {Decimal(8), Decimal(-5)})
+        self.assertTrue(all(row["display_factor_to_base"] == "8" and row["display_uom_name"] == "PACK" for row in radar))
+
+    async def test_canonical_read_projections_do_not_require_legacy_packing(self):
+        await self.bind()
+        await self.adjust(8)
+        real_execute = self.db.execute
+        # DB constraints forbid storing 0/NULL. Fault-inject only that obsolete
+        # projection column, leaving real headers, lines, UOM and access checks intact.
+        for invalid in (0, None):
+            async def without_legacy_packing(statement, *args, **kwargs):
+                result = await real_execute(statement, *args, **kwargs)
+                if any(column.get("name") == "packs_per_carton" for column in getattr(statement, "column_descriptions", ())):
+                    rows = [(*row[:-1], invalid) for row in result.all()]
+                    return SimpleNamespace(all=lambda: rows)
+                return result
+            with self.subTest(packing=invalid), patch.object(self.db, "execute", side_effect=without_legacy_packing):
+                pending = await driver.get_pending_transfers(self.db, self.field, self.actor)
+                self.assertEqual((pending[0]["items"][0]["delta_cartons"], pending[0]["items"][0]["delta_packs"]), (0, 8))
+                radar = await dispatch.get_route_transfers(self.rid, self.db, self.seed.owner.access(self.db))
+                self.assertEqual((radar[0]["delta_cartons"], radar[0]["delta_packs"], radar[0]["signed_base_quantity"]), (0, 8, Decimal(8)))
+                self.assertEqual(radar[0]["display_factor_to_base"], "8")
+
+    async def test_identical_base_quantities_keep_historical_legacy_split_without_marker(self):
+        await self.bind()
+        await self.adjust(legacy=1)
+        await self.adjust(8)
+        legacy, canonical = await self.headers()
+        self.assertNotIn("quantity_contract", legacy.commercial_context)
+        self.assertEqual(canonical.commercial_context["quantity_contract"], CANONICAL_BASE_V1)
+        pending = await driver.get_pending_transfers(self.db, self.field, self.actor)
+        projected = {item["real_transfer_id"]: (item["delta_cartons"], item["delta_packs"])
+            for batch in pending for item in batch["items"]}
+        self.assertEqual(projected, {legacy.id: (1, 0), canonical.id: (0, 8)})
+        radar = await dispatch.get_route_transfers(self.rid, self.db, self.seed.owner.access(self.db))
+        self.assertEqual({row["transfer_id"]: (row["delta_cartons"], row["delta_packs"]) for row in radar}, projected)
 
     async def terminal(self, header, status, batch=False):
         from sqlalchemy import inspect

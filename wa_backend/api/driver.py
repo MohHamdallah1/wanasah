@@ -78,6 +78,7 @@ from product_lifecycle import (
 )
 from domains.pricing.core import PricingError
 from domains.dispatch_load_plan import lock_session_load_plan, synchronize_session_load_plans
+from domains.dispatch_transfer_quantity import is_canonical_base_handshake, canonical_field_base_quantity
 from domains.pricing.context import (
     commercial_context_payload,
     require_route_commercial_context,
@@ -2269,6 +2270,7 @@ async def _load_handshake_product_totals(
     *,
     company_id: int,
     header_ids: list[int],
+    canonical_header_ids: Optional[set[int]] = None,
 ):
     if not header_ids:
         return {}
@@ -2330,7 +2332,9 @@ async def _load_handshake_product_totals(
                     "يجب أن تمثل صنفاً واحداً ويمكن أن تتوزع داخلياً على عدة Batches."
                 ),
             )
-        if products[0]["quantity"] <= 0 or products[0]["packs_per_carton"] <= 0:
+        if products[0]["quantity"] <= 0 or (
+            int(header_id) not in (canonical_header_ids or ()) and products[0]["packs_per_carton"] <= 0
+        ):
             raise HTTPException(
                 status_code=409,
                 detail=f"الحوالة ({header_id}) تحمل كمية أو إعداد تعبئة غير صالح.",
@@ -3353,6 +3357,7 @@ async def get_pending_transfers(
         db,
         company_id=company_id,
         header_ids=header_ids,
+        canonical_header_ids={int(header.id) for header in headers if is_canonical_base_handshake(header)},
     )
 
     batches = {}
@@ -3366,6 +3371,7 @@ async def get_pending_transfers(
         packs = product["packs_per_carton"]
         sign = -1 if signed_quantity < 0 else 1
         abs_packs = abs(signed_quantity)
+        canonical_base = is_canonical_base_handshake(header)
 
         batch_key = (
             header.notes
@@ -3383,8 +3389,8 @@ async def get_pending_transfers(
         batches[batch_key]["items"].append({
             "real_transfer_id": int(header.id),
             "product_name": product["variant_name"],
-            "delta_cartons": (abs_packs // packs) * sign,
-            "delta_packs": (abs_packs % packs) * sign,
+            "delta_cartons": 0 if canonical_base else (abs_packs // packs) * sign,
+            "delta_packs": canonical_field_base_quantity(signed_quantity) if canonical_base else (abs_packs % packs) * sign,
         })
 
     return list(batches.values())
@@ -3858,6 +3864,7 @@ async def get_driver_visits(
                 db,
                 company_id=company_id,
                 header_ids=[int(header.id) for header in pending_headers],
+                canonical_header_ids={int(header.id) for header in pending_headers if is_canonical_base_handshake(header)},
             )
             for header in pending_headers:
                 product = totals[int(header.id)][0]

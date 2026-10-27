@@ -154,6 +154,11 @@ Direct returns reuse the accepted unload safety authority; the Dashboard radar
 uses canonical signed base/UOM evidence. This item remains open until diff review,
 automated gates and owner live acceptance are complete.
 
+Canonical handshakes persist `commercial_context.quantity_contract = CANONICAL_BASE_V1`.
+FIELD compatibility exposes their signed integral base quantity as zero cartons and
+all base units in `delta_packs`; absent markers preserve legacy splitting. Canonical
+radar validity/presentation does not depend on legacy `packs_per_carton`.
+
 Confirmed evidence:
 
 - the active-route `Adjust load / تعديل الحمولة` workflow still reads and writes integer `delta_cartons`;
