@@ -87,9 +87,9 @@ Quick live Dashboard acceptance:
 - Launch the route.
 - Verify Vehicle custody still contains the full original quantity and the Warehouse did not receive a false remainder return.
 
-### [ ] 4. Show current / target / delta before Route Launch
+### [x] 4. Show current / target / delta before Route Launch
 
-**Status:** implemented and merged in PR #569; pending owner live Dashboard acceptance before `[x]`.
+**Status:** accepted by owner in live Dashboard and independently verified against the live database. The 30→25 preview showed a 5-unit Vehicle→Warehouse return; execution produced exactly one 5-base-unit DISPATCH_UNLOAD movement, leaving Vehicle=25 and Warehouse=5.
 
 Required:
 
