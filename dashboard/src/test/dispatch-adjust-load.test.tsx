@@ -128,6 +128,24 @@ describe("Adjust Load operator workflow", () => {
 
 describe("Durable adjustment command", () => {
   const body = { deltas: [{ product_id: 701, delta_base: "5" }] };
+  it("does not carry a previous route's busy state or completion into the new route", async () => {
+    let finish: (value: { mode: string }) => void;
+    fake.fetch.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const view = renderHook(({ routeId }) => useAdjustLoadCommand(routeId, 1, 3), { initialProps: { routeId: "9" } });
+    await waitFor(() => expect(view.result.current.ready).toBe(true));
+    let running: Promise<string | null>;
+    act(() => { running = view.result.current.execute(body); });
+    await waitFor(() => expect(fake.fetch).toHaveBeenCalledOnce());
+    expect(view.result.current.busy).toBe(true);
+    view.rerender({ routeId: "10" });
+    await waitFor(() => expect(view.result.current.ready).toBe(true));
+    expect(view.result.current.busy).toBe(false);
+    expect(view.result.current.pending).toBeNull();
+    await act(async () => { finish!({ mode: "DIRECT" }); expect(await running!).toBeNull(); });
+    expect(view.result.current.pending).toBeNull();
+    expect(fake.fetch).toHaveBeenCalledOnce();
+  });
+
   it("retains an ambiguous body/UUID across refresh and prevents a conflicting new command", async () => {
     fake.fetch.mockRejectedValue(Object.assign(new Error(), { code: "NETWORK_UNAVAILABLE", status: 0 }));
     const first = renderHook(() => useAdjustLoadCommand("9", 1, 3));

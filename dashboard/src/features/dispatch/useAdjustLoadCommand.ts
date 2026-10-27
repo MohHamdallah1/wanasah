@@ -20,7 +20,7 @@ export function useAdjustLoadCommand(routeId: string | undefined, companyId?: nu
   scopeRef.current = scope;
   useEffect(() => {
     let live = true;
-    setReady(false); setPending(null); setRecoveryError(null);
+    setReady(false); setPending(null); setRecoveryError(null); setBusy(false);
     if (!scope) return;
     void readDurableCommand<AdjustLoadPayload>(scope).then((command) => {
       if (live) { setPending(command); setReady(true); }
