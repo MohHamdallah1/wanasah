@@ -1,5 +1,7 @@
 """Regression: Dispatch Route Launch must never silently unload a UOM remainder."""
 from decimal import Decimal
+from fractions import Fraction
+from itertools import permutations
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -11,7 +13,7 @@ from domains.dispatch_route_load import (
     route_vehicle_base_totals,
     route_load_uom_metadata,
 )
-from domains.uom_authority import _build_authority
+from domains.uom_authority import UomAuthorityError, _build_authority
 from schemas import DispatchRouteRequest
 
 
@@ -114,27 +116,62 @@ async def test_metadata_resolves_one_exact_pack_and_keeps_base_name():
 
 
 @pytest.mark.asyncio
-async def test_ambiguous_commercial_display_falls_back_to_base_unit():
+@pytest.mark.parametrize("edges,expected", [
+    ([], None),
+    ([(2, 1, "8")], (2, "PACK", "8")),
+    ([(2, 1, "8"), (3, 1, "96"), (4, 1, "4800")], (4, "PALLET", "4800")),
+    ([(2, 1, "8"), (3, 2, "12"), (4, 3, "50")], (4, "PALLET", "4800")),
+    ([(2, 1, "8"), (3, 1, "96"), (4, 1, "96")], None),
+    ([(2, 1, "1.5"), (3, 1, "0.5"), (4, 1, "1"), (5, 6, "4800")], None),
+])
+async def test_metadata_uses_largest_exact_display_or_safe_base_fallback(edges, expected):
     variant = SimpleNamespace(
         id=701, base_uom_id=1, quantity_scale=0, quantity_step=Decimal("1"),
     )
-    conversion1 = SimpleNamespace(
-        product_variant_id=701, from_uom_id=2, to_uom_id=1,
-        numerator=Decimal("8"), denominator=Decimal("1"),
-    )
-    conversion2 = SimpleNamespace(
-        product_variant_id=701, from_uom_id=3, to_uom_id=1,
-        numerator=Decimal("16"), denominator=Decimal("1"),
-    )
+    conversions = [_conversion(*edge) for edge in edges]
+    responses = iter([[(701, 1, 0, Decimal("1"), "EACH", "EACH")]] +
+                     ([[(expected[0], expected[1])]] if expected else []))
     db = SimpleNamespace(
-        execute=AsyncMock(return_value=SimpleNamespace(
-            all=lambda: [(701, 1, 0, Decimal("1"), "piece", "PCS")],
-        )),
+        execute=AsyncMock(side_effect=lambda _: SimpleNamespace(all=lambda: next(responses))),
         scalars=AsyncMock(side_effect=[
             SimpleNamespace(all=lambda: [variant]),
-            SimpleNamespace(all=lambda: [conversion1, conversion2]),
+            SimpleNamespace(all=lambda: conversions),
         ]),
     )
     metadata = await route_load_uom_metadata(db, company_id=1, variant_ids=[701])
-    assert metadata[701]["display_uom_name"] is None
-    assert metadata[701]["display_factor_to_base"] is None
+    assert metadata[701]["base_uom_name"] == "EACH"
+    assert metadata[701]["display_uom_name"] == (expected[1] if expected else None)
+    assert metadata[701]["display_factor_to_base"] == (expected[2] if expected else None)
+    assert db.execute.await_count == (2 if expected else 1)
+
+
+def _conversion(source, target, ratio):
+    return SimpleNamespace(product_variant_id=701, from_uom_id=source, to_uom_id=target,
+                           numerator=Decimal(ratio), denominator=Decimal("1"))
+
+
+@pytest.mark.parametrize("edges,expected", [
+    ([(2, 1, "8"), (3, 1, "96"), (4, 1, "4800")], (4, Fraction(4800))),
+    ([(2, 1, "8"), (3, 2, "12"), (4, 3, "50")], (4, Fraction(4800))),
+    ([(2, 1, "8"), (3, 1, "4800"), (4, 1, "4800")], None),
+    ([(2, 1, "8"), (3, 1, "8"), (4, 1, "96")], (4, Fraction(96))),
+])
+def test_display_selection_is_independent_of_graph_insertion_order(edges, expected):
+    variant = SimpleNamespace(id=701, base_uom_id=1, quantity_scale=0, quantity_step=Decimal("1"))
+    for order in permutations(edges):
+        authority = _build_authority(variant, [_conversion(*edge) for edge in order])
+        assert authority.largest_display_uom() == expected
+        assert authority.factor_to_base(1) == 1
+
+
+@pytest.mark.asyncio
+async def test_conflicting_graph_still_fails_before_display_selection():
+    variant = SimpleNamespace(id=701, base_uom_id=1, quantity_scale=0, quantity_step=Decimal("1"))
+    db = SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(all=lambda: [(701, 1, 0, Decimal("1"), "EACH", "EACH")])),
+        scalars=AsyncMock(side_effect=[SimpleNamespace(all=lambda: [variant]),
+            SimpleNamespace(all=lambda: [_conversion(2, 1, "8"), _conversion(3, 2, "12"), _conversion(3, 1, "95")])]),
+    )
+    with pytest.raises(UomAuthorityError) as caught:
+        await route_load_uom_metadata(db, company_id=1, variant_ids=[701])
+    assert caught.value.code == "UOM_CONVERSION_GRAPH_AMBIGUOUS"

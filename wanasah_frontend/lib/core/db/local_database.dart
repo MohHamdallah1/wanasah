@@ -22,48 +22,42 @@ import '../../models/visit_model.dart';
 import '../sync/durable_command.dart';
 import '../sync/pending_command_store.dart';
 import 'visit/visit_local_persistence.dart';
+import '../serialization/pending_transfer_quantity.dart';
 
 class LocalDatabase {
   // -----------------------------------------------------------------------
   // Singleton Pattern
   // -----------------------------------------------------------------------
   LocalDatabase._privateConstructor();
-
   static final LocalDatabase instance = LocalDatabase._privateConstructor();
-
   late final PendingCommandStore pendingCommands = PendingCommandStore(
     databaseProvider: () => database,
     tenantProvider: () => currentTenant,
   );
-
   late final VisitLocalPersistence _visitPersistence = VisitLocalPersistence(
     databaseProvider: () => database,
     pendingCommands: pendingCommands,
   );
-
   // الاتصال الوحيد بقاعدة البيانات — null حتى يتم التهيئة للمرة الأولى
   static Database? _database;
-  
   // +++ الدرع المعماري (Mutex Lock): منع التطبيق من محاولة فتح القاعدة مرتين بنفس اللحظة +++
   static Future<Database>? _initDbFuture;
-
   // +++ الدرع السيادي الفيزيائي (Physical Tenant Isolation) +++
   String? _companyCode;
-  int _dbGeneration = 0; // +++ عداد الجيل (Generation Counter) لنسف سباق الأقفال +++
-
+  int _dbGeneration =
+      0; // +++ عداد الجيل (Generation Counter) لنسف سباق الأقفال +++
   Future<void> setTenant(String companyCode) async {
-    if (_companyCode == companyCode) return; 
-
+    if (_companyCode == companyCode) return;
     _dbGeneration++; // إبطال أي عملية فتح جارية في الخلفية
     _companyCode = companyCode;
-
     if (_database != null) {
       await _database?.close(); // استخدام ?. لسحق خطأ الـ Null Safety
     }
     _database = null;
     _initDbFuture = null;
-
-    developer.log('[LocalDatabase] 🛡️ Physical Tenant Isolation Active: $_companyCode (Gen: $_dbGeneration)');
+    developer.log(
+      '[LocalDatabase] 🛡️ Physical Tenant Isolation Active: $_companyCode (Gen: $_dbGeneration)',
+    );
   }
 
   Future<void> resetTenant() async {
@@ -79,7 +73,9 @@ class LocalDatabase {
 
   String get currentTenant {
     if (_companyCode == null) {
-      throw Exception('🚨 حرج أمنياً: لم يتم حقن رمز الشركة (Tenant Code) في قاعدة البيانات. التطبيق يحاول كسر العزل.');
+      throw Exception(
+        '🚨 حرج أمنياً: لم يتم حقن رمز الشركة (Tenant Code) في قاعدة البيانات. التطبيق يحاول كسر العزل.',
+      );
     }
     return _companyCode!;
   }
@@ -89,26 +85,24 @@ class LocalDatabase {
   Future<Database> get database async {
     while (true) {
       if (_database != null && _database!.isOpen) return _database!;
-
       final currentGen = _dbGeneration;
       _initDbFuture ??= _initDB();
-
       try {
         final db = await _initDbFuture!;
-        
         // +++ حارس الجيل: إذا تغير الجيل أثناء الفتح (تم تغيير الشركة)، نغلقها فوراً ونعيد المحاولة من خلال الحلقة +++
         if (currentGen != _dbGeneration) {
-          developer.log('[LocalDatabase] ⚠️ Generation mismatch detected ($currentGen != $_dbGeneration). Reconnecting...');
+          developer.log(
+            '[LocalDatabase] ⚠️ Generation mismatch detected ($currentGen != $_dbGeneration). Reconnecting...',
+          );
           await db.close();
           _initDbFuture = null;
           continue; // عودة لبداية الـ while دون استدعاء ذاتي (Recursion)
         }
-        
         _database = db;
         return _database!;
       } finally {
         if (currentGen == _dbGeneration) {
-          _initDbFuture = null; 
+          _initDbFuture = null;
         }
       }
     }
@@ -120,13 +114,14 @@ class LocalDatabase {
   Future<Database> _initDB() async {
     final documentsDirectory = await getApplicationDocumentsDirectory();
     // +++ العزل الفيزيائي (Physical Isolation): اسم الملف يتغير تلقائياً حسب رمز الشركة +++
-    final dbPath = join(documentsDirectory.path, 'wanasah_local_$currentTenant.db');
-
+    final dbPath = join(
+      documentsDirectory.path,
+      'wanasah_local_$currentTenant.db',
+    );
     developer.log('[LocalDatabase] Opening isolated database at: $dbPath');
-
     return await openDatabase(
       dbPath,
-      version: 10, // V10: durable offline command lifecycle without deleting legacy evidence
+      version: 11, // V11: additive canonical pending-transfer display evidence
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -147,7 +142,6 @@ class LocalDatabase {
   // -----------------------------------------------------------------------
   Future<void> _onCreate(Database db, int version) async {
     developer.log('[LocalDatabase] Creating tables for version $version...');
-
     await db.execute('''
       CREATE TABLE products (
         id                 INTEGER PRIMARY KEY,
@@ -163,7 +157,6 @@ class LocalDatabase {
         current_packs      INTEGER DEFAULT 0
       )
     ''');
-
     await db.execute('''
         CREATE TABLE visits (
           visit_id INTEGER PRIMARY KEY, 
@@ -189,7 +182,6 @@ class LocalDatabase {
           notes TEXT
         )
       ''');
-
     await db.execute('''
       CREATE TABLE incoming_transfers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -200,10 +192,18 @@ class LocalDatabase {
         delta_packs INTEGER,
         status TEXT,
         created_at TEXT,
-        batch_id TEXT
+        batch_id TEXT,
+        quantity_contract TEXT,
+        signed_base_quantity TEXT,
+        base_uom_id INTEGER,
+        base_uom_code TEXT,
+        base_uom_name TEXT,
+        quantity_scale INTEGER,
+        quantity_step TEXT,
+        display_uom_name TEXT,
+        display_factor_to_base TEXT
       )
     ''');
-
     await db.execute('''
       CREATE TABLE pending_sync (
         id                 INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -226,34 +226,62 @@ class LocalDatabase {
       'CREATE INDEX IF NOT EXISTS ix_pending_sync_state_created '
       'ON pending_sync(state, created_at, id)',
     );
-
     developer.log('[LocalDatabase] All tables created successfully.');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    developer.log('[LocalDatabase] Upgrading DB from v$oldVersion to v$newVersion');
+    developer.log(
+      '[LocalDatabase] Upgrading DB from v$oldVersion to v$newVersion',
+    );
     if (oldVersion < 2) {
-      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN cash_collected REAL DEFAULT 0.0');
-      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN debt_paid REAL DEFAULT 0.0');
-      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN max_debt_limit REAL DEFAULT 0.0');
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE visits ADD COLUMN cash_collected REAL DEFAULT 0.0',
+      );
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE visits ADD COLUMN debt_paid REAL DEFAULT 0.0',
+      );
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE visits ADD COLUMN max_debt_limit REAL DEFAULT 0.0',
+      );
     }
     if (oldVersion < 3) {
-      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN visit_sequence INTEGER DEFAULT 999');
-      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN is_emergency INTEGER DEFAULT 0');
-      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN location_link TEXT');
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE visits ADD COLUMN visit_sequence INTEGER DEFAULT 999',
+      );
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE visits ADD COLUMN is_emergency INTEGER DEFAULT 0',
+      );
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE visits ADD COLUMN location_link TEXT',
+      );
       await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN latitude REAL');
       await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN longitude REAL');
     }
     if (oldVersion < 4) {
-      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN cart_items TEXT');
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE visits ADD COLUMN cart_items TEXT',
+      );
       await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN returns TEXT');
     }
     if (oldVersion < 5) {
       await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN notes TEXT');
     }
     if (oldVersion < 6) {
-      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN shop_owner TEXT');
-      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN shop_phone TEXT');
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE visits ADD COLUMN shop_owner TEXT',
+      );
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE visits ADD COLUMN shop_phone TEXT',
+      );
     }
     if (oldVersion < 7) {
       await db.execute('''
@@ -296,7 +324,9 @@ class LocalDatabase {
       ''');
       await db.execute('DROP TABLE visits');
       await db.execute('ALTER TABLE visits_v7 RENAME TO visits');
-      developer.log('[LocalDatabase] v7 migration: Normalized monetary columns to REAL.');
+      developer.log(
+        '[LocalDatabase] v7 migration: Normalized monetary columns to REAL.',
+      );
     }
     if (oldVersion < 8) {
       await db.execute('''
@@ -314,25 +344,60 @@ class LocalDatabase {
       ''');
     }
     if (oldVersion < 9) {
-      await _safeAlterTable(db, 'ALTER TABLE products ADD COLUMN starting_packs INTEGER DEFAULT 0');
-      await _safeAlterTable(db, 'ALTER TABLE products ADD COLUMN sold_cartons INTEGER DEFAULT 0');
-      await _safeAlterTable(db, 'ALTER TABLE products ADD COLUMN sold_packs INTEGER DEFAULT 0');
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE products ADD COLUMN starting_packs INTEGER DEFAULT 0',
+      );
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE products ADD COLUMN sold_cartons INTEGER DEFAULT 0',
+      );
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE products ADD COLUMN sold_packs INTEGER DEFAULT 0',
+      );
     }
     if (oldVersion < 10) {
-      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN command_id TEXT');
-      await _safeAlterTable(db, "ALTER TABLE pending_sync ADD COLUMN state TEXT NOT NULL DEFAULT 'pending'");
-      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN owner_company_code TEXT');
-      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN owner_driver_id INTEGER');
-      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0');
-      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN last_error_code TEXT');
-      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN last_error_message TEXT');
-      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN last_request_id TEXT');
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE pending_sync ADD COLUMN command_id TEXT',
+      );
+      await _safeAlterTable(
+        db,
+        "ALTER TABLE pending_sync ADD COLUMN state TEXT NOT NULL DEFAULT 'pending'",
+      );
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE pending_sync ADD COLUMN owner_company_code TEXT',
+      );
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE pending_sync ADD COLUMN owner_driver_id INTEGER',
+      );
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE pending_sync ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0',
+      );
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE pending_sync ADD COLUMN last_error_code TEXT',
+      );
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE pending_sync ADD COLUMN last_error_message TEXT',
+      );
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE pending_sync ADD COLUMN last_request_id TEXT',
+      );
       await _safeAlterTable(
         db,
         'ALTER TABLE pending_sync ADD COLUMN local_effect_applied INTEGER NOT NULL DEFAULT 0',
       );
-      await _safeAlterTable(db, 'ALTER TABLE pending_sync ADD COLUMN updated_at TEXT');
-
+      await _safeAlterTable(
+        db,
+        'ALTER TABLE pending_sync ADD COLUMN updated_at TEXT',
+      );
       await db.rawUpdate(
         "UPDATE pending_sync SET state = ? WHERE type LIKE 'quarantined_%'",
         [DurableCommandState.blocked.storageValue],
@@ -353,21 +418,36 @@ class LocalDatabase {
         '[LocalDatabase] v10 migration: preserved pending_sync rows and added durable lifecycle metadata.',
       );
     }
+    if (oldVersion < 11) {
+      for (final column in const [
+        'quantity_contract TEXT',
+        'signed_base_quantity TEXT',
+        'base_uom_id INTEGER',
+        'base_uom_code TEXT',
+        'base_uom_name TEXT',
+        'quantity_scale INTEGER',
+        'quantity_step TEXT',
+        'display_uom_name TEXT',
+        'display_factor_to_base TEXT',
+      ]) {
+        await _safeAlterTable(
+          db,
+          'ALTER TABLE incoming_transfers ADD COLUMN $column',
+        );
+      }
+    }
   }
 
   // -----------------------------------------------------------------------
   // دوال مساعدة عامة للـ CRUD
   // -----------------------------------------------------------------------
-
   Future<void> clearSessionData({bool clearPendingSyncs = false}) async {
     final db = await database;
-
     if (clearPendingSyncs) {
       throw UnsupportedError(
         'Offline command evidence cannot be bulk-deleted by session cleanup.',
       );
     }
-
     final unresolvedCount = Sqflite.firstIntValue(
       await db.rawQuery('SELECT COUNT(*) FROM pending_sync'),
     );
@@ -377,13 +457,14 @@ class LocalDatabase {
       );
       return;
     }
-
     await db.transaction((txn) async {
       await txn.delete('products');
       await txn.delete('visits');
       await txn.delete('incoming_transfers');
     });
-    developer.log('[LocalDatabase] Session tables cleared safely via transaction.');
+    developer.log(
+      '[LocalDatabase] Session tables cleared safely via transaction.',
+    );
   }
 
   Future<void> insertProducts(List<ProductModel> products) async {
@@ -438,13 +519,10 @@ class LocalDatabase {
 
   Future<List<Map<String, dynamic>>> getPendingSyncs({int? limit}) =>
       pendingCommands.all(limit: limit);
-
   Future<void> deletePendingSync(int id) =>
       pendingCommands.deleteAfterConfirmedSuccess(id);
-
   Future<void> markPendingSyncInFlight(int id) =>
       pendingCommands.markInFlight(id);
-
   Future<void> markPendingSyncPending(
     int id, {
     String? lastErrorCode,
@@ -475,10 +553,8 @@ class LocalDatabase {
 
   Future<void> updatePendingSyncPayload(int id, String payload) =>
       pendingCommands.updatePayload(id, payload);
-
   Future<void> updatePendingSyncCommandId(int id, String commandId) =>
       pendingCommands.updateCommandId(id, commandId);
-
   Future<List<Map<String, dynamic>>> getProducts() async {
     final db = await database;
     return db.query('products');
@@ -500,50 +576,43 @@ class LocalDatabase {
     String? returnsJson,
     String? notes,
     Transaction? txn,
-  }) =>
-      _visitPersistence.updateVisitStatus(
-        visitId: visitId,
-        status: status,
-        outcome: outcome,
-        cashCollected: cashCollected,
-        debtPaid: debtPaid,
-        newShopBalance: newShopBalance,
-        cartItemsJson: cartItemsJson,
-        returnsJson: returnsJson,
-        notes: notes,
-        txn: txn,
-      );
-
+  }) => _visitPersistence.updateVisitStatus(
+    visitId: visitId,
+    status: status,
+    outcome: outcome,
+    cashCollected: cashCollected,
+    debtPaid: debtPaid,
+    newShopBalance: newShopBalance,
+    cartItemsJson: cartItemsJson,
+    returnsJson: returnsJson,
+    notes: notes,
+    txn: txn,
+  );
   Future<void> deductInventoryLocal(
     List<dynamic> cartItems, {
     List<dynamic>? returnItems,
     Transaction? txn,
-  }) =>
-      _visitPersistence.deductInventoryLocal(
-        cartItems,
-        returnItems: returnItems,
-        txn: txn,
-      );
-
+  }) => _visitPersistence.deductInventoryLocal(
+    cartItems,
+    returnItems: returnItems,
+    txn: txn,
+  );
   @Deprecated(
     'Unresolved visit commands are immutable until reconciliation; use stageVisitCommandAtomic.',
   )
   Future<void> revertOfflineVisit(int visitId, {Transaction? txn}) =>
       _visitPersistence.revertOfflineVisit(visitId, txn: txn);
-
   Future<int> stageVisitCommandAtomic({
     required int visitId,
     required String payload,
     required String requestId,
     int? ownerDriverId,
-  }) =>
-      _visitPersistence.stageVisitCommandAtomic(
-        visitId: visitId,
-        payload: payload,
-        requestId: requestId,
-        ownerDriverId: ownerDriverId,
-      );
-
+  }) => _visitPersistence.stageVisitCommandAtomic(
+    visitId: visitId,
+    payload: payload,
+    requestId: requestId,
+    ownerDriverId: ownerDriverId,
+  );
   Future<bool> isFirstUnresolvedCommand(int commandRecordId) async {
     final rows = await getPendingSyncs(limit: 1);
     if (rows.isEmpty) return false;
@@ -562,29 +631,21 @@ class LocalDatabase {
     String? notes,
     required List<dynamic> cartItems,
     List<dynamic>? returnItems,
-  }) =>
-      _visitPersistence.finalizeVisitCommandLocalState(
-        commandRecordId: commandRecordId,
-        visitId: visitId,
-        status: status,
-        outcome: outcome,
-        cashCollected: cashCollected,
-        debtPaid: debtPaid,
-        cartItemsJson: cartItemsJson,
-        returnsJson: returnsJson,
-        notes: notes,
-        cartItems: cartItems,
-        returnItems: returnItems,
-      );
-
-
-
-  Future<void> updateShopBalanceLocally(
-    int visitId,
-    double newBalance,
-  ) =>
+  }) => _visitPersistence.finalizeVisitCommandLocalState(
+    commandRecordId: commandRecordId,
+    visitId: visitId,
+    status: status,
+    outcome: outcome,
+    cashCollected: cashCollected,
+    debtPaid: debtPaid,
+    cartItemsJson: cartItemsJson,
+    returnsJson: returnsJson,
+    notes: notes,
+    cartItems: cartItems,
+    returnItems: returnItems,
+  );
+  Future<void> updateShopBalanceLocally(int visitId, double newBalance) =>
       _visitPersistence.updateShopBalanceLocally(visitId, newBalance);
-
   Future<void> close() async {
     if (_database != null) {
       await _database!.close();
@@ -626,17 +687,21 @@ class LocalDatabase {
       if (clearProducts) await txn.delete('products');
       if (clearVisits) await txn.delete('visits');
       if (incomingTransfers != null) {
-        await txn.delete('incoming_transfers'); 
+        await txn.delete('incoming_transfers');
       }
-
-      final pendingResponses = await txn.query('pending_sync', where: "type = 'transfer_response'");
-      final List<int> answeredTransferIds = pendingResponses.map((p) {
-        try { return jsonDecode(p['payload'] as String)['transferId'] as int; } 
-        catch (_) { return -1; }
-      }).toList();
-
+      final pendingResponses = await txn.query(
+        'pending_sync',
+        where: "type = 'transfer_response'",
+      );
+      final List<int> answeredTransferIds =
+          pendingResponses.map((p) {
+            try {
+              return jsonDecode(p['payload'] as String)['transferId'] as int;
+            } catch (_) {
+              return -1;
+            }
+          }).toList();
       final batch = txn.batch();
-
       for (final product in products) {
         batch.insert(
           'products',
@@ -644,7 +709,6 @@ class LocalDatabase {
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
-
       for (final visit in visits) {
         batch.insert(
           'visits',
@@ -652,27 +716,31 @@ class LocalDatabase {
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
-
       if (incomingTransfers != null) {
         for (final transfer in incomingTransfers) {
-          final int tId = int.tryParse(transfer['transfer_id']?.toString() ?? transfer['id']?.toString() ?? '') ?? 0;
+          final int tId =
+              int.tryParse(
+                transfer['transfer_id']?.toString() ??
+                    transfer['id']?.toString() ??
+                    '',
+              ) ??
+              0;
           if (tId == 0 || answeredTransferIds.contains(tId)) continue;
-          
-          final String batchId = transfer['batch_id']?.toString() ?? 'SINGLE_${transfer['transfer_id'] ?? transfer['id']}';
-          batch.insert(
-            'incoming_transfers',
-            {
-              'transfer_id': transfer['transfer_id'] ?? transfer['id'],
-              'product_variant_id': (transfer['product_variant_id'] as num?)?.toInt() ?? 0,
-              'product_name': transfer['product_name']?.toString() ?? 'غير معروف',
-              'delta_cartons': (transfer['delta_cartons'] as num?)?.toInt() ?? 0,
-              'delta_packs': (transfer['delta_packs'] as num?)?.toInt() ?? 0,
-              'status': transfer['status']?.toString() ?? 'pending',
-              'created_at': transfer['created_at']?.toString(),
-              'batch_id': batchId
-            },
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
+          final String batchId =
+              transfer['batch_id']?.toString() ??
+              'SINGLE_${transfer['transfer_id'] ?? transfer['id']}';
+          batch.insert('incoming_transfers', {
+            'transfer_id': transfer['transfer_id'] ?? transfer['id'],
+            'product_variant_id':
+                (transfer['product_variant_id'] as num?)?.toInt() ?? 0,
+            'product_name': transfer['product_name']?.toString() ?? 'غير معروف',
+            'delta_cartons': (transfer['delta_cartons'] as num?)?.toInt() ?? 0,
+            'delta_packs': (transfer['delta_packs'] as num?)?.toInt() ?? 0,
+            'status': transfer['status']?.toString() ?? 'pending',
+            'created_at': transfer['created_at']?.toString(),
+            'batch_id': batchId,
+            ...?(PendingTransferQuantity.fromEvidence(transfer)?.toEvidence()),
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
         }
       }
       await batch.commit(noResult: true);
@@ -699,20 +767,18 @@ class LocalDatabase {
     String? notes,
     required List<dynamic> cartItems,
     List<dynamic>? returnItems,
-  }) =>
-      _visitPersistence.saveOnlineInvoiceAtomic(
-        visitId: visitId,
-        status: status,
-        outcome: outcome,
-        cashCollected: cashCollected,
-        debtPaid: debtPaid,
-        cartItemsJson: cartItemsJson,
-        returnsJson: returnsJson,
-        notes: notes,
-        cartItems: cartItems,
-        returnItems: returnItems,
-      );
-
+  }) => _visitPersistence.saveOnlineInvoiceAtomic(
+    visitId: visitId,
+    status: status,
+    outcome: outcome,
+    cashCollected: cashCollected,
+    debtPaid: debtPaid,
+    cartItemsJson: cartItemsJson,
+    returnsJson: returnsJson,
+    notes: notes,
+    cartItems: cartItems,
+    returnItems: returnItems,
+  );
   @Deprecated(
     'Use SyncRepository.saveInvoice; durable identity must be staged before first send.',
   )
@@ -730,26 +796,23 @@ class LocalDatabase {
     List<dynamic>? returnItems,
     String? commandId,
     int? ownerDriverId,
-  }) =>
-      _visitPersistence.saveOfflineInvoiceAtomic(
-        visitId: visitId,
-        payload: payload,
-        status: status,
-        outcome: outcome,
-        cashCollected: cashCollected,
-        debtPaid: debtPaid,
-        cartItemsJson: cartItemsJson,
-        returnsJson: returnsJson,
-        notes: notes,
-        cartItems: cartItems,
-        returnItems: returnItems,
-        commandId: commandId,
-        ownerDriverId: ownerDriverId,
-      );
-
+  }) => _visitPersistence.saveOfflineInvoiceAtomic(
+    visitId: visitId,
+    payload: payload,
+    status: status,
+    outcome: outcome,
+    cashCollected: cashCollected,
+    debtPaid: debtPaid,
+    cartItemsJson: cartItemsJson,
+    returnsJson: returnsJson,
+    notes: notes,
+    cartItems: cartItems,
+    returnItems: returnItems,
+    commandId: commandId,
+    ownerDriverId: ownerDriverId,
+  );
   Future<List<Map<String, dynamic>>> getQuarantinedSyncs() =>
       pendingCommands.blocked();
-
   @Deprecated('Blocked offline evidence must not be deleted from field UI.')
   Future<void> deleteQuarantinedSync(int id) async {
     throw UnsupportedError(
@@ -764,7 +827,5 @@ class LocalDatabase {
     );
   }
 
-  Future<void> retryQuarantinedSync(int id) =>
-      pendingCommands.retryBlocked(id);
-
+  Future<void> retryQuarantinedSync(int id) => pendingCommands.retryBlocked(id);
 }

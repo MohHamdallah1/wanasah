@@ -1,4 +1,5 @@
 import 'package:wanasah_frontend/core/serialization/json_contract.dart';
+import 'pending_transfer_quantity.dart';
 
 class PendingTransferItem {
   const PendingTransferItem({
@@ -6,16 +7,24 @@ class PendingTransferItem {
     required this.productName,
     required this.deltaCartons,
     required this.deltaPacks,
+    this.canonicalQuantity,
   });
 
   final int transferId;
   final String productName;
   final int deltaCartons;
   final int deltaPacks;
+  final PendingTransferQuantity? canonicalQuantity;
+  bool get isAddition =>
+      canonicalQuantity != null
+          ? canonicalQuantity!.signedUnits > 0
+          : deltaCartons > 0 || (deltaCartons == 0 && deltaPacks > 0);
 
   factory PendingTransferItem.fromServerJson(Object? value) {
     final json = JsonContract.object(value, 'pending_transfer.item');
+    final quantity = PendingTransferQuantity.fromEvidence(json);
     return PendingTransferItem(
+      canonicalQuantity: quantity,
       transferId: JsonContract.integer(
         json['real_transfer_id'],
         'real_transfer_id',
@@ -30,7 +39,7 @@ class PendingTransferItem {
       deltaPacks: JsonContract.integer(
         json['delta_packs'],
         'delta_packs',
-        minimum: -2147483648,
+        minimum: quantity == null ? -2147483648 : -99999999999999,
       ),
     );
   }
@@ -43,13 +52,13 @@ class PendingTransferItem {
       JsonContract.invalid('local_transfer.transfer_id');
     }
     return PendingTransferItem(
+      canonicalQuantity: PendingTransferQuantity.fromEvidence(row),
       transferId: id,
       productName:
           row['product_name']?.toString().trim().isNotEmpty == true
               ? row['product_name'].toString().trim()
               : 'غير معروف',
-      deltaCartons:
-          int.tryParse(row['delta_cartons']?.toString() ?? '') ?? 0,
+      deltaCartons: int.tryParse(row['delta_cartons']?.toString() ?? '') ?? 0,
       deltaPacks: int.tryParse(row['delta_packs']?.toString() ?? '') ?? 0,
     );
   }
@@ -82,16 +91,13 @@ class PendingTransferBatch {
     return PendingTransferBatch(
       batchId: JsonContract.text(json['transfer_id'], 'transfer_id'),
       createdAt: JsonContract.optionalText(json['created_at'], 'created_at'),
-      items:
-          rawItems
-              .map(PendingTransferItem.fromServerJson)
-              .toList(growable: false),
+      items: rawItems
+          .map(PendingTransferItem.fromServerJson)
+          .toList(growable: false),
     );
   }
 
-  factory PendingTransferBatch.fromLocalRows(
-    List<Map<String, dynamic>> rows,
-  ) {
+  factory PendingTransferBatch.fromLocalRows(List<Map<String, dynamic>> rows) {
     return PendingTransferBatch(
       batchId: 'local-pending',
       items: rows.map(PendingTransferItem.fromLocalRow).toList(growable: false),

@@ -77,6 +77,9 @@ from product_lifecycle import (
     product_capability_predicate,
 )
 from domains.pricing.core import PricingError
+from domains.dispatch_load_plan import lock_session_load_plan, synchronize_session_load_plans
+from domains.dispatch_transfer_quantity import is_canonical_base_handshake, canonical_field_base_quantity, canonical_handshake_uom_metadata, canonical_handshake_evidence
+from domains.uom_authority import UomAuthorityError
 from domains.pricing.context import (
     commercial_context_payload,
     require_route_commercial_context,
@@ -2268,6 +2271,7 @@ async def _load_handshake_product_totals(
     *,
     company_id: int,
     header_ids: list[int],
+    canonical_header_ids: Optional[set[int]] = None,
 ):
     if not header_ids:
         return {}
@@ -2329,7 +2333,9 @@ async def _load_handshake_product_totals(
                     "يجب أن تمثل صنفاً واحداً ويمكن أن تتوزع داخلياً على عدة Batches."
                 ),
             )
-        if products[0]["quantity"] <= 0 or products[0]["packs_per_carton"] <= 0:
+        if products[0]["quantity"] <= 0 or (
+            int(header_id) not in (canonical_header_ids or ()) and products[0]["packs_per_carton"] <= 0
+        ):
             raise HTTPException(
                 status_code=409,
                 detail=f"الحوالة ({header_id}) تحمل كمية أو إعداد تعبئة غير صالح.",
@@ -2860,6 +2866,8 @@ async def respond_to_transfer(
         if response == "rejected" and not reason:
             raise HTTPException(status_code=400, detail="رفض الحوالة يتطلب سبباً واضحاً.")
 
+        await lock_session_load_plan(db, company_id=company_id, work_session_id=header.work_session_id)
+
         work_session = (
             await db.execute(
                 select(WorkSession)
@@ -2991,6 +2999,9 @@ async def respond_to_transfer(
             new_value=audit_value,
         ))
 
+        await synchronize_session_load_plans(
+            db, company_id=company_id, work_session_id=header.work_session_id, actor_id=driver_id,
+        )
         await db.commit()
         return {"message": f"تم تسجيل الرد ({response}) بنجاح."}
 
@@ -3086,6 +3097,7 @@ async def batch_respond_to_transfers(
                 raise transfer_batch_error(409, "FIELD_TRANSFER_BATCH_MIXED_SESSIONS",
                     "A batch must belong to one work session.")
             work_session_id = next(iter(session_ids))
+            await lock_session_load_plan(db, company_id=company_id, work_session_id=work_session_id)
 
             work_session = (
                 await db.execute(
@@ -3255,6 +3267,9 @@ async def batch_respond_to_transfers(
                     new_value=new_value,
                 ))
 
+            await synchronize_session_load_plans(
+                db, company_id=company_id, work_session_id=work_session_id, actor_id=driver_id,
+            )
         await db.commit()
         return {"message": f"تمت معالجة {len(transfer_ids)} حوالة بنجاح."}
 
@@ -3343,8 +3358,13 @@ async def get_pending_transfers(
         db,
         company_id=company_id,
         header_ids=header_ids,
+        canonical_header_ids={int(header.id) for header in headers if is_canonical_base_handshake(header)},
     )
 
+    try:
+        pending_uom = await canonical_handshake_uom_metadata(db, company_id=company_id, headers=headers, totals=totals)
+    except UomAuthorityError as exc:
+        raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message, "context": exc.context}) from exc
     batches = {}
     for header in headers:
         product = totals[int(header.id)][0]
@@ -3356,6 +3376,7 @@ async def get_pending_transfers(
         packs = product["packs_per_carton"]
         sign = -1 if signed_quantity < 0 else 1
         abs_packs = abs(signed_quantity)
+        canonical_base = is_canonical_base_handshake(header)
 
         batch_key = (
             header.notes
@@ -3373,8 +3394,9 @@ async def get_pending_transfers(
         batches[batch_key]["items"].append({
             "real_transfer_id": int(header.id),
             "product_name": product["variant_name"],
-            "delta_cartons": (abs_packs // packs) * sign,
-            "delta_packs": (abs_packs % packs) * sign,
+            "delta_cartons": 0 if canonical_base else (abs_packs // packs) * sign,
+            "delta_packs": canonical_field_base_quantity(signed_quantity) if canonical_base else (abs_packs % packs) * sign,
+            **canonical_handshake_evidence(header, signed_quantity, pending_uom.get(product["product_variant_id"], {})),
         })
 
     return list(batches.values())
@@ -3848,7 +3870,12 @@ async def get_driver_visits(
                 db,
                 company_id=company_id,
                 header_ids=[int(header.id) for header in pending_headers],
+                canonical_header_ids={int(header.id) for header in pending_headers if is_canonical_base_handshake(header)},
             )
+            try:
+                pending_uom = await canonical_handshake_uom_metadata(db, company_id=company_id, headers=pending_headers, totals=totals)
+            except UomAuthorityError as exc:
+                raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message, "context": exc.context}) from exc
             for header in pending_headers:
                 product = totals[int(header.id)][0]
                 pending_transfers_data.append({
@@ -3862,6 +3889,10 @@ async def get_driver_visits(
                     "status": "pending",
                     "created_at": header.created_at.replace(tzinfo=timezone.utc).isoformat()
                     if header.created_at else None,
+                    **({"product_name": product["variant_name"], "delta_cartons": 0,
+                        "delta_packs": _handshake_signed_quantity(header, vehicle_location_id=vehicle_location_id, quantity=product["quantity"]),
+                        **canonical_handshake_evidence(header, _handshake_signed_quantity(header, vehicle_location_id=vehicle_location_id, quantity=product["quantity"]), pending_uom[product["product_variant_id"]])}
+                       if is_canonical_base_handshake(header) else {}),
                 })
 
     return {

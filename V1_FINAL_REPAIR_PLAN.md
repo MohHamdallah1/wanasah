@@ -143,6 +143,39 @@ Quick live Dashboard acceptance:
 
 **Status:** newly confirmed V1 correctness blocker during final live acceptance.
 
+Owner-frozen compatibility decision (2026-10-27): the new Dashboard contract uses
+decimal-string `delta_base` and canonical UOM metadata. DIRECT preserves the
+Product quantity scale/step exactly. Bound-session HANDSHAKE rejects non-integral
+base deltas before creating headers/reservations while the separately owned FIELD
+contract remains integer-only. Legacy `delta_cartons` retains its old meaning;
+mixing the two request forms is forbidden. Terminal accept/reject/cancel must
+reconcile the plan to physical Vehicle base custody plus remaining pending net.
+Direct returns reuse the accepted unload safety authority; the Dashboard radar
+uses canonical signed base/UOM evidence. This item remains open until diff review,
+automated gates and owner live acceptance are complete.
+
+Canonical handshakes persist `commercial_context.quantity_contract = CANONICAL_BASE_V1`.
+FIELD compatibility exposes their signed integral base quantity as zero cartons and
+all base units in `delta_packs`; absent markers preserve legacy splitting. Canonical
+radar validity/presentation does not depend on legacy `packs_per_carton`.
+
+Owner-authorized narrow FIELD custody extension (2026-10-27): pending-transfer
+responses and session-refresh custody evidence carry canonical base/UOM metadata.
+Flutter preserves that evidence in additive SQLite v11 columns, formats the exact
+server-provided display factor or true base UOM, and retains canonical local retry
+context. Unmarked rows keep legacy presentation. Transfer decisions still carry
+only transfer identity and decision; Backend lines remain quantity authority.
+Item 6 stays OPEN for lead diff review, passing gates and owner live acceptance.
+
+Owner-approved display selection correction (2026-10-27): shared UOM authority
+selects the unique largest reachable non-base UOM whose exact factor to base is
+an integer greater than one, including chained conversions. Equal-largest ties
+or no candidate retain base-UOM display. Canonical Route Launch, Adjust Load,
+radar and FIELD consume this through existing metadata; presentation remains
+one display UOM plus the exact base remainder, without multi-level decomposition.
+Stock/movement quantities remain BASE and unmarked historical transfers keep
+their legacy presentation. This does not open Advanced UOM configuration scope.
+
 Confirmed evidence:
 
 - the active-route `Adjust load / تعديل الحمولة` workflow still reads and writes integer `delta_cartons`;

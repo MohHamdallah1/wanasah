@@ -78,6 +78,16 @@ class VariantUomAuthority:
     quantity_step: Decimal
     factors_to_base: dict[int, Fraction]
 
+    def largest_display_uom(self) -> tuple[int, Fraction] | None:
+        """Select the unique largest exact whole-base unit; ties keep base display."""
+        candidates = [(uom_id, factor) for uom_id, factor in self.factors_to_base.items()
+                      if uom_id != self.base_uom_id and factor > 1 and factor.denominator == 1]
+        if not candidates:
+            return None
+        largest = max(factor for _, factor in candidates)
+        winners = [candidate for candidate in candidates if candidate[1] == largest]
+        return winners[0] if len(winners) == 1 else None
+
     def factor_to_base(self, uom_id: int) -> Fraction:
         key = int(uom_id)
         factor = self.factors_to_base.get(key)

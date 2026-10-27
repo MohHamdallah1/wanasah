@@ -17,6 +17,7 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from domains.dispatch_transfer_quantity import is_canonical_base_handshake, canonical_field_base_quantity
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.orm import selectinload
@@ -537,6 +538,8 @@ def load_custody_routes(**dependencies):
             ast.Constant(None) if isinstance(value, ast.Call) else value for value in node.args.defaults
         ]
     namespace = dict(globals(), logger=Mock(), **dependencies)
+    namespace.setdefault("lock_session_load_plan", AsyncMock())
+    namespace.setdefault("synchronize_session_load_plans", AsyncMock())
     module = ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[]))
     exec(compile(module, str(BACKEND / "api/driver.py"), "exec"), namespace)
     return namespace

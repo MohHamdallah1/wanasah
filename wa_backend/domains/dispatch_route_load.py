@@ -18,14 +18,27 @@ def canonical_route_delta(*, current: Decimal, target: Decimal, authority: Varia
     return target - current
 
 
-async def route_vehicle_base_totals(db: AsyncSession, *, company_id: int, location_id: int):
+def canonical_adjustment_target(
+    *, current: Decimal, pending: Decimal, delta: Decimal, authority: VariantUomAuthority,
+) -> Decimal:
+    """An in-route delta extends current custody plus already-pending handshakes."""
+    authority.validate_canonical_total(abs(delta), field_name="delta_base")
+    target = current + pending + delta
+    if current + pending < 0 or target < 0:
+        raise UomAuthorityError("DISPATCH_ADJUSTMENT_NEGATIVE", "Resulting load cannot be negative.")
+    if target:
+        authority.validate_canonical_total(target, field_name="target_base_quantity")
+    return target
+
+
+async def route_vehicle_base_totals(db: AsyncSession, *, company_id: int, location_id: int, all_statuses: bool = False):
     rows = (await db.execute(
         select(InventoryBalance.product_variant_id,
                func.sum(InventoryBalance.on_hand_quantity),
                func.sum(InventoryBalance.reserved_quantity))
         .where(InventoryBalance.company_id == company_id,
                InventoryBalance.location_id == location_id,
-               InventoryBalance.stock_status == "AVAILABLE",
+               True if all_statuses else InventoryBalance.stock_status == "AVAILABLE",
                or_(InventoryBalance.on_hand_quantity > 0, InventoryBalance.reserved_quantity > 0))
         .group_by(InventoryBalance.product_variant_id)
         .order_by(InventoryBalance.product_variant_id.asc())
@@ -81,8 +94,36 @@ async def allocate_route_base_batches(
     return result
 
 
+async def allocate_route_return_batches(db, *, company_id, location_id, product_variant_id, quantity):
+    """Deterministic free custody allocation, retaining each source stock bucket."""
+    rows = (await db.execute(select(
+        InventoryBalance.batch_id, InventoryBalance.stock_status,
+        InventoryBalance.on_hand_quantity, InventoryBalance.reserved_quantity,
+    ).join(ProductBatch, and_(
+        ProductBatch.company_id == InventoryBalance.company_id,
+        ProductBatch.product_variant_id == InventoryBalance.product_variant_id,
+        ProductBatch.id == InventoryBalance.batch_id))
+      .where(InventoryBalance.company_id == company_id, InventoryBalance.location_id == location_id,
+             InventoryBalance.product_variant_id == product_variant_id,
+             InventoryBalance.on_hand_quantity > InventoryBalance.reserved_quantity)
+      .order_by(ProductBatch.expiry_date.asc(), ProductBatch.id.asc(), InventoryBalance.stock_status.asc(),
+                InventoryBalance.id.asc()).with_for_update())).all()
+    remaining, allocations = quantity, []
+    for batch_id, status, on_hand, reserved in rows:
+        take = min(Decimal(on_hand) - Decimal(reserved), remaining)
+        if take > 0:
+            allocations.append(dict(product_variant_id=product_variant_id, batch_id=int(batch_id),
+                                   quantity=take, stock_status=str(status)))
+            remaining -= take
+        if not remaining:
+            break
+    if remaining:
+        raise InventoryMutationError("Insufficient free vehicle custody for this return.")
+    return allocations
+
+
 async def route_load_uom_metadata(db: AsyncSession, *, company_id: int, variant_ids):
-    """Exact base UOM plus one uniquely reachable commercial UOM when available."""
+    """Exact base UOM plus the shared authority's largest unambiguous display UOM."""
     ids = sorted({int(v) for v in variant_ids})
     if not ids:
         return {}
@@ -99,11 +140,9 @@ async def route_load_uom_metadata(db: AsyncSession, *, company_id: int, variant_
     authorities = await load_variant_uom_authorities(db, company_id=company_id, variant_ids=ids)
     commercial = {}
     for pid in ids:
-        authority = authorities[pid]
-        candidates = [(uom_id, factor) for uom_id, factor in authority.factors_to_base.items()
-                      if uom_id != authority.base_uom_id and factor > 1 and factor.denominator == 1]
-        if len(candidates) == 1:
-            commercial[pid] = candidates[0]
+        candidate = authorities[pid].largest_display_uom()
+        if candidate is not None:
+            commercial[pid] = candidate
     candidate_ids = sorted({candidate[0] for candidate in commercial.values()})
     names = dict((await db.execute(select(UOM.id, UOM.name).where(
         UOM.id.in_(candidate_ids)))).all()) if candidate_ids else {}

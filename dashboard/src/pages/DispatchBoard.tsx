@@ -1991,10 +1991,12 @@ export default function DispatchBoard() {
       <BulkTransferModal isOpen={isBulkTransferModalOpen} onClose={() => setIsBulkTransferModalOpen(false)} selectedShopIds={selectedShopIds} zones={zones} selectedZoneIdForZones={selectedZoneIdForZones} targetTransferZoneId={targetTransferZoneId} onTargetTransferZoneChange={setTargetTransferZoneId} onConfirm={async () => { if (!targetTransferZoneId) return toast.error("⚠️ اختر المنطقة"); try { const payload = selectedShopIds.map(id => ({ id, zoneId: targetTransferZoneId, sequence: 999, archived: false })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, zoneId: targetTransferZoneId, sequence: 999 } : s)); setSelectedShopIds([]); setIsBulkTransferModalOpen(false); setTargetTransferZoneId(""); fetchInitialData(); toast.success("تم نقل المحلات بنجاح"); } catch (err: unknown) { toast.error("خطأ في النقل: " + getErrorMessage(err)); } }} />
       {/* +++ نافذة تعديل الحمولة +++ */}
       <AdjustInventoryModal
+        companyId={sourceAccess.data?.company_id}
+        principalId={sourceAccess.data?.principal_id}
         isOpen={isInventoryModalOpen}
         onClose={() => setIsInventoryModalOpen(false)}
         route={inventoryRoute}
-        onSuccess={fetchInitialData}
+        onSuccess={() => { fetchInitialData(); }}
       />
 
       {/* +++ رادار الحوالات المصفح +++ */}

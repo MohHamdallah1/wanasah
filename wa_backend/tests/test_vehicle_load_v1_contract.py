@@ -11,6 +11,7 @@ BACKEND = Path(__file__).resolve().parents[1]
 SERVICE = (BACKEND / "domains/inventory_vehicle_load/service.py").read_text(
     encoding="utf-8"
 )
+RETURN_SAFETY = (BACKEND / "domains/inventory_vehicle_load/return_safety.py").read_text(encoding="utf-8")
 API = (BACKEND / "api/vehicles/load.py").read_text(encoding="utf-8")
 SCHEMAS = (BACKEND / "api/vehicles/load_schemas.py").read_text(encoding="utf-8")
 ROUTER = (BACKEND / "api/vehicles/__init__.py").read_text(encoding="utf-8")
@@ -89,7 +90,7 @@ class VehicleLoadV1ContractTests(unittest.TestCase):
             '"VEHICLE_UNLOAD_DIRECT"',
             '"VEHICLE_UNLOAD_SAFE_STATUS"',
         ):
-            self.assertIn(fragment, SERVICE)
+            self.assertIn(fragment, SERVICE + RETURN_SAFETY)
         self.assertEqual(
             _preserve_or_tighten_unload_status("AVAILABLE", "RECALLED"),
             "RECALLED",

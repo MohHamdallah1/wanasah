@@ -498,7 +498,31 @@ class BatchTransferResponseRequest(RequestModel):
         return self
 
 
-class PendingTransferItem(BaseModel):
+class PendingTransferQuantityEvidence(BaseModel):
+    quantity_contract: Optional[Literal["CANONICAL_BASE_V1"]] = None
+    signed_base_quantity: Optional[SignedQuantity] = None
+    base_uom_id: Optional[PositiveDbInt] = None
+    base_uom_code: Optional[str] = None
+    base_uom_name: Optional[str] = None
+    quantity_scale: Optional[int] = Field(None, ge=0, le=6)
+    quantity_step: Optional[NonNegativeQuantity] = None
+    display_uom_name: Optional[str] = None
+    display_factor_to_base: Optional[str] = None
+
+    @model_serializer(mode="wrap")
+    def preserve_unmarked_legacy_response(self, handler):
+        result = handler(self)
+        if self.quantity_contract is None:
+            for key in ("quantity_contract", "signed_base_quantity", "base_uom_id", "base_uom_code",
+                        "base_uom_name", "quantity_scale", "quantity_step", "display_uom_name", "display_factor_to_base"):
+                result.pop(key, None)
+            for key in ("product_name", "delta_cartons", "delta_packs"):
+                if result.get(key) is None:
+                    result.pop(key, None)
+        return result
+
+
+class PendingTransferItem(PendingTransferQuantityEvidence):
     real_transfer_id: int
     product_name: str
     delta_cartons: int
@@ -640,7 +664,10 @@ class InventoryDataResponse(BaseModel):
     current_cartons: int
     current_packs: int
 
-class PendingTransferMinResponse(BaseModel):
+class PendingTransferMinResponse(PendingTransferQuantityEvidence):
+    product_name: Optional[str] = None
+    delta_cartons: Optional[int] = None
+    delta_packs: Optional[int] = None
     transfer_id: int
     product_variant_id: int
     quantity_packs: int
@@ -1043,15 +1070,28 @@ class RouteLiveInventoryItemResponse(BaseModel):
     product_name: str
     current_cartons: int
     current_packs: int
+    current_base_quantity: NonNegativeQuantity
+    reserved_base_quantity: NonNegativeQuantity
+    pending_base_quantity: SignedQuantity
+    base_uom_id: PositiveDbInt
+    base_uom_name: str
+    base_uom_code: str
+    quantity_scale: int
+    quantity_step: NonNegativeQuantity
+    display_uom_name: Optional[str] = None
+    display_factor_to_base: Optional[str] = None
 
 class InventoryAdjustmentDelta(RequestModel):
     product_id: PositiveDbInt
-    delta_cartons: SignedDbInt
+    delta_cartons: Optional[SignedDbInt] = None  # Legacy carton-count contract only.
+    delta_base: Optional[SignedQuantity] = None
 
     @model_validator(mode="after")
     def reject_zero_delta(self) -> "InventoryAdjustmentDelta":
-        if self.delta_cartons == 0:
-            raise ValueError("delta_cartons لا يجوز أن يكون صفراً.")
+        if (self.delta_cartons is None) == (self.delta_base is None):
+            raise ValueError("Supply exactly one of delta_cartons or delta_base.")
+        if self.delta_cartons == 0 or self.delta_base == 0:
+            raise ValueError("The adjustment delta must not be zero.")
         return self
 
 
@@ -1066,6 +1106,8 @@ class AdjustRouteInventoryRequest(RequestModel):
         ids = [item.product_id for item in self.deltas]
         if len(ids) != len(set(ids)):
             raise ValueError("لا يجوز تكرار نفس المنتج في تعديلات المسار.")
+        if len({item.delta_base is not None for item in self.deltas}) != 1:
+            raise ValueError("Do not mix legacy carton and canonical base adjustments.")
         return self
 
 
@@ -1079,7 +1121,7 @@ class ForceCancelHandshakeRequest(RequestModel):
         return _required_text(v)
 
 
-class RouteTransferResponse(BaseModel):
+class RouteTransferResponse(PendingTransferQuantityEvidence):
     transfer_id: int
     product_name: str
     delta_cartons: int
@@ -1088,6 +1130,21 @@ class RouteTransferResponse(BaseModel):
     created_at: Optional[str] = None
     batch_id: str
     can_force_cancel: bool = False
+
+    @model_validator(mode="after")
+    def canonical_evidence_is_required_only_for_marked_transfers(self):
+        if self.quantity_contract == "CANONICAL_BASE_V1":
+            required = {"signed_base_quantity", "base_uom_id", "base_uom_name", "base_uom_code",
+                        "quantity_scale", "quantity_step", "display_uom_name", "display_factor_to_base"}
+            if not required.issubset(self.model_fields_set):
+                raise ValueError("Canonical transfer quantity/UOM evidence is required.")
+            if any(getattr(self, field) is None for field in required - {"display_uom_name", "display_factor_to_base"}):
+                raise ValueError("Canonical transfer quantity/UOM evidence cannot be null.")
+            if not self.signed_base_quantity or self.quantity_step <= 0 or not self.base_uom_name.strip() or not self.base_uom_code.strip():
+                raise ValueError("Canonical transfer quantity/UOM evidence is invalid.")
+            if (self.display_uom_name is None) != (self.display_factor_to_base is None):
+                raise ValueError("Canonical display UOM evidence must be paired.")
+        return self
 
 class DispatchShopResponse(BaseModel):
     id: str

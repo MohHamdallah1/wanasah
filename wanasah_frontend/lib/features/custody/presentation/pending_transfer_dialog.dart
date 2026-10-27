@@ -2,37 +2,31 @@ import 'package:flutter/material.dart';
 
 import '../domain/pending_transfer.dart';
 import '../domain/transfer_decision.dart';
+import 'pending_transfer_quantity_formatter.dart';
+import 'pending_transfer_strings.dart';
 
-enum PendingTransferDialogDisposition {
-  empty,
-  deferred,
-  submitted,
-}
+enum PendingTransferDialogDisposition { empty, deferred, submitted }
 
 class PendingTransferDialogResult {
-  const PendingTransferDialogResult._(
-    this.disposition,
-    this.decisions,
-  );
+  const PendingTransferDialogResult._(this.disposition, this.decisions);
 
   const PendingTransferDialogResult.empty()
-      : this._(
-          PendingTransferDialogDisposition.empty,
-          const <TransferDecision>[],
-        );
+    : this._(
+        PendingTransferDialogDisposition.empty,
+        const <TransferDecision>[],
+      );
 
   const PendingTransferDialogResult.deferred()
-      : this._(
-          PendingTransferDialogDisposition.deferred,
-          const <TransferDecision>[],
-        );
+    : this._(
+        PendingTransferDialogDisposition.deferred,
+        const <TransferDecision>[],
+      );
 
-  PendingTransferDialogResult.submitted(
-    List<TransferDecision> decisions,
-  ) : this._(
-          PendingTransferDialogDisposition.submitted,
-          List<TransferDecision>.unmodifiable(decisions),
-        );
+  PendingTransferDialogResult.submitted(List<TransferDecision> decisions)
+    : this._(
+        PendingTransferDialogDisposition.submitted,
+        List<TransferDecision>.unmodifiable(decisions),
+      );
 
   final PendingTransferDialogDisposition disposition;
   final List<TransferDecision> decisions;
@@ -45,18 +39,22 @@ Future<PendingTransferDialogResult> showPendingTransferDialog(
   if (batch.items.isEmpty) {
     return const PendingTransferDialogResult.empty();
   }
+  final strings = PendingTransferStrings.of(context);
+  final locale = Localizations.localeOf(context).toString();
 
   final responses = <int, TransferDecisionStatus>{};
   final reasonControllers = <int, TextEditingController>{
     for (final item in batch.items) item.transferId: TextEditingController(),
   };
   var submitLocked = false;
+  ModalRoute<PendingTransferDialogResult>? dialogRoute;
 
   try {
     final result = await showDialog<PendingTransferDialogResult>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) {
+        dialogRoute = ModalRoute.of<PendingTransferDialogResult>(dialogContext);
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return PopScope(
@@ -65,13 +63,13 @@ Future<PendingTransferDialogResult> showPendingTransferDialog(
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                 ),
-                title: const Row(
+                title: Row(
                   children: [
-                    Icon(Icons.inventory_2_outlined, color: Colors.blue),
-                    SizedBox(width: 8),
+                    const Icon(Icons.inventory_2_outlined, color: Colors.blue),
+                    const SizedBox(width: 8),
                     Text(
-                      'تحديث عهدة من الإدارة',
-                      style: TextStyle(
+                      strings.t('title'),
+                      style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 18,
                       ),
@@ -84,9 +82,9 @@ Future<PendingTransferDialogResult> showPendingTransferDialog(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'راجع كل حركة وحدد قبولها أو رفضها. الرفض يتطلب سبباً واضحاً.',
-                        style: TextStyle(
+                      Text(
+                        strings.t('instructions'),
+                        style: const TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.bold,
                         ),
@@ -99,20 +97,20 @@ Future<PendingTransferDialogResult> showPendingTransferDialog(
                           itemBuilder: (context, index) {
                             final item = batch.items[index];
                             final response = responses[item.transferId];
-                            final isAddition = item.deltaCartons > 0 ||
-                                (item.deltaCartons == 0 &&
-                                    item.deltaPacks > 0);
+                            final isAddition = item.isAddition;
 
                             return Card(
-                              color: isAddition
-                                  ? Colors.green.shade50
-                                  : Colors.red.shade50,
+                              color:
+                                  isAddition
+                                      ? Colors.green.shade50
+                                      : Colors.red.shade50,
                               elevation: 0,
                               margin: const EdgeInsets.symmetric(vertical: 4),
                               child: Padding(
                                 padding: const EdgeInsets.all(10),
                                 child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
                                   children: [
                                     Row(
                                       children: [
@@ -120,9 +118,10 @@ Future<PendingTransferDialogResult> showPendingTransferDialog(
                                           isAddition
                                               ? Icons.add_circle
                                               : Icons.remove_circle,
-                                          color: isAddition
-                                              ? Colors.green
-                                              : Colors.red,
+                                          color:
+                                              isAddition
+                                                  ? Colors.green
+                                                  : Colors.red,
                                         ),
                                         const SizedBox(width: 8),
                                         Expanded(
@@ -138,19 +137,22 @@ Future<PendingTransferDialogResult> showPendingTransferDialog(
                                               ),
                                               Text(
                                                 isAddition
-                                                    ? 'إضافة للسيارة'
-                                                    : 'سحب من السيارة',
+                                                    ? strings.t('add')
+                                                    : strings.t('remove'),
                                                 style: TextStyle(
-                                                  color: isAddition
-                                                      ? Colors.green[700]
-                                                      : Colors.red[700],
+                                                  color:
+                                                      isAddition
+                                                          ? Colors.green[700]
+                                                          : Colors.red[700],
                                                   fontWeight: FontWeight.bold,
                                                   fontSize: 12,
                                                 ),
                                               ),
                                               Text(
-                                                '${item.deltaCartons.abs()} كرتونة، '
-                                                '${item.deltaPacks.abs()} حبة',
+                                                formatPendingTransferQuantity(
+                                                  item,
+                                                  locale: locale,
+                                                ),
                                                 style: const TextStyle(
                                                   fontSize: 12,
                                                 ),
@@ -159,34 +161,40 @@ Future<PendingTransferDialogResult> showPendingTransferDialog(
                                           ),
                                         ),
                                         IconButton(
-                                          tooltip: 'رفض',
+                                          tooltip: strings.t('reject'),
                                           icon: Icon(
                                             Icons.close,
-                                            color: response ==
-                                                    TransferDecisionStatus.rejected
-                                                ? Colors.red
-                                                : Colors.grey,
+                                            color:
+                                                response ==
+                                                        TransferDecisionStatus
+                                                            .rejected
+                                                    ? Colors.red
+                                                    : Colors.grey,
                                           ),
                                           onPressed: () {
                                             setDialogState(() {
                                               responses[item.transferId] =
-                                                  TransferDecisionStatus.rejected;
+                                                  TransferDecisionStatus
+                                                      .rejected;
                                             });
                                           },
                                         ),
                                         IconButton(
-                                          tooltip: 'قبول',
+                                          tooltip: strings.t('accept'),
                                           icon: Icon(
                                             Icons.check,
-                                            color: response ==
-                                                    TransferDecisionStatus.accepted
-                                                ? Colors.green
-                                                : Colors.grey,
+                                            color:
+                                                response ==
+                                                        TransferDecisionStatus
+                                                            .accepted
+                                                    ? Colors.green
+                                                    : Colors.grey,
                                           ),
                                           onPressed: () {
                                             setDialogState(() {
                                               responses[item.transferId] =
-                                                  TransferDecisionStatus.accepted;
+                                                  TransferDecisionStatus
+                                                      .accepted;
                                               reasonControllers[item.transferId]
                                                   ?.clear();
                                             });
@@ -202,11 +210,10 @@ Future<PendingTransferDialogResult> showPendingTransferDialog(
                                             reasonControllers[item.transferId],
                                         maxLength: 1000,
                                         maxLines: 2,
-                                        decoration: const InputDecoration(
-                                          labelText: 'سبب الرفض',
-                                          hintText:
-                                              'مثال: الكمية الفعلية لا تطابق التحويل',
-                                          border: OutlineInputBorder(),
+                                        decoration: InputDecoration(
+                                          labelText: strings.t('reason'),
+                                          hintText: strings.t('reasonHint'),
+                                          border: const OutlineInputBorder(),
                                         ),
                                       ),
                                     ],
@@ -228,9 +235,9 @@ Future<PendingTransferDialogResult> showPendingTransferDialog(
                         const PendingTransferDialogResult.deferred(),
                       );
                     },
-                    child: const Text(
-                      'تأجيل (إغلاق)',
-                      style: TextStyle(color: Colors.grey),
+                    child: Text(
+                      strings.t('defer'),
+                      style: const TextStyle(color: Colors.grey),
                     ),
                   ),
                   ElevatedButton(
@@ -240,10 +247,8 @@ Future<PendingTransferDialogResult> showPendingTransferDialog(
                     onPressed: () {
                       if (responses.length != batch.items.length) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'يجب الرد على جميع الحركات بالقبول أو الرفض.',
-                            ),
+                          SnackBar(
+                            content: Text(strings.t('allRequired')),
                             backgroundColor: Colors.red,
                           ),
                         );
@@ -258,10 +263,8 @@ Future<PendingTransferDialogResult> showPendingTransferDialog(
                         if (status == TransferDecisionStatus.rejected &&
                             (reason == null || reason.isEmpty)) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'سبب الرفض مطلوب لكل حركة مرفوضة.',
-                              ),
+                            SnackBar(
+                              content: Text(strings.t('reasonRequired')),
                               backgroundColor: Colors.red,
                             ),
                           );
@@ -283,9 +286,9 @@ Future<PendingTransferDialogResult> showPendingTransferDialog(
                         PendingTransferDialogResult.submitted(decisions),
                       );
                     },
-                    child: const Text(
-                      'إرسال الرد',
-                      style: TextStyle(
+                    child: Text(
+                      strings.t('submit'),
+                      style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
                       ),
@@ -301,6 +304,8 @@ Future<PendingTransferDialogResult> showPendingTransferDialog(
 
     return result ?? const PendingTransferDialogResult.deferred();
   } finally {
+    // A popped dialog still owns its fields until the exit transition finishes.
+    await dialogRoute?.completed;
     for (final controller in reasonControllers.values) {
       controller.dispose();
     }
