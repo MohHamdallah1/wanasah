@@ -68,10 +68,10 @@ class LocalTransferDecisionStore implements TransferDecisionStore {
   final SecureAuthIdentityStore _identities;
 
   @override
-  Future<StoredTransferDecision> stageOrReuse(
-    TransferDecision decision,
-  ) async {
-    final owner = await _identities.requireCommandOwner(_database.currentTenant);
+  Future<StoredTransferDecision> stageOrReuse(TransferDecision decision) async {
+    final owner = await _identities.requireCommandOwner(
+      _database.currentTenant,
+    );
     final unresolved = await _database.getPendingSyncs();
     owner.requireRows(unresolved);
     owner.requireTenant(_database.currentTenant);
@@ -128,9 +128,7 @@ class LocalTransferDecisionStore implements TransferDecisionStore {
     Map<String, dynamic>? context;
     for (final row in incoming) {
       final id =
-          int.tryParse(
-            (row['transfer_id'] ?? row['id'])?.toString() ?? '',
-          ) ??
+          int.tryParse((row['transfer_id'] ?? row['id'])?.toString() ?? '') ??
           0;
       if (id == decision.transferId) {
         context = row;
@@ -144,9 +142,14 @@ class LocalTransferDecisionStore implements TransferDecisionStore {
       productName: context?['product_name']?.toString(),
       deltaCartons: context?['delta_cartons'],
       deltaPacks: context?['delta_packs'],
-      canonicalQuantity: context == null ? null : PendingTransferQuantity.fromEvidence(context),
+      canonicalQuantity:
+          context == null
+              ? null
+              : PendingTransferQuantity.fromEvidence(context),
     );
-    owner.requireSame(await _identities.requireCommandOwner(_database.currentTenant));
+    owner.requireSame(
+      await _identities.requireCommandOwner(_database.currentTenant),
+    );
     final recordId = await _database.addPendingSync(
       type: DurableCommandType.transferResponse,
       payload: jsonEncode(payload),
@@ -198,9 +201,7 @@ class LocalTransferDecisionStore implements TransferDecisionStore {
   }
 
   @override
-  Future<void> finalizeConfirmedSuccess(
-    StoredTransferDecision command,
-  ) async {
+  Future<void> finalizeConfirmedSuccess(StoredTransferDecision command) async {
     await _database.removeIncomingTransfer(command.decision.transferId);
     await _database.deletePendingSync(command.recordId);
   }
@@ -223,9 +224,7 @@ class LocalTransferDecisionStore implements TransferDecisionStore {
     );
   }
 
-  TransferDecision _decisionFromStoredPayload(
-    Map<String, dynamic> payload,
-  ) {
+  TransferDecision _decisionFromStoredPayload(Map<String, dynamic> payload) {
     try {
       return TransferDecisionCommand.fromPayload(payload);
     } catch (_) {

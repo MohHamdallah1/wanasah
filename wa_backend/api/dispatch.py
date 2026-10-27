@@ -3071,10 +3071,12 @@ async def get_route_transfers(
             (int(product_variant_id), Decimal(quantity or 0), str(variant_name), int(ppc or 0))
         )
 
+    canonical_header_ids = {int(header.id) for header in headers if is_canonical_base_handshake(header)}
+    canonical_variant_ids = {int(row[1]) for row in rows if int(row[0]) in canonical_header_ids}
     try:
         metadata = await route_load_uom_metadata(
-            db, company_id=company_id, variant_ids={int(row[1]) for row in rows},
-        )
+            db, company_id=company_id, variant_ids=canonical_variant_ids,
+        ) if canonical_variant_ids else {}
     except UomAuthorityError as exc:
         raise HTTPException(status_code=409, detail={
             "code": exc.code, "message": exc.message, "context": exc.context,
@@ -3127,8 +3129,8 @@ async def get_route_transfers(
             "product_name": variant_name,
             "delta_cartons": 0 if canonical_base else (int(absolute) // ppc) * sign,
             "delta_packs": field_base if canonical_base else (int(absolute) % ppc) * sign,
-            "signed_base_quantity": signed_quantity,
-            **metadata[product_id],
+            **({"quantity_contract": CANONICAL_BASE_V1, "signed_base_quantity": signed_quantity,
+                **metadata[product_id]} if canonical_base else {}),
             "status": status_map.get(str(header.status), str(header.status).lower()),
             "created_at": (
                 header.created_at.replace(tzinfo=timezone.utc).isoformat()

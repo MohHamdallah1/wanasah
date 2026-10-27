@@ -1,7 +1,6 @@
 import { currentLocale } from "@/i18n";
 import { useTranslation } from "react-i18next";
-import { compareQuantity } from "@/lib/quantity";
-import { formatTransferQuantity, parseRouteTransfers } from "@/features/dispatch/routeTransfers";
+import { formatTransferQuantity, parseRouteTransfers, transferIsAddition } from "@/features/dispatch/routeTransfers";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Modal } from "@/components/ui/modal";
 import {
@@ -394,7 +393,7 @@ export function TransfersRadarModal({
 
                   <div className="p-3 divide-y divide-slate-50">
                     {batch.items.map((transfer) => {
-                      const positive = compareQuantity(transfer.signed_base_quantity, "0") > 0;
+                      const positive = transferIsAddition(transfer);
                       const focused = transfer.transfer_id === focusTransferId;
                       return (
                         <div
@@ -427,7 +426,7 @@ export function TransfersRadarModal({
                               }`}
                               dir={i18n.dir()}
                             >
-                              <span>{formatTransferQuantity({ ...transfer, base_uom_name: t(`uom.${transfer.base_uom_code}`, { defaultValue: transfer.base_uom_name }) })}</span>
+                              <span>{formatTransferQuantity(transfer)}</span>
                             </div>
                             {transfer.status === "pending" &&
                               transfer.can_force_cancel && (
@@ -520,7 +519,7 @@ export function TransfersRadarModal({
               {cancelTarget.product_name}
             </p>
             <p className="text-xs font-bold text-slate-500 mt-1" dir={i18n.dir()}>
-              {formatTransferQuantity({ ...cancelTarget, base_uom_name: t(`uom.${cancelTarget.base_uom_code}`, { defaultValue: cancelTarget.base_uom_name }) })}
+              {formatTransferQuantity(cancelTarget)}
             </p>
           </div>
         )}

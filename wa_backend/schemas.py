@@ -1121,23 +1121,30 @@ class ForceCancelHandshakeRequest(RequestModel):
         return _required_text(v)
 
 
-class RouteTransferResponse(BaseModel):
+class RouteTransferResponse(PendingTransferQuantityEvidence):
     transfer_id: int
     product_name: str
     delta_cartons: int
     delta_packs: int  # +++ إرجاع الفراطة المفقودة (بنفس اسم الفلاسك الأصلي) +++
-    signed_base_quantity: SignedQuantity
-    base_uom_id: PositiveDbInt
-    base_uom_name: str
-    base_uom_code: str
-    quantity_scale: int
-    quantity_step: NonNegativeQuantity
-    display_uom_name: Optional[str] = None
-    display_factor_to_base: Optional[str] = None
     status: str
     created_at: Optional[str] = None
     batch_id: str
     can_force_cancel: bool = False
+
+    @model_validator(mode="after")
+    def canonical_evidence_is_required_only_for_marked_transfers(self):
+        if self.quantity_contract == "CANONICAL_BASE_V1":
+            required = {"signed_base_quantity", "base_uom_id", "base_uom_name", "base_uom_code",
+                        "quantity_scale", "quantity_step", "display_uom_name", "display_factor_to_base"}
+            if not required.issubset(self.model_fields_set):
+                raise ValueError("Canonical transfer quantity/UOM evidence is required.")
+            if any(getattr(self, field) is None for field in required - {"display_uom_name", "display_factor_to_base"}):
+                raise ValueError("Canonical transfer quantity/UOM evidence cannot be null.")
+            if not self.signed_base_quantity or self.quantity_step <= 0 or not self.base_uom_name.strip() or not self.base_uom_code.strip():
+                raise ValueError("Canonical transfer quantity/UOM evidence is invalid.")
+            if (self.display_uom_name is None) != (self.display_factor_to_base is None):
+                raise ValueError("Canonical display UOM evidence must be paired.")
+        return self
 
 class DispatchShopResponse(BaseModel):
     id: str

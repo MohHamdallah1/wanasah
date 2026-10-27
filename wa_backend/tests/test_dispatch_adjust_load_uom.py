@@ -20,11 +20,18 @@ from models import (DispatchRoute, DispatchLoadPlanLine, InventoryBalance, Inven
     UOM, WorkSession, Zone, utc_now)
 from schemas import (AdjustRouteInventoryRequest, RouteLiveInventoryItemResponse,
     TransferResponseRequest, BatchTransferResponseRequest, ForceCancelHandshakeRequest,
-    PendingTransferItem, PendingBatchResponse, GetVisitsContract, PendingTransferMinResponse)
+    PendingTransferItem, PendingBatchResponse, GetVisitsContract, PendingTransferMinResponse, RouteTransferResponse)
 from tests import test_vehicle_load_v1_postgres as vehicle_fixture
 
 
 class AdjustmentContractTests(unittest.TestCase):
+    def test_radar_requires_canonical_evidence_only_for_the_explicit_marker(self):
+        legacy = dict(transfer_id=17, product_name="Legacy", delta_cartons=2, delta_packs=3,
+            status="pending", created_at=None, batch_id="legacy", can_force_cancel=True)
+        self.assertEqual(RouteTransferResponse.model_validate(legacy).model_dump(mode="json"), legacy)
+        with self.assertRaises(ValidationError):
+            RouteTransferResponse.model_validate({**legacy, "quantity_contract": CANONICAL_BASE_V1})
+
     def test_legacy_pending_response_additions_do_not_change_historical_json(self):
         legacy = dict(real_transfer_id=17, product_name="Legacy", delta_cartons=1, delta_packs=0)
         self.assertEqual(PendingTransferItem.model_validate(legacy).model_dump(mode="json"), legacy)
@@ -208,6 +215,7 @@ class ActiveRouteAdjustLoadPostgres(unittest.IsolatedAsyncioTestCase):
         radar = await dispatch.get_route_transfers(self.rid, self.db, self.seed.owner.access(self.db))
         self.assertEqual({row["signed_base_quantity"] for row in radar}, {Decimal(5), Decimal(-5), Decimal(8)})
         self.assertTrue(all(row["display_uom_name"] == "PACK" for row in radar))
+        self.assertTrue(all(row["quantity_contract"] == CANONICAL_BASE_V1 for row in radar))
         self.assertEqual({(row["delta_cartons"], row["delta_packs"]) for row in radar}, field_quantities)
 
     async def test_canonical_marker_survives_conflicting_legacy_configuration(self):
@@ -284,6 +292,31 @@ class ActiveRouteAdjustLoadPostgres(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(projected, {legacy.id: (1, 0), canonical.id: (0, 8)})
         radar = await dispatch.get_route_transfers(self.rid, self.db, self.seed.owner.access(self.db))
         self.assertEqual({row["transfer_id"]: (row["delta_cartons"], row["delta_packs"]) for row in radar}, projected)
+        old_row = next(row for row in radar if row["transfer_id"] == legacy.id)
+        self.assertNotIn("quantity_contract", old_row)
+        self.assertNotIn("signed_base_quantity", old_row)
+        self.assertNotIn("display_uom_name", old_row)
+
+    async def test_legacy_radar_preserves_two_cartons_three_pieces_after_current_uom_changes(self):
+        await self.bind()
+        variants = await dispatch._dispatch_variant_map(self.db, company_id=self.company, product_ids=[self.pid])
+        # The historical absolute-target caller could request a loose remainder.
+        await dispatch._dispatch_apply_pack_deltas(self.db, company_id=self.company,
+            route=self.route, legacy_actor_id=self.actor_id, session=self.session, variants=variants,
+            pack_deltas={self.pid: 19}, plan_targets={self.pid: 44}, audit_action="HANDSHAKE_INVENTORY_REQUEST")
+        await self.db.commit()
+        with patch.object(dispatch, "route_load_uom_metadata", AsyncMock(side_effect=AssertionError("Legacy must not read current UOM"))):
+            before = await dispatch.get_route_transfers(self.rid, self.db, self.seed.owner.access(self.db))
+            conversion = await self.db.scalar(select(ProductUomConversion).where(
+                ProductUomConversion.company_id == self.company, ProductUomConversion.product_variant_id == self.pid))
+            conversion.numerator = 4
+            await self.db.commit()
+            after = await dispatch.get_route_transfers(self.rid, self.db, self.seed.owner.access(self.db))
+        self.assertEqual(before, after)
+        self.assertEqual((after[0]["delta_cartons"], after[0]["delta_packs"]), (2, 3))
+        self.assertNotIn("signed_base_quantity", after[0])
+        self.assertNotIn("base_uom_id", after[0])
+        self.assertNotIn("quantity_contract", (await self.headers())[0].commercial_context)
 
     async def terminal(self, header, status, batch=False):
         from sqlalchemy import inspect

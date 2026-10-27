@@ -1,4 +1,4 @@
-import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { webcrypto } from "node:crypto";
 import type { ReactNode } from "react";
@@ -7,7 +7,7 @@ import type { PendingRoute } from "@/types/dispatch";
 import { AdjustInventoryModal } from "@/components/dispatch/AdjustInventoryModal";
 import { TransfersRadarModal } from "@/components/dispatch/TransfersRadarModal";
 import { adjustmentReview, buildAdjustmentPayload, parseAdjustLoadInventory } from "@/features/dispatch/adjustLoad";
-import { parseRouteTransfers, formatTransferQuantity } from "@/features/dispatch/routeTransfers";
+import { parseRouteTransfers, formatTransferQuantity, transferIsAddition } from "@/features/dispatch/routeTransfers";
 import { formatRouteLoadQuantity } from "@/features/dispatch/routeLoadUom";
 import { useAdjustLoadCommand } from "@/features/dispatch/useAdjustLoadCommand";
 
@@ -57,15 +57,15 @@ describe("Canonical Adjust Load quantities and radar", () => {
     expect(adjustmentReview(pending, "5").result).toBe("38");
   });
 
-  it.each([["8", "+1 PACK"], ["5", "+5 EACH"], ["-5", "−5 EACH"]])("radar presents exact signed base %s as %s", (value, expected) => {
+  it.each([["8", "+1 PACK"], ["5", "+5 EACH"], ["-5", "−5 EACH"], ["25", "+3 PACK + 1 EACH"]])("radar presents exact signed base %s as %s", (value, expected) => {
     const [transfer] = parseRouteTransfers([{ ...inventory, transfer_id: 1, signed_base_quantity: value,
-      status: "pending", created_at: null, batch_id: "b", can_force_cancel: true }]);
-    expect(formatTransferQuantity(transfer)).toBe(expected);
+      quantity_contract: "CANONICAL_BASE_V1", status: "pending", created_at: null, batch_id: "b", can_force_cancel: true }]);
+    expect(formatTransferQuantity(transfer)).toBe(expected.replace("EACH", i18n.t("uom.EACH")));
     expect(formatTransferQuantity(transfer)).not.toMatch(/carton|كرتونة/);
   });
 
   it("does not reconstruct a missing canonical radar quantity from legacy fields", () => {
-    expect(() => parseRouteTransfers([{ ...inventory, transfer_id: 1, status: "pending",
+    expect(() => parseRouteTransfers([{ ...inventory, transfer_id: 1, status: "pending", quantity_contract: "CANONICAL_BASE_V1",
       created_at: null, batch_id: "b", can_force_cancel: true }])).toThrow();
   });
 });
@@ -75,6 +75,7 @@ describe("Adjust Load operator workflow", () => {
     await setAppLanguage(language);
     fake.fetch.mockResolvedValue(["8", "5", "-5"].map((quantity, index) => ({ ...inventory,
       transfer_id: index + 1, signed_base_quantity: quantity, status: "pending", created_at: null,
+      quantity_contract: "CANONICAL_BASE_V1",
       batch_id: "b", can_force_cancel: false, delta_cartons: 0, delta_packs: Number(quantity), packs_per_carton: 32,
     })));
     render(<TransfersRadarModal isOpen onClose={vi.fn()} route={route} />);
@@ -123,6 +124,45 @@ describe("Adjust Load operator workflow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Review changes" }));
     expect(fake.info).toHaveBeenCalledWith(i18n.t("dispatchAdjustLoad.empty"));
     expect(fake.fetch).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Creation-time radar contracts", () => {
+  const legacy = { ...inventory, transfer_id: 81, product_name: "Historical", delta_cartons: 2, delta_packs: 3,
+    signed_base_quantity: "19", status: "pending", created_at: null, batch_id: "legacy", can_force_cancel: true };
+  it("keeps old carton/piece meaning despite current canonical PACK metadata", () => {
+    const [parsed] = parseRouteTransfers([legacy]);
+    expect(parsed.quantity_contract).toBeUndefined();
+    expect(parsed).not.toHaveProperty("signed_base_quantity");
+    expect(parsed).not.toHaveProperty("display_uom_name");
+    expect(formatTransferQuantity(parsed)).toBe("+2 cartons, +3 pieces");
+    expect(formatTransferQuantity(parseRouteTransfers([{ ...legacy, display_factor_to_base: "4", display_uom_name: "NEW PACK" }])[0]))
+      .toBe("+2 cartons, +3 pieces");
+  });
+  it("uses the matching contract for direction", () => {
+    expect(transferIsAddition(parseRouteTransfers([{ ...legacy, delta_cartons: -2, delta_packs: -3, signed_base_quantity: "8" }])[0])).toBe(false);
+    expect(transferIsAddition(parseRouteTransfers([{ ...legacy, quantity_contract: "CANONICAL_BASE_V1", signed_base_quantity: "-5" }])[0])).toBe(false);
+    expect(transferIsAddition(parseRouteTransfers([{ ...legacy, quantity_contract: "CANONICAL_BASE_V1", delta_cartons: -2, signed_base_quantity: "8" }])[0])).toBe(true);
+  });
+  it.each([
+    { delta_cartons: "2" }, { delta_packs: 0.5 }, { delta_cartons: 0, delta_packs: 0 },
+    { quantity_contract: "UNKNOWN" }, { quantity_contract: "CANONICAL_BASE_V1", signed_base_quantity: null },
+    { quantity_contract: "CANONICAL_BASE_V1", quantity_step: null },
+  ])("rejects malformed discriminated evidence %j", (invalid) => {
+    expect(() => parseRouteTransfers([{ ...legacy, ...invalid }])).toThrow();
+  });
+  it.each([
+    [null, "19", "+2 cartons, +3 pieces"],
+    ["CANONICAL_BASE_V1", "8", "+1 PACK"],
+    ["CANONICAL_BASE_V1", "25", "+3 PACK + 1 unit"],
+  ])("list and force-cancel share the %s quantity formatter", async (marker, quantity, expected) => {
+    const raw = { ...legacy, quantity_contract: marker, signed_base_quantity: quantity };
+    fake.fetch.mockResolvedValue([raw]);
+    render(<TransfersRadarModal isOpen onClose={vi.fn()} route={route} />);
+    const output = String(expected).replace("unit", i18n.t("uom.EACH"));
+    expect(await screen.findByText(output)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(within(screen.getByRole("dialog", { name: "Cancel pending transfer" })).getByText(output)).toBeInTheDocument();
   });
 });
 

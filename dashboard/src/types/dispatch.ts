@@ -80,11 +80,25 @@ export interface CustomSelectOption {
 }
 
 // +++ الدرع المعماري: تعريف بيانات المصافحات (Transfers) لتمكين المشرف من تتبعها +++
-export interface RouteTransfer {
+export interface RouteTransferIdentity {
   transfer_id: number;
   product_name: string;
+  status: "pending" | "accepted" | "rejected" | "cancelled";
+  created_at: string | null;
+  batch_id: string;
+  can_force_cancel: boolean;
+}
+
+export interface LegacyRouteTransfer extends RouteTransferIdentity {
+  quantity_contract?: null;
   delta_cartons: number;
   delta_packs: number;
+}
+
+export interface CanonicalRouteTransfer extends RouteTransferIdentity {
+  quantity_contract: "CANONICAL_BASE_V1";
+  delta_cartons?: number;
+  delta_packs?: number;
   signed_base_quantity: string;
   base_uom_id: number;
   base_uom_code: string;
@@ -93,8 +107,6 @@ export interface RouteTransfer {
   quantity_step: string;
   display_uom_name: string | null;
   display_factor_to_base: string | null;
-  status: "pending" | "accepted" | "rejected" | "cancelled";
-  created_at: string | null;
-  batch_id: string;
-  can_force_cancel: boolean;
 }
+
+export type RouteTransfer = LegacyRouteTransfer | CanonicalRouteTransfer;

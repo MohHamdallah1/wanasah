@@ -33,7 +33,7 @@ class SyncRepository {
   final VisitReplayAdapter _visitReplay;
   final SecureAuthIdentityStore _identities = SecureAuthIdentityStore();
   static const Uuid _uuid = Uuid();
-  
+
   // الأقفال أصبحت الآن مركزية على مستوى التطبيق كله
   bool _isSyncing = false;
   bool _isSyncingDown = false;
@@ -71,13 +71,15 @@ class SyncRepository {
       // 2. أي سجل غير محسوم هو دليل محلي محمي. السجلات المحجورة
       // لا تُستثنى من الحماية لأنها قد تحمل مبيعات/مخزوناً لم يُسوَّ بعد.
       final pendingCheck = await _db.getPendingSyncs();
-      final unresolved = pendingCheck.where(isUnresolvedOfflineCommand).toList();
-      final blocked = unresolved.where((row) {
-        final rawType = row['type']?.toString() ?? '';
-        return DurableCommandState.fromStorage(row['state']) ==
-                DurableCommandState.blocked ||
-            DurableCommandType.isLegacyQuarantined(rawType);
-      }).toList();
+      final unresolved =
+          pendingCheck.where(isUnresolvedOfflineCommand).toList();
+      final blocked =
+          unresolved.where((row) {
+            final rawType = row['type']?.toString() ?? '';
+            return DurableCommandState.fromStorage(row['state']) ==
+                    DurableCommandState.blocked ||
+                DurableCommandType.isLegacyQuarantined(rawType);
+          }).toList();
 
       if (blocked.isNotEmpty) {
         developer.log(
@@ -90,7 +92,8 @@ class SyncRepository {
 
       final activePending = unresolved;
       final hasBlockingPending = activePending.any(
-        (p) => DurableCommandType.normalizeLegacyType(
+        (p) =>
+            DurableCommandType.normalizeLegacyType(
               p['type']?.toString() ?? '',
             ) !=
             DurableCommandType.submitSale,
@@ -105,7 +108,8 @@ class SyncRepository {
       }
 
       final hasUnsyncedSales = activePending.any(
-        (p) => DurableCommandType.normalizeLegacyType(
+        (p) =>
+            DurableCommandType.normalizeLegacyType(
               p['type']?.toString() ?? '',
             ) ==
             DurableCommandType.submitSale,
@@ -121,7 +125,7 @@ class SyncRepository {
 
       final response = await _api.get('/driver/visits');
       developer.log('🎯 URL Called: /driver/visits');
-      
+
       List<Map<String, dynamic>> visitsData = [];
       List<Map<String, dynamic>> productsData = [];
       List<Map<String, dynamic>>? transfersData; // Nullable لمنع المسح العشوائي
@@ -135,16 +139,26 @@ class SyncRepository {
         hasValidStructure = true;
         clearVisitsTarget = true;
       } else if (response.data is Map) {
-        final Map<String, dynamic> dataMap = response.data as Map<String, dynamic>;
-        
-        clearVisitsTarget = dataMap['visits'] != null && dataMap['visits'] is List;
-        clearProductsTarget = dataMap['inventory'] != null && dataMap['inventory'] is List;
+        final Map<String, dynamic> dataMap =
+            response.data as Map<String, dynamic>;
+
+        clearVisitsTarget =
+            dataMap['visits'] != null && dataMap['visits'] is List;
+        clearProductsTarget =
+            dataMap['inventory'] != null && dataMap['inventory'] is List;
         hasValidStructure = clearVisitsTarget || clearProductsTarget;
-        
-        if (clearVisitsTarget) visitsData = List<Map<String, dynamic>>.from(dataMap['visits']);
-        if (clearProductsTarget) productsData = List<Map<String, dynamic>>.from(dataMap['inventory']);
-        if (dataMap['pending_transfers'] != null && dataMap['pending_transfers'] is List) {
-          transfersData = List<Map<String, dynamic>>.from(dataMap['pending_transfers']);
+
+        if (clearVisitsTarget) {
+          visitsData = List<Map<String, dynamic>>.from(dataMap['visits']);
+        }
+        if (clearProductsTarget) {
+          productsData = List<Map<String, dynamic>>.from(dataMap['inventory']);
+        }
+        if (dataMap['pending_transfers'] != null &&
+            dataMap['pending_transfers'] is List) {
+          transfersData = List<Map<String, dynamic>>.from(
+            dataMap['pending_transfers'],
+          );
         }
       }
 
@@ -154,8 +168,14 @@ class SyncRepository {
         );
       }
 
-      final List<VisitModel> visitModels = await compute(_parseVisits, visitsData);
-      final List<ProductModel> productModels = await compute(_parseProducts, productsData);
+      final List<VisitModel> visitModels = await compute(
+        _parseVisits,
+        visitsData,
+      );
+      final List<ProductModel> productModels = await compute(
+        _parseProducts,
+        productsData,
+      );
 
       // F4: أي أمر ظهر أثناء fetch يمنع استبدال الإسقاط المحلي حتى تتم
       // معالجته؛ لا نستثني blocked/quarantine من هذا الفحص.
@@ -172,8 +192,8 @@ class SyncRepository {
       }
 
       await _db.refreshSessionData(
-        visitModels, 
-        productModels, 
+        visitModels,
+        productModels,
         transfersData,
         clearVisits: clearVisitsTarget,
         clearProducts: clearProductsTarget,
@@ -186,7 +206,7 @@ class SyncRepository {
       rethrow;
     } finally {
       // +++  لـ Bug 1: القفل يُحرر دائماً داخل الـ finally +++
-      _isSyncingDown = false; 
+      _isSyncingDown = false;
     }
   }
 
@@ -224,8 +244,7 @@ class SyncRepository {
       requestId: requestId,
       ownerDriverId: owner.driverId,
     );
-    final isQueueHead =
-        await _db.isFirstUnresolvedCommand(commandRecordId);
+    final isQueueHead = await _db.isFirstUnresolvedCommand(commandRecordId);
     if (!isQueueHead) {
       await _finalizeDirectVisitLocalState(
         commandRecordId: commandRecordId,
@@ -357,10 +376,7 @@ class SyncRepository {
     }
   }
 
-  Future<void> _recordLocalReplayFailure(
-    int recordId,
-    Object error,
-  ) async {
+  Future<void> _recordLocalReplayFailure(int recordId, Object error) async {
     final failure = SyncLocalFailure.from(error);
     if (failure.disposition == SyncLocalFailureDisposition.pending) {
       await _db.markPendingSyncPending(
@@ -392,8 +408,8 @@ class SyncRepository {
     owner.requireTenant(_db.currentTenant);
     final incomingList = await _db.getIncomingTransfers();
     final contextData = incomingList.firstWhere(
-      (t) => t['transfer_id'] == transferId || t['id'] == transferId, 
-      orElse: () => <String, dynamic>{}
+      (t) => t['transfer_id'] == transferId || t['id'] == transferId,
+      orElse: () => <String, dynamic>{},
     );
 
     final payload = {
@@ -401,8 +417,10 @@ class SyncRepository {
       'response': responseStr,
       'reason': reason,
       'context_product_name': contextData['product_name'],
-      if (contextData['quantity_contract'] == null) 'context_delta_cartons': contextData['delta_cartons'],
-      if (contextData['quantity_contract'] == null) 'context_delta_packs': contextData['delta_packs'],
+      if (contextData['quantity_contract'] == null)
+        'context_delta_cartons': contextData['delta_cartons'],
+      if (contextData['quantity_contract'] == null)
+        'context_delta_packs': contextData['delta_packs'],
       ...TransferDecisionCommand.canonicalContext(contextData),
     };
 
@@ -415,13 +433,18 @@ class SyncRepository {
       if (e is DioException && e.response?.statusCode != null) {
         final statusCode = e.response!.statusCode!;
         // +++  للثغرة: إحباط التخزين الأوفلاين الكاذب وإبلاغ البلوك بالرفض النهائي +++
-        if (statusCode >= 400 && statusCode < 500 && statusCode != 429 && statusCode != 408) {
+        if (statusCode >= 400 &&
+            statusCode < 500 &&
+            statusCode != 429 &&
+            statusCode != 408) {
           // Preserve the original Dio/ApiFailure status, code, context and
           // correlation ID. A deterministic refusal must never enter fallback.
           rethrow;
         }
       }
-      developer.log('[SyncRepository] Offline mode triggered for transfer #$transferId.');
+      developer.log(
+        '[SyncRepository] Offline mode triggered for transfer #$transferId.',
+      );
     }
 
     try {
@@ -429,7 +452,9 @@ class SyncRepository {
         await _db.removeIncomingTransfer(transferId);
         return true; // +++ أرسلت بنجاح +++
       } else {
-        owner.requireSame(await _identities.requireCommandOwner(_db.currentTenant));
+        owner.requireSame(
+          await _identities.requireCommandOwner(_db.currentTenant),
+        );
         await _db.addPendingSync(
           type: DurableCommandType.transferResponse,
           payload: jsonEncode(payload),
@@ -440,7 +465,9 @@ class SyncRepository {
         return false; // +++ دخلت طابور الأوفلاين +++
       }
     } catch (dbError) {
-      developer.log('[SyncRepository] FATAL DB Error in respondToTransfer: $dbError');
+      developer.log(
+        '[SyncRepository] FATAL DB Error in respondToTransfer: $dbError',
+      );
       rethrow;
     }
   }
@@ -530,13 +557,16 @@ class SyncRepository {
 
         final existingCommandId = record['command_id']?.toString().trim() ?? '';
         if (existingCommandId.isEmpty) {
-          final commandId = type == DurableCommandType.submitSale
-              ? payload['request_id']?.toString() ?? _uuid.v4()
-              : _uuid.v4();
+          final commandId =
+              type == DurableCommandType.submitSale
+                  ? payload['request_id']?.toString() ?? _uuid.v4()
+                  : _uuid.v4();
           await _db.updatePendingSyncCommandId(recordId, commandId);
         }
 
-        owner.requireSame(await _identities.requireCommandOwner(_db.currentTenant));
+        owner.requireSame(
+          await _identities.requireCommandOwner(_db.currentTenant),
+        );
         await _db.markPendingSyncInFlight(recordId);
 
         try {
@@ -672,10 +702,11 @@ class SyncRepository {
         );
 
       case DurableCommandType.transferResponse:
-        final int tId = int.tryParse(payload['transferId']?.toString() ?? '') ?? 0;
+        final int tId =
+            int.tryParse(payload['transferId']?.toString() ?? '') ?? 0;
         final body = {
           'response': payload['response'],
-          'reason': payload['reason']
+          'reason': payload['reason'],
         };
         await _api.put('/driver/transfers/$tId/respond', data: body);
         break;

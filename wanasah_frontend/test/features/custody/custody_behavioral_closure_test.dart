@@ -44,20 +44,21 @@ void main() {
   group('pending transfer source', () {
     test('parses canonical server batch into typed model', () async {
       final source = PendingTransferSource(
-        remoteFetch: () async => <Object?>[
-          <String, Object?>{
-            'transfer_id': 'batch-1',
-            'created_at': '2026-10-22T00:00:00',
-            'items': <Object?>[
+        remoteFetch:
+            () async => <Object?>[
               <String, Object?>{
-                'real_transfer_id': 17,
-                'product_name': 'منتج',
-                'delta_cartons': -2,
-                'delta_packs': 3,
+                'transfer_id': 'batch-1',
+                'created_at': '2026-10-22T00:00:00',
+                'items': <Object?>[
+                  <String, Object?>{
+                    'real_transfer_id': 17,
+                    'product_name': 'منتج',
+                    'delta_cartons': -2,
+                    'delta_packs': 3,
+                  },
+                ],
               },
             ],
-          },
-        ],
         localFetch: () async => const <Map<String, dynamic>>[],
       );
 
@@ -70,63 +71,69 @@ void main() {
       expect(batch.items.single.deltaPacks, 3);
     });
 
-    test('ambiguous network failure falls back to typed local evidence',
-        () async {
-      final request = RequestOptions(path: '/driver/transfers/pending');
-      final source = PendingTransferSource(
-        remoteFetch: () async {
-          throw DioException(
-            requestOptions: request,
-            type: DioExceptionType.connectionError,
-            error: 'offline',
-          );
-        },
-        localFetch: () async => <Map<String, dynamic>>[
-          <String, dynamic>{
-            'transfer_id': 22,
-            'product_name': 'محلي',
-            'delta_cartons': 1,
-            'delta_packs': 0,
-          },
-        ],
-      );
-
-      final batch = await source.load();
-
-      expect(batch, isNotNull);
-      expect(batch!.fromLocalCache, isTrue);
-      expect(batch.items.single.transferId, 22);
-    });
-
-    test('confirmed auth rejection does not masquerade as local fallback',
-        () async {
-      final request = RequestOptions(path: '/driver/transfers/pending');
-      final source = PendingTransferSource(
-        remoteFetch: () async {
-          throw DioException(
-            requestOptions: request,
-            response: Response<Object?>(
+    test(
+      'ambiguous network failure falls back to typed local evidence',
+      () async {
+        final request = RequestOptions(path: '/driver/transfers/pending');
+        final source = PendingTransferSource(
+          remoteFetch: () async {
+            throw DioException(
               requestOptions: request,
-              statusCode: 401,
-              data: <String, dynamic>{
-                'error': <String, dynamic>{'code': 'AUTH_REQUIRED'},
-              },
-            ),
-            type: DioExceptionType.badResponse,
-          );
-        },
-        localFetch: () async => <Map<String, dynamic>>[
-          <String, dynamic>{
-            'transfer_id': 99,
-            'product_name': 'لا يجب استخدامه',
-            'delta_cartons': 1,
-            'delta_packs': 0,
+              type: DioExceptionType.connectionError,
+              error: 'offline',
+            );
           },
-        ],
-      );
+          localFetch:
+              () async => <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'transfer_id': 22,
+                  'product_name': 'محلي',
+                  'delta_cartons': 1,
+                  'delta_packs': 0,
+                },
+              ],
+        );
 
-      await expectLater(source.load(), throwsA(isA<ApiFailureException>()));
-    });
+        final batch = await source.load();
+
+        expect(batch, isNotNull);
+        expect(batch!.fromLocalCache, isTrue);
+        expect(batch.items.single.transferId, 22);
+      },
+    );
+
+    test(
+      'confirmed auth rejection does not masquerade as local fallback',
+      () async {
+        final request = RequestOptions(path: '/driver/transfers/pending');
+        final source = PendingTransferSource(
+          remoteFetch: () async {
+            throw DioException(
+              requestOptions: request,
+              response: Response<Object?>(
+                requestOptions: request,
+                statusCode: 401,
+                data: <String, dynamic>{
+                  'error': <String, dynamic>{'code': 'AUTH_REQUIRED'},
+                },
+              ),
+              type: DioExceptionType.badResponse,
+            );
+          },
+          localFetch:
+              () async => <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'transfer_id': 99,
+                  'product_name': 'لا يجب استخدامه',
+                  'delta_cartons': 1,
+                  'delta_packs': 0,
+                },
+              ],
+        );
+
+        await expectLater(source.load(), throwsA(isA<ApiFailureException>()));
+      },
+    );
   });
 
   test('Dashboard and transfer dialog use typed Custody models', () async {
@@ -134,14 +141,19 @@ void main() {
         await File('lib/blocs/dashboard/dashboard_bloc.dart').readAsString();
     final state =
         await File('lib/blocs/dashboard/dashboard_state.dart').readAsString();
-    final dialog = await File(
-      'lib/features/custody/presentation/pending_transfer_dialog.dart',
-    ).readAsString();
+    final dialog =
+        await File(
+          'lib/features/custody/presentation/pending_transfer_dialog.dart',
+        ).readAsString();
 
     expect(bloc, contains('CustodyCoordinator'));
     expect(
       bloc,
-      isNot(contains("part '../../features/custody/application/custody_handlers.dart';")),
+      isNot(
+        contains(
+          "part '../../features/custody/application/custody_handlers.dart';",
+        ),
+      ),
     );
     expect(state, contains('PendingTransferBatch? pendingTransfer'));
     expect(state, contains('List<NonSellableCustodyItem> nonSellableCustody'));
@@ -151,17 +163,16 @@ void main() {
     expect(dialog, isNot(contains('detailedResponses')));
   });
 
-  testWidgets('non-sellable custody displays Backend exact quantity',
-      (tester) async {
-    final item = NonSellableCustodyItem.fromJson(
-      <String, dynamic>{
-        'product_variant_id': 7,
-        'product_name': 'تالف اختبار',
-        'stock_status': 'DAMAGED',
-        'uom_code': 'PACK',
-        'quantity': '12.500',
-      },
-    );
+  testWidgets('non-sellable custody displays Backend exact quantity', (
+    tester,
+  ) async {
+    final item = NonSellableCustodyItem.fromJson(<String, dynamic>{
+      'product_variant_id': 7,
+      'product_name': 'تالف اختبار',
+      'stock_status': 'DAMAGED',
+      'uom_code': 'PACK',
+      'quantity': '12.500',
+    });
 
     await tester.pumpWidget(
       MaterialApp(

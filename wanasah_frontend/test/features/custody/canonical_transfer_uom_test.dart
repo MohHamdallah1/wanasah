@@ -8,11 +8,16 @@ import 'package:wanasah_frontend/features/custody/presentation/pending_transfer_
 import 'canonical_transfer_fixture.dart';
 
 void main() {
-  test('canonical integer range is not limited by legacy negative carton counters', () {
-    final item = PendingTransferItem.fromServerJson(canonicalTransfer(quantity: '-3000000000'));
-    expect(item.canonicalQuantity!.signedBaseQuantity, '-3000000000');
-    expect(item.isAddition, isFalse);
-  });
+  test(
+    'canonical integer range is not limited by legacy negative carton counters',
+    () {
+      final item = PendingTransferItem.fromServerJson(
+        canonicalTransfer(quantity: '-3000000000'),
+      );
+      expect(item.canonicalQuantity!.signedBaseQuantity, '-3000000000');
+      expect(item.isAddition, isFalse);
+    },
+  );
   test(
     'canonical evidence remains exact and compatibility fields do not set direction',
     () {

@@ -102,10 +102,7 @@ void main() {
         expect(session, isNot(contains("'يجب إنهاء الاستراحة أولاً!'")));
         expect(session, isNot(contains('WorkSessionIssuePanel')));
         expect(transfer, contains("strings.t('title')"));
-        expect(
-          transfer,
-          contains("strings.t('allRequired')"),
-        );
+        expect(transfer, contains("strings.t('allRequired')"));
         expect(inventory, contains("'مخزون سيارة المندوب:'"));
         expect(
           inventory,

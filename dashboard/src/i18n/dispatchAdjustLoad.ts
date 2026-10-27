@@ -14,6 +14,7 @@ export const dispatchAdjustLoad = {
     base: "بالوحدة الأساسية: {{quantity}} {{unit}}", increase: "زيادة التعديل", decrease: "خفض التعديل",
     radar: {
       title: "رادار المصافحات: {{name}}", pending: "بانتظار المندوب", accepted: "تم الاستلام",
+      legacyQuantity: "{{cartons}} كرتونة، {{pieces}} حبة",
       rejected: "رفض الاستلام", cancelled: "ملغاة", timeUnavailable: "وقت غير متاح",
       description: "تتبع حالة البضاعة المرسلة للمندوب. تظهر الأصناف المرسلة في دفعة واحدة معاً.",
       loading: "جارٍ تحميل المصافحات...", empty: "لا توجد مصافحات لهذه الجلسة.",
@@ -41,6 +42,7 @@ export const dispatchAdjustLoad = {
     base: "In base units: {{quantity}} {{unit}}", increase: "Increase adjustment", decrease: "Decrease adjustment",
     radar: {
       title: "Transfer radar: {{name}}", pending: "Awaiting representative", accepted: "Received",
+      legacyQuantity: "{{cartons}} cartons, {{pieces}} pieces",
       rejected: "Receipt rejected", cancelled: "Cancelled", timeUnavailable: "Time unavailable",
       description: "Track goods sent to the representative. Products sent together appear in one group.",
       loading: "Loading transfers...", empty: "No transfers for this session.",
