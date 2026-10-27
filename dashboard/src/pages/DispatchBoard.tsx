@@ -1649,7 +1649,7 @@ export default function DispatchBoard() {
               </div>
             </div>
           ) : activeTab === "launch" ? (
-            <div key="launch" className="flex flex-col w-full gap-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div key="launch" className="flex flex-col w-full gap-6 h-full flex-1 min-h-0 overflow-y-auto custom-scrollbar pb-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
               
               {/* +++ الحاوية الأولى: إعدادات الخط (لون صلب bg-slate-50 لتوحيد الخلفية وإخفاء الترقيع) +++ */}
               <div className="dispatch-surface dispatch-launch-config relative grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 bg-slate-50 p-6 pt-7 rounded-2xl border border-slate-200 shadow-sm transition-all hover:border-[#1e87bb]/30 mt-3">
@@ -1774,16 +1774,18 @@ export default function DispatchBoard() {
                 </div>
               </div>
 
-              {/* +++ الزر: تصغيره وتنسيقه بالأسفل +++ */}
-              <p className="text-sm text-slate-600">{t("dispatchRouteLoad.review")}</p>
-              <div className="flex justify-end mb-8">
-                <button
-                  disabled={!canLaunch}
-                  onClick={handleDispatchRoute}
-                  className="bg-gradient-to-r from-[#1e87bb] to-[#166a94] hover:opacity-90 text-white px-8 py-3 rounded-xl text-sm font-black shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2 w-full md:w-auto min-w-[250px]"
-                >
-                  <Rocket className="w-5 h-5" /> اعتماد وإطلاق خط السير
-                </button>
+              {/* Keep the primary launch action reachable on short viewports. */}
+              <div className="sticky bottom-0 z-30 -mx-1 border-t border-slate-200 bg-white/95 px-1 py-3 backdrop-blur">
+                <p className="mb-2 text-sm text-slate-600">{t("dispatchRouteLoad.review")}</p>
+                <div className="flex justify-end">
+                  <button
+                    disabled={!canLaunch}
+                    onClick={handleDispatchRoute}
+                    className="bg-gradient-to-r from-[#1e87bb] to-[#166a94] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 text-white px-8 py-3 rounded-xl text-sm font-black shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2 w-full md:w-auto min-w-[250px]"
+                  >
+                    <Rocket className="w-5 h-5" /> اعتماد وإطلاق خط السير
+                  </button>
+                </div>
               </div>
 
             </div>
