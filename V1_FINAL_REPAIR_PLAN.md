@@ -176,6 +176,18 @@ one display UOM plus the exact base remainder, without multi-level decomposition
 Stock/movement quantities remain BASE and unmarked historical transfers keep
 their legacy presentation. This does not open Advanced UOM configuration scope.
 
+Owner-reported live blocker (2026-10-28): route 11 Adjust Load opens empty with
+product 521 physically holding 25 BASE because its read expands to the 50k
+eligible catalog before UOM metadata. Opening now reads only Vehicle custody and
+pending-handshake product IDs. Additional discovery is debounced server search,
+capped at 80 rows before metadata, against the route's authorized source
+Warehouse and the shared Inventory source-stock eligibility query. Current and
+drafted rows stay visible across search; saved new-product drafts hydrate through
+bounded explicit-ID reads. ProductLocation, lifecycle, batch/free-stock/lock
+authority and the existing base-quantity command remain unchanged. This closes
+a demonstrated V1 workflow failure without reopening the deferred Dispatch init
+catalog or unrelated scale work. Lead review and live owner acceptance remain open.
+
 Confirmed evidence:
 
 - the active-route `Adjust load / تعديل الحمولة` workflow still reads and writes integer `delta_cartons`;
