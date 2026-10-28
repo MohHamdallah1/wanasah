@@ -172,8 +172,7 @@ const parseTransferLine = (raw: unknown): WarehouseTransferLine => {
 };
 
 export const parseTransferDetail = (
-  raw: unknown,
-  expectedLocationId: number
+  raw: unknown
 ): WarehouseTransferDetail => {
   if (
     typeof raw !== "object" ||
@@ -187,15 +186,6 @@ export const parseTransferDetail = (
 
   const record = raw as Record<string, unknown>;
   const transfer = parseTransfer(record.transfer);
-
-  if (
-    transfer.source_location_id !== expectedLocationId &&
-    transfer.destination_location_id !== expectedLocationId
-  ) {
-    throw new Error(
-      "مرفوض: تفاصيل الحوالة لا تطابق المستودع المحدد حالياً."
-    );
-  }
 
   const lines = (record.lines as unknown[]).map(parseTransferLine);
   if (lines.length === 0) {
