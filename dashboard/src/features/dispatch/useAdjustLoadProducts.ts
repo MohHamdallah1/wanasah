@@ -1,17 +1,24 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { adjustmentError, parseAdjustLoadInventory, type AdjustLoadItem } from "./adjustLoad";
-
-import { DISPATCH_PRODUCT_PAGE_SIZE, useDispatchProductSearch } from "./useDispatchProductSearch";
+import { DISPATCH_PRODUCT_PAGE_SIZE } from "./useDispatchProductSearch";
+import { useDispatchProductWindow } from "./useDispatchProductWindow";
 
 export const ADJUST_LOAD_HYDRATION_BATCH_SIZE = DISPATCH_PRODUCT_PAGE_SIZE;
 export const hasAdjustmentDraft = (value: string) => value !== "" && !/^-?0(?:\.0+)?$/.test(value);
 const draftIds = (drafts: Record<string, string>) => Object.keys(drafts).filter((id) => hasAdjustmentDraft(drafts[id]));
 
-/** The window contains current custody, explicit drafts, and at most one search page. */
-export function useAdjustLoadProducts(routeId: string | undefined, search: string, drafts: Record<string, string>, scope: string | null, context = "", discoveryEnabled = true) {
+/** Current custody and explicit drafts stay pinned; discovery data is a bounded three-page window. */
+export function useAdjustLoadProducts(
+  routeId: string | undefined,
+  search: string,
+  drafts: Record<string, string>,
+  scope: string | null,
+  context = "",
+  discoveryEnabled = true,
+) {
   const authFetch = useAuthFetch();
-  const [items, setItems] = useState<AdjustLoadItem[]>([]);
+  const [pinnedItems, setPinnedItems] = useState<AdjustLoadItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [revision, setRevision] = useState(0);
@@ -22,7 +29,11 @@ export function useAdjustLoadProducts(routeId: string | undefined, search: strin
   draftsRef.current = drafts;
 
   useEffect(() => {
-    setItems([]); setError(null); setLoading(!!routeId); setLoadedScope(windowScope); loadedIds.current = new Set();
+    setPinnedItems([]);
+    setError(null);
+    setLoading(!!routeId);
+    setLoadedScope(windowScope);
+    loadedIds.current = new Set();
     if (!routeId) return;
     const controller = new AbortController();
     const read = async () => {
@@ -30,7 +41,7 @@ export function useAdjustLoadProducts(routeId: string | undefined, search: strin
       const initial = parseAdjustLoadInventory(await authFetch(endpoint, { signal: controller.signal }));
       if (controller.signal.aborted) return;
       loadedIds.current = new Set(initial.map((item) => item.product_id));
-      setItems(initial); // Show physical custody before hydrating any saved new-product drafts.
+      setPinnedItems(initial);
       const missing = draftIds(draftsRef.current).filter((id) => !loadedIds.current.has(id));
       for (let offset = 0; offset < missing.length; offset += ADJUST_LOAD_HYDRATION_BATCH_SIZE) {
         const batch = missing.slice(offset, offset + ADJUST_LOAD_HYDRATION_BATCH_SIZE);
@@ -39,7 +50,7 @@ export function useAdjustLoadProducts(routeId: string | undefined, search: strin
         const rows = parseAdjustLoadInventory(await authFetch(`${endpoint}?${params}`, { signal: controller.signal }));
         if (controller.signal.aborted) return;
         if (rows.length > batch.length || batch.some((id) => !rows.some((item) => item.product_id === id))) throw adjustmentError();
-        setItems((current) => [...current, ...rows.filter((row) => !current.some((item) => item.product_id === row.product_id))]);
+        setPinnedItems((current) => [...current, ...rows.filter((row) => !current.some((item) => item.product_id === row.product_id))]);
       }
     };
     void read().catch((failure) => { if (!controller.signal.aborted) setError(failure); })
@@ -47,16 +58,44 @@ export function useAdjustLoadProducts(routeId: string | undefined, search: strin
     return () => controller.abort();
   }, [authFetch, routeId, windowScope, revision]);
 
-  const page = useDispatchProductSearch(discoveryEnabled && routeId && loadedScope === windowScope && !loading && !error ? `/dispatch/route/${routeId}/live_inventory` : null, search, scope ? `${scope}:${context}` : null);
-  useEffect(() => {
-    setItems((current) => {
-      const keep = new Set([...loadedIds.current, ...draftIds(draftsRef.current)]);
-      const pinned = current.filter((item) => keep.has(item.product_id));
-      const pinnedIds = new Set(pinned.map((item) => item.product_id));
-      return [...pinned, ...page.items.map((item) => item.load!).filter((item) => !pinnedIds.has(item.product_id))];
-    });
-  }, [page.items]);
+  const page = useDispatchProductWindow(
+    discoveryEnabled && routeId && loadedScope === windowScope && !loading && !error
+      ? `/dispatch/route/${routeId}/live_inventory`
+      : null,
+    search,
+    scope ? `${scope}:${context}` : null,
+  );
 
-  return { items: loadedScope === windowScope ? items : [], loading: loading || loadedScope !== windowScope,
-    error: loadedScope === windowScope ? error : null, page, retry: () => setRevision((value) => value + 1) };
+  const discoveredItems = useMemo(
+    () => page.items.map((item) => item.load!).filter(Boolean),
+    [page.items],
+  );
+
+  useEffect(() => {
+    const keep = new Set([...loadedIds.current, ...draftIds(drafts)]);
+    setPinnedItems((current) => {
+      const byId = new Map(current.filter((item) => keep.has(item.product_id)).map((item) => [item.product_id, item]));
+      discoveredItems.forEach((item) => {
+        if (keep.has(item.product_id)) byId.set(item.product_id, item);
+      });
+      return Array.from(byId.values());
+    });
+  }, [discoveredItems, drafts]);
+
+  const pinnedIds = useMemo(() => new Set(pinnedItems.map((item) => item.product_id)), [pinnedItems]);
+  const windowItems = useMemo(
+    () => discoveredItems.filter((item) => !pinnedIds.has(item.product_id)),
+    [discoveredItems, pinnedIds],
+  );
+  const items = useMemo(() => [...pinnedItems, ...windowItems], [pinnedItems, windowItems]);
+
+  return {
+    items: loadedScope === windowScope ? items : [],
+    pinnedItems: loadedScope === windowScope ? pinnedItems : [],
+    windowItems: loadedScope === windowScope ? windowItems : [],
+    loading: loading || loadedScope !== windowScope,
+    error: loadedScope === windowScope ? error : null,
+    page,
+    retry: () => setRevision((value) => value + 1),
+  };
 }
