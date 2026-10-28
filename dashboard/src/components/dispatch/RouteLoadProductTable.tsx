@@ -6,10 +6,8 @@ import type { DispatchDiscoveryProduct } from "@/features/dispatch/useDispatchPr
 import { formatRouteLoadQuantity, routeLoadReview, type RouteLoadUom } from "@/features/dispatch/routeLoadUom";
 import type { Quantity } from "@/lib/quantity";
 import { ProductSearchControls } from "./ProductSearchControls";
-import {
-  MeasuredProductTableBody,
-  useDispatchWindowSentinels,
-} from "./DispatchProductWindow";
+import { MeasuredProductTableBody } from "./DispatchProductWindow";
+import { useDispatchWindowSentinels } from "@/features/dispatch/useDispatchWindowSentinels";
 
 export function RouteLoadProductTable({ vehicleId, warehouseId, scope, current, targets, units, names, onTargetChange, onClear, custodyReady = true }: {
   vehicleId: string; warehouseId: string; scope: string | null; current: Record<string, Quantity>; targets: Record<string, Quantity>;
