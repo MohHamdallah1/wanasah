@@ -331,7 +331,7 @@ No final `[x]` should be placed on Dispatch performance until that behavior is p
 The owner revoked the V2 Dispatch transport deferral. This section supersedes the
 catalog transport/client search descriptions in sections 2–4; those sections
 remain as historical defect evidence. `V1_SCOPE_FREEZE.md` and
-`VERSION_2_FUTURE_FEATURES.md` now agree. the former final-repair item 6 is CLOSED after lead review, focused automated gates, owner live `-5/+5` acceptance, and live database verification that Vehicle/Warehouse/load-plan quantities returned exactly to the expected canonical-base state. This does not claim whole-page visual polish acceptance.
+`VERSION_2_FUTURE_FEATURES.md` now agree. The former final-repair item 6 is CLOSED after lead review, focused automated gates, owner live `-5/+5` acceptance, and live database verification that Vehicle/Warehouse/load-plan quantities returned exactly to the expected canonical-base state. This does not claim whole-page visual polish acceptance.
 
 Implemented boundary:
 
