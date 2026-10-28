@@ -100,14 +100,14 @@ def warehouse_load_stock_statement(*, company_id: int, warehouse_id: int, as_of_
     return stmt
 
 
-def with_warehouse_product_search(stmt, clean_search: str, *, variant=ProductVariant):
+def with_warehouse_product_search(stmt, clean_search: str):
     if clean_search:
         escaped = clean_search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         pattern = f"%{escaped}%"
         stmt = stmt.where(
             or_(
-                func.lower(variant.name).like(pattern, escape="\\"),
-                func.lower(func.coalesce(variant.sku, "")).like(pattern, escape="\\"),
+                func.lower(ProductVariant.name).like(pattern, escape="\\"),
+                func.lower(func.coalesce(ProductVariant.sku, "")).like(pattern, escape="\\"),
             )
         )
     return stmt
@@ -119,13 +119,20 @@ def warehouse_load_candidate_ids_statement(*, company_id, warehouse_id, as_of_da
     The correlated aggregate checks one SKU, so LIMIT can stop after the requested
     matches rather than sorting/aggregating every stocked SKU in the Warehouse.
     """
-    candidate = aliased(ProductVariant)
+    # Keep ordering BEFORE the correlated eligibility check. Without this stream
+    # boundary a stale-statistics plan can evaluate the check for the entire
+    # catalog before a top-level sort, even though the response has a LIMIT.
+    ordered = with_warehouse_product_search(
+        select(ProductVariant.id, ProductVariant.name, ProductVariant.company_id).where(ProductVariant.company_id == company_id), search,
+    )
+    if product_ids is not None:
+        ordered = ordered.where(ProductVariant.id.in_(product_ids))
+    ordered = ordered.order_by(ProductVariant.name, ProductVariant.id).offset(0).subquery("ordered_load_products")
+    candidate = aliased(ProductVariant, ordered)
     eligible = warehouse_load_stock_statement(
         company_id=company_id, warehouse_id=warehouse_id, as_of_date=as_of_date,
     ).with_only_columns(ProductVariant.id, maintain_column_froms=True).where(
         ProductVariant.id == candidate.id,
     ).correlate(candidate).exists()
     stmt = select(candidate.id).where(candidate.company_id == company_id, eligible)
-    if product_ids is not None:
-        stmt = stmt.where(candidate.id.in_(product_ids))
-    return with_warehouse_product_search(stmt, search, variant=candidate).order_by(candidate.name, candidate.id)
+    return stmt.order_by(candidate.name, candidate.id)
