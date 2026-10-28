@@ -61,7 +61,7 @@ export function useDispatchProductSearch(endpoint: string | null, search: string
     }, cursor || !query ? 0 : 300);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [authFetch, endpoint, scope, key, query, cursor, purpose, revision]);
-  return { items: page.items, loading, error, searchRequired: purpose === "SHORTAGE", hasMore: page.has_more, hasPrevious: active.index > 0,
+  return { mode: "paged" as const, items: page.items, loading, error, searchRequired: purpose === "SHORTAGE", hasMore: page.has_more, hasPrevious: active.index > 0,
     pageNumber: active.index + 1,
     loadMore: () => { if (!loading && page.next_cursor) setNavigation({ key, cursors: [...active.cursors.slice(0, active.index + 1), page.next_cursor], index: active.index + 1 }); },
     previous: () => { if (!loading && active.index > 0) setNavigation({ ...active, index: active.index - 1 }); },
