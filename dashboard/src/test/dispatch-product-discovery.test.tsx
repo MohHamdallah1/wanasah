@@ -99,7 +99,8 @@ describe("Dispatch cursor pickers", () => {
     const { container } = render(<Launch />);
     await screen.findByText("Window 1");
     expect(screen.queryByRole("button", { name: /Load more|Previous results/ })).not.toBeInTheDocument();
-    const firstInput = screen.getByRole("textbox", { name: /Target.*Window 1/ });
+    const firstInput = container.querySelector("#route-base-2000") as HTMLInputElement;
+    expect(firstInput).toBeTruthy();
     fireEvent.change(firstInput, { target: { value: "25" } });
     expect(changed).toHaveBeenLastCalledWith("2000", "25");
 
@@ -169,7 +170,11 @@ describe("Dispatch cursor pickers", () => {
     expect(screen.getByRole("textbox", { name: "Search products" })).toBeDisabled();
     expect(fake.fetch).not.toHaveBeenCalled();
     view.rerender(<RouteLoadProductTable {...props} vehicleId="17" warehouseId="21" />);
-    await lastPage();
+    await screen.findByText("Matching 1");
+    await intersectWindowBoundary("bottom");
+    await screen.findByText("Matching 160");
+    await intersectWindowBoundary("bottom");
+    await screen.findByText("Matching 200");
     view.rerender(<RouteLoadProductTable {...props} vehicleId="17" warehouseId="22" />);
     await waitFor(() => expect(fake.fetch).toHaveBeenCalledTimes(4));
     expect(fake.fetch.mock.calls[3][0]).toContain("warehouse_id=22");
@@ -199,7 +204,9 @@ describe("Dispatch cursor pickers", () => {
     fireEvent.change(input, { target: { value: "5" } }); fireEvent.blur(input);
     fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "changed" } });
     await waitFor(() => expect(fake.fetch.mock.calls.some(([url]) => url.includes("search=changed"))).toBe(true));
-    await waitFor(() => expect(screen.getByText("End of results. Selected products stay visible when searching or changing pages.")).toBeVisible());
+    await waitFor(() => expect(screen.getByText(kind === "launch"
+      ? "Scroll naturally; nearby results load automatically without retaining the full catalog in memory."
+      : "End of results. Selected products stay visible when searching or changing pages.")).toBeVisible());
     expect(screen.getAllByText(current.name)).toHaveLength(1);
     expect(screen.getByText("Matching 1")).toBeVisible();
     expect(screen.getAllByRole("row")).toHaveLength(3);
