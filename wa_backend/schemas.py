@@ -1011,7 +1011,6 @@ class DispatchInitResponse(BaseModel):
     drivers: List[DispatchDriverResponse]
     vehicles: List[DispatchVehicleResponse]
     warehouses: List[DispatchWarehouseResponse]
-    products: List[DispatchProductResponse]
 
 class DispatchRouteRequest(RequestModel):
     zone_id: PositiveDbInt

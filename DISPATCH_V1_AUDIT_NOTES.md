@@ -1,6 +1,6 @@
 # Dispatch V1 — Current Audit Notes / Scale Risks
 
-> Status: **working audit note, not a closure plan and not acceptance evidence.**
+> Status: **working audit note with focused automated discovery evidence below; whole-page/live acceptance remains open.**
 >
 > Purpose: preserve the issues discovered while Inventory V1 is still the active workstream.
 > Dispatch / Zones / Shops remains a required V1 surface and will receive a deeper end-to-end audit after Inventory closure.
@@ -15,7 +15,7 @@ Opening the page should load only the data needed for the visible dispatch works
 
 Product selection for route load / shortages / route adjustments must be **search-driven, bounded, lazy, and backend-authoritative**. The browser must never need the entire company product catalog in the DOM.
 
-## 2. Confirmed current scale problems
+## 2. Historical findings before permanent discovery closure (superseded below)
 
 ### 2.1 `GET /dispatch/init` loads the full route-load product catalog
 
@@ -255,7 +255,7 @@ The recovery screen must preserve session/local draft state and offer reload/hom
 - The current `/dispatch/init` problem is not a classic one-query-per-product N+1.
 - The 400px scroll container is not pagination and not virtualization.
 
-## 4. Immediate containment applied before the full Dispatch pass
+## 4. Historical immediate containment (superseded on 2026-10-28)
 
 The temporary containment applied during the Inventory workstream is intentionally smaller than the final architecture:
 
@@ -268,7 +268,7 @@ The temporary containment applied during the Inventory workstream is intentional
 7. Route creation / inventory / costing / custody backend authority is unchanged.
 8. A 50,000-product unit test proves that the visible Launch result window remains bounded.
 
-### Still intentionally NOT closed by this containment
+### Items left open by that historical containment
 
 The following remain open for the real Dispatch V1 pass:
 
@@ -285,14 +285,14 @@ The final architecture should remove the catalog from the Dispatch bootstrap and
 
 When Inventory closure is complete and Dispatch becomes the active workstream, audit at least:
 
-- [ ] `/dispatch/init` contract and bootstrap size.
-- [ ] Dispatch product search/read model.
-- [ ] Source-warehouse-aware product eligibility.
-- [ ] Available/sellable stock visibility.
-- [ ] Product picker UX for Launch.
-- [ ] Shortage product picker.
-- [ ] Route-management load editor.
-- [ ] Virtualization vs search-only UX decisions.
+- [x] `/dispatch/init` contract and bootstrap size. Focused discovery closure evidence: section 7.
+- [x] Dispatch product search/read model. Focused discovery closure evidence: section 7.
+- [x] Source-warehouse-aware product eligibility. Focused discovery closure evidence: section 7.
+- [ ] Available/sellable stock visibility. Search eligibility filtering is covered by section 7; wider page acceptance remains open.
+- [x] Product picker UX for Launch. Focused discovery closure evidence: section 7.
+- [x] Shortage product picker. Focused discovery closure evidence: section 7.
+- [x] Route-management product discovery. Focused discovery closure evidence: section 7; existing mutation semantics are preserved.
+- [x] Virtualization vs search-only UX decisions. Focused discovery closure evidence: section 7.
 - [ ] Sparse route load state and zero-target normalization.
 - [ ] Route launch SQL/domain query count and batch behavior.
 - [ ] Vehicle inventory read size.
@@ -325,3 +325,67 @@ A large company catalog must not determine the cost of opening Dispatch.
 The normal page-open cost should depend on the small operational working set (zones, active routes, vehicles, warehouses, visible shops), while product catalog access is bounded and requested only when the operator searches/selects a product.
 
 No final `[x]` should be placed on Dispatch performance until that behavior is proven with a large catalog.
+
+## 7. Permanent product discovery and recovery closure — 2026-10-28
+
+The owner revoked the V2 Dispatch transport deferral. This section supersedes the
+catalog transport/client search descriptions in sections 2–4; those sections
+remain as historical defect evidence. `V1_SCOPE_FREEZE.md` and
+`VERSION_2_FUTURE_FEATURES.md` now agree. `V1_FINAL_REPAIR_PLAN.md` item 6 is still
+OPEN for lead review and owner live acceptance; this is not whole-page acceptance.
+
+Implemented boundary:
+
+- `/dispatch/init` returns zones, canonical representatives, authorized Vehicles
+  and Warehouses only. Its schema, query and Dashboard bootstrap own no Products.
+- Route Launch, Adjust Load and Route Management discover source Warehouse stock
+  through the existing shared `inventory_source_stock.py` authority, preserving
+  ProductLocation, ROUTE_LOAD_NEW, batch sellability, free stock and inventory locks.
+- Shortages use REPLENISHMENT_NEW, matching the existing mutation, without needing
+  Warehouse stock. Discovery never changes stock or creates a business operation.
+- `items` / `next_cursor` / `has_more` pages have at most 80 items. HMAC cursors bind
+  tenant, purpose/eligibility, actual route/source/vehicle/session and normalized
+  search. Immutable ID seeks allow every result to be reached with no deep OFFSET;
+  the shared query's OFFSET 0 remains its pre-existing PostgreSQL execution fence.
+- Search is debounced. Blank/one-character queries read no catalog. Each picker
+  retains one page plus explicit current/pending/selected/drafted pins, with Load
+  more and Previous results; traversed pages do not accumulate catalog rows.
+- Normal Adjust Load execution displays progress only. Persisted or ambiguous
+  commands require explicit recovery using their original UUID/body. Deterministic
+  4xx and successful responses clear the command. Mutation/UOM/legacy FIELD/radar
+  contracts and inventory/cost/FEFO authorities were not changed.
+
+Automated evidence (disposable PostgreSQL 16 only, no live DB access):
+
+- `tests.test_dispatch_adjust_load_search`: a fresh **50,000 eligible stocked SKU**
+  fixture leaves the entire serialized `/dispatch/init` payload byte-for-byte
+  identical to its pre-catalog value. Captured init SQL never reads ProductVariant.
+  Initial live inventory projects only the loaded 25 BASE product and its PACK=8
+  metadata; search projects at most the page size before UOM work.
+- **200 matches → 80 + 80 + 40**, all unique and ordered by immutable ID. The last
+  result is adjusted successfully and replay preserves custody. Cursor tampering,
+  changed query/source/route/tenant/purpose, denied location and shortage capability,
+  ineligible products, held loaded/pending products and HTTP page bounds are covered.
+- DIRECT +5 and -5 each create exactly one movement; replay creates none. Existing
+  canonical/legacy, decimal, FEFO, handshake terminal plan synchronization and
+  Vehicle Load gates remain green (41 PostgreSQL + 24 contract tests total).
+- Dashboard: **139 tests / 12 files** pass, including all four cursor pickers,
+  result 200 selection, previous-page/search pinning and bounded DOM, normal DIRECT
+  no-warning behavior, ambiguous same-wire retry and persisted recovery, PACK/PALLET
+  formatting and Vehicle Load regressions.
+- Focused TypeScript has zero diagnostics; full-app diagnostics remain the existing
+  59, with zero additions. Changed-scope lint, production build, Python compile and
+  diff whitespace checks pass. The Vehicle Load acceptance workflow includes the
+  fresh Dispatch 50k and cursor regressions on every relevant change.
+
+Additional existing authorization/custody source checks: 69/70 pass. The one
+failure is the old `test_request_transaction_calls_remain_at_the_existing_boundaries`
+guard expecting five `dispatch_route` rollbacks. The exact base already has six;
+that function's AST is identical on this branch. No transaction behavior or that
+unrelated guard was changed to hide the baseline failure.
+
+Remaining acceptance is lead review plus owner testing of the actual Dispatch
+workflow. The supplied route 11 evidence (product 521: Vehicle 25 BASE, Warehouse
+5 BASE, target 25 BASE, completed unload/load requests) was not modified or queried.
+Unrelated audit items, full-page p50/p95 profiling and remaining Vehicle Load V2
+benchmark scope are not declared complete by this focused closure.

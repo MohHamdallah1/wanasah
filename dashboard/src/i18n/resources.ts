@@ -7,6 +7,7 @@ import { qualityActionReasons } from "./qualityActionReasons";
 import { suppliers } from "./suppliers";
 import { dispatchRouteLoad } from "./dispatchRouteLoad";
 import { dispatchAdjustLoad } from "./dispatchAdjustLoad";
+import { dispatchProductSearch } from "./dispatchProductSearch";
 
 export const supportedLanguages = [
   "ar",
@@ -28,6 +29,7 @@ export const resources = {
       suppliers: suppliers.ar,
       dispatchRouteLoad: dispatchRouteLoad.ar,
       dispatchAdjustLoad: dispatchAdjustLoad.ar,
+      dispatchProductSearch: dispatchProductSearch.ar,
       common: {
         save: "حفظ",
         cancel: "إلغاء",
@@ -2181,6 +2183,8 @@ export const resources = {
           DISPATCH_ADJUSTMENT_INVALID: "تعذر التحقق من كمية تعديل الحمولة أو وحدة المنتج. راجع البيانات ثم أعد المحاولة.",
           DISPATCH_TRANSFER_RESPONSE_INVALID: "تعذر التحقق من كميات المصافحات ووحداتها. حدّث الرادار وحاول مجددًا.",
           DISPATCH_ROUTE_CONTEXT_CHANGED: "تغيّر ارتباط المسار بجلسة العمل. حدّث بيانات الحمولة ثم أعد المحاولة.",
+          DISPATCH_PRODUCT_CURSOR_INVALID: "تغيّر سياق البحث أو انتهت صلاحية متابعة النتائج. أعد البحث من البداية.",
+          DISPATCH_PRODUCT_CONTEXT_REQUIRED: "اختر سيارة ومستودع المصدر للبحث عن المنتجات.",
           DISPATCH_ADJUSTMENT_NEGATIVE: "رصيد السيارة والمصافحات المعلقة لا يغطيان مقدار الإرجاع المطلوب.",
           DRIVER_MOBILE_QUANTITY_PRECISION_UNSUPPORTED: "هذه الجلسة مرتبطة بتطبيق المندوب الذي يدعم حاليًا كميات صحيحة بالوحدة الأساسية فقط. أدخل مقدار تعديل صحيحًا؛ لم تُنشأ أي مصافحة.",
           DISPATCH_ADJUSTMENT_RESPONSE_INVALID: "لم تتأكد نتيجة تعديل الحمولة. أعد التحقق بنفس الطلب قبل تعديل جديد.",
@@ -2400,6 +2404,7 @@ export const resources = {
       suppliers: suppliers.en,
       dispatchRouteLoad: dispatchRouteLoad.en,
       dispatchAdjustLoad: dispatchAdjustLoad.en,
+      dispatchProductSearch: dispatchProductSearch.en,
       common: {
         save: "Save",
         cancel: "Cancel",
@@ -4556,6 +4561,8 @@ export const resources = {
           DISPATCH_ADJUSTMENT_INVALID: "The load adjustment quantity or product unit could not be verified. Review the data and try again.",
           DISPATCH_TRANSFER_RESPONSE_INVALID: "Transfer quantities and units could not be verified. Refresh the radar and try again.",
           DISPATCH_ROUTE_CONTEXT_CHANGED: "The route WorkSession binding changed. Refresh the load data and try again.",
+          DISPATCH_PRODUCT_CURSOR_INVALID: "The search context changed or the continuation is invalid. Restart the search.",
+          DISPATCH_PRODUCT_CONTEXT_REQUIRED: "Select a vehicle and source warehouse to search for products.",
           DISPATCH_ADJUSTMENT_NEGATIVE: "Vehicle stock and pending handshakes do not cover the requested return.",
           DRIVER_MOBILE_QUANTITY_PRECISION_UNSUPPORTED: "The representative app for this session currently supports only whole base units. Enter a whole-number adjustment; no handshake was created.",
           DISPATCH_ADJUSTMENT_RESPONSE_INVALID: "The load adjustment outcome is unconfirmed. Retry the same request before making another adjustment.",

@@ -9,8 +9,9 @@ import { currentLocale } from "@/i18n";
 import type { PendingRoute } from "@/types/dispatch";
 import { adjustmentReview, buildAdjustmentPayload, parseAdjustmentDraft, type AdjustLoadItem } from "@/features/dispatch/adjustLoad";
 import { formatRouteLoadQuantity } from "@/features/dispatch/routeLoadUom";
+import { ProductSearchControls } from "./ProductSearchControls";
 import { useAdjustLoadCommand } from "@/features/dispatch/useAdjustLoadCommand";
-import { ADJUST_LOAD_SEARCH_LIMIT, hasAdjustmentDraft, useAdjustLoadProducts } from "@/features/dispatch/useAdjustLoadProducts";
+import { hasAdjustmentDraft, useAdjustLoadProducts } from "@/features/dispatch/useAdjustLoadProducts";
 
 // DASHBOARD_DISPATCH_ROUTE_CONTRACT_V3
 interface AdjustInventoryModalProps {
@@ -55,7 +56,7 @@ export function AdjustInventoryModal({
   }, [command.scope, deltas, draftError, draftScope, isOpen]);
 
   const blocked = !command.scope || !command.ready || loading || command.busy ||
-    !!command.pending || !!command.recoveryError || draftError || !!products.error;
+    command.recoveryRequired || !!command.recoveryError || draftError || !!products.error;
   const update = (id: string, value: string) => {
     if (blocked) return;
     setDeltas((current) => {
@@ -134,7 +135,8 @@ export function AdjustInventoryModal({
       <div dir={i18n.dir()} className="space-y-4">
         {!command.online && <p role="status">{t("dispatchAdjustLoad.offline")}</p>}
         {(command.recoveryError || draftError) && <p role="alert">{t("dispatchAdjustLoad.unknown")}</p>}
-        {command.pending ? <div role="alert" className="space-y-3">
+        {command.busy && !command.recoveryRequired && <p role="status">{t("dispatchAdjustLoad.saving")}</p>}
+        {command.recoveryRequired ? <div role="alert" className="space-y-3">
           <p>{t("dispatchAdjustLoad.unknown")}</p>
           <button type="button" onClick={() => void save(true)}
             disabled={command.busy || !command.online || !!command.recoveryError}>{t("common.retry")}</button>
@@ -143,23 +145,11 @@ export function AdjustInventoryModal({
           if (blocked) return;
           if (step === "edit") review(); else void save();
         }} className="space-y-4">
-          {step === "edit" && <input aria-label={t("dispatchAdjustLoad.search")} placeholder={t("dispatchAdjustLoad.search")}
-            value={search} maxLength={100} onChange={(event) => setSearch(event.target.value)} className="w-full rounded border p-2" />}
+          {step === "edit" && <ProductSearchControls search={search} onChange={setSearch} page={products.page} />}
           {loading && <p role="status">{t("common.loading")}</p>}
-          {products.error ? <div role="alert">
-            <p>{t("dispatchAdjustLoad.loadError")}</p>
-            <p>{apiErrorMessage(products.error, t("dispatchAdjustLoad.loadError"))}</p>
-            <button type="button" onClick={products.retry}>{t("common.retry")}</button>
-          </div> : step === "edit" && <>
-            {products.searching && <p role="status">{t("dispatchAdjustLoad.searching")}</p>}
-            {!!products.searchError && <div role="alert"><p>{t("dispatchAdjustLoad.searchError")}</p><p>{apiErrorMessage(products.searchError, t("dispatchAdjustLoad.searchError"))}</p>
-              <button type="button" onClick={products.retry}>{t("common.retry")}</button></div>}
-            {!loading && !products.searching && !products.searchError && <p role="status">{t(search.trim().length >= 2
-              ? products.resultCount ? "dispatchAdjustLoad.searchLimit" : "dispatchAdjustLoad.searchEmpty"
-              : inventory.length ? "dispatchAdjustLoad.searchHint" : "dispatchAdjustLoad.loadedEmpty", {
-                limit: formatLocaleDecimal(String(ADJUST_LOAD_SEARCH_LIMIT), currentLocale()),
-              })}</p>}
-          </>}
+          {!!products.error && <div role="alert"><p>{apiErrorMessage(products.error, t("dispatchAdjustLoad.loadError"))}</p>
+            <button type="button" onClick={products.retry}>{t("common.retry")}</button></div>}
+          {!loading && !products.error && !inventory.length && <p role="status">{t("dispatchAdjustLoad.loadedEmpty")}</p>}
           <div className="max-h-[50vh] space-y-3 overflow-auto">{rows.map(renderRow)}</div>
           {route?.sessionBound && <p>{t("dispatchAdjustLoad.handshake")}</p>}
           <div className="flex gap-3 border-t pt-4">

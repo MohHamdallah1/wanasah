@@ -8,10 +8,10 @@ from models import ProductVariant
 from services import get_company_local_date
 
 
-ADJUST_LOAD_SEARCH_LIMIT = 80
+ADJUST_LOAD_HYDRATION_BATCH_SIZE = 80
 
 
-async def read_adjust_load_inventory(db, *, company_id, route, vehicle_location_id, search=None, product_ids=None, limit=80):
+async def read_adjust_load_snapshot(db, *, company_id, vehicle_location_id, work_session_id=None, driver_id=None):
     totals = await route_vehicle_base_totals(
         db, company_id=company_id, location_id=vehicle_location_id, all_statuses=True,
     )
@@ -19,34 +19,18 @@ async def read_adjust_load_inventory(db, *, company_id, route, vehicle_location_
         db, company_id=company_id, location_id=vehicle_location_id,
     )
     pending = await pending_handshake_base_net(
-        db, company_id=company_id, work_session_id=route.work_session_id,
-        driver_id=route.driver_id, vehicle_location_id=vehicle_location_id,
-    ) if route.work_session_id is not None else {}
-    loaded_ids = set(totals) | set(pending)
-    if search is None and product_ids is None:
-        selected_ids = loaded_ids
-    else:
-        clean_search = (search or "").strip().lower()
-        if search is not None and (not 2 <= len(clean_search) <= 100 or "\x00" in clean_search):
-            return []
-        requested = set(product_ids or [])
-        if product_ids is not None and (not requested or len(product_ids) > ADJUST_LOAD_SEARCH_LIMIT or any(type(pid) is not int or pid <= 0 for pid in requested)):
-            return []
-        stmt = warehouse_load_candidate_ids_statement(
-            company_id=company_id, warehouse_id=route.source_location_id,
-            as_of_date=await get_company_local_date(db, company_id),
-            search=clean_search, product_ids=requested if product_ids is not None else None,
-        )
-        # Limit in SQL, BEFORE materializing Products or their UOM conversion graphs.
-        cap = min(ADJUST_LOAD_SEARCH_LIMIT, max(1, int(limit)))
-        candidates = (await db.scalars(stmt.limit(cap))).all()
-        selected_ids = set(candidates)
-        if product_ids is not None:
-            selected_ids |= loaded_ids & requested
-    if not selected_ids:
+        db, company_id=company_id, work_session_id=work_session_id,
+        driver_id=driver_id, vehicle_location_id=vehicle_location_id,
+    ) if work_session_id is not None else {}
+    return totals, legacy_totals, pending
+
+
+async def project_adjust_load_items(db, *, company_id, product_ids, snapshot):
+    totals, legacy_totals, pending = snapshot
+    if not product_ids:
         return []
     variants = (await db.scalars(select(ProductVariant).where(
-        ProductVariant.company_id == company_id, ProductVariant.id.in_(sorted(selected_ids)),
+        ProductVariant.company_id == company_id, ProductVariant.id.in_(sorted(product_ids)),
     ).order_by(ProductVariant.id))).all()
     metadata = await route_load_uom_metadata(db, company_id=company_id, variant_ids=[variant.id for variant in variants])
     result = []
@@ -68,3 +52,19 @@ async def read_adjust_load_inventory(db, *, company_id, route, vehicle_location_
             **metadata[int(variant.id)],
         })
     return result
+
+
+async def read_adjust_load_inventory(db, *, company_id, route, vehicle_location_id, product_ids=None):
+    snapshot = await read_adjust_load_snapshot(db, company_id=company_id, vehicle_location_id=vehicle_location_id,
+        work_session_id=route.work_session_id, driver_id=route.driver_id)
+    totals, _, pending = snapshot
+    loaded_ids = set(totals) | set(pending)
+    selected_ids = loaded_ids
+    if product_ids is not None:
+        requested = set(product_ids)
+        if not requested or len(product_ids) > ADJUST_LOAD_HYDRATION_BATCH_SIZE or any(type(pid) is not int or pid <= 0 for pid in requested):
+            return []
+        stmt = warehouse_load_candidate_ids_statement(company_id=company_id, warehouse_id=route.source_location_id,
+            as_of_date=await get_company_local_date(db, company_id), search="", product_ids=requested)
+        selected_ids = set((await db.scalars(stmt.limit(ADJUST_LOAD_HYDRATION_BATCH_SIZE))).all()) | (loaded_ids & requested)
+    return await project_adjust_load_items(db, company_id=company_id, product_ids=selected_ids, snapshot=snapshot)

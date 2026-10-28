@@ -176,17 +176,19 @@ one display UOM plus the exact base remainder, without multi-level decomposition
 Stock/movement quantities remain BASE and unmarked historical transfers keep
 their legacy presentation. This does not open Advanced UOM configuration scope.
 
-Owner-reported live blocker (2026-10-28): route 11 Adjust Load opens empty with
-product 521 physically holding 25 BASE because its read expands to the 50k
-eligible catalog before UOM metadata. Opening now reads only Vehicle custody and
-pending-handshake product IDs. Additional discovery is debounced server search,
-capped at 80 rows before metadata, against the route's authorized source
-Warehouse and the shared Inventory source-stock eligibility query. Current and
-drafted rows stay visible across search; saved new-product drafts hydrate through
-bounded explicit-ID reads. ProductLocation, lifecycle, batch/free-stock/lock
-authority and the existing base-quantity command remain unchanged. This closes
-a demonstrated V1 workflow failure without reopening the deferred Dispatch init
-catalog or unrelated scale work. Lead review and live owner acceptance remain open.
+Owner-approved permanent discovery closure (2026-10-28), superseding the
+initial PR #582 fixed-80 containment: `/dispatch/init` no longer owns or returns
+Products, and DispatchBoard holds no company catalog. Route Launch, Adjust Load
+and Route Management use cursor discovery over the shared Inventory source-stock
+authority; Shortages use REPLENISHMENT_NEW without requiring Warehouse stock.
+80 is only a page size. Signed cursors bind tenant, purpose/eligibility, actual
+route/source/vehicle/session and normalized query; immutable-ID seek navigation
+has no deep OFFSET. The browser keeps one page plus current/pending/selected pins.
+Adjust Load retains bounded draft hydration and exact base/UOM command authority.
+Normal in-flight commands show progress; only persisted/ambiguous commands show
+recovery and retain the same request identity. Disposable PostgreSQL and Dashboard
+evidence is recorded in `DISPATCH_V1_AUDIT_NOTES.md`. No live DB was accessed.
+Item 6 remains OPEN until lead review and owner live acceptance.
 
 Confirmed evidence:
 
@@ -218,6 +220,6 @@ Quick live Dashboard acceptance:
 These are already documented in `V1_SCOPE_FREEZE.md` and `VERSION_2_FUTURE_FEATURES.md`:
 
 - Vehicle Load benchmark/search hardening for the extreme case of about 50,000 stock-bearing products in one Warehouse.
-- Removing the full product catalog from `/dispatch/init` and replacing it with bounded server-side Dispatch product search.
+Dispatch full-catalog transport removal is **no longer deferred**: the owner promoted it to V1 on 2026-10-28, including all four purpose-correct cursor pickers and recovery UX. See item 6 above.
 
 These V2 deferrals do **not** defer any quantity, UOM, custody, authorization, lifecycle or inventory-correctness defect.

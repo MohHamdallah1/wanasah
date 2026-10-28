@@ -113,7 +113,7 @@ def with_warehouse_product_search(stmt, clean_search: str):
     return stmt
 
 
-def warehouse_load_candidate_ids_statement(*, company_id, warehouse_id, as_of_date, search, product_ids=None):
+def warehouse_load_candidate_ids_statement(*, company_id, warehouse_id, as_of_date, search, product_ids=None, after_id=None, order_by_id=False):
     """Seek products in name/ID order; test shared stock eligibility per candidate.
 
     The correlated aggregate checks one SKU, so LIMIT can stop after the requested
@@ -127,7 +127,11 @@ def warehouse_load_candidate_ids_statement(*, company_id, warehouse_id, as_of_da
     )
     if product_ids is not None:
         ordered = ordered.where(ProductVariant.id.in_(product_ids))
-    ordered = ordered.order_by(ProductVariant.name, ProductVariant.id).offset(0).subquery("ordered_load_products")
+    if after_id is not None:
+        ordered = ordered.where(ProductVariant.id > after_id)
+    ordering = (ProductVariant.id,) if order_by_id else (ProductVariant.name, ProductVariant.id)
+    # OFFSET 0 is an execution boundary only; deep navigation uses id > cursor.
+    ordered = ordered.order_by(*ordering).offset(0).subquery("ordered_load_products")
     candidate = aliased(ProductVariant, ordered)
     eligible = warehouse_load_stock_statement(
         company_id=company_id, warehouse_id=warehouse_id, as_of_date=as_of_date,
@@ -135,4 +139,4 @@ def warehouse_load_candidate_ids_statement(*, company_id, warehouse_id, as_of_da
         ProductVariant.id == candidate.id,
     ).correlate(candidate).exists()
     stmt = select(candidate.id).where(candidate.company_id == company_id, eligible)
-    return stmt.order_by(candidate.name, candidate.id)
+    return stmt.order_by(candidate.id) if order_by_id else stmt.order_by(candidate.name, candidate.id)
