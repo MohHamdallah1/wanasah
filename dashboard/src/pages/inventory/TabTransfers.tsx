@@ -1,17 +1,7 @@
-import { useTransferTranslation as useTranslation, formatTransferNumber } from "./transfers/i18n";
-import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  Plus,
-  RefreshCcw,
-  Search,
-  Truck,
-} from "lucide-react";
-import {
-  TRANSFER_STATUSES,
-  isTransferStatus,
-  STATUS_META,
-} from "./transfers/constants";
+import { Plus, RefreshCcw, Search, Truck } from "lucide-react";
+import { useTransferTranslation as useTranslation, formatTransferNumber } from "./transfers/i18n";
+import { TRANSFER_STATUSES, isTransferStatus, STATUS_META } from "./transfers/constants";
 import type { Props, WarehouseTransferListItem } from "./transfers/types";
 import { TransferTable } from "./transfers/TransferTable";
 import { TransferDetailModal } from "./transfers/TransferDetailModal";
@@ -22,28 +12,24 @@ import { useTransferActions } from "./transfers/hooks/useTransferActions";
 import { useTransferCreate } from "./transfers/hooks/useTransferCreate";
 
 export function TabTransfers({
-  locationId,
   focus = null,
   onFocusConsumed,
   onInventoryChanged,
 }: Props) {
   const { t, i18n } = useTranslation();
-  const access = useInventoryAccess(locationId);
   const focusIdRef = useRef<number | null>(null);
   const [focusedTransfer, setFocusedTransfer] = useState<WarehouseTransferListItem | null>(null);
-  const transferList = useTransferList(locationId);
+  const transferList = useTransferList();
   const {
     items,
     status,
     setStatus,
-    direction,
-    setDirection,
     searchInput,
     setSearchInput,
     total,
     loading,
-    cursorHistory,
-    nextCursor,
+    loadingMore,
+    hasMore,
     detail,
     detailLoading,
     inTransitCount,
@@ -52,8 +38,7 @@ export function TabTransfers({
     closeDetail,
     resetDetail,
     refreshTransfers,
-    handleNext,
-    handlePrevious,
+    loadMore,
   } = transferList;
 
   const handleTransferActionCompleted = useCallback(() => {
@@ -62,11 +47,6 @@ export function TabTransfers({
     resetDetail();
     refreshTransfers();
   }, [refreshTransfers, resetDetail]);
-
-  useEffect(() => {
-    focusIdRef.current = null;
-    setFocusedTransfer(null);
-  }, [locationId]);
 
   useEffect(() => {
     if (!focus) return;
@@ -81,7 +61,6 @@ export function TabTransfers({
   }, [detail]);
 
   const transferActions = useTransferActions({
-    locationId,
     onInventoryChanged,
     onCompleted: handleTransferActionCompleted,
   });
@@ -97,7 +76,6 @@ export function TabTransfers({
   } = transferActions;
 
   const transferCreate = useTransferCreate({
-    locationId,
     onInventoryChanged,
     onCompleted: refreshTransfers,
   });
@@ -123,9 +101,8 @@ export function TabTransfers({
               <Truck className="h-4 w-4 text-blue-700" aria-hidden="true" />
               {t("inventoryTransfers.title")}
             </h2>
-            <p className="mt-0.5 truncate text-[10px] font-bold text-slate-500" data-cp13-warehouse-context="true">
-              {t("inventoryTransfers.locationSummary", {
-                id: formatTransferNumber(locationId),
+            <p className="mt-0.5 truncate text-[10px] font-bold text-slate-500">
+              {t("inventoryTransfers.workspaceSummary", {
                 total: total === null ? "—" : formatTransferNumber(total),
                 count: formatTransferNumber(inTransitCount),
               })}
@@ -143,7 +120,6 @@ export function TabTransfers({
               <Plus className="h-3.5 w-3.5" aria-hidden="true" />
               {t("inventoryTransfers.newTransfer")}
             </button>
-
             <button
               type="button"
               onClick={refreshTransfers}
@@ -151,20 +127,13 @@ export function TabTransfers({
               className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 outline-none hover:bg-slate-50 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-300"
               title={t("inventoryTransfers.refresh")}
               aria-label={t("inventoryTransfers.refresh")}
-              data-cp13-action-priority="secondary"
             >
-              <RefreshCcw
-                className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
-                aria-hidden="true"
-              />
+              <RefreshCcw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
             </button>
           </div>
         </header>
 
-        <div
-          className="grid grid-cols-1 gap-2 border-b border-slate-100 bg-slate-50/70 p-2 sm:grid-cols-[minmax(220px,1fr)_180px_180px] sm:px-3"
-          data-cp13-controls="transfer-list"
-        >
+        <div className="grid grid-cols-1 gap-2 border-b border-slate-100 bg-slate-50/70 p-2 sm:grid-cols-[minmax(240px,1fr)_190px] sm:px-3">
           <div className="relative min-w-0">
             <Search className="pointer-events-none absolute start-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" aria-hidden="true" />
             <input
@@ -177,7 +146,6 @@ export function TabTransfers({
               className="h-9 w-full rounded-lg border border-slate-200 bg-white ps-9 pe-3 text-xs font-bold text-slate-800 outline-none focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100"
             />
           </div>
-
           <select
             aria-label={t("inventoryTransfers.status")}
             value={status}
@@ -189,55 +157,18 @@ export function TabTransfers({
           >
             <option value="">{t("inventoryTransfers.allStatuses")}</option>
             {TRANSFER_STATUSES.map((value) => (
-              <option key={value} value={value}>
-                {t(STATUS_META[value].label)}
-              </option>
+              <option key={value} value={value}>{t(STATUS_META[value].label)}</option>
             ))}
-          </select>
-
-          <select
-            aria-label={t("inventoryTransfers.direction")}
-            value={direction}
-            onChange={(event) => {
-              const value = event.target.value;
-              if (
-                value === "all" ||
-                value === "source" ||
-                value === "destination"
-              ) {
-                setDirection(value);
-              }
-            }}
-            className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-700 outline-none focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100"
-          >
-            <option value="all">{t("inventoryTransfers.allDirections")}</option>
-            <option value="source">{t("inventoryTransfers.outgoing")}</option>
-            <option value="destination">{t("inventoryTransfers.incoming")}</option>
           </select>
         </div>
 
         {transferList.failure ? (
-          <div
-            role="alert"
-            data-cp13-state={transferList.failure.phase === "first" ? "error" : "stale"}
-            className={`m-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs font-bold ${
-              transferList.failure.phase === "first"
-                ? "border-red-200 bg-red-50 text-red-800"
-                : "border-amber-200 bg-amber-50 text-amber-900"
-            }`}
-          >
+          <div role="alert" className={`m-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs font-bold ${transferList.failure.phase === "first" ? "border-red-200 bg-red-50 text-red-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
             <div className="min-w-0">
-              <p>
-                {t(`inventoryTransfers.${transferList.failure.phase === "first" ? "firstFailure" : transferList.failure.phase === "refresh" ? "refreshFailure" : "continuationFailure"}`)}
-              </p>
+              <p>{t(`inventoryTransfers.${transferList.failure.phase === "first" ? "firstFailure" : transferList.failure.phase === "refresh" ? "refreshFailure" : "continuationFailure"}`)}</p>
               <p className="mt-0.5 break-words text-[11px] font-semibold opacity-80">{transferList.failure.message}</p>
             </div>
-            <button
-              type="button"
-              disabled={loading}
-              onClick={transferList.retry}
-              className="shrink-0 rounded-lg border border-current/20 bg-white px-2.5 py-1.5 text-[11px] font-black outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:opacity-50"
-            >
+            <button type="button" disabled={loading || loadingMore} onClick={transferList.retry} className="shrink-0 rounded-lg border border-current/20 bg-white px-2.5 py-1.5 text-[11px] font-black disabled:opacity-50">
               {t("inventoryTransfers.retry")}
             </button>
           </div>
@@ -245,45 +176,35 @@ export function TabTransfers({
 
         <TransferTable
           items={visibleItems}
-          locationId={locationId}
           loading={loading}
-          cursorHistoryLength={cursorHistory.length}
-          nextCursor={nextCursor}
+          loadingMore={loadingMore}
+          hasMore={hasMore}
+          onLoadMore={loadMore}
           onOpenDetail={async (transfer) => { await openDetail(transfer); }}
           onOpenAction={openAction}
-          onPrevious={handlePrevious}
-          onNext={handleNext}
         />
       </section>
 
       {transferCreate.command.pending && !transferCreate.createOpen ? (
         <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">
           <p>{t("inventoryTransfers.pending")}</p>
-          <button type="button" disabled={transferCreate.command.busy} onClick={() => void transferCreate.retryPendingDispatch()} className="rounded-lg border border-amber-200 bg-white px-2.5 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-amber-300">
+          <button type="button" disabled={transferCreate.command.busy} onClick={() => void transferCreate.retryPendingDispatch()} className="rounded-lg border border-amber-200 bg-white px-2.5 py-1.5">
             {t("inventoryTransfers.pendingTransfer")}
           </button>
         </div>
       ) : null}
+
       {transferActions.command.pending && !action ? (
         <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">
           <p>{t("inventoryTransfers.pending")}</p>
-          <button type="button" disabled={transferActions.command.busy} onClick={() => void transferActions.retryPendingAction()} className="rounded-lg border border-amber-200 bg-white px-2.5 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-amber-300">
+          <button type="button" disabled={transferActions.command.busy} onClick={() => void transferActions.retryPendingAction()} className="rounded-lg border border-amber-200 bg-white px-2.5 py-1.5">
             {t("inventoryTransfers.retry")}
           </button>
         </div>
       ) : null}
 
-      <TransferCreateModal
-        locationId={locationId}
-        controller={transferCreate}
-      />
-
-      <TransferDetailModal
-        detail={detail}
-        loading={detailLoading}
-        onClose={closeDetail}
-      />
-
+      <TransferCreateModal controller={transferCreate} />
+      <TransferDetailModal detail={detail} loading={detailLoading} onClose={closeDetail} />
       <TransferDecisionModal
         action={action}
         transfer={actionTransfer}
