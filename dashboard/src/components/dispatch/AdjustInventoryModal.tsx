@@ -10,6 +10,7 @@ import type { PendingRoute } from "@/types/dispatch";
 import { adjustmentReview, buildAdjustmentPayload, parseAdjustmentDraft, type AdjustLoadItem } from "@/features/dispatch/adjustLoad";
 import { formatRouteLoadQuantity } from "@/features/dispatch/routeLoadUom";
 import { ProductSearchControls } from "./ProductSearchControls";
+import { InfiniteProductScroll } from "./InfiniteProductScroll";
 import { useLoadProductSearchText } from "@/features/dispatch/useLoadProductSearchText";
 import { useAdjustLoadCommand } from "@/features/dispatch/useAdjustLoadCommand";
 import { hasAdjustmentDraft, useAdjustLoadProducts } from "@/features/dispatch/useAdjustLoadProducts";
@@ -157,7 +158,8 @@ export function AdjustInventoryModal({
           {!!products.error && <div role="alert"><p>{apiErrorMessage(products.error, t("dispatchAdjustLoad.loadError"))}</p>
             <button type="button" onClick={products.retry}>{t("common.retry")}</button></div>}
           {!loading && !products.error && !inventory.length && <p role="status">{t("dispatchAdjustLoad.loadedEmpty")}</p>}
-          <div className="max-h-[50vh] space-y-3 overflow-auto">{rows.map(renderRow)}</div>
+          <div className="space-y-3">{rows.map(renderRow)}</div>
+          {step === "edit" && <InfiniteProductScroll page={products.page} />}
           {route?.sessionBound && <p>{t("dispatchAdjustLoad.handshake")}</p>}
           <div className="flex gap-3 border-t pt-4">
             <button type="button" disabled={command.busy} onClick={() => step === "review" ? setStep("edit") : onClose()}>

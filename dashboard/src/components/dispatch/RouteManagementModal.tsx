@@ -4,6 +4,7 @@ import { useDispatchProductSearch, type DispatchDiscoveryProduct } from "@/featu
 import { mergeDispatchProductWindow } from "@/features/dispatch/productWindow";
 import { useLoadProductSearchText } from "@/features/dispatch/useLoadProductSearchText";
 import { ProductSearchControls } from "./ProductSearchControls";
+import { InfiniteProductScroll } from "./InfiniteProductScroll";
 import { Package, Eraser, Lock } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { CustomSelect } from "@/components/ui/custom-select";
@@ -139,8 +140,10 @@ export function RouteManagementModal({
             </button>
           </div>
 
-          <ProductSearchControls search={search} onChange={setSearch} page={page} />
-          <fieldset disabled={!custodyReady || sessionEnded}><div className="max-h-[400px] overflow-auto"><table className="w-full text-sm">
+          <div className="border-b border-slate-100 bg-white p-4">
+            <ProductSearchControls search={search} onChange={setSearch} page={page} />
+          </div>
+          <fieldset disabled={!custodyReady || sessionEnded}><div className="overflow-x-auto"><table className="w-full min-w-[620px] text-sm">
             <thead>
               <tr className="bg-white border-b border-slate-100">
                 <th className="text-start p-2 text-slate-500 font-bold text-[11px]">{t("dispatchProductSearch.product")}</th>
@@ -166,6 +169,7 @@ export function RouteManagementModal({
               ))}
             </tbody>
           </table></div></fieldset>
+          <InfiniteProductScroll page={page} />
         </div>
       </div>
     </Modal>

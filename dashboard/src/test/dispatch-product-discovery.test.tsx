@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppLanguage } from "@/i18n";
 import { RouteLoadProductTable } from "@/components/dispatch/RouteLoadProductTable";
@@ -10,6 +10,17 @@ import type { RouteLoadUom } from "@/features/dispatch/routeLoadUom";
 import type { PendingRoute } from "@/types/dispatch";
 
 const fake = vi.hoisted(() => ({ fetch: vi.fn() }));
+let intersectionCallbacks: IntersectionObserverCallback[] = [];
+class TestIntersectionObserver {
+  readonly root = null;
+  readonly rootMargin = "500px 0px";
+  readonly thresholds = [0];
+  constructor(callback: IntersectionObserverCallback) { intersectionCallbacks.push(callback); }
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+  takeRecords(): IntersectionObserverEntry[] { return []; }
+}
 vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => fake.fetch }));
 vi.mock("@/components/ui/modal", () => ({ Modal: ({ children, isOpen }: { children: ReactNode; isOpen: boolean }) =>
   isOpen ? <div role="dialog">{children}</div> : null }));
@@ -22,6 +33,8 @@ const products = Array.from({ length: 200 }, (_, index) => {
 });
 const route = { id: "9", driverId: "31", driverName: "Rep", vehicleId: "17", sessionBound: false, sessionEnded: false } as PendingRoute;
 beforeEach(async () => {
+  intersectionCallbacks = [];
+  vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
   await setAppLanguage("en"); fake.fetch.mockReset();
   fake.fetch.mockImplementation(async (url: string) => {
     const params = new URL(url, "http://test").searchParams;
@@ -32,21 +45,26 @@ beforeEach(async () => {
       ? { ...product, load: null } : product), next_cursor, has_more: !!next_cursor };
   });
 });
+async function triggerInfiniteScroll() {
+  await waitFor(() => expect(intersectionCallbacks.length).toBeGreaterThan(0));
+  const callback = intersectionCallbacks[intersectionCallbacks.length - 1];
+  act(() => callback([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver));
+}
 async function lastPage(search = false) {
   if (search) fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "Matching" } });
   await screen.findByText("Matching 1");
-  fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+  await triggerInfiniteScroll();
   await screen.findByText("Matching 160");
-  expect(screen.queryByText("Matching 1")).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+  expect(screen.getByText("Matching 1")).toBeVisible();
+  await triggerInfiniteScroll();
   await screen.findByText("Matching 200");
-  expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Load more|Previous results/ })).not.toBeInTheDocument();
   expect(fake.fetch.mock.calls).toHaveLength(3);
   expect(fake.fetch.mock.calls.every(([url]) => url.includes("limit=80"))).toBe(true);
 }
 
 describe("Dispatch cursor pickers", () => {
-  it("Route Launch reaches result 200, preserves exact target/UOM and pins across previous/search", async () => {
+  it("Route Launch auto-scroll reaches result 200 and preserves exact target/UOM", async () => {
     const changed = vi.fn();
     function Launch() {
       const [targets, setTargets] = useState<Record<string, string>>({});
@@ -58,23 +76,18 @@ describe("Dispatch cursor pickers", () => {
           setNames((v) => ({ ...v, [id]: name })); changed(id, value);
         }} />;
     }
-    render(<Launch />);
+    const { container } = render(<Launch />);
     await lastPage();
-    expect(screen.getAllByRole("row")).toHaveLength(41);
-    const input = screen.getByRole("textbox", { name: /Target.*Matching 200/ });
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(200);
+    const row = container.querySelector('[data-product-id="1199"]') as HTMLTableRowElement;
+    expect(row).toBeTruthy();
+    const input = row.querySelector("input") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "25" } });
     expect(changed).toHaveBeenLastCalledWith("1199", "25");
-    expect(within(input.closest("tr")!).getAllByText("3 PACK + 1 EACH")).toHaveLength(2);
-    fireEvent.click(screen.getByRole("button", { name: "Previous results" }));
-    await screen.findByText("Matching 160");
-    expect(screen.getByRole("textbox", { name: /Target.*Matching 200/ })).toHaveValue("25");
-    expect(screen.getAllByRole("row")).toHaveLength(82);
-    fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "Matching" } });
-    await screen.findByText("Matching 1");
-    fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "" } });
-    await screen.findByText("Matching 1");
-    expect(screen.getAllByRole("row")).toHaveLength(82);
-    expect(screen.getByText("Matching 200")).toBeVisible();
+    expect(row.textContent).toContain("3 PACK + 1 EACH");
+    expect(input).toHaveValue("25");
+    expect(container.querySelector('[data-product-id="1000"]')).toBeTruthy();
+    expect(container.querySelector('[data-product-id="1199"]')).toBeTruthy();
     expect(fake.fetch.mock.calls[0][0]).toContain("purpose=LOAD&vehicle_id=17&warehouse_id=21");
   });
 
@@ -89,14 +102,14 @@ describe("Dispatch cursor pickers", () => {
     }
     render(<Management />);
     await lastPage();
+    expect(screen.getAllByRole("row")).toHaveLength(201);
     const row = screen.getByText("Matching 200").closest("tr")!;
     const input = within(row).getByRole("textbox");
     fireEvent.change(input, { target: { value: "2" } }); fireEvent.blur(input);
     expect(changed).toHaveBeenLastCalledWith({ "1199": 2 });
-    fireEvent.click(screen.getByRole("button", { name: "Previous results" }));
-    await screen.findByText("Matching 160");
+    fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "Matching" } });
+    await waitFor(() => expect(fake.fetch.mock.calls.some(([url]) => url.includes("search=Matching"))).toBe(true));
     expect(within(screen.getByText("Matching 200").closest("tr")!).getByRole("textbox")).toHaveValue("2");
-    expect(screen.getAllByRole("row")).toHaveLength(82);
     expect(fake.fetch.mock.calls[0][0]).toContain("purpose=LOAD&route_id=9&vehicle_id=17");
   });
 
@@ -155,7 +168,7 @@ describe("Dispatch cursor pickers", () => {
     fireEvent.change(input, { target: { value: "5" } }); fireEvent.blur(input);
     fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "changed" } });
     await waitFor(() => expect(fake.fetch.mock.calls.some(([url]) => url.includes("search=changed"))).toBe(true));
-    await waitFor(() => expect(screen.getByText("End of results. Selected products stay visible when searching or changing pages.")).toBeVisible());
+    await waitFor(() => expect(screen.getByText("You reached the end of the results.")).toBeVisible());
     expect(screen.getAllByText(current.name)).toHaveLength(1);
     expect(screen.getByText("Matching 1")).toBeVisible();
     expect(screen.getAllByRole("row")).toHaveLength(3);
