@@ -3,9 +3,12 @@ import { apiErrorMessage } from "@/lib/apiErrors";
 import { formatLocaleDecimal } from "@/lib/localeNumbers";
 import { currentLocale } from "@/i18n";
 import type { useDispatchProductSearch } from "@/features/dispatch/useDispatchProductSearch";
+import type { useDispatchProductWindow } from "@/features/dispatch/useDispatchProductWindow";
+
+type ProductDiscoveryState = ReturnType<typeof useDispatchProductSearch> | ReturnType<typeof useDispatchProductWindow>;
 
 export function ProductSearchControls({ search, onChange, page, enabled = true }: {
-  search: string; onChange: (value: string) => void; page: ReturnType<typeof useDispatchProductSearch>; enabled?: boolean;
+  search: string; onChange: (value: string) => void; page: ProductDiscoveryState; enabled?: boolean;
 }) {
   const { t } = useTranslation();
   return <div className="space-y-2">
@@ -15,11 +18,12 @@ export function ProductSearchControls({ search, onChange, page, enabled = true }
     {!!page.error && <div role="alert"><p>{apiErrorMessage(page.error, t("dispatchProductSearch.error"))}</p>
       <button type="button" onClick={page.retry}>{t("common.retry")}</button></div>}
     {!page.loading && !page.error && <p role="status">{t(!enabled ? "dispatchProductSearch.context" : page.searchRequired && search.trim().length < 2
-      ? "dispatchProductSearch.hint" : page.items.length ? page.hasMore ? "dispatchProductSearch.window" : "dispatchProductSearch.end" : "dispatchProductSearch.empty")}</p>}
-    <div className="flex gap-3">
+      ? "dispatchProductSearch.hint" : page.items.length ? page.mode === "windowed" ? "dispatchProductSearch.scrollWindow" : page.hasMore ? "dispatchProductSearch.window" : "dispatchProductSearch.end" : "dispatchProductSearch.empty")}</p>}
+    {page.mode !== "windowed" && <div className="flex gap-3">
       {page.hasPrevious && <button type="button" disabled={page.loading} onClick={page.previous}>{t("dispatchProductSearch.previous")}</button>}
       {page.hasMore && <button type="button" disabled={page.loading} onClick={page.loadMore}>{t("dispatchProductSearch.more")}</button>}
       {(page.hasMore || page.hasPrevious) && <span>{t("dispatchProductSearch.page", { number: formatLocaleDecimal(String(page.pageNumber), currentLocale()) })}</span>}
-    </div>
+    </div>}
+    {page.mode === "windowed" && page.loadingWindow && <p role="status">{t("dispatchProductSearch.loadingWindow")}</p>}
   </div>;
 }
