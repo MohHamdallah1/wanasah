@@ -72,7 +72,6 @@ export interface TransferFocus {
 }
 
 export interface Props {
-  locationId: number;
   focus?: TransferFocus | null;
   onFocusConsumed?: () => void;
   onInventoryChanged: () => void | Promise<void>;
