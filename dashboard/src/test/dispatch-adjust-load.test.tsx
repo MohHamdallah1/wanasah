@@ -12,17 +12,6 @@ import { formatRouteLoadQuantity } from "@/features/dispatch/routeLoadUom";
 import { useAdjustLoadCommand } from "@/features/dispatch/useAdjustLoadCommand";
 
 const fake = vi.hoisted(() => ({ fetch: vi.fn(), online: true, error: vi.fn(), success: vi.fn(), info: vi.fn() }));
-let intersectionCallbacks: IntersectionObserverCallback[] = [];
-class TestIntersectionObserver {
-  readonly root = null;
-  readonly rootMargin = "500px 0px";
-  readonly thresholds = [0];
-  constructor(callback: IntersectionObserverCallback) { intersectionCallbacks.push(callback); }
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-  takeRecords(): IntersectionObserverEntry[] { return []; }
-}
 vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => fake.fetch }));
 vi.mock("@/hooks/useNetworkStatus", () => ({ useNetworkStatus: () => fake.online }));
 vi.mock("sonner", () => ({ toast: { error: fake.error, success: fake.success, info: fake.info } }));
@@ -42,19 +31,11 @@ const route: PendingRoute = { id: "9", zoneId: "1", zoneName: "Zone", driverId: 
   shopsRemaining: 2, status: "active", sessionEnded: false, sessionBound: false, can_execute: true, commercial_context: null };
 
 beforeEach(async () => {
-  intersectionCallbacks = [];
-  vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
   Object.defineProperty(globalThis, "crypto", { configurable: true, value: webcrypto });
   localStorage.clear(); fake.fetch.mockReset(); fake.online = true;
   fake.error.mockClear(); fake.success.mockClear(); fake.info.mockClear();
   await setAppLanguage("en");
 });
-
-async function triggerInfiniteScroll() {
-  await waitFor(() => expect(intersectionCallbacks.length).toBeGreaterThan(0));
-  const callback = intersectionCallbacks[intersectionCallbacks.length - 1];
-  act(() => callback([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver));
-}
 
 describe("Canonical Adjust Load quantities and radar", () => {
   it.each([["48000", "10 PALLET"], ["5000", "1 PALLET + 200 EACH"], ["5", "5 EACH"]])(
@@ -222,7 +203,7 @@ describe("Bounded Adjust Load discovery", () => {
     expect(fake.fetch.mock.calls.some(([url]) => url.includes("/dispatch/init"))).toBe(false);
   });
 
-  it.each(["", "Match"])("reaches result 200 through automatic 80+80+40 loading for query %s and keeps drafts pinned", async (query) => {
+  it.each(["", "Match"])("reaches result 200 through 80+80+40 windows for query %s and keeps drafts pinned", async (query) => {
     const matches = Array.from({ length: 200 }, (_, i) => ({ ...extra, product_id: String(1000 + i), product_name: `Match ${i + 1}` }));
     fake.fetch.mockImplementation(async (url: string) => {
       if (url.endsWith("live_inventory")) return [loaded];
@@ -236,16 +217,18 @@ describe("Bounded Adjust Load discovery", () => {
     await screen.findByText("Match 1");
     expect(screen.getAllByRole("spinbutton")).toHaveLength(81);
     fireEvent.change(screen.getAllByRole("spinbutton")[1], { target: { value: "2" } });
-    await triggerInfiniteScroll();
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
     await screen.findByText("Match 160");
+    expect(screen.queryByText("Match 2")).not.toBeInTheDocument();
     expect(screen.getByText("Match 1")).toBeVisible();
-    expect(screen.getAllByRole("spinbutton")).toHaveLength(161);
-    await triggerInfiniteScroll();
+    expect(screen.getAllByRole("spinbutton")).toHaveLength(82);
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
     await screen.findByText("Match 200");
-    expect(screen.getAllByRole("spinbutton")).toHaveLength(201);
-    expect(screen.queryByRole("button", { name: /Load more|Previous results/ })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("spinbutton")).toHaveLength(42);
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
     fireEvent.change(screen.getAllByRole("spinbutton").at(-1)!, { target: { value: "5" } });
-    expect(screen.getByText("Match 1")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Previous results" }));
+    await screen.findByText("Match 160");
     expect(screen.getByText("Match 200")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Review changes" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm adjustment" }));
