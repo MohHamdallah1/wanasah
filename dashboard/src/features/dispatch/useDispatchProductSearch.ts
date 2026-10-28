@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { adjustmentError, parseAdjustLoadInventory, type AdjustLoadItem } from "./adjustLoad";
 
 export const DISPATCH_PRODUCT_PAGE_SIZE = 80;
 export interface DispatchDiscoveryProduct { id: string; name: string; load: AdjustLoadItem | null }
 interface ProductPage { items: DispatchDiscoveryProduct[]; next_cursor: string | null; has_more: boolean }
+interface ProductWindow { key: string; items: DispatchDiscoveryProduct[]; nextCursor: string | null; hasMore: boolean }
 const emptyPage: ProductPage = { items: [], next_cursor: null, has_more: false };
 
 export function parseDispatchProductPage(raw: unknown, purpose: "LOAD" | "SHORTAGE" = "LOAD"): ProductPage {
@@ -27,44 +28,83 @@ export function parseDispatchProductPage(raw: unknown, purpose: "LOAD" | "SHORTA
   return { items, has_more: page.has_more, next_cursor: page.next_cursor as string | null };
 }
 
-/** Only the current page is retained; earlier selections belong to the caller's pins. */
 export function useDispatchProductSearch(endpoint: string | null, search: string, scope: string | null, purpose: "LOAD" | "SHORTAGE" = "LOAD") {
   const authFetch = useAuthFetch();
   const query = search.trim();
   const key = JSON.stringify([scope, endpoint, query, purpose]);
-  const [navigation, setNavigation] = useState<{ key: string; cursors: (string | null)[]; index: number }>({ key: "", cursors: [null], index: 0 });
-  const active = navigation.key === key ? navigation : { key, cursors: [null], index: 0 };
-  // Remember every query/context transition, including returning to an older blank query.
-  if (navigation.key !== key) setNavigation(active);
-  const cursor = active.cursors[active.index];
-  const [window, setWindow] = useState<{ key: string; cursor: string | null; page: ProductPage }>({ key: "", cursor: null, page: emptyPage });
+  const [window, setWindow] = useState<ProductWindow>({ key: "", items: [], nextCursor: null, hasMore: false });
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [revision, setRevision] = useState(0);
-  const page = window.key === key && window.cursor === cursor ? window.page : emptyPage;
+  const keyRef = useRef(key);
+  const loadingMoreRef = useRef(false);
+  keyRef.current = key;
+  const active = window.key === key ? window : { key, items: [], nextCursor: null, hasMore: false };
+  const valid = !!endpoint && !!scope && !(purpose === "SHORTAGE" && query.length < 2) && query.length <= 100;
+
+  const requestUrl = useCallback((cursor: string | null) => {
+    if (!endpoint) return "";
+    const params = new URLSearchParams({ search: query, limit: String(DISPATCH_PRODUCT_PAGE_SIZE) });
+    if (cursor) params.set("cursor", cursor);
+    return `${endpoint}${endpoint.includes("?") ? "&" : "?"}${params}`;
+  }, [endpoint, query]);
+
   useEffect(() => {
     const controller = new AbortController();
-    setError(null); setLoading(false);
-    if (!endpoint || !scope || (purpose === "SHORTAGE" && query.length < 2) || query.length > 100) return;
+    setWindow({ key, items: [], nextCursor: null, hasMore: false });
+    setError(null);
+    loadingMoreRef.current = false;
+    setLoadingMore(false);
+    if (!valid) { setLoading(false); return () => controller.abort(); }
     setLoading(true);
     const timer = setTimeout(() => {
-      const params = new URLSearchParams({ search: query, limit: String(DISPATCH_PRODUCT_PAGE_SIZE) });
-      if (cursor) params.set("cursor", cursor);
-      void authFetch(`${endpoint}${endpoint.includes("?") ? "&" : "?"}${params}`, { signal: controller.signal })
+      void authFetch(requestUrl(null), { signal: controller.signal })
         .then((raw) => {
           if (controller.signal.aborted) return;
           const result = parseDispatchProductPage(raw, purpose);
-          if (result.has_more && result.next_cursor === cursor) throw adjustmentError();
-          setWindow({ key, cursor, page: result });
-        }).catch((failure) => { if (!controller.signal.aborted) setError(failure); })
+          setWindow({ key, items: result.items, nextCursor: result.next_cursor, hasMore: result.has_more });
+        })
+        .catch((failure) => { if (!controller.signal.aborted) setError(failure); })
         .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    }, cursor || !query ? 0 : 300);
+    }, query ? 300 : 0);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [authFetch, endpoint, scope, key, query, cursor, purpose, revision]);
-  return { items: page.items, loading, error, searchRequired: purpose === "SHORTAGE", hasMore: page.has_more, hasPrevious: active.index > 0,
-    pageNumber: active.index + 1,
-    loadMore: () => { if (!loading && page.next_cursor) setNavigation({ key, cursors: [...active.cursors.slice(0, active.index + 1), page.next_cursor], index: active.index + 1 }); },
-    previous: () => { if (!loading && active.index > 0) setNavigation({ ...active, index: active.index - 1 }); },
-    retry: () => { setNavigation({ key, cursors: [null], index: 0 }); setRevision((value) => value + 1); },
+  }, [authFetch, key, purpose, query, requestUrl, revision, valid]);
+
+  const loadMore = useCallback(() => {
+    if (!valid || loading || loadingMoreRef.current || !active.hasMore || !active.nextCursor) return;
+    const expectedKey = key;
+    const cursor = active.nextCursor;
+    const existingIds = new Set(active.items.map((item) => item.id));
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    setError(null);
+    void authFetch(requestUrl(cursor))
+      .then((raw) => {
+        const result = parseDispatchProductPage(raw, purpose);
+        if (result.items.some((item) => existingIds.has(item.id))) throw adjustmentError();
+        setWindow((current) => current.key !== expectedKey ? current : {
+          key: expectedKey,
+          items: [...current.items, ...result.items],
+          nextCursor: result.next_cursor,
+          hasMore: result.has_more,
+        });
+      })
+      .catch((failure) => { if (keyRef.current === expectedKey) setError(failure); })
+      .finally(() => {
+        loadingMoreRef.current = false;
+        if (keyRef.current === expectedKey) setLoadingMore(false);
+      });
+  }, [active.hasMore, active.items, active.nextCursor, authFetch, key, loading, purpose, requestUrl, valid]);
+
+  return {
+    items: active.items,
+    loading,
+    loadingMore,
+    error,
+    searchRequired: purpose === "SHORTAGE",
+    hasMore: active.hasMore,
+    loadMore,
+    retry: () => setRevision((value) => value + 1),
   };
 }
