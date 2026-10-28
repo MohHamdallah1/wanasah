@@ -66,13 +66,13 @@ export function RouteLoadProductTable({ vehicleId, warehouseId, scope, current, 
         </tr></thead>
         {!!pinned.length && <tbody>{pinned.map(renderRow)}</tbody>}
         {page.topSpacerHeight > 0 && <tbody aria-hidden="true"><tr><td colSpan={5} style={{ height: page.topSpacerHeight }} /></tr></tbody>}
-        <tbody ref={topRef} aria-hidden="true"><tr><td colSpan={5} className="h-px p-0" /></tr></tbody>
+        <tbody ref={topRef} data-window-boundary="top" aria-hidden="true"><tr><td colSpan={5} className="h-px p-0" /></tr></tbody>
         {page.pages.map((windowPage) => (
           <MeasuredProductTableBody key={windowPage.index} index={windowPage.index} onMeasure={page.registerPageHeight}>
             {windowPage.items.filter((product) => !pinnedIds.has(product.id)).map(renderRow)}
           </MeasuredProductTableBody>
         ))}
-        <tbody ref={bottomRef} aria-hidden="true"><tr><td colSpan={5} className="h-px p-0" /></tr></tbody>
+        <tbody ref={bottomRef} data-window-boundary="bottom" aria-hidden="true"><tr><td colSpan={5} className="h-px p-0" /></tr></tbody>
         {page.bottomSpacerHeight > 0 && <tbody aria-hidden="true"><tr><td colSpan={5} style={{ height: page.bottomSpacerHeight }} /></tr></tbody>}
       </table>
     </div>
