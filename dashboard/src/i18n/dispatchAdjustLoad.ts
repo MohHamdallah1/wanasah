@@ -1,6 +1,10 @@
 export const dispatchAdjustLoad = {
   ar: {
     title: "تعديل حمولة المسار", reviewTitle: "مراجعة تعديل الحمولة", search: "بحث المنتجات",
+    searchHint: "لإضافة منتج من مستودع المصدر، اكتب حرفين على الأقل من اسمه أو رمزه.",
+    searching: "جارٍ البحث في مستودع المصدر...", searchError: "تعذر البحث في منتجات مستودع المصدر. أعد المحاولة.",
+    searchEmpty: "لا توجد منتجات مؤهلة مطابقة في مستودع المصدر.", searchLimit: "تظهر حتى {{limit}} نتيجة. ضيّق البحث عند الحاجة.",
+    loadedEmpty: "لا توجد عهدة حالية أو منتجات معلقة. ابحث لإضافة منتج من مستودع المصدر.",
     current: "الكمية الفيزيائية الحالية", reserved: "محجوز", pending: "صافي المصافحات المعلقة",
     delta: "التعديل بالوحدة الأساسية ({{unit}})", result: "الكمية المتوقعة بعد اكتمال التعديلات المعلقة",
     add: "المستودع ← السيارة", unload: "السيارة ← المستودع", direction: "اتجاه الحركة",
@@ -29,6 +33,10 @@ export const dispatchAdjustLoad = {
   },
   en: {
     title: "Adjust route load", reviewTitle: "Review load adjustment", search: "Search products",
+    searchHint: "To add a source warehouse product, enter at least two characters of its name or SKU.",
+    searching: "Searching source warehouse...", searchError: "Could not search source warehouse products. Try again.",
+    searchEmpty: "No matching eligible source warehouse products.", searchLimit: "Up to {{limit}} results are shown. Refine your search if needed.",
+    loadedEmpty: "No current custody or pending products. Search to add a source warehouse product.",
     current: "Current physical quantity", reserved: "Reserved", pending: "Net pending handshakes",
     delta: "Adjustment in base unit ({{unit}})", result: "Projected quantity after pending changes complete",
     add: "Warehouse → Vehicle", unload: "Vehicle → Warehouse", direction: "Movement direction",

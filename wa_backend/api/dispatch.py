@@ -38,7 +38,7 @@ from sqlalchemy.orm import joinedload
 from sqlalchemy.exc import IntegrityError
 from decimal import Decimal
 from quantity import canonical_quantity
-from typing import List 
+from typing import Annotated, List
 from fastapi.responses import JSONResponse
 import hashlib
 import json
@@ -131,6 +131,7 @@ from domains.dispatch_route_load import (
     allocate_route_base_batches, allocate_route_return_batches, canonical_route_delta, canonical_adjustment_target,
     route_load_uom_metadata, route_vehicle_base_totals,
 )
+from domains.dispatch_adjust_load_read import read_adjust_load_inventory
 from domains.dispatch_load_plan import lock_session_load_plan, lock_route_adjustment_context, pending_handshake_base_net, synchronize_session_load_plans
 from domains.inventory_vehicle_load.return_safety import safe_unload_terminal_statuses
 from domains.dispatch_transfer_quantity import CANONICAL_BASE_V1, is_canonical_base_handshake, canonical_field_base_quantity
@@ -2094,6 +2095,9 @@ async def get_route_live_inventory(
     route_id: int,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_dispatch_read_access),
+    search: Annotated[str | None, Query(max_length=100)] = None,
+    product_ids: Annotated[List[int] | None, Query(max_length=80)] = None,
+    limit: Annotated[int, Query(ge=1, le=80)] = 80,
 ):
     await require_route(access, 'dispatch.read', route_id)
 
@@ -2115,57 +2119,15 @@ async def get_route_live_inventory(
         vehicle_id=route.vehicle_id,
     )
 
-    totals = await route_vehicle_base_totals(
-        db, company_id=company_id, location_id=vehicle_location_id, all_statuses=True,
-    )
-    legacy_totals = await route_vehicle_base_totals(
-        db, company_id=company_id, location_id=vehicle_location_id,
-    )
-    pending = await _dispatch_pending_handshake_net(
-        db, company_id=company_id, work_session_id=route.work_session_id,
-        driver_id=route.driver_id, vehicle_location_id=vehicle_location_id,
-    ) if route.work_session_id is not None else {}
-    loaded_ids = sorted(set(totals) | set(pending))
-    variant_filter = (
-        or_(product_capability_predicate(ProductVariant, ROUTE_LOAD_NEW), ProductVariant.id.in_(loaded_ids))
-        if loaded_ids
-        else product_capability_predicate(ProductVariant, ROUTE_LOAD_NEW)
-    )
-    variants = (
-        await db.execute(
-            select(ProductVariant)
-            .filter(ProductVariant.company_id == company_id, variant_filter)
-            .order_by(ProductVariant.id.asc())
-        )
-    ).scalars().all()
-
     try:
-        metadata = await route_load_uom_metadata(
-            db, company_id=company_id, variant_ids=[variant.id for variant in variants],
+        return await read_adjust_load_inventory(
+            db, company_id=company_id, route=route, vehicle_location_id=vehicle_location_id,
+            search=search, product_ids=product_ids, limit=limit,
         )
     except UomAuthorityError as exc:
         raise HTTPException(status_code=409, detail={
             "code": exc.code, "message": exc.message, "context": exc.context,
         }) from exc
-    result = []
-    for variant in variants:
-        ppc = int(variant.packs_per_carton or 0)
-        on_hand, reserved = totals.get(int(variant.id), (Decimal(0), Decimal(0)))
-        # Compatibility display only; neither field drives the canonical path.
-        legacy_on_hand, legacy_reserved = legacy_totals.get(int(variant.id), (Decimal(0), Decimal(0)))
-        free = max(Decimal(0), legacy_on_hand - legacy_reserved)
-        cartons, loose = (int(free // ppc), int(free % ppc)) if ppc > 0 else (0, 0)
-        result.append({
-            "product_id": str(variant.id),
-            "product_name": variant.variant_name,
-            "current_cartons": cartons,
-            "current_packs": loose,
-            "current_base_quantity": on_hand,
-            "reserved_base_quantity": reserved,
-            "pending_base_quantity": pending.get(int(variant.id), Decimal(0)),
-            **metadata[int(variant.id)],
-        })
-    return result
 
 # +++ دالة مساعدة (مطابقة للفلاسك) لتحويل الحبات إلى نصوص بشرية في الليدجر +++
 def format_qty_py(total_packs: int, packs_per_carton: int) -> str:

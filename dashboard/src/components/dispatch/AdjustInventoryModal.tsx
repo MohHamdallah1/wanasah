@@ -2,15 +2,15 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
-import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { addQuantity, subtractQuantity, compareQuantity } from "@/lib/quantity";
 import { formatLocaleDecimal } from "@/lib/localeNumbers";
 import { currentLocale } from "@/i18n";
 import type { PendingRoute } from "@/types/dispatch";
-import { adjustmentReview, buildAdjustmentPayload, parseAdjustLoadInventory, parseAdjustmentDraft, type AdjustLoadItem } from "@/features/dispatch/adjustLoad";
+import { adjustmentReview, buildAdjustmentPayload, parseAdjustmentDraft, type AdjustLoadItem } from "@/features/dispatch/adjustLoad";
 import { formatRouteLoadQuantity } from "@/features/dispatch/routeLoadUom";
 import { useAdjustLoadCommand } from "@/features/dispatch/useAdjustLoadCommand";
+import { ADJUST_LOAD_SEARCH_LIMIT, hasAdjustmentDraft, useAdjustLoadProducts } from "@/features/dispatch/useAdjustLoadProducts";
 
 // DASHBOARD_DISPATCH_ROUTE_CONTRACT_V3
 interface AdjustInventoryModalProps {
@@ -26,36 +26,25 @@ export function AdjustInventoryModal({
   isOpen, onClose, route, onSuccess, companyId, principalId,
 }: AdjustInventoryModalProps) {
   const { t, i18n } = useTranslation();
-  const authenticatedFetch = useAuthFetch();
   const command = useAdjustLoadCommand(isOpen ? route?.id : undefined, companyId, principalId);
-  const [inventory, setInventory] = useState<AdjustLoadItem[]>([]);
   const [deltas, setDeltas] = useState<Record<string, string>>({});
   const [draftScope, setDraftScope] = useState<string | null>(null);
   const [draftError, setDraftError] = useState(false);
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<"edit" | "review">("edit");
+  const products = useAdjustLoadProducts(isOpen ? route?.id : undefined, step === "edit" ? search : "", deltas, command.scope);
+  const { items: inventory, loading } = products;
 
   useEffect(() => {
-    if (!isOpen || !route?.id) return;
-    const controller = new AbortController();
-    setLoading(true); setInventory([]); setStep("edit"); setSearch("");
-    void authenticatedFetch(`/dispatch/route/${route.id}/live_inventory`, { signal: controller.signal })
-      .then((data) => {
-        if (controller.signal.aborted) return;
-        try { setInventory(parseAdjustLoadInventory(data)); }
-        catch { throw Object.assign(new Error(), { code: "DISPATCH_ADJUSTMENT_INVALID" }); }
-      }).catch((error) => {
-        if (!controller.signal.aborted) toast.error(apiErrorMessage(error, t("dispatchAdjustLoad.loadError")));
-      }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-  }, [authenticatedFetch, isOpen, route?.id, t]);
+    setStep("edit"); setSearch("");
+  }, [isOpen, route?.id]);
 
   useEffect(() => {
     setDraftScope(null); setDraftError(false);
     if (!isOpen || !command.scope) return;
     try {
-      setDeltas(parseAdjustmentDraft(localStorage.getItem(`${command.scope}:draft`)));
+      setDeltas(Object.fromEntries(Object.entries(parseAdjustmentDraft(localStorage.getItem(`${command.scope}:draft`)))
+        .filter(([, value]) => hasAdjustmentDraft(value))));
       setDraftScope(command.scope);
     } catch { setDraftError(true); }
   }, [isOpen, command.scope]);
@@ -66,10 +55,14 @@ export function AdjustInventoryModal({
   }, [command.scope, deltas, draftError, draftScope, isOpen]);
 
   const blocked = !command.scope || !command.ready || loading || command.busy ||
-    !!command.pending || !!command.recoveryError || draftError;
+    !!command.pending || !!command.recoveryError || draftError || !!products.error;
   const update = (id: string, value: string) => {
     if (blocked) return;
-    setDeltas((current) => ({ ...current, [id]: value }));
+    setDeltas((current) => {
+      const next = { ...current };
+      if (hasAdjustmentDraft(value)) next[id] = value; else delete next[id];
+      return next;
+    });
   };
   const changeByStep = (item: AdjustLoadItem, increase: boolean) => {
     try {
@@ -100,7 +93,7 @@ export function AdjustInventoryModal({
   };
   const rows = inventory.filter((item) => step === "review"
     ? compareQuantity(deltas[item.product_id] || "0", "0") !== 0
-    : item.product_name.toLocaleLowerCase(i18n.language).includes(search.toLocaleLowerCase(i18n.language)));
+    : true);
   const renderRow = (item: AdjustLoadItem) => {
     let preview: ReturnType<typeof adjustmentReview> | null = null;
     try { preview = adjustmentReview(item, deltas[item.product_id] || "0"); } catch { /* Show the localized validation hint. */ }
@@ -151,8 +144,23 @@ export function AdjustInventoryModal({
           if (step === "edit") review(); else void save();
         }} className="space-y-4">
           {step === "edit" && <input aria-label={t("dispatchAdjustLoad.search")} placeholder={t("dispatchAdjustLoad.search")}
-            value={search} onChange={(event) => setSearch(event.target.value)} className="w-full rounded border p-2" />}
-          {loading ? <p role="status">{t("common.loading")}</p> : <div className="max-h-[50vh] space-y-3 overflow-auto">{rows.map(renderRow)}</div>}
+            value={search} maxLength={100} onChange={(event) => setSearch(event.target.value)} className="w-full rounded border p-2" />}
+          {loading && <p role="status">{t("common.loading")}</p>}
+          {products.error ? <div role="alert">
+            <p>{t("dispatchAdjustLoad.loadError")}</p>
+            <p>{apiErrorMessage(products.error, t("dispatchAdjustLoad.loadError"))}</p>
+            <button type="button" onClick={products.retry}>{t("common.retry")}</button>
+          </div> : step === "edit" && <>
+            {products.searching && <p role="status">{t("dispatchAdjustLoad.searching")}</p>}
+            {!!products.searchError && <div role="alert"><p>{t("dispatchAdjustLoad.searchError")}</p><p>{apiErrorMessage(products.searchError, t("dispatchAdjustLoad.searchError"))}</p>
+              <button type="button" onClick={products.retry}>{t("common.retry")}</button></div>}
+            {!loading && !products.searching && !products.searchError && <p role="status">{t(search.trim().length >= 2
+              ? products.resultCount ? "dispatchAdjustLoad.searchLimit" : "dispatchAdjustLoad.searchEmpty"
+              : inventory.length ? "dispatchAdjustLoad.searchHint" : "dispatchAdjustLoad.loadedEmpty", {
+                limit: formatLocaleDecimal(String(ADJUST_LOAD_SEARCH_LIMIT), currentLocale()),
+              })}</p>}
+          </>}
+          <div className="max-h-[50vh] space-y-3 overflow-auto">{rows.map(renderRow)}</div>
           {route?.sessionBound && <p>{t("dispatchAdjustLoad.handshake")}</p>}
           <div className="flex gap-3 border-t pt-4">
             <button type="button" disabled={command.busy} onClick={() => step === "review" ? setStep("edit") : onClose()}>

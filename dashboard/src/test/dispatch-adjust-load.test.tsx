@@ -137,6 +137,131 @@ describe("Adjust Load operator workflow", () => {
   });
 });
 
+describe("Bounded Adjust Load discovery", () => {
+  const loaded = { ...inventory, product_id: "521", product_name: "Loaded product 521" };
+  const extra = { ...inventory, product_id: "900", product_name: "Source warehouse match", current_base_quantity: "0" };
+  const open = () => render(<AdjustInventoryModal isOpen onClose={vi.fn()} route={route} onSuccess={vi.fn()} companyId={1} principalId={3} />);
+
+  it("opens with only loaded custody and never asks for the catalog or blank search", async () => {
+    fake.fetch.mockResolvedValue([loaded]);
+    open();
+    const input = await screen.findByRole("spinbutton");
+    await waitFor(() => expect(input).not.toBeDisabled());
+    expect(screen.getByText("Loaded product 521")).toBeVisible();
+    expect(screen.getAllByText(`3 PACK + 1 ${i18n.t("uom.EACH")}`).length).toBeGreaterThan(0);
+    expect(fake.fetch.mock.calls.map(([url]) => url)).toEqual(["/dispatch/route/9/live_inventory"]);
+    fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "a" } });
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(fake.fetch).toHaveBeenCalledOnce();
+  });
+
+  it("debounces capped source search and keeps loaded and drafted rows stable across searches", async () => {
+    fake.fetch.mockImplementation(async (url: string) => url.includes("?search=") ? [extra] : [loaded]);
+    open();
+    const current = await screen.findByRole("spinbutton");
+    await waitFor(() => expect(current).not.toBeDisabled());
+    fireEvent.change(current, { target: { value: "5" } });
+    const search = screen.getByRole("textbox", { name: "Search products" });
+    fireEvent.change(search, { target: { value: "so" } });
+    fireEvent.change(search, { target: { value: "source" } });
+    expect(fake.fetch).toHaveBeenCalledOnce();
+    expect(await screen.findByText(extra.product_name)).toBeVisible();
+    expect(fake.fetch.mock.calls.filter(([url]) => url.includes("?search="))).toHaveLength(1);
+    expect(fake.fetch.mock.calls[1][0]).toBe("/dispatch/route/9/live_inventory?search=source&limit=80");
+    fireEvent.change(screen.getAllByRole("spinbutton")[1], { target: { value: "2" } });
+    fake.fetch.mockImplementation(async () => []);
+    fireEvent.change(search, { target: { value: "another" } });
+    expect(await screen.findByText("No matching eligible source warehouse products.")).toBeVisible();
+    expect(screen.getByText(loaded.product_name)).toBeVisible();
+    expect(screen.getByText(extra.product_name)).toBeVisible();
+    expect(screen.getAllByRole("spinbutton")[0]).toHaveValue(5);
+    expect(screen.getAllByRole("spinbutton")[1]).toHaveValue(2);
+    fireEvent.click(screen.getByRole("button", { name: "Review changes" }));
+    expect(screen.getByText(`3 PACK + 6 ${i18n.t("uom.EACH")}`)).toBeVisible();
+    expect(screen.getByText(extra.product_name)).toBeVisible();
+    fake.fetch.mockResolvedValue({ mode: "DIRECT" });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm adjustment" }));
+    await waitFor(() => expect(fake.fetch.mock.calls.some(([url]) => url.endsWith("adjust_inventory"))).toBe(true));
+    const sent = JSON.parse(fake.fetch.mock.calls.find(([url]) => url.endsWith("adjust_inventory"))![1].body);
+    expect(sent.deltas).toEqual([{ product_id: 521, delta_base: "5" }, { product_id: 900, delta_base: "2" }]);
+  });
+
+  it("discards undrafted search windows and ignores late superseded results", async () => {
+    let finish: (raw: unknown) => void;
+    fake.fetch.mockImplementation((url: string) => url.includes("search=old")
+      ? new Promise((resolve) => { finish = resolve; }) : Promise.resolve(url.includes("?") ? [extra] : [loaded]));
+    open();
+    await screen.findByText(loaded.product_name);
+    const search = screen.getByRole("textbox", { name: "Search products" });
+    fireEvent.change(search, { target: { value: "old" } });
+    await waitFor(() => expect(fake.fetch).toHaveBeenCalledTimes(2));
+    fireEvent.change(search, { target: { value: "new" } });
+    await screen.findByText(extra.product_name);
+    await act(async () => finish!([{ ...extra, product_id: "901", product_name: "Stale match" }]));
+    expect(screen.queryByText("Stale match")).not.toBeInTheDocument();
+    fireEvent.change(search, { target: { value: "" } });
+    expect(screen.queryByText(extra.product_name)).not.toBeInTheDocument();
+    expect(screen.getByText(loaded.product_name)).toBeVisible();
+  });
+
+  it("hydrates saved selected rows through bounded explicit IDs after reopening", async () => {
+    fake.fetch.mockImplementation(async (url: string) => url.includes("?search=") || url.includes("?product_ids=") ? [extra] : [loaded]);
+    const first = open();
+    await screen.findByText(loaded.product_name);
+    fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "source" } });
+    await screen.findByText(extra.product_name);
+    fireEvent.change(screen.getAllByRole("spinbutton")[1], { target: { value: "5" } });
+    await waitFor(() => expect(localStorage.getItem(Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)!).find((key) => key.endsWith(":draft"))!)).toContain('"900":"5"'));
+    first.unmount(); fake.fetch.mockClear();
+    open();
+    await screen.findByText(extra.product_name);
+    expect(fake.fetch.mock.calls.map(([url]) => url)).toEqual(["/dispatch/route/9/live_inventory", "/dispatch/route/9/live_inventory?product_ids=900"]);
+    expect(screen.getAllByRole("spinbutton")[1]).toHaveValue(5);
+  });
+
+  it("shows initial empty/error states and keeps loaded rows usable after a search failure", async () => {
+    fake.fetch.mockRejectedValueOnce({ status: 503 });
+    const first = open();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not read route load and units.");
+    expect(screen.getByRole("button", { name: "Review changes" })).toBeDisabled();
+    fake.fetch.mockResolvedValue([]);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("No current custody or pending products. Search to add a source warehouse product.")).toBeVisible();
+    first.unmount(); fake.fetch.mockResolvedValue([loaded]);
+    open();
+    await screen.findByText(loaded.product_name);
+    fake.fetch.mockRejectedValue({ status: 503 });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "source" } });
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not search source warehouse products.");
+    expect(screen.getByRole("spinbutton")).not.toBeDisabled();
+  });
+
+  it("rejects oversized server pages instead of keeping a whole catalog", async () => {
+    fake.fetch.mockImplementation(async (url: string) => url.includes("?")
+      ? Array.from({ length: 81 }, (_, i) => ({ ...extra, product_id: String(900 + i) })) : [loaded]);
+    open();
+    await screen.findByText(loaded.product_name);
+    fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "source" } });
+    await screen.findByRole("alert");
+    expect(screen.getAllByRole("spinbutton")).toHaveLength(1);
+  });
+
+  it("cannot carry searched rows or drafts into another route", async () => {
+    fake.fetch.mockImplementation(async (url: string) => url.includes("?") ? [extra] : url.includes("/10/")
+      ? [{ ...loaded, product_id: "522", product_name: "Other route custody" }] : [loaded]);
+    const view = open();
+    await screen.findByText(loaded.product_name);
+    fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "source" } });
+    await screen.findByText(extra.product_name);
+    fireEvent.change(screen.getAllByRole("spinbutton")[1], { target: { value: "5" } });
+    view.rerender(<AdjustInventoryModal isOpen onClose={vi.fn()} route={{ ...route, id: "10" }} onSuccess={vi.fn()} companyId={1} principalId={3} />);
+    await screen.findByText("Other route custody");
+    expect(screen.queryByText(extra.product_name)).not.toBeInTheDocument();
+    expect(screen.getByRole("spinbutton")).toHaveValue(null);
+    expect(fake.fetch.mock.calls.filter(([url]) => url.includes("/10/")).map(([url]) => url)).toEqual(["/dispatch/route/10/live_inventory"]);
+  });
+});
+
 describe("Creation-time radar contracts", () => {
   const legacy = { ...inventory, transfer_id: 81, product_name: "Historical", delta_cartons: 2, delta_packs: 3,
     signed_base_quantity: "19", status: "pending", created_at: null, batch_id: "legacy", can_force_cancel: true };

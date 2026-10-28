@@ -17,7 +17,7 @@ from domains.authorization.backoffice_access import (
     BackofficeCapabilityAccess,
     BackofficeCapabilityAccessRejected,
 )
-from domains.inventory_rules import batch_sellability_predicate
+from domains.inventory_source_stock import warehouse_load_stock_statement, with_warehouse_product_search
 from domains.uom_authority import UomAuthorityError, load_variant_uom_authorities
 from domains.vehicles import (
     read_vehicle_operational_state,
@@ -33,8 +33,6 @@ from models import (
     DispatchRoute,
     InventoryBalance,
     InventoryLocation,
-    InventoryLock,
-    InventoryStockPolicy,
     ProductBatch,
     ProductLocation,
     ProductVariant,
@@ -499,105 +497,9 @@ async def vehicle_load_source_inventory(
         raise _error("VEHICLE_LOAD_WAREHOUSE_NOT_FOUND", "المستودع غير موجود أو غير فعال.", status_code=404)
 
     as_of_date = await get_company_local_date(db, company_id)
-    available = func.sum(InventoryBalance.on_hand_quantity - InventoryBalance.reserved_quantity)
-    active_lock = (
-        select(InventoryLock.id)
-        .where(
-            InventoryLock.company_id == company_id,
-            InventoryLock.location_id == int(warehouse_id),
-            InventoryLock.released_at.is_(None),
-            or_(
-                InventoryLock.product_variant_id.is_(None),
-                and_(
-                    InventoryLock.product_variant_id == InventoryBalance.product_variant_id,
-                    or_(InventoryLock.batch_id.is_(None), InventoryLock.batch_id == InventoryBalance.batch_id),
-                ),
-            ),
-        )
-        .correlate(InventoryBalance)
-        .exists()
-    )
-    sellable = batch_sellability_predicate(
-        as_of_date,
-        expiry_control_mode=ProductVariant.expiry_control_mode,
-        minimum_remaining_shelf_life_days=InventoryStockPolicy.minimum_remaining_shelf_life_days,
-    )
-    stmt = (
-        select(
-            ProductVariant.id,
-            ProductVariant.name,
-            ProductVariant.sku,
-            ProductVariant.base_uom_id,
-            UOM.code,
-            UOM.name.label("uom_name"),
-            ProductVariant.quantity_scale,
-            ProductVariant.quantity_step,
-            available.label("available_quantity"),
-        )
-        .join(
-            InventoryBalance,
-            and_(
-                InventoryBalance.company_id == ProductVariant.company_id,
-                InventoryBalance.product_variant_id == ProductVariant.id,
-            ),
-        )
-        .join(
-            ProductBatch,
-            and_(
-                ProductBatch.company_id == InventoryBalance.company_id,
-                ProductBatch.product_variant_id == InventoryBalance.product_variant_id,
-                ProductBatch.id == InventoryBalance.batch_id,
-            ),
-        )
-        .join(UOM, UOM.id == ProductVariant.base_uom_id)
-        .join(
-            ProductLocation,
-            and_(
-                ProductLocation.company_id == ProductVariant.company_id,
-                ProductLocation.location_id == int(warehouse_id),
-                ProductLocation.product_variant_id == ProductVariant.id,
-            ),
-        )
-        .outerjoin(
-            InventoryStockPolicy,
-            and_(
-                InventoryStockPolicy.company_id == ProductVariant.company_id,
-                InventoryStockPolicy.location_id == int(warehouse_id),
-                InventoryStockPolicy.product_variant_id == ProductVariant.id,
-                InventoryStockPolicy.is_active.is_(True),
-            ),
-        )
-        .where(
-            ProductVariant.company_id == company_id,
-            product_capability_predicate(ProductVariant, ROUTE_LOAD_NEW),
-            ProductLocation.operational_flags["outbound_enabled"].as_boolean().is_(True),
-            InventoryBalance.location_id == int(warehouse_id),
-            InventoryBalance.stock_status == "AVAILABLE",
-            sellable,
-            ~active_lock,
-        )
-        .group_by(
-            ProductVariant.id,
-            ProductVariant.name,
-            ProductVariant.sku,
-            ProductVariant.base_uom_id,
-            UOM.code,
-            UOM.name,
-            ProductVariant.quantity_scale,
-            ProductVariant.quantity_step,
-        )
-        .having(available > 0)
-    )
+    stmt = warehouse_load_stock_statement(company_id=company_id, warehouse_id=warehouse_id, as_of_date=as_of_date)
     clean_search = (search or "").strip().lower()
-    if clean_search:
-        escaped = clean_search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        pattern = f"%{escaped}%"
-        stmt = stmt.where(
-            or_(
-                func.lower(ProductVariant.name).like(pattern, escape="\\"),
-                func.lower(func.coalesce(ProductVariant.sku, "")).like(pattern, escape="\\"),
-            )
-        )
+    stmt = with_warehouse_product_search(stmt, clean_search)
     scope = f"vehicle-load-source|{company_id}|{vehicle_id}|{warehouse_id}|{clean_search}"
     if cursor:
         cursor_name, cursor_id = _decode_cursor(cursor, scope=scope)
