@@ -163,13 +163,13 @@ export function AdjustInventoryModal({
           ) : <>
             <div className="space-y-3">{pinnedItems.map(renderRow)}</div>
             {products.page.topSpacerHeight > 0 && <div aria-hidden="true" style={{ height: products.page.topSpacerHeight }} />}
-            <div ref={topRef} aria-hidden="true" className="h-px" />
+            <div ref={topRef} data-window-boundary="top" aria-hidden="true" className="h-px" />
             {products.page.pages.map((windowPage) => (
               <MeasuredProductPage key={windowPage.index} index={windowPage.index} onMeasure={products.page.registerPageHeight} className="space-y-3">
                 {windowPage.items.map((product) => product.load!).filter((item) => item && !pinnedIds.has(item.product_id)).map(renderRow)}
               </MeasuredProductPage>
             ))}
-            <div ref={bottomRef} aria-hidden="true" className="h-px" />
+            <div ref={bottomRef} data-window-boundary="bottom" aria-hidden="true" className="h-px" />
             {products.page.bottomSpacerHeight > 0 && <div aria-hidden="true" style={{ height: products.page.bottomSpacerHeight }} />}
           </>}
           {route?.sessionBound && <p>{t("dispatchAdjustLoad.handshake")}</p>}
