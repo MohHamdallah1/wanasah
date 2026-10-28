@@ -11,12 +11,12 @@ import type { PendingRoute } from "@/types/dispatch";
 
 const fake = vi.hoisted(() => ({ fetch: vi.fn() }));
 let observedBoundaries: { node: Element; callback: IntersectionObserverCallback; observer: IntersectionObserver }[] = [];
-class TestIntersectionObserver implements IntersectionObserver {
+class TestIntersectionObserver {
   readonly root = null;
   readonly rootMargin = "1200px 0px";
   readonly thresholds = [0];
   constructor(private callback: IntersectionObserverCallback) {}
-  observe = (node: Element) => { observedBoundaries.push({ node, callback: this.callback, observer: this }); };
+  observe = (node: Element) => { observedBoundaries.push({ node, callback: this.callback, observer: this as unknown as IntersectionObserver }); };
   unobserve = () => {};
   disconnect = () => {};
   takeRecords = () => [];
