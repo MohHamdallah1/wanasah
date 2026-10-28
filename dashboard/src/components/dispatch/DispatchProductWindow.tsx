@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
-import type { ReturnTypeOfDispatchWindow } from "./dispatchWindowTypes";
+import type { useDispatchProductWindow } from "@/features/dispatch/useDispatchProductWindow";
+
+type ReturnTypeOfDispatchWindow = ReturnType<typeof useDispatchProductWindow>;
 
 function useBoundary(active: boolean, onIntersect: () => void) {
   const [node, setNode] = useState<HTMLElement | null>(null);
