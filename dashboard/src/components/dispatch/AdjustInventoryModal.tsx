@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
@@ -10,6 +10,7 @@ import type { PendingRoute } from "@/types/dispatch";
 import { adjustmentReview, buildAdjustmentPayload, parseAdjustmentDraft, type AdjustLoadItem } from "@/features/dispatch/adjustLoad";
 import { formatRouteLoadQuantity } from "@/features/dispatch/routeLoadUom";
 import { ProductSearchControls } from "./ProductSearchControls";
+import { MeasuredProductPage, useDispatchWindowSentinels } from "./DispatchProductWindow";
 import { useLoadProductSearchText } from "@/features/dispatch/useLoadProductSearchText";
 import { useAdjustLoadCommand } from "@/features/dispatch/useAdjustLoadCommand";
 import { hasAdjustmentDraft, useAdjustLoadProducts } from "@/features/dispatch/useAdjustLoadProducts";
@@ -38,7 +39,9 @@ export function AdjustInventoryModal({
   const [search, setSearch] = useLoadProductSearchText(JSON.stringify([isOpen, contextScope]));
   const [step, setStep] = useState<"edit" | "review">("edit");
   const products = useAdjustLoadProducts(isOpen ? route?.id : undefined, step === "edit" ? search : "", deltas, command.scope, loadContext, step === "edit");
-  const { items: inventory, loading } = products;
+  const { items: inventory, pinnedItems, loading } = products;
+  const pinnedIds = useMemo(() => new Set(pinnedItems.map((item) => item.product_id)), [pinnedItems]);
+  const { topRef, bottomRef } = useDispatchWindowSentinels(products.page);
 
   useEffect(() => {
     setStep("edit");
@@ -99,9 +102,7 @@ export function AdjustInventoryModal({
       onClose();
     } catch (error) { toast.error(apiErrorMessage(error, t("dispatchAdjustLoad.saveError"))); }
   };
-  const rows = inventory.filter((item) => step === "review"
-    ? compareQuantity(deltas[item.product_id] || "0", "0") !== 0
-    : true);
+  const reviewRows = inventory.filter((item) => compareQuantity(deltas[item.product_id] || "0", "0") !== 0);
   const renderRow = (item: AdjustLoadItem) => {
     let preview: ReturnType<typeof adjustmentReview> | null = null;
     try { preview = adjustmentReview(item, deltas[item.product_id] || "0"); } catch { /* Show the localized validation hint. */ }
@@ -157,7 +158,20 @@ export function AdjustInventoryModal({
           {!!products.error && <div role="alert"><p>{apiErrorMessage(products.error, t("dispatchAdjustLoad.loadError"))}</p>
             <button type="button" onClick={products.retry}>{t("common.retry")}</button></div>}
           {!loading && !products.error && !inventory.length && <p role="status">{t("dispatchAdjustLoad.loadedEmpty")}</p>}
-          <div className="max-h-[50vh] space-y-3 overflow-auto">{rows.map(renderRow)}</div>
+          {step === "review" ? (
+            <div className="space-y-3">{reviewRows.map(renderRow)}</div>
+          ) : <>
+            <div className="space-y-3">{pinnedItems.map(renderRow)}</div>
+            {products.page.topSpacerHeight > 0 && <div aria-hidden="true" style={{ height: products.page.topSpacerHeight }} />}
+            <div ref={topRef} aria-hidden="true" className="h-px" />
+            {products.page.pages.map((windowPage) => (
+              <MeasuredProductPage key={windowPage.index} index={windowPage.index} onMeasure={products.page.registerPageHeight} className="space-y-3">
+                {windowPage.items.map((product) => product.load!).filter((item) => item && !pinnedIds.has(item.product_id)).map(renderRow)}
+              </MeasuredProductPage>
+            ))}
+            <div ref={bottomRef} aria-hidden="true" className="h-px" />
+            {products.page.bottomSpacerHeight > 0 && <div aria-hidden="true" style={{ height: products.page.bottomSpacerHeight }} />}
+          </>}
           {route?.sessionBound && <p>{t("dispatchAdjustLoad.handshake")}</p>}
           <div className="flex gap-3 border-t pt-4">
             <button type="button" disabled={command.busy} onClick={() => step === "review" ? setStep("edit") : onClose()}>
