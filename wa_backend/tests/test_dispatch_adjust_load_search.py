@@ -86,6 +86,10 @@ class AdjustLoadSearchPostgres(unittest.IsolatedAsyncioTestCase):
             self.assertEqual([(row["product_id"], row["current_base_quantity"]) for row in loaded], [(str(self.pid), Decimal(25))])
             self.assertEqual(loaded[0]["display_factor_to_base"], "8")
             self.assertEqual(metadata.call_args.kwargs["variant_ids"], [self.pid])
+            automatic = await self.read_page(search="")
+            self.assertEqual(len(automatic["items"]), 80)
+            self.assertTrue(automatic["has_more"])
+            self.assertEqual(len(metadata.call_args.kwargs["variant_ids"]), 80)
             found = await self.read(search="Scale")
             self.assertEqual(len(found), 80)
             self.assertEqual(len(metadata.call_args.kwargs["variant_ids"]), 80)
@@ -100,17 +104,22 @@ class AdjustLoadSearchPostgres(unittest.IsolatedAsyncioTestCase):
 
     async def test_200_results_80_80_40_unique_and_last_can_be_adjusted(self):
         ids = await self.seed_candidates(200)
-        seen = []
-        cursor = None
-        for size in (80, 80, 40):
-            page = await self.read_page(search="Scale", cursor=cursor)
-            self.assertEqual(len(page["items"]), size)
-            self.assertEqual(page["has_more"], size == 80)
-            seen.extend(int(item["id"]) for item in page["items"])
-            cursor = page["next_cursor"]
-        self.assertIsNone(cursor)
-        self.assertEqual(seen, ids)
-        self.assertEqual(len(set(seen)), 200)
+        balance = await self.db.scalar(select(InventoryBalance).where(InventoryBalance.company_id == self.company,
+            InventoryBalance.location_id == self.wh, InventoryBalance.product_variant_id == self.pid))
+        balance.on_hand_quantity = 0  # Custody stays pinned separately; only 200 eligible source rows.
+        await self.db.commit()
+        for query in ("", "Scale"):
+            seen, cursor = [], None
+            for size in (80, 80, 40):
+                page = await self.read_page(search=query, cursor=cursor)
+                self.assertEqual(len(page["items"]), size)
+                self.assertEqual(page["has_more"], size == 80)
+                seen.extend(int(item["id"]) for item in page["items"])
+                cursor = page["next_cursor"]
+            self.assertIsNone(cursor)
+            self.assertEqual(seen, ids)
+            self.assertEqual(len(set(seen)), 200)
+        self.assertEqual(len((await self.discovery(search=""))["items"]), 80)
         last = page["items"][-1]
         self.assertEqual(last["load"]["current_base_quantity"], 0)
         request_id = uuid4()
@@ -120,6 +129,27 @@ class AdjustLoadSearchPostgres(unittest.IsolatedAsyncioTestCase):
         qty = await self.db.scalar(select(InventoryBalance.on_hand_quantity).where(InventoryBalance.company_id == self.company,
             InventoryBalance.location_id == self.context.vid, InventoryBalance.product_variant_id == ids[-1]))
         self.assertEqual(qty, 5)
+
+    async def test_blank_source_page_omits_zero_stock_but_retains_vehicle_custody(self):
+        [positive, zero] = await self.seed_candidates(2)
+        balances = (await self.db.scalars(select(InventoryBalance).where(InventoryBalance.company_id == self.company,
+            InventoryBalance.location_id == self.wh, InventoryBalance.product_variant_id.in_([self.pid, zero])))).all()
+        for balance in balances:
+            balance.on_hand_quantity = 0
+        await self.db.commit()
+        self.assertEqual([row["product_id"] for row in await self.read()], [str(self.pid)])
+        self.assertEqual((await self.read())[0]["current_base_quantity"], 25)
+        for query in ("", " ", "s", "Scale"):
+            self.assertEqual([item["id"] for item in (await self.read_page(search=query))["items"]], [str(positive)])
+        # The zero stock population is still eligible demand for Shortages.
+        self.assertEqual([item["id"] for item in (await self.discovery("SHORTAGE"))["items"]], [str(positive), str(zero)])
+        first = await self.read_page(search="", limit=1)
+        self.assertFalse(first["has_more"])
+        # A held loaded item remains readable for unload, never an ordinary add candidate.
+        self.context.seed.variant.operational_hold = "RECALL"
+        await self.db.commit()
+        self.assertEqual([row["product_id"] for row in await self.read()], [str(self.pid)])
+        self.assertEqual([item["id"] for item in (await self.discovery(search=""))["items"]], [str(positive)])
 
     async def test_cursor_is_bound_to_tenant_source_route_query_and_eligibility(self):
         await self.seed_candidates(3)
@@ -315,7 +345,7 @@ class AdjustLoadSearchPostgres(unittest.IsolatedAsyncioTestCase):
 
     async def test_short_invalid_search_and_http_query_bounds_fail_safely(self):
         with patch("domains.dispatch_product_discovery.warehouse_load_candidate_ids_statement", side_effect=AssertionError("invalid search must not scan catalog")):
-            for query in ("", "a", " ", "a\x00", "%"):
+            for query in ("a\x00", "x" * 101):
                 self.assertEqual(await self.read(search=query), [])
         app = FastAPI()
         app.include_router(dispatch.router)

@@ -14,8 +14,8 @@ export function ProductSearchControls({ search, onChange, page, enabled = true }
     {page.loading && <p role="status">{t("common.loading")}</p>}
     {!!page.error && <div role="alert"><p>{apiErrorMessage(page.error, t("dispatchProductSearch.error"))}</p>
       <button type="button" onClick={page.retry}>{t("common.retry")}</button></div>}
-    {!page.loading && !page.error && <p role="status">{t(!enabled ? "dispatchProductSearch.context" : search.trim().length < 2
-      ? "dispatchProductSearch.hint" : page.items.length ? "dispatchProductSearch.window" : "dispatchProductSearch.empty")}</p>}
+    {!page.loading && !page.error && <p role="status">{t(!enabled ? "dispatchProductSearch.context" : page.searchRequired && search.trim().length < 2
+      ? "dispatchProductSearch.hint" : page.items.length ? page.hasMore ? "dispatchProductSearch.window" : "dispatchProductSearch.end" : "dispatchProductSearch.empty")}</p>}
     <div className="flex gap-3">
       {page.hasPrevious && <button type="button" disabled={page.loading} onClick={page.previous}>{t("dispatchProductSearch.previous")}</button>}
       {page.hasMore && <button type="button" disabled={page.loading} onClick={page.loadMore}>{t("dispatchProductSearch.more")}</button>}

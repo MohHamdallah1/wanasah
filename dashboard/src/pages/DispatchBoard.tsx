@@ -384,7 +384,11 @@ export default function DispatchBoard() {
   // CS-WH-03: Warehouse audit lock status for dispatch warning banner
   const [isWarehouseLocked, setIsWarehouseLocked] = useState(false);
   const [isWarehouseStatusLoading, setIsWarehouseStatusLoading] = useState(false);
-  const [vehicleInventoryLoadedForId, setVehicleInventoryLoadedForId] = useState<string | null>(null);
+  const [vehicleInventoryLoadedForContext, setVehicleInventoryLoadedForContext] = useState<string | null>(null);
+  const activeRouteContext = pendingRoutes.find((route) => route.id === activeRoute?.id) ?? activeRoute;
+  const vehicleLoadContext = JSON.stringify([productScope, selectedVehicleId, isRouteModalOpen
+    ? [activeRouteContext?.id, activeRouteContext?.sourceWarehouseId] : selectedSourceWarehouseId]);
+  const vehicleCustodyReady = vehicleInventoryLoadedForContext === vehicleLoadContext;
   const [vehicleInventoryReloadKey, setVehicleInventoryReloadKey] = useState(0);
 
   const fetchInitialData = useCallback(() => {
@@ -628,24 +632,26 @@ export default function DispatchBoard() {
       setRouteLoadTargets({});
       setRouteLoadUnits({});
       setRouteLoadNames({});
-      setVehicleInventoryLoadedForId(null);
+      setVehicleInventoryLoadedForContext(null);
       return;
     }
 
+    setPreloadQuantities({});
     setRouteLoadCurrent({});
     setRouteLoadTargets({});
     setRouteLoadUnits({});
     setRouteLoadNames({});
     const requestedVehicleId = selectedVehicleId;
     const controller = new AbortController();
-    setVehicleInventoryLoadedForId(null);
+    setVehicleInventoryLoadedForContext(null);
 
     authenticatedFetch(`/dispatch/inventory/${requestedVehicleId}`, {
       signal: controller.signal,
     })
       .then((data) => {
+        if (controller.signal.aborted) return;
         if (!Array.isArray(data)) {
-          throw new Error("استجابة مخزون المركبة غير صالحة.");
+          throw new Error("DISPATCH_UOM_METADATA_INVALID");
         }
         // The legacy carton fields are used only for older Route Management actions.
         const inventory: Record<string, number> = {};
@@ -662,16 +668,16 @@ export default function DispatchBoard() {
           const item = raw as VehicleInventoryPayload & { product_name?: string };
           return [String(item.product_id), String(item.product_name || item.product_id)];
         })));
-        setVehicleInventoryLoadedForId(requestedVehicleId);
+        setVehicleInventoryLoadedForContext(vehicleLoadContext);
       })
       .catch((err: unknown) => {
-        if (err instanceof Error && err.name === "AbortError") return;
-        setVehicleInventoryLoadedForId(null);
-        toast.error("خطأ في جلب مخزون المركبة: " + getErrorMessage(err));
+        if (controller.signal.aborted) return;
+        setVehicleInventoryLoadedForContext(null);
+        toast.error(apiErrorMessage(err, t("dispatchAdjustLoad.loadError")));
       });
 
     return () => controller.abort();
-  }, [selectedVehicleId, vehicleInventoryReloadKey, authenticatedFetch]);
+  }, [selectedVehicleId, vehicleLoadContext, vehicleInventoryReloadKey, authenticatedFetch, t]);
 
   useEffect(() => { setIsEditMode(false); setSelectedShopIds([]); setHasUnsavedChanges(false); }, [activeTab]);
 
@@ -820,7 +826,7 @@ export default function DispatchBoard() {
     if (isWarehouseLocked) {
       return toast.error("🔒 مستودع المصدر تحت الجرد حالياً ولا يمكن إطلاق حمولة منه.");
     }
-    if (vehicleInventoryLoadedForId !== selectedVehicleId) {
+    if (!vehicleCustodyReady) {
       return toast.info("جاري تحميل مخزون السيارة. حاول بعد اكتمال القراءة.");
     }
 
@@ -876,7 +882,7 @@ export default function DispatchBoard() {
       toast.error("⚠️ اختر السيارة.");
       return;
     }
-    if (vehicleInventoryLoadedForId !== selectedVehicleId) {
+    if (!vehicleCustodyReady) {
       toast.info("جاري تحميل مخزون السيارة. انتظر اكتمال القراءة قبل الاعتماد.");
       return;
     }
@@ -1497,7 +1503,7 @@ export default function DispatchBoard() {
                       setRouteModalType(t);
                       setTransferDriverId(r.driverId);
                       setPreloadQuantities({});
-                      setVehicleInventoryLoadedForId(null);
+                      setVehicleInventoryLoadedForContext(null);
                       setSelectedVehicleId(r.vehicleId);
                       setVehicleInventoryReloadKey((key) => key + 1);
                       setIsRouteModalOpen(true);
@@ -1596,7 +1602,8 @@ export default function DispatchBoard() {
               </div>
 
               <RouteLoadProductTable vehicleId={selectedVehicleId} warehouseId={selectedSourceWarehouseId} scope={productScope}
-                current={routeLoadCurrent} targets={routeLoadTargets} units={routeLoadUnits} names={routeLoadNames}
+                current={vehicleCustodyReady ? routeLoadCurrent : {}} targets={vehicleCustodyReady ? routeLoadTargets : {}}
+                units={vehicleCustodyReady ? routeLoadUnits : {}} names={vehicleCustodyReady ? routeLoadNames : {}} custodyReady={vehicleCustodyReady}
                 onClear={() => setRouteLoadTargets({})}
                 onTargetChange={(id, name, unit, value) => {
                   setRouteLoadTargets((previous) => ({ ...previous, [id]: value }));
@@ -1765,7 +1772,7 @@ export default function DispatchBoard() {
         isOpen={isRouteModalOpen}
         onClose={() => setIsRouteModalOpen(false)}
         routeModalType={routeModalType}
-        activeRoute={activeRoute}
+        activeRoute={activeRouteContext}
         drivers={drivers}
         transferDriverId={transferDriverId}
         onTransferDriverChange={setTransferDriverId}
@@ -1773,8 +1780,10 @@ export default function DispatchBoard() {
         selectedVehicleId={selectedVehicleId}
         onVehicleChange={setSelectedVehicleId}
         productScope={productScope}
-        productNames={routeLoadNames}
-        preloadQuantities={preloadQuantities}
+        productNames={vehicleCustodyReady ? routeLoadNames : {}}
+        preloadQuantities={vehicleCustodyReady ? preloadQuantities : {}}
+        custodyProductIds={vehicleCustodyReady ? Object.keys(routeLoadCurrent) : []}
+        custodyReady={vehicleCustodyReady}
         onPreloadQuantitiesChange={setPreloadQuantities}
         onClearInventory={() => setConfirmDialog({
           isOpen: true,
@@ -1826,7 +1835,7 @@ export default function DispatchBoard() {
         principalId={sourceAccess.data?.principal_id}
         isOpen={isInventoryModalOpen}
         onClose={() => setIsInventoryModalOpen(false)}
-        route={inventoryRoute}
+        route={pendingRoutes.find((route) => route.id === inventoryRoute?.id) ?? inventoryRoute}
         onSuccess={() => { fetchInitialData(); }}
       />
 

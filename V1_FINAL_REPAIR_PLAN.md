@@ -188,6 +188,11 @@ Adjust Load retains bounded draft hydration and exact base/UOM command authority
 Normal in-flight commands show progress; only persisted/ambiguous commands show
 recovery and retain the same request identity. Disposable PostgreSQL and Dashboard
 evidence is recorded in `DISPATCH_V1_AUDIT_NOTES.md`. No live DB was accessed.
+Owner-final UX: after Vehicle/source context exists, all three load pickers
+immediately show the first eligible positive-usable-stock page. Blank search is
+valid; current custody and explicit drafts remain pinned at zero source stock.
+Warehouse/Vehicle changes reset search/paging/stale rows and reload custody,
+including protection against late responses. Shortages stay demand-scoped.
 Item 6 remains OPEN until lead review and owner live acceptance.
 
 Confirmed evidence:

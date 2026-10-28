@@ -10,6 +10,7 @@ import type { PendingRoute } from "@/types/dispatch";
 import { adjustmentReview, buildAdjustmentPayload, parseAdjustmentDraft, type AdjustLoadItem } from "@/features/dispatch/adjustLoad";
 import { formatRouteLoadQuantity } from "@/features/dispatch/routeLoadUom";
 import { ProductSearchControls } from "./ProductSearchControls";
+import { useLoadProductSearchText } from "@/features/dispatch/useLoadProductSearchText";
 import { useAdjustLoadCommand } from "@/features/dispatch/useAdjustLoadCommand";
 import { hasAdjustmentDraft, useAdjustLoadProducts } from "@/features/dispatch/useAdjustLoadProducts";
 
@@ -28,32 +29,38 @@ export function AdjustInventoryModal({
 }: AdjustInventoryModalProps) {
   const { t, i18n } = useTranslation();
   const command = useAdjustLoadCommand(isOpen ? route?.id : undefined, companyId, principalId);
-  const [deltas, setDeltas] = useState<Record<string, string>>({});
+  const [draftDeltas, setDeltas] = useState<Record<string, string>>({});
   const [draftScope, setDraftScope] = useState<string | null>(null);
   const [draftError, setDraftError] = useState(false);
-  const [search, setSearch] = useState("");
+  const loadContext = JSON.stringify([route?.id, route?.vehicleId, route?.sourceWarehouseId]);
+  const contextScope = command.scope ? `${command.scope}:${loadContext}` : null;
+  const deltas = draftScope === contextScope ? draftDeltas : {};
+  const [search, setSearch] = useLoadProductSearchText(JSON.stringify([isOpen, contextScope]));
   const [step, setStep] = useState<"edit" | "review">("edit");
-  const products = useAdjustLoadProducts(isOpen ? route?.id : undefined, step === "edit" ? search : "", deltas, command.scope);
+  const products = useAdjustLoadProducts(isOpen ? route?.id : undefined, step === "edit" ? search : "", deltas, command.scope, loadContext, step === "edit");
   const { items: inventory, loading } = products;
 
   useEffect(() => {
-    setStep("edit"); setSearch("");
-  }, [isOpen, route?.id]);
+    setStep("edit");
+  }, [isOpen, loadContext]);
 
   useEffect(() => {
     setDraftScope(null); setDraftError(false);
     if (!isOpen || !command.scope) return;
     try {
-      setDeltas(Object.fromEntries(Object.entries(parseAdjustmentDraft(localStorage.getItem(`${command.scope}:draft`)))
+      const storedContext = localStorage.getItem(`${command.scope}:draft-context`);
+      const rawDraft = storedContext && storedContext !== loadContext ? null : localStorage.getItem(`${command.scope}:draft`);
+      setDeltas(Object.fromEntries(Object.entries(parseAdjustmentDraft(rawDraft))
         .filter(([, value]) => hasAdjustmentDraft(value))));
-      setDraftScope(command.scope);
+      setDraftScope(contextScope);
     } catch { setDraftError(true); }
-  }, [isOpen, command.scope]);
+  }, [isOpen, command.scope, contextScope, loadContext]);
   useEffect(() => {
-    if (isOpen && command.scope && draftScope === command.scope && !draftError) {
-      localStorage.setItem(`${command.scope}:draft`, JSON.stringify(deltas));
+    if (isOpen && command.scope && draftScope === contextScope && !draftError) {
+      localStorage.setItem(`${command.scope}:draft`, JSON.stringify(draftDeltas));
+      localStorage.setItem(`${command.scope}:draft-context`, loadContext);
     }
-  }, [command.scope, deltas, draftError, draftScope, isOpen]);
+  }, [command.scope, contextScope, loadContext, draftDeltas, draftError, draftScope, isOpen]);
 
   const blocked = !command.scope || !command.ready || loading || command.busy ||
     command.recoveryRequired || !!command.recoveryError || draftError || !!products.error;

@@ -296,6 +296,14 @@ domain eligibility. Current custody and selected/drafted products remain pinned,
 with bounded visible search windows. Adjust Load must distinguish normal in-flight
 commands from genuine durable recovery without weakening idempotency.
 
+Owner final UX rule for PR #583: once Vehicle and source Warehouse context exists,
+Route Launch, active Adjust Load and the Route Management load editor immediately
+show the first eligible positive-usable-stock page, with blank search valid and
+cursor continuation. Current Vehicle custody and explicit selections/drafts stay
+pinned even with zero source stock; ordinary zero-source-stock products stay out.
+Vehicle/source changes reset search, pages and stale rows and reload custody.
+Search filters the same stock authority. Shortage discovery remains domain-specific.
+
 ### Remaining large-catalog scale deferral — 2026-10-26, narrowed 2026-10-28
 
 For the first-company V1 launch, the following are explicitly **not V1 blockers** and are tracked in `VERSION_2_FUTURE_FEATURES.md`:

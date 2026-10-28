@@ -20,7 +20,7 @@ async def dispatch_product_page(db, *, company_id, purpose, search, cursor=None,
                  vehicle=vehicle_id, route=route_id, session=work_session_id, search=query)
     after = decode_product_cursor(cursor, scope=scope)
     empty = dict(items=[], next_cursor=None, has_more=False)
-    if not 2 <= len(query) <= 100 or "\x00" in query:
+    if len(query) > 100 or "\x00" in query or (purpose == "SHORTAGE" and len(query) < 2):
         return empty
     size = min(DISPATCH_PRODUCT_PAGE_SIZE, max(1, int(limit)))
     if purpose == "LOAD":

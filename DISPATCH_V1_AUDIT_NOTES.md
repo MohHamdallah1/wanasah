@@ -322,7 +322,7 @@ When Inventory closure is complete and Dispatch becomes the active workstream, a
 
 A large company catalog must not determine the cost of opening Dispatch.
 
-The normal page-open cost should depend on the small operational working set (zones, active routes, vehicles, warehouses, visible shops), while product catalog access is bounded and requested only when the operator searches/selects a product.
+The normal page-open cost should depend on the small operational working set (zones, active routes, vehicles, warehouses, visible shops), while source-stock product access is bounded and begins with the first page once the Vehicle/Warehouse context exists.
 
 No final `[x]` should be placed on Dispatch performance until that behavior is proven with a large catalog.
 
@@ -347,9 +347,19 @@ Implemented boundary:
   tenant, purpose/eligibility, actual route/source/vehicle/session and normalized
   search. Immutable ID seeks allow every result to be reached with no deep OFFSET;
   the shared query's OFFSET 0 remains its pre-existing PostgreSQL execution fence.
-- Search is debounced. Blank/one-character queries read no catalog. Each picker
-  retains one page plus explicit current/pending/selected/drafted pins, with Load
+- Owner-final stock-first UX: a valid Vehicle/source Warehouse context immediately
+  reads the first eligible positive-usable-stock page without typing. Blank and
+  one-character load searches filter that same shared stock population; Shortages
+  retain their separate two-character demand search. Each picker retains one page
+  plus explicit current/pending/selected/drafted pins, with Load
   more and Previous results; traversed pages do not accumulate catalog rows.
+  Current custody remains visible even at zero source stock. Unselected products
+  without usable source stock are absent. Returning to blank search starts at page 1.
+- Vehicle/source changes clear stale search, cursor, display and draft state, reload
+  custody and ignore aborted/late responses. Active-route read metadata now exposes
+  the authoritative source Warehouse so refreshed route context invalidates open
+  editors; it never grants authority or changes command payloads. Route Management
+  keeps physical custody pins even when target quantities are cleared.
 - Normal Adjust Load execution displays progress only. Persisted or ambiguous
   commands require explicit recovery using their original UUID/body. Deterministic
   4xx and successful responses clear the command. Mutation/UOM/legacy FIELD/radar
@@ -368,9 +378,11 @@ Automated evidence (disposable PostgreSQL 16 only, no live DB access):
   ineligible products, held loaded/pending products and HTTP page bounds are covered.
 - DIRECT +5 and -5 each create exactly one movement; replay creates none. Existing
   canonical/legacy, decimal, FEFO, handshake terminal plan synchronization and
-  Vehicle Load gates remain green (41 PostgreSQL + 24 contract tests total).
-- Dashboard: **139 tests / 12 files** pass, including all four cursor pickers,
-  result 200 selection, previous-page/search pinning and bounded DOM, normal DIRECT
+  Vehicle Load gates remain green (42 PostgreSQL + 24 contract tests total).
+- Dashboard: **144 tests / 13 files** pass, including all four cursor pickers,
+  blank and filtered 200-result navigation, previous-page/search/zero-stock pinning,
+  actual DispatchBoard Warehouse/Vehicle switching with late-response rejection,
+  bounded DOM, normal DIRECT
   no-warning behavior, ambiguous same-wire retry and persisted recovery, PACK/PALLET
   formatting and Vehicle Load regressions.
 - Focused TypeScript has zero diagnostics; full-app diagnostics remain the existing

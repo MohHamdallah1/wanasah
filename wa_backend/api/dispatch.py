@@ -3734,6 +3734,7 @@ async def get_active_routes(
             "driverId": str(r.driver_id) if r.driver_id else "",
             "driverName": drivers_map.get(r.driver_id, "بدون مندوب") if r.driver_id else "بدون مندوب",
             "vehicleId": str(r.vehicle_id) if r.vehicle_id else "",
+            "sourceWarehouseId": str(r.source_location_id) if r.source_location_id else "",
             "shopsRemaining": shops_remaining,
             "status": r.status,
             "sessionEnded": session_ended,

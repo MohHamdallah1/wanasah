@@ -32,9 +32,8 @@ beforeEach(async () => {
       ? { ...product, load: null } : product), next_cursor, has_more: !!next_cursor };
   });
 });
-async function lastPage() {
-  expect(fake.fetch).not.toHaveBeenCalled();
-  fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "Matching" } });
+async function lastPage(search = false) {
+  if (search) fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "Matching" } });
   await screen.findByText("Matching 1");
   fireEvent.click(screen.getByRole("button", { name: "Load more" }));
   await screen.findByText("Matching 160");
@@ -70,8 +69,11 @@ describe("Dispatch cursor pickers", () => {
     await screen.findByText("Matching 160");
     expect(screen.getByRole("textbox", { name: /Target.*Matching 200/ })).toHaveValue("25");
     expect(screen.getAllByRole("row")).toHaveLength(82);
+    fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "Matching" } });
+    await screen.findByText("Matching 1");
     fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "" } });
-    expect(screen.getAllByRole("row")).toHaveLength(2);
+    await screen.findByText("Matching 1");
+    expect(screen.getAllByRole("row")).toHaveLength(82);
     expect(screen.getByText("Matching 200")).toBeVisible();
     expect(fake.fetch.mock.calls[0][0]).toContain("purpose=LOAD&vehicle_id=17&warehouse_id=21");
   });
@@ -107,7 +109,8 @@ describe("Dispatch cursor pickers", () => {
     }
     render(<Shortages />);
     expect(screen.getByText("Drafted demand")).toBeVisible();
-    await lastPage();
+    expect(fake.fetch).not.toHaveBeenCalled();
+    await lastPage(true);
     fireEvent.click(screen.getByRole("button", { name: "Select Matching 200" }));
     expect(select).toHaveBeenCalledWith("1199", "Matching 200");
     fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "" } });
@@ -127,6 +130,38 @@ describe("Dispatch cursor pickers", () => {
     await waitFor(() => expect(fake.fetch).toHaveBeenCalledTimes(4));
     expect(fake.fetch.mock.calls[3][0]).toContain("warehouse_id=22");
     expect(fake.fetch.mock.calls[3][0]).not.toContain("cursor=");
+  });
+
+  it.each(["launch", "management"])("%s pins custody and drafts before stock rows, retaining them after stock disappears without duplicates", async (kind) => {
+    const current = { id: "521", name: "Vehicle A with zero source stock", load: { ...products[0].load, product_id: "521", product_name: "Vehicle A with zero source stock", current_base_quantity: "25" } };
+    fake.fetch.mockImplementation(async (url: string) => ({ items: new URL(url, "http://test").searchParams.get("search") ? [current] : [products[0]], has_more: false, next_cursor: null }));
+    function Pinned() {
+      const [quantities, setQuantities] = useState<Record<string, number>>({});
+      const [targets, setTargets] = useState<Record<string, string>>({});
+      const [names, setNames] = useState<Record<string, string>>({ "521": current.name });
+      return kind === "launch" ? <RouteLoadProductTable vehicleId="17" warehouseId="21" scope="1:3"
+        current={{ "521": "25" }} targets={targets} units={{ "521": unit, "1000": unit }} names={names}
+        onClear={() => setTargets({})} onTargetChange={(id, name, metadata, value) => { setTargets((q) => ({ ...q, [id]: value })); setNames((n) => ({ ...n, [id]: name })); }} />
+        : <RouteManagementModal isOpen onClose={vi.fn()} routeModalType="follow_up" activeRoute={route} drivers={[]}
+          transferDriverId="" onTransferDriverChange={vi.fn()} vehicles={[]} selectedVehicleId="17" onVehicleChange={vi.fn()}
+          productScope="1:3" productNames={names} custodyProductIds={["521"]} preloadQuantities={quantities}
+          onPreloadQuantitiesChange={setQuantities} onClearInventory={() => setQuantities({})} onConfirmAction={vi.fn()} />;
+    }
+    render(<Pinned />);
+    await screen.findByText("Matching 1");
+    expect(screen.getAllByRole("row")[1]).toHaveTextContent(current.name);
+    expect(screen.queryByText("Zero stock C")).not.toBeInTheDocument();
+    const input = within(screen.getByText("Matching 1").closest("tr")!).getByRole("textbox");
+    fireEvent.change(input, { target: { value: "5" } }); fireEvent.blur(input);
+    fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "changed" } });
+    await waitFor(() => expect(fake.fetch.mock.calls.some(([url]) => url.includes("search=changed"))).toBe(true));
+    await waitFor(() => expect(screen.getByText("End of results. Selected products stay visible when searching or changing pages.")).toBeVisible());
+    expect(screen.getAllByText(current.name)).toHaveLength(1);
+    expect(screen.getByText("Matching 1")).toBeVisible();
+    expect(screen.getAllByRole("row")).toHaveLength(3);
+    expect(within(screen.getByText("Matching 1").closest("tr")!).getByRole("textbox")).toHaveValue("5");
+    fireEvent.click(screen.getByRole("button", { name: "Clear all quantities" }));
+    expect(screen.getByText(current.name)).toBeVisible();
   });
 
   it("rejects duplicate or oversized pages and missing load metadata", () => {

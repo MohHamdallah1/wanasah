@@ -19,6 +19,7 @@ on:
       - "dashboard/src/components/dispatch/**"
       - "dashboard/src/i18n/dispatchProductSearch.ts"
       - "dashboard/src/test/dispatch-product-discovery.test.tsx"
+      - "dashboard/src/test/dispatch-load-context.test.tsx"
       - "dashboard/src/components/dispatch/TransfersRadarModal.tsx"
       - "dashboard/src/features/dispatch/**"
       - "dashboard/src/types/dispatch.ts"
@@ -215,6 +216,7 @@ jobs:
           src/test/dispatch-route-load-uom.test.ts
           src/test/dispatch-scale-containment.test.ts
           src/test/dispatch-product-discovery.test.tsx
+          src/test/dispatch-load-context.test.tsx
           src/test/archive-owner-navigation.test.tsx
       - name: Adjust Load TypeScript and full-app diagnostic regression guard
         working-directory: dashboard
@@ -239,10 +241,12 @@ jobs:
           src/components/dispatch/ShortageModal.tsx
           src/components/dispatch/ShortageProductPicker.tsx
           src/features/dispatch/useDispatchProductSearch.ts
+          src/features/dispatch/useLoadProductSearchText.ts
           src/features/dispatch/useAdjustLoadProducts.ts
           src/features/dispatch/productWindow.ts
           src/i18n/dispatchProductSearch.ts
           src/test/dispatch-product-discovery.test.tsx
+          src/test/dispatch-load-context.test.tsx
           src/components/dispatch/TransfersRadarModal.tsx
           src/features/dispatch/adjustLoad.ts
           src/features/dispatch/routeTransfers.ts

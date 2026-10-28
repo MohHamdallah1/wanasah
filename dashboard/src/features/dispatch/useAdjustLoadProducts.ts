@@ -9,14 +9,14 @@ export const hasAdjustmentDraft = (value: string) => value !== "" && !/^-?0(?:\.
 const draftIds = (drafts: Record<string, string>) => Object.keys(drafts).filter((id) => hasAdjustmentDraft(drafts[id]));
 
 /** The window contains current custody, explicit drafts, and at most one search page. */
-export function useAdjustLoadProducts(routeId: string | undefined, search: string, drafts: Record<string, string>, scope: string | null) {
+export function useAdjustLoadProducts(routeId: string | undefined, search: string, drafts: Record<string, string>, scope: string | null, context = "", discoveryEnabled = true) {
   const authFetch = useAuthFetch();
   const [items, setItems] = useState<AdjustLoadItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [revision, setRevision] = useState(0);
   const [loadedScope, setLoadedScope] = useState<string | null>(null);
-  const windowScope = routeId ? `${scope}:${routeId}` : null;
+  const windowScope = routeId ? `${scope}:${routeId}:${context}` : null;
   const loadedIds = useRef(new Set<string>());
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
@@ -47,7 +47,7 @@ export function useAdjustLoadProducts(routeId: string | undefined, search: strin
     return () => controller.abort();
   }, [authFetch, routeId, windowScope, revision]);
 
-  const page = useDispatchProductSearch(routeId && !loading && !error ? `/dispatch/route/${routeId}/live_inventory` : null, search, scope);
+  const page = useDispatchProductSearch(discoveryEnabled && routeId && loadedScope === windowScope && !loading && !error ? `/dispatch/route/${routeId}/live_inventory` : null, search, scope ? `${scope}:${context}` : null);
   useEffect(() => {
     setItems((current) => {
       const keep = new Set([...loadedIds.current, ...draftIds(draftsRef.current)]);

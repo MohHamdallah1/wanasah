@@ -1237,6 +1237,7 @@ class ActiveRouteResponse(BaseModel):
     driverId: Optional[str] = ""
     driverName: Optional[str] = ""
     vehicleId: Optional[str] = ""
+    sourceWarehouseId: str = ""
     shopsRemaining: int
     status: str
     sessionEnded: bool

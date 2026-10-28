@@ -34,6 +34,8 @@ export function useDispatchProductSearch(endpoint: string | null, search: string
   const key = JSON.stringify([scope, endpoint, query, purpose]);
   const [navigation, setNavigation] = useState<{ key: string; cursors: (string | null)[]; index: number }>({ key: "", cursors: [null], index: 0 });
   const active = navigation.key === key ? navigation : { key, cursors: [null], index: 0 };
+  // Remember every query/context transition, including returning to an older blank query.
+  if (navigation.key !== key) setNavigation(active);
   const cursor = active.cursors[active.index];
   const [window, setWindow] = useState<{ key: string; cursor: string | null; page: ProductPage }>({ key: "", cursor: null, page: emptyPage });
   const [loading, setLoading] = useState(false);
@@ -43,7 +45,7 @@ export function useDispatchProductSearch(endpoint: string | null, search: string
   useEffect(() => {
     const controller = new AbortController();
     setError(null); setLoading(false);
-    if (!endpoint || !scope || query.length < 2 || query.length > 100) return;
+    if (!endpoint || !scope || (purpose === "SHORTAGE" && query.length < 2) || query.length > 100) return;
     setLoading(true);
     const timer = setTimeout(() => {
       const params = new URLSearchParams({ search: query, limit: String(DISPATCH_PRODUCT_PAGE_SIZE) });
@@ -56,10 +58,10 @@ export function useDispatchProductSearch(endpoint: string | null, search: string
           setWindow({ key, cursor, page: result });
         }).catch((failure) => { if (!controller.signal.aborted) setError(failure); })
         .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    }, cursor ? 0 : 300);
+    }, cursor || !query ? 0 : 300);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [authFetch, endpoint, scope, key, query, cursor, purpose, revision]);
-  return { items: page.items, loading, error, hasMore: page.has_more, hasPrevious: active.index > 0,
+  return { items: page.items, loading, error, searchRequired: purpose === "SHORTAGE", hasMore: page.has_more, hasPrevious: active.index > 0,
     pageNumber: active.index + 1,
     loadMore: () => { if (!loading && page.next_cursor) setNavigation({ key, cursors: [...active.cursors.slice(0, active.index + 1), page.next_cursor], index: active.index + 1 }); },
     previous: () => { if (!loading && active.index > 0) setNavigation({ ...active, index: active.index - 1 }); },
