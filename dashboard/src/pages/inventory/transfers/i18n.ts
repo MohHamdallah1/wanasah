@@ -3,6 +3,11 @@ import { useTranslation } from "react-i18next";
 
 const copy = {
   "ar": {
+    "sourceWarehouse": "مستودع المصدر", "destinationWarehouse": "مستودع الوجهة",
+    "sourceSearch": "بحث مستودع المصدر", "destinationSearch": "بحث مستودع الوجهة",
+    "availableTransfer": "المتاح للتحويل", "baseUom": "وحدة الأساس", "all": "الكل",
+    "productQuantity": "كمية {{name}}", "advancedFefo": "خيارات متقدمة لتخصيص الدفعات",
+    "warehouseUnavailable": "المستودع المحدد لم يعد متاحًا لهذه الحوالة.",
     "title": "الحوالات الموحّدة",
     "newTransfer": "حوالة جديدة",
     "refresh": "تحديث",
@@ -166,6 +171,11 @@ const copy = {
     "pendingTransfer": "استعادة أمر الحوالة"
   },
   "en": {
+    "sourceWarehouse": "Source Warehouse", "destinationWarehouse": "Destination Warehouse",
+    "sourceSearch": "Search source warehouses", "destinationSearch": "Search destination warehouses",
+    "availableTransfer": "Available to transfer", "baseUom": "Base UOM", "all": "All",
+    "productQuantity": "Quantity for {{name}}", "advancedFefo": "Advanced batch allocation",
+    "warehouseUnavailable": "The selected warehouse is no longer available for this transfer.",
     "title": "Transfers",
     "newTransfer": "New transfer",
     "refresh": "Refresh",

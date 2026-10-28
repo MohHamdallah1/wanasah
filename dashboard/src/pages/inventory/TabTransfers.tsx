@@ -135,7 +135,7 @@ export function TabTransfers({
           <div className="flex items-center gap-1.5">
             <button
               type="button"
-              disabled={!(access.can("transfer.send") || (access.can("transfer.destination") && access.canAny("transfer.send")))}
+              disabled={!transferCreate.canOpen}
               onClick={transferCreate.openCreate}
               className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-700 px-3 text-xs font-black text-white outline-none hover:bg-blue-800 disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-blue-300"
               data-cp13-action-priority="primary"

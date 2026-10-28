@@ -1,0 +1,163 @@
+name: Transfers V1 create flow acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dashboard/src/pages/inventory/TabTransfers.tsx"
+      - "dashboard/src/pages/inventory/transfers/**"
+      - "wa_backend/api/warehouse/transfers.py"
+      - "wa_backend/tests/test_cp8_transfers*"
+      - "wa_backend/tests/test_special_transfer_action_options.py"
+      - ".github/workflows/transfers-v1-create-flow.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: transfers-v1-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp8SyntheticOnlyKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://cp8_unit@127.0.0.1:1/cp8_unit
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Backend test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: CP8 focused Backend acceptance
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_cp8_transfers_backend.py
+          tests/test_warehouse_transfers_canonical_auth_cutover.py
+          tests/test_special_transfer_action_options.py
+          tests/test_cp4_warehouse_branch_lifecycle_closure.py
+          tests/test_product_locations_canonical_auth_cutover.py
+      - name: CP3 section 3.4 and CP7 CP10 integration regressions
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q
+          tests/test_batch_stock_sources_contract.py
+          tests/test_batch_reservation_owner_contract.py
+          tests/test_inventory_quality_action_availability.py
+          tests/test_terminal_disposal_service.py
+          tests/test_terminal_vendor_service.py
+          tests/test_terminal_provenance.py
+          tests/test_terminal_quality_workflow_chain.py
+          tests/test_whole_product_quality_preview_canonical_auth_cutover.py
+          tests/test_whole_product_quality_global_contract.py
+          tests/test_whole_product_quality_direct_stage.py
+          tests/test_whole_product_quality_issue_sources.py
+          tests/test_cp7_live_stock_contract.py
+          tests/test_live_stock_canonical_cutover.py
+          tests/test_cp10_ledger_backend.py
+          tests/test_inbound_adjustments_canonical_auth_cutover.py
+      - name: Warehouse route manifest integration
+        working-directory: wa_backend
+        run: python scripts/gate_warehouse_route_manifest.py
+      - name: py_compile CP8 Backend
+        run: python -m compileall -q wa_backend/api/warehouse/transfers.py wa_backend/api/warehouse/transfer_policy.py wa_backend/domains/transfers wa_backend/tests/test_cp8_transfers_backend.py wa_backend/tests/test_cp8_transfers_postgres.py
+
+  postgres-16:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp8PostgresOnlyKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://cp8_app@127.0.0.1:55448/wanasah_cp8_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp8_admin@127.0.0.1:55448/wanasah_cp8_test
+      WANASAH_CP8_PG_GATE: "1"
+      WANASAH_CP8_PG_URL: postgresql+asyncpg://cp8_app@127.0.0.1:55448/wanasah_cp8_test
+      WANASAH_CP8_PG_ADMIN_URL: postgresql+asyncpg://cp8_admin@127.0.0.1:55448/wanasah_cp8_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL acceptance dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name cp8-postgres \
+            --env POSTGRES_USER=cp8_admin \
+            --env POSTGRES_DB=wanasah_cp8_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55448:55448 \
+            postgres:16 -p 55448
+          for attempt in $(seq 1 30); do
+            if docker exec cp8-postgres pg_isready -U cp8_admin -d wanasah_cp8_test -p 55448; then exit 0; fi
+            sleep 1
+          done
+          docker logs cp8-postgres
+          exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname='cp8_app'").fetchone():
+                  conn.execute("CREATE ROLE cp8_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migrate disposable CP8 database
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: CP8 PostgreSQL 16 acceptance
+        working-directory: wa_backend
+        run: >-
+          python -m pytest -q -s
+          tests/test_cp8_transfers_postgres.py
+
+  dashboard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Locked Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Create flow, durable replay, quality destinations and CP13 regressions
+        working-directory: dashboard
+        run: npm test -- src/pages/inventory/transfers src/test/cp8-quality-destinations.test.tsx src/test/inventory-cp13-operations-consistency.test.tsx
+      - name: Scoped ESLint
+        working-directory: dashboard
+        run: npx eslint src/pages/inventory/TabTransfers.tsx src/pages/inventory/transfers
+      - name: Transfer TypeScript noEmit
+        working-directory: dashboard
+        run: |
+          node --input-type=module -e 'import fs from "node:fs"; fs.writeFileSync(".cp8-tsconfig.json", JSON.stringify({extends:"./tsconfig.app.json",include:["src/vite-env.d.ts","src/test/setup.ts","src/pages/inventory/TabTransfers.tsx","src/pages/inventory/transfers/**/*"]}));'
+          npx tsc --noEmit -p .cp8-tsconfig.json
+      - name: Full application has no new type diagnostics
+        working-directory: dashboard
+        run: node scripts/verify-dispatch-adjust-load-types.cjs "${{ github.event.pull_request.base.sha || 'HEAD^' }}"
+      - name: Production Dashboard build
+        working-directory: dashboard
+        run: npm run build
+      - name: Diff whitespace
+        run: git diff --check "${{ github.event.pull_request.base.sha || 'HEAD^' }}" HEAD

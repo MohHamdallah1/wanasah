@@ -989,9 +989,7 @@ async def get_unified_transfer_override_options(
                 InventoryLocation.company_id == company_id,
                 InventoryLocation.id == location_id,
                 InventoryLocation.is_active.is_(True),
-                InventoryLocation.location_type.in_(
-                    ['WAREHOUSE', 'VEHICLE']
-                ),
+                InventoryLocation.location_type == 'WAREHOUSE',
             )
         )
     ).scalar_one_or_none()
@@ -3056,7 +3054,13 @@ async def _move_transfer_lines_from_transit(
             ),
         )
 
-    if is_special and normalized_terminal_action == "RECEIVE":
+    # Historical/malformed generic documents do not inherit Vehicle authority
+    # from dedicated special custody workflows. Recheck both recorded endpoints.
+    generic_endpoints = [] if is_special else [int(header.source_location_id), int(header.destination_location_id)]
+    terminal_locations = sorted(set([destination_location_id, *generic_endpoints]))
+    if not is_special:
+        destination_allowed_types = ["WAREHOUSE"]
+    elif normalized_terminal_action == "RECEIVE":
         destination_allowed_types = (
             ["WAREHOUSE", "SCRAP"]
             if transfer_purpose == "DISPOSAL"
@@ -3074,7 +3078,7 @@ async def _move_transfer_lines_from_transit(
     await _verify_location_ownership(
         db,
         company_id,
-        destination_location_id,
+        *terminal_locations,
         allowed_types=destination_allowed_types,
     )
 
@@ -3105,7 +3109,7 @@ async def _move_transfer_lines_from_transit(
     await acquire_inventory_location_guards(
         db,
         company_id,
-        [transit_location_id, destination_location_id],
+        [transit_location_id, *terminal_locations],
     )
     await _verify_location_ownership(
         db,
@@ -3116,7 +3120,7 @@ async def _move_transfer_lines_from_transit(
     await _verify_location_ownership(
         db,
         company_id,
-        destination_location_id,
+        *terminal_locations,
         allowed_types=destination_allowed_types,
     )
 
